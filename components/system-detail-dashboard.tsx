@@ -217,6 +217,22 @@ const SystemAttackPaths = dynamic(
 // Egress Visibility panel — per-workload outbound traffic + signals.
 // Dynamic import keeps the dashboard's initial bundle lean; this tab
 // is opt-in and operators won't pay for it until they click it.
+//
+// Two views ship in this tab: the new flat "External Egress Inventory"
+// (primary, answers "what's leaving the system") and the legacy
+// per-workload card view (secondary, "drill into one service"). The
+// inventory is the default; the operator can toggle to cards.
+const EgressExternalInventory = dynamic(
+  () => import("./egress-external-inventory").then((m) => ({ default: m.EgressExternalInventory })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    ),
+  },
+)
 const EgressVisibilityPanel = dynamic(
   () => import("./egress-visibility-panel").then((m) => ({ default: m.EgressVisibilityPanel })),
   {
@@ -228,6 +244,71 @@ const EgressVisibilityPanel = dynamic(
     ),
   },
 )
+
+// Owns the view-mode toggle for the Egress tab. Defaults to the new
+// flat External Egress Inventory; operator can switch to the legacy
+// per-workload cards for drill ("what is this one service doing?").
+// Clicking a workload name in the inventory auto-switches to cards
+// so the deep dive lands on the right workload.
+function EgressTabContainer({ systemName }: { systemName: string }) {
+  const [view, setView] = useState<"inventory" | "by-workload">("inventory")
+  const [pendingDrillWorkload, setPendingDrillWorkload] = useState<{
+    id: string
+    name: string | null
+  } | null>(null)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 text-[10px]">
+        <span className="uppercase tracking-wider text-slate-500 mr-2">View</span>
+        <button
+          onClick={() => setView("inventory")}
+          aria-pressed={view === "inventory"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "inventory"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          External Egress Inventory
+        </button>
+        <button
+          onClick={() => setView("by-workload")}
+          aria-pressed={view === "by-workload"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "by-workload"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          By workload
+        </button>
+        {pendingDrillWorkload && view === "by-workload" && (
+          <span className="ml-2 text-[10px] text-slate-500">
+            Drilled into <span className="font-semibold">{pendingDrillWorkload.name ?? pendingDrillWorkload.id}</span>
+            <button
+              onClick={() => setPendingDrillWorkload(null)}
+              className="ml-1 underline hover:text-slate-800"
+            >
+              clear
+            </button>
+          </span>
+        )}
+      </div>
+      {view === "inventory" ? (
+        <EgressExternalInventory
+          systemName={systemName}
+          onSelectWorkload={(id, name) => {
+            setPendingDrillWorkload({ id, name })
+            setView("by-workload")
+          }}
+        />
+      ) : (
+        <EgressVisibilityPanel systemName={systemName} />
+      )}
+    </div>
+  )
+}
 
 const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"), {
   ssr: false,
@@ -2297,7 +2378,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "egress" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <EgressVisibilityPanel key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <EgressTabContainer key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 
