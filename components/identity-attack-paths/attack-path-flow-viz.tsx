@@ -4,7 +4,7 @@ import React, { useState, useRef, useMemo, useCallback, useEffect } from "react"
 import {
   Server, Shield, Lock, Key, Database, Zap, Globe,
   AlertTriangle, Crown, Target, UserCheck, ArrowRight,
-  Maximize2, Minimize2, X,
+  Maximize2, Minimize2, X, Layers,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
 import type { IdentityAttackPath, PathNodeDetail, PathEdgeDetail, RiskReduction } from "./types"
@@ -42,6 +42,7 @@ interface ComputeBadge {
 // ── Extended architecture with rendering metadata ─────────────────
 interface LateralArchitecture extends SystemArchitecture {
   _badges: Map<string, ComputeBadge[]>
+  _instanceProfiles: ServiceNode[]
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -59,8 +60,8 @@ function mapNodeType(type: string): NodeType {
   if (t === "accesskey" || t === "access_key") return "iam_role"
   if (t === "stssession" || t === "sts_session") return "iam_role"
   if (t.includes("cloudtrailprincipal") || t.includes("awsprincipal")) return "principal"
+  if (t.includes("instanceprofile")) return "instance_profile"
   if (t.includes("iam") || t.includes("role")) return "iam_role"
-  if (t.includes("instanceprofile")) return "iam_role"
   if (t.includes("security") || t.includes("sg")) return "security_group"
   if (t.includes("nacl")) return "nacl"
   if (t.includes("stepfunction")) return "lambda"
@@ -117,6 +118,7 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
   const entryNodes: PathNodeDetail[] = []
   const computeLaneNodes: PathNodeDetail[] = []
   const iamNodes: PathNodeDetail[] = []
+  const instanceProfileNodes: PathNodeDetail[] = []
   const pivotNodes: PathNodeDetail[] = []
   const jewelNodes: PathNodeDetail[] = []
 
@@ -129,7 +131,13 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     const lane = node.lane ?? ""
     const nodeType = mapNodeType(node.type ?? "")
 
-    if (lane === "entry") {
+    // InstanceProfile is technically lane="iam" from the backend, but
+    // visually it's a distinct wrapper around an IAM Role. Pull it out
+    // so the path renders EC2 → InstanceProfile → IAMRole instead of
+    // two indistinguishable "IAM" cards side-by-side.
+    if (nodeType === "instance_profile") {
+      instanceProfileNodes.push(node)
+    } else if (lane === "entry") {
       entryNodes.push(node)
     } else if (lane === "compute") {
       computeLaneNodes.push(node)
@@ -396,6 +404,13 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     connectedTargets: jewels.map((j) => j.id),
   }))
 
+  const instanceProfiles: ServiceNode[] = instanceProfileNodes.map((n) => ({
+    id: n.id,
+    name: n.name ?? n.id,
+    shortName: shortName(n.name ?? n.id),
+    type: "instance_profile" as NodeType,
+  }))
+
   return {
     // SystemArchitecture fields (repurposed for ConnectionLinesSVG)
     computeServices: entries,               // data-compute-id → Entry Points
@@ -409,6 +424,7 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     totalGaps: identities.reduce((s, r) => s + r.gapCount, 0),
     // Extra rendering metadata
     _badges: badges,
+    _instanceProfiles: instanceProfiles,
   }
 }
 
@@ -636,6 +652,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
   const pivots = architecture?.iamRoles ?? []
   const jewels = architecture?.resources ?? []
   const badgeMap = (architecture as LateralArchitecture)?._badges ?? new Map()
+  const instanceProfiles = (architecture as LateralArchitecture)?._instanceProfiles ?? []
 
   // Build flow info per entry (source)
   const entryFlowInfo = useMemo(() => {
@@ -706,6 +723,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
   // Count columns that have content (for dynamic grid)
   const hasComputes = computes.length > 0
   const hasIdentities = identities.length > 0
+  const hasInstanceProfiles = instanceProfiles.length > 0
   const hasPivots = pivots.length > 0
 
   // Fullscreen escapes the parent layout — fixed-position overlay covers viewport
@@ -881,7 +899,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
               className={`relative grid gap-6 items-start`}
               style={{
                 zIndex: 2,
-                gridTemplateColumns: `1fr ${hasComputes ? "auto" : ""} ${hasIdentities ? "auto" : ""} ${hasPivots ? "auto" : ""} 1fr`,
+                gridTemplateColumns: `1fr ${hasComputes ? "auto" : ""} ${hasInstanceProfiles ? "auto" : ""} ${hasIdentities ? "auto" : ""} ${hasPivots ? "auto" : ""} 1fr`,
               }}
             >
               {/* ── ENTRY POINTS ── */}
@@ -982,6 +1000,33 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           onClick={() => onNodeClick(cp.id)}
                           onBadgeClick={(badgeId) => onNodeClick(badgeId)}
                           flowInfo={computeFlowInfo.get(cp.id)}
+                        />
+                        {original?.infra_context && (
+                          <InfraContextChips ctx={original.infra_context} />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* ── INSTANCE PROFILE (EC2 → role binding) ── */}
+              {hasInstanceProfiles && (
+                <div className="flex flex-col gap-3 items-center">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-amber-300" />
+                    Instance Profile ({instanceProfiles.length})
+                  </div>
+                  {instanceProfiles.map((ip) => {
+                    const original = path.nodes?.find((n) => n.id === ip.id) as any
+                    return (
+                      <div key={ip.id} data-instance-profile-id={ip.id} className="flex flex-col gap-1.5">
+                        <ServiceNodeBox
+                          node={ip}
+                          position="left"
+                          isHighlighted={isNodeHighlighted(ip.id)}
+                          onHover={setHoveredId}
+                          onClick={() => onNodeClick(ip.id)}
                         />
                         {original?.infra_context && (
                           <InfraContextChips ctx={original.infra_context} />

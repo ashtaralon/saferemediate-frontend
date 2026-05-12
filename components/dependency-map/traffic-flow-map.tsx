@@ -13,7 +13,7 @@ import { ExportControls } from './export-controls';
 // ============================================
 // TYPES
 // ============================================
-export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal';
 
 export interface ServiceNode {
   id: string;
@@ -120,6 +120,7 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
   sqs: { icon: Network, color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/50', text: 'SQS' },
   sns: { icon: Network, color: 'text-violet-400', bg: 'bg-violet-500/20', border: 'border-violet-500/50', text: 'SNS' },
   iam_role: { icon: Key, color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/50', text: 'IAM' },
+  instance_profile: { icon: Layers, color: 'text-amber-300', bg: 'bg-amber-500/15', border: 'border-amber-500/40', text: 'Profile' },
   security_group: { icon: Shield, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/50', text: 'SG' },
   nacl: { icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'NACL' },
   api_call: { icon: Zap, color: 'text-lime-400', bg: 'bg-lime-500/20', border: 'border-lime-500/50', text: 'API' },
@@ -175,6 +176,7 @@ function mapNodeType(type: string): NodeType {
   if (t.includes('alb') || t.includes('elb') || t.includes('loadbalancer')) return 'load_balancer';
   if (t.includes('apigateway')) return 'api_gateway';
   if (t === 'iamrole' || t === 'iam_role') return 'iam_role';
+  if (t === 'instanceprofile' || t === 'instance_profile' || t.includes('instanceprofile')) return 'instance_profile';
   if (t === 'securitygroup' || t === 'security_group') return 'security_group';
   return 'network';
 }
