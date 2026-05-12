@@ -8,6 +8,8 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(!pkg.dependencies.next.startsWith('16.1')) { console.error('ERROR: Next.js must be 16.1.x'); process.exit(1); } else { console.log('✅ Next.js version is secure'); }\""
   },
   "dependencies": {
@@ -85,7 +87,8 @@
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "3.2.4"
   },
   "overrides": {
     "next": "16.1.2"

@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 /**
  * InstanceProfile click-routing regression tests
  * ==============================================
