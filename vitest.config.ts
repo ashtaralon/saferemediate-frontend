@@ -1,21 +1,20 @@
 import { defineConfig } from 'vitest/config'
 import path from 'node:path'
 
-// Minimal Vitest config: pure-function tests under __tests__/.
-// No DOM (node env), no JSX, no Next/React integration — those would
-// pull in jsdom/happy-dom and a much bigger dep tree. If component
-// tests are added later, switch `environment` to 'happy-dom' (smaller
-// + faster than jsdom) and add `setupFiles`.
+// Vitest config: pure-function tests + a small set of component
+// render-smoke tests under __tests__/. happy-dom is used (rather than
+// jsdom) for its smaller footprint; existing pure-function tests
+// (sg-inspector, instance-profile-routing) are env-agnostic and run
+// fine under it.
 export default defineConfig({
   test: {
-    environment: 'node',
+    environment: 'happy-dom',
     include: ['__tests__/**/*.test.ts', '__tests__/**/*.test.tsx'],
     // describe/it/expect available without import — keeps existing
     // sg-inspector.test.ts and the new instance-profile-routing tests
     // working with their Jest-style implicit globals.
     globals: true,
-    // Existing tooling expects ts-only imports to resolve without a
-    // separate Babel/SWC config — vite-node handles this natively.
+    setupFiles: ['./__tests__/setup.ts'],
     reporters: ['default'],
   },
   resolve: {
