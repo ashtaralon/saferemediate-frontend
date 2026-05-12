@@ -561,6 +561,11 @@ export function IAMRoleNode({
   const hasData = role.totalCount > 0;
   const usagePercent = hasData ? Math.round((role.usedCount / role.totalCount) * 100) : 0;
   const blastRadius = role.connectedTargets?.length || role.connectedSources?.length || 0;
+  // Detect InstanceProfile by id/arn pattern — System Map buckets IP into
+  // iam_role (single column), but operators can't distinguish IP from Role
+  // when AWS gives them the same name. Render IP with amber Layers theme
+  // + "Profile" badge so the two are visually disambiguated in this view.
+  const isInstanceProfile = role.id.includes(':instance-profile/') || /instance.?profile/i.test(role.id);
 
   // Determine status color based on usage
   const getStatusColor = () => {
@@ -571,23 +576,37 @@ export function IAMRoleNode({
   };
 
   const statusColor = getStatusColor();
+  const accentBgHover = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentBorderHi  = isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
+  const accentShadowHi  = isInstanceProfile ? 'shadow-amber-500/20' : 'shadow-pink-500/20';
+  const accentBgFallback = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentTextFallback = isInstanceProfile ? 'text-amber-300' : 'text-pink-400';
 
   return (
     <div
       className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
         ${onClick ? "cursor-pointer" : "cursor-default"}
-        ${isHighlighted ? 'bg-pink-500/20 border-pink-500/50 shadow-lg shadow-pink-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
+        ${isHighlighted ? `${accentBgHover} ${accentBorderHi} shadow-lg ${accentShadowHi} scale-105` : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? statusColor.ring : ''}`}
       onMouseEnter={() => onHover(role.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : 'bg-pink-500/20'}`}>
-        <Key className={`w-5 h-5 ${hasData ? statusColor.text : 'text-pink-400'}`} />
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : accentBgFallback}`}>
+        {isInstanceProfile ? (
+          <Layers className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
+        ) : (
+          <Key className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
+        )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-semibold text-white truncate">
+        <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
           {role.shortName}
+          {isInstanceProfile && (
+            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Profile
+            </span>
+          )}
         </div>
         {hasData ? (
           <>
@@ -1650,14 +1669,22 @@ function AnimatedTrafficLine({
 // ============================================
 // CONNECTION LINES SVG
 // ============================================
+// Stable empty-set sentinels — using `= new Set()` defaults on every
+// render created fresh references, which differed across renders, which
+// fired the useEffect with the new Set as a dep, which called setLines,
+// which caused a re-render — "Maximum update depth exceeded" loop. Module
+// scope constants share identity across renders so the deps don't churn.
+const EMPTY_EDGE_SET: ReadonlySet<string> = new Set<string>();
+const EMPTY_NODE_SET: ReadonlySet<string> = new Set<string>();
+
 export function ConnectionLinesSVG({
   architecture,
   hoveredId,
   containerRef,
   animate,
-  attackPathEdges = new Set<string>(),
+  attackPathEdges = EMPTY_EDGE_SET as Set<string>,
   heatmapMode = false,
-  ghostedNodeIds = new Set<string>(),
+  ghostedNodeIds = EMPTY_NODE_SET as Set<string>,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
