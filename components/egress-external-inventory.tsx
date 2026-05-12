@@ -1,17 +1,21 @@
 "use client"
 
 /**
- * External Egress Inventory — chunk #1 (alert-only, read-only)
- * =============================================================
+ * Bidirectional Traffic Inventory — chunks #1 + #2a (alert-only, read-only)
+ * =========================================================================
  *
- * Flat-table view answering the operator's Tier-1 question:
- * "Which workloads in this system are talking outside the VPC/system,
- *  on what ports, with how much traffic, to what domains/services/IPs,
- *  and what should be reviewed or restricted?"
+ * Flat-table view answering the operator's Tier-1 questions:
+ *   - Outbound: "Which workloads are talking outside the VPC/system,
+ *     on what ports, with how much traffic, to what destinations?"
+ *   - Inbound:  "Who is reaching INTO this system's workloads from
+ *     outside?" (chunk #2b — collector not yet wired; the view
+ *     shows an honest 'not wired' state until edges flow.)
  *
- * One row per (workload, destination_ip, port, protocol). The backend
- * classifies every row into exactly one of five mutually-exclusive
- * destination classes (priority-ordered, first match wins, no overlap).
+ * One row per (workload, peer_ip, port, protocol, direction). The
+ * backend classifies every row into exactly one of six mutually-
+ * exclusive classes (priority-ordered, first match wins, no overlap):
+ *   internal_to_org_external_to_system / cloud_service / saas /
+ *   internet / unknown_ip / internal
  *
  * Three independent confidence axes are rendered as separate column
  * signals:
@@ -24,10 +28,9 @@
  *     copy. This view is alert-only — visibility + recommendation,
  *     never policy push.
  *   - Domain column reads "—" until R53 Resolver Query Logs are wired.
- *     No reverse-DNS guessing, no IP-org substitution. Honest blank
- *     beats invented data.
- *   - Three confidence axes stay visually separated so the operator
- *     never confuses "I saw it often" with "I know what it is".
+ *     No reverse-DNS guessing, no IP-org substitution.
+ *   - Inbound rows render only when the collector is wired (chunk #2b).
+ *     Until then a banner explains the empty state.
  */
 
 import React, { useEffect, useMemo, useState } from "react"
@@ -49,19 +52,25 @@ interface InternalTarget {
   labels: string[]
 }
 
+type DestinationClass =
+  | "internal_to_org_external_to_system"
+  | "cloud_service"
+  | "saas"
+  | "internet"
+  | "unknown_ip"
+  | "internal"
+
+type Direction = "outbound" | "inbound"
+
 interface InventoryRow {
   workload_id: string
   workload_name: string | null
+  direction: Direction
   source_identity: {
     role_name: string | null
     role_arn: string | null
   }
-  destination_class:
-    | "internal_to_org_external_to_system"
-    | "cloud_service"
-    | "saas"
-    | "internet"
-    | "unknown_ip"
+  destination_class: DestinationClass
   destination_ip: string
   resolved_domain: string | null
   domain_evidence: "dns_matched" | "unknown"
@@ -92,6 +101,7 @@ interface InventoryRow {
 interface InventoryResponse {
   system_name: string
   lookback_days: number
+  direction?: Direction
   rows: InventoryRow[]
   total: number
   limit: number
@@ -100,6 +110,8 @@ interface InventoryResponse {
     destination_class: string | null
     recommendation: string | null
     strength: string | null
+    direction?: Direction
+    include_internal?: boolean
   }
   counts: {
     by_class: Record<string, number>
@@ -111,6 +123,11 @@ interface InventoryResponse {
     B_classified_tuples: number
     C_inventory_pre_pagination_total: number
     raw_external_ip_groups: number
+  }
+  direction_availability?: {
+    outbound_wired: boolean
+    inbound_wired: boolean
+    reason: string
   }
   domain_visibility: { available: boolean; reason: string }
   first_seen_visibility: { available: boolean; reason: string }
@@ -154,6 +171,12 @@ const CLASS_META: Record<
     cls: "bg-slate-100 text-slate-700 border-slate-300",
     tooltip:
       "AWS prefix-list match with a specific service identified (S3, KMS, STS, etc.). Generic AWS IP space without a named service falls through to Internet.",
+  },
+  internal: {
+    label: "Internal",
+    cls: "bg-emerald-50 text-emerald-800 border-emerald-300",
+    tooltip:
+      "RFC1918 intra-VPC peer (another workload inside the same VPC). Not external egress — surfaced when the Traffic tab opts in so the perimeter view is complete.",
   },
 }
 
@@ -336,6 +359,7 @@ const CLASS_ORDER: InventoryRow["destination_class"][] = [
   "saas",
   "internal_to_org_external_to_system",
   "cloud_service",
+  "internal",
 ]
 
 const STRENGTH_ORDER: InventoryRow["observation_strength"][] = [
@@ -344,27 +368,66 @@ const STRENGTH_ORDER: InventoryRow["observation_strength"][] = [
   "weak",
 ]
 
+const DIRECTION_ORDER: Direction[] = ["outbound", "inbound"]
+
+const DIRECTION_META: Record<Direction, { label: string; tooltip: string }> = {
+  outbound: {
+    label: "Outbound",
+    tooltip: "Workload → peer. What this system is sending outside its boundary.",
+  },
+  inbound: {
+    label: "Inbound",
+    tooltip: "Peer → workload. Who is reaching into this system's workloads.",
+  },
+}
+
 interface InventoryProps {
   systemName: string
   onSelectWorkload?: (workloadId: string, workloadName: string | null) => void
+  // chunk #2a: deep-link entry points from elsewhere in the app
+  // (e.g. the Attack Path exfil chip). Initial filters preset the
+  // view so the operator lands on the exact slice.
+  initialDirection?: Direction
+  initialWorkloadId?: string | null
+  initialClassFilter?: DestinationClass | null
 }
 
-export function EgressExternalInventory({ systemName, onSelectWorkload }: InventoryProps) {
+export function EgressExternalInventory({
+  systemName,
+  onSelectWorkload,
+  initialDirection,
+  initialWorkloadId,
+  initialClassFilter,
+}: InventoryProps) {
   const [data, setData] = useState<InventoryResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [classFilter, setClassFilter] = useState<string | null>(null)
+  const [classFilter, setClassFilter] = useState<string | null>(initialClassFilter ?? null)
   const [strengthFilter, setStrengthFilter] = useState<string | null>(null)
   const [recommendationFilter, setRecommendationFilter] = useState<string | null>(null)
+  // chunk #2a: Direction filter. Default "outbound" preserves chunk #1
+  // behavior. Inbound shows the not-wired banner until chunk #2b lands.
+  const [directionFilter, setDirectionFilter] = useState<Direction>(initialDirection ?? "outbound")
+  const [workloadFilter, setWorkloadFilter] = useState<string | null>(initialWorkloadId ?? null)
+  // include_internal opts the Traffic tab into the "internal" class so
+  // RFC1918 peers appear as their own bucket instead of being dropped.
+  const includeInternal = true
 
   const fetchInventory = async (force = false) => {
     setLoading(true)
     setError(null)
     try {
-      const qs = new URLSearchParams({ days: "30", limit: "200", offset: "0" })
+      const qs = new URLSearchParams({
+        days: "30",
+        limit: "200",
+        offset: "0",
+        direction: directionFilter,
+        include_internal: String(includeInternal),
+      })
       if (classFilter) qs.set("destination_class", classFilter)
       if (strengthFilter) qs.set("strength", strengthFilter)
       if (recommendationFilter) qs.set("recommendation", recommendationFilter)
+      if (workloadFilter) qs.set("workload_id", workloadFilter)
       if (force) qs.set("_", String(Date.now()))
       const url = `/api/proxy/egress/system/${encodeURIComponent(
         systemName,
@@ -387,7 +450,7 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
     if (!systemName) return
     fetchInventory(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemName, classFilter, strengthFilter, recommendationFilter])
+  }, [systemName, classFilter, strengthFilter, recommendationFilter, directionFilter, workloadFilter])
 
   const invariantHealthy = useMemo(() => {
     if (!data?.invariant) return null
@@ -414,14 +477,14 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
         <div>
           <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
             <Network className="w-5 h-5 text-blue-600" />
-            External Egress Inventory
+            Traffic Inventory
             <span className="text-xs font-normal text-slate-500">
               · {systemName} · 30-day window
             </span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Every observed connection from a workload in <code>{systemName}</code> to a
-            destination outside the customer VPC or system. Classified into one of five
+            Observed traffic crossing the perimeter of workloads in{" "}
+            <code>{systemName}</code>. Outbound and inbound, classified into six
             mutually-exclusive buckets. Visibility + recommendation only — no policy push,
             no runtime change.
           </p>
@@ -435,6 +498,66 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
           Refresh
         </button>
       </div>
+
+      {/* Direction toggle — Outbound (live) / Inbound (collector pending).
+          Renders ABOVE the class chips so the operator picks direction first.
+          Workload pin: when a deep-link from the Attack Path chip set
+          initialWorkloadId, surface a dismissable pill. */}
+      <div className="flex flex-wrap items-center gap-1 text-[10px]">
+        <span className="uppercase tracking-wider text-slate-500 mr-2">Direction</span>
+        {DIRECTION_ORDER.map((d) => {
+          const active = directionFilter === d
+          const meta = DIRECTION_META[d]
+          return (
+            <button
+              key={d}
+              onClick={() => setDirectionFilter(d)}
+              aria-pressed={active}
+              className={`px-2 py-1 rounded border font-semibold transition-colors ${
+                active
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+              }`}
+              title={meta.tooltip}
+            >
+              {meta.label}
+            </button>
+          )
+        })}
+        {workloadFilter && (
+          <span
+            className="ml-3 inline-flex items-center gap-1 px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-900 font-semibold"
+            title="Filtered to one workload (deep-link from the Attack Path exfil chip)."
+          >
+            workload: <code className="font-mono">{workloadFilter}</code>
+            <button
+              onClick={() => setWorkloadFilter(null)}
+              className="ml-1 text-blue-700 hover:text-blue-900"
+              title="Clear workload filter"
+            >
+              ✕
+            </button>
+          </span>
+        )}
+      </div>
+
+      {/* Inbound not-wired banner — surfaces direction_availability from
+          the backend so the operator understands an empty inbound view
+          is honest unavailability, not "we couldn't classify anything". */}
+      {data?.direction_availability && directionFilter === "inbound" && !data.direction_availability.inbound_wired && (
+        <div className="rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 flex items-start gap-2">
+          <Info className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            <div className="font-semibold mb-1">Inbound traffic is not yet wired.</div>
+            <div>{data.direction_availability.reason}</div>
+            <div className="mt-1 text-blue-800">
+              When the inbound collector lands, this view will populate with{" "}
+              <code>(peer)</code> → <code>(workload)</code> flows using the same row
+              schema and class taxonomy as Outbound.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* R53 + first_seen disclosure banners — always visible while
           the respective collectors aren't wired. Stops the operator
@@ -641,6 +764,7 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
               <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
                 <th className="px-3 py-2">Source workload</th>
                 <th className="px-2 py-2">Identity</th>
+                <th className="px-2 py-2">Direction</th>
                 <th className="px-2 py-2">Class</th>
                 <th className="px-3 py-2">Destination IP</th>
                 <th className="px-2 py-2">
@@ -698,6 +822,18 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <span
+                        className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${
+                          r.direction === "outbound"
+                            ? "bg-slate-50 text-slate-700 border-slate-300"
+                            : "bg-violet-50 text-violet-800 border-violet-300"
+                        }`}
+                        title={DIRECTION_META[r.direction].tooltip}
+                      >
+                        {r.direction === "outbound" ? "↗ out" : "↙ in"}
+                      </span>
                     </td>
                     <td className="px-2 py-2 align-top">
                       <ClassPill klass={r.destination_class} />

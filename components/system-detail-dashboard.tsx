@@ -250,12 +250,32 @@ const EgressVisibilityPanel = dynamic(
 // per-workload cards for drill ("what is this one service doing?").
 // Clicking a workload name in the inventory auto-switches to cards
 // so the deep dive lands on the right workload.
+// chunk #2a: deep-link entry point for the Traffic tab. The Attack
+// Path exfil chip dispatches a CustomEvent("cyntro:traffic:deep-link",
+// {detail:{workload_id, direction}}) which this component listens for
+// and uses to preset the Inventory filters.
+interface TrafficDeepLink {
+  workloadId?: string
+  direction?: "outbound" | "inbound"
+}
+
 function EgressTabContainer({ systemName }: { systemName: string }) {
   const [view, setView] = useState<"inventory" | "by-workload">("inventory")
   const [pendingDrillWorkload, setPendingDrillWorkload] = useState<{
     id: string
     name: string | null
   } | null>(null)
+  const [deepLink, setDeepLink] = useState<TrafficDeepLink | null>(null)
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<TrafficDeepLink>).detail ?? {}
+      setDeepLink(detail)
+      setView("inventory")
+    }
+    window.addEventListener("cyntro:traffic:deep-link", handler)
+    return () => window.removeEventListener("cyntro:traffic:deep-link", handler)
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -270,7 +290,7 @@ function EgressTabContainer({ systemName }: { systemName: string }) {
               : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
           }`}
         >
-          External Egress Inventory
+          Traffic Inventory
         </button>
         <button
           onClick={() => setView("by-workload")}
@@ -297,7 +317,10 @@ function EgressTabContainer({ systemName }: { systemName: string }) {
       </div>
       {view === "inventory" ? (
         <EgressExternalInventory
+          key={deepLink ? `dl-${deepLink.workloadId}-${deepLink.direction}` : "default"}
           systemName={systemName}
+          initialWorkloadId={deepLink?.workloadId ?? null}
+          initialDirection={deepLink?.direction}
           onSelectWorkload={(id, name) => {
             setPendingDrillWorkload({ id, name })
             setView("by-workload")
@@ -498,6 +521,19 @@ const ENVIRONMENT_OPTIONS = [
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
   const [activeTab, setActiveTab] = useState("overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
+
+  // chunk #2a: cross-tab navigation. The Attack Path exfil chip's
+  // "View in Traffic tab" link dispatches cyntro:navigate-tab so the
+  // dashboard can switch to the Traffic tab without prop-drilling the
+  // setter through identity-attack-paths.tsx and path-exfil-summary.tsx.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string }>).detail
+      if (detail?.tabId) setActiveTab(detail.tabId)
+    }
+    window.addEventListener("cyntro:navigate-tab", handler)
+    return () => window.removeEventListener("cyntro:navigate-tab", handler)
+  }, [])
 
   // System metadata from backend (criticality + environment + the
   // real account_id and region derived from resource ARNs by
@@ -1377,7 +1413,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
         { id: "crown-jewels", label: "Crown Jewels" },
-        { id: "egress", label: "Egress" },
+        { id: "egress", label: "Traffic" },
       ],
     },
     { id: "topology", label: "Topology", icon: Map, leaf: "dependency-map" },

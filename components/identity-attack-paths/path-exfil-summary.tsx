@@ -359,6 +359,36 @@ export function PathExfilSummary({ systemName, path, onNodeClick, externalSummar
           style={{ borderColor: "rgba(148, 163, 184, 0.12)" }}
         >
           {narrative}
+          {/* chunk #2a: deep-link into the Traffic tab so operators
+              can see the full row-by-row inventory for this path's
+              workloads. CustomEvent pattern avoids prop-drilling the
+              dashboard tab setter through identity-attack-paths.tsx. */}
+          {computeNodes.length > 0 && (
+            <button
+              onClick={() => {
+                const firstCompute = computeNodes[0]
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("cyntro:traffic:deep-link", {
+                      detail: {
+                        workloadId: firstCompute.id,
+                        direction: "outbound",
+                      },
+                    }),
+                  )
+                  window.dispatchEvent(
+                    new CustomEvent("cyntro:navigate-tab", {
+                      detail: { tabId: "egress" },
+                    }),
+                  )
+                }
+              }}
+              className="ml-2 not-italic text-blue-400 hover:text-blue-300 hover:underline font-semibold"
+              title="Open the Traffic tab filtered to this workload's outbound traffic"
+            >
+              View full inventory in Traffic →
+            </button>
+          )}
         </div>
       )}
     </div>
