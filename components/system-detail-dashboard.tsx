@@ -259,23 +259,29 @@ interface TrafficDeepLink {
   direction?: "outbound" | "inbound"
 }
 
-function EgressTabContainer({ systemName }: { systemName: string }) {
+function EgressTabContainer({
+  systemName,
+  deepLink,
+  onDeepLinkConsumed,
+}: {
+  systemName: string
+  deepLink: TrafficDeepLink | null
+  onDeepLinkConsumed: () => void
+}) {
   const [view, setView] = useState<"inventory" | "by-workload">("inventory")
   const [pendingDrillWorkload, setPendingDrillWorkload] = useState<{
     id: string
     name: string | null
   } | null>(null)
-  const [deepLink, setDeepLink] = useState<TrafficDeepLink | null>(null)
 
+  // When the parent passes a deep-link, switch to inventory view so the
+  // operator lands on the row table immediately. The deep-link itself
+  // is owned by the dashboard so it survives this container's mount/
+  // unmount (the container isn't mounted until the Traffic tab is
+  // active, which happens AFTER the chip click fires the events).
   useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<TrafficDeepLink>).detail ?? {}
-      setDeepLink(detail)
-      setView("inventory")
-    }
-    window.addEventListener("cyntro:traffic:deep-link", handler)
-    return () => window.removeEventListener("cyntro:traffic:deep-link", handler)
-  }, [])
+    if (deepLink) setView("inventory")
+  }, [deepLink])
 
   return (
     <div className="space-y-4">
@@ -522,17 +528,36 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [activeTab, setActiveTab] = useState("overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
-  // chunk #2a: cross-tab navigation. The Attack Path exfil chip's
-  // "View in Traffic tab" link dispatches cyntro:navigate-tab so the
-  // dashboard can switch to the Traffic tab without prop-drilling the
-  // setter through identity-attack-paths.tsx and path-exfil-summary.tsx.
+  // chunk #2a: cross-tab navigation + deep-link. The Attack Path
+  // exfil chip's "View in Traffic" link dispatches two events:
+  //   cyntro:navigate-tab    -> switches activeTab to the Traffic tab
+  //   cyntro:traffic:deep-link -> carries {workload_id, direction}
+  // Both are captured HERE (not in EgressTabContainer) because the
+  // container isn't mounted until activeTab === "egress", so its own
+  // useEffect would register too late and miss the event. The deep-
+  // link payload is passed down as a prop instead.
+  const [trafficDeepLink, setTrafficDeepLink] = useState<{
+    workloadId?: string
+    direction?: "outbound" | "inbound"
+  } | null>(null)
   useEffect(() => {
-    const handler = (event: Event) => {
+    const navHandler = (event: Event) => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail
       if (detail?.tabId) setActiveTab(detail.tabId)
     }
-    window.addEventListener("cyntro:navigate-tab", handler)
-    return () => window.removeEventListener("cyntro:navigate-tab", handler)
+    const deepLinkHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        workloadId?: string
+        direction?: "outbound" | "inbound"
+      }>).detail
+      if (detail) setTrafficDeepLink(detail)
+    }
+    window.addEventListener("cyntro:navigate-tab", navHandler)
+    window.addEventListener("cyntro:traffic:deep-link", deepLinkHandler)
+    return () => {
+      window.removeEventListener("cyntro:navigate-tab", navHandler)
+      window.removeEventListener("cyntro:traffic:deep-link", deepLinkHandler)
+    }
   }, [])
 
   // System metadata from backend (criticality + environment + the
@@ -2414,7 +2439,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "egress" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <EgressTabContainer key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <EgressTabContainer
+            key={`${systemName}-${refreshKey}`}
+            systemName={systemName}
+            deepLink={trafficDeepLink}
+            onDeepLinkConsumed={() => setTrafficDeepLink(null)}
+          />
         </div>
       )}
 
