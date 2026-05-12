@@ -1904,7 +1904,7 @@ function UnifiedArchitectureDiagram({
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
-  onSelectService: (service: ServiceNode | SecurityCheckpoint, type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call') => void;
+  onSelectService: (service: ServiceNode | SecurityCheckpoint, type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'instance_profile' | 'api_call') => void;
   attackPaths?: AttackPath[];
   selectedAttackPath?: string | null;
   onSelectAttackPath?: (pathId: string | null) => void;
@@ -2163,16 +2163,22 @@ function UnifiedArchitectureDiagram({
               <Key className="w-4 h-4 text-pink-400" />
               IAM Roles ({architecture.iamRoles.length})
             </div>
-            {architecture.iamRoles.map(role => (
-              <div key={role.id} data-role-id={role.id}>
-                <IAMRoleNode
-                  role={role}
-                  isHighlighted={isNodeHighlighted(role.id)}
-                  onHover={setHoveredId}
-                  onClick={() => onSelectService(role, 'iam_role')}
-                />
-              </div>
-            ))}
+            {architecture.iamRoles.map(role => {
+              // Route IP and IAMRole clicks differently. Detection by
+              // ARN — name-based lookup is ambiguous because AWS often
+              // gives InstanceProfile and IAMRole the same name.
+              const isIP = role.id.includes(':instance-profile/') || /instance.?profile/i.test(role.id);
+              return (
+                <div key={role.id} data-role-id={role.id}>
+                  <IAMRoleNode
+                    role={role}
+                    isHighlighted={isNodeHighlighted(role.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(role, isIP ? 'instance_profile' : 'iam_role')}
+                  />
+                </div>
+              );
+            })}
             {architecture.iamRoles.length === 0 && (
               <div className="text-xs text-slate-500 italic p-4 text-center">No Roles</div>
             )}
@@ -2768,8 +2774,21 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 //
 // Falls back to the internal popup when this callback is not provided
 // (used by the standalone Topology → System Map view).
-export type PathNodeKind = "compute" | "resource" | "security_group" | "nacl" | "iam_role" | "api_call";
-export type OnPathNodeAction = (kind: PathNodeKind, node: { id: string; name: string; type?: string }) => void;
+export type PathNodeKind = "compute" | "resource" | "security_group" | "nacl" | "iam_role" | "instance_profile" | "api_call";
+// `via` carries the InstanceProfile wrapper context when the click target
+// is an IP. The parent resolves the wrapped role and routes to the IAM
+// modal with that pedigree — InstanceProfile share names with their
+// IAMRole, so name-based lookup is ambiguous; ARN + via context is the
+// engineering-grade fix.
+export type OnPathNodeAction = (
+  kind: PathNodeKind,
+  node: {
+    id: string;
+    name: string;
+    type?: string;
+    via?: { kind: "InstanceProfile"; id: string; name: string; arn?: string };
+  },
+) => void;
 
 export default function TrafficFlowMap({ systemName, pathFilter, onPathNodeAction }: { systemName: string; pathFilter?: TrafficFlowMapPathFilter; onPathNodeAction?: OnPathNodeAction }) {
   // rawArchitecture holds the unfiltered architecture from the most

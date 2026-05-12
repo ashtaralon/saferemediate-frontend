@@ -212,6 +212,12 @@ interface IAMPermissionAnalysisModalProps {
   roleName: string
   systemName?: string
   identityType?: string
+  // When the modal was reached by clicking an InstanceProfile, this
+  // carries the wrapper's pedigree so the header can explain that the
+  // user is looking at the WRAPPED role, not the profile itself.
+  // IP carries no permissions of its own; surfacing this prevents
+  // operator confusion when AWS gave the IP and the role the same name.
+  viaInstanceProfile?: { name: string; arn: string }
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
   onRemediationSuccess?: (roleName: string) => void
@@ -265,6 +271,7 @@ export function IAMPermissionAnalysisModal({
   roleName,
   systemName,
   identityType,
+  viaInstanceProfile,
   onApplyFix,
   onSuccess,
   onRemediationSuccess,
@@ -2843,10 +2850,18 @@ export function IAMPermissionAnalysisModal({
         {/* Header */}
         <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)" }}>
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#2D51DA" }}>Permission Usage</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#2D51DA" }}>
+              {viaInstanceProfile ? 'Wrapped role · Permission Usage' : 'Permission Usage'}
+            </div>
             <div className="mt-0.5 text-sm font-semibold truncate" style={{ color: "var(--foreground, #111827)" }}>
               {roleName} <span className="font-normal" style={{ color: "var(--muted-foreground, #6b7280)" }}>· {identityType || 'IAMRole'}{systemName ? ` · ${systemName}` : ''}</span>
             </div>
+            {viaInstanceProfile && (
+              <div className="mt-1 text-[11px]" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                Reached via <span className="font-semibold text-amber-700">InstanceProfile</span>{': '}
+                <span className="font-mono text-[10px]">{viaInstanceProfile.name}</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <button
@@ -2863,6 +2878,15 @@ export function IAMPermissionAnalysisModal({
           </div>
         </div>
 
+        {viaInstanceProfile && (
+          <div className="px-5 py-2 border-b bg-amber-50" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+            <div className="text-[11px] leading-snug" style={{ color: "#78350f" }}>
+              InstanceProfile binds an EC2 to an IAM Role and carries no
+              permissions of its own. Cyntro is showing the permission
+              surface of the IAM Role this profile attaches to EC2.
+            </div>
+          </div>
+        )}
         {provenance && (
           <div className="px-5 py-2 border-b" style={{ borderColor: "var(--border, #e5e7eb)" }}>
             <TrustEnvelopeBadge provenance={provenance} />

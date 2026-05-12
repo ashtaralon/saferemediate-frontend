@@ -34,7 +34,7 @@ import type {
   RemediationResult,
 } from "./types"
 
-type RemediationModalKind = "iam" | "s3" | "sg" | null
+type RemediationModalKind = "iam" | "instance_profile" | "s3" | "sg" | null
 
 function classifyNodeForModal(node: PathNodeDetail): RemediationModalKind {
   const type = (node.type ?? "").toLowerCase()
@@ -44,6 +44,9 @@ function classifyNodeForModal(node: PathNodeDetail): RemediationModalKind {
     if (type.includes("s3") || type.includes("bucket")) return "s3"
   }
   if (type.includes("security") || type.includes("sg") || lane === "security_group") return "sg"
+  // InstanceProfile is in the identity tier but carries no permissions —
+  // classify distinctly so the caller resolves the wrapped role.
+  if (type.includes("instanceprofile") || type === "instance_profile") return "instance_profile"
   if (type.includes("iam") || type.includes("role") || node.tier === "identity") return "iam"
   return null
 }
@@ -94,7 +97,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [s3ModalOpen, setS3ModalOpen] = useState(false)
   const [sgModalOpen, setSgModalOpen] = useState(false)
-  const [modalResource, setModalResource] = useState<{ name: string; sgId?: string } | null>(null)
+  const [modalResource, setModalResource] = useState<{ name: string; sgId?: string; viaInstanceProfile?: { name: string; arn: string } } | null>(null)
   // Historical-evidence toggle (2026-05-11). When on, the proxy passes
   // include_stale=true so the backend returns ACTUAL_S3_ACCESS edges
   // that fell outside the current collector window (annual DR drills,
@@ -230,6 +233,24 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     const modalKind = classifyNodeForModal(node)
     if (modalKind === "iam") {
       setModalResource({ name: node.name })
+      setIamModalOpen(true)
+      return
+    }
+    if (modalKind === "instance_profile") {
+      // Resolve the wrapped IAMRole via the USES_ROLE edge and open the
+      // IAM modal on the role with the InstanceProfile pedigree attached.
+      const wrappedEdge = currentPath.edges?.find(
+        (e: any) => e.source === node.id && (e.type === "USES_ROLE" || e.type === "uses_role"),
+      )
+      let wrappedRoleName = node.name
+      if (wrappedEdge) {
+        const wn = currentPath.nodes.find((n: any) => n.id === wrappedEdge.target) as any
+        if (wn?.name) wrappedRoleName = wn.name
+      }
+      setModalResource({
+        name: wrappedRoleName,
+        viaInstanceProfile: { name: node.name, arn: node.id },
+      })
       setIamModalOpen(true)
       return
     }
@@ -967,6 +988,34 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                           setIamModalOpen(true)
                           return
                         }
+                        if (kind === "instance_profile") {
+                          // IP carries no permissions — open the modal
+                          // on the WRAPPED role. Resolve via the current
+                          // path's USES_ROLE edge (authoritative), with
+                          // a same-name-in-architecture fallback. Name
+                          // lookup against the backend is then unambiguous
+                          // because we send the role's real name.
+                          const ipId = node.id
+                          const wrappedEdge = currentPath?.edges?.find(
+                            (e: any) => e.source === ipId && (e.type === "USES_ROLE" || e.type === "uses_role"),
+                          )
+                          let wrappedRoleId = wrappedEdge?.target as string | undefined
+                          let wrappedRoleName: string | undefined
+                          if (wrappedRoleId) {
+                            const wn = currentPath?.nodes?.find((n: any) => n.id === wrappedRoleId) as any
+                            wrappedRoleName = wn?.name
+                          }
+                          // Fallback: same name in the current architecture,
+                          // skipping the IP itself (handles paths missing the
+                          // USES_ROLE edge in this slice).
+                          if (!wrappedRoleName) wrappedRoleName = node.name
+                          setModalResource({
+                            name: wrappedRoleName,
+                            viaInstanceProfile: { name: node.name, arn: ipId },
+                          })
+                          setIamModalOpen(true)
+                          return
+                        }
                         if (kind === "resource") {
                           const t = (node.type ?? "").toLowerCase()
                           if (t.includes("s3") || t.includes("bucket")) {
@@ -1062,6 +1111,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         onClose={() => { setIamModalOpen(false); setModalResource(null) }}
         roleName={modalResource?.name ?? ""}
         systemName={systemName}
+        viaInstanceProfile={modalResource?.viaInstanceProfile}
         onRemediationSuccess={() => { fetchData() }}
         onRollbackSuccess={() => { fetchData() }}
       />
