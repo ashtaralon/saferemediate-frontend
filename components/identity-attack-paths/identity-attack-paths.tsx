@@ -14,6 +14,7 @@ import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import TrafficFlowMap from "@/components/dependency-map/traffic-flow-map"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
+import { PathExfilSummary } from "./path-exfil-summary"
 import { PathRemediationPlan } from "./path-remediation-plan"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
 // Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
@@ -886,6 +887,26 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             />
           )}
 
+          {/* Exfil-channel strip — per-workload exfil chips + narrative
+              under the path. Decorates the attack path with the
+              External Egress Inventory's risk signal without modifying
+              the System Map / TrafficFlowMap (which has wider blast).
+              Hidden when graph is maximized to give the graph the full
+              viewport. */}
+          {pathView === "detail" && currentPath && !isGraphMaximized && (
+            <PathExfilSummary
+              systemName={systemName}
+              path={currentPath}
+              onNodeClick={(workloadId) => {
+                // Reuse the existing node-click flow so the operator
+                // lands in the node detail panel for the workload,
+                // which (per chunk #1.5 wiring) shows its egress
+                // inventory filtered to workload_id.
+                handleNodeClick(workloadId)
+              }}
+            />
+          )}
+
           {pathView === "detail" && jewelPaths.length > 0 && currentPath ? (
             <div className="flex-1 overflow-auto">
               {/* Attack graph — full width, on top so it's visible without scrolling past the plan */}
@@ -1102,6 +1123,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             remediationStatus={remediationStatus}
             remediationPreview={remediationPreview}
             remediationResult={remediationResult}
+            systemName={systemName}
           />
         )}
       </div>

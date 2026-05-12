@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   X, Globe, Shield, ShieldAlert, AlertTriangle, CheckCircle2, XCircle,
   Key, Lock, Unlock, Server, Database, HardDrive, Zap, ArrowRightLeft,
-  Crown, Play, Loader2, RotateCcw, Eye,
+  Crown, Play, Loader2, RotateCcw, Eye, Network,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
 import type {
@@ -22,6 +22,48 @@ interface NodeDetailPanelProps {
   remediationStatus?: RemediationStatus
   remediationPreview?: RemediationPreview | null
   remediationResult?: RemediationResult | null
+  // chunk #1.5: when present, renders an External Egress section for
+  // compute nodes (EC2/Lambda/Fargate/ECS). The section fetches
+  // /api/egress/system/{systemName}/external-inventory?workload_id={node.id}
+  // and renders the top destinations classified by the inventory.
+  systemName?: string
+}
+
+// chunk #1.5: minimal row shape we read from the External Egress
+// Inventory drill response. The full row type lives in
+// components/egress-external-inventory.tsx; we only need a few
+// fields here for the compact rendering inside the node panel.
+interface ExfilRow {
+  destination_ip: string
+  destination_class: string
+  port: string | null
+  protocol: string | null
+  bytes: number
+  hits: number
+  org: string | null
+  aws_service: string | null
+  aws_region: string | null
+  observation_strength: "strong" | "medium" | "weak"
+  recommendation: string
+  internal_target?: { workload_name: string | null; system_name: string | null } | null
+}
+
+interface ExfilSummary {
+  loading: boolean
+  error?: string
+  rows: ExfilRow[]
+  total: number
+  exfil_risk?: {
+    tier: "high" | "medium" | "low" | "none"
+    score: number
+    total_bytes_out: number
+    unknown_ip: number
+    internet: number
+    cloud_service: number
+    saas: number
+    cross_system: number
+  }
+  counts?: { by_class: Record<string, number> }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -170,6 +212,7 @@ export function NodeDetailPanel({
   remediationStatus = "idle",
   remediationPreview = null,
   remediationResult = null,
+  systemName,
 }: NodeDetailPanelProps) {
   const tierInfo = TIER_LABELS[node.tier] ?? TIER_LABELS.identity
   const alert = node.internet_exposure_alert
@@ -187,6 +230,61 @@ export function NodeDetailPanel({
   const isIAM = nodeType.includes("iam") || nodeType.includes("role") || node.tier === "identity"
   const isNetwork = nodeType.includes("security") || nodeType.includes("sg") || nodeType.includes("nacl") || node.tier === "network_control"
   const isCrownJewel = node.tier === "crown_jewel"
+  const isCompute =
+    node.tier === "compute" ||
+    nodeType.includes("ec2") ||
+    nodeType.includes("lambda") ||
+    nodeType.includes("ecs") ||
+    nodeType.includes("eks") ||
+    nodeType.includes("fargate")
+
+  // chunk #1.5: fetch the workload's External Egress Inventory slice
+  // when the panel opens. Lightweight — limit=10 keeps the payload
+  // small for the side-panel rendering; operator can drill to the
+  // full inventory from the link at the bottom of the section.
+  const [exfil, setExfil] = useState<ExfilSummary>({ loading: false, rows: [], total: 0 })
+
+  useEffect(() => {
+    if (!isCompute || !systemName || !node.id) {
+      setExfil({ loading: false, rows: [], total: 0 })
+      return
+    }
+    let cancelled = false
+    setExfil({ loading: true, rows: [], total: 0 })
+    const url = `/api/proxy/egress/system/${encodeURIComponent(
+      systemName,
+    )}/external-inventory?workload_id=${encodeURIComponent(node.id)}&limit=10&offset=0&days=30`
+    fetch(url, { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || `HTTP ${res.status}`)
+        }
+        return res.json()
+      })
+      .then((j) => {
+        if (cancelled) return
+        setExfil({
+          loading: false,
+          rows: j.rows ?? [],
+          total: j.total ?? 0,
+          exfil_risk: j.exfil_risk,
+          counts: j.counts,
+        })
+      })
+      .catch((e: any) => {
+        if (cancelled) return
+        setExfil({
+          loading: false,
+          rows: [],
+          total: 0,
+          error: e.message || "Failed to load exfil rows",
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isCompute, systemName, node.id])
 
   return (
     <div
@@ -228,6 +326,108 @@ export function NodeDetailPanel({
           )}
         </div>
       </div>
+
+      {/* ── External Egress — chunk #1.5 ── */}
+      {isCompute && systemName && (
+        <Section
+          title="External Egress (last 30 days)"
+          icon={<Network className="w-3.5 h-3.5 text-blue-400" />}
+        >
+          {exfil.loading ? (
+            <div className="text-[11px] text-slate-500">Loading egress…</div>
+          ) : exfil.error ? (
+            <div className="text-[11px] text-red-400">{exfil.error}</div>
+          ) : exfil.total === 0 ? (
+            <div className="text-[11px] text-slate-500">
+              No external egress observed for this workload in the lookback window.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                {exfil.exfil_risk && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                      exfil.exfil_risk.tier === "high"
+                        ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                        : exfil.exfil_risk.tier === "medium"
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                          : exfil.exfil_risk.tier === "low"
+                            ? "bg-slate-500/20 text-slate-300 border border-slate-500/40"
+                            : "bg-slate-700/30 text-slate-400 border border-slate-700/50"
+                    }`}
+                  >
+                    {exfil.exfil_risk.tier} exfil risk
+                  </span>
+                )}
+                <span className="text-slate-400">
+                  {exfil.total.toLocaleString()} destinations · {formatBytes(exfil.exfil_risk?.total_bytes_out ?? 0)} out
+                </span>
+              </div>
+              {exfil.counts && (
+                <div className="flex items-center gap-1.5 flex-wrap text-[9px]">
+                  {Object.entries(exfil.counts.by_class)
+                    .filter(([, v]) => v > 0)
+                    .map(([cls, v]) => (
+                      <span
+                        key={cls}
+                        className="px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-300 border border-slate-700/60"
+                        title={cls}
+                      >
+                        {cls.replace(/_/g, " ")} · {v}
+                      </span>
+                    ))}
+                </div>
+              )}
+              <div className="rounded border border-slate-700/60 overflow-hidden">
+                <div className="px-2 py-1 bg-slate-800/60 text-[9px] uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                  <span>Top destinations</span>
+                  <span>showing {exfil.rows.length} of {exfil.total.toLocaleString()}</span>
+                </div>
+                <div className="divide-y divide-slate-700/40">
+                  {exfil.rows.map((r, i) => (
+                    <div
+                      key={`${r.destination_ip}-${r.port}-${r.protocol}-${i}`}
+                      className="px-2 py-1.5 flex items-start gap-2 text-[10px]"
+                    >
+                      <span
+                        className={`shrink-0 mt-0.5 inline-block w-1.5 h-1.5 rounded-full ${
+                          r.destination_class === "unknown_ip"
+                            ? "bg-red-400"
+                            : r.destination_class === "internet"
+                              ? "bg-amber-400"
+                              : r.destination_class === "saas"
+                                ? "bg-blue-400"
+                                : r.destination_class === "internal_to_org_external_to_system"
+                                  ? "bg-purple-400"
+                                  : "bg-slate-500"
+                        }`}
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="font-mono text-slate-300 truncate block">{r.destination_ip}</span>
+                        <span className="text-slate-500">
+                          {r.aws_service ? `AWS ${r.aws_service}${r.aws_region ? ` · ${r.aws_region}` : ""}` : r.org || r.destination_class.replace(/_/g, " ")}
+                          {r.port ? ` · :${r.port}` : ""}
+                          {r.protocol ? ` ${r.protocol}` : ""}
+                          {r.internal_target?.system_name && (
+                            <> · → {r.internal_target.system_name}</>
+                          )}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-slate-300 font-mono">{formatBytes(r.bytes)}</span>
+                        <span className="block text-slate-500">{r.hits || "—"} flows</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-500 italic">
+                Visibility + recommendation only. No policy push, no runtime change.
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
 
       {/* ── Risk Summary ── */}
       <Section title="Path Severity" icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}>
