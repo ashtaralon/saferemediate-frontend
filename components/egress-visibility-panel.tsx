@@ -465,12 +465,34 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
       {data &&
         data.workloads.map((w) => {
           const isExpanded = expanded.has(w.workload.id)
-          const subnetLabel =
+          // Subnet posture pill — sourced from Subnet.public via the
+          // subnet_visibility_collector (route-table → IGW classification).
+          // Wording is strictly what we can prove from data:
+          //   true  → "Public subnet" (RT routes to IGW; could egress)
+          //   false → "Private subnet" (no IGW route in effective RT)
+          //   null  → "Subnet unknown" (no effective RT resolvable — pre-backfill)
+          // We do NOT claim "IGW reachable" (requires public-IP join) or
+          // "No NAT route" (collector doesn't inspect NAT-GW today).
+          const subnetPill =
             w.workload.subnet_is_public === true
-              ? "public subnet"
+              ? { label: "Public subnet", cls: "bg-amber-50 text-amber-800 border-amber-300" }
               : w.workload.subnet_is_public === false
-              ? "private subnet"
-              : "subnet unknown"
+              ? { label: "Private subnet", cls: "bg-slate-100 text-slate-700 border-slate-300" }
+              : { label: "Subnet unknown", cls: "bg-slate-50 text-slate-500 border-slate-200" }
+          // Egress posture pill — strictly observed-fact derived from
+          // ACTUAL_TRAFFIC edges:
+          //   external > 0 → "Active egress" (data is leaving the VPC edge)
+          //   external = 0 → "No observed external egress" (behavioral posture
+          //                  only — doesn't claim no path exists, just none used)
+          // The composite (Public subnet + No observed external egress) is
+          // the App-2 case: subnet routes to IGW, instance has no public IP +
+          // SG egress doesn't allow outbound, so observed = 0. We surface
+          // both facts so the operator can see the gap between possibility
+          // and behavior.
+          const egressPill =
+            w.totals.external_destinations > 0
+              ? { label: "Active egress", cls: "bg-amber-50 text-amber-800 border-amber-300" }
+              : { label: "No observed external egress", cls: "bg-emerald-50 text-emerald-700 border-emerald-300" }
           return (
             <div
               key={w.workload.id}
@@ -485,11 +507,27 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
                   <div className="text-sm font-semibold text-slate-800 truncate">
                     {w.workload.name}
                     <span className="ml-2 text-[10px] font-normal text-slate-500">
-                      · {w.workload.labels[0] ?? "Workload"} · {w.workload.region} · {subnetLabel}
+                      · {w.workload.labels[0] ?? "Workload"} · {w.workload.region}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-600">
-                    <span>{w.totals.destinations} destinations</span>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-slate-600">
+                    <span
+                      title="Subnet's effective route table → IGW classification (collectors/subnet_visibility_collector.py). Does not include NAT-GW route inspection."
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded border font-semibold ${subnetPill.cls}`}
+                    >
+                      {subnetPill.label}
+                    </span>
+                    <span
+                      title={
+                        w.totals.external_destinations > 0
+                          ? `${w.totals.external_destinations} external destinations observed in flow logs (30d)`
+                          : "Zero external destinations observed in flow logs (30d). Egress path may still exist via SG/RT — this is behavioral, not structural."
+                      }
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded border font-semibold ${egressPill.cls}`}
+                    >
+                      {egressPill.label}
+                    </span>
+                    <span className="ml-1">{w.totals.destinations} destinations</span>
                     <span>· {formatBytes(w.totals.total_bytes)}</span>
                     <span>· {w.totals.aws_destinations} AWS</span>
                     <span>· {w.totals.external_destinations} external</span>
