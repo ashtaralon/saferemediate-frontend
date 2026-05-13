@@ -5,11 +5,15 @@ import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "identity-attack-paths-all"
 
-// Explicit Vercel route config — ensures the function has 30s budget
-// regardless of vercel.json glob matching. The backend now does the
-// heavy lifting (single Cypher fan-out) so this proxy is a thin
-// passthrough; 30s is more than enough.
-export const maxDuration = 30
+// Match the per-system route's 60s budget. The backend /all aggregator
+// does an in-process fan-out across every distinct SystemName and the
+// per-system handler is CPU-bound on the graph traversal / normalization
+// segments, so /all can run >30s on accounts with multiple systems even
+// when each individual system fits in the proxy budget. Surfacing 502
+// after 25s was leaving the operator with a broken page instead of a
+// slow one — 60s lets the slow path complete, while still capping at
+// the vercel.json global.
+export const maxDuration = 60
 
 /**
  * GET /api/proxy/identity-attack-paths/all
@@ -42,10 +46,13 @@ export async function GET(_req: NextRequest) {
     const r = await fetch(`${BACKEND_URL}/api/identity-attack-paths/all`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      // 25s — well under the function budget. If the backend takes
-      // longer than this, something is wrong upstream and we want
-      // to surface that fast rather than burn the function budget.
-      signal: AbortSignal.timeout(25000),
+      // 55s — well under the 60s function budget but generous enough
+      // to accommodate the backend /all aggregator's per-system
+      // fan-out on accounts with multiple SystemNames. If the backend
+      // takes longer than this, the function still returns a 502
+      // with the structured empty-state body rather than letting
+      // Vercel kill the function mid-flight.
+      signal: AbortSignal.timeout(55000),
     })
     if (!r.ok) {
       return NextResponse.json(
