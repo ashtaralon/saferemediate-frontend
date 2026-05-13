@@ -33,10 +33,20 @@ interface AttackPathFlowVizProps {
 interface ComputeBadge {
   id: string
   name: string
-  kind: "sg" | "nacl"
+  // Distinct kinds so each renders with its own visual + label. Previously
+  // Subnet/VPC nodes fell through to "sg" because the ternary only knew
+  // sg|nacl — the operator saw Subnets mis-rendered as Security Groups
+  // with the SG icon. Now each network-topology element has its own
+  // badge so the path reads "EC2 → SG → NACL → Subnet → VPC" instead of
+  // "EC2 → four indistinguishable orange shields".
+  kind: "sg" | "nacl" | "subnet" | "vpc"
   ruleCount?: number
   gapCount?: number
   isOpenToInternet?: boolean
+  // Subnet-only: route-table → IGW classification from the
+  // subnet_visibility_collector. true = Public (RT routes to IGW),
+  // false = Private (no IGW route in effective RT), null = unknown.
+  subnetPublic?: boolean | null
 }
 
 // ── Extended architecture with rendering metadata ─────────────────
@@ -186,8 +196,16 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
   const computeIdSet = new Set(actualComputes.map((c) => c.id))
 
   for (const sgNode of sgNaclNodes) {
-    const kind: "sg" | "nacl" = isSgNaclType(sgNode.type ?? "") && (sgNode.type ?? "").toLowerCase().includes("nacl") ? "nacl" : "sg"
-    // Find which compute this SG/NACL connects to via edges
+    const t = (sgNode.type ?? "").toLowerCase()
+    // Route by node type — each network-topology element gets its own
+    // badge kind so the path reads as distinct steps (SG, NACL, Subnet,
+    // VPC) instead of four indistinguishable orange shields.
+    let kind: "sg" | "nacl" | "subnet" | "vpc"
+    if (t === "nacl" || t === "networkacl") kind = "nacl"
+    else if (t === "subnet") kind = "subnet"
+    else if (t === "vpc") kind = "vpc"
+    else kind = "sg" // SecurityGroup + any unknown fallback
+    // Find which compute this control connects to via edges
     let parentComputeId: string | undefined
     for (const edge of edges) {
       if (edge.source === sgNode.id && computeIdSet.has(edge.target)) {
@@ -209,6 +227,9 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
         ruleCount: (sgNode.rules?.inbound_count ?? 0) + (sgNode.rules?.outbound_count ?? 0),
         gapCount: sgNode.gap_count ?? 0,
         isOpenToInternet: sgNode.rules?.open_to_internet ?? sgNode.is_internet_exposed ?? false,
+        // Subnet's own public flag. For non-Subnet badges this stays
+        // undefined and the renderer falls back to kind-specific defaults.
+        subnetPublic: kind === "subnet" ? (sgNode.subnet_is_public ?? null) : undefined,
       })
       badges.set(targetId, existing)
     }
@@ -545,27 +566,68 @@ function ComputeNodeCard({
               className={`
                 w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-medium
                 transition-all duration-200 text-left
-                ${badge.kind === "sg"
-                  ? "bg-orange-500/10 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 hover:border-orange-400"
-                  : "bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 hover:border-cyan-400"
+                ${
+                  badge.kind === "sg"
+                    ? "bg-orange-500/10 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 hover:border-orange-400"
+                  : badge.kind === "nacl"
+                    ? "bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 hover:border-cyan-400"
+                  : badge.kind === "subnet"
+                    ? (badge.subnetPublic === true
+                        ? "bg-amber-500/10 text-amber-200 border border-amber-500/30 hover:bg-amber-500/25 hover:border-amber-400"
+                        : badge.subnetPublic === false
+                          ? "bg-emerald-500/10 text-emerald-200 border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-400"
+                          : "bg-slate-700/40 text-slate-300 border border-slate-600 hover:bg-slate-700/60 hover:border-slate-500")
+                  : /* vpc */
+                    "bg-blue-500/10 text-blue-200 border border-blue-500/30 hover:bg-blue-500/25 hover:border-blue-400"
                 }
               `}
             >
               {badge.kind === "sg" ? (
                 <Shield className="w-3.5 h-3.5 flex-shrink-0" />
-              ) : (
+              ) : badge.kind === "nacl" ? (
                 <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+              ) : badge.kind === "subnet" ? (
+                // Globe for network topology — same icon as the related-chips
+                // subnet entry so the visual vocabulary stays consistent
+                // across the path map and the chip strip.
+                <Globe className="w-3.5 h-3.5 flex-shrink-0" />
+              ) : (
+                <Globe className="w-3.5 h-3.5 flex-shrink-0" />
               )}
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="truncate font-semibold">{badge.name}</span>
                 <div className="flex items-center gap-1.5">
-                  <span className={`text-[8px] ${badge.kind === "sg" ? "text-orange-400/60" : "text-cyan-400/60"}`}>
-                    {badge.kind === "sg" ? "Security Group" : "Network ACL"}
+                  <span
+                    className={`text-[8px] ${
+                      badge.kind === "sg"
+                        ? "text-orange-400/60"
+                        : badge.kind === "nacl"
+                          ? "text-cyan-400/60"
+                          : badge.kind === "subnet"
+                            ? badge.subnetPublic === true
+                              ? "text-amber-400/70"
+                              : badge.subnetPublic === false
+                                ? "text-emerald-400/70"
+                                : "text-slate-400/70"
+                            : "text-blue-400/60"
+                    }`}
+                  >
+                    {badge.kind === "sg"
+                      ? "Security Group"
+                      : badge.kind === "nacl"
+                        ? "Network ACL"
+                        : badge.kind === "subnet"
+                          ? badge.subnetPublic === true
+                            ? "Subnet · Public"
+                            : badge.subnetPublic === false
+                              ? "Subnet · Private"
+                              : "Subnet · Unknown"
+                          : "VPC"}
                   </span>
                   {(badge.ruleCount ?? 0) > 0 && (
                     <span className="text-[8px] text-slate-400">{badge.ruleCount} rules</span>
                   )}
-                  {badge.isOpenToInternet && (
+                  {badge.isOpenToInternet && badge.kind === "sg" && (
                     <span className="text-[8px] text-red-400 font-bold">PUBLIC</span>
                   )}
                 </div>

@@ -321,6 +321,11 @@ export interface PathNodeDetail {
   // 1-hop infrastructure context (VPC, Subnet, SG, IAM role, KMS, etc.).
   // Each bucket lists 0..N related neighbors discovered via canonical edges.
   infra_context?: InfraContext
+  // Subnet.public flag from the subnet_visibility_collector. Meaningful in
+  // two cases: when this node IS a Subnet (its own classification), and
+  // when this node is an EC2/Lambda (the public flag of its containing
+  // subnet, surfaced inline to save a round-trip). null = unknown.
+  subnet_is_public?: boolean | null
   // NetworkEndpoint enrichment (org, country, asn, AWS service hint).
   ip_metadata?: {
     kind?: "internal" | "aws" | "external" | "unknown"
