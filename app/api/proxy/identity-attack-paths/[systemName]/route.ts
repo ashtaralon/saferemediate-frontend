@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 export const runtime = "nodejs"
-export const dynamic = "force-dynamic"
+// Intentionally NOT `dynamic = "force-dynamic"` — that flag opts the
+// route out of all caching, which defeats the Vercel edge CDN
+// Cache-Control we set on the response below. The route is dynamic by
+// virtue of reading req.url params; explicit force-dynamic isn't needed.
 export const maxDuration = 60
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
@@ -48,9 +51,20 @@ export async function GET(
     includeDeleted,
   ].join(":")
 
+  // Per-instance in-memory cache (warm-instance path — instant on repeat).
   const cached = getCached(cacheKey)
   if (cached) {
-    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+    return NextResponse.json(cached, {
+      headers: {
+        "X-Cache": "HIT",
+        // Let the Vercel edge CDN serve subsequent requests directly even
+        // when they land on a cold function instance. Without this header,
+        // multi-instance Vercel deployments repeatedly pay the 30–50s
+        // backend cost — each cold instance has its own empty in-memory
+        // cache, and the user keeps hitting different instances.
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    })
   }
 
   try {
@@ -89,7 +103,16 @@ export async function GET(
     }
     const data = await res.json()
     setCached(cacheKey, data, TTL_SLOW)
-    return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
+    return NextResponse.json(data, {
+      headers: {
+        "X-Cache": "MISS",
+        // 5-min Vercel edge cache + 10-min stale-while-revalidate. After
+        // the first successful response, the next ~5 min of requests are
+        // served from the edge CDN regardless of which function instance
+        // they would have routed to. Matches the in-memory TTL_SLOW.
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    })
   } catch (err: any) {
     const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError"
     console.error(
