@@ -3854,13 +3854,23 @@ export default function TrafficFlowMap({
     setError(null);
 
     try {
-      // Add cache-busting timestamp to ensure fresh data from Neo4j
-      const timestamp = Date.now();
+      // Let the proxy's edge cache (b560e72, s-maxage=120) serve when
+      // available — backend dep-map costs 30–40s cold, and the user
+      // routinely sees "Building Architecture..." stalls when each path
+      // navigation in this view triggers a fresh upstream call. Previous
+      // version cache-busted with &_t=timestamp + cache:no-store +
+      // Cache-Control:no-cache, which neutered the whole edge-cache
+      // layer. 2-min staleness is fine for the dependency map — the
+      // graph doesn't change at second resolution. Manual refresh
+      // button still bypasses cache when isManualRefresh is true.
+      const cacheBust = isManualRefresh ? `&_t=${Date.now()}` : "";
       // systemName comes from props (default: 'alon-prod')
-      const depRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500&_t=${timestamp}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-      });
+      const depRes = await fetch(
+        `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500${cacheBust}`,
+        isManualRefresh
+          ? { cache: "no-store", headers: { "Cache-Control": "no-cache" } }
+          : {},
+      );
 
       if (!depRes.ok) {
         throw new Error(`Failed to fetch dependency map: ${depRes.status}`);

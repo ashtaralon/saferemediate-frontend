@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
+export const maxDuration = 60
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ systemName: string; jewelId: string }> }
@@ -19,8 +21,7 @@ export async function GET(
           "ngrok-skip-browser-warning": "true",
           "Content-Type": "application/json",
         },
-        cache: "no-store",
-        signal: AbortSignal.timeout(60000),
+        signal: AbortSignal.timeout(55000),
       }
     )
 
@@ -32,7 +33,13 @@ export async function GET(
     }
 
     const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json(data, {
+      headers: {
+        // 2-min Vercel edge cache + 4-min stale-while-revalidate. Matches
+        // the parent identity-attack-paths and the jewel-surface route.
+        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+      },
+    })
   } catch (error) {
     console.error("[identity-attack-paths/jewel] Fetch error:", error)
     return NextResponse.json({ error: "Failed to fetch jewel detail" }, { status: 500 })
