@@ -66,9 +66,32 @@ export interface TrafficFlow {
   isActive?: boolean;
 }
 
+// Subnet posture for the SUBNETS column on the Path Flow Map.
+// `isPublic` semantics:
+//   true  → effective route table has a route to an IGW (per AWS canonical
+//           definition). Renders amber "Public".
+//   false → effective route table has no IGW route. Renders emerald "Private".
+//   null  → no Subnet.public set in Neo4j (subnet_visibility_collector hasn't
+//           classified it, or the workload's IN_SUBNET edge resolves to a
+//           non-:Subnet duplicate). Renders slate "Unknown".
+// Source: backend `subnet_is_public` field on the Subnet path node (see
+// commits a400f79 + 639579c).
+export interface SubnetNode {
+  id: string;
+  name: string;
+  shortName: string;
+  isPublic: boolean | null;
+  vpcId?: string;
+  // Compute node ids that live in this subnet (via IN_SUBNET edges).
+  // Lets the connection-line renderer draw compute→subnet edges so the
+  // path reads "EC2 → Subnet → SG → NACL → IAM" visually.
+  connectedComputeIds: string[];
+}
+
 export interface SystemArchitecture {
   computeServices: ServiceNode[];
   resources: ServiceNode[];
+  subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
   nacls: SecurityCheckpoint[];
   iamRoles: SecurityCheckpoint[];
@@ -2170,7 +2193,7 @@ function UnifiedArchitectureDiagram({
           ghostedNodeIds={ghostedNodeIds}
         />
 
-        <div className="relative grid grid-cols-[1fr_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
+        <div className="relative grid grid-cols-[1fr_auto_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
           {/* COMPUTE */}
           <div className="flex flex-col gap-3">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -2209,6 +2232,68 @@ function UnifiedArchitectureDiagram({
                 </div>
               );
             })}
+          </div>
+
+          {/* SUBNETS */}
+          {/* Renders every subnet that contains a compute on this path,
+              with the public/private/unknown posture from
+              subnet_visibility_collector. Posture coloring matches the
+              egress chip vocabulary (commit 5db6032):
+                Public  → amber  (route table → IGW, can reach internet)
+                Private → emerald (no IGW route)
+                Unknown → slate  (Subnet.public not classified yet — never
+                                  fabricated, three-state contract). */}
+          <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-cyan-400" />
+              Subnets ({architecture.subnets?.length ?? 0})
+            </div>
+            {(architecture.subnets || []).map(subnet => {
+              const postureCls =
+                subnet.isPublic === true
+                  ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+                  : subnet.isPublic === false
+                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+                    : "bg-slate-700/40 border-slate-600 text-slate-300";
+              const postureLabel =
+                subnet.isPublic === true ? "Public" : subnet.isPublic === false ? "Private" : "Unknown";
+              const tooltip =
+                subnet.isPublic === true
+                  ? "Effective route table has a route to an Internet Gateway. Subnet is publicly-routable per AWS canonical definition. Does not include NAT-GW route inspection."
+                  : subnet.isPublic === false
+                    ? "Effective route table has no IGW route. Subnet is private. May still have NAT-GW egress (not inspected by this classifier)."
+                    : "Subnet.public not set in Neo4j — either subnet_visibility_collector hasn't classified this subnet yet, or the workload's IN_SUBNET edge resolves to a duplicate without the :Subnet label. Never fabricated.";
+              return (
+                <div
+                  key={subnet.id}
+                  data-subnet-id={subnet.id}
+                  className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5"
+                  title={tooltip}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span className="text-xs font-semibold text-slate-200 truncate">
+                        {subnet.shortName}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-1.5">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${postureCls}`}>
+                      {postureLabel}
+                    </span>
+                  </div>
+                  {subnet.connectedComputeIds.length > 1 && (
+                    <div className="mt-1 text-[10px] text-slate-500">
+                      {subnet.connectedComputeIds.length} workloads
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {(!architecture.subnets || architecture.subnets.length === 0) && (
+              <div className="text-xs text-slate-500 italic p-4 text-center">No subnets on this path</div>
+            )}
           </div>
 
           {/* SECURITY GROUPS */}
@@ -2676,6 +2761,14 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
   // Start with arch buckets filtered to path
   const computeServices: ServiceNode[] = arch.computeServices.filter((c) => inPath(c.id));
   const resources: ServiceNode[] = arch.resources.filter((r) => inPath(r.id));
+  // Keep subnets whose id is in the path OR that connect to a compute in
+  // the path. The latter catches subnets that aren't BFS path nodes
+  // themselves but are attached to a path compute via IN_SUBNET — operators
+  // want to see the subnet posture even when the subnet isn't a path step.
+  const filteredComputeIds = new Set(computeServices.map((c) => c.id));
+  const subnets: SubnetNode[] = (arch.subnets || []).filter((s) =>
+    inPath(s.id) || s.connectedComputeIds.some((cid) => filteredComputeIds.has(cid)),
+  );
   const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter((sg) => inPath(sg.id));
   const nacls: SecurityCheckpoint[] = arch.nacls.filter((n) => inPath(n.id));
   const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter((r) => inPath(r.id));
@@ -2857,6 +2950,7 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     resources: resources.map((r) =>
       filter.crownJewelIds && filter.crownJewelIds.includes(r.id) ? { ...r, isCrownJewel: true } : r,
     ),
+    subnets,
     securityGroups,
     nacls,
     iamRoles,
@@ -3040,7 +3134,11 @@ export default function TrafficFlowMap({
     const roleNodeMap = new Map<string, any>();
     const subnetToNACL = new Map<string, string>();
     const nodeToVPC = new Map<string, string>();
-    const nodeToSubnet = new Map<string, { subnetId: string; isPublic: boolean }>();
+    // isPublic kept tri-state (boolean | null) so the SUBNETS column can
+    // render the three-state badge (Public / Private / Unknown). Coercing
+    // null→false would silently lie when subnet_visibility_collector hasn't
+    // classified a subnet yet.
+    const nodeToSubnet = new Map<string, { subnetId: string; isPublic: boolean | null }>();
 
     // First pass: collect subnet to NACL mappings
     edges.forEach(edge => {
@@ -3109,11 +3207,26 @@ export default function TrafficFlowMap({
         if (naclId) {
           computeToNACL.set(canonicalSrc, naclId);
         }
-        // Track subnet membership
+        // Track subnet membership. Read backend's canonical `subnet_is_public`
+        // first (set by subnet_visibility_collector via route-table → IGW
+        // inspection, surfaced through _build_comprehensive_node_detail).
+        // Fall back to legacy fields for partial graphs; never name-match
+        // because "Public-1" / "Private-DB-2" are operator labels, not
+        // routing classifications — they can lie (the alon-prod test VPC
+        // has its Main RT routing 0.0.0.0/0 → IGW, so subnets named
+        // "Private-*" are technically public-by-routing).
         const subnetNode = nodeMap.get(tgtId);
-        const isPublic = subnetNode?.is_public || subnetNode?.map_public_ip_on_launch ||
-                         (subnetNode?.name || '').toLowerCase().includes('public');
-        nodeToSubnet.set(canonicalSrc, { subnetId: tgtId, isPublic: !!isPublic });
+        // null is meaningful — explicitly unknown vs explicitly public/private.
+        // The UI renders three states (Public/Private/Unknown), so preserve null.
+        let isPublic: boolean | null = null;
+        if (subnetNode) {
+          if (subnetNode.subnet_is_public === true) isPublic = true;
+          else if (subnetNode.subnet_is_public === false) isPublic = false;
+          // Pre-backfill fallback: only when subnet_is_public is truly absent
+          // (not just false) do we consult the AWS launch-default flag.
+          else if (subnetNode.is_public === true || subnetNode.map_public_ip_on_launch === true) isPublic = true;
+        }
+        nodeToSubnet.set(canonicalSrc, { subnetId: tgtId, isPublic });
       }
 
       // Track VPC membership
@@ -3375,8 +3488,45 @@ export default function TrafficFlowMap({
       });
     }
 
-    // Build security groups (rules will be fetched separately from API)
-    const usedSGIds = new Set(Array.from(flowMap.values()).map(f => f.sgId).filter(Boolean));
+    // Build SUBNETS column data. Every Subnet reachable from a compute on
+    // this path via IN_SUBNET gets its own column entry, with the public/
+    // private/unknown posture from subnet_is_public. Subnets that aren't
+    // connected to any path compute are deliberately omitted — the column
+    // is "subnets ON this path", not "all subnets in the system".
+    const subnets: SubnetNode[] = [];
+    const seenSubnetIds = new Set<string>();
+    computeServices.forEach(cs => {
+      const sub = nodeToSubnet.get(cs.id);
+      if (!sub || seenSubnetIds.has(sub.subnetId)) return;
+      seenSubnetIds.add(sub.subnetId);
+      const subnetNode = nodeMap.get(sub.subnetId);
+      const subnetName = subnetNode?.name || sub.subnetId;
+      const connectedComputeIds = computeServices
+        .filter(c => nodeToSubnet.get(c.id)?.subnetId === sub.subnetId)
+        .map(c => c.id);
+      subnets.push({
+        id: sub.subnetId,
+        name: subnetName,
+        shortName: shortName(subnetName, 18),
+        isPublic: sub.isPublic,
+        vpcId: subnetNode?.vpc_id,
+        connectedComputeIds,
+      });
+    });
+
+    // Build security groups. Combine TWO sources:
+    //   (a) SGs referenced by traffic flows (flowMap.f.sgId) — historical
+    //       behavior; needed for connection-line rendering.
+    //   (b) SGs from sgNodeMap (everything attached via SECURED_BY) — covers
+    //       workloads on a path with no observed traffic edges, e.g. an
+    //       IAM-only path through cyntro-demo-prod-data where the SG is
+    //       attached to the EC2 but the BFS path didn't traverse it.
+    // The column should reflect the operator's mental model ("which SGs
+    // gate this workload?"), not just BFS-path traversal facts.
+    const usedSGIds = new Set<string>([
+      ...Array.from(flowMap.values()).map(f => f.sgId).filter(Boolean) as string[],
+      ...Array.from(sgNodeMap.keys()),
+    ]);
     const securityGroups: SecurityCheckpoint[] = [];
     usedSGIds.forEach(sgId => {
       if (!sgId) return;
@@ -3403,8 +3553,14 @@ export default function TrafficFlowMap({
       });
     });
 
-    // Build NACLs
-    const usedNACLIds = new Set(Array.from(flowMap.values()).map(f => f.naclId).filter(Boolean));
+    // Build NACLs. Same dual-source pattern as SGs above: flowMap-driven
+    // (traffic-traversed) PLUS naclNodeMap (attached via USES_NACL/HAS_NACL/
+    // PROTECTED_BY_NACL). Operator wants to see ALL NACLs gating the path
+    // workloads, not just the ones a BFS edge happened to cross.
+    const usedNACLIds = new Set<string>([
+      ...Array.from(flowMap.values()).map(f => f.naclId).filter(Boolean) as string[],
+      ...Array.from(naclNodeMap.keys()),
+    ]);
     const nacls: SecurityCheckpoint[] = [];
     usedNACLIds.forEach(naclId => {
       if (!naclId) return;
@@ -3491,12 +3647,16 @@ export default function TrafficFlowMap({
       if (vpcId) computeVPCMap.set(cs.id, vpcId);
     });
 
-    // Step 2: Add compute nodes to VPC groups
+    // Step 2: Add compute nodes to VPC groups. vpcGroups isPublic is
+    // boolean-typed (pre-existing contract), so coerce null → false here.
+    // The SUBNETS column above preserves the tri-state for its own badges;
+    // vpcGroups only uses isPublic for legacy diagram coloring where the
+    // distinction between false and null doesn't matter.
     computeServices.forEach(cs => {
       const vpcId = computeVPCMap.get(cs.id);
       if (vpcId) {
         const subnet = nodeToSubnet.get(cs.id);
-        allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic });
+        allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic === true });
       }
     });
 
@@ -3582,6 +3742,7 @@ export default function TrafficFlowMap({
     return {
       computeServices,
       resources,
+      subnets,
       securityGroups,
       nacls,
       iamRoles,
