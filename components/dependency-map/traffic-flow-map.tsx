@@ -3378,14 +3378,26 @@ export default function TrafficFlowMap({
       resourcesWithTraffic: resourcesWithTraffic.size,
     });
 
-    // Build compute services
+    // Build compute services. Two-source bucketing:
+    //   (1) `computeWithTraffic` — compute IDs whose ACTUAL_TRAFFIC /
+    //       ACCESSES_RESOURCE / ACTUAL_API_CALL edges target a classified
+    //       resource (S3/DynamoDB/RDS). Historical primary source.
+    //   (2) `nodeByInstanceId` — every compute node returned by the dep-map
+    //       regardless of whether its traffic edges happen to target a
+    //       resource by the narrow `targetIsResource` check.
+    //
+    // (2) is necessary because the System Map on alon-prod-style systems
+    // has compute-to-NetworkEndpoint traffic (egress to external IPs) and
+    // compute-to-other-compute (cross-system) traffic, neither of which
+    // is "compute → resource". The old single-source build returned 0
+    // compute for those systems even with thousands of traffic edges.
+    // Operators saw "0 compute" on a graph that obviously had EC2s and
+    // no flow lines could draw.
     const seenCompute = new Set<string>();
     const computeServices: ServiceNode[] = [];
-    computeWithTraffic.forEach(canonicalId => {
-      if (seenCompute.has(canonicalId)) return;
+    const pushCompute = (canonicalId: string, node: any) => {
+      if (seenCompute.has(canonicalId) || !node) return;
       seenCompute.add(canonicalId);
-      const node = nodeByInstanceId.get(canonicalId);
-      if (!node) return;
       const computeName = (node.name && node.name !== 'Unknown') ? node.name : node.id || canonicalId;
       computeServices.push({
         id: canonicalId,
@@ -3394,6 +3406,18 @@ export default function TrafficFlowMap({
         type: mapNodeType(node.type || 'compute'),
         instanceId: canonicalId.substring(0, 12),
       });
+    };
+    // Traffic-derived first (preserves any ordering tied to traffic).
+    computeWithTraffic.forEach(canonicalId => {
+      pushCompute(canonicalId, nodeByInstanceId.get(canonicalId));
+    });
+    // Then every compute node we discovered from the dep-map response.
+    // De-dup happens via seenCompute.
+    nodeByInstanceId.forEach((node, canonicalId) => {
+      const nType = mapNodeType(node.type || '');
+      if (nType === 'compute' || nType === 'lambda') {
+        pushCompute(canonicalId, node);
+      }
     });
 
     // Build resources
@@ -3585,8 +3609,17 @@ export default function TrafficFlowMap({
       });
     });
 
-    // Build IAM roles
-    const usedRoleIds = new Set(Array.from(flowMap.values()).map(f => f.roleId).filter(Boolean));
+    // Build IAM roles. Same dual-source pattern as SGs/NACLs/compute:
+    //   (1) flow-driven (roleId on a TrafficFlow — used when compute→
+    //       resource flows exist)
+    //   (2) USES_ROLE/ASSUMES_ROLE edges that populated roleNodeMap
+    //       directly. Catches alon-prod-style systems whose traffic is
+    //       compute→NetworkEndpoint (egress) rather than compute→resource,
+    //       so flowMap never gets the roleId populated.
+    const usedRoleIds = new Set<string>([
+      ...Array.from(flowMap.values()).map(f => f.roleId).filter(Boolean) as string[],
+      ...Array.from(roleNodeMap.keys()),
+    ]);
     const iamRoles: SecurityCheckpoint[] = [];
     usedRoleIds.forEach(roleId => {
       if (!roleId) return;
