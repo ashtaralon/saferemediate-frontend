@@ -14,6 +14,7 @@ import {
   REMEDIATION_ACTION_CONFIG,
   SCORE_BREAKDOWN_LABELS
 } from "@/lib/types"
+import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 
 interface SimulateModalProps {
   isOpen: boolean
@@ -61,7 +62,9 @@ interface SimulationData {
   estimated_time?: string
 }
 
-type Decision = "EXECUTE" | "CANARY" | "REVIEW" | "BLOCK"
+// Decision states use the v4.4 §11E canonical RoutingDecision from
+// lib/decision-routing.ts. Display badges/labels are mapped at render
+// time so the user-visible copy is unchanged.
 
 export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateModalProps) {
   const [loading, setLoading] = useState(false)
@@ -189,33 +192,19 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
   if (!isOpen) return null
 
   // Calculate safety score and decision from new decision engine or fallback to old method
-  const calculateSafetyScore = (): { score: number; decision: Decision } => {
-    if (!simulation) return { score: 0, decision: "BLOCK" }
+  const calculateSafetyScore = (): { score: number; decision: RoutingDecision } => {
+    if (!simulation) return { score: 0, decision: "INSUFFICIENT_DATA" }
 
-    // If we have decision engine output, use it
+    // If we have decision engine output, use it — map the legacy action
+    // names (AUTO_REMEDIATE / CANARY / REQUIRE_APPROVAL / BLOCK) to
+    // canonical via the shared mapper.
     if (simulation.decision) {
       const safetyPercent = Math.round(simulation.decision.safety * 100)
-      let decision: Decision = "BLOCK"
-
-      switch (simulation.decision.action) {
-        case "AUTO_REMEDIATE":
-          decision = "EXECUTE"
-          break
-        case "CANARY":
-          decision = "CANARY"
-          break
-        case "REQUIRE_APPROVAL":
-          decision = "REVIEW"
-          break
-        case "BLOCK":
-          decision = "BLOCK"
-          break
-      }
-
-      return { score: safetyPercent, decision }
+      const mapped = toRoutingDecision(simulation.decision.action)
+      return { score: safetyPercent, decision: mapped ?? "INSUFFICIENT_DATA" }
     }
 
-    // Fallback to old calculation method
+    // Fallback to score-based threshold (no decision engine output).
     const confidence = simulation.confidence / 100
     const health = simulation.safe ? 1.0 : 0.5
     const rollback = 1.0
@@ -224,31 +213,31 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
     const safetyScore = confidence * health * rollback * (1 - blastRadius)
     const scorePercent = Math.round(safetyScore * 100)
 
-    let decision: Decision = "BLOCK"
-    if (scorePercent >= 85) decision = "EXECUTE"
-    else if (scorePercent >= 70) decision = "CANARY"
-    else if (scorePercent >= 50) decision = "REVIEW"
+    let decision: RoutingDecision = "INSUFFICIENT_DATA"
+    if (scorePercent >= 85) decision = "AUTO"
+    else if (scorePercent >= 70) decision = "STAGED_AUTO"
+    else if (scorePercent >= 50) decision = "SUGGEST"
 
     return { score: scorePercent, decision }
   }
 
   const { score: safetyScore, decision } = calculateSafetyScore()
 
-  const getDecisionColor = (d: Decision) => {
+  const getDecisionColor = (d: RoutingDecision) => {
     switch (d) {
-      case "EXECUTE": return "bg-green-600 text-white"
-      case "CANARY": return "bg-[#3b82f610]0 text-white"
-      case "REVIEW": return "bg-[#f9731610]0 text-white"
-      case "BLOCK": return "bg-red-600 text-white"
+      case "AUTO": return "bg-green-600 text-white"
+      case "STAGED_AUTO": return "bg-[#3b82f610]0 text-white"
+      case "SUGGEST": return "bg-[#f9731610]0 text-white"
+      case "INSUFFICIENT_DATA": return "bg-red-600 text-white"
     }
   }
 
-  const getDecisionIcon = (d: Decision) => {
+  const getDecisionIcon = (d: RoutingDecision) => {
     switch (d) {
-      case "EXECUTE": return <CheckCircle2 className="w-5 h-5" />
-      case "CANARY": return <AlertCircle className="w-5 h-5" />
-      case "REVIEW": return <AlertTriangle className="w-5 h-5" />
-      case "BLOCK": return <XCircle className="w-5 h-5" />
+      case "AUTO": return <CheckCircle2 className="w-5 h-5" />
+      case "STAGED_AUTO": return <AlertCircle className="w-5 h-5" />
+      case "SUGGEST": return <AlertTriangle className="w-5 h-5" />
+      case "INSUFFICIENT_DATA": return <XCircle className="w-5 h-5" />
     }
   }
 
@@ -327,18 +316,18 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                       fill="none"
                       strokeDasharray={`${(safetyScore / 100) * 352} 352`}
                       className={`transition-all duration-500 ${
-                        decision === "EXECUTE" ? "text-[#22c55e]" :
-                        decision === "CANARY" ? "text-blue-500" :
-                        decision === "REVIEW" ? "text-orange-500" : "text-[#ef4444]"
+                        decision === "AUTO" ? "text-[#22c55e]" :
+                        decision === "STAGED_AUTO" ? "text-blue-500" :
+                        decision === "SUGGEST" ? "text-orange-500" : "text-[#ef4444]"
                       }`}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       <div className={`text-2xl font-bold ${
-                        decision === "EXECUTE" ? "text-[#22c55e]" :
-                        decision === "CANARY" ? "text-blue-500" :
-                        decision === "REVIEW" ? "text-orange-500" : "text-[#ef4444]"
+                        decision === "AUTO" ? "text-[#22c55e]" :
+                        decision === "STAGED_AUTO" ? "text-blue-500" :
+                        decision === "SUGGEST" ? "text-orange-500" : "text-[#ef4444]"
                       }`}>
                         {safetyScore}%
                       </div>
@@ -352,16 +341,16 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                   <Badge className={`${getDecisionColor(decision)} text-lg px-4 py-2`}>
                     <span className="flex items-center gap-2">
                       {getDecisionIcon(decision)}
-                      {decision === "EXECUTE" ? "AUTO-REMEDIATE" :
-                       decision === "CANARY" ? "CANARY DEPLOY" :
-                       decision === "REVIEW" ? "REQUIRE APPROVAL" : "BLOCKED"}
+                      {decision === "AUTO" ? "AUTO-REMEDIATE" :
+                       decision === "STAGED_AUTO" ? "CANARY DEPLOY" :
+                       decision === "SUGGEST" ? "REQUIRE APPROVAL" : "BLOCKED"}
                     </span>
                   </Badge>
                   <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-2 max-w-xs">
-                    {decision === "EXECUTE" && "Safe to execute automatically"}
-                    {decision === "CANARY" && "Execute with canary deployment first"}
-                    {decision === "REVIEW" && "Requires manual review before execution"}
-                    {decision === "BLOCK" && "Blocked - too risky to execute"}
+                    {decision === "AUTO" && "Safe to execute automatically"}
+                    {decision === "STAGED_AUTO" && "Execute with canary deployment first"}
+                    {decision === "SUGGEST" && "Requires manual review before execution"}
+                    {decision === "INSUFFICIENT_DATA" && "Blocked - too risky to execute"}
                   </p>
                 </div>
               </div>
@@ -541,7 +530,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 Cancel
               </Button>
 
-              {decision === "EXECUTE" && (
+              {decision === "AUTO" && (
                 <Button
                   onClick={handleExecute}
                   disabled={executing}
@@ -561,7 +550,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 </Button>
               )}
 
-              {decision === "CANARY" && (
+              {decision === "STAGED_AUTO" && (
                 <Button
                   onClick={handleExecute}
                   disabled={executing}
@@ -581,7 +570,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 </Button>
               )}
 
-              {decision === "REVIEW" && (
+              {decision === "SUGGEST" && (
                 <Button
                   onClick={handleExecute}
                   disabled={executing}
@@ -601,7 +590,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 </Button>
               )}
 
-              {decision === "BLOCK" && (
+              {decision === "INSUFFICIENT_DATA" && (
                 <Button disabled className="bg-red-600 opacity-50 cursor-not-allowed">
                   <XCircle className="w-4 h-4 mr-2" />
                   Blocked
