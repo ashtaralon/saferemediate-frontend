@@ -91,10 +91,34 @@ export async function GET() {
     }
 
     const systems = data.systems || []
+
+    // Disambiguate case-insensitive name collisions for the picker UI.
+    // Backend currently emits separate entries for e.g. "Payment-Production"
+    // and "payment-production" — different account_ids, different finding
+    // counts, but visually identical in a dropdown. Until backend dedupes
+    // at source, append an account-id tag to displayName so the operator
+    // can tell them apart. Original `name` (used as lookup key everywhere)
+    // is untouched.
+    const nameCounts = new Map<string, number>()
+    for (const s of systems) {
+      const key = String(s.name || "").toLowerCase()
+      if (key) nameCounts.set(key, (nameCounts.get(key) || 0) + 1)
+    }
+    const disambiguated = systems.map((s: any) => {
+      const key = String(s.name || "").toLowerCase()
+      if ((nameCounts.get(key) || 0) <= 1) return s
+      const acct = s.account_id ? `acct ${String(s.account_id).slice(-4)}` : "no account"
+      return {
+        ...s,
+        displayName: `${s.displayName || s.name} [${acct}]`,
+        nameAmbiguous: true,
+      }
+    })
+
     const responseData = {
       success: true,
-      systems,
-      total: data.total || systems.length,
+      systems: disambiguated,
+      total: data.total || disambiguated.length,
       timestamp: data.timestamp,
     }
 
