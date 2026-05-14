@@ -21,6 +21,7 @@ import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type { ConfidenceScore, SimulateFixSafety, DecisionOutcomeCanonical } from "@/lib/types"
+import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 
 interface PermissionAnalysis {
   permission: string
@@ -1758,14 +1759,23 @@ export function IAMPermissionAnalysisModal({
   // 5 show "SAFE TO APPLY / 95 confidence" on top of a pipeline BLOCK.
   // The pipeline decision is now the first read, so the badge can never
   // contradict the pipeline.
+  // Bucket-name mapping kept stable for downstream consumers (VERDICT_CONFIG
+  // lookup at line ~1987, plus `verdictBucket === 'blocked' | 'auto_execute'`
+  // comparisons in both early-return views). Internal mapping now routes
+  // through lib/decision-routing.toRoutingDecision so there is one source
+  // of truth for legacy → canonical conversion. When the rest of the modal
+  // migrates to RoutingDecision in a follow-up, this wrapper goes away.
+  const CANONICAL_TO_BUCKET: Record<RoutingDecision,
+    'blocked' | 'manual_review' | 'human_approval' | 'auto_execute'> = {
+    INSUFFICIENT_DATA: 'blocked',
+    SUGGEST: 'manual_review',
+    STAGED_AUTO: 'human_approval',
+    AUTO: 'auto_execute',
+  }
   const canonicalToBucket = (d?: DecisionOutcomeCanonical | null):
     'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' | null => {
-    if (!d) return null
-    if (d === 'BLOCK' || d === 'EXCLUDE') return 'blocked'
-    if (d === 'MANUAL_REVIEW') return 'manual_review'
-    if (d === 'REQUIRE_APPROVAL' || d === 'CANARY_FIRST') return 'human_approval'
-    if (d === 'AUTO_EXECUTE') return 'auto_execute'
-    return null
+    const routed = toRoutingDecision(d)
+    return routed ? CANONICAL_TO_BUCKET[routed] : null
   }
   // Cap the non-pipeline fallback below auto_execute. The UI must never
   // render "SAFE TO APPLY" unless the unified pipeline explicitly said so.
