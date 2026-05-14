@@ -43,7 +43,11 @@ export function LeftSidebarNav({
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
     { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
     { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },
-    { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
+    // Identities removed from sidebar pending backend fix for /api/identities (returns
+    // 404 with a 23KB HTML error body). Restore once backend ships the upstream route —
+    // there's no graceful empty-state in the identities section today, so the link
+    // would show a broken page to a CISO.
+    // { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
     { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
