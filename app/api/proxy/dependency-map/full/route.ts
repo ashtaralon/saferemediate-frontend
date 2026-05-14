@@ -16,38 +16,35 @@ const cache: { [key: string]: { data: any; timestamp: number } } = {};
 const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 /**
- * Returns an OK response on success. On failure, returns the *last*
- * non-OK Response so the caller can surface its real status. Throws
- * only on network/timeout errors (callers translate those via
- * fromCaughtError).
+ * Single-attempt fetch with a 55s upstream timeout.
+ *
+ * Previous version retried up to 3× with exponential backoff between
+ * attempts. With a 60s Vercel function budget and a 55s per-attempt
+ * timeout, even ONE retry would exceed the budget — the function got
+ * killed mid-second-attempt and the operator saw 504 with no clear
+ * cause. On a cold-cache page load (most common 504 scenario), the
+ * second attempt has only ~4s of headroom before Vercel terminates.
+ *
+ * Backend usually responds in <1s warm-cache, ~30-40s cold-cache.
+ * Single attempt with 55s upstream timeout fits cleanly in the 60s
+ * function budget and surfaces the real backend status / error on
+ * the rare cold-AND-slow path.
+ *
+ * Returns the response (OK or not) so the caller can decide what to
+ * do. Throws only on network/timeout errors.
  */
-async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
-  let lastResponse: Response | null = null;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 55000);
-
-      const res = await fetch(url, {
-        cache: "no-store",
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
-
-      clearTimeout(timeoutId);
-
-      if (res.ok) return res;
-      lastResponse = res;
-      console.log("[Dependency Map Full] Attempt " + (i + 1) + " failed with status " + res.status);
-    } catch (error: any) {
-      console.log("[Dependency Map Full] Attempt " + (i + 1) + " failed: " + error.message);
-      if (i === retries) throw error;
-    }
-
-    if (i < retries) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+async function fetchOnce(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 55000);
+  try {
+    return await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
-  if (lastResponse) return lastResponse;
-  throw new Error("All retries failed");
 }
 
 export async function GET(req: NextRequest) {
@@ -78,7 +75,7 @@ export async function GET(req: NextRequest) {
     const backendUrl = BACKEND_URL + "/api/dependency-map/full?" + params.toString();
 
     console.log("[Dependency Map Full] Cache MISS - fetching from backend");
-    const res = await fetchWithRetry(backendUrl);
+    const res = await fetchOnce(backendUrl);
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
