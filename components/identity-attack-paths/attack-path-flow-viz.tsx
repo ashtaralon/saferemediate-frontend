@@ -39,7 +39,14 @@ interface ComputeBadge {
   // with the SG icon. Now each network-topology element has its own
   // badge so the path reads "EC2 → SG → NACL → Subnet → VPC" instead of
   // "EC2 → four indistinguishable orange shields".
-  kind: "sg" | "nacl" | "subnet" | "vpc"
+  //
+  // `igw` is a synthesized badge — backend doesn't emit InternetGateway
+  // nodes in attack paths, but every public-subnet hop has an IGW as
+  // the actual mechanism that makes the path reachable from the internet.
+  // We insert an `igw` badge before each public Subnet badge so the
+  // operator sees the explicit IGW step in the chain. Remove this
+  // synthesis once the backend emits real IGW nodes + edges.
+  kind: "sg" | "nacl" | "subnet" | "vpc" | "igw"
   ruleCount?: number
   gapCount?: number
   isOpenToInternet?: boolean
@@ -220,6 +227,21 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     const targetId = parentComputeId ?? actualComputes[0]?.id
     if (targetId) {
       const existing = badges.get(targetId) ?? []
+      // Synthesize an explicit Internet Gateway badge BEFORE any
+      // public-subnet badge. Backend doesn't emit InternetGateway
+      // nodes in attack paths today; the IGW is the actual AWS
+      // resource that makes a Public subnet reachable from the
+      // internet, so the operator should see it in the chain
+      // instead of having to infer it from the subnet's color
+      // alone.
+      const isPublicSubnet = kind === "subnet" && (sgNode.subnet_is_public === true)
+      if (isPublicSubnet) {
+        existing.push({
+          id: `${sgNode.id}::igw`,
+          name: "Internet Gateway",
+          kind: "igw",
+        })
+      }
       existing.push({
         id: sgNode.id,
         name: shortName(sgNode.name ?? sgNode.id, 16),
@@ -571,6 +593,8 @@ function ComputeNodeCard({
                     ? "bg-orange-500/10 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 hover:border-orange-400"
                   : badge.kind === "nacl"
                     ? "bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 hover:border-cyan-400"
+                  : badge.kind === "igw"
+                    ? "bg-red-500/15 text-red-200 border border-red-500/40 hover:bg-red-500/25 hover:border-red-400"
                   : badge.kind === "subnet"
                     ? (badge.subnetPublic === true
                         ? "bg-amber-500/10 text-amber-200 border border-amber-500/30 hover:bg-amber-500/25 hover:border-amber-400"
@@ -586,6 +610,12 @@ function ComputeNodeCard({
                 <Shield className="w-3.5 h-3.5 flex-shrink-0" />
               ) : badge.kind === "nacl" ? (
                 <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+              ) : badge.kind === "igw" ? (
+                // Globe icon for the synthesized Internet Gateway badge —
+                // the operator should read this as "the path enters AWS
+                // here, from the public internet". Red theme matches the
+                // severity of the exposure.
+                <Globe className="w-3.5 h-3.5 flex-shrink-0" />
               ) : badge.kind === "subnet" ? (
                 // Globe for network topology — same icon as the related-chips
                 // subnet entry so the visual vocabulary stays consistent
@@ -603,6 +633,8 @@ function ComputeNodeCard({
                         ? "text-orange-400/60"
                         : badge.kind === "nacl"
                           ? "text-cyan-400/60"
+                          : badge.kind === "igw"
+                            ? "text-red-400/80"
                           : badge.kind === "subnet"
                             ? badge.subnetPublic === true
                               ? "text-amber-400/70"
@@ -616,6 +648,8 @@ function ComputeNodeCard({
                       ? "Security Group"
                       : badge.kind === "nacl"
                         ? "Network ACL"
+                        : badge.kind === "igw"
+                          ? "Internet Gateway · Public ingress"
                         : badge.kind === "subnet"
                           ? badge.subnetPublic === true
                             ? "Subnet · Public"
