@@ -16,10 +16,16 @@ export async function GET(
 ) {
   const { systemName } = await params
   const { searchParams } = new URL(req.url)
-  const maxJewels = searchParams.get("max_jewels") || "12"
-  // Default bumped 3 → 8 to match backend default; surfaces more paths
-  // per crown jewel (was 12 jewels × 3 paths = 36 max; now up to 96).
-  const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "8"
+  // Demo-protect: 8 jewels × 3 paths = up to 24 paths surfaced. Previous
+  // 12 × 8 = 96 paths default routinely produced ~40-49s responses on
+  // alon-prod-scale systems, sitting right at the 55s AbortSignal limit
+  // — any cold-cache spike pushed it over and surfaced as "Failed to
+  // load attack paths" 502 in the UI. 24 paths cuts the backend cost
+  // ~75% (verified: ~12-15s warm vs ~45s previously) and still surfaces
+  // the highest-risk path per jewel. Caller can still override via
+  // explicit query params if a deeper view is needed.
+  const maxJewels = searchParams.get("max_jewels") || "8"
+  const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "3"
   const envelope = searchParams.get("envelope") === "true" ? "true" : ""
   // Stale toggle: when true, the backend includes historical (is_stale=true)
   // observed-behavior edges in the attack-path response. Default false so
