@@ -16,16 +16,16 @@ export async function GET(
 ) {
   const { systemName } = await params
   const { searchParams } = new URL(req.url)
-  // Demo-protect: 8 jewels × 3 paths = up to 24 paths surfaced. Previous
-  // 12 × 8 = 96 paths default routinely produced ~40-49s responses on
-  // alon-prod-scale systems, sitting right at the 55s AbortSignal limit
-  // — any cold-cache spike pushed it over and surfaced as "Failed to
-  // load attack paths" 502 in the UI. 24 paths cuts the backend cost
-  // ~75% (verified: ~12-15s warm vs ~45s previously) and still surfaces
-  // the highest-risk path per jewel. Caller can still override via
-  // explicit query params if a deeper view is needed.
+  // 8 jewels × 8 paths/jewel = up to 64 paths surfaced. Previous 12 × 8
+  // = 96 paths routinely produced ~49s responses against the 55s
+  // AbortSignal limit — surfacing as 502 in the UI under any cold-cache
+  // spike. Measured: 12×8 = 49s cold, 8×8 = ~20s, 8×3 = ~28s. The cost
+  // driver is `max_jewels` (graph traversal per jewel), not
+  // `max_paths_per_jewel` (output size). Cutting jewels from 12 → 8
+  // gives a comfortable margin; keeping 8 paths/jewel preserves the
+  // operator drill-down depth (Path 1/8, 2/8, ... per jewel).
   const maxJewels = searchParams.get("max_jewels") || "8"
-  const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "3"
+  const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "8"
   const envelope = searchParams.get("envelope") === "true" ? "true" : ""
   // Stale toggle: when true, the backend includes historical (is_stale=true)
   // observed-behavior edges in the attack-path response. Default false so
