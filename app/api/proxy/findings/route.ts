@@ -11,6 +11,38 @@ const BACKEND_URL =
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
+// Vocabulary normalization at the trust boundary.
+// Backend has two finding emitters (legacy + new) that disagree on severity
+// casing, status casing, and resourceType spacing. Until those converge,
+// canonicalize here so internal frontend code sees one shape:
+//   severity: "critical" | "high" | "medium" | "low" (lowercase — matches
+//             the predominant comparison pattern in components; display
+//             code uppercases via `.toUpperCase()` for badges)
+//   status:   "open" | "resolved" (lowercase, same reasoning)
+//   resourceType: "SecurityGroup" | "IAMRole" | "S3Bucket" (unspaced —
+//             matches what LeastPrivilegeTab and others filter on)
+const RESOURCE_TYPE_CANONICAL: Record<string, string> = {
+  "Security Group": "SecurityGroup",
+  "IAM Role": "IAMRole",
+  "S3 Bucket": "S3Bucket",
+};
+
+function canonicalResourceType(raw: unknown): unknown {
+  if (raw == null) return raw;
+  const s = String(raw).trim();
+  return RESOURCE_TYPE_CANONICAL[s] ?? s;
+}
+
+function normalizeFinding(f: any): any {
+  if (!f || typeof f !== "object") return f;
+  return {
+    ...f,
+    severity: typeof f.severity === "string" ? f.severity.toLowerCase() : f.severity,
+    status: typeof f.status === "string" ? f.status.toLowerCase() : f.status,
+    resourceType: canonicalResourceType(f.resourceType),
+  };
+}
+
 function getCacheKey(systemName: string | null, status: string | null, severity: string | null): string {
   return `findings:${systemName || 'all'}:${status || 'all'}:${severity || 'all'}`;
 }
@@ -86,11 +118,12 @@ export async function GET(request: Request) {
     const findings = data.findings || data.recommendations || data || [];
     const total = data.total ?? data.count ?? findings.length;
 
+    const normalized = Array.isArray(findings) ? findings.map(normalizeFinding) : [];
     const result = {
       success: true,
-      findings: Array.isArray(findings) ? findings : [],
-      total: Array.isArray(findings) ? (total || findings.length) : 0,
-      count: Array.isArray(findings) ? findings.length : 0,
+      findings: normalized,
+      total: Array.isArray(findings) ? (total || normalized.length) : 0,
+      count: normalized.length,
       source: "backend"
     };
 
