@@ -173,7 +173,7 @@ export function SystemHealthSection() {
 
       {selectedFinding && (
         <SimulateFixModal
-          open={showSimulateModal}
+          isOpen={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedFinding(null)
