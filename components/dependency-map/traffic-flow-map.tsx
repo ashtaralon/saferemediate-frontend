@@ -3864,9 +3864,14 @@ export default function TrafficFlowMap({
       // graph doesn't change at second resolution. Manual refresh
       // button still bypasses cache when isManualRefresh is true.
       const cacheBust = isManualRefresh ? `&_t=${Date.now()}` : "";
-      // systemName comes from props (default: 'alon-prod')
+      // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
+      // the backend past the 55s upstream timeout and surfaces 504/502
+      // when the in-memory + edge caches are cold. 300 nodes still
+      // covers all 7 EC2 instances + their SGs/NACLs/Subnets/VPCs + the
+      // top IAM roles, which is what this viz actually renders. Bump
+      // back up if a downstream operator workflow needs more breadth.
       const depRes = await fetch(
-        `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500${cacheBust}`,
+        `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${cacheBust}`,
         isManualRefresh
           ? { cache: "no-store", headers: { "Cache-Control": "no-cache" } }
           : {},
