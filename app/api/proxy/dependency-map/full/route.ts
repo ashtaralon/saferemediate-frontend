@@ -5,8 +5,15 @@ const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com";
 
 export const maxDuration = 60;
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
+// Intentionally NOT `dynamic = "force-dynamic"` or `fetchCache =
+// "force-no-store"` — those flags opt the route out of all response
+// caching, which defeats the Vercel edge CDN Cache-Control we set on
+// the response below. Without edge caching, every Vercel function
+// instance pays the full ~30-40s cold-cache backend cost on first hit
+// to that instance — multi-instance deployments routinely hit cold
+// instances on retries, surfacing as 504 to the operator (see the
+// "Failed to fetch dependency map: 504" popup in the alon-prod Attack
+// Paths view).
 
 // Simple in-memory cache. Only stores SUCCESSFUL responses. Backend
 // failures and stale-cache-on-error fallbacks were removed because they
@@ -62,7 +69,15 @@ export async function GET(req: NextRequest) {
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     console.log("[Dependency Map Full] Cache HIT for " + systemName);
     return NextResponse.json(cached.data, {
-      headers: { "X-Cache": "HIT", "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)) }
+      headers: {
+        "X-Cache": "HIT",
+        "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
+        // Vercel edge CDN — serves cross-instance requests directly so
+        // cold Lambdas don't re-pay the backend cost. Matches the 2-min
+        // in-memory TTL with extra stale-while-revalidate for tail
+        // tolerance during refresh hops.
+        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+      }
     });
   }
 
@@ -93,7 +108,14 @@ export async function GET(req: NextRequest) {
     console.log("[Dependency Map Full] Success: " + (data.nodes?.length || 0) + " nodes, " + (data.edges?.length || 0) + " edges");
 
     return NextResponse.json(data, {
-      headers: { "X-Cache": "MISS" }
+      headers: {
+        "X-Cache": "MISS",
+        // 2-min Vercel edge cache + 4-min stale-while-revalidate. After
+        // the first successful response, the next 2 min of requests are
+        // served from the edge CDN regardless of which function
+        // instance they'd otherwise route to.
+        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+      }
     });
   } catch (error: any) {
     console.error("[Dependency Map Full] Error:", error.message);
