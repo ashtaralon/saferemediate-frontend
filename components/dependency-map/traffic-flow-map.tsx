@@ -3013,6 +3013,17 @@ export default function TrafficFlowMap({
   const setArchitecture = setRawArchitecture;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Fetch-generation counter. Each loadData() call bumps this; background
+  // enrichment closures capture the epoch at start and skip their
+  // setArchitecture if a newer loadData has run in the meantime.
+  //
+  // Bug this prevents: operator navigates alon-prod → cyntroprod within
+  // the ~5-10s background-enrichment window. The OLD closure still holds
+  // alon-prod's archForGaps. When its slow IAM fetches complete, the
+  // .then() callback would call setArchitecture({...alonProdArch}) and
+  // silently overwrite the freshly-fetched cyntroprod architecture with
+  // alon-prod data — wrong role counts, wrong SG list, all wrong.
+  const fetchEpochRef = useRef(0);
   const [animate, setAnimate] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -3853,6 +3864,12 @@ export default function TrafficFlowMap({
     setRefreshStatus('fetching');
     setError(null);
 
+    // Bump the epoch BEFORE any async work. Background enrichments
+    // capture this value at start and only commit their setArchitecture
+    // when the captured epoch still matches the ref's current value —
+    // any newer loadData call invalidates older in-flight enrichments.
+    const myEpoch = ++fetchEpochRef.current;
+
     // Hard ceiling on the "Building Architecture..." spinner. Even if
     // the dep-map fetch is slow or some downstream enrichment hangs,
     // the operator should never see the spinner for more than 20s.
@@ -3941,6 +3958,16 @@ export default function TrafficFlowMap({
           console.log(`[TrafficFlowMap] Changes detected:`, changes);
         }
 
+        // Same epoch guard as the enrichment chains below. A slow fetch
+        // arriving AFTER a newer loadData has fired its own setArchitecture
+        // would otherwise silently overwrite the fresh data with stale
+        // data from the older fetch (e.g. user navigated systems mid-
+        // fetch). Skip the state update; the newer loadData owns the
+        // architecture state.
+        if (fetchEpochRef.current !== myEpoch) {
+          console.log('[TrafficFlowMap] Initial render skipped — superseded by newer fetch');
+          return;
+        }
         setLastChanges(changes);
         // setRawArchitecture stores the unfiltered fetch result; the
         // displayed `architecture` is derived from it via useMemo so
@@ -3964,6 +3991,13 @@ export default function TrafficFlowMap({
                 }),
             ),
           ).then(iamResults => {
+            // Guard against stale enrichment: if a newer loadData ran while
+            // these IAM lookups were in flight, the architecture state has
+            // since been replaced. Don't overwrite it with our stale data.
+            if (fetchEpochRef.current !== myEpoch) {
+              console.log('[TrafficFlowMap] IAM enrichment skipped — superseded by newer fetch');
+              return;
+            }
             iamResults.forEach(result => {
               if (!result) return;
               const { roleId, usedCount, totalCount, gapCount } = result;
@@ -3999,6 +4033,11 @@ export default function TrafficFlowMap({
                 }),
             ),
           ).then(sgRulesResults => {
+            // Same epoch guard as IAM enrichment above — see comment there.
+            if (fetchEpochRef.current !== myEpoch) {
+              console.log('[TrafficFlowMap] SG enrichment skipped — superseded by newer fetch');
+              return;
+            }
             sgRulesResults.forEach(result => {
               if (!result) return;
               const { sgId, rules } = result;
