@@ -160,7 +160,10 @@ export default function ReachPage() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    const qs = `?include_edges=${includeEdges}&max_nodes=200`
+    // max_nodes=100 sized to fit Render→Aura connection budget when
+    // include_edges=true; the LIMIT 2000 edges cap still hits under
+    // the proxy's 25s timeout at this node count.
+    const qs = `?include_edges=${includeEdges}&max_nodes=100`
     fetch(`/api/proxy/attack-paths/${encodeURIComponent(systemName)}/reach${qs}`)
       .then(async (r) => {
         if (!r.ok) {
