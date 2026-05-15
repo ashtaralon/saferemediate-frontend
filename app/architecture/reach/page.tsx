@@ -160,10 +160,12 @@ export default function ReachPage() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    // max_nodes=100 sized to fit Render→Aura connection budget when
-    // include_edges=true; the LIMIT 2000 edges cap still hits under
-    // the proxy's 25s timeout at this node count.
-    const qs = `?include_edges=${includeEdges}&max_nodes=100`
+    // Backend edge query plan was rewritten to use indexed UNWIND
+    // bind on node ids (was unbounded MATCH (a)-[r]->(b) with
+    // coalesce filter — defeated index, scanned every relationship).
+    // After the fix it returns in ~2s at max_nodes=500, so 200 is
+    // safely under both the proxy 25s and human-perception budgets.
+    const qs = `?include_edges=${includeEdges}&max_nodes=200`
     fetch(`/api/proxy/attack-paths/${encodeURIComponent(systemName)}/reach${qs}`)
       .then(async (r) => {
         if (!r.ok) {
