@@ -3916,32 +3916,22 @@ export default function TrafficFlowMap({
           });
         }
 
-        // Fetch IAM role gap analysis for each role in parallel
-        if (arch.iamRoles.length > 0) {
-          console.log(`[TrafficFlowMap] Fetching IAM data for ${arch.iamRoles.length} roles...`);
-          const iamPromises = arch.iamRoles.map(role =>
-            fetchIAMRoleData(role.name).then(data => ({ roleId: role.id, ...data }))
-          );
+        // Render architecture immediately. IAM gap-analysis fetches
+        // happen in the background so we don't block first paint waiting
+        // on N parallel ~5s HTTP calls (N grew from ~5 BFS-path roles to
+        // ~41 attached roles after the dual-source bucketing in commit
+        // 86c865c — Promise.all on 41 × 5s exceeded operator patience
+        // and stalled the "Building Architecture..." loader).
+        //
+        // The role cards render with placeholder counts (0/0) until the
+        // IAM data arrives, then the architecture state updates and the
+        // counts fill in. No race risk: the lookup is by role.id so a
+        // late-arriving result still maps to the right card.
+        const archForGaps = arch;
 
-          const iamResults = await Promise.all(iamPromises);
-
-          // Update IAM roles with real permission counts
-          iamResults.forEach(({ roleId, usedCount, totalCount, gapCount }) => {
-            const role = arch.iamRoles.find(r => r.id === roleId);
-            if (role) {
-              role.usedCount = usedCount;
-              role.totalCount = totalCount;
-              role.gapCount = gapCount;
-              console.log(`[TrafficFlowMap] IAM ${role.shortName}: ${usedCount}/${totalCount} perms, ${gapCount} unused`);
-            }
-          });
-        }
-
-        // Recalculate total gaps after all data is fetched
-        arch.totalGaps = arch.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
-                        arch.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
-
-        // Detect changes from previous architecture
+        // Detect changes from previous architecture (uses arch with
+        // placeholder IAM counts — that's fine, the totalGaps update
+        // below fires its own setArchitecture once IAM data arrives).
         const changes = detectChanges(previousArchRef.current, arch);
         previousArchRef.current = arch;
 
@@ -3958,6 +3948,41 @@ export default function TrafficFlowMap({
         setArchitecture(arch);
         setLastUpdated(new Date());
         setRefreshStatus('success');
+
+        // Background IAM gap-analysis enrichment. Fires-and-forgets;
+        // does NOT block the architecture render.
+        if (archForGaps.iamRoles.length > 0) {
+          console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
+          Promise.all(
+            archForGaps.iamRoles.map(role =>
+              fetchIAMRoleData(role.name)
+                .then(data => ({ roleId: role.id, ...data }))
+                .catch(err => {
+                  console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
+                  return null;
+                }),
+            ),
+          ).then(iamResults => {
+            iamResults.forEach(result => {
+              if (!result) return;
+              const { roleId, usedCount, totalCount, gapCount } = result;
+              const role = archForGaps.iamRoles.find(r => r.id === roleId);
+              if (role) {
+                role.usedCount = usedCount;
+                role.totalCount = totalCount;
+                role.gapCount = gapCount;
+              }
+            });
+            // Recompute totalGaps after IAM enrichment
+            archForGaps.totalGaps =
+              archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+              archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
+            // Push a new architecture object reference so React picks up
+            // the IAM count updates. Spread to force a new top-level
+            // identity even though arrays are mutated in place above.
+            setArchitecture({ ...archForGaps });
+          });
+        }
 
         // Auto-dismiss success status after 5 seconds
         if (changes.totalChanges > 0) {
