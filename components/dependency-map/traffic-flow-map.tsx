@@ -3853,6 +3853,18 @@ export default function TrafficFlowMap({
     setRefreshStatus('fetching');
     setError(null);
 
+    // Hard ceiling on the "Building Architecture..." spinner. Even if
+    // the dep-map fetch is slow or some downstream enrichment hangs,
+    // the operator should never see the spinner for more than 20s.
+    // After the timeout the spinner clears unconditionally — the page
+    // shows the error state ("No data available") instead of an
+    // indefinite loading state. The actual fetch keeps running and
+    // will populate `architecture` if/when it returns.
+    const loadingTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 20000);
+    const clearLoadingTimeout = () => clearTimeout(loadingTimeout);
+
     try {
       // Let the proxy's edge cache (b560e72, s-maxage=120) serve when
       // available — backend dep-map costs 30–40s cold, and the user
@@ -3896,25 +3908,14 @@ export default function TrafficFlowMap({
         // Build architecture without IAM data first (will be fetched per-role)
         const arch = buildArchitecture(nodes, edges, []);
 
-        // Fetch real SG rules for each security group in parallel
-        if (arch.securityGroups.length > 0) {
-          const sgRulesPromises = arch.securityGroups.map(sg =>
-            fetchSGRules(sg.id).then(rules => ({ sgId: sg.id, rules }))
-          );
-
-          const sgRulesResults = await Promise.all(sgRulesPromises);
-
-          // Update security groups with real rules
-          sgRulesResults.forEach(({ sgId, rules }) => {
-            const sg = arch.securityGroups.find(s => s.id === sgId);
-            if (sg) {
-              sg.rules = rules;
-              sg.totalCount = rules.length;
-              sg.usedCount = rules.filter(r => r.status === 'used').length;
-              sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
-            }
-          });
-        }
+        // SG rules + IAM gap-analysis are BOTH background-fetched now.
+        // Earlier we left SG synchronous because "it's only ~9 SGs", but
+        // each /api/proxy/security-groups/{id}/inspector call is 2-5s
+        // and on path-filtered views with widened bucketing the SG list
+        // grew. Net: a 10-20s wait on "Building Architecture..." even
+        // after the IAM fix. Both enrichments now happen post-render so
+        // the operator sees the architecture immediately and counts
+        // fill in as data arrives.
 
         // Render architecture immediately. IAM gap-analysis fetches
         // happen in the background so we don't block first paint waiting
@@ -3984,6 +3985,39 @@ export default function TrafficFlowMap({
           });
         }
 
+        // Background SG rules enrichment (parallel to IAM). Fires-and-
+        // forgets; doesn't block architecture render. SG cards initially
+        // show 0 rules; counts fill in as per-SG inspector calls return.
+        if (archForGaps.securityGroups.length > 0) {
+          Promise.all(
+            archForGaps.securityGroups.map(sg =>
+              fetchSGRules(sg.id)
+                .then(rules => ({ sgId: sg.id, rules }))
+                .catch(err => {
+                  console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
+                  return null;
+                }),
+            ),
+          ).then(sgRulesResults => {
+            sgRulesResults.forEach(result => {
+              if (!result) return;
+              const { sgId, rules } = result;
+              const sg = archForGaps.securityGroups.find(s => s.id === sgId);
+              if (sg) {
+                sg.rules = rules;
+                sg.totalCount = rules.length;
+                sg.usedCount = rules.filter(r => r.status === 'used').length;
+                sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
+              }
+            });
+            // Recompute totalGaps after SG enrichment
+            archForGaps.totalGaps =
+              archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+              archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
+            setArchitecture({ ...archForGaps });
+          });
+        }
+
         // Auto-dismiss success status after 5 seconds
         if (changes.totalChanges > 0) {
           setTimeout(() => setRefreshStatus('idle'), 5000);
@@ -3996,6 +4030,7 @@ export default function TrafficFlowMap({
       setError(err.message);
       setRefreshStatus('error');
     } finally {
+      clearLoadingTimeout();
       setLoading(false);
     }
   }, [buildArchitecture, fetchSGRules, rawArchitecture, systemName]);
