@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { riskLabel } from '@/lib/utils';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -2203,7 +2203,27 @@ function UnifiedArchitectureDiagram({
           ghostedNodeIds={ghostedNodeIds}
         />
 
-        <div className="relative grid grid-cols-[1fr_auto_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
+        {/* When the path has no network controls at all — no subnets, no
+            SGs, no NACLs — the three middle columns render as three
+            empty cells that crush COMPUTE and IAM ROLES into the
+            corners and make the path look like a bug rather than a
+            real IAM-only attack path (e.g. a Lambda without VpcConfig
+            calling an AWS service over the public API endpoint).
+            Collapse to a single banner in that case so operators read
+            "no network gate" as the security narrative, not as missing
+            UI. The 3-col template gives COMPUTE and IAM ROLES room to
+            breathe; API CALLS / RESOURCES on the row below adapt to
+            whichever column count is active. */}
+        <div
+          className={`relative grid ${
+            (architecture.subnets?.length ?? 0) === 0 &&
+            architecture.securityGroups.length === 0 &&
+            architecture.nacls.length === 0
+              ? "grid-cols-[1fr_2fr_1fr]"
+              : "grid-cols-[1fr_auto_auto_auto_1fr]"
+          } gap-6 items-start`}
+          style={{ zIndex: 2 }}
+        >
           {/* COMPUTE */}
           <div className="flex flex-col gap-3">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -2244,6 +2264,39 @@ function UnifiedArchitectureDiagram({
             })}
           </div>
 
+          {/* When subnets=0, SGs=0, NACLs=0 we collapse the three
+              network-control columns into a single banner cell so
+              operators read "no network gate" as the security
+              narrative, not as missing data. The banner is rendered
+              once; the three column sections fall back to their
+              normal layout when ANY of subnets/SGs/NACLs is non-empty
+              (i.e. the path genuinely passes through network
+              controls). */}
+          {(architecture.subnets?.length ?? 0) === 0 &&
+          architecture.securityGroups.length === 0 &&
+          architecture.nacls.length === 0 ? (
+            <div className="flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center">
+                  <ShieldOff className="w-6 h-6 text-amber-400" />
+                </div>
+                <div className="text-amber-400 text-lg font-bold uppercase tracking-wider">
+                  No Network Controls
+                </div>
+              </div>
+              <div className="text-slate-200 text-base font-medium text-center mb-2">
+                IAM is the only gate on this path.
+              </div>
+              <div className="text-slate-400 text-sm text-center max-w-md leading-relaxed">
+                This workload reaches its target via the public AWS API
+                endpoint — no VPC, no subnet, no Security Group, no
+                NACL is involved. Network defenses do not apply.
+                Compromising the IAM role on the right grants the role's
+                full permissions on the resources below.
+              </div>
+            </div>
+          ) : (
+            <>
           {/* SUBNETS */}
           {/* Renders every subnet that contains a compute on this path,
               with the public/private/unknown posture from
@@ -2353,6 +2406,8 @@ function UnifiedArchitectureDiagram({
               <div className="text-xs text-slate-500 italic p-4 text-center">No NACLs</div>
             )}
           </div>
+            </>
+          )}
 
           {/* IAM ROLES */}
           <div className="flex flex-col gap-3 items-center">
@@ -2913,6 +2968,36 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     if (e.protocol) cur.protocols.add(e.protocol);
     bytesByResource.set(e.target, cur);
   });
+
+  // IAM-only paths (no compute on the path — e.g. AWS service roles
+  // assumed by AWS itself like AWSServiceRoleForResourceExplorer) need
+  // their own flow synthesis here. The compute→resource loop below
+  // produces nothing because computeIds is empty. Without this block,
+  // ConnectionLinesSVG sees zero flows and draws no lines between IAM,
+  // API, and RESOURCE columns — operator sees disconnected boxes.
+  //
+  // Mirrors the same fallback in buildArchitecture but operates on the
+  // path-filtered iamRoles/resources arrays so the flow's source/target
+  // are guaranteed to pass the inPath gate in the merge step below.
+  if (computeIds.length === 0 && iamRoles.length > 0 && resourceIds.length > 0) {
+    iamRoles.forEach((role) => {
+      resourceIds.forEach((rid) => {
+        const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+        flowMap.set(flowKey(role.id, rid), {
+          sourceId: role.id,
+          targetId: rid,
+          sgId: undefined,
+          naclId: undefined,
+          roleId: role.id,
+          ports: [...agg.ports],
+          protocol: [...agg.protocols][0] || 'IAM',
+          bytes: agg.bytes,
+          connections: agg.hits > 0 ? agg.hits : (agg.bytes > 0 ? 1 : 0),
+          isActive: agg.observed && agg.bytes > 0,
+        });
+      });
+    });
+  }
 
   computeIds.forEach((cid) => {
     resourceIds.forEach((rid) => {
