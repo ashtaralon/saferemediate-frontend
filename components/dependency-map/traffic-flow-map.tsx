@@ -1855,7 +1855,17 @@ export function ConnectionLinesSVG({
       const newLines: typeof lines = [];
 
       architecture.flows.forEach(flow => {
-        const sourceEl = container.querySelector(`[data-compute-id="${flow.sourceId}"]`);
+        // Source resolution: prefer compute, fall back to IAM role for
+        // IAM-only paths (no workload code ran — e.g. AWS service roles
+        // assumed by AWS itself, like AWSServiceRoleForResourceExplorer
+        // calling GetObject on an S3 bucket). For those paths, the
+        // synthesized flow's sourceId IS the role id; without this
+        // fallback the line-drawing returned early and the operator saw
+        // the IAM/API/Resource columns visually disconnected.
+        let sourceEl = container.querySelector(`[data-compute-id="${flow.sourceId}"]`);
+        if (!sourceEl) {
+          sourceEl = container.querySelector(`[data-role-id="${flow.sourceId}"]`);
+        }
         const targetEl = container.querySelector(`[data-resource-id="${flow.targetId}"]`);
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
@@ -3654,6 +3664,41 @@ export default function TrafficFlowMap({
         connectedTargets: [],
       });
     });
+
+    // Synthesize IAM-only path flows when there's no compute. Operator-
+    // visible bug this fixes: an attack path through an AWS service role
+    // (e.g. AWSServiceRoleForResourceExplorer → GetObject → S3-prod-data)
+    // has no compute node — flowMap is empty — so ConnectionLinesSVG had
+    // nothing to render. The IAM ROLE, API CALL, and S3 RESOURCE columns
+    // showed as visually disconnected even though they're a real attack
+    // chain in Neo4j.
+    //
+    // Fix: when there are no compute services but there ARE IAM roles
+    // and resources, synthesize a flow per (role, resource) pair using
+    // the role as the source. ConnectionLinesSVG now falls back to
+    // querying [data-role-id] when [data-compute-id] doesn't match, so
+    // these synthesized flows produce real lines from IAM → API →
+    // RESOURCE.
+    if (computeServices.length === 0 && iamRoles.length > 0 && resources.length > 0) {
+      iamRoles.forEach(role => {
+        resources.forEach(res => {
+          const flowKey = `${role.id}->${res.id}`;
+          if (flowMap.has(flowKey)) return;
+          flowMap.set(flowKey, {
+            sourceId: role.id,
+            targetId: res.id,
+            sgId: undefined,
+            naclId: undefined,
+            roleId: role.id,
+            ports: [],
+            protocol: 'IAM',
+            bytes: 0,
+            connections: 0,
+            isActive: false,
+          });
+        });
+      });
+    }
 
     const flows = Array.from(flowMap.values());
     const totalBytes = flows.reduce((sum, f) => sum + f.bytes, 0);
