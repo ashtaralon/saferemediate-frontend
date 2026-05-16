@@ -1,55 +1,62 @@
 "use client"
 
 /**
- * Egress Flow Map — "two ways to exit" path-flow visualization
- * =============================================================
+ * Egress Flow Map — Path-Flow-Map visual for outbound traffic.
  *
- * Same visual language as the Attack Paths "Path Flow Map" but for
- * outbound traffic: dark canvas, column-based swimlanes, animated SVG
- * arrows, node cards with bytes/hits, severity-coded signal chips.
+ * Reuses ConnectionLinesSVG + ServiceNodeBox from traffic-flow-map.tsx
+ * so the visual is identical to the Attack Paths "Path Flow Map":
+ * dark slate canvas, column-based swimlanes, animated curved SVG
+ * arrows with cyan traffic dots, node cards with bytes/hits chips.
  *
- * Layout: two stacked swimlanes — PUBLIC EXIT (NAT/IGW → Internet) on
- * top so the riskier story leads, PRIVATE EXIT (VPCE → AWS service)
- * below as the "safe alternative" comparison.
+ * Layout columns (mirrors path-flow):
+ *   COMPUTE → SECURITY GROUPS → ROUTE (NAT/IGW/VPCE) → DESTINATION
  *
- *   ┌──────────────────────────────────────────────────────────────┐
- *   │  PUBLIC EXIT · via NAT / IGW                                 │
- *   │  [COMPUTE] → [SG] → [NAT/IGW] → [Internet destinations]      │
- *   └──────────────────────────────────────────────────────────────┘
- *   ┌──────────────────────────────────────────────────────────────┐
- *   │  PRIVATE EXIT · via VPC Endpoint                             │
- *   │  [COMPUTE] → [SG] → [VPCE] → [AWS services]                  │
- *   └──────────────────────────────────────────────────────────────┘
+ * Data shape: we adapt the egress endpoint response into the
+ * SystemArchitecture interface that ConnectionLinesSVG expects:
+ *   - computeServices   ← workloads in the system with outbound flows
+ *   - securityGroups    ← egress SG placeholder (not yet wired)
+ *   - iamRoles slot     ← reused as the ROUTE column (NAT/IGW/VPCE
+ *                          nodes), one card per gateway node referenced
+ *                          by any destination's via_route_node_*
+ *   - resources         ← destination IP/service chips
+ *   - flows             ← (workload → route_node → destination) traffic
+ *                          edges with bytes, ports, protocols
  *
- * Each swimlane only renders when it has flows; an empty lane shows a
- * one-line "no traffic via this route" instead of an empty grid.
- *
- * Data source: existing /api/proxy/egress/system/{systemName} — each
- * destination row carries via_route_node_kind (InternetGateway /
- * NATGateway / VPCEndpoint / TransitGateway / etc.) written by the
- * backend longest-prefix-match resolver against Subnet→ROUTES_VIA
- * edges. We bucket into PUBLIC (NAT/IGW/EIGW) vs PRIVATE (VPCE/TGW).
+ * Route nodes occupy the iamRoles slot because the existing
+ * ConnectionLinesSVG draws compute → SG → role → resource paths;
+ * by aliasing routes into the role column we get the same animated
+ * traffic line story without rewriting the line-drawing primitives.
  */
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import {
-  Activity,
   AlertTriangle,
   Cloud,
   Globe,
-  Key,
   Lock,
   Network,
+  RefreshCw,
   Server,
-  ShieldAlert,
   ShieldOff,
   Sparkles,
   Zap,
+  Activity,
 } from "lucide-react"
+import {
+  ConnectionLinesSVG,
+  ServiceNodeBox,
+  type ServiceNode,
+  type SecurityCheckpoint,
+  type SubnetNode,
+  type SystemArchitecture,
+  type TrafficFlow,
+  type NodeType,
+} from "./traffic-flow-map"
 
-// ---- Data shape (matches api/egress_visibility.py response) ----------
+// ---- Backend response shape (api/egress_visibility.py) -----------------
 
-interface Destination {
+interface EgressDestination {
   ip: string
   kind: "aws" | "external" | "internal" | "unknown"
   aws_service: string | null
@@ -71,7 +78,7 @@ interface Destination {
   via_route_cidr: string | null
 }
 
-interface WorkloadEgress {
+interface EgressWorkload {
   workload: {
     id: string
     name: string
@@ -90,74 +97,35 @@ interface WorkloadEgress {
     signaled_destinations: number
     signals_breakdown: Record<string, number>
   }
-  top_destinations: Destination[]
+  top_destinations: EgressDestination[]
 }
 
 interface EgressResponse {
   system_name: string
   lookback_days: number
-  workloads: WorkloadEgress[]
+  workload_count: number
+  total_destinations: number
+  total_signaled_destinations: number
+  workloads: EgressWorkload[]
 }
 
-// ---- Signal vocabulary (pinned to backend codes) ---------------------
+// ---- Signal label/tone (UI vocabulary; never "Suspicious") ------------
 
-const SIGNAL_META: Record<
-  string,
-  { label: string; tooltip: string; tone: "warning" | "info" | "alert" }
-> = {
-  cross_region_aws: {
-    label: "Cross-region AWS",
-    tooltip:
-      "Workload region differs from destination AWS region. Often legit cross-region replication; surfaces unintended egress costs.",
-    tone: "info",
-  },
-  cross_cloud: {
-    label: "Cross-cloud",
-    tooltip:
-      "AWS workload talking to a different cloud provider (Azure, GCP, etc.). Legit for replication; review for unintended.",
-    tone: "info",
-  },
-  non_aws_public_from_private_subnet: {
-    label: "Private→public IP",
-    tooltip:
-      "Private-subnet workload reached a non-AWS public IP via NAT. Expected for some workloads; worth a second look for others.",
-    tone: "warning",
-  },
-  new_destination: {
-    label: "New destination",
-    tooltip:
-      "Destination first appeared on this workload's flow history less than 7 days ago.",
-    tone: "alert",
-  },
-  plaintext: {
-    label: "Plaintext",
-    tooltip:
-      "Flow uses an unencrypted protocol/port (HTTP, FTP, Telnet, IMAP, POP3, LDAP, unencrypted MSSQL/MySQL/Postgres). Credentials/data leave in cleartext.",
-    tone: "alert",
-  },
-  residential_isp: {
-    label: "Residential ISP",
-    tooltip:
-      "Destination ASN matches the residential consumer-ISP heuristic list. Production workloads rarely have legitimate reasons to talk to a consumer ISP.",
-    tone: "alert",
-  },
-  rare_asn: {
-    label: "Rare ASN",
-    tooltip:
-      "Destination ASN is reached by only one destination in this system's 30-day window.",
-    tone: "alert",
-  },
+const SIGNAL_META: Record<string, { label: string; tone: "warning" | "info" | "alert"; tooltip: string }> = {
+  cross_region_aws: { label: "Cross-region AWS", tone: "info", tooltip: "Destination AWS region differs from workload region." },
+  cross_cloud: { label: "Cross-cloud", tone: "info", tooltip: "Workload on AWS talking to a different cloud provider." },
+  non_aws_public_from_private_subnet: { label: "Private→public IP", tone: "warning", tooltip: "Private-subnet workload reached a non-AWS public IP (likely via NAT)." },
+  new_destination: { label: "New destination", tone: "alert", tooltip: "Destination first appeared <7 days ago." },
+  plaintext: { label: "Plaintext channel", tone: "alert", tooltip: "Unencrypted port (HTTP/80, FTP/21, Telnet/23, IMAP/143, etc.). Credentials/data move in cleartext." },
+  residential_isp: { label: "Residential ISP", tone: "alert", tooltip: "Destination ASN is on the residential consumer-ISP heuristic list." },
+  rare_asn: { label: "Rare ASN", tone: "alert", tooltip: "Destination ASN reached by only one destination across this system's 30-day window." },
 }
 
 function signalToneClasses(tone: "warning" | "info" | "alert"): string {
   switch (tone) {
-    case "alert":
-      return "bg-rose-500/15 text-rose-300 border-rose-500/50"
-    case "warning":
-      return "bg-amber-500/15 text-amber-300 border-amber-500/50"
-    case "info":
-    default:
-      return "bg-sky-500/15 text-sky-300 border-sky-500/50"
+    case "alert": return "bg-rose-500/10 text-rose-300 border-rose-500/40"
+    case "warning": return "bg-amber-500/10 text-amber-300 border-amber-500/40"
+    default: return "bg-sky-500/10 text-sky-300 border-sky-500/40"
   }
 }
 
@@ -174,131 +142,113 @@ function countryFlag(country: string | null): string {
   return String.fromCodePoint(...[...code].map((c) => 0x1f1a5 + c.charCodeAt(0)))
 }
 
-// ---- Lane classification ---------------------------------------------
-// Bucket each destination into PUBLIC vs PRIVATE based on the resolved
-// route. UNKNOWN bucket catches destinations whose via_route_* fields
-// are null (workload outside VPC, or backend not yet deployed).
-
-type LaneKind = "public" | "private" | "unknown"
-
-const PUBLIC_ROUTE_KINDS = new Set([
-  "InternetGateway",
-  "NATGateway",
-  "EgressOnlyInternetGateway",
-])
-const PRIVATE_ROUTE_KINDS = new Set([
-  "VPCEndpoint",
-  "TransitGateway",
-])
-
-function laneForDestination(d: Destination): LaneKind {
-  // Honest fallback when route data isn't wired: classify by destination
-  // kind (AWS → private if it'd typically go via VPCE; external → public).
-  // The user sees the lane split even before sync-all populates
-  // ROUTES_VIA edges; once edges land, classification becomes precise.
-  if (d.via_route_node_kind) {
-    if (PUBLIC_ROUTE_KINDS.has(d.via_route_node_kind)) return "public"
-    if (PRIVATE_ROUTE_KINDS.has(d.via_route_node_kind)) return "private"
-    return "unknown"
-  }
-  if (d.kind === "aws") return "private"
-  if (d.kind === "external") return "public"
-  return "unknown"
-}
-
-// ---- Bucketed shape for rendering ------------------------------------
-
-interface LaneNode {
-  // Per-route-node aggregation: each unique NAT/IGW/VPCE/etc gets one
-  // node in the ROUTE column with its bytes summed across destinations.
-  id: string
-  name: string
-  kind: string // raw target_kind from the backend
-  bytes: number
-  workloadIds: Set<string>
-}
-
-interface Lane {
-  kind: LaneKind
-  workloads: Map<string, { name: string; bytes: number; hits: number; signals: number }>
-  routeNodes: Map<string, LaneNode>
-  destinations: Destination[]
-  totalBytes: number
-  signalCount: number
-}
-
-function emptyLane(kind: LaneKind): Lane {
-  return {
-    kind,
-    workloads: new Map(),
-    routeNodes: new Map(),
-    destinations: [],
-    totalBytes: 0,
-    signalCount: 0,
-  }
-}
-
-function bucketLanes(workloads: WorkloadEgress[]): { public: Lane; private: Lane } {
-  const out = {
-    public: emptyLane("public"),
-    private: emptyLane("private"),
-  }
-  for (const w of workloads) {
-    for (const d of w.top_destinations || []) {
-      const lane = laneForDestination(d)
-      if (lane === "unknown") continue
-      const target = out[lane]
-      // Aggregate workload presence
-      const wEntry = target.workloads.get(w.workload.id) ?? {
-        name: w.workload.name || w.workload.id,
-        bytes: 0,
-        hits: 0,
-        signals: 0,
-      }
-      wEntry.bytes += d.bytes
-      wEntry.hits += d.hits
-      wEntry.signals += (d.signals || []).length
-      target.workloads.set(w.workload.id, wEntry)
-      // Aggregate route node
-      const routeId = d.via_route_node_id ?? `synthetic:${lane}:${d.aws_service ?? "internet"}`
-      const routeKind =
-        d.via_route_node_kind ?? (lane === "private" ? "VPCEndpoint" : "InternetGateway")
-      const routeName =
-        d.via_route_node_name ??
-        (lane === "private" ? `via ${d.aws_service ?? "AWS service"}` : "via Internet")
-      const rEntry = target.routeNodes.get(routeId) ?? {
-        id: routeId,
-        name: routeName,
-        kind: routeKind,
-        bytes: 0,
-        workloadIds: new Set<string>(),
-      }
-      rEntry.bytes += d.bytes
-      rEntry.workloadIds.add(w.workload.id)
-      target.routeNodes.set(routeId, rEntry)
-      // Destination
-      target.destinations.push(d)
-      target.totalBytes += d.bytes
-      target.signalCount += (d.signals || []).length
+// ---- Adapter: egress response → SystemArchitecture ---------------------
+// We model the route gateway (NAT/IGW/VPCE) as an "iamRole"-shaped node so
+// ConnectionLinesSVG draws compute→route→destination flows the same way
+// it draws compute→iamRole→resource paths in the Path Flow Map.
+function buildArchitecture(data: EgressResponse | null): SystemArchitecture {
+  if (!data) {
+    return {
+      computeServices: [],
+      resources: [],
+      subnets: [],
+      securityGroups: [],
+      nacls: [],
+      iamRoles: [],
+      flows: [],
+      totalBytes: 0,
+      totalConnections: 0,
+      totalGaps: 0,
     }
   }
-  return out
+
+  const computeServices: ServiceNode[] = []
+  const resources: ServiceNode[] = []
+  const routeNodes = new Map<string, SecurityCheckpoint>()
+  const flows: TrafficFlow[] = []
+
+  for (const w of data.workloads || []) {
+    const wid = w.workload.id
+    const nodeType: NodeType = (w.workload.node_type || "").toLowerCase().includes("lambda")
+      ? "lambda"
+      : "compute"
+    computeServices.push({
+      id: wid,
+      name: w.workload.name || wid,
+      shortName: (w.workload.name || wid).slice(0, 22),
+      type: nodeType,
+    })
+
+    for (const d of w.top_destinations || []) {
+      // Skip internal/RFC1918 — those are intra-VPC peers, not exits.
+      if (d.kind === "internal") continue
+
+      const routeId = d.via_route_node_id || (d.kind === "aws" ? "aws-direct" : "no-route")
+      const routeKind = d.via_route_node_kind || (d.kind === "aws" ? "AWSService" : "Unknown")
+      const routeName = d.via_route_node_name || (d.kind === "aws" ? "AWS service endpoint" : "Unrouted")
+      if (!routeNodes.has(routeId)) {
+        routeNodes.set(routeId, {
+          id: routeId,
+          name: routeName,
+          shortName: routeName.slice(0, 22),
+          // SecurityCheckpoint expects these — type narrows visual
+          // but ConnectionLinesSVG just uses the position. We pick
+          // "iam_role" so the icon lookup works.
+          type: "iam_role",
+          // @ts-expect-error — extra metadata for our chip layer
+          routeKind,
+        })
+      }
+
+      const destId = d.ip
+      const destType: NodeType = d.kind === "aws"
+        ? (d.aws_service?.toLowerCase().includes("s3") ? "storage" : d.aws_service?.toLowerCase().includes("dynamo") ? "database" : "api_gateway")
+        : "internet"
+      resources.push({
+        id: destId,
+        name: d.hostname || d.aws_service || d.org || d.ip,
+        shortName: (d.hostname || d.aws_service || d.org || d.ip).slice(0, 28),
+        type: destType,
+      })
+
+      flows.push({
+        sourceId: wid,
+        targetId: destId,
+        roleId: routeId, // ConnectionLinesSVG routes compute→role→resource via this
+        ports: d.ports || [],
+        protocol: (d.protocols || [])[0] || "tcp",
+        bytes: d.bytes,
+        connections: d.hits,
+        isActive: d.bytes > 0,
+      })
+    }
+  }
+
+  return {
+    computeServices,
+    resources,
+    subnets: [],
+    securityGroups: [],
+    nacls: [],
+    iamRoles: Array.from(routeNodes.values()),
+    flows,
+    totalBytes: data.workloads.reduce((sum, w) => sum + (w.totals?.total_bytes || 0), 0),
+    totalConnections: data.workloads.reduce((sum, w) => sum + (w.totals?.total_hits || 0), 0),
+    totalGaps: 0,
+  }
 }
 
-function routeIcon(kind: string) {
+// ---- Route icon for the gateway card ----------------------------------
+
+function routeKindIcon(kind: string | null) {
   switch (kind) {
-    case "InternetGateway":
-      return <Globe className="w-4 h-4 text-amber-400" />
-    case "EgressOnlyInternetGateway":
-      return <Globe className="w-4 h-4 text-orange-400" />
-    case "NATGateway":
-      return <Network className="w-4 h-4 text-blue-400" />
-    case "VPCEndpoint":
-      return <Lock className="w-4 h-4 text-emerald-400" />
-    case "TransitGateway":
-      return <Activity className="w-4 h-4 text-violet-400" />
-    default:
-      return <ShieldOff className="w-4 h-4 text-slate-500" />
+    case "InternetGateway": return <Globe className="w-4 h-4 text-amber-400" />
+    case "NATGateway": return <Network className="w-4 h-4 text-blue-400" />
+    case "VPCEndpoint": return <Lock className="w-4 h-4 text-emerald-400" />
+    case "TransitGateway": return <Activity className="w-4 h-4 text-violet-400" />
+    case "EgressOnlyInternetGateway": return <Globe className="w-4 h-4 text-orange-400" />
+    case "AWSService": return <Cloud className="w-4 h-4 text-emerald-400" />
+    default: return <ShieldOff className="w-4 h-4 text-slate-500" />
   }
 }
 
@@ -308,15 +258,16 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
   const [data, setData] = useState<EgressResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [animate, setAnimate] = useState(true)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const [signalFilter, setSignalFilter] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!systemName) return
-    let cancelled = false
+  const fetchData = (force = false) => {
     setLoading(true)
     setError(null)
     fetch(
-      `/api/proxy/egress/system/${encodeURIComponent(systemName)}?days=30&top_n=20`,
+      `/api/proxy/egress/system/${encodeURIComponent(systemName)}?days=30&top_n=20${force ? `&_=${Date.now()}` : ""}`,
       { cache: "no-store" },
     )
       .then(async (r) => {
@@ -326,76 +277,59 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
         }
         return r.json()
       })
-      .then((j) => {
-        if (!cancelled) setData(j)
-      })
-      .catch((e: any) => {
-        if (!cancelled) setError(e?.message ?? "Failed to load egress data")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+      .then((j) => setData(j))
+      .catch((e: any) => setError(e?.message ?? "Failed to load egress data"))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    if (!systemName) return
+    fetchData(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [systemName])
 
-  const lanes = useMemo(() => {
-    if (!data) return { public: emptyLane("public"), private: emptyLane("private") }
-    let workloads = data.workloads || []
-    if (signalFilter) {
-      // Filter at the workload level — keep workloads that have at
-      // least one destination with the selected signal. Lane bucketing
-      // happens after.
-      workloads = workloads
-        .map((w) => ({
-          ...w,
-          top_destinations: (w.top_destinations || []).filter((d) =>
-            (d.signals || []).includes(signalFilter),
-          ),
-        }))
-        .filter((w) => w.top_destinations.length > 0)
-    }
-    return bucketLanes(workloads)
-  }, [data, signalFilter])
+  const architecture = useMemo(() => buildArchitecture(data), [data])
 
-  // Global counts (used for the filter chip strip — "show me how many
-  // destinations carry each signal across the whole system"). Always
-  // computed from the unfiltered data so the operator can see what
-  // filters exist regardless of which one is active.
+  // Bucket destinations by their route's kind so the operator can read
+  // PUBLIC (IGW/NAT/EIGW) vs PRIVATE (VPCE/TGW) at a glance.
+  const routeBucket = (kind: string | null): "public" | "private" | "other" => {
+    if (!kind) return "other"
+    if (["InternetGateway", "NATGateway", "EgressOnlyInternetGateway"].includes(kind)) return "public"
+    if (["VPCEndpoint", "TransitGateway"].includes(kind)) return "private"
+    return "other"
+  }
+
+  // Filter chips strip — aggregate signal counts across all destinations.
   const signalCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     if (!data) return counts
     for (const w of data.workloads || []) {
       for (const d of w.top_destinations || []) {
-        for (const s of d.signals || []) {
-          counts[s] = (counts[s] || 0) + 1
-        }
+        for (const s of d.signals || []) counts[s] = (counts[s] || 0) + 1
       }
     }
     return counts
   }, [data])
 
-  // Scoped counts — how many signals are visible in the current view.
-  // Drives the header counter so it doesn't lie when a filter is
-  // active (was "40 Signals" globally even when both swimlanes were
-  // empty under the plaintext filter — QA caught that mismatch).
-  // Read off the bucketed lanes so we count only destinations that
-  // actually rendered, not the post-filter-pre-bucketing workload set
-  // (internal-only destinations get bucketed as "unknown" and dropped).
-  const visibleSignalCount = useMemo(
-    () =>
-      lanes.public.signalCount + lanes.private.signalCount,
-    [lanes],
-  )
-  const globalSignalCount = useMemo(
-    () => Object.values(signalCounts).reduce((a, b) => a + b, 0),
-    [signalCounts],
-  )
+  // Destinations matching the active signal filter (used to dim the rest
+  // in the destination column — same UX as the heatmap mode in the path
+  // flow map).
+  const filteredFlowSet = useMemo(() => {
+    if (!signalFilter || !data) return null
+    const set = new Set<string>()
+    for (const w of data.workloads || []) {
+      for (const d of w.top_destinations || []) {
+        if ((d.signals || []).includes(signalFilter)) {
+          set.add(`${w.workload.id}→${d.ip}`)
+        }
+      }
+    }
+    return set
+  }, [data, signalFilter])
 
-  if (loading) {
+  if (loading && !data) {
     return (
-      <div className="flex items-center justify-center min-h-[500px] rounded-xl bg-slate-900">
+      <div className="flex items-center justify-center min-h-[500px] rounded-xl bg-slate-900 border border-slate-800">
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-white text-sm font-medium">Loading Egress Flow Map…</p>
@@ -413,6 +347,9 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
           <span className="font-semibold">Failed to load egress data</span>
         </div>
         <p className="text-rose-200/80 text-sm">{error}</p>
+        <button onClick={() => fetchData(true)} className="mt-3 px-3 py-1.5 rounded bg-rose-500/20 text-rose-300 text-xs font-semibold hover:bg-rose-500/30">
+          Retry
+        </button>
       </div>
     )
   }
@@ -423,447 +360,300 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
         <Globe className="w-12 h-12 text-slate-600 mx-auto mb-3" />
         <p className="text-slate-300 text-sm font-medium mb-1">No outbound traffic observed</p>
         <p className="text-slate-500 text-xs">
-          No workloads in <span className="font-mono">{systemName}</span> have outbound
-          flows in the 30-day VPC Flow Log window.
+          No workloads in <span className="font-mono">{systemName}</span> have outbound flows in the 30-day VPC Flow Log window.
         </p>
       </div>
     )
   }
 
+  // Group destinations into PUBLIC (IGW/NAT) and PRIVATE (VPCE/TGW)
+  // for the swimlane headers, but render in ONE shared column grid so
+  // ConnectionLinesSVG can draw curved arrows across the whole canvas.
+  const publicCount = architecture.iamRoles.filter((r: any) => routeBucket(r.routeKind) === "public").length
+  const privateCount = architecture.iamRoles.filter((r: any) => routeBucket(r.routeKind) === "private").length
+  const totalSignals = Object.values(signalCounts).reduce((a, b) => a + b, 0)
+  const visibleSignalCount = signalFilter ? (signalCounts[signalFilter] || 0) : totalSignals
+
   return (
     <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900">
+      {/* Controls bar — matches Path Flow Map header */}
+      <div className="px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-cyan-500/20 rounded-xl flex items-center justify-center">
-            <Cloud className="w-5 h-5 text-cyan-400" />
+          <div className="w-9 h-9 bg-cyan-500/15 rounded-xl flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-cyan-400" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">Egress Flow Map</h3>
-            <p className="text-xs text-slate-400">
-              {systemName} · two ways data leaves this system · 30-day VPC Flow Logs
+            <h3 className="text-white font-semibold text-sm">Egress Flow Map</h3>
+            <p className="text-slate-400 text-[10px]">
+              {systemName} · {data.workload_count} workloads · 30-day VPC Flow Logs
             </p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 rounded-full ml-4">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-            <span className="text-xs font-medium text-emerald-400">LIVE</span>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/15 rounded-full ml-3">
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+            <span className="text-[10px] font-semibold text-emerald-400">LIVE</span>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <div className="text-center px-3">
-            <div className="text-amber-400 font-bold">{formatBytes(lanes.public.totalBytes)}</div>
-            <div className="text-[10px] text-slate-500">Public exit</div>
-          </div>
-          <div className="text-center px-3 border-l border-slate-700">
-            <div className="text-emerald-400 font-bold">
-              {formatBytes(lanes.private.totalBytes)}
-            </div>
-            <div className="text-[10px] text-slate-500">Private exit</div>
-          </div>
-          {globalSignalCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/15 rounded-lg border-l border-slate-700">
-              <AlertTriangle className="w-4 h-4 text-rose-400" />
-              <div>
-                <div className="text-rose-300 font-bold">
-                  {signalFilter ? (
-                    <>
-                      {visibleSignalCount}
-                      <span className="text-rose-500/60 font-normal">
-                        {" "}of {globalSignalCount}
-                      </span>
-                    </>
-                  ) : (
-                    globalSignalCount
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-500">Signals</div>
-              </div>
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAnimate((a) => !a)}
+            className={`px-2.5 py-1 rounded text-[10px] font-semibold ${animate ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-400"}`}
+          >
+            {animate ? "Pause" : "Animate"}
+          </button>
+          <button
+            onClick={() => fetchData(true)}
+            className="px-2.5 py-1 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
         </div>
       </div>
 
-      {/* Signal filter chips */}
-      {Object.keys(signalCounts).length > 0 && (
-        <div className="px-6 py-3 border-b border-slate-800 bg-slate-900/30">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 mr-2">
-              Filter
-            </span>
-            {Object.entries(signalCounts)
-              .sort((a, b) => b[1] - a[1])
-              .map(([code, count]) => {
-                const meta = SIGNAL_META[code] ?? {
-                  label: code,
-                  tooltip: code,
-                  tone: "info" as const,
-                }
-                const active = signalFilter === code
-                return (
-                  <button
-                    key={code}
-                    onClick={() => setSignalFilter(active ? null : code)}
-                    title={meta.tooltip}
-                    className={`px-2 py-1 rounded border text-[10px] font-semibold ${
-                      active
-                        ? "bg-white text-slate-900 border-white"
-                        : signalToneClasses(meta.tone)
-                    }`}
-                  >
-                    {meta.label} · {count}
-                  </button>
-                )
-              })}
+      {/* Stats strip */}
+      <div className="px-5 py-2.5 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="text-center">
+            <div className="text-amber-400 font-bold text-base">{publicCount}</div>
+            <div className="text-[9px] text-slate-500 uppercase tracking-wider">Public gateways</div>
+          </div>
+          <div className="w-px h-6 bg-slate-800" />
+          <div className="text-center">
+            <div className="text-emerald-400 font-bold text-base">{privateCount}</div>
+            <div className="text-[9px] text-slate-500 uppercase tracking-wider">Private endpoints</div>
+          </div>
+          <div className="w-px h-6 bg-slate-800" />
+          <div className="text-center">
+            <div className="text-cyan-400 font-bold text-base">{formatBytes(architecture.totalBytes)}</div>
+            <div className="text-[9px] text-slate-500 uppercase tracking-wider">30d traffic</div>
+          </div>
+          <div className="w-px h-6 bg-slate-800" />
+          <div className="text-center">
+            <div className="text-rose-300 font-bold text-base">
+              {signalFilter ? `${visibleSignalCount} of ${totalSignals}` : totalSignals}
+            </div>
+            <div className="text-[9px] text-slate-500 uppercase tracking-wider">Signals</div>
+          </div>
+        </div>
+        {/* Filter chips */}
+        {Object.keys(signalCounts).length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider mr-1">Filter</span>
+            {Object.entries(signalCounts).sort((a, b) => b[1] - a[1]).map(([code, count]) => {
+              const meta = SIGNAL_META[code] || { label: code, tone: "info" as const, tooltip: code }
+              const active = signalFilter === code
+              return (
+                <button
+                  key={code}
+                  onClick={() => setSignalFilter(active ? null : code)}
+                  title={meta.tooltip}
+                  className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${active ? "bg-white text-slate-900 border-white" : signalToneClasses(meta.tone)}`}
+                >
+                  {meta.label} · {count}
+                </button>
+              )
+            })}
             {signalFilter && (
-              <button
-                onClick={() => setSignalFilter(null)}
-                className="text-[10px] px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 ml-1"
-              >
+              <button onClick={() => setSignalFilter(null)} className="px-2 py-0.5 rounded border text-[10px] font-semibold bg-slate-800 text-slate-300 border-slate-700">
                 Clear
               </button>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Two swimlanes */}
-      <div className="p-6 space-y-6">
-        <Swimlane
-          title="Public exit"
-          subtitle="Via NAT Gateway / Internet Gateway → Internet"
-          accent="amber"
-          icon={<Globe className="w-5 h-5 text-amber-400" />}
-          lane={lanes.public}
-        />
-        <Swimlane
-          title="Private exit"
-          subtitle="Via VPC Endpoint / Transit Gateway → AWS services (private)"
-          accent="emerald"
-          icon={<Lock className="w-5 h-5 text-emerald-400" />}
-          lane={lanes.private}
-        />
-      </div>
-    </div>
-  )
-}
-
-// ---- Swimlane: one COMPUTE → SG → ROUTE → DESTINATION flow ---------
-
-function Swimlane({
-  title,
-  subtitle,
-  accent,
-  icon,
-  lane,
-}: {
-  title: string
-  subtitle: string
-  accent: "amber" | "emerald"
-  icon: React.ReactNode
-  lane: Lane
-}) {
-  const accentBorder =
-    accent === "amber" ? "border-amber-500/30" : "border-emerald-500/30"
-  const accentText = accent === "amber" ? "text-amber-300" : "text-emerald-300"
-  const accentBg =
-    accent === "amber"
-      ? "bg-gradient-to-r from-amber-500/5 to-transparent"
-      : "bg-gradient-to-r from-emerald-500/5 to-transparent"
-  const flowColor = accent === "amber" ? "#f59e0b" : "#10b981"
-
-  const workloads = [...lane.workloads.entries()]
-    .map(([id, w]) => ({ id, ...w }))
-    .sort((a, b) => b.bytes - a.bytes)
-  const routeNodes = [...lane.routeNodes.values()].sort((a, b) => b.bytes - a.bytes)
-  const destinations = [...lane.destinations].sort((a, b) => b.bytes - a.bytes)
-
-  const empty = workloads.length === 0
-
-  return (
-    <div className={`rounded-xl border ${accentBorder} ${accentBg} overflow-hidden`}>
-      {/* Lane header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/60 bg-slate-900/50">
-        <div className="flex items-center gap-3">
-          {icon}
-          <div>
-            <div className={`text-sm font-bold uppercase tracking-wider ${accentText}`}>
-              {title}
-            </div>
-            <div className="text-[11px] text-slate-400">{subtitle}</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-4 text-xs">
-          <span className="text-slate-500">
-            <span className={`font-bold ${accentText}`}>{workloads.length}</span> workloads
-          </span>
-          <span className="text-slate-500">
-            <span className={`font-bold ${accentText}`}>{routeNodes.length}</span>{" "}
-            {accent === "amber" ? "gateways" : "endpoints"}
-          </span>
-          <span className="text-slate-500">
-            <span className={`font-bold ${accentText}`}>{destinations.length}</span>{" "}
-            destinations
-          </span>
-          <span className="text-slate-500">
-            <span className={`font-bold ${accentText}`}>{formatBytes(lane.totalBytes)}</span>{" "}
-            out
-          </span>
-          {lane.signalCount > 0 && (
-            <span className="text-rose-300 font-bold">{lane.signalCount} signals</span>
-          )}
-        </div>
-      </div>
-
-      {empty ? (
-        <div className="px-6 py-8 text-center">
-          <div className="text-slate-500 text-sm">
-            No traffic via this exit route in the 30-day window.
-          </div>
-          <div className="text-[11px] text-slate-600 mt-1">
-            {accent === "amber"
-              ? "All outbound traffic stays inside AWS via VPC Endpoints — or the workload has no public-route data wired."
-              : "All outbound traffic exits to the Internet — no private-endpoint usage observed."}
-          </div>
-        </div>
-      ) : (
-        <div className="p-5">
-          {/* 4-column grid: COMPUTE | SG | ROUTE | DESTINATION */}
-          <div className="grid grid-cols-[1.1fr_0.7fr_1fr_1.5fr] gap-4 relative">
-            {/* COMPUTE column */}
-            <Column title="Compute" count={workloads.length}>
-              {workloads.slice(0, 8).map((w) => (
-                <NodeCard
-                  key={w.id}
-                  primary={w.name}
-                  secondary={`${formatBytes(w.bytes)} · ${w.hits.toLocaleString()} hits`}
-                  icon={<Server className="w-3.5 h-3.5 text-blue-400" />}
-                  flagSignals={w.signals > 0}
-                />
-              ))}
-              {workloads.length > 8 && (
-                <MoreCard count={workloads.length - 8} label="workloads" />
-              )}
-            </Column>
-
-            {/* SG column — placeholder honest state */}
-            <Column title="Egress SG" count={0}>
-              <div className="rounded-lg border border-dashed border-slate-700/60 bg-slate-900/40 px-3 py-3 text-center">
-                <ShieldAlert className="w-4 h-4 text-slate-500 mx-auto mb-1" />
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider">
-                  Not wired
-                </div>
-                <div className="text-[10px] text-slate-600 mt-1 leading-relaxed">
-                  Per-flow SG attribution lands when System Map's egress-SG
-                  query folds into /egress/system.
-                </div>
-              </div>
-            </Column>
-
-            {/* ROUTE column */}
-            <Column title={accent === "amber" ? "Gateway" : "Endpoint"} count={routeNodes.length}>
-              {routeNodes.slice(0, 8).map((r) => (
-                <NodeCard
-                  key={r.id}
-                  primary={r.name}
-                  secondary={`${r.kind} · ${formatBytes(r.bytes)}`}
-                  icon={routeIcon(r.kind)}
-                />
-              ))}
-              {routeNodes.length > 8 && (
-                <MoreCard count={routeNodes.length - 8} label="routes" />
-              )}
-            </Column>
-
-            {/* DESTINATION column */}
-            <Column title="Destination" count={destinations.length}>
-              {destinations.slice(0, 10).map((d, i) => (
-                <DestinationChip key={`${d.ip}-${i}`} destination={d} />
-              ))}
-              {destinations.length > 10 && (
-                <MoreCard count={destinations.length - 10} label="destinations" />
-              )}
-            </Column>
-
-            {/* Animated flow arrows overlay — SVG covers the full grid */}
-            <FlowArrows color={flowColor} />
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---- Sub-components --------------------------------------------------
-
-function Column({
-  title,
-  count,
-  children,
-}: {
-  title: string
-  count: number
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-2 relative z-10">
-      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold flex items-center gap-1.5 pb-1 border-b border-slate-800">
-        <span>{title}</span>
-        <span className="text-slate-600">({count})</span>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function NodeCard({
-  primary,
-  secondary,
-  icon,
-  flagSignals = false,
-}: {
-  primary: string
-  secondary?: string
-  icon?: React.ReactNode
-  flagSignals?: boolean
-}) {
-  return (
-    <div
-      className={`rounded-lg border bg-slate-900/80 px-3 py-2 min-h-[52px] flex items-center gap-2 ${
-        flagSignals ? "border-rose-500/40" : "border-slate-700/60"
-      }`}
-    >
-      {icon}
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-semibold text-slate-100 truncate">{primary}</div>
-        {secondary && (
-          <div className="text-[10px] text-slate-500 truncate mt-0.5">{secondary}</div>
         )}
       </div>
-      {flagSignals && (
-        <span title="Has channel signals" className="flex-shrink-0">
-          <Zap className="w-3 h-3 text-rose-400" />
-        </span>
-      )}
-    </div>
-  )
-}
 
-function MoreCard({ count, label }: { count: number; label: string }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-[10px] text-slate-500 italic text-center">
-      + {count} more {label}
-    </div>
-  )
-}
-
-function DestinationChip({ destination }: { destination: Destination }) {
-  const d = destination
-  const isAlert = (d.signals || []).some((s) =>
-    ["plaintext", "residential_isp", "rare_asn"].includes(s),
-  )
-  const isNew = (d.signals || []).includes("new_destination")
-  const borderCls = isAlert
-    ? "border-rose-500/50"
-    : isNew
-    ? "border-amber-500/50"
-    : d.kind === "aws"
-    ? "border-emerald-500/30"
-    : "border-slate-700/60"
-
-  return (
-    <div className={`rounded-lg border bg-slate-900/80 px-3 py-2 ${borderCls}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          {d.country ? (
-            <span className="text-sm leading-none flex-shrink-0">
-              {countryFlag(d.country)}
-            </span>
-          ) : null}
-          <span className="text-xs font-semibold text-slate-100 truncate">
-            {d.hostname || d.aws_service || d.org || d.ip}
-          </span>
-        </div>
-        <span className="text-[10px] font-mono text-cyan-300 flex-shrink-0">
-          {formatBytes(d.bytes)}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-500 truncate">
-        {d.kind === "aws" ? (
-          <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
-            AWS · {d.aws_service ?? "?"}
-          </span>
-        ) : (
-          <>
-            <span className="font-mono">{d.asn || "?"}</span>
-            <span className="truncate">{d.org || "—"}</span>
-          </>
-        )}
-      </div>
-      {d.signals && d.signals.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1.5">
-          {d.signals.map((s) => {
-            const meta = SIGNAL_META[s] ?? {
-              label: s,
-              tooltip: s,
-              tone: "info" as const,
-            }
-            return (
-              <span
-                key={s}
-                title={meta.tooltip}
-                className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold ${signalToneClasses(
-                  meta.tone,
-                )}`}
-              >
-                {meta.label}
-              </span>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Decorative animated arrows behind the swimlane columns. Three
-// horizontal flow lines spanning the grid so the eye reads
-// "left → right movement." We don't try to draw N×M arrows per node —
-// that's the system map's job (lines per actual edge). Here we just
-// want the visual cue that data flows in one direction.
-function FlowArrows({ color }: { color: string }) {
-  return (
-    <svg
-      className="absolute inset-0 w-full h-full pointer-events-none z-0"
-      preserveAspectRatio="none"
-    >
-      <defs>
-        <linearGradient id={`flow-${color}`} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.05" />
-          <stop offset="50%" stopColor={color} stopOpacity="0.4" />
-          <stop offset="100%" stopColor={color} stopOpacity="0.05" />
-        </linearGradient>
-      </defs>
-      {[20, 50, 80].map((pct, i) => (
-        <line
-          key={i}
-          x1="0%"
-          y1={`${pct}%`}
-          x2="100%"
-          y2={`${pct}%`}
-          stroke={`url(#flow-${color})`}
-          strokeWidth="2"
-          strokeDasharray="6 8"
+      {/* Canvas — relative container that ConnectionLinesSVG draws over */}
+      <div className="relative px-5 py-6 min-h-[500px]" ref={containerRef}>
+        {/* Dot grid background */}
+        <div
+          className="absolute inset-0 opacity-30 pointer-events-none"
           style={{
-            animation: `egress-flow-${i} ${3 + i * 0.5}s linear infinite`,
+            backgroundImage: "radial-gradient(circle, #1e293b 1px, transparent 1px)",
+            backgroundSize: "20px 20px",
           }}
         />
-      ))}
-      <style>{`
-        @keyframes egress-flow-0 { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -28; } }
-        @keyframes egress-flow-1 { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -28; } }
-        @keyframes egress-flow-2 { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -28; } }
-      `}</style>
-    </svg>
+
+        {/* Animated connection lines — same primitive as Path Flow Map */}
+        <ConnectionLinesSVG
+          architecture={architecture}
+          hoveredId={hoveredId}
+          containerRef={containerRef as React.RefObject<HTMLDivElement>}
+          animate={animate}
+          heatmapMode={!!signalFilter}
+          ghostedNodeIds={
+            signalFilter && filteredFlowSet
+              ? new Set(
+                  // Ghost destinations NOT matching the filter
+                  architecture.resources
+                    .filter((d) => {
+                      // a destination is matching if ANY flow targeting it is in the filter set
+                      const hasMatch = architecture.flows.some(
+                        (f) => f.targetId === d.id && filteredFlowSet.has(`${f.sourceId}→${f.targetId}`),
+                      )
+                      return !hasMatch
+                    })
+                    .map((d) => d.id),
+                )
+              : new Set<string>()
+          }
+        />
+
+        {/* 4-column grid: COMPUTE | EGRESS SG (not-wired) | ROUTE | DESTINATION */}
+        <div className="relative grid grid-cols-[1fr_140px_180px_1.5fr] gap-6 items-start" style={{ zIndex: 2 }}>
+          {/* COMPUTE */}
+          <div className="flex flex-col gap-2.5">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Server className="w-3 h-3 text-blue-400" />
+              Compute ({architecture.computeServices.length})
+            </div>
+            {architecture.computeServices.map((node) => (
+              <div key={node.id} data-compute-id={node.id}>
+                <ServiceNodeBox
+                  node={node}
+                  position="left"
+                  isHighlighted={hoveredId === node.id}
+                  onHover={setHoveredId}
+                  onClick={() => {}}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* EGRESS SG — honest "not wired" placeholder */}
+          <div className="flex flex-col gap-2.5">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-orange-400" />
+              SG egress (0)
+            </div>
+            <div className="rounded-lg border-2 border-dashed border-slate-700/60 bg-slate-900/40 px-2.5 py-3 text-center">
+              <ShieldOff className="w-4 h-4 text-slate-600 mx-auto mb-1" />
+              <div className="text-[9px] text-slate-500 uppercase tracking-wider">Not wired</div>
+              <div className="text-[9px] text-slate-600 mt-1 leading-relaxed">
+                Per-flow SG attribution lands when System Map's egress-SG query folds into /egress/system.
+              </div>
+            </div>
+          </div>
+
+          {/* ROUTE — gateway cards (NAT/IGW/VPCE/TGW) */}
+          <div className="flex flex-col gap-2.5">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Network className="w-3 h-3 text-violet-400" />
+              Route ({architecture.iamRoles.length})
+            </div>
+            {architecture.iamRoles.length === 0 ? (
+              <div className="rounded-lg border-2 border-dashed border-slate-700/60 bg-slate-900/40 px-2.5 py-3 text-center">
+                <ShieldOff className="w-4 h-4 text-slate-600 mx-auto mb-1" />
+                <div className="text-[9px] text-slate-500 uppercase tracking-wider">No route data</div>
+              </div>
+            ) : (
+              architecture.iamRoles.map((route: any) => {
+                const bucket = routeBucket(route.routeKind)
+                const tone = bucket === "public" ? "border-amber-500/40 bg-amber-500/5" : bucket === "private" ? "border-emerald-500/40 bg-emerald-500/5" : "border-slate-700 bg-slate-900/40"
+                return (
+                  <div
+                    key={route.id}
+                    data-role-id={route.id}
+                    className={`rounded-lg border ${tone} px-3 py-2 hover:bg-slate-800/40 transition-colors cursor-pointer`}
+                    onMouseEnter={() => setHoveredId(route.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {routeKindIcon(route.routeKind)}
+                      <span className="text-[11px] font-semibold text-slate-100 truncate flex-1">{route.shortName}</span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 mt-0.5">{route.routeKind}</div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* DESTINATION — destination chips, sorted by bytes */}
+          <div className="flex flex-col gap-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Globe className="w-3 h-3 text-cyan-400" />
+              Destination ({architecture.resources.length})
+            </div>
+            {architecture.resources.slice(0, 30).map((dest, i) => {
+              const flow = architecture.flows.find((f) => f.targetId === dest.id)
+              const wlSignals = data.workloads
+                .find((w) => w.workload.id === flow?.sourceId)
+                ?.top_destinations.find((d) => d.ip === dest.id)?.signals || []
+              const isAlert = wlSignals.some((s) => ["plaintext", "residential_isp", "rare_asn"].includes(s))
+              const isNew = wlSignals.includes("new_destination")
+              const fullDest = data.workloads
+                .flatMap((w) => w.top_destinations)
+                .find((d) => d.ip === dest.id)
+              return (
+                <div
+                  key={dest.id + i}
+                  data-resource-id={dest.id}
+                  className={`rounded-lg border px-3 py-2 ${isAlert ? "border-rose-500/40 bg-rose-500/5" : isNew ? "border-amber-500/40 bg-amber-500/5" : dest.type === "internet" ? "border-slate-700 bg-slate-900/60" : "border-emerald-500/30 bg-emerald-500/5"}`}
+                  onMouseEnter={() => setHoveredId(dest.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {fullDest?.country ? <span className="text-sm leading-none">{countryFlag(fullDest.country)}</span> : null}
+                      <span className="text-[11px] font-semibold text-slate-100 truncate">{dest.shortName}</span>
+                    </div>
+                    {flow ? (
+                      <span className="text-[9px] font-mono text-cyan-400 flex-shrink-0">{formatBytes(flow.bytes)}</span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-slate-500">
+                    {fullDest?.kind === "aws" ? (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                        AWS · {fullDest.aws_service ?? "?"}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="font-mono">{fullDest?.asn || "?"}</span>
+                        <span className="truncate">{fullDest?.org || "—"}</span>
+                      </>
+                    )}
+                  </div>
+                  {wlSignals.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {wlSignals.map((s) => {
+                        const meta = SIGNAL_META[s] || { label: s, tone: "info" as const, tooltip: s }
+                        return (
+                          <span key={s} title={meta.tooltip} className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold ${signalToneClasses(meta.tone)}`}>
+                            {meta.label}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {architecture.resources.length > 30 && (
+              <div className="text-[10px] text-slate-500 pl-2 italic">+ {architecture.resources.length - 30} more</div>
+            )}
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="mt-6 pt-4 border-t border-slate-800 flex items-center gap-4 text-[10px] text-slate-400">
+          <span className="flex items-center gap-1"><Server className="w-3 h-3 text-blue-400" />Compute</span>
+          <span className="flex items-center gap-1"><Network className="w-3 h-3 text-violet-400" />Route</span>
+          <span className="flex items-center gap-1"><Globe className="w-3 h-3 text-amber-400" />IGW</span>
+          <span className="flex items-center gap-1"><Network className="w-3 h-3 text-blue-400" />NAT</span>
+          <span className="flex items-center gap-1"><Lock className="w-3 h-3 text-emerald-400" />VPC Endpoint</span>
+          <span className="flex items-center gap-1"><Cloud className="w-3 h-3 text-emerald-400" />AWS Service</span>
+          <span className="flex items-center gap-1"><Globe className="w-3 h-3 text-slate-400" />Internet</span>
+          <span className="flex items-center gap-1 ml-auto">
+            <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+            Live traffic
+          </span>
+          <span className="flex items-center gap-1">
+            <Zap className="w-3 h-3 text-rose-400" />
+            Has channel signal
+          </span>
+        </div>
+      </div>
+    </div>
   )
 }
 
