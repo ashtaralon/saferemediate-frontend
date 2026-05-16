@@ -1,6 +1,6 @@
 "use client"
 
-import { VERDICT_META, type WorkloadSummary } from "./posture-types"
+import { DEPENDENCY_TIER_META, VERDICT_META, type WorkloadSummary } from "./posture-types"
 
 interface Props {
   workload: WorkloadSummary
@@ -20,6 +20,13 @@ const PRIO_BADGE_CLASS = {
   warning: "bg-amber-600 text-amber-50",
   info: "bg-sky-600 text-sky-50",
   ok: "bg-zinc-700 text-zinc-200",
+} as const
+
+const DEP_BADGE_CLASS = {
+  critical: "border-red-500/50 text-red-200",
+  warning: "border-amber-500/50 text-amber-200",
+  info: "border-sky-500/50 text-sky-200",
+  ok: "border-emerald-500/50 text-emerald-200",
 } as const
 
 function shortenLabel(labels: string[]): string {
@@ -78,6 +85,28 @@ export function WorkloadCard({ workload, selected, onClick }: Props) {
         {workload.lb_chain_count > 0 && <span>· {workload.lb_chain_count} LB chain{workload.lb_chain_count === 1 ? "" : "s"}</span>}
         {workload.observed_inbound_from_public_365d && (
           <span>· {workload.observed_inbound_unique_sources_365d} inbound src</span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 pt-1.5">
+        <span
+          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${
+            DEP_BADGE_CLASS[DEPENDENCY_TIER_META[workload.internet_dependency_tier].tone]
+          }`}
+          title={DEPENDENCY_TIER_META[workload.internet_dependency_tier].oneLiner}
+        >
+          {DEPENDENCY_TIER_META[workload.internet_dependency_tier].label}
+          {workload.internet_dependency_destination_count > 0 && (
+            <span className="opacity-70">· {workload.internet_dependency_destination_count}</span>
+          )}
+        </span>
+        {workload.vpce_coverage_gap_services.length > 0 && (
+          <span
+            className="inline-flex items-center gap-1 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-amber-200"
+            title={`Talks to ${workload.vpce_coverage_gap_services.join(", ")} via NAT; no VPC Endpoint exists`}
+          >
+            VPCE gap · {workload.vpce_coverage_gap_services.length}
+          </span>
         )}
       </div>
     </button>

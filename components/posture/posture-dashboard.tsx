@@ -72,6 +72,11 @@ export function PostureDashboard() {
   const exposedCount = summary?.by_exposure_state?.EXPOSED ?? 0
   const latentCount = summary?.by_exposure_state?.LATENT_EXPOSURE ?? 0
   const containedCount = summary?.by_exposure_state?.CONTAINED ?? 0
+  const depNone = summary?.by_internet_dependency_tier?.NONE ?? 0
+  const depMinimal = summary?.by_internet_dependency_tier?.MINIMAL ?? 0
+  const depModerate = summary?.by_internet_dependency_tier?.MODERATE ?? 0
+  const depFull = summary?.by_internet_dependency_tier?.FULL ?? 0
+  const vpceGapCount = summary?.workloads_with_vpce_coverage_gap ?? 0
 
   if (!summary || !summary.ready) {
     return (
@@ -112,11 +117,19 @@ export function PostureDashboard() {
         </div>
       </header>
 
-      <section className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <section className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Total workloads" value={heroNumber} tone="muted" />
         <Stat label="Exposed" value={exposedCount} tone="critical" />
         <Stat label="Latent path" value={latentCount} tone="warning" />
         <Stat label="Contained" value={containedCount} tone="ok" />
+      </section>
+
+      <section className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <Stat label="Dep · None" value={depNone} tone="ok" sub="Candidates to remove NAT" />
+        <Stat label="Dep · Minimal" value={depMinimal} tone="ok" sub="Tight allowlist" />
+        <Stat label="Dep · Moderate" value={depModerate} tone="warning" sub="Review surface" />
+        <Stat label="Dep · Full" value={depFull} tone="critical" sub="Justify the surface" />
+        <Stat label="VPCE gap" value={vpceGapCount} tone="warning" sub="Add VPC Endpoint" />
       </section>
 
       <div className="mb-6 flex flex-wrap items-center gap-3 text-[12px] text-zinc-300">
@@ -201,10 +214,12 @@ function Stat({
   label,
   value,
   tone,
+  sub,
 }: {
   label: string
   value: number
   tone: "muted" | "critical" | "warning" | "ok"
+  sub?: string
 }) {
   const TONE_NUM = {
     muted: "text-zinc-200",
@@ -220,6 +235,9 @@ function Stat({
       <div className={`mt-1 text-3xl font-semibold tabular-nums ${TONE_NUM[tone]}`}>
         {value}
       </div>
+      {sub && (
+        <div className="mt-0.5 text-[10px] text-zinc-500">{sub}</div>
+      )}
     </div>
   )
 }

@@ -2,7 +2,12 @@
 
 import { useEffect } from "react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { VERDICT_META, type PostureWorkloadDetailResponse, type WorkloadSummary } from "./posture-types"
+import {
+  DEPENDENCY_TIER_META,
+  VERDICT_META,
+  type PostureWorkloadDetailResponse,
+  type WorkloadSummary,
+} from "./posture-types"
 
 interface Props {
   workload: WorkloadSummary
@@ -191,6 +196,78 @@ export function WorkloadDrillDown({ workload, onClose }: Props) {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {evidence.internet_dependency && (
+            <section className={SECTION_CLASS}>
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                Internet dependency · {evidence.internet_dependency.observation_window_days}d
+              </h3>
+              <p className="text-[13px] text-zinc-200">
+                <span className="font-semibold">
+                  {DEPENDENCY_TIER_META[evidence.internet_dependency.tier].label}
+                </span>{" "}
+                <span className="text-zinc-400">
+                  · {evidence.internet_dependency.distinct_destination_count} distinct destinations
+                  {evidence.internet_dependency.aws_via_nat_count > 0 &&
+                    ` (${evidence.internet_dependency.aws_via_nat_count} AWS via NAT, ${evidence.internet_dependency.non_aws_count} other)`}
+                </span>
+              </p>
+              <p className="mt-1 text-[12px] text-zinc-400">
+                {DEPENDENCY_TIER_META[evidence.internet_dependency.tier].oneLiner}.
+              </p>
+
+              {evidence.internet_dependency.aws_services_via_nat.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                    AWS services contacted via NAT
+                  </div>
+                  <ul className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                    {evidence.internet_dependency.aws_services_via_nat.map((s) => {
+                      const covered = evidence.internet_dependency!.aws_services_with_vpce.includes(s)
+                      return (
+                        <li
+                          key={s}
+                          className={
+                            covered
+                              ? "rounded border border-emerald-700 bg-emerald-950/40 px-2 py-1 text-emerald-200"
+                              : "rounded border border-amber-700 bg-amber-950/40 px-2 py-1 text-amber-200"
+                          }
+                          title={covered ? "VPC Endpoint exists" : "No VPCE — candidate to add one"}
+                        >
+                          {s} {covered ? "· VPCE ✓" : "· VPCE gap"}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {evidence.internet_dependency.vpce_gap_services.length > 0 && (
+                <p className="mt-3 text-[12px] text-amber-200">
+                  Recommendation: add VPC Endpoints for{" "}
+                  <span className="font-semibold">
+                    {evidence.internet_dependency.vpce_gap_services.join(", ")}
+                  </span>{" "}
+                  in this VPC, then close the NAT egress for the matching CIDRs.
+                </p>
+              )}
+
+              {evidence.internet_dependency.sample_destinations.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                    Sample destinations ({evidence.internet_dependency.sample_destinations.length})
+                  </summary>
+                  <ul className="mt-2 flex flex-wrap gap-2 font-mono text-[11px]">
+                    {evidence.internet_dependency.sample_destinations.map((ip) => (
+                      <li key={ip} className="rounded border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-300">
+                        {ip}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </section>
           )}
 

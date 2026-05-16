@@ -13,6 +13,8 @@ export type PostureVerdict =
   | "MISROUTED"
   | "CORRECT"
 
+export type InternetDependencyTier = "NONE" | "MINIMAL" | "MODERATE" | "FULL"
+
 export interface WorkloadSummary {
   id: string
   name: string
@@ -31,6 +33,10 @@ export interface WorkloadSummary {
   lb_chain_count: number
   observed_inbound_from_public_365d: boolean
   observed_inbound_unique_sources_365d: number
+  internet_dependency_tier: InternetDependencyTier
+  internet_dependency_destination_count: number
+  internet_dependency_aws_via_nat_count: number
+  vpce_coverage_gap_services: string[]
   posture_evidence_version: string
   posture_correlated_at: string
 }
@@ -41,6 +47,8 @@ export interface PostureSummaryResponse {
   workload_count: number
   by_verdict: Record<string, number>
   by_exposure_state: Record<string, number>
+  by_internet_dependency_tier?: Record<string, number>
+  workloads_with_vpce_coverage_gap?: number
   message?: string
 }
 
@@ -77,6 +85,18 @@ export interface LBChainEvidence {
   lb_listener_allows_internet: boolean
 }
 
+export interface InternetDependencyDetail {
+  tier: InternetDependencyTier
+  distinct_destination_count: number
+  aws_via_nat_count: number
+  non_aws_count: number
+  aws_services_via_nat: string[]
+  aws_services_with_vpce: string[]
+  vpce_gap_services: string[]
+  sample_destinations: string[]
+  observation_window_days: number
+}
+
 export interface PostureWorkloadDetailResponse {
   ready: boolean
   summary: WorkloadSummary | null
@@ -101,8 +121,36 @@ export interface PostureWorkloadDetailResponse {
     observed_inbound_unique_sources_365d: number
     sensitivity_evidence: string[]
     is_edge: boolean
+    internet_dependency?: InternetDependencyDetail
   } | null
   warning?: string
+}
+
+// Internet Dependency tier UI metadata.
+export const DEPENDENCY_TIER_META: Record<
+  InternetDependencyTier,
+  { label: string; tone: "ok" | "info" | "warning" | "critical"; oneLiner: string }
+> = {
+  NONE: {
+    label: "No internet",
+    tone: "ok",
+    oneLiner: "No external destinations observed in 365 days — candidate to remove NAT egress entirely",
+  },
+  MINIMAL: {
+    label: "Minimal",
+    tone: "info",
+    oneLiner: "Fewer than 5 external destinations in 365 days — tight allowlist or PrivateLink candidate",
+  },
+  MODERATE: {
+    label: "Moderate",
+    tone: "warning",
+    oneLiner: "5–49 external destinations — review whether each is required",
+  },
+  FULL: {
+    label: "Full internet",
+    tone: "critical",
+    oneLiner: "50+ external destinations — likely a build / proxy / generalist; justify the surface",
+  },
 }
 
 // Verdict UI metadata — keep this co-located with the type so the
