@@ -259,6 +259,21 @@ interface TrafficDeepLink {
   direction?: "outbound" | "inbound"
 }
 
+// Lazy-load EgressFlowMap — it's the third Traffic view ("Flow map")
+// and only used when an operator clicks the toggle. Keeps the initial
+// Traffic-tab bundle lean (no chunks fetched until needed).
+const EgressFlowMap = dynamic(
+  () => import("./dependency-map/egress-flow-map").then((m) => ({ default: m.EgressFlowMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center min-h-[400px] rounded-xl bg-slate-900">
+        <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    ),
+  },
+)
+
 function EgressTabContainer({
   systemName,
   deepLink,
@@ -268,7 +283,7 @@ function EgressTabContainer({
   deepLink: TrafficDeepLink | null
   onDeepLinkConsumed: () => void
 }) {
-  const [view, setView] = useState<"inventory" | "by-workload">("inventory")
+  const [view, setView] = useState<"inventory" | "by-workload" | "flow-map">("inventory")
   const [pendingDrillWorkload, setPendingDrillWorkload] = useState<{
     id: string
     name: string | null
@@ -309,6 +324,17 @@ function EgressTabContainer({
         >
           By workload
         </button>
+        <button
+          onClick={() => setView("flow-map")}
+          aria-pressed={view === "flow-map"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "flow-map"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          Flow map
+        </button>
         {pendingDrillWorkload && view === "by-workload" && (
           <span className="ml-2 text-[10px] text-slate-500">
             Drilled into <span className="font-semibold">{pendingDrillWorkload.name ?? pendingDrillWorkload.id}</span>
@@ -332,8 +358,10 @@ function EgressTabContainer({
             setView("by-workload")
           }}
         />
-      ) : (
+      ) : view === "by-workload" ? (
         <EgressVisibilityPanel systemName={systemName} />
+      ) : (
+        <EgressFlowMap systemName={systemName} />
       )}
     </div>
   )
