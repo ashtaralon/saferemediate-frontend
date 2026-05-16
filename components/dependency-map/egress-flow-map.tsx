@@ -359,6 +359,10 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
     return bucketLanes(workloads)
   }, [data, signalFilter])
 
+  // Global counts (used for the filter chip strip — "show me how many
+  // destinations carry each signal across the whole system"). Always
+  // computed from the unfiltered data so the operator can see what
+  // filters exist regardless of which one is active.
   const signalCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     if (!data) return counts
@@ -371,6 +375,23 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
     }
     return counts
   }, [data])
+
+  // Scoped counts — how many signals are visible in the current view.
+  // Drives the header counter so it doesn't lie when a filter is
+  // active (was "40 Signals" globally even when both swimlanes were
+  // empty under the plaintext filter — QA caught that mismatch).
+  // Read off the bucketed lanes so we count only destinations that
+  // actually rendered, not the post-filter-pre-bucketing workload set
+  // (internal-only destinations get bucketed as "unknown" and dropped).
+  const visibleSignalCount = useMemo(
+    () =>
+      lanes.public.signalCount + lanes.private.signalCount,
+    [lanes],
+  )
+  const globalSignalCount = useMemo(
+    () => Object.values(signalCounts).reduce((a, b) => a + b, 0),
+    [signalCounts],
+  )
 
   if (loading) {
     return (
@@ -439,12 +460,21 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
             </div>
             <div className="text-[10px] text-slate-500">Private exit</div>
           </div>
-          {Object.values(signalCounts).reduce((a, b) => a + b, 0) > 0 && (
+          {globalSignalCount > 0 && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/15 rounded-lg border-l border-slate-700">
               <AlertTriangle className="w-4 h-4 text-rose-400" />
               <div>
                 <div className="text-rose-300 font-bold">
-                  {Object.values(signalCounts).reduce((a, b) => a + b, 0)}
+                  {signalFilter ? (
+                    <>
+                      {visibleSignalCount}
+                      <span className="text-rose-500/60 font-normal">
+                        {" "}of {globalSignalCount}
+                      </span>
+                    </>
+                  ) : (
+                    globalSignalCount
+                  )}
                 </div>
                 <div className="text-[10px] text-slate-500">Signals</div>
               </div>
