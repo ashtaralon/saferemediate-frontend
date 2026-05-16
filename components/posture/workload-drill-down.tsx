@@ -8,6 +8,7 @@ import {
   type PostureWorkloadDetailResponse,
   type WorkloadSummary,
 } from "./posture-types"
+import { RecommendationsPanel } from "./recommendations-panel"
 
 interface Props {
   workload: WorkloadSummary
@@ -271,17 +272,7 @@ export function WorkloadDrillDown({ workload, onClose }: Props) {
             </section>
           )}
 
-          <section className={SECTION_CLASS}>
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-              Recommended actions
-            </h3>
-            <p className="text-[12px] text-zinc-400">
-              Remediation chips coming in a follow-on patch. They will call the
-              existing UnifiedPipeline (Simulate · Snapshot · Execute · Rollback)
-              for SG rule narrowing, public-IP detachment, and VPCE introduction
-              — no new mutation paths.
-            </p>
-          </section>
+          <RecommendationsPanel workloadId={workload.id} />
         </>
       )}
     </aside>

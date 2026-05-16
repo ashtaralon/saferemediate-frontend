@@ -153,6 +153,52 @@ export const DEPENDENCY_TIER_META: Record<
   },
 }
 
+// Posture recommendation envelope returned by /workloads/{id}/recommendations.
+export interface PostureRecommendation {
+  proposal_id: string
+  action:
+    | "SG_RULE_DELETE_PUBLIC_INGRESS"
+    | "ADD_VPC_ENDPOINT"
+    | "MOVE_WORKLOAD_TO_PRIVATE"
+    | "REMOVE_PUBLIC_IP"
+    | "CLOSE_NAT_EGRESS"
+  auto_eligible: boolean
+  resource_type: string
+  resource_id: string
+  parameters: Record<string, unknown>
+  summary: string
+  rationale: string
+  manual_reason?: string
+}
+
+export interface PostureRecommendationsResponse {
+  workload_id: string
+  workload_name: string
+  posture_verdict: PostureVerdict
+  exposure_state: ExposureState
+  internet_dependency_tier: InternetDependencyTier
+  correlated_at: string | null
+  recommendations: PostureRecommendation[]
+  auto_eligible_count: number
+  manual_count: number
+}
+
+export interface PostureExecuteResponse {
+  proposal_id: string
+  pipeline_id: string
+  stage: string
+  status: string
+  change_results: Array<{
+    change_id: string
+    success: boolean
+    action: string
+    snapshot_id: string | null
+    error: string | null
+    aws_calls: string[]
+  }>
+  errors: string[]
+}
+
 // Verdict UI metadata — keep this co-located with the type so the
 // dashboard, card, and drill-down all read from the same source.
 export const VERDICT_META: Record<
