@@ -710,7 +710,9 @@ function NodeCard({
         )}
       </div>
       {flagSignals && (
-        <Zap className="w-3 h-3 text-rose-400 flex-shrink-0" title="Has channel signals" />
+        <span title="Has channel signals" className="flex-shrink-0">
+          <Zap className="w-3 h-3 text-rose-400" />
+        </span>
       )}
     </div>
   )
