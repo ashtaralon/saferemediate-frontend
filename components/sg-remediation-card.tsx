@@ -209,6 +209,17 @@ function isSensitiveExposure(rule: RuleAnalysis): boolean {
 // if the rule is dead or just hasn't fired this week.
 const MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT = 14
 
+// Peer of a rule = the OTHER end (not the SG itself). For inbound rules
+// the peer lives in `source`; for outbound rules the peer lives in
+// `destination`. Backend sg_gap_analysis.py:731-732 sets outbound
+// `source` to the OWN sg-id and `destination` to the actual CIDR / SG
+// reference. Reading `source` for outbound treats every rule as if it
+// referenced itself — wrong classification + misleading display.
+function rulePeer(rule: RuleAnalysis): string {
+  const isOutbound = rule.direction === "outbound" || rule.direction === "egress"
+  return (isOutbound ? rule.destination : rule.source) || ""
+}
+
 function classifyRule(
   rule: RuleAnalysis,
   observationDays: number,
@@ -216,7 +227,7 @@ function classifyRule(
   const hasTraffic = (rule.traffic?.connection_count ?? 0) > 0
   const sensitive = isSensitiveExposure(rule)
   const conf = rule.recommendation?.confidence ?? 0
-  const isSgRef = rule.source?.startsWith("sg-") ?? false
+  const isSgRef = rulePeer(rule).startsWith("sg-")
   const windowAdequate =
     (observationDays || 0) >= MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT
 
@@ -556,11 +567,15 @@ export function SGRemediationCard({
       rule.direction === "inbound" || rule.direction === "ingress"
         ? "inbound"
         : "outbound"
+    // Backend /simulate matcher (sg_gap_analysis.py:911-940) compares
+    // rule_spec.source against the peer CIDR / GroupId. For outbound
+    // rules the peer is in `destination` — sending `rule.source` (the
+    // own sg-id) matches nothing and the dry-run returns rules_matched=0.
     const ruleToRemove = {
       protocol: (rule.protocol || "tcp").toLowerCase(),
       port: fromPort ?? undefined,
       port_range: toPort && fromPort !== toPort ? rule.port_range : undefined,
-      source: rule.source,
+      source: rulePeer(rule),
       direction: dir,
     }
 
@@ -637,7 +652,7 @@ export function SGRemediationCard({
         protocol: (r.protocol || "tcp").toLowerCase(),
         port: fromPort ?? undefined,
         port_range: toPort && fromPort !== toPort ? r.port_range : undefined,
-        source: r.source,
+        source: rulePeer(r),
         direction: dir,
       }
     })
@@ -1229,7 +1244,8 @@ export function SGRemediationCard({
                   // the SG self-reference, not the traffic count. Surface
                   // that so the operator sees WHY this rule routes to
                   // verify_first instead of safe_to_remove.
-                  const isSgRef = (rule.source || "").startsWith("sg-")
+                  const peer = rulePeer(rule)
+                  const isSgRef = peer.startsWith("sg-")
                   const reasonText =
                     rule._action === "verify_first" && isSgRef && conn === 0
                       ? "References another security group — verify dependency before removing"
@@ -1274,7 +1290,7 @@ export function SGRemediationCard({
                           rule.direction === "ingress"
                             ? "from"
                             : "to"}{" "}
-                          {rule.source}
+                          {peer}
                           {rule.description ? ` · ${rule.description}` : ""}
                         </div>
                         {/* Evidence line (demo-safe — no AWS service names) */}
