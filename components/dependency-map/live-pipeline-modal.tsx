@@ -37,6 +37,13 @@ import {
   X,
 } from "lucide-react"
 import type { PostureWorkload } from "./trust-boundary-map"
+import {
+  OverrideModalShared,
+  buildOverrideStateForOpen,
+  INITIAL_SHARED_OVERRIDE_STATE,
+  type OverrideLineagePayload,
+  type SharedOverrideState,
+} from "@/components/override-modal-shared"
 
 type StageStatus = "pending" | "running" | "complete" | "error" | "skipped"
 
@@ -63,6 +70,26 @@ interface SimulateResponse {
   detail?: string
 }
 
+interface ScoreComponent {
+  name: string
+  value: number
+  sub_factors?: Record<string, any>
+}
+
+interface ScoreBreakdown {
+  api_classification?: string
+  components?: ScoreComponent[]
+  confidence_level?: string
+  decision?: string
+  formula?: string
+  gates_applied?: string[]
+  observation_days?: number
+  rollback_available?: boolean
+  score?: number
+  system_tier?: number
+  telemetry_coverage?: number
+}
+
 interface RemediateResponse {
   success?: boolean
   error?: string
@@ -72,6 +99,17 @@ interface RemediateResponse {
   rollback_snapshot?: { snapshot_id?: string; sg_id?: string }
   safety_warnings?: string[]
   potential_impact?: any[]
+  // Unified-pipeline block fields (when the scorer blocks at ANALYZE)
+  blocked?: boolean
+  decision?: string
+  decision_canonical?: string
+  block_layer?: string
+  block_reason?: string
+  preflight_passed?: boolean
+  pipeline_execution_id?: string
+  pipeline_status?: string
+  stage?: string
+  score_breakdown?: ScoreBreakdown
 }
 
 interface LivePipelineModalProps {
@@ -139,6 +177,16 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
   const [rollbackState, setRollbackState] = useState<
     "idle" | "running" | "done" | "error"
   >("idle")
+  // Last block response (unified-pipeline OR safety-gate). Drives the
+  // score-breakdown panel + the "Override" button visibility. Cleared
+  // on every fresh run.
+  const [blockResponse, setBlockResponse] = useState<RemediateResponse | null>(null)
+  // OverrideModalShared state — gated form for force=true + lineage
+  // (Decision Contract §7). Same shared component used by the SG
+  // remediation card + IAM modal so the audit trail stays consistent.
+  const [overrideState, setOverrideState] = useState<SharedOverrideState>(
+    INITIAL_SHARED_OVERRIDE_STATE,
+  )
 
   const rec = workload.recommendation
   // Only REMOVE_SG_PUBLIC_EGRESS maps to a one-step `/remediate` call
@@ -156,7 +204,17 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
     setErrorMsg(null)
     setSnapshotId(null)
     setRollbackState("idle")
+    setBlockResponse(null)
   }
+
+  // True when the failure is a backend BLOCK (safety gate OR unified-
+  // pipeline scorer) — that's the case where force=true + lineage can
+  // override. Network errors / HTTP 500s are NOT override-able.
+  const isOverridable =
+    !!blockResponse &&
+    blockResponse.success === false &&
+    !!rec?.candidate_sg_id &&
+    canFire
 
   // REMOVE_SG_PUBLIC_EGRESS = default-egress 0.0.0.0/0 outbound ALL.
   // Mirrors the egress rule shape that backend egress_visibility.py
@@ -289,22 +347,57 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         return
       }
 
-      // Backend simulated first; safety gate blocked the apply.
+      // Backend blocked the apply. Two layers can block:
+      //   1. unified_pipeline scorer at ANALYZE (low confidence score)
+      //   2. SG-internal safety gate (active traffic on rule being removed)
+      // Both surface success=false; we distinguish by block_layer +
+      // decision_canonical so the operator sees the right narrative
+      // and the score breakdown when it's a scorer block.
       if (data.success === false) {
+        const isUnifiedPipelineBlock =
+          data.block_layer === "unified_pipeline" ||
+          data.decision_canonical === "BLOCK" ||
+          data.blocked === true
         const warnings = (data.safety_warnings || []).join("; ")
         const impact = (data.potential_impact || []).length
-        setStage("simulate", {
-          status: "complete",
-          durationMs: elapsed,
-          detail: `Dry-run ran inside /remediate — ${impact} impacted rule${impact === 1 ? "" : "s"}`,
+        const blockReason =
+          data.block_reason || warnings || data.error || data.message || "Blocked"
+        setBlockResponse(data)
+        if (isUnifiedPipelineBlock) {
+          // Scorer block at ANALYZE — simulate never ran.
+          setStage("simulate", {
+            status: "skipped",
+            skipReason: "Pipeline blocked at ANALYZE — simulate not invoked",
+          })
+          setStage("preflight", {
+            status: "error",
+            detail: `Unified pipeline BLOCK — ${blockReason}`,
+          })
+        } else {
+          // SG safety gate ran simulate first, then blocked.
+          setStage("simulate", {
+            status: "complete",
+            durationMs: elapsed,
+            detail: `Dry-run ran inside /remediate — ${impact} impacted rule${impact === 1 ? "" : "s"}`,
+          })
+          setStage("preflight", {
+            status: "error",
+            detail: warnings || blockReason,
+          })
+        }
+        setStage("snapshot", {
+          status: "skipped",
+          skipReason: isUnifiedPipelineBlock
+            ? "Blocked by unified pipeline"
+            : "Blocked by safety gate",
         })
-        setStage("preflight", {
-          status: "error",
-          detail: warnings || data.error || data.message || "Safety gate blocked",
+        setStage("full_apply", {
+          status: "skipped",
+          skipReason: isUnifiedPipelineBlock
+            ? "Blocked by unified pipeline"
+            : "Blocked by safety gate",
         })
-        setStage("snapshot", { status: "skipped", skipReason: "Blocked by safety gate" })
-        setStage("full_apply", { status: "skipped", skipReason: "Blocked by safety gate" })
-        setErrorMsg(data.error || data.message || "Safety gate blocked the apply")
+        setErrorMsg(blockReason)
         setMode("error")
         return
       }
@@ -343,6 +436,129 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
       setMode("error")
       setErrorMsg(e?.message || "Network error")
     }
+  }
+
+  // Override-apply: re-fires /remediate with force=true + lineage
+  // payload. Called from OverrideModalShared's onSubmit. Lineage shape
+  // matches Decision Contract §7 (rationale + acknowledged +
+  // rollback_plan_acknowledged + overridden_by); the backend writes the
+  // OverrideEvent to Neo4j automatically per
+  // project_v44_durable_audit_contract.md.
+  async function runOverrideApply(lineage: OverrideLineagePayload) {
+    if (!canFire) return
+    // Don't reset the stages — we want the operator to see the
+    // history of attempts. But clear the prior block-banner contents.
+    setStages(SG_STAGE_TEMPLATE.map((s) => ({ ...s })))
+    setErrorMsg(null)
+    setSnapshotId(null)
+    setBlockResponse(null)
+    setMode("running-apply")
+    setStage("simulate", { status: "running" })
+    setStage("preflight", { status: "running" })
+    setStage("snapshot", { status: "running" })
+    setStage("full_apply", { status: "running" })
+    const t0 = Date.now()
+    try {
+      const res = await fetch(
+        `/api/proxy/security-groups/${rec!.candidate_sg_id}/remediate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rules_to_remove: [buildRuleToRemove()],
+            create_snapshot: true,
+            force: true,
+            override_lineage: lineage,
+          }),
+        },
+      )
+      const data: RemediateResponse = await res.json()
+      const elapsed = Date.now() - t0
+
+      if (!res.ok || data.success === false) {
+        setBlockResponse(data)
+        setStage("simulate", {
+          status: "error",
+          durationMs: elapsed,
+          detail: data.error || data.message || `HTTP ${res.status}`,
+        })
+        setStage("preflight", { status: "pending" })
+        setStage("snapshot", { status: "pending" })
+        setStage("full_apply", { status: "pending" })
+        setErrorMsg(data.error || data.message || `Override apply failed (${res.status})`)
+        setMode("error")
+        // Surface to the override modal too so it shows the error not a fake success.
+        setOverrideState((prev) => ({
+          ...prev,
+          phase: "error",
+          resultMessage: data.error || data.message || `HTTP ${res.status}`,
+        }))
+        return
+      }
+
+      const snapId =
+        data.snapshot_id || data.rollback_snapshot?.snapshot_id || null
+      setStage("simulate", {
+        status: "complete",
+        durationMs: elapsed,
+        detail: "Backend dry-run passed (force=true override)",
+      })
+      // Be honest: the safety gate was BYPASSED via override, not passed.
+      setStage("preflight", {
+        status: "complete",
+        detail: "Bypassed via operator override — OverrideEvent recorded",
+      })
+      setStage("snapshot", {
+        status: "complete",
+        detail: snapId
+          ? `snapshot_id ${snapId}`
+          : "Snapshot written (id not returned in response)",
+      })
+      setStage("full_apply", {
+        status: "complete",
+        detail: `Revoked ${data.rules_removed ?? 1} rule${(data.rules_removed ?? 1) === 1 ? "" : "s"} via boto3`,
+      })
+      setSnapshotId(snapId)
+      setMode("complete")
+      setOverrideState((prev) => ({
+        ...prev,
+        phase: "success",
+        resultMessage: "Apply complete via override",
+      }))
+    } catch (e: any) {
+      const elapsed = Date.now() - t0
+      setStage("simulate", {
+        status: "error",
+        durationMs: elapsed,
+        detail: e?.message || "Network error",
+      })
+      setStage("preflight", { status: "pending" })
+      setStage("snapshot", { status: "pending" })
+      setStage("full_apply", { status: "pending" })
+      setMode("error")
+      setErrorMsg(e?.message || "Network error")
+      setOverrideState((prev) => ({
+        ...prev,
+        phase: "error",
+        resultMessage: e?.message || "Network error",
+      }))
+    }
+  }
+
+  function openOverrideModal() {
+    if (!isOverridable || !blockResponse) return
+    const reasons: string[] = []
+    if (blockResponse.block_reason) reasons.push(blockResponse.block_reason)
+    if (blockResponse.message) reasons.push(blockResponse.message)
+    if (Array.isArray(blockResponse.safety_warnings)) {
+      reasons.push(...blockResponse.safety_warnings)
+    }
+    if (Array.isArray(blockResponse.potential_impact)) {
+      for (const i of blockResponse.potential_impact) {
+        if (i?.warning) reasons.push(i.warning)
+      }
+    }
+    setOverrideState(buildOverrideStateForOpen(reasons))
   }
 
   async function runRollback() {
@@ -510,19 +726,131 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
             </div>
           )}
 
-          {/* Error banner */}
+          {/* Error banner — split into "block (overridable)" vs
+              "hard failure (not overridable)" so the operator sees
+              the right path forward. Score breakdown surfaces the
+              unified-pipeline scorer's reasoning when present. */}
           {mode === "error" && (
-            <div className="mt-4 rounded-lg border border-red-500/50 bg-red-500/10 p-3">
+            <div className="mt-4 rounded-lg border border-red-500/50 bg-red-500/10 p-3 space-y-2">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                <div className="text-[11px] text-red-100 min-w-0">
-                  <div className="font-semibold">Run failed</div>
+                <div className="text-[11px] text-red-100 min-w-0 flex-1">
+                  <div className="font-semibold">
+                    {isOverridable
+                      ? blockResponse?.block_layer === "unified_pipeline"
+                        ? "Apply blocked by unified pipeline scorer"
+                        : "Apply blocked by safety gate"
+                      : "Run failed"}
+                  </div>
                   <div className="mt-0.5 opacity-90 break-words">{errorMsg}</div>
                 </div>
               </div>
+
+              {/* Score-breakdown panel — only when the backend returned
+                  one (unified-pipeline scorer blocks). Per
+                  feedback_no_hardcoded_multipliers, every number here
+                  comes from the API; nothing fabricated. */}
+              {blockResponse?.score_breakdown && (
+                <div className="rounded border border-red-500/40 bg-red-950/40 p-2.5">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-red-200">
+                      Score breakdown
+                    </span>
+                    {typeof blockResponse.score_breakdown.score === "number" && (
+                      <span className="text-[11px] font-mono font-bold text-red-100">
+                        {blockResponse.score_breakdown.score.toFixed(4)}
+                      </span>
+                    )}
+                    {blockResponse.score_breakdown.decision && (
+                      <span className="px-1.5 py-0.5 rounded bg-red-500/30 border border-red-500/60 text-red-50 text-[9px] font-bold uppercase tracking-wider">
+                        {blockResponse.score_breakdown.decision}
+                      </span>
+                    )}
+                    {blockResponse.score_breakdown.confidence_level && (
+                      <span className="text-[9px] text-red-200/90 uppercase tracking-wider">
+                        {blockResponse.score_breakdown.confidence_level} confidence
+                      </span>
+                    )}
+                  </div>
+                  {Array.isArray(blockResponse.score_breakdown.components) && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {blockResponse.score_breakdown.components.map((c) => (
+                        <div
+                          key={c.name}
+                          className="rounded border border-red-500/30 bg-red-950/50 px-2 py-1"
+                        >
+                          <div className="text-[9px] uppercase tracking-wider text-red-300/80 truncate" title={c.name}>
+                            {c.name.replace(/_/g, " ")}
+                          </div>
+                          <div className="text-[12px] font-mono font-bold text-red-50">
+                            {typeof c.value === "number" ? c.value.toFixed(2) : "—"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {blockResponse.score_breakdown.formula && (
+                    <div className="mt-1.5 text-[10px] text-red-100/70 font-mono break-words">
+                      {blockResponse.score_breakdown.formula}
+                    </div>
+                  )}
+                  {Array.isArray(blockResponse.score_breakdown.gates_applied) &&
+                    blockResponse.score_breakdown.gates_applied.length > 0 && (
+                      <div className="mt-1.5 text-[10px] text-red-100/70">
+                        <span className="opacity-70">Gates: </span>
+                        {blockResponse.score_breakdown.gates_applied.join(", ")}
+                      </div>
+                    )}
+                </div>
+              )}
+
+              {/* Override CTA — Decision Contract §7 force=true path.
+                  Visible only when the failure was a backend BLOCK
+                  (safety gate or unified pipeline). Network/HTTP
+                  errors are NOT override-able. */}
+              {isOverridable && (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-[10px] text-red-100/80 leading-relaxed">
+                    Override requires a written rationale and identity capture.
+                    The backend records an{" "}
+                    <code className="font-mono">OverrideEvent</code> in Neo4j
+                    on every force=true execution (Decision Contract §7).
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openOverrideModal}
+                    className="inline-flex items-center gap-1.5 rounded border border-red-500 bg-red-500/30 hover:bg-red-500/50 px-3 py-1.5 text-[11px] font-semibold text-red-50 shrink-0"
+                  >
+                    <ShieldOff className="w-3 h-3" />
+                    Override apply
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
+
+        {/* Shared override modal — captures rationale + identity +
+            ack and calls runOverrideApply with the lineage payload.
+            Same component used by sg-remediation-card + IAM modal so
+            the audit trail stays single-sourced. */}
+        <OverrideModalShared
+          state={overrideState}
+          setState={setOverrideState}
+          acknowledgedTags={[
+            blockResponse?.block_layer === "unified_pipeline"
+              ? "unified_pipeline_block"
+              : "score_based_block",
+            "operator_override",
+          ]}
+          onSubmit={runOverrideApply}
+          contextBlurb={
+            blockResponse?.block_layer === "unified_pipeline"
+              ? "The unified pipeline scorer blocked this apply with confidence below threshold. Overriding force=true bypasses the score gate; the snapshot + rollback path stays armed."
+              : "The SG safety gate blocked this apply because observed traffic exists for the rule. Overriding force=true revokes the rule anyway; the snapshot + rollback path stays armed."
+          }
+          rationalePlaceholder={`Why is it safe to remove ${rec?.candidate_sg_id ? `the egress rule on ${rec.candidate_sg_id}` : "this rule"} despite the block? (e.g. demo SG, deprecated workload, validated false positive)`}
+        />
 
         {/* Footer */}
         <div className="border-t border-slate-700/50 p-3 flex items-center justify-between gap-3">
