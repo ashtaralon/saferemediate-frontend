@@ -73,6 +73,7 @@ import {
   RemovableInfrastructureCallout,
   deriveRemoveRouteCandidates,
 } from "./RemovableInfrastructureCallout"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
 // ---- Backend response shape (api/egress_visibility.py) -----------------
 
@@ -1945,6 +1946,14 @@ function DestinationGroup({
 
 function PathCard({ row, index }: { row: PathRow; index: number }) {
   const [expanded, setExpanded] = useState(false)
+  // Per-path fullscreen modal — separate from `expanded` (which is the
+  // in-place collapse/expand). Operators with 5+ paths use the inline
+  // expand to scan; for ONE path at a time they want the full canvas
+  // (per user feedback: "extend each path to entire screen to see each
+  // path bigger"). The Dialog renders the PathFlowMap at viewport
+  // size with the path header chrome above it. The inline card stays
+  // unchanged — fullscreen is additive.
+  const [fullscreen, setFullscreen] = useState(false)
   const sevColor = severityColor(row.severityScore)
   const subnetIsPublic = row.subnetIsPublic
   const subnetText = subnetIsPublic === true
@@ -2030,6 +2039,28 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         ) : (
           <span className="ml-auto" />
         )}
+        {/* Per-card fullscreen — opens this path's flow map at viewport size.
+            stopPropagation so it doesn't toggle the inline collapse/expand. */}
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label="Expand path to fullscreen"
+          title="Expand to fullscreen"
+          onClick={(e) => {
+            e.stopPropagation()
+            setFullscreen(true)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              e.stopPropagation()
+              setFullscreen(true)
+            }
+          }}
+          className="shrink-0 p-1 rounded hover:bg-white/[0.06] focus:bg-white/[0.06] focus:outline-none cursor-pointer"
+        >
+          <Maximize2 className="w-3.5 h-3.5" style={{ color: "#94a3b8" }} />
+        </span>
         <ChevronRight
           className={`w-4 h-4 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
           style={{ color: "#94a3b8" }}
@@ -2207,6 +2238,88 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
           )}
         </div>
       )}
+
+      {/* Per-path fullscreen overlay — opens this single path's flow map at
+          viewport size. Renders the same PathFlowMap the inline-expanded
+          view shows, plus the full destinations list, but at ~95vw × 95vh.
+          The inline card under the dialog stays untouched. shadcn's
+          DialogContent defaults to sm:max-w-lg; we override to nearly
+          full-viewport so the operator actually gets more canvas. */}
+      <Dialog open={fullscreen} onOpenChange={setFullscreen}>
+        <DialogContent
+          className="!max-w-[95vw] w-[95vw] h-[95vh] p-0 gap-0 flex flex-col bg-slate-950 border-slate-800 overflow-hidden"
+          showCloseButton={true}
+        >
+          {/* Header: severity score + path # + chain summary */}
+          <DialogTitle className="sr-only">
+            Path #{index} · {row.workloadName}
+          </DialogTitle>
+          <div
+            className="px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 flex items-center gap-4 shrink-0"
+          >
+            <div className="flex items-baseline gap-2 shrink-0">
+              <span
+                className="text-3xl font-semibold tabular-nums leading-none"
+                style={{ color: sevColor }}
+              >
+                {row.severityScore}
+              </span>
+              <span
+                className="text-[11px] uppercase tracking-[0.12em] font-semibold"
+                style={{ color: sevColor }}
+              >
+                {row.severity}
+              </span>
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-slate-400">
+                Path #{index} · {row.hopCount} hops · {row.evidence}
+              </span>
+              <span className="text-base font-semibold text-slate-100 truncate mt-0.5">
+                {row.workloadName}
+              </span>
+            </div>
+            {statusChip && (
+              <span
+                className="ml-auto inline-flex items-center px-2 py-1 rounded text-[10px] uppercase tracking-[0.12em] font-bold border"
+                style={{ color: statusChip.color, borderColor: statusChip.borderColor, background: statusChip.bg }}
+                title={statusChip.title}
+              >
+                {statusChip.label}
+              </span>
+            )}
+          </div>
+
+          {/* Body: PathFlowMap at full canvas + full destinations panel.
+              Same components the inline expanded view uses — no
+              duplication. Body is scrollable independently of the dialog
+              chrome. */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-950">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
+                Flow map
+              </div>
+              <PathFlowMap row={row} sevColor={sevColor} />
+            </div>
+            <DestinationGroup
+              title="Egress destinations"
+              subtitle="via gateway (IGW / NAT / VPCE)"
+              destinations={row.egressDestinations}
+              totalCount={row.egressDestinationCount}
+              emptyText="No outbound flows leave this workload through a gateway in the observed window."
+            />
+            {row.eastWestDestinations.length > 0 && (
+              <DestinationGroup
+                title="East-west peers"
+                subtitle="local VPC route — never traverses the gateway"
+                destinations={row.eastWestDestinations}
+                totalCount={row.eastWestDestinationCount}
+                emptyText=""
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
