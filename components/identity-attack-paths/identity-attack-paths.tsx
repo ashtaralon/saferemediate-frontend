@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow, Maximize2, Minimize2 } from "lucide-react"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { PathListPanel } from "./path-list-panel"
@@ -64,10 +65,6 @@ interface IdentityAttackPathsProps {
 }
 
 export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
-  const [data, setData] = useState<IdentityAttackPathsResponse | null>(null)
-  const [provenance, setProvenance] = useState<Provenance | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [selectedJewelId, setSelectedJewelId] = useState<string | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedPathIndex, setSelectedPathIndex] = useState(0)
@@ -110,60 +107,61 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // Default off — live view hides zombies.
   const [includeDeleted, setIncludeDeleted] = useState(false)
 
-  // AbortController-aware fetch. The user reported feeling "stuck" on
-  // the Attack Paths tab and unable to switch sections — most likely
-  // because the underlying /api/proxy/identity-attack-paths endpoint
-  // can take 30s+ on cold-start, and the previous fetch had no
-  // AbortController, so:
-  //   1. user clicks Attack Paths → fetch starts, takes 30s
-  //   2. user clicks Issues mid-fetch
-  //   3. React unmounts this component
-  //   4. the leaked fetch keeps running, eventually setState's into a
-  //      detached component (React warns but no-ops)
-  //   5. if user clicks back to Attack Paths, ANOTHER 30s fetch starts
+  // Stale-while-revalidate via useCachedFetch (localStorage SWR).
+  // Replaced the raw fetch + AbortController + useState pattern because
+  // the operator was hitting cold backend (47s+) after every deploy and
+  // seeing either a 30s blank loading state OR a "Failed to load attack
+  // paths" error. SWR shows the LAST cached response instantly on
+  // revisit while a silent background refresh runs; if the refresh
+  // fails (backend 502/504 cold), the stale data stays put with
+  // isStale=true. Operator stays productive across deploy cycles.
   //
-  // Now: each mount installs an AbortController; unmount aborts the
-  // in-flight request so cancellation is immediate. The "Retry"
-  // button still calls fetchData, which auto-replaces any in-flight
-  // controller via the same useEffect cleanup.
-  const fetchData = useCallback(
-    async (signal?: AbortSignal): Promise<void> => {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const staleParam = includeStale ? "&include_stale=true" : ""
-        const deletedParam = includeDeleted ? "&include_deleted=true" : ""
-        const res = await fetch(
-          `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${staleParam}${deletedParam}`,
-          { signal }
-        )
-        if (signal?.aborted) return
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const raw = await res.json()
-        if (signal?.aborted) return
-        const json: IdentityAttackPathsResponse = isTrustEnvelope(raw)
-          ? (raw.result as IdentityAttackPathsResponse)
-          : (raw as IdentityAttackPathsResponse)
-        if ((json as any).error) throw new Error((json as any).error)
-        setProvenance(isTrustEnvelope(raw) ? raw.provenance : null)
-        setData(json)
-      } catch (e: any) {
-        // AbortError is expected when the user navigates away mid-
-        // fetch — don't surface it as a render-able error.
-        if (e?.name === "AbortError" || signal?.aborted) return
-        setError(e?.message ?? "Failed to load attack paths")
-      } finally {
-        if (!signal?.aborted) setIsLoading(false)
-      }
-    },
-    [systemName, includeStale, includeDeleted]
-  )
+  // No AbortController on cleanup: the hook's internal epochRef
+  // discards stale results so an in-flight fetch becoming irrelevant
+  // is handled without surfacing a "(canceled)" row in DevTools. See
+  // lib/use-cached-fetch.ts for the design rationale.
+  //
+  // Cache key includes the include_stale + include_deleted toggles so
+  // toggling them serves the correct prior snapshot and re-caches
+  // independently — without that, the two snapshots would clobber
+  // each other.
+  const fetchUrl = systemName
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}`
+    : null
+  const {
+    data: rawData,
+    loading: isLoading,
+    error,
+    retry,
+  } = useCachedFetch<any>(fetchUrl, {
+    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}`,
+  })
 
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchData(controller.signal)
-    return () => controller.abort()
-  }, [fetchData])
+  // Envelope unwrap. Backend optionally wraps responses in a
+  // TrustEnvelope ({provenance, result}); useCachedFetch returns the
+  // raw JSON so we normalize here. Also surface any in-body error
+  // field as a hook-level error so the retry path triggers.
+  const { data, provenance, dataError } = useMemo(() => {
+    if (!rawData) return { data: null, provenance: null, dataError: null }
+    const json: IdentityAttackPathsResponse = isTrustEnvelope(rawData)
+      ? (rawData.result as IdentityAttackPathsResponse)
+      : (rawData as IdentityAttackPathsResponse)
+    const prov = isTrustEnvelope(rawData) ? rawData.provenance : null
+    const bodyErr = (json as any)?.error ?? null
+    return { data: bodyErr ? null : json, provenance: prov, dataError: bodyErr }
+  }, [rawData])
+
+  // Combined error — surface either the fetch error or any in-body
+  // error the backend returned. Both should drive the same retry UX.
+  const displayError = error || dataError
+
+  // Manual refresh — used by the Retry button and by remediation
+  // success/rollback handlers that need to repull post-mutation.
+  // Fire-and-forget; the UI updates reactively when the hook's
+  // setData fires inside fetchFresh.
+  const fetchData = useCallback(() => {
+    retry()
+  }, [retry])
 
   const jewelPaths = useMemo(() => {
     if (!data || !selectedJewelId) return []
@@ -684,8 +682,12 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     }
   }, [jewelPaths, pathView, currentPathPreReturn, selectedPathIndex])
 
-  // Loading state
-  if (isLoading) {
+  // Loading state — useCachedFetch `loading` is true ONLY on the
+  // first-ever load with no localStorage cache. After the first
+  // successful fetch in this browser, even cold-backend deploys
+  // render the stale data instantly (isStale=true) and surface no
+  // loading indicator — operator never sees a 30s blank stall.
+  if (isLoading && !data) {
     return (
       <div className="flex items-center justify-center min-h-[600px]">
         <div className="flex flex-col items-center gap-3">
@@ -696,14 +698,18 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     )
   }
 
-  // Error state
-  if (error) {
+  // Error state — only when there's no cached fallback to render.
+  // useCachedFetch keeps stale data visible on refresh failure, so
+  // this branch only fires for the brand-new first visit on cold
+  // backend. Existing data + backend error = quietly stale UI, not
+  // a red error screen.
+  if (displayError && !data) {
     return (
       <div className="flex items-center justify-center min-h-[600px]">
         <div className="flex flex-col items-center gap-3 text-center">
           <AlertTriangle className="w-8 h-8 text-amber-400" />
           <p className="text-sm text-white font-medium">Failed to load attack paths</p>
-          <p className="text-xs text-slate-400">{error}</p>
+          <p className="text-xs text-slate-400">{displayError}</p>
           <button
             onClick={() => fetchData()}
             className="mt-2 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
