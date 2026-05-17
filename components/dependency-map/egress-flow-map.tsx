@@ -825,10 +825,78 @@ function buildPathRows(
   return rows
 }
 
+// ---- Silent-candidate row (Option 1: surface silent workloads on
+// REMOVE_ROUTE candidate RTs) ----------------------------------------
+//
+// A workload that has zero observed egress is hidden from the main
+// path list by activeWorkloads filter — there's no path chain to
+// draw. But when that workload SHARES a route table with a
+// REMOVE_ROUTE candidate, it is exactly the workload whose silence
+// is the safety guarantee for the removal. Surfacing it here ties
+// the executive-level callout (top of EgressFlowMap) to the per-
+// workload evidence ("look — this specific workload has been
+// silent for 30 days, that's why the route is removable").
+//
+// Informational only — no per-row execute button. The single
+// execution surface is the callout above; multiple buttons for the
+// same RT proposal would create UX ambiguity about which one
+// "wins" idempotency.
+interface SilentCandidateRow {
+  workloadId: string
+  workloadName: string
+  subnetId: string | null
+  subnetName: string | null
+  subnetIsPublic: boolean | null
+  rtId: string
+  candidateCidr: string | null
+  candidateTargetKind: string | null
+}
+
+function buildSilentCandidateRows(data: EgressResponse | null): SilentCandidateRow[] {
+  if (!data) return []
+  const out: SilentCandidateRow[] = []
+  for (const w of data.workloads || []) {
+    // Silent = zero observed top_destinations. Matches the
+    // activeWorkloads filter in buildArchitecture so we surface
+    // exactly the workloads that the existing filter hides.
+    if ((w.top_destinations || []).length > 0) continue
+    const rt = w.route_table
+    if (!rt || !rt.recommendation) continue
+    if (rt.recommendation.type !== "REMOVE_ROUTE") continue
+    out.push({
+      workloadId: w.workload.id,
+      workloadName: w.workload.name || w.workload.id,
+      subnetId: w.workload.subnet_id,
+      subnetName: w.workload.subnet_name,
+      subnetIsPublic: w.workload.subnet_is_public,
+      rtId: rt.id,
+      candidateCidr: rt.recommendation.candidate_route_cidr,
+      candidateTargetKind: rt.recommendation.candidate_route_target_kind,
+    })
+  }
+  // Sort by RT id then workload name so workloads sharing an RT
+  // cluster together — the operator reads the silent set as a
+  // single decision, not a series of unrelated workloads.
+  out.sort((a, b) => {
+    if (a.rtId !== b.rtId) return a.rtId.localeCompare(b.rtId)
+    return a.workloadName.localeCompare(b.workloadName)
+  })
+  return out
+}
+
+
 // ---- PathCardList / PathCard ------------------------------------------
 
-function PathCardList({ rows, hiddenWorkloadCount }: { rows: PathRow[]; hiddenWorkloadCount: number }) {
-  if (rows.length === 0) {
+function PathCardList({
+  rows,
+  hiddenWorkloadCount,
+  silentCandidates,
+}: {
+  rows: PathRow[]
+  hiddenWorkloadCount: number
+  silentCandidates: SilentCandidateRow[]
+}) {
+  if (rows.length === 0 && silentCandidates.length === 0) {
     return (
       <div
         className="rounded-xl border p-8 text-center"
@@ -930,14 +998,91 @@ function PathCardList({ rows, hiddenWorkloadCount }: { rows: PathRow[]; hiddenWo
               <span>low</span>
             </span>
           )}
-          {hiddenWorkloadCount > 0 && (
-            <span className="normal-case tracking-normal font-normal text-[10px]" style={{ color: "#64748b" }}>
-              · {hiddenWorkloadCount} silent workload{hiddenWorkloadCount === 1 ? "" : "s"} hidden
-            </span>
-          )}
+          {(() => {
+            // Workloads with REMOVE_ROUTE candidates are now surfaced
+            // in the silent-candidates section below — don't double-
+            // count them in the "N silent workloads hidden" notice.
+            const remaining = Math.max(0, hiddenWorkloadCount - silentCandidates.length)
+            return remaining > 0 ? (
+              <span className="normal-case tracking-normal font-normal text-[10px]" style={{ color: "#64748b" }}>
+                · {remaining} silent workload{remaining === 1 ? "" : "s"} hidden
+              </span>
+            ) : null
+          })()}
           <span className="ml-auto text-[10px] tracking-[0.1em] normal-case font-normal" style={{ color: "#94a3b8" }}>
             sorted by severity · click a row to drill in
           </span>
+        </div>
+      )}
+
+      {/* Silent-candidates section (Option 1). Workloads with zero
+          observed egress that sit in a route table with a REMOVE_ROUTE
+          candidate. Surfaces them as evidence for the removal — these
+          ARE the workloads whose silence is the safety guarantee for
+          the route delete. Informational only; the actual execute
+          surface is the Removable Infrastructure callout above. */}
+      {silentCandidates.length > 0 && (
+        <div
+          className="rounded-lg border overflow-hidden"
+          style={{ borderColor: "rgba(245,158,11,0.25)", background: "rgba(15,23,42,0.5)" }}
+        >
+          <div className="px-3 py-2 border-b" style={{ borderColor: "rgba(245,158,11,0.18)" }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-300/80">
+                Zero observed egress · route removable
+              </span>
+              <span className="text-[11px] tabular-nums text-amber-100/90">
+                {silentCandidates.length} workload{silentCandidates.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <p className="mt-1 text-[10px] text-amber-200/60 leading-relaxed">
+              These workloads have no outbound traffic in the 30-day window. Each one shares
+              a route table with a removable public-egress route — their silence is the
+              safety basis for the removal. Use the Removable Infrastructure callout above
+              to simulate or apply the change.
+            </p>
+          </div>
+          <ul className="divide-y" style={{ borderColor: "rgba(245,158,11,0.12)" }}>
+            {silentCandidates.map((s) => (
+              <li
+                key={s.workloadId + "|" + s.rtId}
+                className="px-3 py-2 flex items-center gap-3 text-[11px]"
+              >
+                <span className="font-semibold text-slate-100 truncate" title={s.workloadId}>
+                  {s.workloadName}
+                </span>
+                {s.subnetIsPublic === true && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border border-amber-500/40 bg-amber-500/10 text-amber-200">
+                    Public subnet
+                  </span>
+                )}
+                {s.subnetIsPublic === false && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border border-slate-600 bg-slate-800/40 text-slate-300">
+                    Private subnet
+                  </span>
+                )}
+                {s.subnetIsPublic === null && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border border-slate-700 bg-slate-900/40 text-slate-400">
+                    Subnet unknown
+                  </span>
+                )}
+                <span className="text-slate-500">›</span>
+                <span className="font-mono text-[10px] text-slate-400 truncate" title={s.subnetId || ""}>
+                  {s.subnetName || s.subnetId || "(no subnet)"}
+                </span>
+                <span className="text-slate-500">›</span>
+                <span className="font-mono text-[10px] text-indigo-200 truncate" title={s.rtId}>
+                  {s.rtId}
+                </span>
+                <span className="ml-auto inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5">
+                  <ShieldOff className="w-2.5 h-2.5 text-amber-300" />
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
+                    Removable · {s.candidateCidr || "?"}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -2299,6 +2444,7 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
               hiddenSilentWorkloadCount?: number
             }).hiddenSilentWorkloadCount) || 0
           }
+          silentCandidates={buildSilentCandidateRows(data)}
         />
       </div>
 
