@@ -486,6 +486,27 @@ interface PathRow {
   // path card. This is the top_n=20 the backend returned — for the
   // full 547+ list, drill into the inventory endpoint.
   fullDestinations: EgressDestination[]
+  // Subset of fullDestinations that ACTUALLY egress through this
+  // path's gateways — kind ∈ {aws, external, unknown}. East-west
+  // (kind="internal", RFC1918) peers stay inside the VPC by local
+  // route and never traverse an IGW/NAT/VPCE, so they must NOT be
+  // drawn as routed through `gateways[0]` in the flow map. The bug
+  // we're fixing: PathFlowMap previously iterated fullDestinations
+  // and visually pinned every 10.x.x.x peer through whatever the
+  // first gateway was (usually IGW), which is impossible per AWS
+  // routing — local routes always win over IGW routes.
+  egressDestinations: EgressDestination[]
+  // Internal/east-west peers — surfaced separately so the operator
+  // sees them but doesn't get the misleading "internal traffic goes
+  // through the IGW" picture.
+  eastWestDestinations: EgressDestination[]
+  // Egress-only destination count for the path chain text. The
+  // backend's workload.destination_count counts ALL destinations
+  // (including internal), so we re-derive from the egress subset
+  // when surfacing the path chain so "12 destinations" reflects
+  // what actually leaves the VPC.
+  egressDestinationCount: number
+  eastWestDestinationCount: number
   totalBytes: number
   totalHits: number
   // Aggregated signals across this workload's flows
@@ -640,14 +661,38 @@ function buildPathRows(
       + gateways.length
       + (destinationCount > 0 ? 1 : 0)
 
+    // Split destinations into egress vs east-west. Egress = anything
+    // that legitimately leaves the VPC and so can be drawn as routed
+    // through gateways[0]. East-west = RFC1918 peers handled by the
+    // VPC's local route and never traverse the IGW/NAT/VPCE — those
+    // must be surfaced separately to avoid the "internal flow through
+    // IGW" lie the visual was previously telling.
+    const rawDests = destsByWorkload.get(wid) || []
+    const egressDestinations = rawDests.filter(d => d.kind !== "internal")
+    const eastWestDestinations = rawDests.filter(d => d.kind === "internal")
+    // For the path-chain "N destinations" text + severity, count
+    // egress only. The backend's workloadDestinationCount counts
+    // ALL dests (including internal) so we override here with the
+    // truthful egress-only count. When the backend's top_n cap means
+    // egressDestinations is a sample of a larger set, we can't know
+    // the true egress count — fall back to total minus internal seen
+    // (still a lower bound, but more honest than the original total).
+    const totalDestinationCount = destinationCount
+    const eastWestCount = eastWestDestinations.length
+    const egressDestinationCount = Math.max(0, totalDestinationCount - eastWestCount)
+
     const hasPublicEgressGateway = gateways.some(g => g.bucket === "public")
+    // Severity uses egress-only count. A workload in a public subnet
+    // talking only east-west is not exposed; the original calc was
+    // scoring it as CRITICAL purely because the subnet had an IGW
+    // route available, not used.
     const severityScore = deriveEgressScore({
       subnetIsPublic: meta.subnetIsPublic ?? null,
       totalBytes,
       totalHits,
-      destinationCount,
+      destinationCount: egressDestinationCount,
       hasPlaintextSignal: (signals["plaintext"] || 0) > 0,
-      hasPublicEgressGateway,
+      hasPublicEgressGateway: hasPublicEgressGateway && egressDestinationCount > 0,
       gatewayCount: gateways.length,
     })
     const severity = deriveSeverity(severityScore)
@@ -662,9 +707,13 @@ function buildPathRows(
       subnetIsPublic: meta.subnetIsPublic ?? null,
       sgs,
       gateways,
-      destinationCount,
+      destinationCount: totalDestinationCount,
       topDestinations,
-      fullDestinations: destsByWorkload.get(wid) || [],
+      fullDestinations: rawDests,
+      egressDestinations,
+      eastWestDestinations,
+      egressDestinationCount,
+      eastWestDestinationCount: eastWestCount,
       totalBytes,
       totalHits,
       signals,
@@ -861,7 +910,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
       routeBucket: g.bucket,
     } as SecurityCheckpoint & { routeKind: string; routeBucket: string }))
 
-    const resources: ServiceNode[] = row.fullDestinations.map((d) => {
+    // IMPORTANT: only EGRESS destinations get rendered in the flow
+    // map. East-west (RFC1918) peers are handled by the VPC local
+    // route and never traverse the gateway, so drawing them through
+    // gateways[0] would be the "internal flow through IGW" lie. They
+    // are surfaced separately in the destinations panel below.
+    const resources: ServiceNode[] = row.egressDestinations.map((d) => {
       const destType: NodeType =
         d.kind === "aws"
           ? d.aws_service?.toLowerCase().includes("s3")
@@ -880,7 +934,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
 
     const sgId = row.sgs[0]?.id
     const roleId = row.gateways[0]?.id
-    const flows: TrafficFlow[] = row.fullDestinations.map((d) => ({
+    const flows: TrafficFlow[] = row.egressDestinations.map((d) => ({
       sourceId: row.workloadId,
       targetId: d.ip,
       sgId,
@@ -1273,6 +1327,123 @@ function FlowCard({
   )
 }
 
+// Renders one labeled section of the destinations panel — either the
+// egress group (real outbound flows through a gateway) or the east-west
+// group (RFC1918 peers, local route). Same per-row visual; the section
+// header + empty state are the only varying bits. Extracted from the
+// original inline map so both groups stay visually identical and the
+// "internal-via-IGW" bug never regresses.
+function DestinationGroup({
+  title,
+  subtitle,
+  destinations,
+  totalCount,
+  emptyText,
+}: {
+  title: string
+  subtitle: string
+  destinations: EgressDestination[]
+  totalCount: number
+  emptyText: string
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 flex items-baseline gap-2">
+        <span>{title}</span>
+        <span className="font-normal normal-case tracking-normal text-slate-600">
+          ({destinations.length}
+          {totalCount > destinations.length && (
+            <> of {totalCount} total — backend top-N cap</>
+          )}
+          ) · {subtitle}
+        </span>
+      </div>
+      {destinations.length === 0 ? (
+        emptyText ? (
+          <div className="text-[11px] text-slate-500 italic">{emptyText}</div>
+        ) : null
+      ) : (
+        <div className="space-y-1.5">
+          {destinations.map(d => {
+            const isAws = d.kind === "aws"
+            const isAlert = (d.signals || []).some(s => ["plaintext", "residential_isp", "rare_asn"].includes(s))
+            const isNew = (d.signals || []).includes("new_destination")
+            return (
+              <div
+                key={d.ip}
+                className={`grid grid-cols-[1.5fr_1fr_auto_auto] gap-3 items-center rounded border px-3 py-1.5 text-[11px] ${
+                  isAlert
+                    ? "border-rose-500/40 bg-rose-500/5"
+                    : isNew
+                      ? "border-amber-500/40 bg-amber-500/5"
+                      : isAws
+                        ? "border-emerald-500/30 bg-emerald-500/5"
+                        : "border-slate-800 bg-slate-900/60"
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {d.country ? <span className="text-sm leading-none">{countryFlag(d.country)}</span> : null}
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-100 truncate">
+                      {d.hostname || d.aws_service || d.org || d.ip}
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-mono truncate">
+                      {d.ip}
+                      {d.asn ? <span className="ml-1">· {d.asn}</span> : null}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1 items-center min-w-0">
+                  {(d.ports || []).slice(0, 4).map(p => (
+                    <span key={p} className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 text-[9px] font-mono">
+                      :{p}
+                    </span>
+                  ))}
+                  {(d.ports || []).length > 4 && (
+                    <span className="text-[9px] text-slate-500">+{(d.ports || []).length - 4}</span>
+                  )}
+                  {(d.protocols || []).map(p => (
+                    <span key={p} className="px-1 py-0.5 rounded bg-slate-800/60 text-slate-400 text-[9px] uppercase tracking-wider">
+                      {p}
+                    </span>
+                  ))}
+                  {(d.signals || []).map(s => {
+                    const meta = SIGNAL_META[s] || { label: s, tone: "info" as const, tooltip: s }
+                    return (
+                      <span
+                        key={s}
+                        title={meta.tooltip}
+                        className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold ${signalToneClasses(meta.tone)}`}
+                      >
+                        {meta.label}
+                      </span>
+                    )
+                  })}
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-cyan-300">{formatBytes(d.bytes)}</div>
+                  <div className="text-[9px] text-slate-500">{d.hits.toLocaleString()} hits</div>
+                </div>
+                <div>
+                  {isAws ? (
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap">
+                      AWS · {d.aws_service || "?"}
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-semibold uppercase tracking-wider">
+                      {d.kind === "internal" ? "INTERNAL" : "INTERNET"}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PathCard({ row, index }: { row: PathRow; index: number }) {
   const [expanded, setExpanded] = useState(false)
   const sevColor = severityColor(row.severityScore)
@@ -1399,8 +1570,14 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         ))}
         <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
         <span style={{ color: sevColor }}>
-          {row.destinationCount} {row.destinationCount === 1 ? "destination" : "destinations"}
+          {row.egressDestinationCount}{" "}
+          {row.egressDestinationCount === 1 ? "egress destination" : "egress destinations"}
         </span>
+        {row.eastWestDestinationCount > 0 && (
+          <span className="ml-2 text-[11px]" style={{ color: "#94a3b8" }}>
+            +{row.eastWestDestinationCount} east-west (local route, not via gateway)
+          </span>
+        )}
       </div>
 
       {/* Stats row — outlined chips, low saturation, clear labels.
@@ -1490,102 +1667,30 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
             <PathFlowMap row={row} sevColor={sevColor} />
           </div>
 
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
-            Destinations ({row.fullDestinations.length}
-            {row.destinationCount > row.fullDestinations.length && (
-              <span className="text-slate-600 normal-case tracking-normal"> of {row.destinationCount} total — backend top-N cap</span>
-            )}
-            )
-          </div>
-          {row.fullDestinations.length === 0 ? (
-            <div className="text-[11px] text-slate-500 italic">No destination detail in payload.</div>
-          ) : (
-            <div className="space-y-1.5">
-              {row.fullDestinations.map(d => {
-                const isInternet = d.kind === "external" || d.kind === "unknown"
-                const isAws = d.kind === "aws"
-                const isAlert = (d.signals || []).some(s => ["plaintext", "residential_isp", "rare_asn"].includes(s))
-                const isNew = (d.signals || []).includes("new_destination")
-                return (
-                  <div
-                    key={d.ip}
-                    className={`grid grid-cols-[1.5fr_1fr_auto_auto] gap-3 items-center rounded border px-3 py-1.5 text-[11px] ${
-                      isAlert
-                        ? "border-rose-500/40 bg-rose-500/5"
-                        : isNew
-                          ? "border-amber-500/40 bg-amber-500/5"
-                          : isAws
-                            ? "border-emerald-500/30 bg-emerald-500/5"
-                            : "border-slate-800 bg-slate-900/60"
-                    }`}
-                  >
-                    {/* Destination identity */}
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {d.country ? <span className="text-sm leading-none">{countryFlag(d.country)}</span> : null}
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-100 truncate">
-                          {d.hostname || d.aws_service || d.org || d.ip}
-                        </div>
-                        <div className="text-[9px] text-slate-500 font-mono truncate">
-                          {d.ip}
-                          {d.asn ? <span className="ml-1">· {d.asn}</span> : null}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Ports / protocols + signals */}
-                    <div className="flex flex-wrap gap-1 items-center min-w-0">
-                      {(d.ports || []).slice(0, 4).map(p => (
-                        <span key={p} className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 text-[9px] font-mono">
-                          :{p}
-                        </span>
-                      ))}
-                      {(d.ports || []).length > 4 && (
-                        <span className="text-[9px] text-slate-500">+{(d.ports || []).length - 4}</span>
-                      )}
-                      {(d.protocols || []).map(p => (
-                        <span key={p} className="px-1 py-0.5 rounded bg-slate-800/60 text-slate-400 text-[9px] uppercase tracking-wider">
-                          {p}
-                        </span>
-                      ))}
-                      {(d.signals || []).map(s => {
-                        const meta = SIGNAL_META[s] || { label: s, tone: "info" as const, tooltip: s }
-                        return (
-                          <span
-                            key={s}
-                            title={meta.tooltip}
-                            className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold ${signalToneClasses(meta.tone)}`}
-                          >
-                            {meta.label}
-                          </span>
-                        )
-                      })}
-                    </div>
-
-                    {/* Bytes + hits */}
-                    <div className="text-right">
-                      <div className="font-mono text-cyan-300">{formatBytes(d.bytes)}</div>
-                      <div className="text-[9px] text-slate-500">{d.hits.toLocaleString()} hits</div>
-                    </div>
-
-                    {/* AWS / Internet classification chip */}
-                    <div>
-                      {isAws ? (
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap">
-                          AWS · {d.aws_service || "?"}
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-semibold uppercase tracking-wider">
-                          {d.kind === "internal" ? "INTERNAL" : "INTERNET"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+          {/* Two-section destinations panel — Egress (via gateway) on
+              top, East-West (local route) on bottom. The split makes
+              the network-routing reality visible: a workload in a
+              public subnet can talk to internal peers without those
+              flows ever touching the IGW, even if a flat list would
+              suggest otherwise. */}
+          <DestinationGroup
+            title="Egress destinations"
+            subtitle="via gateway (IGW / NAT / VPCE)"
+            destinations={row.egressDestinations}
+            totalCount={row.egressDestinationCount}
+            emptyText="No outbound flows leave this workload through a gateway in the observed window."
+          />
+          {row.eastWestDestinations.length > 0 && (
+            <div className="mt-3">
+              <DestinationGroup
+                title="East-west peers"
+                subtitle="local VPC route — never traverses the gateway"
+                destinations={row.eastWestDestinations}
+                totalCount={row.eastWestDestinationCount}
+                emptyText=""
+              />
             </div>
           )}
-
           {/* SG attribution detail line — per-flow attribution is on the
               destinations above (via_sg_*); here we summarize. */}
           {row.sgs.length > 0 && (
