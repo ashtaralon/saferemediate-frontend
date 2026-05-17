@@ -1889,6 +1889,24 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             const isAlert = (fullDest?.signals || []).some((s) =>
               ["plaintext", "residential_isp", "rare_asn"].includes(s),
             )
+            // AWS EC2 service IP ranges cover BOTH customer instance
+            // public IPs and the EC2 API control-plane endpoints
+            // (ec2.<region>.amazonaws.com). AWS's published ip-ranges.json
+            // does not distinguish, so we surface the ambiguity rather
+            // than guess. Same caveat applies in tooltip.
+            const isEc2Service = fullDest?.kind === "aws" && fullDest?.aws_service === "EC2"
+            // Show attribution sub-line for any external (non-AWS, non-
+            // internal) destination when we have ipinfo enrichment. Even
+            // when the primary name already shows the org (per fallback
+            // chain hostname → aws_service → org → ip), the ASN + IP
+            // belong as a secondary identifier so the operator can WHOIS
+            // it themselves if they want to verify.
+            const showExternalMeta = fullDest?.kind === "external" && (fullDest?.org || fullDest?.asn)
+            // Primary name might already be the IP (when all enrichment is
+            // null). In that case there's no need to duplicate the IP in
+            // the subtitle. Compare against the truncated shortName since
+            // long IPs may have been clipped.
+            const primaryIsIp = dest.shortName === fullDest?.ip || dest.name === fullDest?.ip
             return (
               <div
                 key={dest.id}
@@ -1918,11 +1936,40 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     </span>
                   ) : null}
                 </div>
+                {/* IP always shown when the primary label is something
+                    else (org / hostname / aws_service) — gives operators
+                    a stable identifier even when enrichment is rich. */}
+                {fullDest && !primaryIsIp && (
+                  <div className="mt-0.5 text-[9px] text-slate-500 font-mono truncate" title={fullDest.ip}>
+                    {fullDest.ip}
+                  </div>
+                )}
                 {fullDest?.kind === "aws" && (
-                  <div className="mt-1 text-[10px]">
+                  <div
+                    className="mt-1 text-[10px]"
+                    title={
+                      isEc2Service
+                        ? "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish — check the workload's outbound role/IAM calls to confirm whether this is data-plane or control-plane."
+                        : `AWS ${fullDest.aws_service ?? "service"} published IP range`
+                    }
+                  >
                     <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
                       AWS · {fullDest.aws_service ?? "?"}
+                      {isEc2Service && (
+                        <span className="ml-1 font-normal text-emerald-300/80">
+                          (instance or API)
+                        </span>
+                      )}
                     </span>
+                  </div>
+                )}
+                {showExternalMeta && (
+                  <div className="mt-1 text-[10px] text-slate-400 truncate" title={`${fullDest?.org || ""}${fullDest?.asn ? " · " + fullDest.asn : ""}`}>
+                    {fullDest?.org && <span>{fullDest.org}</span>}
+                    {fullDest?.org && fullDest?.asn && (
+                      <span className="text-slate-600"> · </span>
+                    )}
+                    {fullDest?.asn && <span className="font-mono text-slate-500">{fullDest.asn}</span>}
                   </div>
                 )}
               </div>
