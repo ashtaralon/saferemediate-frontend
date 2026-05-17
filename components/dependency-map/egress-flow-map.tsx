@@ -2280,18 +2280,25 @@ function DestinationGroup({
   totalCount: number
   emptyText: string
 }) {
+  // Skip the built-in header when the caller passes empty title +
+  // subtitle — used by the per-path fullscreen dialog where a
+  // <details>/<summary> disclosure already shows the title + count
+  // and we don't want a duplicate header below it.
+  const hideHeader = !title && !subtitle
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 flex items-baseline gap-2">
-        <span>{title}</span>
-        <span className="font-normal normal-case tracking-normal text-slate-600">
-          ({destinations.length}
-          {totalCount > destinations.length && (
-            <> of {totalCount} total — backend top-N cap</>
-          )}
-          ) · {subtitle}
-        </span>
-      </div>
+      {!hideHeader && (
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 flex items-baseline gap-2">
+          <span>{title}</span>
+          <span className="font-normal normal-case tracking-normal text-slate-600">
+            ({destinations.length}
+            {totalCount > destinations.length && (
+              <> of {totalCount} total — backend top-N cap</>
+            )}
+            ) · {subtitle}
+          </span>
+        </div>
+      )}
       {destinations.length === 0 ? (
         emptyText ? (
           <div className="text-[11px] text-slate-500 italic">{emptyText}</div>
@@ -2740,9 +2747,58 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
               </div>
               <PathFlowMap row={row} sevColor={sevColor} />
             </div>
-            {/* BOTTOM HALF: AWS-best-practice insights */}
-            <div className="basis-1/2 min-h-0 overflow-y-auto p-5">
+            {/* BOTTOM HALF: AWS-best-practice insights, with the raw
+                destination + east-west lists kept as collapsed
+                <details> disclosures at the bottom — the rows have
+                value on demand (operator triaging a specific
+                destination) but don't earn the unconditional screen
+                real-estate the previous flat layout gave them. */}
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 space-y-4">
               <EgressInsightsPanel insights={row.insights} />
+              {(row.egressDestinations.length > 0 || row.eastWestDestinations.length > 0) && (
+                <div className="space-y-2">
+                  {row.egressDestinations.length > 0 && (
+                    <details className="rounded-lg border border-slate-800 bg-slate-900/40 group">
+                      <summary className="cursor-pointer select-none px-4 py-2 flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-900/70">
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-500 transition-transform group-open:rotate-90" />
+                        <span className="uppercase tracking-wider text-slate-400">Egress destinations</span>
+                        <span className="text-slate-500 normal-case font-normal">
+                          {row.egressDestinationCount} via gateway (IGW / NAT / VPCE)
+                        </span>
+                      </summary>
+                      <div className="px-4 pb-3 pt-1">
+                        <DestinationGroup
+                          title=""
+                          subtitle=""
+                          destinations={row.egressDestinations}
+                          totalCount={row.egressDestinationCount}
+                          emptyText="No outbound flows leave this workload through a gateway in the observed window."
+                        />
+                      </div>
+                    </details>
+                  )}
+                  {row.eastWestDestinations.length > 0 && (
+                    <details className="rounded-lg border border-slate-800 bg-slate-900/40 group">
+                      <summary className="cursor-pointer select-none px-4 py-2 flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-900/70">
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-500 transition-transform group-open:rotate-90" />
+                        <span className="uppercase tracking-wider text-slate-400">East-west peers</span>
+                        <span className="text-slate-500 normal-case font-normal">
+                          {row.eastWestDestinationCount} local VPC routes — never traverse the gateway
+                        </span>
+                      </summary>
+                      <div className="px-4 pb-3 pt-1">
+                        <DestinationGroup
+                          title=""
+                          subtitle=""
+                          destinations={row.eastWestDestinations}
+                          totalCount={row.eastWestDestinationCount}
+                          emptyText=""
+                        />
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>
