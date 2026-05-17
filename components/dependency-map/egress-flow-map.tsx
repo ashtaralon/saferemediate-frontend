@@ -807,6 +807,168 @@ function PathCardList({ rows, hiddenWorkloadCount }: { rows: PathRow[]; hiddenWo
   )
 }
 
+// PathMiniFlow — horizontal visual flow map for ONE path. Renders as
+// a row of cards connected by arrow icons:
+//   [Compute] → [Subnet] → [SG(s)] → [Gateway(s)] → [Destinations]
+// Same data as the inline text chain on the collapsed card, but
+// visual. Each card is color-coded by its posture (PUBLIC subnet =
+// amber, PRIVATE = emerald, public-egress gateway = amber, etc.).
+function PathMiniFlow({ row, sevColor }: { row: PathRow; sevColor: string }) {
+  const subnetIsPublic = row.subnetIsPublic
+  const subnetTone = subnetIsPublic === true
+    ? { border: "rgba(245,158,11,0.5)", bg: "rgba(245,158,11,0.08)", text: "#fcd34d" }
+    : subnetIsPublic === false
+      ? { border: "rgba(22,163,74,0.5)", bg: "rgba(22,163,74,0.08)", text: "#86efac" }
+      : { border: "rgba(148,163,184,0.4)", bg: "rgba(30,41,59,0.4)", text: "#cbd5e1" }
+  const subnetLabel = subnetIsPublic === true ? "PUBLIC" : subnetIsPublic === false ? "PRIVATE" : "UNKNOWN"
+
+  const Arrow = () => (
+    <svg className="w-5 h-5 shrink-0" fill="none" stroke="rgba(148,163,184,0.5)" strokeWidth="2" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+    </svg>
+  )
+
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto pb-2">
+      {/* COMPUTE */}
+      <FlowCard
+        icon={<Server className="w-4 h-4" style={{ color: "#60a5fa" }} />}
+        label="COMPUTE"
+        title={row.workloadName}
+        subtitle={row.workloadType.toUpperCase()}
+        border="rgba(59,130,246,0.4)"
+        bg="rgba(59,130,246,0.08)"
+        text="#bfdbfe"
+      />
+
+      {/* SUBNET */}
+      {row.subnetId && (
+        <>
+          <Arrow />
+          <FlowCard
+            icon={<Network className="w-4 h-4" style={{ color: subnetTone.text }} />}
+            label="SUBNET"
+            title={row.subnetName || row.subnetId}
+            subtitle={subnetLabel}
+            border={subnetTone.border}
+            bg={subnetTone.bg}
+            text={subnetTone.text}
+          />
+        </>
+      )}
+
+      {/* SG(s) */}
+      {row.sgs.map(sg => {
+        const sgTone = sg.hasPublicEgress
+          ? { border: "rgba(245,158,11,0.5)", bg: "rgba(245,158,11,0.08)", text: "#fcd34d" }
+          : { border: "rgba(249,115,22,0.4)", bg: "rgba(249,115,22,0.06)", text: "#fdba74" }
+        return (
+          <span key={sg.id} className="flex items-center gap-2">
+            <Arrow />
+            <FlowCard
+              icon={<Lock className="w-4 h-4" style={{ color: sgTone.text }} />}
+              label="SECURITY GROUP"
+              title={sg.name}
+              subtitle={sg.hasPublicEgress ? "PUBLIC EGRESS" : "EGRESS"}
+              border={sgTone.border}
+              bg={sgTone.bg}
+              text={sgTone.text}
+            />
+          </span>
+        )
+      })}
+
+      {/* GATEWAY(s) */}
+      {row.gateways.map(g => {
+        const gwTone = g.bucket === "public"
+          ? { border: "rgba(245,158,11,0.5)", bg: "rgba(245,158,11,0.08)", text: "#fcd34d" }
+          : g.bucket === "private"
+            ? { border: "rgba(22,163,74,0.5)", bg: "rgba(22,163,74,0.08)", text: "#86efac" }
+            : { border: "rgba(148,163,184,0.4)", bg: "rgba(30,41,59,0.4)", text: "#cbd5e1" }
+        const gwIcon = g.kind === "InternetGateway" || g.kind === "EgressOnlyInternetGateway"
+          ? <Globe className="w-4 h-4" style={{ color: gwTone.text }} />
+          : g.kind === "NATGateway"
+            ? <Network className="w-4 h-4" style={{ color: gwTone.text }} />
+            : g.kind === "VPCEndpoint"
+              ? <Lock className="w-4 h-4" style={{ color: gwTone.text }} />
+              : g.kind === "TransitGateway"
+                ? <Activity className="w-4 h-4" style={{ color: gwTone.text }} />
+                : g.kind === "AWSService"
+                  ? <Cloud className="w-4 h-4" style={{ color: gwTone.text }} />
+                  : <ShieldOff className="w-4 h-4" style={{ color: gwTone.text }} />
+        return (
+          <span key={g.id} className="flex items-center gap-2">
+            <Arrow />
+            <FlowCard
+              icon={gwIcon}
+              label="GATEWAY"
+              title={g.name}
+              subtitle={g.kind}
+              border={gwTone.border}
+              bg={gwTone.bg}
+              text={gwTone.text}
+            />
+          </span>
+        )
+      })}
+
+      {/* DESTINATIONS */}
+      <Arrow />
+      <FlowCard
+        icon={<Globe className="w-4 h-4" style={{ color: sevColor }} />}
+        label="DESTINATIONS"
+        title={`${row.destinationCount} ${row.destinationCount === 1 ? "endpoint" : "endpoints"}`}
+        subtitle={formatBytes(row.totalBytes)}
+        border={`${sevColor}66`}
+        bg={`${sevColor}15`}
+        text={sevColor}
+      />
+    </div>
+  )
+}
+
+// Inline mini-card used by PathMiniFlow.
+function FlowCard({
+  icon,
+  label,
+  title,
+  subtitle,
+  border,
+  bg,
+  text,
+}: {
+  icon: React.ReactNode
+  label: string
+  title: string
+  subtitle: string
+  border: string
+  bg: string
+  text: string
+}) {
+  return (
+    <div
+      className="rounded-lg border px-3 py-2 min-w-[140px] max-w-[200px] shrink-0"
+      style={{ borderColor: border, background: bg }}
+    >
+      <div className="flex items-center gap-1.5 mb-0.5">
+        {icon}
+        <span
+          className="text-[9px] uppercase tracking-[0.12em] font-semibold"
+          style={{ color: "#94a3b8" }}
+        >
+          {label}
+        </span>
+      </div>
+      <div className="text-[11px] font-semibold truncate" style={{ color: text }}>
+        {title}
+      </div>
+      <div className="text-[9px] truncate mt-0.5" style={{ color: "#94a3b8" }}>
+        {subtitle}
+      </div>
+    </div>
+  )
+}
+
 function PathCard({ row, index }: { row: PathRow; index: number }) {
   const [expanded, setExpanded] = useState(false)
   const sevColor = severityColor(row.severityScore)
@@ -1005,14 +1167,24 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
       </div>
       </button>
 
-      {/* Expanded drill-in — full destination list with port/proto/
-          signals/country/org per destination. Stays inline so the
-          operator never loses context of which path they're inspecting. */}
+      {/* Expanded drill-in — visual flow map at top + full destination
+          list below. The flow map shows the path's cards laid out
+          horizontally with arrow connectors so the operator sees the
+          shape of THIS path at a glance. Destinations table provides
+          the per-flow detail. */}
       {expanded && (
         <div
-          className="px-4 py-3 border-t"
+          className="px-4 py-3 border-t space-y-4"
           style={{ borderColor: "rgba(148,163,184,0.12)", background: "rgba(15,23,42,0.4)" }}
         >
+          {/* PER-PATH FLOW MAP — horizontal cards-and-arrows visual */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
+              Flow map
+            </div>
+            <PathMiniFlow row={row} sevColor={sevColor} />
+          </div>
+
           <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
             Destinations ({row.fullDestinations.length}
             {row.destinationCount > row.fullDestinations.length && (
