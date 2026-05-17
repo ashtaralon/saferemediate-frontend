@@ -1525,7 +1525,14 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     )}
                   </div>
                   <div className="mt-1 text-[10px] text-slate-300 tabular-nums">
-                    {cj.hits.toLocaleString()} reads · {formatBytes(cj.bytes_transferred)}
+                    {/* Hide bytes when 0 — ACCESSES_RESOURCE / ACTUAL_API_CALL
+                        don't carry a byte count on the edge (CloudTrail
+                        records the call, not the payload size). Showing
+                        "0 B" reads as missing data; hiding is honest. */}
+                    {cj.hits.toLocaleString()} reads
+                    {cj.bytes_transferred > 0 && (
+                      <> · {formatBytes(cj.bytes_transferred)}</>
+                    )}
                   </div>
                   {ago && (
                     <div className="mt-0.5 text-[9px] text-slate-500">
