@@ -38,6 +38,7 @@ import {
   ShieldOff,
 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { CrownJewelExfilPaths } from "./crown-jewel-exfil-paths"
 
 // ---- Types (mirrors api/egress_posture.py response shape) ----------
 
@@ -929,6 +930,10 @@ export function TrustBoundaryMap({
 
   return (
     <div className="space-y-3">
+      <CrownJewelExfilPaths
+        workloads={data.workloads}
+        onSelectWorkload={handleSelectWorkload}
+      />
       <SummaryHeader summary={data.summary} vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`} />
       <ProjectedAfterCard
         summary={data.summary}
