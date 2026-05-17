@@ -118,6 +118,28 @@ interface EgressAttachedSecurityGroup {
   has_rule_hash: boolean
 }
 
+// One entry from a subnet's route table. Mirrors the AWS route shape
+// (DestinationCidrBlock + classified target). target_kind ∈
+// {InternetGateway, NATGateway, VPCEndpoint, TransitGateway,
+// EgressOnlyInternetGateway, VPCPeering, NetworkInterface, AWSService, ...}.
+// target_name is the AWS Name tag when present, otherwise the id.
+interface EgressRoute {
+  cidr: string | null
+  target_kind: string | null
+  target_id: string | null
+  target_name: string | null
+}
+
+// Route table attached (explicitly or via VPC main RT) to the workload's
+// subnet. `id` is the AWS RouteTableId (rtb-*). `routes` is the full
+// active route set — operators click the card to see every entry. null
+// at the workload level means the workload has no resolvable subnet
+// (Lambda outside a VPC, terminated ENI).
+interface EgressRouteTable {
+  id: string
+  routes: EgressRoute[]
+}
+
 interface EgressWorkload {
   workload: {
     id: string
@@ -149,6 +171,11 @@ interface EgressWorkload {
   // Empty for workloads with no SG (Lambdas without VPC config,
   // terminated ENIs) — that's HONEST, not a missing-data bug.
   attached_security_groups?: EgressAttachedSecurityGroup[]
+  // Route table the workload's subnet is associated with. Backend emits
+  // null when the workload has no resolvable subnet — the Egress Flow
+  // Map renders a "NO ROUTE TABLE (not in VPC)" placeholder card in
+  // that case rather than fabricating one (per feedback_no_mock_numbers_in_ui).
+  route_table?: EgressRouteTable | null
 }
 
 interface EgressResponse {
@@ -261,6 +288,11 @@ function buildArchitecture(data: EgressResponse | null): SystemArchitecture {
       workloadTotalHits: w.totals?.total_hits || 0,
       workloadDestinationCount: w.totals?.destinations || 0,
       workloadSignalsBreakdown: w.totals?.signals_breakdown || {},
+      // Route table the workload's subnet is associated with. Stashed
+      // on the compute node so buildPathRows can hydrate the PathRow
+      // without re-traversing the workload payload. null when backend
+      // couldn't resolve a subnet (Lambda outside VPC).
+      routeTable: w.route_table ?? null,
     } as ServiceNode & {
       subnetId: string | null
       subnetName: string | null
@@ -269,6 +301,7 @@ function buildArchitecture(data: EgressResponse | null): SystemArchitecture {
       workloadTotalHits: number
       workloadDestinationCount: number
       workloadSignalsBreakdown: Record<string, number>
+      routeTable: EgressRouteTable | null
     })
     wSubnet.set(wid, {
       id: w.workload.subnet_id,
@@ -478,6 +511,12 @@ interface PathRow {
   // gateway (IGW); some workloads with both internet + VPCE traffic
   // would show 2.
   gateways: { id: string; name: string; kind: string; bucket: "public" | "private" | "other" }[]
+  // Route table the workload's subnet is associated with — full route
+  // list so the operator can click the RT card and see every entry
+  // (the AWS console equivalent of "Routes" tab). null when the
+  // workload has no resolvable subnet (Lambda outside VPC), in which
+  // case the UI renders a "NOT IN VPC" placeholder card.
+  routeTable: EgressRouteTable | null
   // Destination summary — count + top-by-bytes for the card preview.
   destinationCount: number
   topDestinations: { ip: string; name: string; bytes: number; kind: string; isInternet: boolean }[]
@@ -592,6 +631,7 @@ function buildPathRows(
       workloadTotalHits?: number
       workloadDestinationCount?: number
       workloadSignalsBreakdown?: Record<string, number>
+      routeTable?: EgressRouteTable | null
     }
     const flows = architecture.flows.filter(f => f.sourceId === wid)
     if (flows.length === 0) continue
@@ -707,6 +747,7 @@ function buildPathRows(
       subnetIsPublic: meta.subnetIsPublic ?? null,
       sgs,
       gateways,
+      routeTable: meta.routeTable ?? null,
       destinationCount: totalDestinationCount,
       topDestinations,
       fullDestinations: rawDests,
@@ -858,9 +899,21 @@ function PathCardList({ rows, hiddenWorkloadCount }: { rows: PathRow[]; hiddenWo
 
 // PathFlowMap — per-path column-grid visual map that mirrors the
 // Attack Paths "System Architecture" view (TrafficFlowMap pattern).
-// Renders 4 columns: COMPUTE | SECURITY GROUPS | EGRESS GATEWAY |
-// DESTINATIONS, with animated traffic lines drawn between cards via
-// the shared ConnectionLinesSVG primitive.
+// Renders 5 columns: COMPUTE | SECURITY GROUPS | ROUTE TABLE | EGRESS
+// GATEWAY | DESTINATIONS, with animated traffic lines drawn between
+// cards via the shared ConnectionLinesSVG primitive.
+//
+// The ROUTE TABLE column sits visually between SG and GATEWAY because
+// in AWS the route table is the routing decision that *picks* which
+// gateway the packet takes — it's not a "device" the packet stops at.
+// ConnectionLinesSVG still draws compute→sg→gateway→destination
+// (skipping the RT) because RTs aren't packet-handling nodes; the RT
+// card just sits in the line's visual path so the operator reads the
+// flow as "SG allows → RT routes → gateway forwards."
+//
+// Click the Route Table card to expand the panel below the grid and
+// see every route entry (CIDR → target kind/name). Maps 1:1 to the
+// AWS console "Routes" tab.
 //
 // Builds a per-path SystemArchitecture (compute=this workload, sgs=
 // this path's SGs, iamRoles=this path's gateways, resources=this
@@ -870,6 +923,10 @@ function PathCardList({ rows, hiddenWorkloadCount }: { rows: PathRow[]; hiddenWo
 function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   // Container that ConnectionLinesSVG positions absolutely over.
   const containerRef = useRef<HTMLDivElement>(null)
+  // Route-table panel toggle. Closed by default — most operators want
+  // the visual flow first, route entries only when they're diagnosing
+  // a specific destination. Click the RT card to flip it.
+  const [routeTableOpen, setRouteTableOpen] = useState(false)
 
   // Per-path SystemArchitecture, derived from PathRow.
   const architecture = useMemo<SystemArchitecture>(() => {
@@ -1012,9 +1069,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
         animate={true}
       />
 
-      {/* 4-column grid */}
+      {/* 5-column grid: COMPUTE | SG | ROUTE TABLE | GATEWAY | DESTINATIONS.
+          ConnectionLinesSVG draws compute→sg→gateway→dest; the RT card
+          sits in the line's visual path but isn't a node — RTs are a
+          routing *decision*, not a packet-handling device. */}
       <div
-        className="relative grid grid-cols-[1fr_140px_180px_1.5fr] gap-6 items-start"
+        className="relative grid grid-cols-[1fr_140px_180px_180px_1.3fr] gap-5 items-start"
         style={{ zIndex: 2 }}
       >
         {/* COMPUTE column */}
@@ -1075,6 +1135,53 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               </div>
             )
           })}
+        </div>
+
+        {/* ROUTE TABLE column — clickable card. Click toggles the
+            expanded panel below the grid showing every route entry. */}
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Activity className="w-3 h-3 text-indigo-400" />
+            Route Table ({row.routeTable ? 1 : 0})
+          </div>
+          {row.routeTable ? (
+            <button
+              type="button"
+              onClick={() => setRouteTableOpen((v) => !v)}
+              aria-expanded={routeTableOpen}
+              className={`text-left rounded-lg border px-3 py-2 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/60 ${
+                routeTableOpen
+                  ? "border-indigo-500/60 bg-indigo-500/10"
+                  : "border-indigo-500/30 bg-indigo-500/5"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <Activity className="w-3 h-3 text-indigo-400 shrink-0" />
+                <div className="text-[11px] font-semibold text-indigo-50 truncate font-mono">
+                  {row.routeTable.id}
+                </div>
+                <ChevronRight
+                  className={`w-3 h-3 text-indigo-300 ml-auto shrink-0 transition-transform ${
+                    routeTableOpen ? "rotate-90" : ""
+                  }`}
+                />
+              </div>
+              <div className="mt-1 text-[9px] text-indigo-300 uppercase tracking-wider font-semibold">
+                {row.routeTable.routes.length} route{row.routeTable.routes.length === 1 ? "" : "s"}
+                <span className="ml-1 text-indigo-400/70 normal-case font-normal">· click to view</span>
+              </div>
+            </button>
+          ) : (
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2">
+              <div className="flex items-center gap-1.5">
+                <ShieldOff className="w-3 h-3 text-slate-500 shrink-0" />
+                <div className="text-[11px] font-semibold text-slate-400 truncate">No route table</div>
+              </div>
+              <div className="mt-1 text-[9px] text-slate-500 uppercase tracking-wider">
+                Not in VPC
+              </div>
+            </div>
+          )}
         </div>
 
         {/* GATEWAY column */}
@@ -1166,6 +1273,84 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           )}
         </div>
       </div>
+
+      {/* Route Table expanded panel — every route entry, AWS-console-style.
+          Mirrors the "Routes" tab in the AWS RouteTables console: one row
+          per active route, classified by target kind (IGW / NAT / VPCE /
+          TGW / local / etc.). Highlights public-egress targets in amber
+          so the operator immediately sees the "open door" routes. */}
+      {routeTableOpen && row.routeTable && (
+        <div
+          className="relative mt-4 rounded-lg border border-indigo-500/30 bg-indigo-950/40 p-3"
+          style={{ zIndex: 2 }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="w-3.5 h-3.5 text-indigo-400" />
+            <div className="text-[11px] font-semibold text-indigo-100 uppercase tracking-wider">
+              Routes
+            </div>
+            <span className="text-[10px] font-mono text-indigo-300">
+              {row.routeTable.id}
+            </span>
+            <button
+              type="button"
+              onClick={() => setRouteTableOpen(false)}
+              className="ml-auto text-[10px] text-indigo-300 hover:text-indigo-100 uppercase tracking-wider"
+            >
+              Close
+            </button>
+          </div>
+          {row.routeTable.routes.length === 0 ? (
+            <div className="text-[11px] text-slate-400 italic">
+              No active routes on this table — workload effectively cannot egress.
+            </div>
+          ) : (
+            <div className="grid grid-cols-[1fr_140px_1.4fr] gap-2 text-[11px]">
+              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
+                Destination
+              </div>
+              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
+                Target kind
+              </div>
+              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
+                Target
+              </div>
+              {row.routeTable.routes.map((rt, idx) => {
+                const kind = rt.target_kind || "Unknown"
+                const isPublicEgress = ["InternetGateway", "NATGateway", "EgressOnlyInternetGateway"].includes(kind)
+                const isPrivate = ["VPCEndpoint", "TransitGateway"].includes(kind)
+                const rowTone = isPublicEgress
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : isPrivate
+                    ? "border-emerald-500/30 bg-emerald-500/5"
+                    : "border-slate-700/60 bg-slate-900/40"
+                return (
+                  <React.Fragment key={`${rt.cidr}-${rt.target_id}-${idx}`}>
+                    <div className={`rounded border ${rowTone} px-2 py-1.5 font-mono text-slate-100`}>
+                      {rt.cidr || <span className="text-slate-500 italic">(no cidr)</span>}
+                    </div>
+                    <div className={`rounded border ${rowTone} px-2 py-1.5 flex items-center gap-1.5`}>
+                      {routeKindIcon(kind)}
+                      <span className="text-slate-200">{kind}</span>
+                    </div>
+                    <div className={`rounded border ${rowTone} px-2 py-1.5 truncate`}>
+                      <span className="text-slate-100">{rt.target_name || rt.target_id || "—"}</span>
+                      {rt.target_name && rt.target_id && rt.target_name !== rt.target_id && (
+                        <span className="ml-1.5 text-slate-500 font-mono text-[10px]">
+                          {rt.target_id}
+                        </span>
+                      )}
+                    </div>
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          )}
+          <div className="mt-2 text-[10px] text-indigo-400/70">
+            Routes with a public-egress target (IGW / NAT / EIGW) are highlighted in amber. Local-VPC and prefix-list routes resolve to private targets (VPCE / TGW).
+          </div>
+        </div>
+      )}
     </div>
   )
 }
