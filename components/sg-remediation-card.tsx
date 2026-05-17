@@ -1050,16 +1050,25 @@ export function SGRemediationCard({
                 </span>
               </div>
               <div
-                className="text-xs mt-2"
+                className="text-xs mt-2 cursor-help"
                 style={{ color: routing.color, opacity: 0.85 }}
+                title={[
+                  `Confidence tiers (this is ${operation} operation):`,
+                  `  ${T.SUGGEST} = SUGGEST — requires human approval per rule`,
+                  `  ${T.STAGED} = STAGED — eligible for auto-stage (canary first)`,
+                  `  ${T.AUTO} = AUTO — eligible for full auto-apply with rollback`,
+                  ``,
+                  `Current: ${overallScore}/100. Higher = stronger evidence that the`,
+                  `recommended change is non-breaking.`,
+                ].join("\n")}
               >
                 {overallScore >= T.AUTO
-                  ? "cleared all thresholds"
+                  ? "Cleared all thresholds — eligible for auto-apply"
                   : overallScore >= T.STAGED
-                    ? `${T.AUTO - overallScore} below AUTO`
+                    ? `${T.AUTO - overallScore} points below auto-apply threshold`
                     : overallScore >= T.SUGGEST
-                      ? `${T.STAGED - overallScore} below STAGED_AUTO`
-                      : `${T.SUGGEST - overallScore} below SUGGEST`}
+                      ? `${T.STAGED - overallScore} points below auto-stage threshold (canary)`
+                      : `${T.SUGGEST - overallScore} points below human-approval threshold`}
               </div>
             </div>
             <div className="text-right shrink-0">
@@ -1284,6 +1293,23 @@ export function SGRemediationCard({
                               SENSITIVE PORT
                             </span>
                           )}
+                          {/* DECLARATION CONFLICT chip — fires when a rule is
+                              recommended "keep" based on port-80/443 heuristic
+                              ("Declared public endpoint") but observation shows
+                              zero connections. Surfaces the data-vs-inference
+                              conflict so the operator decides instead of
+                              silently trusting the heuristic. */}
+                          {rule._action === "verify_first" &&
+                            rule.is_public &&
+                            conn === 0 &&
+                            (rule.recommendation?.reason || "").includes("typically indicates a public web") && (
+                              <span
+                                className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 border border-amber-400 text-amber-800"
+                                title="Heuristic (port 80/443) says public endpoint, but observation says zero traffic. Verify the workload is actually serving before keeping this rule open."
+                              >
+                                ⚠ DECLARATION CONFLICT
+                              </span>
+                            )}
                         </div>
                         <div className="text-xs font-mono text-[var(--muted-foreground,#6b7280)] mt-0.5 truncate">
                           {rule.direction === "inbound" ||
@@ -1320,7 +1346,7 @@ export function SGRemediationCard({
                           {capped && (
                             <span
                               className="px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100 line-through"
-                              title={`Evidence: ${evidence}% (raw, pre-action-ceiling)`}
+                              title={`Evidence-based confidence (raw, pre-calibration): ${evidence}%`}
                             >
                               {evidence}%
                             </span>
@@ -1343,13 +1369,25 @@ export function SGRemediationCard({
                             }}
                             title={
                               capped
-                                ? `Evidence ${evidence}% capped to ${execution}% by action class "${rule._action}" (ceiling ${rule._ceiling}). Routing follows execution_confidence.`
-                                : `Per-rule execution confidence: ${execution}/100`
+                                ? `Final (execution) confidence: ${execution}%. Lowered from raw ${evidence}% because this rule is in "${rule._action}" action class (max safe execution = ${rule._ceiling}%). Routing decision uses the final value.`
+                                : `Per-rule confidence: ${execution}/100`
                             }
                           >
                             {execution}%
                           </span>
                         </div>
+                        {/* Calibration-reason chip — VISIBLE (not just tooltip)
+                            explanation of WHY the score dropped. Operators
+                            shouldn't have to hover to understand why a 85%
+                            rule shows as 39%. The reasons come from the
+                            recommendation's action class ceiling (e.g.
+                            "investigate_first" caps at 39% because sensitive-
+                            port rules need extra human review). */}
+                        {capped && (
+                          <div className="mt-1 text-[9px] text-right text-amber-700 font-semibold uppercase tracking-wider">
+                            ↓ {rule._action.replace(/_/g, " ")} cap
+                          </div>
+                        )}
                         {!isProtected && (
                           <button
                             onClick={(e) => {
