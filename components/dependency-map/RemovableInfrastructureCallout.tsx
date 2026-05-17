@@ -62,6 +62,11 @@ interface ExecuteResult {
 }
 
 // Per-row execution state — the callout holds one of these per RT.
+// `error` is for transport / 5xx failures (network, proxy, unhandled
+// exception). `blocked` is for HTTP-200 pipeline blocks — the scorer
+// or a safety gate refused the change on purpose. Conflating the two
+// causes operators to retry "Request failed" as if it were a network
+// blip when actually the system safely refused the action.
 type RowState =
   | { phase: "idle" }
   | { phase: "simulating" }
@@ -70,6 +75,7 @@ type RowState =
   | { phase: "applied"; result: ExecuteResult }
   | { phase: "rolling_back"; appliedResult: ExecuteResult }
   | { phase: "rolled_back"; snapshotId: string }
+  | { phase: "blocked"; reasons: string[]; stage: string; status: string; lastPhase: RowState["phase"] }
   | { phase: "error"; message: string; lastPhase: RowState["phase"] }
 
 // ---------- Public API ----------------------------------------------
@@ -175,10 +181,25 @@ function CandidateRow({ candidate }: { candidate: RemoveRouteCandidate }) {
         }),
       })
       const json = (await res.json()) as ExecuteResult & { detail?: string; error?: string }
-      if (!res.ok || (json.errors && json.errors.length > 0)) {
+      // Distinguish a transport / 5xx failure from a clean pipeline
+      // block: a 200 response with non-empty errors[] is the scorer or
+      // a safety gate refusing the change on purpose, not a request
+      // failure. Surface those as the "blocked" phase with the
+      // operator-facing reasons.
+      if (!res.ok) {
         setState({
           phase: "error",
-          message: json.detail || json.error || (json.errors || []).join("; ") || `HTTP ${res.status}`,
+          message: json.detail || json.error || `HTTP ${res.status}`,
+          lastPhase: prevPhase,
+        })
+        return
+      }
+      if (json.errors && json.errors.length > 0) {
+        setState({
+          phase: "blocked",
+          reasons: json.errors,
+          stage: json.stage || "?",
+          status: json.status || "?",
           lastPhase: prevPhase,
         })
         return
@@ -296,7 +317,7 @@ function RowActionGroup({
   onRollback: () => void
   onReset: () => void
 }) {
-  if (state.phase === "idle" || state.phase === "error") {
+  if (state.phase === "idle" || state.phase === "error" || state.phase === "blocked") {
     return (
       <button
         type="button"
@@ -445,6 +466,33 @@ function RowDetailPanel({ state }: { state: RowState }) {
             snapshot {state.snapshotId}
           </span>
         </div>
+      </div>
+    )
+  }
+
+  if (state.phase === "blocked") {
+    // The scorer or a safety gate refused the change. Different from a
+    // request failure — this is the system working as designed.
+    // Operator-facing copy is "blocked by safety gate", details list
+    // the specific reasons (score, view_drift, behavioral_drift, etc.).
+    return (
+      <div className="mt-2.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[11px]">
+        <div className="flex items-center gap-1.5 mb-1">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+          <span className="font-semibold text-amber-100">Blocked by safety gate</span>
+          <span className="ml-auto text-[10px] uppercase tracking-wider text-amber-300/80">
+            stage={state.stage} · status={state.status}
+          </span>
+        </div>
+        <ul className="text-amber-100/90 leading-relaxed font-mono list-disc pl-4 space-y-0.5">
+          {state.reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+        <p className="mt-1.5 text-amber-200/70 leading-relaxed">
+          Click Simulate again after the underlying signal changes, or escalate
+          to an authorized operator if the gate's verdict needs override.
+        </p>
       </div>
     )
   }
