@@ -1,25 +1,44 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+
+// Jewel-surface aggregation — per-crown-jewel computed surface
+// (max_verbs, entry_summary, cross_path_remediation). Originally
+// relied on edge Cache-Control headers but those don't apply to
+// `runtime = "nodejs"` Functions in Vercel — the headers are advisory
+// and the operator-visible behavior was "every jewel click = full
+// 30-50s backend wait + occasional 502 from AbortSignal timeout."
+//
+// Now mirrors the parent identity-attack-paths proxy: per-instance
+// in-memory cache with TTL_SLOW (5 min). The page reaches this
+// endpoint repeatedly as the operator clicks through jewels — a single
+// warm cache pays for every subsequent click in the same session.
 
 export const runtime = "nodejs"
-// Intentionally NOT `dynamic = "force-dynamic"` — that opts out of all
-// caching, which defeats the Cache-Control header below. Without edge
-// caching every Vercel function instance pays the full backend cost
-// on first hit, and operators clicking between crown jewels see
-// repeated multi-second stalls.
 export const maxDuration = 60
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL =
+  process.env.BACKEND_URL_OVERRIDE ||
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ systemName: string; jewelId: string }> }
+  { params }: { params: Promise<{ systemName: string; jewelId: string }> },
 ) {
   const { systemName, jewelId } = await params
   const { searchParams } = new URL(req.url)
   const maxPaths = searchParams.get("max_paths") || "15"
 
+  const cacheKey = `jewel-surface|${systemName}|${jewelId}|${maxPaths}`
+
+  const cached = getCached(cacheKey)
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  }
+
   try {
-    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewel-surface/${encodeURIComponent(jewelId)}?max_paths=${maxPaths}`
+    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(
+      systemName,
+    )}/jewel-surface/${encodeURIComponent(jewelId)}?max_paths=${maxPaths}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(55000),
@@ -27,22 +46,23 @@ export async function GET(
     if (!res.ok) {
       return NextResponse.json(
         { error: `Backend returned ${res.status}` },
-        { status: res.status }
+        { status: res.status },
       )
     }
     const data = await res.json()
+    setCached(cacheKey, data, TTL_SLOW)
     return NextResponse.json(data, {
       headers: {
-        // 2-min Vercel edge cache + 4-min stale-while-revalidate. Same
-        // shape as the parent identity-attack-paths route. Per-jewel
-        // surface data doesn't change second-to-second.
+        "X-Cache": "MISS",
+        // Keep the edge SWR header as belt-and-suspenders for any
+        // future migration to Edge runtime where these DO apply.
         "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
       },
     })
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to fetch crown jewel surface" },
-      { status: 502 }
+      { status: 502 },
     )
   }
 }

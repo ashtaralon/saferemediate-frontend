@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Crown, Globe, Network, UserCircle, Skull, ShieldAlert, Wrench, Zap, Database, ChevronDown, ChevronRight } from "lucide-react"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 interface JewelSurfaceData {
   system_name: string
@@ -66,44 +67,33 @@ interface Props {
 }
 
 export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
-  const [data, setData] = useState<JewelSurfaceData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   // Collapsible per CISO feedback: "the orange part takes 50% of the screen,
   // fix that". Collapsed renders only a 1-line summary; expanded shows the
   // full 3-column WORST-CASE / ENTRY / FIXES layout. Default collapsed so
   // the diagram below gets the screen real estate it needs.
   const [expanded, setExpanded] = useState(false)
 
-  useEffect(() => {
-    if (!systemName || !jewelId) {
-      setData(null)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    const ac = new AbortController()
-    fetch(
-      `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewel-surface/${encodeURIComponent(jewelId)}`,
-      { signal: ac.signal }
-    )
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) {
-          setError(d.error)
-          setData(null)
-        } else {
-          setData(d)
-        }
-      })
-      .catch((e) => {
-        if (e.name !== "AbortError") setError(String(e.message ?? e))
-      })
-      .finally(() => setLoading(false))
-    return () => ac.abort()
-  }, [systemName, jewelId])
+  // Stale-while-revalidate via useCachedFetch — localStorage-backed.
+  // Replaced raw fetch+useState because the operator was hitting cold
+  // backend (47s+) and seeing either a 30s loading spinner OR a
+  // "Surface aggregation failed: aborted due to timeout" error after
+  // every backend deploy. SWR shows the LAST cached aggregation
+  // instantly on revisit while a background refresh runs; if the
+  // refresh fails (backend 502/504 cold), the stale data stays put
+  // with an isStale=true signal — operator's still productive, never
+  // looking at a blank error screen.
+  const url = systemName && jewelId
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewel-surface/${encodeURIComponent(jewelId)}`
+    : null
+  const { data, isStale, loading, error } = useCachedFetch<JewelSurfaceData>(url, {
+    cacheKey: `jewel-surface:${systemName}:${jewelId}`,
+  })
 
   if (!jewelId) return null
+  // First-ever load with NO cached fallback — show a loading hint.
+  // (After the first successful fetch, even cold backend cycles will
+  // render stale data instantly via SWR — this branch only fires for
+  // brand-new jewels the operator has never opened.)
   if (loading && !data) {
     return (
       <div className="px-4 py-2 text-[10px] text-slate-500 border-b border-slate-700/50">
@@ -111,7 +101,10 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
       </div>
     )
   }
-  if (error) {
+  // Surface error only when there's no cached fallback. With cache present,
+  // useCachedFetch keeps showing stale data with isStale=true and never
+  // surfaces a backend error — the operator stays productive.
+  if (error && !data) {
     return (
       <div className="px-4 py-2 text-[10px] text-red-400 border-b border-red-900/50">
         Surface aggregation failed: {error}
