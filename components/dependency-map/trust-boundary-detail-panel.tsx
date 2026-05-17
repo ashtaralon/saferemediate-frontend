@@ -33,6 +33,8 @@ import type {
   PostureRecommendation,
 } from "./trust-boundary-map"
 
+// Light-theme palette to match the system page (the rest of cyntro.io
+// is light, so the detail panel uses white background with dark text).
 const BUCKET_INFO: Record<
   WorkloadBucket,
   { label: string; emoji: string; description: string; bg: string; text: string }
@@ -41,29 +43,29 @@ const BUCKET_INFO: Record<
     label: "Isolated",
     emoji: "🟢",
     description: "No internet capability. Goal state.",
-    bg: "bg-emerald-500/10 border-emerald-500/40",
-    text: "text-emerald-300",
+    bg: "bg-emerald-50 border-emerald-300",
+    text: "text-emerald-800",
   },
   AWS_REDIRECTABLE: {
     label: "AWS-Redirectable",
     emoji: "🟡",
     description: "Uses AWS services via the internet gateway. Could be redirected via VPCE.",
-    bg: "bg-amber-500/10 border-amber-500/40",
-    text: "text-amber-300",
+    bg: "bg-amber-50 border-amber-300",
+    text: "text-amber-800",
   },
   ACTIVE_INTERNET: {
     label: "Active Internet",
     emoji: "🟠",
     description: "Talks to non-AWS destinations on the internet. Validate; narrow SG egress.",
-    bg: "bg-orange-500/10 border-orange-500/40",
-    text: "text-orange-300",
+    bg: "bg-orange-50 border-orange-300",
+    text: "text-orange-800",
   },
   LATENT_EXPOSURE: {
     label: "Latent Exposure",
     emoji: "🔴",
     description: "Open to internet, zero observed egress in the lookback window. Closable today.",
-    bg: "bg-red-500/10 border-red-500/50",
-    text: "text-red-300",
+    bg: "bg-red-50 border-red-400",
+    text: "text-red-800",
   },
 }
 
@@ -85,55 +87,55 @@ export function TrustBoundaryDetailPanel({
   const internet_dests = (totals.aws_destinations || 0) + (totals.external_destinations || 0)
 
   return (
-    <div className="w-[420px] rounded-xl border border-slate-700 bg-slate-900/80 backdrop-blur p-4 max-h-[calc(100vh-180px)] overflow-y-auto shrink-0">
+    <div className="w-[420px] rounded-xl border border-slate-200 bg-white shadow-lg p-4 max-h-[calc(100vh-180px)] overflow-y-auto shrink-0">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xl">{info.emoji}</span>
           <div>
-            <div className={`text-[10px] font-semibold uppercase tracking-wider ${info.text}`}>
+            <div className={`text-[10px] font-bold uppercase tracking-wider ${info.text}`}>
               {info.label}
             </div>
-            <div className="text-sm font-semibold text-slate-100 font-mono truncate max-w-[280px]">
+            <div className="text-sm font-semibold text-slate-900 font-mono truncate max-w-[280px]">
               {w.name || w.id}
             </div>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white"
+          className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-900"
           aria-label="Close detail panel"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      <div className={`mb-3 rounded-lg border ${info.bg} px-3 py-2 text-[11px] text-slate-200`}>
+      <div className={`mb-3 rounded-lg border ${info.bg} px-3 py-2 text-[11px] text-slate-800`}>
         {info.description}
       </div>
 
       {/* Identity */}
       <div className="mb-3">
-        <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+        <div className="text-[9px] uppercase tracking-wider text-slate-600 font-bold mb-1">
           Identity
         </div>
         <div className="grid grid-cols-2 gap-2 text-[11px]">
           <div className="flex items-center gap-1.5">
             <Server className="w-3 h-3 text-slate-500" />
-            <span className="text-slate-400">Type</span>
-            <span className="ml-auto text-slate-200 font-mono text-[10px]">
+            <span className="text-slate-600">Type</span>
+            <span className="ml-auto text-slate-900 font-mono text-[10px] font-semibold">
               {w.node_type || "Unknown"}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
             {w.subnet_is_public ? (
-              <Globe className="w-3 h-3 text-amber-400" />
+              <Globe className="w-3 h-3 text-amber-700" />
             ) : (
-              <Lock className="w-3 h-3 text-emerald-400" />
+              <Lock className="w-3 h-3 text-emerald-700" />
             )}
-            <span className="text-slate-400">Subnet</span>
+            <span className="text-slate-600">Subnet</span>
             <span
-              className={`ml-auto text-[10px] font-semibold uppercase ${
-                w.subnet_is_public ? "text-amber-300" : "text-emerald-300"
+              className={`ml-auto text-[10px] font-bold uppercase ${
+                w.subnet_is_public ? "text-amber-700" : "text-emerald-700"
               }`}
             >
               {w.subnet_is_public ? "Public" : w.subnet_is_public === false ? "Private" : "?"}
@@ -147,7 +149,7 @@ export function TrustBoundaryDetailPanel({
 
       {/* Capability flags */}
       <div className="mb-3">
-        <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+        <div className="text-[9px] uppercase tracking-wider text-slate-600 font-bold mb-1">
           Internet Capability
         </div>
         <div className="space-y-1.5">
@@ -159,7 +161,7 @@ export function TrustBoundaryDetailPanel({
             label="Route table → IGW / NAT"
             active={workload.has_igw_route}
           />
-          <div className="pt-1 mt-1 border-t border-slate-800">
+          <div className="pt-1 mt-1 border-t border-slate-200">
             <CapabilityRow
               label="Reaches internet"
               active={workload.has_internet_capability}
@@ -171,25 +173,25 @@ export function TrustBoundaryDetailPanel({
 
       {/* Observed traffic */}
       <div className="mb-3">
-        <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+        <div className="text-[9px] uppercase tracking-wider text-slate-600 font-bold mb-1">
           Observed Traffic (lookback window)
         </div>
         <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded border border-slate-700 bg-slate-900/50 px-2 py-1.5">
-            <div className="text-[9px] uppercase tracking-wider text-slate-500">AWS dests</div>
-            <div className="text-base font-bold text-slate-100">{totals.aws_destinations}</div>
+          <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+            <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">AWS dests</div>
+            <div className="text-base font-bold text-slate-900">{totals.aws_destinations}</div>
           </div>
-          <div className="rounded border border-slate-700 bg-slate-900/50 px-2 py-1.5">
-            <div className="text-[9px] uppercase tracking-wider text-slate-500">External</div>
-            <div className="text-base font-bold text-slate-100">{totals.external_destinations}</div>
+          <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+            <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">External</div>
+            <div className="text-base font-bold text-slate-900">{totals.external_destinations}</div>
           </div>
-          <div className="rounded border border-slate-700 bg-slate-900/50 px-2 py-1.5">
-            <div className="text-[9px] uppercase tracking-wider text-slate-500">Internal</div>
-            <div className="text-base font-bold text-slate-100">{totals.internal_destinations}</div>
+          <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+            <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Internal</div>
+            <div className="text-base font-bold text-slate-900">{totals.internal_destinations}</div>
           </div>
         </div>
-        <div className="mt-1 text-[10px] text-slate-500 text-center">
-          Total internet-facing destinations: <span className="text-slate-300 font-semibold">{internet_dests}</span>
+        <div className="mt-1 text-[10px] text-slate-600 text-center">
+          Total internet-facing destinations: <span className="text-slate-900 font-semibold">{internet_dests}</span>
         </div>
       </div>
 
@@ -200,10 +202,10 @@ export function TrustBoundaryDetailPanel({
           onPreview={() => onPreviewPipeline(workload)}
         />
       ) : (
-        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-center">
-          <CheckCircle2 className="w-5 h-5 mx-auto mb-1 text-emerald-400" />
-          <div className="text-[11px] font-semibold text-emerald-100">No action needed</div>
-          <div className="text-[10px] text-emerald-200/70 mt-0.5">
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-center">
+          <CheckCircle2 className="w-5 h-5 mx-auto mb-1 text-emerald-700" />
+          <div className="text-[11px] font-semibold text-emerald-900">No action needed</div>
+          <div className="text-[10px] text-emerald-700 mt-0.5">
             Workload is in the goal state — isolated from the internet.
           </div>
         </div>
@@ -222,19 +224,19 @@ function CapabilityRow({
   bold?: boolean
 }) {
   const icon = active ? (
-    <Network className="w-3 h-3 text-amber-400" />
+    <Network className="w-3 h-3 text-amber-700" />
   ) : (
-    <Lock className="w-3 h-3 text-emerald-400" />
+    <Lock className="w-3 h-3 text-emerald-700" />
   )
   const text = active ? (
-    <span className={`text-amber-300 ${bold ? "font-semibold" : ""}`}>YES</span>
+    <span className={`text-amber-700 ${bold ? "font-bold" : "font-semibold"}`}>YES</span>
   ) : (
-    <span className={`text-emerald-300 ${bold ? "font-semibold" : ""}`}>NO</span>
+    <span className={`text-emerald-700 ${bold ? "font-bold" : "font-semibold"}`}>NO</span>
   )
   return (
     <div className="flex items-center gap-1.5 text-[11px]">
       {icon}
-      <span className={`text-slate-300 ${bold ? "font-semibold" : ""}`}>{label}</span>
+      <span className={`text-slate-700 ${bold ? "font-semibold text-slate-900" : ""}`}>{label}</span>
       <span className="ml-auto text-[10px] uppercase tracking-wider">{text}</span>
     </div>
   )
@@ -248,33 +250,33 @@ function RecommendationCard({
   onPreview: () => void
 }) {
   // Type-aware tone — amber for closure (REMOVE/NARROW), emerald for
-  // improvement (ADD VPCE). Matches the chip language on the RT cards
-  // in the Egress Flow Map for visual consistency across views.
+  // improvement (ADD VPCE). Light-theme palette matches the rest of
+  // the page.
   const isImprovement = recommendation.type === "ADD_VPC_ENDPOINT"
   const tone = isImprovement
-    ? "border-emerald-500/40 bg-emerald-500/10"
-    : "border-amber-500/40 bg-amber-500/10"
+    ? "border-emerald-300 bg-emerald-50"
+    : "border-amber-300 bg-amber-50"
   const heading = isImprovement ? "Proposed Improvement" : "Proposed Closure"
-  const headingTone = isImprovement ? "text-emerald-100" : "text-amber-100"
+  const headingTone = isImprovement ? "text-emerald-900" : "text-amber-900"
 
   return (
-    <div className={`rounded-lg border ${tone} p-3`}>
+    <div className={`rounded-lg border-2 ${tone} p-3`}>
       <div className="flex items-center gap-2 mb-2">
-        <Shield className={`w-4 h-4 ${isImprovement ? "text-emerald-300" : "text-amber-300"}`} />
-        <div className={`text-[10px] font-semibold uppercase tracking-wider ${headingTone}`}>
+        <Shield className={`w-4 h-4 ${isImprovement ? "text-emerald-700" : "text-amber-700"}`} />
+        <div className={`text-[10px] font-bold uppercase tracking-wider ${headingTone}`}>
           {heading}
         </div>
       </div>
 
-      <div className="text-[12px] font-semibold text-slate-100 mb-1.5">
+      <div className="text-[12px] font-semibold text-slate-900 mb-1.5">
         {recommendation.action_description}
       </div>
 
-      <div className="text-[11px] text-slate-300 leading-relaxed mb-3">
+      <div className="text-[11px] text-slate-700 leading-relaxed mb-3">
         {recommendation.confidence_signal}
       </div>
 
-      <div className="text-[10px] text-slate-400 mb-3">
+      <div className="text-[10px] text-slate-600 mb-3 font-medium">
         Scope: {recommendation.scope_workload_count} workload
         {recommendation.scope_workload_count === 1 ? "" : "s"}
       </div>
@@ -282,7 +284,7 @@ function RecommendationCard({
       <button
         type="button"
         onClick={onPreview}
-        className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-violet-500/60 bg-violet-500/15 hover:bg-violet-500/25 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-violet-100 transition-colors"
+        className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border-2 border-violet-500 bg-violet-600 hover:bg-violet-700 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-white transition-colors shadow-sm"
       >
         <Play className="w-3.5 h-3.5" />
         Preview Safety Pipeline

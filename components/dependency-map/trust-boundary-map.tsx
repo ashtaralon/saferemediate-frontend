@@ -160,6 +160,9 @@ export interface PostureResponse {
 
 // ---- Bucket visual mapping ----------------------------------------
 
+// Light-theme palette — page background is white, so map uses white
+// cards with colored tints + dark text for proper contrast. Dark-theme
+// palette was unreadable on the light system page (screenshot 2026-05-17).
 const BUCKET_META: Record<
   WorkloadBucket,
   { label: string; emoji: string; hex: string; ring: string; bg: string; text: string }
@@ -168,33 +171,33 @@ const BUCKET_META: Record<
     label: "Isolated",
     emoji: "🟢",
     hex: "#10b981",
-    ring: "ring-emerald-500/40",
-    bg: "bg-emerald-500/10 border-emerald-500/40",
-    text: "text-emerald-300",
+    ring: "ring-emerald-500",
+    bg: "bg-emerald-50 border-emerald-300",
+    text: "text-emerald-800",
   },
   AWS_REDIRECTABLE: {
     label: "AWS-Redirectable",
     emoji: "🟡",
     hex: "#eab308",
-    ring: "ring-amber-500/40",
-    bg: "bg-amber-500/10 border-amber-500/40",
-    text: "text-amber-300",
+    ring: "ring-amber-500",
+    bg: "bg-amber-50 border-amber-300",
+    text: "text-amber-800",
   },
   ACTIVE_INTERNET: {
     label: "Active Internet",
     emoji: "🟠",
     hex: "#f97316",
-    ring: "ring-orange-500/40",
-    bg: "bg-orange-500/10 border-orange-500/40",
-    text: "text-orange-300",
+    ring: "ring-orange-500",
+    bg: "bg-orange-50 border-orange-300",
+    text: "text-orange-800",
   },
   LATENT_EXPOSURE: {
     label: "Latent Exposure",
     emoji: "🔴",
     hex: "#dc2626",
-    ring: "ring-red-500/50",
-    bg: "bg-red-500/10 border-red-500/50",
-    text: "text-red-300",
+    ring: "ring-red-500",
+    bg: "bg-red-50 border-red-400",
+    text: "text-red-800",
   },
 }
 
@@ -209,19 +212,19 @@ function formatBytes(n: number): string {
 
 function SummaryHeader({ summary, vpcLabel }: { summary: PostureSummary; vpcLabel: string }) {
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4 mb-4">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">
             Trust Boundary
           </div>
-          <div className="text-lg font-semibold text-slate-100">{vpcLabel}</div>
+          <div className="text-lg font-semibold text-slate-900">{vpcLabel}</div>
         </div>
         <div className="text-right">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">
             Total workloads
           </div>
-          <div className="text-2xl font-bold text-slate-100">{summary.total_workloads}</div>
+          <div className="text-2xl font-bold text-slate-900">{summary.total_workloads}</div>
         </div>
       </div>
 
@@ -249,7 +252,7 @@ function SummaryHeader({ summary, vpcLabel }: { summary: PostureSummary; vpcLabe
                     {meta.label}
                   </span>
                 </div>
-                <div className="text-2xl font-bold text-slate-50">{count}</div>
+                <div className="text-2xl font-bold text-slate-900">{count}</div>
               </div>
             )
           },
@@ -257,13 +260,13 @@ function SummaryHeader({ summary, vpcLabel }: { summary: PostureSummary; vpcLabe
       </div>
 
       {summary.closable_today_count > 0 && (
-        <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-red-300" />
-          <span className="text-[11px] font-semibold text-red-100">
+        <div className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-600" />
+          <span className="text-[11px] font-semibold text-red-900">
             {summary.closable_today_count} workload{summary.closable_today_count === 1 ? "" : "s"} with
             zero observed internet egress — closable today
           </span>
-          <span className="ml-auto text-[10px] text-red-200/70">
+          <span className="ml-auto text-[10px] text-red-700">
             Exfil surface: {summary.exfil_surface_count} · Review: {summary.review_needed_count}
           </span>
         </div>
@@ -287,14 +290,14 @@ function WorkloadChip({
     <button
       type="button"
       onClick={onClick}
-      className={`text-left rounded border ${meta.bg} px-2 py-1.5 transition-all hover:scale-105 ${
+      className={`text-left rounded border ${meta.bg} px-2 py-1.5 transition-all hover:scale-105 hover:shadow-md ${
         selected ? `ring-2 ${meta.ring}` : ""
       }`}
       title={`${meta.label} · ${name}`}
     >
       <div className="flex items-center gap-1">
         <span className="text-[10px]">{meta.emoji}</span>
-        <span className="text-[10px] font-mono text-slate-100 truncate" style={{ maxWidth: 90 }}>
+        <span className={`text-[11px] font-medium ${meta.text} truncate`} style={{ maxWidth: 130 }}>
           {name}
         </span>
       </div>
@@ -315,22 +318,22 @@ function SubnetZone({
 }) {
   const isPublic = subnet.is_public === true
   const zoneTone = isPublic
-    ? "border-amber-500/30 bg-amber-500/[0.04]"
-    : "border-emerald-500/30 bg-emerald-500/[0.04]"
+    ? "border-amber-300 bg-amber-50"
+    : "border-emerald-300 bg-emerald-50"
   return (
-    <div className={`rounded-lg border ${zoneTone} p-2.5`}>
+    <div className={`rounded-lg border-2 ${zoneTone} p-2.5`}>
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
           {isPublic ? (
-            <Globe className="w-3 h-3 text-amber-400" />
+            <Globe className="w-3 h-3 text-amber-700" />
           ) : (
-            <Lock className="w-3 h-3 text-emerald-400" />
+            <Lock className="w-3 h-3 text-emerald-700" />
           )}
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-200">
+          <span className={`text-[10px] font-semibold uppercase tracking-wider ${isPublic ? "text-amber-900" : "text-emerald-900"}`}>
             {isPublic ? "Public" : "Private"} · {subnet.name}
           </span>
         </div>
-        <span className="text-[10px] text-slate-400 font-mono">{subnet.workload_count}</span>
+        <span className="text-[10px] text-slate-600 font-mono font-semibold">{subnet.workload_count}</span>
       </div>
       <div className="flex flex-wrap gap-1">
         {workloads.map((w) => (
@@ -375,9 +378,9 @@ function VPCContainer({
   }, [workloads])
 
   return (
-    <div className="relative rounded-xl border-2 border-slate-600 bg-slate-900/40 p-3">
-      {/* VPC label */}
-      <div className="absolute -top-3 left-4 bg-slate-950 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1">
+    <div className="relative rounded-xl border-2 border-slate-300 bg-slate-50 shadow-sm p-3">
+      {/* VPC label — sits on the border edge for the "container" effect */}
+      <div className="absolute -top-3 left-4 bg-white border border-slate-300 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1">
         <Network className="w-3 h-3" />
         VPC · {vpcLabel}
       </div>
@@ -385,7 +388,7 @@ function VPCContainer({
       <div className="grid grid-cols-2 gap-3 pt-2">
         {/* Public subnets column */}
         <div>
-          <div className="text-[9px] uppercase tracking-wider text-amber-400 font-semibold mb-1.5 flex items-center gap-1">
+          <div className="text-[9px] uppercase tracking-wider text-amber-700 font-bold mb-1.5 flex items-center gap-1">
             <Globe className="w-2.5 h-2.5" />
             Public Subnets ({publicSubnets.length})
           </div>
@@ -409,7 +412,7 @@ function VPCContainer({
 
         {/* Private subnets column */}
         <div>
-          <div className="text-[9px] uppercase tracking-wider text-emerald-400 font-semibold mb-1.5 flex items-center gap-1">
+          <div className="text-[9px] uppercase tracking-wider text-emerald-700 font-bold mb-1.5 flex items-center gap-1">
             <Lock className="w-2.5 h-2.5" />
             Private Subnets ({privateSubnets.length})
           </div>
@@ -439,18 +442,18 @@ function GateCard({ gate }: { gate: PostureGate }) {
   const isInternetEgress = gate.kind === "InternetGateway" || gate.kind === "NATGateway"
   const isVpce = gate.kind === "VPCEndpoint"
   const tone = isInternetEgress
-    ? "border-amber-500/40 bg-amber-500/10"
-    : "border-emerald-500/40 bg-emerald-500/10"
+    ? "border-amber-300 bg-amber-50"
+    : "border-emerald-300 bg-emerald-50"
   const icon = isInternetEgress ? (
-    <Globe className="w-4 h-4 text-amber-400" />
+    <Globe className="w-4 h-4 text-amber-700" />
   ) : (
-    <Lock className="w-4 h-4 text-emerald-400" />
+    <Lock className="w-4 h-4 text-emerald-700" />
   )
   return (
-    <div className={`rounded-lg border ${tone} px-3 py-2 min-w-[140px]`}>
+    <div className={`rounded-lg border-2 ${tone} px-3 py-2 min-w-[160px] shadow-sm`}>
       <div className="flex items-center gap-1.5 mb-1">
         {icon}
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-100">
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${isInternetEgress ? "text-amber-900" : "text-emerald-900"}`}>
           {gate.kind === "InternetGateway"
             ? "IGW"
             : gate.kind === "NATGateway"
@@ -458,26 +461,26 @@ function GateCard({ gate }: { gate: PostureGate }) {
               : "VPCE"}
         </span>
       </div>
-      <div className="text-[10px] font-mono text-slate-300 truncate" title={gate.name}>
+      <div className="text-[10px] font-mono text-slate-700 truncate" title={gate.name}>
         {gate.name}
       </div>
       {isVpce && gate.service_name && (
-        <div className="text-[9px] text-slate-400 mt-0.5 truncate">
+        <div className="text-[9px] text-slate-500 mt-0.5 truncate font-semibold">
           {gate.service_name.split(".").pop()}
         </div>
       )}
       {isVpce && gate.policy_is_open && (
-        <div className="mt-1 inline-flex items-center gap-1 rounded border border-red-500/50 bg-red-500/15 px-1 py-0.5">
-          <AlertTriangle className="w-2.5 h-2.5 text-red-300" />
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-red-200">
+        <div className="mt-1 inline-flex items-center gap-1 rounded border border-red-400 bg-red-100 px-1.5 py-0.5">
+          <AlertTriangle className="w-2.5 h-2.5 text-red-700" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-red-800">
             Open Policy
           </span>
         </div>
       )}
       {isInternetEgress && (
-        <div className="mt-1 inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/50 px-1 py-0.5">
+        <div className="mt-1 inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">
           <ShieldOff className="w-2.5 h-2.5 text-slate-500" />
-          <span className="text-[9px] uppercase tracking-wider text-slate-400">
+          <span className="text-[9px] uppercase tracking-wider text-slate-600 font-semibold">
             No L7 Filter
           </span>
         </div>
@@ -488,10 +491,10 @@ function GateCard({ gate }: { gate: PostureGate }) {
 
 function EgressBoundary({ gates }: { gates: PostureGate[] }) {
   return (
-    <div className="relative my-4">
+    <div className="relative my-5">
       {/* The wall — thick gradient bar */}
-      <div className="relative h-1 rounded-full bg-gradient-to-r from-indigo-500/60 via-violet-500/60 to-indigo-500/60 mb-3">
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 bg-slate-950 text-[10px] font-semibold uppercase tracking-wider text-violet-300 flex items-center gap-1">
+      <div className="relative h-1.5 rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 mb-4">
+        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 bg-white border border-violet-300 rounded text-[10px] font-bold uppercase tracking-wider text-violet-700 flex items-center gap-1 shadow-sm">
           <Shield className="w-3 h-3" />
           ✦ Egress Boundary · {gates.length} gates ✦
         </div>
@@ -521,26 +524,26 @@ function ExternalClusterCard({
     <div
       className={`rounded-lg border px-2.5 py-1.5 ${
         hasAlert
-          ? "border-rose-500/40 bg-rose-500/5"
-          : "border-slate-700 bg-slate-900/40"
+          ? "border-rose-300 bg-rose-50"
+          : "border-slate-200 bg-white"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <Cloud className="w-3 h-3 text-slate-400 shrink-0" />
-          <span className="text-[11px] font-semibold text-slate-100 truncate">
+          <Cloud className="w-3 h-3 text-slate-500 shrink-0" />
+          <span className="text-[11px] font-semibold text-slate-900 truncate">
             {cluster.org}
           </span>
         </div>
-        <span className="text-[9px] font-mono text-cyan-400 shrink-0">
+        <span className="text-[9px] font-mono text-cyan-700 shrink-0 font-semibold">
           {formatBytes(cluster.total_bytes)}
         </span>
       </div>
-      <div className="mt-0.5 text-[9px] text-slate-500">
+      <div className="mt-0.5 text-[9px] text-slate-600">
         {cluster.destination_count} dest · {cluster.total_hits} hits
       </div>
       {hasAlert && (
-        <div className="mt-0.5 text-[9px] text-rose-300 uppercase font-semibold">
+        <div className="mt-0.5 text-[9px] text-rose-700 uppercase font-bold">
           ⚠ {cluster.signals.filter((s) => ["plaintext", "residential_isp", "rare_asn"].includes(s)).join(" · ")}
         </div>
       )}
@@ -554,27 +557,27 @@ function AWSClusterCard({
   cluster: PostureResponse["destinations"]["aws_backbone"][number]
 }) {
   const tone = cluster.redirectable
-    ? "border-amber-500/40 bg-amber-500/5"
-    : "border-emerald-500/40 bg-emerald-500/5"
+    ? "border-amber-300 bg-amber-50"
+    : "border-emerald-300 bg-emerald-50"
   return (
     <div className={`rounded-lg border ${tone} px-2.5 py-1.5`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <Server className="w-3 h-3 text-emerald-400 shrink-0" />
-          <span className="text-[11px] font-semibold text-emerald-50 truncate">
+          <Server className={`w-3 h-3 ${cluster.redirectable ? "text-amber-700" : "text-emerald-700"} shrink-0`} />
+          <span className={`text-[11px] font-semibold truncate ${cluster.redirectable ? "text-amber-900" : "text-emerald-900"}`}>
             {cluster.service}
           </span>
         </div>
-        <span className="text-[9px] font-mono text-cyan-400 shrink-0">
+        <span className="text-[9px] font-mono text-cyan-700 shrink-0 font-semibold">
           {formatBytes(cluster.total_bytes)}
         </span>
       </div>
-      <div className="mt-0.5 text-[9px] text-slate-500">
+      <div className="mt-0.5 text-[9px] text-slate-600">
         {cluster.destination_count} dest · IGW {cluster.via_igw_count} · VPCE {cluster.via_vpce_count}
       </div>
       {cluster.redirectable && (
-        <div className="mt-1 inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 px-1 py-0.5">
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
+        <div className="mt-1 inline-flex items-center gap-1 rounded border border-amber-400 bg-amber-100 px-1.5 py-0.5">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-amber-800">
             Add VPCE{cluster.is_gateway_eligible ? " · free" : ""}
           </span>
         </div>
@@ -590,9 +593,9 @@ function DestinationsArea({
 }) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-3">
-        <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2 flex items-center gap-1.5">
-          <Globe className="w-3 h-3 text-cyan-400" />
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+        <div className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mb-2 flex items-center gap-1.5">
+          <Globe className="w-3 h-3 text-cyan-700" />
           External Destinations · {destinations.external_clusters.length} orgs
         </div>
         <div className="flex flex-col gap-1.5">
@@ -612,9 +615,9 @@ function DestinationsArea({
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-3">
-        <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2 flex items-center gap-1.5">
-          <Cloud className="w-3 h-3 text-emerald-400" />
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+        <div className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mb-2 flex items-center gap-1.5">
+          <Cloud className="w-3 h-3 text-emerald-700" />
           AWS Backbone · {destinations.aws_backbone.length} services
         </div>
         <div className="flex flex-col gap-1.5">
@@ -661,12 +664,12 @@ export function TrustBoundaryMap({
   // Loading: only when we have NO cache at all (first-ever visit).
   if (loading && !data) {
     return (
-      <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-12 flex flex-col items-center gap-3 min-h-[500px] justify-center">
-        <Activity className="w-8 h-8 animate-pulse text-violet-400" />
-        <div className="text-sm font-semibold text-slate-200">
+      <div className="rounded-xl border border-slate-200 bg-white p-12 flex flex-col items-center gap-3 min-h-[500px] justify-center shadow-sm">
+        <Activity className="w-8 h-8 animate-pulse text-violet-500" />
+        <div className="text-sm font-semibold text-slate-900">
           Loading Trust Boundary Map…
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-slate-600">
           First-time analysis takes 30-40 seconds. Subsequent loads are instant.
         </div>
       </div>
@@ -675,15 +678,15 @@ export function TrustBoundaryMap({
 
   if (error && !data) {
     return (
-      <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-8 text-center">
-        <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-400" />
-        <div className="text-sm font-semibold text-red-100 mb-1">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center">
+        <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-600" />
+        <div className="text-sm font-semibold text-red-900 mb-1">
           Failed to load Trust Boundary Map
         </div>
-        <div className="text-xs text-red-300/80 mb-3">{error}</div>
+        <div className="text-xs text-red-700 mb-3">{error}</div>
         <button
           onClick={retry}
-          className="px-3 py-1.5 rounded text-xs font-semibold bg-red-500/20 hover:bg-red-500/30 text-red-100 border border-red-500/50"
+          className="px-3 py-1.5 rounded text-xs font-semibold bg-red-100 hover:bg-red-200 text-red-900 border border-red-300"
         >
           Retry
         </button>
