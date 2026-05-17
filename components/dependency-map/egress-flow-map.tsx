@@ -48,6 +48,7 @@ import {
   AlertTriangle,
   ChevronRight,
   Cloud,
+  Database,
   Globe,
   Lock,
   Maximize2,
@@ -198,6 +199,22 @@ interface EgressRouteTable {
   recommendation?: EgressRouteTableRecommendation | null
 }
 
+// Upstream crown jewel the workload READS from. Backend ships these per
+// workload via _load_workload_upstream_crown_jewels_batch — see the
+// matching shape in api/egress_visibility.py. Drives the Egress Flow
+// Map's CROWN JEWEL column (left of COMPUTE) so the operator sees the
+// full exfil chain at a glance: CJ → workload → SG → RT → gateway → internet.
+interface UpstreamCrownJewel {
+  id: string
+  name: string
+  type: string
+  classification: string | null
+  is_internet_exposed: boolean
+  hits: number
+  bytes_transferred: number
+  last_seen: string | null
+}
+
 interface EgressWorkload {
   workload: {
     id: string
@@ -234,6 +251,12 @@ interface EgressWorkload {
   // Map renders a "NO ROUTE TABLE (not in VPC)" placeholder card in
   // that case rather than fabricating one (per feedback_no_mock_numbers_in_ui).
   route_table?: EgressRouteTable | null
+  // Crown jewels this workload READS from in the lookback window.
+  // Empty list = no observed CJ reads — frontend renders a three-state
+  // "no observed CJ reads" placeholder in the CROWN JEWEL column
+  // rather than hiding the column entirely (per
+  // feedback_no_mock_numbers_in_ui).
+  upstream_crown_jewels?: UpstreamCrownJewel[]
 }
 
 interface EgressResponse {
@@ -270,6 +293,73 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
   return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+
+// Compact "time ago" for CJ-card recency. Mirrors the shape used in
+// risky-ports-dashboard so the operator sees the same vocabulary across
+// surfaces (minutes/hours/days/months ago). Returns null when the
+// timestamp is missing — caller should hide the line in that case.
+function formatTimeAgoShort(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null
+  const t = new Date(dateStr).getTime()
+  if (Number.isNaN(t)) return null
+  const diffMs = Date.now() - t
+  if (diffMs < 0) return "just now"
+  const m = Math.floor(diffMs / 60000)
+  if (m < 60) return m <= 1 ? "just now" : `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d}d ago`
+  return `${Math.floor(d / 30)}mo ago`
+}
+
+// Friendly type label for crown-jewel cards. Backend ships raw graph
+// types ("S3Bucket", "DynamoDBTable", "SecretsManagerSecret") — we
+// massage to a short, two-word display so the badge stays readable in
+// the narrow CJ column.
+const _CJ_TYPE_LABELS: Record<string, string> = {
+  S3Bucket: "S3 Bucket",
+  S3: "S3 Bucket",
+  DynamoDBTable: "DynamoDB",
+  DynamoDB: "DynamoDB",
+  RDSInstance: "RDS",
+  RDSCluster: "RDS Cluster",
+  Secret: "Secret",
+  SecretsManagerSecret: "Secret",
+  KMSKey: "KMS Key",
+  Elasticache: "Elasticache",
+  ElasticacheCluster: "Elasticache",
+  Redshift: "Redshift",
+  RedshiftCluster: "Redshift",
+  Lambda: "Lambda",
+  LambdaFunction: "Lambda",
+}
+
+function cjTypeLabel(type: string | null | undefined): string {
+  if (!type) return "Resource"
+  return _CJ_TYPE_LABELS[type] || type
+}
+
+// Short, uppercase classification chip. Backend stores arbitrary
+// strings ("pii", "PII", "financial", "confidential"); we normalize
+// to a 3-7 char uppercase token that fits the chip width.
+function cjClassificationChip(c: string | null | undefined): string | null {
+  if (!c) return null
+  const norm = c.trim().toLowerCase()
+  if (!norm) return null
+  const aliases: Record<string, string> = {
+    pii: "PII",
+    "personally-identifiable-information": "PII",
+    phi: "PHI",
+    financial: "FIN",
+    confidential: "CONF",
+    "highly-confidential": "CONF+",
+    sensitive: "SENS",
+    public: "PUB",
+    internal: "INT",
+  }
+  return aliases[norm] || norm.slice(0, 6).toUpperCase()
 }
 
 function countryFlag(country: string | null): string {
@@ -618,6 +708,11 @@ interface PathRow {
   // every flow comes from real VPC Flow Logs. Reserve INFERRED for a
   // future expansion (e.g., reachable-but-not-yet-observed paths).
   evidence: "OBSERVED"
+  // Crown jewels this workload reads from (drives the CROWN JEWEL
+  // column left of COMPUTE in PathFlowMap). Empty array = no observed
+  // CJ reads in the lookback window — the column renders a three-
+  // state "no observed CJ reads" placeholder rather than hiding.
+  upstreamCrownJewels: UpstreamCrownJewel[]
 }
 
 // Egress severity score 0-100. Mirrors the Identity Attack Paths
@@ -675,8 +770,14 @@ function buildPathRows(
   // drill-in panel can show enrichment fields (port, proto, signals,
   // country, org) that we strip out when building flow tuples.
   const destsByWorkload = new Map<string, EgressDestination[]>()
+  // Same lookup for upstream crown jewels — workload reads-from data
+  // that drives the CROWN JEWEL column. Sourced from the backend's
+  // _load_workload_upstream_crown_jewels_batch (one Cypher round-trip
+  // for the whole system).
+  const cjByWorkload = new Map<string, UpstreamCrownJewel[]>()
   for (const w of data?.workloads || []) {
     destsByWorkload.set(w.workload.id, w.top_destinations || [])
+    cjByWorkload.set(w.workload.id, w.upstream_crown_jewels || [])
   }
   // Per-workload aggregation. Walk flows, group by sourceId.
   for (const compute of architecture.computeServices) {
@@ -821,6 +922,7 @@ function buildPathRows(
       severityScore,
       scoreLabel,
       evidence: "OBSERVED",
+      upstreamCrownJewels: cjByWorkload.get(wid) || [],
     })
   }
   // Sort by score desc — operators see the highest-impact path first,
@@ -1328,14 +1430,114 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
         animate={true}
       />
 
-      {/* 5-column grid: COMPUTE | SG | ROUTE TABLE | GATEWAY | DESTINATIONS.
-          ConnectionLinesSVG draws compute→sg→gateway→dest; the RT card
-          sits in the line's visual path but isn't a node — RTs are a
-          routing *decision*, not a packet-handling device. */}
+      {/* 6-column grid: CROWN JEWEL | COMPUTE | SG | ROUTE TABLE |
+          GATEWAY | DESTINATIONS.
+          The CJ column on the left surfaces the data the workload READS
+          from in the lookback window (ACCESSES_RESOURCE /
+          ACTUAL_S3_ACCESS / ACTUAL_API_CALL / READS_FROM edges in
+          Neo4j). It completes the exfil chain on screen:
+            CJ → compute → SG → gateway → internet destinations
+          so the operator can see, without cross-referencing the
+          Identity Attack Paths view, what sensitive data sits behind
+          a workload that's exfiltrating bytes.
+          ConnectionLinesSVG draws compute→sg→gateway→dest; the CJ→
+          compute hop is rendered as a static arrow chevron between
+          columns (SVG extension is queued — see follow-up task). */}
       <div
-        className="relative grid grid-cols-[1fr_140px_180px_180px_1.3fr] gap-5 items-start"
+        className="relative grid grid-cols-[0.85fr_1fr_140px_180px_180px_1.3fr] gap-5 items-start"
         style={{ zIndex: 2 }}
       >
+        {/* CROWN JEWEL column — upstream data the workload reads from */}
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Database className="w-3 h-3 text-fuchsia-300" />
+            Crown Jewel ({row.upstreamCrownJewels.length})
+          </div>
+          {row.upstreamCrownJewels.length === 0 ? (
+            // Three-state placeholder: honest "no observed CJ reads" — never
+            // fabricate. The column stays present so the layout doesn't
+            // jump between paths with and without CJ context.
+            <div
+              className="rounded-lg border border-dashed border-slate-700 bg-slate-900/30 px-3 py-3 text-[10px] text-slate-500 leading-snug"
+              title="No ACCESSES_RESOURCE / ACTUAL_S3_ACCESS / ACTUAL_API_CALL / READS_FROM edges observed from this workload to a crown-jewel resource in the lookback window."
+            >
+              <div className="font-semibold uppercase tracking-wider text-slate-400 mb-0.5">No observed reads</div>
+              <div>This workload had no CJ-read traffic in the lookback window.</div>
+            </div>
+          ) : (
+            row.upstreamCrownJewels.map((cj) => {
+              // Visual tone escalates when the jewel ITSELF is internet-
+              // exposed — that's the worst-case exfil pattern (workload
+              // reads from a publicly-reachable data store, then exfils
+              // out via IGW). Operator should see this at a glance.
+              const exposed = !!cj.is_internet_exposed
+              const classChip = cjClassificationChip(cj.classification)
+              const ago = formatTimeAgoShort(cj.last_seen)
+              const cardTone = exposed
+                ? "border-rose-500/50 bg-rose-500/10"
+                : "border-fuchsia-500/30 bg-fuchsia-500/5"
+              const titleParts = [
+                cjTypeLabel(cj.type),
+                `${cj.hits.toLocaleString()} reads`,
+                formatBytes(cj.bytes_transferred),
+                ago ? `last seen ${ago}` : null,
+                exposed ? "jewel is internet-exposed" : null,
+                cj.classification ? `classification: ${cj.classification}` : null,
+              ].filter(Boolean)
+              return (
+                <div
+                  key={cj.id}
+                  data-cj-id={cj.id}
+                  className={`rounded-lg border ${cardTone} px-3 py-2`}
+                  title={titleParts.join(" · ")}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Database
+                      className={`w-3 h-3 shrink-0 ${exposed ? "text-rose-300" : "text-fuchsia-300"}`}
+                    />
+                    <div
+                      className={`text-[11px] font-semibold truncate ${exposed ? "text-rose-50" : "text-fuchsia-50"}`}
+                    >
+                      {cj.name}
+                    </div>
+                  </div>
+                  <div className="mt-1 flex items-center gap-1 flex-wrap">
+                    <span
+                      className={`text-[9px] uppercase tracking-wider font-semibold ${exposed ? "text-rose-300/90" : "text-fuchsia-300/80"}`}
+                    >
+                      {cjTypeLabel(cj.type)}
+                    </span>
+                    {classChip && (
+                      <span
+                        className="inline-flex items-center rounded border border-amber-400/50 bg-amber-500/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-200"
+                        title={`Data classification: ${cj.classification}`}
+                      >
+                        {classChip}
+                      </span>
+                    )}
+                    {exposed && (
+                      <span
+                        className="inline-flex items-center rounded border border-rose-400/70 bg-rose-500/20 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider text-rose-100"
+                        title="This crown jewel is internet-exposed — exfil-out path is the worst-case posture"
+                      >
+                        Public
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-300 tabular-nums">
+                    {cj.hits.toLocaleString()} reads · {formatBytes(cj.bytes_transferred)}
+                  </div>
+                  {ago && (
+                    <div className="mt-0.5 text-[9px] text-slate-500">
+                      last seen {ago}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+
         {/* COMPUTE column */}
         <div className="flex flex-col gap-2.5">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
