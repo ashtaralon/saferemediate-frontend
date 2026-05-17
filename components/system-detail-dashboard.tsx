@@ -290,6 +290,30 @@ const EgressFlowMap = dynamic(
   },
 )
 
+// Trust Boundary Map — the killer demo view. Renders VPC + subnets +
+// workloads colored by 4-bucket classification + gates + destinations.
+// Default view on the Egress tab so operators land on the headline
+// visualization. Detail panel + LivePipelineModal are co-lazy-loaded.
+const TrustBoundaryMap = dynamic(
+  () => import("./dependency-map/trust-boundary-map").then((m) => ({ default: m.TrustBoundaryMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center min-h-[500px] rounded-xl bg-slate-900">
+        <div className="w-10 h-10 border-3 border-violet-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    ),
+  },
+)
+const TrustBoundaryDetailPanel = dynamic(
+  () => import("./dependency-map/trust-boundary-detail-panel").then((m) => ({ default: m.TrustBoundaryDetailPanel })),
+  { ssr: false },
+)
+const LivePipelineModal = dynamic(
+  () => import("./dependency-map/live-pipeline-modal").then((m) => ({ default: m.LivePipelineModal })),
+  { ssr: false },
+)
+
 function EgressTabContainer({
   systemName,
   deepLink,
@@ -299,11 +323,21 @@ function EgressTabContainer({
   deepLink: TrafficDeepLink | null
   onDeepLinkConsumed: () => void
 }) {
-  const [view, setView] = useState<"inventory" | "by-workload" | "flow-map">("inventory")
+  // Trust Boundary Map is the new default — the killer-demo headline
+  // visualization. Other views (inventory/by-workload/flow-map) stay
+  // accessible via the toggle for power-user drill-down.
+  const [view, setView] = useState<"trust-boundary" | "inventory" | "by-workload" | "flow-map">(
+    "trust-boundary",
+  )
   const [pendingDrillWorkload, setPendingDrillWorkload] = useState<{
     id: string
     name: string | null
   } | null>(null)
+
+  // Trust Boundary Map state — selected workload triggers the detail
+  // panel; preview-pipeline trigger opens the LivePipelineModal.
+  const [selectedTbmWorkload, setSelectedTbmWorkload] = useState<any>(null)
+  const [pipelineWorkload, setPipelineWorkload] = useState<any>(null)
 
   // When the parent passes a deep-link, switch to inventory view so the
   // operator lands on the row table immediately. The deep-link itself
@@ -318,6 +352,17 @@ function EgressTabContainer({
     <div className="space-y-4">
       <div className="flex items-center gap-1 text-[10px]">
         <span className="uppercase tracking-wider text-slate-500 mr-2">View</span>
+        <button
+          onClick={() => setView("trust-boundary")}
+          aria-pressed={view === "trust-boundary"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "trust-boundary"
+              ? "bg-violet-600 text-white border-violet-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          Trust Boundary
+        </button>
         <button
           onClick={() => setView("inventory")}
           aria-pressed={view === "inventory"}
@@ -363,7 +408,30 @@ function EgressTabContainer({
           </span>
         )}
       </div>
-      {view === "inventory" ? (
+      {view === "trust-boundary" ? (
+        <div className="flex gap-4">
+          <div className="flex-1 min-w-0">
+            <TrustBoundaryMap
+              systemName={systemName}
+              selectedWorkloadId={selectedTbmWorkload?.workload?.id ?? null}
+              onSelectWorkload={(w) => setSelectedTbmWorkload(w)}
+            />
+          </div>
+          {selectedTbmWorkload && (
+            <TrustBoundaryDetailPanel
+              workload={selectedTbmWorkload}
+              onClose={() => setSelectedTbmWorkload(null)}
+              onPreviewPipeline={(w) => setPipelineWorkload(w)}
+            />
+          )}
+          {pipelineWorkload && (
+            <LivePipelineModal
+              workload={pipelineWorkload}
+              onClose={() => setPipelineWorkload(null)}
+            />
+          )}
+        </div>
+      ) : view === "inventory" ? (
         <EgressExternalInventory
           key={deepLink ? `dl-${deepLink.workloadId}-${deepLink.direction}` : "default"}
           systemName={systemName}
