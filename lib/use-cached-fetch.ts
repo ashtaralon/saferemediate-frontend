@@ -111,13 +111,25 @@ export function useCachedFetch<T = unknown>(
 
   // Synchronous initial read so the first paint renders cached data
   // without a flash of the loading state.
-  const initial = readCache<T>(cacheKey, maxStaleMs)
+  //
+  // Two-tier read:
+  //   1. Fresh-within-maxStaleMs cache → render as authoritative, no
+  //      stale indicator. Background refresh confirms it.
+  //   2. Older cache (up to FALLBACK_HARD_CAP_MS=7d) → render with
+  //      isStale=true so the UI shows "as of N ago, refreshing" pill.
+  //      Beats showing a loading skeleton when N=15 parallel proxy
+  //      calls on the home dashboard exceed Vercel's Lambda concurrency
+  //      limit and individual cards 504. Stale data is honest signal
+  //      with a clear indicator; a stuck skeleton is the dishonest
+  //      mode — it reads as "loading forever" not "Vercel overloaded".
+  const fresh = readCache<T>(cacheKey, maxStaleMs)
+  const initial = fresh ?? readCacheAny<T>(cacheKey)
   const [data, setData] = useState<T | null>(initial?.data ?? null)
-  const [isStale, setIsStale] = useState<boolean>(initial !== null)
+  const [isStale, setIsStale] = useState<boolean>(initial !== null && fresh === null)
   const [cachedAt, setCachedAt] = useState<number | null>(initial?.ts ?? null)
-  // loading is true ONLY on first ever load with no cache. If we have
-  // cached data to show, the user sees it instantly and any background
-  // refresh is invisible (just isStale flips false when it lands).
+  // loading is true ONLY when there is NO cache at all (first ever
+  // visit to this card). If we have any cached data (even 6h old), we
+  // show it instantly and background-refresh — no skeleton flash.
   const [loading, setLoading] = useState<boolean>(initial === null && !!url)
   const [error, setError] = useState<string | null>(null)
 
