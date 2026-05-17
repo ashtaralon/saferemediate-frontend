@@ -67,6 +67,10 @@ import {
   type TrafficFlow,
   type NodeType,
 } from "./traffic-flow-map"
+import {
+  RemovableInfrastructureCallout,
+  deriveRemoveRouteCandidates,
+} from "./RemovableInfrastructureCallout"
 
 // ---- Backend response shape (api/egress_visibility.py) -----------------
 
@@ -139,6 +143,21 @@ interface EgressRoute {
 // per feedback_remediation_safety_signals.md.
 interface EgressRouteTableRecommendationRemove {
   type: "REMOVE_ROUTE"
+  // Content-addressable id from api.posture_remediations._proposal_id.
+  // Same payload (rt_id + cidr/target_kind/target_id) always returns the
+  // same id, so the operator can re-fire without duplicating audit rows.
+  // Optional because older backend builds did not emit it.
+  proposal_id?: string | null
+  // Optional fields mirrored from the SG/VPCE recommendation shape so the
+  // /proposals/execute POST can be assembled directly from this object.
+  auto_eligible?: boolean
+  resource_type?: "RouteTable"
+  resource_id?: string
+  parameters?: {
+    cidr?: string | null
+    target_kind?: string | null
+    target_id?: string | null
+  }
   confidence_signal: string
   scope_workload_count: number
   candidate_route_cidr: string | null
@@ -2255,14 +2274,24 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
         )}
       </div>
 
-      {/* Path-card list — one card per active workload's egress path.
-          Layout matches the Identity Attack Paths card shape: severity
-          score on the left, severity badge + hop count + OBSERVED tag
-          across the top, the path chain inline (workload › subnet › sg
-          › gateway › destinations), and metric rows on the bottom.
-          Per feedback: "each resource has its own paths" — three EC2s
-          = three independent cards, not shared columns. */}
-      <div className="px-5 py-4" ref={containerRef}>
+      {/* Top-level REMOVE_ROUTE callout — surfaces RT-scoped removal
+          candidates ABOVE the path list so they don't get buried as
+          silent-workload rows. Mutually-exclusive with ADD_VPC_ENDPOINT
+          per the backend detector; renders nothing when no candidates
+          exist (silent absence, not an empty card). The component owns
+          its own per-row Simulate → Apply → Rollback state. */}
+      <div className="px-5 pt-4" ref={containerRef}>
+        <RemovableInfrastructureCallout
+          candidates={deriveRemoveRouteCandidates(data.workloads || [])}
+        />
+
+        {/* Path-card list — one card per active workload's egress path.
+            Layout matches the Identity Attack Paths card shape: severity
+            score on the left, severity badge + hop count + OBSERVED tag
+            across the top, the path chain inline (workload › subnet › sg
+            › gateway › destinations), and metric rows on the bottom.
+            Per feedback: "each resource has its own paths" — three EC2s
+            = three independent cards, not shared columns. */}
         <PathCardList
           rows={buildPathRows(architecture, data)}
           hiddenWorkloadCount={
