@@ -187,6 +187,15 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
   const [overrideState, setOverrideState] = useState<SharedOverrideState>(
     INITIAL_SHARED_OVERRIDE_STATE,
   )
+  // Disambiguates which action the OverrideModalShared submit should
+  // fire. Same shared form serves both /remediate force and /rollback
+  // force; context is set when the operator opens the modal.
+  const [overrideContext, setOverrideContext] = useState<
+    "apply" | "force-rollback"
+  >("apply")
+  // True when the last /rollback returned 409 snapshot_already_rolled_back.
+  // Surfaces the force-rollback CTA instead of a generic error.
+  const [rollbackAlreadyDone, setRollbackAlreadyDone] = useState(false)
 
   const rec = workload.recommendation
   // Only REMOVE_SG_PUBLIC_EGRESS maps to a one-step `/remediate` call
@@ -558,12 +567,24 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         if (i?.warning) reasons.push(i.warning)
       }
     }
+    setOverrideContext("apply")
     setOverrideState(buildOverrideStateForOpen(reasons))
+  }
+
+  // Single dispatcher for OverrideModalShared.onSubmit — picks the
+  // right backend call based on which CTA opened the form. Same shared
+  // identity/acknowledged-tags persistence applies to both paths.
+  async function handleOverrideSubmit(lineage: OverrideLineagePayload) {
+    if (overrideContext === "force-rollback") {
+      return runForceRollback(lineage)
+    }
+    return runOverrideApply(lineage)
   }
 
   async function runRollback() {
     if (!snapshotId || !rec?.candidate_sg_id) return
     setRollbackState("running")
+    setRollbackAlreadyDone(false)
     try {
       const res = await fetch(
         `/api/proxy/security-groups/${rec.candidate_sg_id}/rollback`,
@@ -574,8 +595,30 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         },
       )
       const data = await res.json()
+      // Backend returns 409 with structured detail when snapshot has
+      // already been rolled back. Surface the force-rollback flow so
+      // operator can re-run with override_lineage (Decision Contract §7).
+      // Distinguishes "already rolled back — operator can override" from
+      // a generic failure.
+      if (res.status === 409) {
+        const detail = data?.detail || data
+        if (detail?.error === "snapshot_already_rolled_back") {
+          setRollbackAlreadyDone(true)
+          setErrorMsg(
+            detail.message ||
+              "Snapshot has already been rolled back — use force to re-run.",
+          )
+          setRollbackState("error")
+          return
+        }
+      }
       if (!res.ok || data?.success === false) {
-        setErrorMsg(data?.error || data?.message || `Rollback failed (${res.status})`)
+        setErrorMsg(
+          data?.detail?.message ||
+            data?.error ||
+            data?.message ||
+            `Rollback failed (${res.status})`,
+        )
         setRollbackState("error")
         return
       }
@@ -584,6 +627,75 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
       setErrorMsg(e?.message || "Rollback failed")
       setRollbackState("error")
     }
+  }
+
+  // Force-rollback via Decision Contract §7. Invoked by
+  // OverrideModalShared.onSubmit when the operator chooses to re-run
+  // a rollback that was previously consumed (e.g. the prior rollback
+  // ran against buggy code and didn't actually restore AWS state).
+  async function runForceRollback(lineage: OverrideLineagePayload) {
+    if (!snapshotId || !rec?.candidate_sg_id) return
+    setRollbackState("running")
+    setErrorMsg(null)
+    try {
+      const res = await fetch(
+        `/api/proxy/security-groups/${rec.candidate_sg_id}/rollback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            snapshot_id: snapshotId,
+            force: true,
+            override_lineage: lineage,
+          }),
+        },
+      )
+      const data = await res.json()
+      if (!res.ok || data?.success === false) {
+        const msg =
+          data?.detail?.message ||
+          data?.error ||
+          data?.message ||
+          `Force rollback failed (${res.status})`
+        setErrorMsg(msg)
+        setRollbackState("error")
+        setOverrideState((prev) => ({
+          ...prev,
+          phase: "error",
+          resultMessage: msg,
+        }))
+        return
+      }
+      setRollbackAlreadyDone(false)
+      setRollbackState("done")
+      setOverrideState((prev) => ({
+        ...prev,
+        phase: "success",
+        resultMessage:
+          data?.restored_egress_rules !== undefined
+            ? `Re-rollback complete — ${data.restored_ingress_rules} ingress + ${data.restored_egress_rules} egress restored`
+            : "Re-rollback complete",
+      }))
+    } catch (e: any) {
+      const msg = e?.message || "Network error"
+      setErrorMsg(msg)
+      setRollbackState("error")
+      setOverrideState((prev) => ({
+        ...prev,
+        phase: "error",
+        resultMessage: msg,
+      }))
+    }
+  }
+
+  function openForceRollbackModal() {
+    if (!snapshotId || !rec?.candidate_sg_id) return
+    const reasons = [
+      `Snapshot ${snapshotId} has already been rolled back`,
+      "Re-running rollback to fix prior incomplete restore",
+    ]
+    setOverrideState(buildOverrideStateForOpen(reasons))
+    setOverrideContext("force-rollback")
   }
 
   const isRunning = mode === "running-dry-run" || mode === "running-apply"
@@ -718,6 +830,43 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
             </div>
           )}
 
+          {/* Force-rollback CTA — visible when backend returned 409
+              snapshot_already_rolled_back. Re-running rollback is the
+              right recovery for "prior rollback didn't actually restore
+              AWS state" (e.g. pre-9dc5b3a buggy filter). Decision
+              Contract §7 lineage captures the operator's intent. */}
+          {rollbackState === "error" && rollbackAlreadyDone && snapshotId && (
+            <div className="mt-4 rounded-lg border border-amber-500/60 bg-amber-500/10 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <AlertTriangle className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-amber-100 min-w-0">
+                    <div className="font-semibold">
+                      Snapshot already rolled back
+                    </div>
+                    <div className="mt-0.5 opacity-90 break-words">
+                      {errorMsg}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={openForceRollbackModal}
+                  className="inline-flex items-center gap-1.5 rounded border border-amber-500 bg-amber-500/30 hover:bg-amber-500/50 px-3 py-1.5 text-[11px] font-semibold text-amber-50 shrink-0"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Force rollback
+                </button>
+              </div>
+            </div>
+          )}
+          {rollbackState === "error" && !rollbackAlreadyDone && (
+            <div className="mt-4 rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-[11px] text-red-100">
+              <div className="font-semibold">Rollback failed</div>
+              <div className="mt-0.5 opacity-90 break-words">{errorMsg}</div>
+            </div>
+          )}
+
           {/* Dry-run-complete summary */}
           {mode === "complete" && !errorMsg && !snapshotId && (
             <div className="mt-4 rounded-lg border border-slate-600 bg-slate-800/40 p-3 text-[11px] text-slate-200">
@@ -837,19 +986,29 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         <OverrideModalShared
           state={overrideState}
           setState={setOverrideState}
-          acknowledgedTags={[
-            blockResponse?.block_layer === "unified_pipeline"
-              ? "unified_pipeline_block"
-              : "score_based_block",
-            "operator_override",
-          ]}
-          onSubmit={runOverrideApply}
-          contextBlurb={
-            blockResponse?.block_layer === "unified_pipeline"
-              ? "The unified pipeline scorer blocked this apply with confidence below threshold. Overriding force=true bypasses the score gate; the snapshot + rollback path stays armed."
-              : "The SG safety gate blocked this apply because observed traffic exists for the rule. Overriding force=true revokes the rule anyway; the snapshot + rollback path stays armed."
+          acknowledgedTags={
+            overrideContext === "force-rollback"
+              ? ["snapshot_already_rolled_back", "operator_override", "rerun_rollback"]
+              : [
+                  blockResponse?.block_layer === "unified_pipeline"
+                    ? "unified_pipeline_block"
+                    : "score_based_block",
+                  "operator_override",
+                ]
           }
-          rationalePlaceholder={`Why is it safe to remove ${rec?.candidate_sg_id ? `the egress rule on ${rec.candidate_sg_id}` : "this rule"} despite the block? (e.g. demo SG, deprecated workload, validated false positive)`}
+          onSubmit={handleOverrideSubmit}
+          contextBlurb={
+            overrideContext === "force-rollback"
+              ? "This snapshot has already been rolled back once. Re-running rollback is safe — the snapshot itself is unchanged. Common case: the prior rollback ran against pre-9dc5b3a code that silently dropped IpProtocol=-1 rules from the restore step, so AWS state isn't actually back to the snapshot."
+              : blockResponse?.block_layer === "unified_pipeline"
+                ? "The unified pipeline scorer blocked this apply with confidence below threshold. Overriding force=true bypasses the score gate; the snapshot + rollback path stays armed."
+                : "The SG safety gate blocked this apply because observed traffic exists for the rule. Overriding force=true revokes the rule anyway; the snapshot + rollback path stays armed."
+          }
+          rationalePlaceholder={
+            overrideContext === "force-rollback"
+              ? `Why re-run rollback on snapshot ${snapshotId ?? ""}? (e.g. prior rollback ran against buggy code, AWS state still shows the rule removed)`
+              : `Why is it safe to remove ${rec?.candidate_sg_id ? `the egress rule on ${rec.candidate_sg_id}` : "this rule"} despite the block? (e.g. demo SG, deprecated workload, validated false positive)`
+          }
         />
 
         {/* Footer */}
