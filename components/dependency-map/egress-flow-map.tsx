@@ -1780,21 +1780,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
         </div>
         )}
 
-        {/* COMPUTE column — the source workload. Biggest card in the
-            chain because it's where the eye starts. */}
+        {/* COMPUTE column — the source workload. Custom light-theme card
+            because the shared ServiceNodeBox is dark-themed and renders
+            as a giant slate-700 island on the white canvas (operator
+            screenshot 2026-05-18). Replaced with an inline card that
+            matches the SG/RT/Gateway visual language. */}
         <div className="flex flex-col gap-2.5">
           <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
             <Server className="w-3.5 h-3.5 text-blue-600" />
             Compute (1)
           </div>
           <div data-compute-id={row.workloadId}>
-            <ServiceNodeBox
-              node={architecture.computeServices[0]}
-              position="left"
-              isHighlighted={false}
-              onHover={() => {}}
-              onClick={() => {}}
-            />
+            <div className="rounded-lg border-2 border-blue-300 bg-blue-50 px-3.5 py-2.5 shadow-sm">
+              <div className="flex items-center gap-1.5">
+                <Server className="w-4 h-4 text-blue-700 shrink-0" />
+                <div className="text-[13px] font-bold text-blue-900 truncate" title={row.workloadName}>
+                  {row.workloadName.length > 26
+                    ? row.workloadName.slice(0, 26) + "…"
+                    : row.workloadName}
+                </div>
+              </div>
+              <div className="text-[10px] text-blue-700 mt-0.5 font-semibold uppercase tracking-wider">
+                {row.workloadType === "lambda" ? "Lambda" : "EC2"}
+              </div>
+            </div>
             {row.subnetId && (
               <div
                 className={`mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${subnetTone}`}
@@ -2193,22 +2202,22 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               here — actual execution is queued for the posture
               recommendations engine. */}
           {row.routeTable.recommendation?.type === "REMOVE_ROUTE" && (
-            <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 p-2.5">
+            <div className="mb-3 rounded border-2 border-amber-400 bg-amber-100 p-2.5">
               <div className="flex items-center gap-2 mb-1">
-                <ShieldOff className="w-3.5 h-3.5 text-amber-300" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-100">
+                <ShieldOff className="w-3.5 h-3.5 text-amber-700" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
                   Proposed: Remove unused route
                 </span>
-                <span className="ml-auto text-[9px] font-mono text-amber-300">
+                <span className="ml-auto text-[10px] font-mono text-amber-800 font-semibold">
                   {row.routeTable.recommendation.candidate_route_cidr}
                   {" → "}
                   {row.routeTable.recommendation.candidate_route_target_kind}
                 </span>
               </div>
-              <div className="text-[11px] text-amber-50/90 leading-relaxed">
+              <div className="text-[11px] text-amber-900 leading-relaxed font-medium">
                 {row.routeTable.recommendation.confidence_signal}
               </div>
-              <div className="mt-1.5 text-[10px] text-amber-200/70">
+              <div className="mt-1.5 text-[10px] text-amber-800">
                 Scope: {row.routeTable.recommendation.scope_workload_count} workload
                 {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
                 this route table. Removing the route affects all of them. Rare-use workloads
@@ -2222,7 +2231,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   Apply → applied → Rollback) — re-fire across N path
                   cards sharing this RT all hit the SAME proposal_id
                   (content-addressed by rt_id + cidr + target). */}
-              <div className="mt-2 pt-2 border-t border-amber-500/20">
+              <div className="mt-2 pt-2 border-t border-amber-300">
                 <RemoveRouteActionPanel
                   candidate={{
                     rtId: row.routeTable.id,
@@ -2239,23 +2248,23 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             </div>
           )}
           {row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT" && (
-            <div className="mb-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-2.5">
+            <div className="mb-3 rounded border-2 border-emerald-400 bg-emerald-100 p-2.5">
               <div className="flex items-center gap-2 mb-1">
-                <Lock className="w-3.5 h-3.5 text-emerald-300" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">
+                <Lock className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
                   Proposed: Add VPC Endpoint for{" "}
                   {row.routeTable.recommendation.candidate_aws_service}
                 </span>
                 {row.routeTable.recommendation.candidate_is_gateway_vpce && (
-                  <span className="ml-auto rounded border border-emerald-400/60 bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-100">
+                  <span className="ml-auto rounded border border-emerald-500 bg-emerald-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
                     Gateway · Free
                   </span>
                 )}
               </div>
-              <div className="text-[11px] text-emerald-50/90 leading-relaxed">
+              <div className="text-[11px] text-emerald-900 leading-relaxed font-medium">
                 {row.routeTable.recommendation.confidence_signal}
               </div>
-              <div className="mt-1.5 text-[10px] text-emerald-200/70">
+              <div className="mt-1.5 text-[10px] text-emerald-800">
                 Scope: {row.routeTable.recommendation.scope_workload_count} workload
                 {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
                 this route table. Adding the VPCE keeps observed AWS-service traffic on the
@@ -2267,18 +2276,18 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           )}
 
           {row.routeTable.routes.length === 0 ? (
-            <div className="text-[11px] text-slate-400 italic">
+            <div className="text-[11px] text-slate-600 italic">
               No active routes on this table — workload effectively cannot egress.
             </div>
           ) : (
             <div className="grid grid-cols-[1fr_140px_1.4fr] gap-2 text-[11px]">
-              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
+              <div className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider px-2">
                 Destination
               </div>
-              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
+              <div className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider px-2">
                 Target kind
               </div>
-              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
+              <div className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider px-2">
                 Target
               </div>
               {row.routeTable.routes.map((rt, idx) => {
@@ -2299,30 +2308,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   rec.candidate_route_target_id === rt.target_id
                 )
                 const rowTone = isCandidate
-                  ? "border-amber-400/80 bg-amber-500/15 ring-1 ring-amber-400/40"
+                  ? "border-amber-400 bg-amber-100 ring-2 ring-amber-300"
                   : isPublicEgress
-                    ? "border-amber-500/40 bg-amber-500/5"
+                    ? "border-amber-300 bg-amber-50"
                     : isPrivate
-                      ? "border-emerald-500/30 bg-emerald-500/5"
-                      : "border-slate-700/60 bg-slate-900/40"
+                      ? "border-emerald-300 bg-emerald-50"
+                      : "border-slate-300 bg-white"
                 return (
                   <React.Fragment key={`${rt.cidr}-${rt.target_id}-${idx}`}>
-                    <div className={`rounded border ${rowTone} px-2 py-1.5 font-mono text-slate-100`}>
+                    <div className={`rounded border ${rowTone} px-2 py-1.5 font-mono text-slate-900 font-semibold`}>
                       {rt.cidr || <span className="text-slate-500 italic">(no cidr)</span>}
                     </div>
                     <div className={`rounded border ${rowTone} px-2 py-1.5 flex items-center gap-1.5`}>
                       {routeKindIcon(kind)}
-                      <span className="text-slate-200">{kind}</span>
+                      <span className="text-slate-800 font-medium">{kind}</span>
                     </div>
                     <div className={`rounded border ${rowTone} px-2 py-1.5 truncate flex items-center gap-1.5`}>
-                      <span className="text-slate-100 truncate">{rt.target_name || rt.target_id || "—"}</span>
+                      <span className="text-slate-900 truncate font-medium">{rt.target_name || rt.target_id || "—"}</span>
                       {rt.target_name && rt.target_id && rt.target_name !== rt.target_id && (
                         <span className="ml-1 text-slate-500 font-mono text-[10px] truncate">
                           {rt.target_id}
                         </span>
                       )}
                       {isCandidate && (
-                        <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded border border-amber-400/70 bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-100">
+                        <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded border border-amber-500 bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-900">
                           Propose: Remove
                         </span>
                       )}
@@ -2332,7 +2341,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               })}
             </div>
           )}
-          <div className="mt-2 text-[10px] text-indigo-400/70">
+          <div className="mt-2 text-[10px] text-indigo-700 font-medium">
             Routes with a public-egress target (IGW / NAT / EIGW) are highlighted in amber. Local-VPC and prefix-list routes resolve to private targets (VPCE / TGW).
           </div>
         </div>
@@ -2647,21 +2656,20 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
     !/public/i.test(row.subnetName || "")
   const hasPublicEgress = row.gateways.some(g => g.bucket === "public")
   const isPrivateOnly = row.gateways.length > 0 && row.gateways.every(g => g.bucket === "private")
-  // Right-side status chip — mirrors NETWORK-BLOCKED on Identity Attack Paths
+  // Right-side status chip — light-theme palette (was dark accents).
   const statusChip = subnetNameMismatch
-    ? { label: "Name mismatch", color: "#fca5a5", borderColor: "rgba(220,38,38,0.4)", bg: "transparent", title: `Subnet named "${row.subnetName}" suggests private, but actually has a route to an Internet Gateway.` }
+    ? { label: "Name mismatch", color: "#b91c1c", borderColor: "#fca5a5", bg: "#fef2f2", title: `Subnet named "${row.subnetName}" suggests private, but actually has a route to an Internet Gateway.` }
     : hasPublicEgress
-      ? { label: "Public internet", color: "#fcd34d", borderColor: "rgba(245,158,11,0.4)", bg: "rgba(245,158,11,0.06)", title: "Egress exits to the public internet via an Internet Gateway." }
+      ? { label: "Public internet", color: "#b45309", borderColor: "#fcd34d", bg: "#fffbeb", title: "Egress exits to the public internet via an Internet Gateway." }
       : isPrivateOnly
-        ? { label: "Private egress", color: "#86efac", borderColor: "rgba(22,163,74,0.4)", bg: "rgba(22,163,74,0.06)", title: "Egress stays inside AWS / private networks (NAT, VPCE, TGW)." }
+        ? { label: "Private egress", color: "#15803d", borderColor: "#86efac", bg: "#f0fdf4", title: "Egress stays inside AWS / private networks (NAT, VPCE, TGW)." }
         : null
 
   return (
     <div
-      className="group relative rounded-lg border overflow-hidden"
+      className="group relative rounded-lg border-2 overflow-hidden shadow-sm bg-white"
       style={{
-        borderColor: "rgba(148,163,184,0.12)",
-        background: "rgba(30,41,59,0.6)",
+        borderColor: "#e2e8f0",
       }}
     >
       {/* Severity ribbon */}
@@ -2674,21 +2682,21 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         type="button"
         onClick={() => setExpanded(e => !e)}
         aria-expanded={expanded}
-        className="flex flex-col gap-2 text-left transition-all hover:bg-white/[0.02] w-full"
+        className="flex flex-col gap-2 text-left transition-all hover:bg-slate-50 w-full"
       >
 
       {/* Top row: number · path # · meta · status · chevron */}
       <div className="flex items-center gap-4 pl-5 pr-4 pt-3">
         <div className="flex items-baseline gap-2 shrink-0 min-w-[64px]">
           <span
-            className="text-2xl font-semibold tabular-nums leading-none"
+            className="text-2xl font-bold tabular-nums leading-none"
             style={{ color: sevColor }}
             title={`Severity ${row.severity} (${row.severityScore}/100)`}
           >
             {row.severityScore}
           </span>
           <span
-            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+            className="text-[10px] uppercase tracking-[0.12em] font-bold"
             style={{ color: sevColor }}
           >
             {row.severity}
@@ -2696,14 +2704,14 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         </div>
 
         <div
-          className="flex items-baseline gap-2 text-[11px] uppercase tracking-[0.1em] font-semibold"
-          style={{ color: "#94a3b8" }}
+          className="flex items-baseline gap-2 text-[11px] uppercase tracking-[0.1em] font-bold"
+          style={{ color: "#64748b" }}
         >
-          <span style={{ color: "#f1f5f9" }}>Path #{index}</span>
+          <span style={{ color: "#0f172a" }}>Path #{index}</span>
           <span>·</span>
           <span>{row.hopCount} hops</span>
           <span>·</span>
-          <span style={{ color: "#22c55e" }}>{row.evidence}</span>
+          <span style={{ color: "#15803d" }}>{row.evidence}</span>
         </div>
 
         {statusChip ? (
@@ -2735,27 +2743,28 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
               setFullscreen(true)
             }
           }}
-          className="shrink-0 p-1 rounded hover:bg-white/[0.06] focus:bg-white/[0.06] focus:outline-none cursor-pointer"
+          className="shrink-0 p-1 rounded hover:bg-slate-100 focus:bg-slate-100 focus:outline-none cursor-pointer"
         >
-          <Maximize2 className="w-3.5 h-3.5" style={{ color: "#94a3b8" }} />
+          <Maximize2 className="w-3.5 h-3.5" style={{ color: "#64748b" }} />
         </span>
         <ChevronRight
           className={`w-4 h-4 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
-          style={{ color: "#94a3b8" }}
+          style={{ color: "#64748b" }}
         />
       </div>
 
-      {/* Chain — clean typography, '›' separators, plain text */}
+      {/* Chain — clean typography, '›' separators, plain text. Light-theme
+          palette: slate-900 base + 700-tone semantic accents. */}
       <div
         className="pl-5 pr-4 text-sm font-medium"
-        style={{ color: "#f1f5f9" }}
+        style={{ color: "#0f172a" }}
       >
         <span>{row.workloadName}</span>
         {row.subnetName && (
           <>
             <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
             <span
-              style={{ color: subnetIsPublic === true ? "#fcd34d" : subnetIsPublic === false ? "#86efac" : "#94a3b8" }}
+              style={{ color: subnetIsPublic === true ? "#b45309" : subnetIsPublic === false ? "#15803d" : "#64748b" }}
               title={`Subnet posture: ${subnetText}`}
             >
               {subnetText} subnet · {row.subnetName}
@@ -2765,24 +2774,24 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         {row.sgs.map(sg => (
           <span key={sg.id}>
             <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
-            <span style={{ color: sg.hasPublicEgress ? "#fcd34d" : "#fdba74" }}>{sg.name}</span>
+            <span style={{ color: sg.hasPublicEgress ? "#b45309" : "#c2410c" }}>{sg.name}</span>
           </span>
         ))}
         {row.gateways.map(g => (
           <span key={g.id}>
             <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
-            <span style={{ color: g.bucket === "public" ? "#fcd34d" : g.bucket === "private" ? "#86efac" : "#cbd5e1" }}>
+            <span style={{ color: g.bucket === "public" ? "#b45309" : g.bucket === "private" ? "#15803d" : "#475569" }}>
               {g.name} ({g.kind})
             </span>
           </span>
         ))}
         <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
-        <span style={{ color: sevColor }}>
+        <span style={{ color: sevColor, fontWeight: 600 }}>
           {row.egressDestinationCount}{" "}
           {row.egressDestinationCount === 1 ? "egress destination" : "egress destinations"}
         </span>
         {row.eastWestDestinationCount > 0 && (
-          <span className="ml-2 text-[11px]" style={{ color: "#94a3b8" }}>
+          <span className="ml-2 text-[11px]" style={{ color: "#64748b" }}>
             +{row.eastWestDestinationCount} east-west (local route, not via gateway)
           </span>
         )}
@@ -2793,12 +2802,12 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
       <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap pl-5 pr-4 pb-3 mt-0.5">
         <div className="flex items-baseline gap-2">
           <span
-            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-            style={{ color: "#94a3b8" }}
+            className="text-[10px] uppercase tracking-[0.12em] font-bold"
+            style={{ color: "#64748b" }}
           >
             On workload
           </span>
-          <span className="text-xs" style={{ color: "#f1f5f9" }}>
+          <span className="text-xs" style={{ color: "#0f172a" }}>
             <span className="font-semibold tabular-nums">{formatBytes(row.totalBytes)}</span>
             <span style={{ color: "#94a3b8" }}> · </span>
             <span className="font-semibold tabular-nums">{row.totalHits.toLocaleString()}</span> hits
@@ -2809,13 +2818,13 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
 
         <div className="flex items-baseline gap-2">
           <span
-            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-            style={{ color: "#94a3b8" }}
+            className="text-[10px] uppercase tracking-[0.12em] font-bold"
+            style={{ color: "#64748b" }}
           >
             Network
           </span>
-          <span className="text-xs" style={{ color: "#cbd5e1" }}>
-            <span style={{ color: subnetIsPublic === true ? "#fcd34d" : subnetIsPublic === false ? "#86efac" : "#94a3b8" }}>
+          <span className="text-xs" style={{ color: "#475569" }}>
+            <span style={{ color: subnetIsPublic === true ? "#b45309" : subnetIsPublic === false ? "#15803d" : "#64748b" }}>
               {subnetText} subnet
             </span>
             {row.gateways.length > 0 && (
@@ -2830,12 +2839,12 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         {Object.keys(row.signals).length > 0 && (
           <div className="flex items-baseline gap-2 min-w-0">
             <span
-              className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-              style={{ color: "#94a3b8" }}
+              className="text-[10px] uppercase tracking-[0.12em] font-bold"
+              style={{ color: "#64748b" }}
             >
               Signals
             </span>
-            <span className="text-xs truncate" style={{ color: "#fca5a5" }}>
+            <span className="text-xs truncate" style={{ color: "#b91c1c", fontWeight: 600 }}>
               {Object.entries(row.signals)
                 .map(([code, count]) => {
                   const meta = SIGNAL_META[code] || { label: code, tone: "info" as const, tooltip: code }
