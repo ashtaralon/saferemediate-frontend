@@ -130,12 +130,14 @@ interface EgressRoute {
   target_name: string | null
 }
 
-// Per-RT remediation candidate. Currently only REMOVE_ROUTE is wired;
-// ADD_VPC_ENDPOINT is queued until the prefix-list expansion collector
-// ships. Carries the SPECIFIC route in the candidate plus a confidence
-// signal — frontend chips show "REMOVABLE" not "SAFE", per
-// feedback_remediation_safety_signals.md (no claim we don't earn).
-interface EgressRouteTableRecommendation {
+// Per-RT remediation candidate. Two types — discriminated union by
+// `type`. Mutually exclusive per RT (REMOVE_ROUTE needs zero internet
+// egress, ADD_VPC_ENDPOINT needs non-zero AWS-service egress via
+// public route — can't both fire). Carries the specific candidate
+// identifier (route for REMOVE, service for ADD) plus a confidence
+// signal. Chip language is "REMOVABLE" / "ADD VPCE", never "SAFE"
+// per feedback_remediation_safety_signals.md.
+interface EgressRouteTableRecommendationRemove {
   type: "REMOVE_ROUTE"
   confidence_signal: string
   scope_workload_count: number
@@ -144,6 +146,20 @@ interface EgressRouteTableRecommendation {
   candidate_route_target_id: string | null
   candidate_route_target_name: string | null
 }
+
+interface EgressRouteTableRecommendationAddVpce {
+  type: "ADD_VPC_ENDPOINT"
+  confidence_signal: string
+  scope_workload_count: number
+  candidate_aws_service: string
+  candidate_aws_services: string[]
+  candidate_is_gateway_vpce: boolean
+  candidate_observed_request_count: number
+}
+
+type EgressRouteTableRecommendation =
+  | EgressRouteTableRecommendationRemove
+  | EgressRouteTableRecommendationAddVpce
 
 // Route table attached (explicitly or via VPC main RT) to the workload's
 // subnet. `id` is the AWS RouteTableId (rtb-*). `routes` is the full
@@ -1171,9 +1187,11 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               className={`text-left rounded-lg border px-3 py-2 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/60 ${
                 routeTableOpen
                   ? "border-indigo-500/60 bg-indigo-500/10"
-                  : row.routeTable.recommendation
+                  : row.routeTable.recommendation?.type === "REMOVE_ROUTE"
                     ? "border-amber-500/50 bg-amber-500/5"
-                    : "border-indigo-500/30 bg-indigo-500/5"
+                    : row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT"
+                      ? "border-emerald-500/50 bg-emerald-500/5"
+                      : "border-indigo-500/30 bg-indigo-500/5"
               }`}
             >
               <div className="flex items-center gap-1.5">
@@ -1191,13 +1209,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 {row.routeTable.routes.length} route{row.routeTable.routes.length === 1 ? "" : "s"}
                 <span className="ml-1 text-indigo-400/70 normal-case font-normal">· click to view</span>
               </div>
-              {/* REMOVABLE chip — surfaces when backend flagged a
-                  REMOVE_ROUTE candidate. Language is "REMOVABLE" not
-                  "SAFE" per feedback_remediation_safety_signals — we
-                  flag "no observed dependency in window," not "safe."
-                  Tooltip on the chip shows the confidence signal +
-                  scope. */}
-              {row.routeTable.recommendation && (
+              {/* Recommendation chip — variant by type. REMOVE_ROUTE = amber
+                  ("this is dead weight"); ADD_VPC_ENDPOINT = emerald ("this
+                  is an improvement"). Language is "REMOVABLE" / "ADD VPCE",
+                  never "SAFE" — chip honesty per feedback_remediation_safety_signals.
+                  Tooltip on the chip shows the full confidence signal. */}
+              {row.routeTable.recommendation?.type === "REMOVE_ROUTE" && (
                 <div
                   className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5"
                   title={row.routeTable.recommendation.confidence_signal}
@@ -1205,6 +1222,18 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   <ShieldOff className="w-2.5 h-2.5 text-amber-300" />
                   <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
                     Removable · {row.routeTable.recommendation.candidate_route_cidr}
+                  </span>
+                </div>
+              )}
+              {row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT" && (
+                <div
+                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-1.5 py-0.5"
+                  title={row.routeTable.recommendation.confidence_signal}
+                >
+                  <Lock className="w-2.5 h-2.5 text-emerald-300" />
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-200">
+                    Add VPCE · {row.routeTable.recommendation.candidate_aws_service}
+                    {row.routeTable.recommendation.candidate_is_gateway_vpce ? " · free" : ""}
                   </span>
                 </div>
               )}
@@ -1341,12 +1370,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             </button>
           </div>
 
-          {/* Recommendation banner — only when backend flagged a candidate.
-              Surfaces the confidence signal (operator-facing reason) +
-              scope count so the proposal is auditable. Action button is
-              advisory only here — actual REMOVE_ROUTE execution is
-              queued for the posture recommendations engine. */}
-          {row.routeTable.recommendation && (
+          {/* Recommendation banner — variant by type. Surfaces the
+              confidence signal (operator-facing reason) + scope count
+              so the proposal is auditable. Action button is advisory
+              here — actual execution is queued for the posture
+              recommendations engine. */}
+          {row.routeTable.recommendation?.type === "REMOVE_ROUTE" && (
             <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
                 <ShieldOff className="w-3.5 h-3.5 text-amber-300" />
@@ -1368,6 +1397,33 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 this route table. Removing the route affects all of them. Rare-use workloads
                 outside the observed window are the operator's call — this is "no observed
                 dependency," not "safe to remove."
+              </div>
+            </div>
+          )}
+          {row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT" && (
+            <div className="mb-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-2.5">
+              <div className="flex items-center gap-2 mb-1">
+                <Lock className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">
+                  Proposed: Add VPC Endpoint for{" "}
+                  {row.routeTable.recommendation.candidate_aws_service}
+                </span>
+                {row.routeTable.recommendation.candidate_is_gateway_vpce && (
+                  <span className="ml-auto rounded border border-emerald-400/60 bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-100">
+                    Gateway · Free
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-emerald-50/90 leading-relaxed">
+                {row.routeTable.recommendation.confidence_signal}
+              </div>
+              <div className="mt-1.5 text-[10px] text-emerald-200/70">
+                Scope: {row.routeTable.recommendation.scope_workload_count} workload
+                {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
+                this route table. Adding the VPCE keeps observed AWS-service traffic on the
+                AWS backbone instead of routing through the internet gateway — no cost for
+                S3/DynamoDB Gateway endpoints, paid Interface endpoints for other services.
+                Once added, you can narrow the SG egress rule to the VPCE's prefix list.
               </div>
             </div>
           )}
@@ -1394,10 +1450,13 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 // Is this row the REMOVE_ROUTE candidate? Match by
                 // (cidr + target_id) which uniquely identifies the
                 // specific route in the table. Visual: amber border
-                // pulses + "PROPOSE: REMOVE" chip.
+                // pulses + "PROPOSE: REMOVE" chip. Only applies to
+                // REMOVE_ROUTE — ADD_VPC_ENDPOINT proposes a new
+                // route, not the removal of an existing one.
                 const rec = row.routeTable!.recommendation
                 const isCandidate = !!(
                   rec &&
+                  rec.type === "REMOVE_ROUTE" &&
                   rec.candidate_route_cidr === rt.cidr &&
                   rec.candidate_route_target_id === rt.target_id
                 )
