@@ -1577,42 +1577,38 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
         animate={true}
       />
 
-      {/* 6-column grid: CROWN JEWEL | COMPUTE | SG | ROUTE TABLE |
-          GATEWAY | DESTINATIONS.
-          The CJ column on the left surfaces the data the workload READS
-          from in the lookback window (ACCESSES_RESOURCE /
-          ACTUAL_S3_ACCESS / ACTUAL_API_CALL / READS_FROM edges in
-          Neo4j). It completes the exfil chain on screen:
-            CJ → compute → SG → gateway → internet destinations
-          so the operator can see, without cross-referencing the
-          Identity Attack Paths view, what sensitive data sits behind
-          a workload that's exfiltrating bytes.
-          ConnectionLinesSVG draws compute→sg→gateway→dest; the CJ→
-          compute hop is rendered as a static arrow chevron between
-          columns (SVG extension is queued — see follow-up task). */}
+      {/* Column grid — CONDITIONALLY 5 vs 6 columns based on Crown Jewel
+          presence. Per Q2 feedback (2026-05-17): "no observed CJ reads"
+          placeholder was visual debt on most paths (90% of workloads
+          don't read jewels). The column only appears now when the
+          backend surfaced actual upstream-jewel-read edges. Card sizes
+          bumped 25-40% across the board for readability on the light-
+          theme system page.
+          Full layout when CJ present (6 cols):
+            CJ | COMPUTE | SG | ROUTE TABLE | GATEWAY | DESTINATIONS
+          Collapsed layout when no CJ reads (5 cols):
+                 COMPUTE | SG | ROUTE TABLE | GATEWAY | DESTINATIONS
+          ConnectionLinesSVG draws compute→sg→gateway→dest regardless. */}
       <div
-        className="relative grid grid-cols-[0.85fr_1fr_140px_180px_180px_1.3fr] gap-5 items-start"
+        className={`relative grid gap-6 items-start ${
+          row.upstreamCrownJewels.length > 0
+            ? "grid-cols-[0.85fr_1fr_160px_200px_200px_1.3fr]"
+            : "grid-cols-[1fr_180px_220px_220px_1.4fr]"
+        }`}
         style={{ zIndex: 2 }}
       >
-        {/* CROWN JEWEL column — upstream data the workload reads from */}
+        {/* CROWN JEWEL column — surfaces upstream data the workload READS
+            from. Only rendered when the backend found observed jewel-read
+            edges; absent column is honest signal that this path has no
+            jewel relevance (workload is just egressing, not reading
+            sensitive data). */}
+        {row.upstreamCrownJewels.length > 0 && (
         <div className="flex flex-col gap-2.5">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Database className="w-3 h-3 text-fuchsia-300" />
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+            <Database className="w-3.5 h-3.5 text-fuchsia-500" />
             Crown Jewel ({row.upstreamCrownJewels.length})
           </div>
-          {row.upstreamCrownJewels.length === 0 ? (
-            // Three-state placeholder: honest "no observed CJ reads" — never
-            // fabricate. The column stays present so the layout doesn't
-            // jump between paths with and without CJ context.
-            <div
-              className="rounded-lg border border-dashed border-slate-700 bg-slate-900/30 px-3 py-3 text-[10px] text-slate-500 leading-snug"
-              title="No ACCESSES_RESOURCE / ACTUAL_S3_ACCESS / ACTUAL_API_CALL / READS_FROM edges observed from this workload to a crown-jewel resource in the lookback window."
-            >
-              <div className="font-semibold uppercase tracking-wider text-slate-400 mb-0.5">No observed reads</div>
-              <div>This workload had no CJ-read traffic in the lookback window.</div>
-            </div>
-          ) : (
-            row.upstreamCrownJewels.map((cj) => {
+          {row.upstreamCrownJewels.map((cj) => {
               // Visual tone escalates when the jewel ITSELF is internet-
               // exposed — that's the worst-case exfil pattern (workload
               // reads from a publicly-reachable data store, then exfils
@@ -1688,14 +1684,15 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   )}
                 </div>
               )
-            })
-          )}
+            })}
         </div>
+        )}
 
-        {/* COMPUTE column */}
+        {/* COMPUTE column — the source workload. Biggest card in the
+            chain because it's where the eye starts. */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Server className="w-3 h-3 text-blue-400" />
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+            <Server className="w-3.5 h-3.5 text-blue-600" />
             Compute (1)
           </div>
           <div data-compute-id={row.workloadId}>
@@ -1708,10 +1705,10 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             />
             {row.subnetId && (
               <div
-                className={`mt-1 inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${subnetTone}`}
+                className={`mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${subnetTone}`}
               >
                 {subnetLabel}
-                <span className="font-mono normal-case font-normal opacity-80">
+                <span className="font-mono normal-case font-medium opacity-90">
                   · {row.subnetName || row.subnetId}
                 </span>
               </div>
@@ -1719,31 +1716,34 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           </div>
         </div>
 
-        {/* SG column */}
+        {/* SG column — sizes bumped 30% over prior version for readability
+            on light-theme system page. */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-orange-400" />
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+            <Lock className="w-3.5 h-3.5 text-orange-600" />
             SG ({architecture.securityGroups.length})
           </div>
           {architecture.securityGroups.map((sg) => {
             const sgRow = row.sgs.find((s) => s.id === sg.id)
             const tone = sgRow?.hasPublicEgress
-              ? "border-amber-500/60 bg-amber-500/10"
-              : "border-orange-500/30 bg-orange-500/5"
+              ? "border-amber-500/70 bg-amber-500/10"
+              : "border-orange-500/50 bg-orange-500/5"
             return (
               <div
                 key={sg.id}
                 data-sg-id={sg.id}
-                className={`rounded-lg border ${tone} px-3 py-2`}
+                className={`rounded-lg border-2 ${tone} px-3.5 py-2.5 shadow-sm`}
               >
                 <div className="flex items-center gap-1.5">
-                  <Lock className="w-3 h-3 text-orange-400 shrink-0" />
-                  <div className="text-[11px] font-semibold text-orange-50 truncate">
-                    {sg.shortName || sg.name}
+                  <Lock className="w-3.5 h-3.5 text-orange-300 shrink-0" />
+                  <div className="text-[13px] font-semibold text-orange-50 truncate" title={sg.name}>
+                    {(sg.name || sg.id).length > 28
+                      ? (sg.name || sg.id).slice(0, 28) + "…"
+                      : sg.name || sg.id}
                   </div>
                 </div>
                 {sgRow?.hasPublicEgress && (
-                  <div className="mt-1 text-[9px] text-amber-300 uppercase tracking-wider font-semibold">
+                  <div className="mt-1.5 text-[10px] text-amber-200 uppercase tracking-wider font-bold">
                     Public egress
                   </div>
                 )}
@@ -1755,8 +1755,8 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
         {/* ROUTE TABLE column — clickable card. Click toggles the
             expanded panel below the grid showing every route entry. */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Activity className="w-3 h-3 text-indigo-400" />
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+            <Activity className="w-3.5 h-3.5 text-indigo-600" />
             Route Table ({row.routeTable ? 1 : 0})
           </div>
           {row.routeTable ? (
@@ -1831,42 +1831,57 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           )}
         </div>
 
-        {/* GATEWAY column */}
+        {/* GATEWAY column — bumped sizes + No-L7-Filter chip for IGW/NAT
+            to surface unprotected-egress signal even when NFW isn't
+            collected (most customers don't have it; "no L7 filter" IS
+            the finding). */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Network className="w-3 h-3 text-violet-400" />
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+            <Network className="w-3.5 h-3.5 text-violet-600" />
             Gateway ({architecture.iamRoles.length})
           </div>
           {architecture.iamRoles.map((g) => {
             const gw = row.gateways.find((gg) => gg.id === g.id)
             const tone =
               gw?.bucket === "public"
-                ? "border-amber-500/60 bg-amber-500/10"
+                ? "border-amber-500/70 bg-amber-500/10"
                 : gw?.bucket === "private"
-                  ? "border-emerald-500/40 bg-emerald-500/5"
-                  : "border-slate-700 bg-slate-900/40"
+                  ? "border-emerald-500/50 bg-emerald-500/5"
+                  : "border-slate-600 bg-slate-900/40"
+            const isPublicEgress = gw?.bucket === "public"
             return (
               <div
                 key={g.id}
                 data-role-id={g.id}
-                className={`rounded-lg border ${tone} px-3 py-2`}
+                className={`rounded-lg border-2 ${tone} px-3.5 py-2.5 shadow-sm`}
               >
                 <div className="flex items-center gap-1.5">
                   {routeKindIcon(gw?.kind || "")}
-                  <span className="text-[11px] font-semibold text-slate-100 truncate flex-1">
-                    {g.shortName || g.name}
+                  <span className="text-[13px] font-semibold text-slate-100 truncate flex-1" title={g.name}>
+                    {(g.name || g.id).length > 26
+                      ? (g.name || g.id).slice(0, 26) + "…"
+                      : g.name || g.id}
                   </span>
                 </div>
-                <div className="text-[9px] text-slate-500 mt-0.5">{gw?.kind}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5 font-semibold">{gw?.kind}</div>
+                {isPublicEgress && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 rounded border border-slate-600 bg-slate-800/60 px-1.5 py-0.5">
+                    <ShieldOff className="w-2.5 h-2.5 text-slate-400" />
+                    <span className="text-[9px] uppercase tracking-wider text-slate-300 font-semibold">
+                      No L7 Filter
+                    </span>
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
 
-        {/* DESTINATIONS column */}
+        {/* DESTINATIONS column — denser rows + bigger fonts + clearer
+            byte counts (cyan-700 weight, not 400). */}
         <div className="flex flex-col gap-2">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Globe className="w-3 h-3 text-cyan-400" />
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+            <Globe className="w-3.5 h-3.5 text-cyan-600" />
             Destinations ({architecture.resources.length})
           </div>
           {architecture.resources.slice(0, 12).map((dest) => {
@@ -1878,13 +1893,13 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               <div
                 key={dest.id}
                 data-resource-id={dest.id}
-                className={`rounded-lg border px-3 py-2 ${
+                className={`rounded-lg border-2 px-3 py-2 ${
                   isAlert
-                    ? "border-rose-500/40 bg-rose-500/5"
+                    ? "border-rose-500/60 bg-rose-500/10"
                     : dest.type === "internet"
-                      ? "border-slate-700 bg-slate-900/60"
-                      : "border-emerald-500/30 bg-emerald-500/5"
-                }`}
+                      ? "border-slate-600 bg-slate-900/60"
+                      : "border-emerald-500/50 bg-emerald-500/5"
+                } shadow-sm`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 min-w-0">
@@ -1893,19 +1908,19 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                         {countryFlag(fullDest.country)}
                       </span>
                     ) : null}
-                    <span className="text-[11px] font-semibold text-slate-100 truncate">
+                    <span className="text-[12px] font-semibold text-slate-100 truncate" title={dest.name}>
                       {dest.shortName}
                     </span>
                   </div>
                   {fullDest ? (
-                    <span className="text-[9px] font-mono text-cyan-400 flex-shrink-0">
+                    <span className="text-[10px] font-mono font-bold text-cyan-300 flex-shrink-0">
                       {formatBytes(fullDest.bytes)}
                     </span>
                   ) : null}
                 </div>
                 {fullDest?.kind === "aws" && (
-                  <div className="mt-0.5 text-[9px]">
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                  <div className="mt-1 text-[10px]">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
                       AWS · {fullDest.aws_service ?? "?"}
                     </span>
                   </div>
@@ -1914,7 +1929,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             )
           })}
           {architecture.resources.length > 12 && (
-            <div className="text-[10px] text-slate-500 pl-2 italic">
+            <div className="text-[11px] text-slate-400 pl-2 italic font-semibold">
               + {architecture.resources.length - 12} more — see Destinations table below
             </div>
           )}
