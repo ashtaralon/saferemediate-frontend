@@ -1526,29 +1526,35 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   }, [row])
 
   const subnetIsPublic = row.subnetIsPublic
+  // Light-theme tones — matches the rest of the system page (post the
+  // Trust Boundary Map light-theme conversion). Previous dark-theme
+  // tones (slate-700 / amber-500/10) rendered as a "dark island" on
+  // the white page chrome and were called out as "looks bad" in the
+  // 2026-05-17 CISO review. All subsequent visual decisions in this
+  // file inherit from this palette switch.
   const subnetTone =
     subnetIsPublic === true
-      ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+      ? "bg-amber-100 border-amber-400 text-amber-900"
       : subnetIsPublic === false
-        ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
-        : "bg-slate-700/40 border-slate-600 text-slate-300"
+        ? "bg-emerald-100 border-emerald-400 text-emerald-900"
+        : "bg-slate-100 border-slate-300 text-slate-700"
   const subnetLabel =
     subnetIsPublic === true ? "PUBLIC" : subnetIsPublic === false ? "PRIVATE" : "UNKNOWN"
 
   const routeKindIcon = (kind: string) => {
     switch (kind) {
       case "InternetGateway":
-        return <Globe className="w-4 h-4 text-amber-400" />
+        return <Globe className="w-4 h-4 text-amber-700" />
       case "NATGateway":
-        return <Network className="w-4 h-4 text-blue-400" />
+        return <Network className="w-4 h-4 text-blue-700" />
       case "VPCEndpoint":
-        return <Lock className="w-4 h-4 text-emerald-400" />
+        return <Lock className="w-4 h-4 text-emerald-700" />
       case "TransitGateway":
-        return <Activity className="w-4 h-4 text-violet-400" />
+        return <Activity className="w-4 h-4 text-violet-700" />
       case "EgressOnlyInternetGateway":
-        return <Globe className="w-4 h-4 text-orange-400" />
+        return <Globe className="w-4 h-4 text-orange-700" />
       case "AWSService":
-        return <Cloud className="w-4 h-4 text-emerald-400" />
+        return <Cloud className="w-4 h-4 text-emerald-700" />
       default:
         return <ShieldOff className="w-4 h-4 text-slate-500" />
     }
@@ -1557,14 +1563,15 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   return (
     <div
       ref={containerRef}
-      className="relative rounded-lg border bg-slate-950/60 p-4 min-h-[280px] overflow-x-auto"
-      style={{ borderColor: "rgba(148,163,184,0.15)" }}
+      className="relative rounded-lg border-2 bg-white p-5 min-h-[280px] overflow-x-auto shadow-sm"
+      style={{ borderColor: "#e2e8f0" }}
     >
-      {/* Dot grid background — same as the original Egress Flow Map */}
+      {/* Subtle dot grid on white — gives the canvas a "diagram" feel
+          without overwhelming. Dots are slate-200 on white at 50% opacity. */}
       <div
-        className="absolute inset-0 opacity-30 pointer-events-none rounded-lg"
+        className="absolute inset-0 opacity-50 pointer-events-none rounded-lg"
         style={{
-          backgroundImage: "radial-gradient(circle, #1e293b 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(circle, #cbd5e1 1px, transparent 1px)",
           backgroundSize: "20px 20px",
         }}
       />
@@ -1726,8 +1733,8 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           {architecture.securityGroups.map((sg) => {
             const sgRow = row.sgs.find((s) => s.id === sg.id)
             const tone = sgRow?.hasPublicEgress
-              ? "border-amber-500/70 bg-amber-500/10"
-              : "border-orange-500/50 bg-orange-500/5"
+              ? "border-amber-400 bg-amber-50"
+              : "border-orange-300 bg-orange-50"
             return (
               <div
                 key={sg.id}
@@ -1735,15 +1742,15 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 className={`rounded-lg border-2 ${tone} px-3.5 py-2.5 shadow-sm`}
               >
                 <div className="flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-orange-300 shrink-0" />
-                  <div className="text-[13px] font-semibold text-orange-50 truncate" title={sg.name}>
+                  <Lock className="w-3.5 h-3.5 text-orange-700 shrink-0" />
+                  <div className="text-[13px] font-semibold text-orange-900 truncate" title={sg.name}>
                     {(sg.name || sg.id).length > 28
                       ? (sg.name || sg.id).slice(0, 28) + "…"
                       : sg.name || sg.id}
                   </div>
                 </div>
                 {sgRow?.hasPublicEgress && (
-                  <div className="mt-1.5 text-[10px] text-amber-200 uppercase tracking-wider font-bold">
+                  <div className="mt-1.5 text-[10px] text-amber-800 uppercase tracking-wider font-bold">
                     Public egress
                   </div>
                 )}
@@ -1764,30 +1771,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               type="button"
               onClick={() => setRouteTableOpen((v) => !v)}
               aria-expanded={routeTableOpen}
-              className={`text-left rounded-lg border px-3 py-2 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/60 ${
+              className={`text-left rounded-lg border-2 px-3.5 py-2.5 shadow-sm transition-colors hover:bg-indigo-100 hover:border-indigo-400 ${
                 routeTableOpen
-                  ? "border-indigo-500/60 bg-indigo-500/10"
+                  ? "border-indigo-500 bg-indigo-100"
                   : row.routeTable.recommendation?.type === "REMOVE_ROUTE"
-                    ? "border-amber-500/50 bg-amber-500/5"
+                    ? "border-amber-400 bg-amber-50"
                     : row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT"
-                      ? "border-emerald-500/50 bg-emerald-500/5"
-                      : "border-indigo-500/30 bg-indigo-500/5"
+                      ? "border-emerald-400 bg-emerald-50"
+                      : "border-indigo-300 bg-indigo-50"
               }`}
             >
               <div className="flex items-center gap-1.5">
-                <Activity className="w-3 h-3 text-indigo-400 shrink-0" />
-                <div className="text-[11px] font-semibold text-indigo-50 truncate font-mono">
+                <Activity className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                <div className="text-[12px] font-semibold text-indigo-900 truncate font-mono">
                   {row.routeTable.id}
                 </div>
                 <ChevronRight
-                  className={`w-3 h-3 text-indigo-300 ml-auto shrink-0 transition-transform ${
+                  className={`w-3.5 h-3.5 text-indigo-700 ml-auto shrink-0 transition-transform ${
                     routeTableOpen ? "rotate-90" : ""
                   }`}
                 />
               </div>
-              <div className="mt-1 text-[9px] text-indigo-300 uppercase tracking-wider font-semibold">
+              <div className="mt-1 text-[10px] text-indigo-700 uppercase tracking-wider font-bold">
                 {row.routeTable.routes.length} route{row.routeTable.routes.length === 1 ? "" : "s"}
-                <span className="ml-1 text-indigo-400/70 normal-case font-normal">· click to view</span>
+                <span className="ml-1 text-indigo-600 normal-case font-medium">· click to view</span>
               </div>
               {/* Recommendation chip — variant by type. REMOVE_ROUTE = amber
                   ("this is dead weight"); ADD_VPC_ENDPOINT = emerald ("this
@@ -1796,22 +1803,22 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   Tooltip on the chip shows the full confidence signal. */}
               {row.routeTable.recommendation?.type === "REMOVE_ROUTE" && (
                 <div
-                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5"
+                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-400 bg-amber-100 px-1.5 py-0.5"
                   title={row.routeTable.recommendation.confidence_signal}
                 >
-                  <ShieldOff className="w-2.5 h-2.5 text-amber-300" />
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
+                  <ShieldOff className="w-2.5 h-2.5 text-amber-700" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
                     Removable · {row.routeTable.recommendation.candidate_route_cidr}
                   </span>
                 </div>
               )}
               {row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT" && (
                 <div
-                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-1.5 py-0.5"
+                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-emerald-400 bg-emerald-100 px-1.5 py-0.5"
                   title={row.routeTable.recommendation.confidence_signal}
                 >
-                  <Lock className="w-2.5 h-2.5 text-emerald-300" />
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-200">
+                  <Lock className="w-2.5 h-2.5 text-emerald-700" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
                     Add VPCE · {row.routeTable.recommendation.candidate_aws_service}
                     {row.routeTable.recommendation.candidate_is_gateway_vpce ? " · free" : ""}
                   </span>
@@ -1819,12 +1826,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               )}
             </button>
           ) : (
-            <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2">
+            <div className="rounded-lg border-2 border-slate-300 bg-slate-50 px-3.5 py-2.5">
               <div className="flex items-center gap-1.5">
-                <ShieldOff className="w-3 h-3 text-slate-500 shrink-0" />
-                <div className="text-[11px] font-semibold text-slate-400 truncate">No route table</div>
+                <ShieldOff className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <div className="text-[12px] font-semibold text-slate-600 truncate">No route table</div>
               </div>
-              <div className="mt-1 text-[9px] text-slate-500 uppercase tracking-wider">
+              <div className="mt-1 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
                 Not in VPC
               </div>
             </div>
@@ -1844,10 +1851,16 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             const gw = row.gateways.find((gg) => gg.id === g.id)
             const tone =
               gw?.bucket === "public"
-                ? "border-amber-500/70 bg-amber-500/10"
+                ? "border-amber-400 bg-amber-50"
                 : gw?.bucket === "private"
-                  ? "border-emerald-500/50 bg-emerald-500/5"
-                  : "border-slate-600 bg-slate-900/40"
+                  ? "border-emerald-400 bg-emerald-50"
+                  : "border-slate-300 bg-slate-50"
+            const textTone =
+              gw?.bucket === "public"
+                ? "text-amber-900"
+                : gw?.bucket === "private"
+                  ? "text-emerald-900"
+                  : "text-slate-800"
             const isPublicEgress = gw?.bucket === "public"
             return (
               <div
@@ -1857,17 +1870,17 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               >
                 <div className="flex items-center gap-1.5">
                   {routeKindIcon(gw?.kind || "")}
-                  <span className="text-[13px] font-semibold text-slate-100 truncate flex-1" title={g.name}>
+                  <span className={`text-[13px] font-semibold ${textTone} truncate flex-1`} title={g.name}>
                     {(g.name || g.id).length > 26
                       ? (g.name || g.id).slice(0, 26) + "…"
                       : g.name || g.id}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5 font-semibold">{gw?.kind}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5 font-semibold">{gw?.kind}</div>
                 {isPublicEgress && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 rounded border border-slate-600 bg-slate-800/60 px-1.5 py-0.5">
-                    <ShieldOff className="w-2.5 h-2.5 text-slate-400" />
-                    <span className="text-[9px] uppercase tracking-wider text-slate-300 font-semibold">
+                  <div className="mt-1.5 inline-flex items-center gap-1 rounded border border-slate-400 bg-slate-100 px-1.5 py-0.5">
+                    <ShieldOff className="w-2.5 h-2.5 text-slate-600" />
+                    <span className="text-[10px] uppercase tracking-wider text-slate-700 font-bold">
                       No L7 Filter
                     </span>
                   </div>
@@ -1884,79 +1897,123 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             <Globe className="w-3.5 h-3.5 text-cyan-600" />
             Destinations ({architecture.resources.length})
           </div>
-          {architecture.resources.slice(0, 12).map((dest) => {
+          {/* Compute max byte volume for relative bar widths — gives the
+              operator a "this destination dwarfs the rest" visual scan
+              without staring at numbers. */}
+          {(() => {
+            const maxBytes = Math.max(
+              1,
+              ...architecture.resources
+                .map((d) => row.fullDestinations.find((fd) => fd.ip === d.id)?.bytes || 0),
+            )
+            return architecture.resources.slice(0, 12).map((dest) => {
             const fullDest = row.fullDestinations.find((d) => d.ip === dest.id)
-            const isAlert = (fullDest?.signals || []).some((s) =>
+            const signalList = (fullDest?.signals || []).filter((s) =>
+              ["plaintext", "residential_isp", "rare_asn", "new_destination", "cross_region_aws", "cross_cloud"].includes(s),
+            )
+            const isAlert = signalList.some((s) =>
               ["plaintext", "residential_isp", "rare_asn"].includes(s),
             )
-            // AWS EC2 service IP ranges cover BOTH customer instance
-            // public IPs and the EC2 API control-plane endpoints
-            // (ec2.<region>.amazonaws.com). AWS's published ip-ranges.json
-            // does not distinguish, so we surface the ambiguity rather
-            // than guess. Same caveat applies in tooltip.
             const isEc2Service = fullDest?.kind === "aws" && fullDest?.aws_service === "EC2"
-            // Show attribution sub-line for any external (non-AWS, non-
-            // internal) destination when we have ipinfo enrichment. Even
-            // when the primary name already shows the org (per fallback
-            // chain hostname → aws_service → org → ip), the ASN + IP
-            // belong as a secondary identifier so the operator can WHOIS
-            // it themselves if they want to verify.
-            const showExternalMeta = fullDest?.kind === "external" && (fullDest?.org || fullDest?.asn)
-            // Primary name might already be the IP (when all enrichment is
-            // null). In that case there's no need to duplicate the IP in
-            // the subtitle. Compare against the truncated shortName since
-            // long IPs may have been clipped.
-            const primaryIsIp = dest.shortName === fullDest?.ip || dest.name === fullDest?.ip
+            const showExternalMeta =
+              fullDest?.kind === "external" && (fullDest?.org || fullDest?.asn)
+            const primaryName =
+              fullDest?.hostname ||
+              (fullDest?.kind === "aws" ? fullDest.aws_service : fullDest?.org) ||
+              fullDest?.ip ||
+              dest.name
+            const primaryIsIp = primaryName === fullDest?.ip
+            const bytePct = fullDest ? Math.round((fullDest.bytes / maxBytes) * 100) : 0
+            // Card tone — alert > AWS > internet bare.
+            const cardTone = isAlert
+              ? "border-rose-300 bg-rose-50"
+              : dest.type === "internet"
+                ? "border-slate-200 bg-white"
+                : "border-emerald-300 bg-emerald-50"
             return (
               <div
                 key={dest.id}
                 data-resource-id={dest.id}
-                className={`rounded-lg border-2 px-3 py-2 ${
-                  isAlert
-                    ? "border-rose-500/60 bg-rose-500/10"
-                    : dest.type === "internet"
-                      ? "border-slate-600 bg-slate-900/60"
-                      : "border-emerald-500/50 bg-emerald-500/5"
-                } shadow-sm`}
+                className={`rounded-lg border ${cardTone} px-3 py-2 shadow-sm transition-shadow hover:shadow-md`}
               >
+                {/* Primary line: country flag + org/hostname/svc + bytes */}
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     {fullDest?.country ? (
-                      <span className="text-sm leading-none">
+                      <span
+                        className="text-base leading-none shrink-0"
+                        title={fullDest.country}
+                      >
                         {countryFlag(fullDest.country)}
                       </span>
                     ) : null}
-                    <span className="text-[12px] font-semibold text-slate-100 truncate" title={dest.name}>
-                      {dest.shortName}
+                    <span
+                      className="text-[12px] font-semibold text-slate-900 truncate"
+                      title={primaryName || dest.name}
+                    >
+                      {(primaryName || dest.name).length > 32
+                        ? (primaryName || dest.name).slice(0, 32) + "…"
+                        : primaryName || dest.name}
                     </span>
                   </div>
                   {fullDest ? (
-                    <span className="text-[10px] font-mono font-bold text-cyan-300 flex-shrink-0">
+                    <span className="text-[11px] font-mono font-bold text-slate-900 shrink-0">
                       {formatBytes(fullDest.bytes)}
                     </span>
                   ) : null}
                 </div>
-                {/* IP always shown when the primary label is something
-                    else (org / hostname / aws_service) — gives operators
-                    a stable identifier even when enrichment is rich. */}
-                {fullDest && !primaryIsIp && (
-                  <div className="mt-0.5 text-[9px] text-slate-500 font-mono truncate" title={fullDest.ip}>
-                    {fullDest.ip}
+
+                {/* Secondary line: IP + last-seen */}
+                {fullDest && (
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-slate-600">
+                    {!primaryIsIp ? (
+                      <span className="font-mono truncate" title={fullDest.ip}>
+                        {fullDest.ip}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    {fullDest.last_seen && (
+                      <span
+                        className="shrink-0 text-slate-500"
+                        title={`Last connection: ${fullDest.last_seen}`}
+                      >
+                        last {formatTimeAgoShort(fullDest.last_seen)}
+                      </span>
+                    )}
                   </div>
                 )}
+
+                {/* Relative volume bar — visual scan of "who dwarfs whom" */}
+                {fullDest && bytePct > 0 && (
+                  <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        isAlert
+                          ? "bg-rose-400"
+                          : dest.type === "internet"
+                            ? "bg-slate-400"
+                            : "bg-emerald-500"
+                      }`}
+                      style={{ width: `${bytePct}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* AWS service chip OR external org/ASN line */}
                 {fullDest?.kind === "aws" && (
                   <div
-                    className="mt-1 text-[10px]"
+                    className="mt-1.5 text-[10px]"
                     title={
                       isEc2Service
-                        ? "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish — check the workload's outbound role/IAM calls to confirm whether this is data-plane or control-plane."
+                        ? "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish."
                         : `AWS ${fullDest.aws_service ?? "service"} published IP range`
                     }
                   >
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">
                       AWS · {fullDest.aws_service ?? "?"}
                       {isEc2Service && (
-                        <span className="ml-1 font-normal text-emerald-300/80">
+                        <span className="ml-1 font-normal text-emerald-700">
                           (instance or API)
                         </span>
                       )}
@@ -1964,19 +2021,52 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   </div>
                 )}
                 {showExternalMeta && (
-                  <div className="mt-1 text-[10px] text-slate-400 truncate" title={`${fullDest?.org || ""}${fullDest?.asn ? " · " + fullDest.asn : ""}`}>
-                    {fullDest?.org && <span>{fullDest.org}</span>}
+                  <div
+                    className="mt-1 text-[10px] text-slate-600 truncate"
+                    title={`${fullDest?.org || ""}${fullDest?.asn ? " · " + fullDest.asn : ""}`}
+                  >
+                    {fullDest?.org && <span className="font-medium">{fullDest.org}</span>}
                     {fullDest?.org && fullDest?.asn && (
-                      <span className="text-slate-600"> · </span>
+                      <span className="text-slate-400"> · </span>
                     )}
-                    {fullDest?.asn && <span className="font-mono text-slate-500">{fullDest.asn}</span>}
+                    {fullDest?.asn && (
+                      <span className="font-mono text-slate-500">{fullDest.asn}</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Signal chips — surfaces WHY the severity score is what it is.
+                    Operator can now see "plaintext channel" inline instead
+                    of guessing why a destination is highlighted alert-red. */}
+                {signalList.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {signalList.map((sig) => {
+                      const meta = SIGNAL_META[sig]
+                      if (!meta) return null
+                      const chipTone =
+                        meta.tone === "alert"
+                          ? "bg-rose-100 text-rose-800 border-rose-300"
+                          : meta.tone === "warning"
+                            ? "bg-amber-100 text-amber-800 border-amber-300"
+                            : "bg-sky-100 text-sky-800 border-sky-300"
+                      return (
+                        <span
+                          key={sig}
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${chipTone}`}
+                          title={meta.tooltip}
+                        >
+                          {meta.label}
+                        </span>
+                      )
+                    })}
                   </div>
                 )}
               </div>
             )
-          })}
+            })
+          })()}
           {architecture.resources.length > 12 && (
-            <div className="text-[11px] text-slate-400 pl-2 italic font-semibold">
+            <div className="text-[11px] text-slate-500 pl-2 italic font-semibold">
               + {architecture.resources.length - 12} more — see Destinations table below
             </div>
           )}
@@ -1992,21 +2082,21 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           row gets a "PROPOSE: REMOVE" chip + amber pulse. */}
       {routeTableOpen && row.routeTable && (
         <div
-          className="relative mt-4 rounded-lg border border-indigo-500/30 bg-indigo-950/40 p-3"
+          className="relative mt-4 rounded-lg border-2 border-indigo-300 bg-indigo-50 p-3 shadow-sm"
           style={{ zIndex: 2 }}
         >
           <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-3.5 h-3.5 text-indigo-400" />
-            <div className="text-[11px] font-semibold text-indigo-100 uppercase tracking-wider">
+            <Activity className="w-3.5 h-3.5 text-indigo-700" />
+            <div className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
               Routes
             </div>
-            <span className="text-[10px] font-mono text-indigo-300">
+            <span className="text-[10px] font-mono text-indigo-700">
               {row.routeTable.id}
             </span>
             <button
               type="button"
               onClick={() => setRouteTableOpen(false)}
-              className="ml-auto text-[10px] text-indigo-300 hover:text-indigo-100 uppercase tracking-wider"
+              className="ml-auto text-[10px] text-indigo-700 hover:text-indigo-900 uppercase tracking-wider font-bold"
             >
               Close
             </button>
