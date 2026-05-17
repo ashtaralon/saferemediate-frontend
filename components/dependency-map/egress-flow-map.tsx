@@ -807,12 +807,316 @@ function PathCardList({ rows, hiddenWorkloadCount }: { rows: PathRow[]; hiddenWo
   )
 }
 
-// PathMiniFlow — horizontal visual flow map for ONE path. Renders as
-// a row of cards connected by arrow icons:
-//   [Compute] → [Subnet] → [SG(s)] → [Gateway(s)] → [Destinations]
-// Same data as the inline text chain on the collapsed card, but
-// visual. Each card is color-coded by its posture (PUBLIC subnet =
-// amber, PRIVATE = emerald, public-egress gateway = amber, etc.).
+// PathFlowMap — per-path column-grid visual map that mirrors the
+// Attack Paths "System Architecture" view (TrafficFlowMap pattern).
+// Renders 4 columns: COMPUTE | SECURITY GROUPS | EGRESS GATEWAY |
+// DESTINATIONS, with animated traffic lines drawn between cards via
+// the shared ConnectionLinesSVG primitive.
+//
+// Builds a per-path SystemArchitecture (compute=this workload, sgs=
+// this path's SGs, iamRoles=this path's gateways, resources=this
+// path's destinations, flows=per-destination tuples) and passes it
+// to ConnectionLinesSVG. Same visual story as Attack Paths but
+// scoped to ONE egress workload's path.
+function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
+  // Container that ConnectionLinesSVG positions absolutely over.
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Per-path SystemArchitecture, derived from PathRow.
+  const architecture = useMemo<SystemArchitecture>(() => {
+    const computeNode: ServiceNode = {
+      id: row.workloadId,
+      name: row.workloadName,
+      shortName: row.workloadName.slice(0, 22),
+      type: row.workloadType,
+    }
+
+    const sgs: SecurityCheckpoint[] = row.sgs.map((sg) => ({
+      id: sg.id,
+      name: sg.name,
+      shortName: sg.name.slice(0, 22),
+      type: "security_group",
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [row.workloadId],
+      connectedTargets: [],
+    }))
+
+    // Gateways go in the iamRoles slot — ConnectionLinesSVG draws
+    // compute→sg→role→resource so we alias gateway→role.
+    const gateways: SecurityCheckpoint[] = row.gateways.map((g) => ({
+      id: g.id,
+      name: g.name,
+      shortName: g.name.slice(0, 22),
+      type: "iam_role",
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: row.sgs.map((s) => s.id),
+      connectedTargets: [],
+      // Extra metadata for the gateway card chip — Map.set behavior
+      // doesn't enforce excess-property checks, so cast at the end.
+      routeKind: g.kind,
+      routeBucket: g.bucket,
+    } as SecurityCheckpoint & { routeKind: string; routeBucket: string }))
+
+    const resources: ServiceNode[] = row.fullDestinations.map((d) => {
+      const destType: NodeType =
+        d.kind === "aws"
+          ? d.aws_service?.toLowerCase().includes("s3")
+            ? "storage"
+            : d.aws_service?.toLowerCase().includes("dynamo")
+              ? "database"
+              : "api_gateway"
+          : "internet"
+      return {
+        id: d.ip,
+        name: d.hostname || d.aws_service || d.org || d.ip,
+        shortName: (d.hostname || d.aws_service || d.org || d.ip).slice(0, 28),
+        type: destType,
+      }
+    })
+
+    const sgId = row.sgs[0]?.id
+    const roleId = row.gateways[0]?.id
+    const flows: TrafficFlow[] = row.fullDestinations.map((d) => ({
+      sourceId: row.workloadId,
+      targetId: d.ip,
+      sgId,
+      roleId,
+      ports: d.ports || [],
+      protocol: (d.protocols || [])[0] || "tcp",
+      bytes: d.bytes,
+      connections: d.hits,
+      isActive: d.bytes > 0,
+    }))
+
+    return {
+      computeServices: [computeNode],
+      resources,
+      subnets: [],
+      securityGroups: sgs,
+      nacls: [],
+      iamRoles: gateways,
+      flows,
+      totalBytes: row.totalBytes,
+      totalConnections: row.totalHits,
+      totalGaps: 0,
+    }
+  }, [row])
+
+  const subnetIsPublic = row.subnetIsPublic
+  const subnetTone =
+    subnetIsPublic === true
+      ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+      : subnetIsPublic === false
+        ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+        : "bg-slate-700/40 border-slate-600 text-slate-300"
+  const subnetLabel =
+    subnetIsPublic === true ? "PUBLIC" : subnetIsPublic === false ? "PRIVATE" : "UNKNOWN"
+
+  const routeKindIcon = (kind: string) => {
+    switch (kind) {
+      case "InternetGateway":
+        return <Globe className="w-4 h-4 text-amber-400" />
+      case "NATGateway":
+        return <Network className="w-4 h-4 text-blue-400" />
+      case "VPCEndpoint":
+        return <Lock className="w-4 h-4 text-emerald-400" />
+      case "TransitGateway":
+        return <Activity className="w-4 h-4 text-violet-400" />
+      case "EgressOnlyInternetGateway":
+        return <Globe className="w-4 h-4 text-orange-400" />
+      case "AWSService":
+        return <Cloud className="w-4 h-4 text-emerald-400" />
+      default:
+        return <ShieldOff className="w-4 h-4 text-slate-500" />
+    }
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative rounded-lg border bg-slate-950/60 p-4 min-h-[280px] overflow-x-auto"
+      style={{ borderColor: "rgba(148,163,184,0.15)" }}
+    >
+      {/* Dot grid background — same as the original Egress Flow Map */}
+      <div
+        className="absolute inset-0 opacity-30 pointer-events-none rounded-lg"
+        style={{
+          backgroundImage: "radial-gradient(circle, #1e293b 1px, transparent 1px)",
+          backgroundSize: "20px 20px",
+        }}
+      />
+
+      {/* Animated traffic lines — same primitive Attack Paths uses */}
+      <ConnectionLinesSVG
+        architecture={architecture}
+        hoveredId={null}
+        containerRef={containerRef as React.RefObject<HTMLDivElement>}
+        animate={true}
+      />
+
+      {/* 4-column grid */}
+      <div
+        className="relative grid grid-cols-[1fr_140px_180px_1.5fr] gap-6 items-start"
+        style={{ zIndex: 2 }}
+      >
+        {/* COMPUTE column */}
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Server className="w-3 h-3 text-blue-400" />
+            Compute (1)
+          </div>
+          <div data-compute-id={row.workloadId}>
+            <ServiceNodeBox
+              node={architecture.computeServices[0]}
+              position="left"
+              isHighlighted={false}
+              onHover={() => {}}
+              onClick={() => {}}
+            />
+            {row.subnetId && (
+              <div
+                className={`mt-1 inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${subnetTone}`}
+              >
+                {subnetLabel}
+                <span className="font-mono normal-case font-normal opacity-80">
+                  · {row.subnetName || row.subnetId}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* SG column */}
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Lock className="w-3 h-3 text-orange-400" />
+            SG ({architecture.securityGroups.length})
+          </div>
+          {architecture.securityGroups.map((sg) => {
+            const sgRow = row.sgs.find((s) => s.id === sg.id)
+            const tone = sgRow?.hasPublicEgress
+              ? "border-amber-500/60 bg-amber-500/10"
+              : "border-orange-500/30 bg-orange-500/5"
+            return (
+              <div
+                key={sg.id}
+                data-sg-id={sg.id}
+                className={`rounded-lg border ${tone} px-3 py-2`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-3 h-3 text-orange-400 shrink-0" />
+                  <div className="text-[11px] font-semibold text-orange-50 truncate">
+                    {sg.shortName || sg.name}
+                  </div>
+                </div>
+                {sgRow?.hasPublicEgress && (
+                  <div className="mt-1 text-[9px] text-amber-300 uppercase tracking-wider font-semibold">
+                    Public egress
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* GATEWAY column */}
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Network className="w-3 h-3 text-violet-400" />
+            Gateway ({architecture.iamRoles.length})
+          </div>
+          {architecture.iamRoles.map((g) => {
+            const gw = row.gateways.find((gg) => gg.id === g.id)
+            const tone =
+              gw?.bucket === "public"
+                ? "border-amber-500/60 bg-amber-500/10"
+                : gw?.bucket === "private"
+                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  : "border-slate-700 bg-slate-900/40"
+            return (
+              <div
+                key={g.id}
+                data-role-id={g.id}
+                className={`rounded-lg border ${tone} px-3 py-2`}
+              >
+                <div className="flex items-center gap-1.5">
+                  {routeKindIcon(gw?.kind || "")}
+                  <span className="text-[11px] font-semibold text-slate-100 truncate flex-1">
+                    {g.shortName || g.name}
+                  </span>
+                </div>
+                <div className="text-[9px] text-slate-500 mt-0.5">{gw?.kind}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* DESTINATIONS column */}
+        <div className="flex flex-col gap-2">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Globe className="w-3 h-3 text-cyan-400" />
+            Destinations ({architecture.resources.length})
+          </div>
+          {architecture.resources.slice(0, 12).map((dest) => {
+            const fullDest = row.fullDestinations.find((d) => d.ip === dest.id)
+            const isAlert = (fullDest?.signals || []).some((s) =>
+              ["plaintext", "residential_isp", "rare_asn"].includes(s),
+            )
+            return (
+              <div
+                key={dest.id}
+                data-resource-id={dest.id}
+                className={`rounded-lg border px-3 py-2 ${
+                  isAlert
+                    ? "border-rose-500/40 bg-rose-500/5"
+                    : dest.type === "internet"
+                      ? "border-slate-700 bg-slate-900/60"
+                      : "border-emerald-500/30 bg-emerald-500/5"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {fullDest?.country ? (
+                      <span className="text-sm leading-none">
+                        {countryFlag(fullDest.country)}
+                      </span>
+                    ) : null}
+                    <span className="text-[11px] font-semibold text-slate-100 truncate">
+                      {dest.shortName}
+                    </span>
+                  </div>
+                  {fullDest ? (
+                    <span className="text-[9px] font-mono text-cyan-400 flex-shrink-0">
+                      {formatBytes(fullDest.bytes)}
+                    </span>
+                  ) : null}
+                </div>
+                {fullDest?.kind === "aws" && (
+                  <div className="mt-0.5 text-[9px]">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                      AWS · {fullDest.aws_service ?? "?"}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {architecture.resources.length > 12 && (
+            <div className="text-[10px] text-slate-500 pl-2 italic">
+              + {architecture.resources.length - 12} more — see Destinations table below
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// LEGACY — replaced by PathFlowMap above. Kept temporarily.
 function PathMiniFlow({ row, sevColor }: { row: PathRow; sevColor: string }) {
   const subnetIsPublic = row.subnetIsPublic
   const subnetTone = subnetIsPublic === true
@@ -1177,12 +1481,13 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
           className="px-4 py-3 border-t space-y-4"
           style={{ borderColor: "rgba(148,163,184,0.12)", background: "rgba(15,23,42,0.4)" }}
         >
-          {/* PER-PATH FLOW MAP — horizontal cards-and-arrows visual */}
+          {/* PER-PATH FLOW MAP — column-grid layout with animated traffic
+              lines, matches Attack Paths "System Architecture" view. */}
           <div>
             <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
               Flow map
             </div>
-            <PathMiniFlow row={row} sevColor={sevColor} />
+            <PathFlowMap row={row} sevColor={sevColor} />
           </div>
 
           <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
