@@ -80,11 +80,18 @@ type RowState =
 
 // ---------- Public API ----------------------------------------------
 
+// Top-level summary surface. Per user feedback ("at 400 paths the big
+// amber panel becomes noise"): show ONE LINE that summarizes the
+// candidate count + scope, with a click-to-expand affordance for the
+// full list. The per-RT execute button lives in the path card's RT
+// banner (RemoveRouteActionPanel), not here — this surface is for
+// scanning, not acting.
 export function RemovableInfrastructureCallout({
   candidates,
 }: {
   candidates: RemoveRouteCandidate[]
 }) {
+  const [expanded, setExpanded] = useState(false)
   if (candidates.length === 0) return null
 
   const totalScope = candidates.reduce((sum, c) => sum + c.scopeWorkloadCount, 0)
@@ -93,66 +100,74 @@ export function RemovableInfrastructureCallout({
 
   return (
     <div
-      className="rounded-xl border overflow-hidden mb-4"
-      style={{ borderColor: "rgba(245,158,11,0.30)", background: "linear-gradient(180deg, rgba(245,158,11,0.05) 0%, rgba(15,23,42,0.4) 100%)" }}
+      className="rounded-lg border overflow-hidden mb-3"
+      style={{ borderColor: "rgba(245,158,11,0.30)", background: "rgba(245,158,11,0.05)" }}
     >
-      {/* Editorial header — sentence-style, matches the path list's tone */}
-      <div className="px-5 pt-4 pb-3 border-b" style={{ borderColor: "rgba(245,158,11,0.20)" }}>
-        <div className="flex items-baseline justify-between gap-4">
-          <div className="flex flex-col min-w-0">
-            <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-300/80">
-              Removable infrastructure
-            </span>
-            <span className="text-base font-semibold mt-0.5 text-amber-50">
-              {candidates.length === 1
-                ? "1 route table has a public-egress route with no observed traffic"
-                : `${candidates.length} route tables have public-egress routes with no observed traffic`}
-            </span>
-            <span className="text-[11px] mt-1 text-amber-200/70">
-              Eligible for removal · {totalScope} workload{totalScope === 1 ? "" : "s"} share these RT
-              {candidates.length === 1 ? "" : "s"} · zero observed egress in the 30-day window
-            </span>
-          </div>
-          <div className="flex items-baseline gap-1.5 shrink-0">
-            <span className="text-2xl font-semibold tabular-nums text-amber-100">
-              {candidates.length}
-            </span>
-            <span className="text-[11px] uppercase tracking-[0.12em] font-semibold text-amber-300/80">
-              {candidates.length === 1 ? "candidate" : "candidates"}
-            </span>
-          </div>
-        </div>
-        {/* Gateway-mix sub-line (only if there is meaningful mix) */}
-        {(igwCount > 0 || natCount > 0) && (
-          <div className="mt-2 flex items-center gap-4 text-[10px] uppercase tracking-[0.1em] font-semibold text-amber-300/70">
-            {igwCount > 0 && (
-              <span className="inline-flex items-baseline gap-1.5">
-                <span className="text-amber-100">{igwCount}</span>
-                <span>via internet gateway</span>
-              </span>
-            )}
-            {natCount > 0 && (
-              <span className="inline-flex items-baseline gap-1.5">
-                <span className="text-amber-100">{natCount}</span>
-                <span>via NAT gateway</span>
-              </span>
-            )}
-          </div>
-        )}
-      </div>
+      {/* One-line summary header — always visible, click to expand the
+          per-candidate list. Designed to coexist with N path rows
+          without becoming the dominant surface. */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+        className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-amber-500/[0.04]"
+      >
+        <ShieldOff className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        <span className="text-[11px] uppercase tracking-[0.12em] font-semibold text-amber-200">
+          {candidates.length} removable {candidates.length === 1 ? "route" : "routes"}
+        </span>
+        <span className="text-[11px] text-amber-100/80 truncate">
+          · {totalScope} workload{totalScope === 1 ? "" : "s"} affected
+          · zero observed egress in 30d
+          {igwCount > 0 && <span className="text-amber-300/60"> · {igwCount} via IGW</span>}
+          {natCount > 0 && <span className="text-amber-300/60"> · {natCount} via NAT</span>}
+        </span>
+        <span className="ml-auto text-[10px] uppercase tracking-wider text-amber-300/80">
+          Each candidate's Simulate / Apply lives in the relevant route-table card below.
+        </span>
+        <ChevronRight
+          className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+          style={{ color: "#fcd34d" }}
+        />
+      </button>
 
-      <div className="divide-y" style={{ borderColor: "rgba(245,158,11,0.15)" }}>
-        {candidates.map((c) => (
-          <CandidateRow key={c.rtId} candidate={c} />
-        ))}
-      </div>
+      {/* Expanded list — the full candidate breakdown with per-row
+          action panel. Hidden by default; only opens on summary click. */}
+      {expanded && (
+        <div className="divide-y border-t" style={{ borderColor: "rgba(245,158,11,0.18)" }}>
+          {candidates.map((c) => (
+            <div key={c.rtId} className="px-4 py-3">
+              <div className="flex items-baseline gap-2 mb-1.5">
+                <span className="font-mono text-[12px] font-semibold text-amber-50">{c.rtId}</span>
+                <ChevronRight className="w-3 h-3 text-amber-400/50 shrink-0" />
+                <span className="font-mono text-[11px] text-amber-100/90">{c.cidr || "?"}</span>
+                <span className="text-[10px] text-amber-300/70">→</span>
+                <span className="text-[11px] text-amber-100/90">
+                  {c.targetKind || "?"} <span className="font-mono">{c.targetId || ""}</span>
+                </span>
+              </div>
+              <div className="text-[11px] text-amber-200/80 leading-relaxed mb-2">
+                {c.confidenceSignal}
+              </div>
+              <RemoveRouteActionPanel candidate={c} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-// ---------- Per-row Simulate → Apply → Rollback flow -----------------
+// ---------- Exported per-RT action panel ---------------------------
+//
+// Standalone surface — the per-row Simulate → Apply → Rollback flow
+// extracted from the old CandidateRow so the same state machine
+// renders both in the top-level callout (when expanded) AND inline
+// inside the path-card's expanded RT banner. ONE execute path per
+// proposal_id, regardless of where the operator clicks (idempotency
+// is handled by the backend's content-addressed proposal_id).
 
-function CandidateRow({ candidate }: { candidate: RemoveRouteCandidate }) {
+export function RemoveRouteActionPanel({ candidate }: { candidate: RemoveRouteCandidate }) {
   const [state, setState] = useState<RowState>({ phase: "idle" })
 
   const canSimulate = !!candidate.proposalId && !!candidate.cidr && !!candidate.targetKind && !!candidate.targetId
@@ -251,50 +266,22 @@ function CandidateRow({ candidate }: { candidate: RemoveRouteCandidate }) {
     }
   }
 
+  // Identity-free: caller renders rt_id / cidr / target / confidence
+  // signal / scope. This panel is ONLY the action surface so both
+  // callers (top-level callout's expanded list + per-RT inline banner
+  // inside PathCard) embed it without identity duplication.
   return (
-    <div className="px-5 py-3.5">
-      <div className="flex items-start justify-between gap-4">
-        {/* Left: identity + signal */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Activity className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-            <span className="font-mono text-[13px] font-semibold text-amber-50 truncate">
-              {candidate.rtId}
-            </span>
-            <ChevronRight className="w-3 h-3 text-amber-400/50 shrink-0" />
-            <span className="font-mono text-[12px] text-amber-100/90 truncate">
-              {candidate.cidr || "?"}
-            </span>
-            <span className="text-[11px] text-amber-300/70 shrink-0">→</span>
-            <span className="text-[12px] text-amber-100/90 truncate">
-              {candidate.targetKind || "?"} <span className="font-mono">{candidate.targetId || ""}</span>
-            </span>
-          </div>
-          <div className="text-[11px] text-amber-200/80 leading-relaxed">
-            {candidate.confidenceSignal}
-          </div>
-          {/* Scope badge */}
-          <div className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5">
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
-              Scope · {candidate.scopeWorkloadCount} workload{candidate.scopeWorkloadCount === 1 ? "" : "s"}
-            </span>
-          </div>
-        </div>
-
-        {/* Right: action buttons / state */}
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <RowActionGroup
-            state={state}
-            canSimulate={canSimulate}
-            onSimulate={() => runStage("SIMULATE")}
-            onApply={() => runStage("FULL")}
-            onRollback={() => rollback()}
-            onReset={() => setState({ phase: "idle" })}
-          />
-        </div>
+    <div className="flex flex-col gap-1.5">
+      <div>
+        <RowActionGroup
+          state={state}
+          canSimulate={canSimulate}
+          onSimulate={() => runStage("SIMULATE")}
+          onApply={() => runStage("FULL")}
+          onRollback={() => rollback()}
+          onReset={() => setState({ phase: "idle" })}
+        />
       </div>
-
-      {/* Bottom: phase-specific detail panel */}
       <RowDetailPanel state={state} />
     </div>
   )

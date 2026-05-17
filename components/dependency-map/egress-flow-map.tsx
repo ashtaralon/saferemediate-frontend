@@ -71,6 +71,7 @@ import {
 } from "./traffic-flow-map"
 import {
   RemovableInfrastructureCallout,
+  RemoveRouteActionPanel,
   deriveRemoveRouteCandidates,
 } from "./RemovableInfrastructureCallout"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -1564,6 +1565,27 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 this route table. Removing the route affects all of them. Rare-use workloads
                 outside the observed window are the operator's call — this is "no observed
                 dependency," not "safe to remove."
+              </div>
+              {/* Execute surface — moved here from the top-level callout
+                  per user feedback ("put it in the relevant path
+                  section, not above the entire issues"). Same proposal_id-
+                  keyed state machine (idle → Simulate → simulated →
+                  Apply → applied → Rollback) — re-fire across N path
+                  cards sharing this RT all hit the SAME proposal_id
+                  (content-addressed by rt_id + cidr + target). */}
+              <div className="mt-2 pt-2 border-t border-amber-500/20">
+                <RemoveRouteActionPanel
+                  candidate={{
+                    rtId: row.routeTable.id,
+                    proposalId: row.routeTable.recommendation.proposal_id ?? null,
+                    cidr: row.routeTable.recommendation.candidate_route_cidr,
+                    targetKind: row.routeTable.recommendation.candidate_route_target_kind,
+                    targetId: row.routeTable.recommendation.candidate_route_target_id,
+                    targetName: row.routeTable.recommendation.candidate_route_target_name,
+                    scopeWorkloadCount: row.routeTable.recommendation.scope_workload_count,
+                    confidenceSignal: row.routeTable.recommendation.confidence_signal,
+                  }}
+                />
               </div>
             </div>
           )}
