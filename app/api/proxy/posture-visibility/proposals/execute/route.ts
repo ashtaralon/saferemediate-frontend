@@ -9,8 +9,15 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
+// BACKEND_URL_OVERRIDE matches the convention used by the egress proxy
+// so a single `BACKEND_URL_OVERRIDE=http://localhost:8000` env var
+// reroutes both the recommendation read and the execute write to a
+// local backend in dev. Without it, prod Render is hit (correct for
+// Vercel deploys).
 const BACKEND_URL =
-  process.env.BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  process.env.BACKEND_URL_OVERRIDE ||
+  process.env.BACKEND_URL ||
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
