@@ -257,6 +257,10 @@ interface EgressWorkload {
   // rather than hiding the column entirely (per
   // feedback_no_mock_numbers_in_ui).
   upstream_crown_jewels?: UpstreamCrownJewel[]
+  // Rule-based AWS-best-practice insight cards (see EgressInsightCard
+  // type below). Backend computes via api/egress_insights.py — empty
+  // when no rule fires.
+  insights?: EgressInsightCard[]
 }
 
 interface EgressResponse {
@@ -713,6 +717,30 @@ interface PathRow {
   // CJ reads in the lookback window — the column renders a three-
   // state "no observed CJ reads" placeholder rather than hiding.
   upstreamCrownJewels: UpstreamCrownJewel[]
+  // Rule-based AWS-best-practice insight cards. Source: backend's
+  // api/egress_insights.py rule engine, which maps observed-egress
+  // facts onto authoritative AWS guidance (Well-Architected,
+  // Gateway VPC Endpoints, Centralized Egress whitepaper) and emits
+  // structured cards with severity + evidence + recommendation +
+  // source URL. Empty array = no rule fired (honest "no insights",
+  // not "all clear").
+  insights: EgressInsightCard[]
+}
+
+// Insight card shape — mirror of api/egress_insights.py InsightCard.
+// Drives the EgressInsightsPanel rendered next to the flow map in
+// the per-path fullscreen dialog.
+interface EgressInsightCard {
+  id: string
+  severity: "critical" | "high" | "medium" | "low"
+  category: string  // "Security" | "Cost" | "Architecture" | "Posture" | combinations
+  title: string
+  evidence: string
+  guidance: string
+  source: string
+  source_url: string
+  recommendation: string
+  affected_count: number
 }
 
 // Egress severity score 0-100. Mirrors the Identity Attack Paths
@@ -775,9 +803,12 @@ function buildPathRows(
   // _load_workload_upstream_crown_jewels_batch (one Cypher round-trip
   // for the whole system).
   const cjByWorkload = new Map<string, UpstreamCrownJewel[]>()
+  // Insights — backend rule engine output. Keyed by workload id.
+  const insightsByWorkload = new Map<string, EgressInsightCard[]>()
   for (const w of data?.workloads || []) {
     destsByWorkload.set(w.workload.id, w.top_destinations || [])
     cjByWorkload.set(w.workload.id, w.upstream_crown_jewels || [])
+    insightsByWorkload.set(w.workload.id, w.insights || [])
   }
   // Per-workload aggregation. Walk flows, group by sourceId.
   for (const compute of architecture.computeServices) {
@@ -923,6 +954,7 @@ function buildPathRows(
       scoreLabel,
       evidence: "OBSERVED",
       upstreamCrownJewels: cjByWorkload.get(wid) || [],
+      insights: insightsByWorkload.get(wid) || [],
     })
   }
   // Sort by score desc — operators see the highest-impact path first,
@@ -1281,6 +1313,121 @@ function PathCardList({
 // path's destinations, flows=per-destination tuples) and passes it
 // to ConnectionLinesSVG. Same visual story as Attack Paths but
 // scoped to ONE egress workload's path.
+// ---- EgressInsightsPanel — rule-based AWS-best-practice cards ---------
+//
+// Replaces the dense destination + east-west rows that used to fill the
+// bottom of the per-path fullscreen dialog. Each card answers three
+// questions an operator actually needs:
+//   1. WHAT specifically is observed (evidence with numbers)
+//   2. WHY it's sub-optimal vs the AWS-documented pattern (guidance + citation)
+//   3. HOW to remediate (one-sentence recommendation)
+//
+// Data comes from the backend's api/egress_insights.py rule engine;
+// this panel is dumb render only. Empty insights array = honest
+// "no rule fired" (per feedback_no_mock_numbers_in_ui three-state).
+
+const _SEV_TONE: Record<EgressInsightCard["severity"], { border: string; bg: string; text: string; label: string }> = {
+  critical: { border: "border-rose-500/50", bg: "bg-rose-500/10", text: "text-rose-300", label: "CRITICAL" },
+  high: { border: "border-amber-500/50", bg: "bg-amber-500/10", text: "text-amber-300", label: "HIGH" },
+  medium: { border: "border-sky-500/40", bg: "bg-sky-500/10", text: "text-sky-300", label: "MEDIUM" },
+  low: { border: "border-slate-500/40", bg: "bg-slate-500/10", text: "text-slate-300", label: "LOW" },
+}
+
+function EgressInsightsPanel({ insights }: { insights: EgressInsightCard[] }) {
+  if (!insights || insights.length === 0) {
+    // Honest empty state — backend rule engine ran and nothing fired.
+    // NOT a "loading" state and NOT an "all clear" — see
+    // feedback_no_mock_numbers_in_ui (three-state pattern).
+    return (
+      <div>
+        <div className="flex items-baseline gap-2 mb-3">
+          <h3 className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-400">
+            AWS best-practice insights
+          </h3>
+          <span className="text-[10px] text-slate-500">no rule fired in this path's observation window</span>
+        </div>
+        <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/30 px-4 py-6 text-[11px] text-slate-500 leading-relaxed">
+          No AWS-best-practice rules matched this path's observed egress.
+          That means the destinations + gateways + signals seen here don't
+          map to a published AWS anti-pattern <em>this engine knows about</em>.
+          Operator review still recommended for any path with a non-zero
+          severity score.
+        </div>
+      </div>
+    )
+  }
+  const critCount = insights.filter(i => i.severity === "critical").length
+  const highCount = insights.filter(i => i.severity === "high").length
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-3">
+        <h3 className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-400">
+          AWS best-practice insights ({insights.length})
+        </h3>
+        {(critCount > 0 || highCount > 0) && (
+          <span className="text-[10px] text-slate-500">
+            {critCount > 0 && <span className="text-rose-400 font-semibold">{critCount} critical</span>}
+            {critCount > 0 && highCount > 0 && " · "}
+            {highCount > 0 && <span className="text-amber-400 font-semibold">{highCount} high</span>}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {insights.map(card => {
+          const tone = _SEV_TONE[card.severity] || _SEV_TONE.low
+          return (
+            <div
+              key={card.id}
+              className={`rounded-lg border ${tone.border} ${tone.bg} px-4 py-3`}
+            >
+              {/* Header: severity chip + category + title */}
+              <div className="flex items-start gap-2 mb-2">
+                <span
+                  className={`inline-flex items-center rounded border ${tone.border} ${tone.bg} ${tone.text} px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider shrink-0`}
+                >
+                  {tone.label}
+                </span>
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold shrink-0 pt-0.5">
+                  {card.category}
+                </span>
+              </div>
+              <div className={`text-[13px] font-semibold leading-snug ${tone.text} mb-1.5`}>
+                {card.title}
+              </div>
+              {/* WHAT — the observed fact */}
+              <div className="text-[11px] text-slate-300 leading-relaxed mb-2">
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Observed:</span>
+                {card.evidence}
+              </div>
+              {/* WHY — AWS guidance */}
+              <div className="text-[11px] text-slate-400 leading-relaxed mb-2 border-l border-slate-700 pl-3">
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">AWS guidance:</span>
+                {card.guidance}
+                {" "}
+                <a
+                  href={card.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-400 hover:text-sky-300 underline decoration-dotted"
+                  title={card.source_url}
+                >
+                  {card.source}
+                </a>
+              </div>
+              {/* HOW — the recommendation */}
+              <div className={`text-[11px] font-medium ${tone.text} leading-relaxed`}>
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Recommend:</span>
+                {card.recommendation}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+
 function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   // Container that ConnectionLinesSVG positions absolutely over.
   const containerRef = useRef<HTMLDivElement>(null)
@@ -2577,33 +2724,26 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
             )}
           </div>
 
-          {/* Body: PathFlowMap at full canvas + full destinations panel.
-              Same components the inline expanded view uses — no
-              duplication. Body is scrollable independently of the dialog
-              chrome. */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-950">
-            <div>
+          {/* Body: 50/50 vertical split — flow map on top, AWS-best-
+              practice insights below. The dense destinations + east-
+              west rows that used to fill the bottom half are gone:
+              they didn't earn the screen real-estate (operator can't
+              ACT on a list of internal IPs), and the insights panel
+              tells the operator WHY the current posture is sub-optimal
+              against AWS guidance + WHAT to change, citing the
+              authoritative AWS doc per card. */}
+          <div className="flex-1 overflow-hidden flex flex-col bg-slate-950">
+            {/* TOP HALF: flow map */}
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 border-b border-slate-800">
               <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
                 Flow map
               </div>
               <PathFlowMap row={row} sevColor={sevColor} />
             </div>
-            <DestinationGroup
-              title="Egress destinations"
-              subtitle="via gateway (IGW / NAT / VPCE)"
-              destinations={row.egressDestinations}
-              totalCount={row.egressDestinationCount}
-              emptyText="No outbound flows leave this workload through a gateway in the observed window."
-            />
-            {row.eastWestDestinations.length > 0 && (
-              <DestinationGroup
-                title="East-west peers"
-                subtitle="local VPC route — never traverses the gateway"
-                destinations={row.eastWestDestinations}
-                totalCount={row.eastWestDestinationCount}
-                emptyText=""
-              />
-            )}
+            {/* BOTTOM HALF: AWS-best-practice insights */}
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5">
+              <EgressInsightsPanel insights={row.insights} />
+            </div>
           </div>
         </DialogContent>
       </Dialog>
