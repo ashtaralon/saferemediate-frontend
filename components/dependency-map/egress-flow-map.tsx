@@ -2934,35 +2934,37 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
           full-viewport so the operator actually gets more canvas. */}
       <Dialog open={fullscreen} onOpenChange={setFullscreen}>
         <DialogContent
-          className="!max-w-[95vw] w-[95vw] h-[95vh] p-0 gap-0 flex flex-col bg-slate-950 border-slate-800 overflow-hidden"
+          className="!max-w-[95vw] w-[95vw] h-[95vh] p-0 gap-0 flex flex-col bg-white border-slate-200 overflow-hidden"
           showCloseButton={true}
         >
-          {/* Header: severity score + path # + chain summary */}
+          {/* Header: severity score + path # + chain summary. Light theme
+              with a subtle slate-50 gradient — same visual language as
+              the inline PathCard wrapper. */}
           <DialogTitle className="sr-only">
             Path #{index} · {row.workloadName}
           </DialogTitle>
           <div
-            className="px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 flex items-center gap-4 shrink-0"
+            className="px-5 py-3 border-b-2 border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50 flex items-center gap-4 shrink-0"
           >
             <div className="flex items-baseline gap-2 shrink-0">
               <span
-                className="text-3xl font-semibold tabular-nums leading-none"
+                className="text-3xl font-bold tabular-nums leading-none"
                 style={{ color: sevColor }}
               >
                 {row.severityScore}
               </span>
               <span
-                className="text-[11px] uppercase tracking-[0.12em] font-semibold"
+                className="text-[11px] uppercase tracking-[0.12em] font-bold"
                 style={{ color: sevColor }}
               >
                 {row.severity}
               </span>
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-slate-400">
+              <span className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-600">
                 Path #{index} · {row.hopCount} hops · {row.evidence}
               </span>
-              <span className="text-base font-semibold text-slate-100 truncate mt-0.5">
+              <span className="text-base font-semibold text-slate-900 truncate mt-0.5">
                 {row.workloadName}
               </span>
             </div>
@@ -2977,38 +2979,29 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
             )}
           </div>
 
-          {/* Body: 50/50 vertical split — flow map on top, AWS-best-
-              practice insights below. The dense destinations + east-
-              west rows that used to fill the bottom half are gone:
-              they didn't earn the screen real-estate (operator can't
-              ACT on a list of internal IPs), and the insights panel
-              tells the operator WHY the current posture is sub-optimal
-              against AWS guidance + WHAT to change, citing the
-              authoritative AWS doc per card. */}
-          <div className="flex-1 overflow-hidden flex flex-col bg-slate-950">
+          {/* Body: 50/50 vertical split — flow map on top, Cyntro Closure
+              Recommendations below. The raw destination + east-west lists
+              are kept as collapsed disclosures at the bottom. */}
+          <div className="flex-1 overflow-hidden flex flex-col bg-slate-50">
             {/* TOP HALF: flow map */}
-            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 border-b border-slate-800">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 border-b-2 border-slate-200 bg-white">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2">
                 Flow map
               </div>
               <PathFlowMap row={row} sevColor={sevColor} />
             </div>
-            {/* BOTTOM HALF: AWS-best-practice insights, with the raw
-                destination + east-west lists kept as collapsed
-                <details> disclosures at the bottom — the rows have
-                value on demand (operator triaging a specific
-                destination) but don't earn the unconditional screen
-                real-estate the previous flat layout gave them. */}
-            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 space-y-4">
+            {/* BOTTOM HALF: Cyntro Closure Recommendations + collapsed
+                destination disclosures */}
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 space-y-4 bg-slate-50">
               <EgressInsightsPanel insights={row.insights} />
               {(row.egressDestinations.length > 0 || row.eastWestDestinations.length > 0) && (
                 <div className="space-y-2">
                   {row.egressDestinations.length > 0 && (
-                    <details className="rounded-lg border border-slate-800 bg-slate-900/40 group">
-                      <summary className="cursor-pointer select-none px-4 py-2 flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-900/70">
+                    <details className="rounded-lg border-2 border-slate-200 bg-white shadow-sm group">
+                      <summary className="cursor-pointer select-none px-4 py-2.5 flex items-center gap-2 text-[12px] font-semibold text-slate-800 hover:bg-slate-50">
                         <ChevronRight className="w-3.5 h-3.5 text-slate-500 transition-transform group-open:rotate-90" />
-                        <span className="uppercase tracking-wider text-slate-400">Egress destinations</span>
-                        <span className="text-slate-500 normal-case font-normal">
+                        <span className="uppercase tracking-wider text-slate-700 font-bold">Egress destinations</span>
+                        <span className="text-slate-500 normal-case font-medium">
                           {row.egressDestinationCount} via gateway (IGW / NAT / VPCE)
                         </span>
                       </summary>
@@ -3024,11 +3017,11 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
                     </details>
                   )}
                   {row.eastWestDestinations.length > 0 && (
-                    <details className="rounded-lg border border-slate-800 bg-slate-900/40 group">
-                      <summary className="cursor-pointer select-none px-4 py-2 flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-900/70">
+                    <details className="rounded-lg border-2 border-slate-200 bg-white shadow-sm group">
+                      <summary className="cursor-pointer select-none px-4 py-2.5 flex items-center gap-2 text-[12px] font-semibold text-slate-800 hover:bg-slate-50">
                         <ChevronRight className="w-3.5 h-3.5 text-slate-500 transition-transform group-open:rotate-90" />
-                        <span className="uppercase tracking-wider text-slate-400">East-west peers</span>
-                        <span className="text-slate-500 normal-case font-normal">
+                        <span className="uppercase tracking-wider text-slate-700 font-bold">East-west peers</span>
+                        <span className="text-slate-500 normal-case font-medium">
                           {row.eastWestDestinationCount} local VPC routes — never traverse the gateway
                         </span>
                       </summary>
