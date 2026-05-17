@@ -41,7 +41,7 @@
  * traffic line story without rewriting the line-drawing primitives.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   Activity,
@@ -50,6 +50,8 @@ import {
   Cloud,
   Globe,
   Lock,
+  Maximize2,
+  Minimize2,
   Network,
   RefreshCw,
   Server,
@@ -2217,8 +2219,38 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
   const [error, setError] = useState<string | null>(null)
   const [animate, setAnimate] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // containerRef wraps the WHOLE map (header + stats + callout + path list)
+  // so requestFullscreen() promotes the entire view, not just the body.
+  // mapContainerRef is the scrollable body, used elsewhere for ref-based
+  // measurements. Same split as traffic-flow-map.tsx.
   const containerRef = useRef<HTMLDivElement>(null)
   const [signalFilter, setSignalFilter] = useState<string | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // Fullscreen toggle — uses the native Element.requestFullscreen() API
+  // so the entire viewport is reclaimed (vs a CSS-positioned overlay,
+  // which keeps the browser chrome). Listens for the matching
+  // fullscreenchange event so the icon flips back if the user exits
+  // via Esc rather than the button. Mirrors traffic-flow-map.tsx.
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen()
+        .then(() => setIsFullscreen(true))
+        .catch((err) => console.error("[EgressFlowMap] requestFullscreen failed:", err))
+    } else {
+      document.exitFullscreen()
+        .then(() => setIsFullscreen(false))
+        .catch((err) => console.error("[EgressFlowMap] exitFullscreen failed:", err))
+    }
+  }, [])
+
+  // Esc-exit (user hits Escape, not the button) needs to flip the icon back.
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener("fullscreenchange", onChange)
+    return () => document.removeEventListener("fullscreenchange", onChange)
+  }, [])
 
   const fetchData = (force = false) => {
     setLoading(true)
@@ -2332,7 +2364,12 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
   const visibleSignalCount = signalFilter ? (signalCounts[signalFilter] || 0) : totalSignals
 
   return (
-    <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
+    <div
+      ref={containerRef}
+      className={`bg-slate-950 rounded-xl border border-slate-800 overflow-hidden ${
+        isFullscreen ? "h-screen w-screen overflow-y-auto rounded-none" : ""
+      }`}
+    >
       {/* Controls bar — matches Path Flow Map header */}
       <div className="px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -2363,6 +2400,14 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
             Refresh
+          </button>
+          <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen (Esc)" : "Expand to fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            className="px-2.5 py-1 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1"
+          >
+            {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
           </button>
         </div>
       </div>
@@ -2425,7 +2470,10 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
           per the backend detector; renders nothing when no candidates
           exist (silent absence, not an empty card). The component owns
           its own per-row Simulate → Apply → Rollback state. */}
-      <div className="px-5 pt-4" ref={containerRef}>
+      {/* Body — containerRef moved to the outer wrapper above so
+          requestFullscreen() promotes the whole map (header + body),
+          not just this scroll region. */}
+      <div className="px-5 pt-4">
         <RemovableInfrastructureCallout
           candidates={deriveRemoveRouteCandidates(data.workloads || [])}
         />
