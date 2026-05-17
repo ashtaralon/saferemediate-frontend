@@ -130,6 +130,21 @@ interface EgressRoute {
   target_name: string | null
 }
 
+// Per-RT remediation candidate. Currently only REMOVE_ROUTE is wired;
+// ADD_VPC_ENDPOINT is queued until the prefix-list expansion collector
+// ships. Carries the SPECIFIC route in the candidate plus a confidence
+// signal — frontend chips show "REMOVABLE" not "SAFE", per
+// feedback_remediation_safety_signals.md (no claim we don't earn).
+interface EgressRouteTableRecommendation {
+  type: "REMOVE_ROUTE"
+  confidence_signal: string
+  scope_workload_count: number
+  candidate_route_cidr: string | null
+  candidate_route_target_kind: string | null
+  candidate_route_target_id: string | null
+  candidate_route_target_name: string | null
+}
+
 // Route table attached (explicitly or via VPC main RT) to the workload's
 // subnet. `id` is the AWS RouteTableId (rtb-*). `routes` is the full
 // active route set — operators click the card to see every entry. null
@@ -138,6 +153,10 @@ interface EgressRoute {
 interface EgressRouteTable {
   id: string
   routes: EgressRoute[]
+  // null when no remediation candidate applies (the common case — most
+  // RTs with public egress are also actually using it). Populated when
+  // backend's _compute_rt_recommendations finds a candidate.
+  recommendation?: EgressRouteTableRecommendation | null
 }
 
 interface EgressWorkload {
@@ -1152,7 +1171,9 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               className={`text-left rounded-lg border px-3 py-2 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/60 ${
                 routeTableOpen
                   ? "border-indigo-500/60 bg-indigo-500/10"
-                  : "border-indigo-500/30 bg-indigo-500/5"
+                  : row.routeTable.recommendation
+                    ? "border-amber-500/50 bg-amber-500/5"
+                    : "border-indigo-500/30 bg-indigo-500/5"
               }`}
             >
               <div className="flex items-center gap-1.5">
@@ -1170,6 +1191,23 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 {row.routeTable.routes.length} route{row.routeTable.routes.length === 1 ? "" : "s"}
                 <span className="ml-1 text-indigo-400/70 normal-case font-normal">· click to view</span>
               </div>
+              {/* REMOVABLE chip — surfaces when backend flagged a
+                  REMOVE_ROUTE candidate. Language is "REMOVABLE" not
+                  "SAFE" per feedback_remediation_safety_signals — we
+                  flag "no observed dependency in window," not "safe."
+                  Tooltip on the chip shows the confidence signal +
+                  scope. */}
+              {row.routeTable.recommendation && (
+                <div
+                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5"
+                  title={row.routeTable.recommendation.confidence_signal}
+                >
+                  <ShieldOff className="w-2.5 h-2.5 text-amber-300" />
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
+                    Removable · {row.routeTable.recommendation.candidate_route_cidr}
+                  </span>
+                </div>
+              )}
             </button>
           ) : (
             <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2">
@@ -1278,7 +1316,9 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           Mirrors the "Routes" tab in the AWS RouteTables console: one row
           per active route, classified by target kind (IGW / NAT / VPCE /
           TGW / local / etc.). Highlights public-egress targets in amber
-          so the operator immediately sees the "open door" routes. */}
+          so the operator immediately sees the "open door" routes.
+          When a REMOVE_ROUTE recommendation is present, the candidate
+          row gets a "PROPOSE: REMOVE" chip + amber pulse. */}
       {routeTableOpen && row.routeTable && (
         <div
           className="relative mt-4 rounded-lg border border-indigo-500/30 bg-indigo-950/40 p-3"
@@ -1300,6 +1340,38 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               Close
             </button>
           </div>
+
+          {/* Recommendation banner — only when backend flagged a candidate.
+              Surfaces the confidence signal (operator-facing reason) +
+              scope count so the proposal is auditable. Action button is
+              advisory only here — actual REMOVE_ROUTE execution is
+              queued for the posture recommendations engine. */}
+          {row.routeTable.recommendation && (
+            <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 p-2.5">
+              <div className="flex items-center gap-2 mb-1">
+                <ShieldOff className="w-3.5 h-3.5 text-amber-300" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-100">
+                  Proposed: Remove unused route
+                </span>
+                <span className="ml-auto text-[9px] font-mono text-amber-300">
+                  {row.routeTable.recommendation.candidate_route_cidr}
+                  {" → "}
+                  {row.routeTable.recommendation.candidate_route_target_kind}
+                </span>
+              </div>
+              <div className="text-[11px] text-amber-50/90 leading-relaxed">
+                {row.routeTable.recommendation.confidence_signal}
+              </div>
+              <div className="mt-1.5 text-[10px] text-amber-200/70">
+                Scope: {row.routeTable.recommendation.scope_workload_count} workload
+                {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
+                this route table. Removing the route affects all of them. Rare-use workloads
+                outside the observed window are the operator's call — this is "no observed
+                dependency," not "safe to remove."
+              </div>
+            </div>
+          )}
+
           {row.routeTable.routes.length === 0 ? (
             <div className="text-[11px] text-slate-400 italic">
               No active routes on this table — workload effectively cannot egress.
@@ -1319,11 +1391,23 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 const kind = rt.target_kind || "Unknown"
                 const isPublicEgress = ["InternetGateway", "NATGateway", "EgressOnlyInternetGateway"].includes(kind)
                 const isPrivate = ["VPCEndpoint", "TransitGateway"].includes(kind)
-                const rowTone = isPublicEgress
-                  ? "border-amber-500/40 bg-amber-500/5"
-                  : isPrivate
-                    ? "border-emerald-500/30 bg-emerald-500/5"
-                    : "border-slate-700/60 bg-slate-900/40"
+                // Is this row the REMOVE_ROUTE candidate? Match by
+                // (cidr + target_id) which uniquely identifies the
+                // specific route in the table. Visual: amber border
+                // pulses + "PROPOSE: REMOVE" chip.
+                const rec = row.routeTable!.recommendation
+                const isCandidate = !!(
+                  rec &&
+                  rec.candidate_route_cidr === rt.cidr &&
+                  rec.candidate_route_target_id === rt.target_id
+                )
+                const rowTone = isCandidate
+                  ? "border-amber-400/80 bg-amber-500/15 ring-1 ring-amber-400/40"
+                  : isPublicEgress
+                    ? "border-amber-500/40 bg-amber-500/5"
+                    : isPrivate
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : "border-slate-700/60 bg-slate-900/40"
                 return (
                   <React.Fragment key={`${rt.cidr}-${rt.target_id}-${idx}`}>
                     <div className={`rounded border ${rowTone} px-2 py-1.5 font-mono text-slate-100`}>
@@ -1333,11 +1417,16 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                       {routeKindIcon(kind)}
                       <span className="text-slate-200">{kind}</span>
                     </div>
-                    <div className={`rounded border ${rowTone} px-2 py-1.5 truncate`}>
-                      <span className="text-slate-100">{rt.target_name || rt.target_id || "—"}</span>
+                    <div className={`rounded border ${rowTone} px-2 py-1.5 truncate flex items-center gap-1.5`}>
+                      <span className="text-slate-100 truncate">{rt.target_name || rt.target_id || "—"}</span>
                       {rt.target_name && rt.target_id && rt.target_name !== rt.target_id && (
-                        <span className="ml-1.5 text-slate-500 font-mono text-[10px]">
+                        <span className="ml-1 text-slate-500 font-mono text-[10px] truncate">
                           {rt.target_id}
+                        </span>
+                      )}
+                      {isCandidate && (
+                        <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded border border-amber-400/70 bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-100">
+                          Propose: Remove
                         </span>
                       )}
                     </div>
