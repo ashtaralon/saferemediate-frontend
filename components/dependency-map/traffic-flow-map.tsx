@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { riskLabel } from '@/lib/utils';
+import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
@@ -3113,11 +3114,62 @@ export default function TrafficFlowMap({
     return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
   }, [rawArchitecture, pathFilter]);
   const setArchitecture = setRawArchitecture;
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // Fetch-generation counter. Each loadData() call bumps this; background
-  // enrichment closures capture the epoch at start and skip their
-  // setArchitecture if a newer loadData has run in the meantime.
+
+  // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips
+  // the fetchInit to cache:'no-store', so retry busts both the
+  // useCachedFetch localStorage layer and the proxy edge cache.
+  const [manualBustEpoch, setManualBustEpoch] = useState(0);
+  // Local error for the "fetch succeeded but returned 0 nodes" case.
+  // Hook-level errors come from useCachedFetch directly; this one only
+  // fires after a valid response with empty payload.
+  const [emptyDataError, setEmptyDataError] = useState<string | null>(null);
+
+  const depMapUrl = useMemo(() => {
+    // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
+    // the backend past the 55s upstream timeout and surfaces 504/502
+    // when the in-memory + edge caches are cold. 300 nodes still
+    // covers all 7 EC2 instances + their SGs/NACLs/Subnets/VPCs + the
+    // top IAM roles, which is what this viz actually renders.
+    const cacheBust = manualBustEpoch > 0 ? `&_t=${manualBustEpoch}` : "";
+    return `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${cacheBust}`;
+  }, [systemName, manualBustEpoch]);
+
+  const depMapFetchInit = useMemo<RequestInit>(() => {
+    return manualBustEpoch > 0
+      ? { cache: "no-store", headers: { "Cache-Control": "no-cache" } }
+      : {};
+  }, [manualBustEpoch]);
+
+  const {
+    data: rawDepMap,
+    loading: depMapLoading,
+    error: depMapError,
+    retry: retryDepMap,
+  } = useCachedFetch<{ nodes?: any[]; edges?: any[]; relationships?: any[] }>(depMapUrl, {
+    cacheKey: `tfm-depmap:${systemName}`,
+    // 5-min freshness — aligns with the proxy's edge cache (s-maxage=120)
+    // with headroom; older cache still renders with isStale=true (up to
+    // the hook's 7d hard cap), keeping the architecture on screen even
+    // when the backend is unreachable. First-visit cold-cache renders
+    // hit the network and wait for the 30-40s backend; every subsequent
+    // visit paints in ~1ms from localStorage.
+    maxStaleMs: 5 * 60 * 1000,
+    fetchInit: depMapFetchInit,
+  });
+
+  // Derived from the hook so the existing render gates ("Building
+  // Architecture..." spinner and red error popup) work unchanged.
+  // loading: only true on first-ever visit (no cache, hook still
+  //   fetching). Subsequent visits paint from cache and skip the spinner.
+  // error: emptyDataError (0-node response) wins over depMapError, which
+  //   the hook only surfaces when there is no cached fallback at all —
+  //   so a 504 during background refresh keeps the stale view rather
+  //   than flashing the red popup.
+  const loading = depMapLoading && !rawArchitecture;
+  const error = emptyDataError ?? depMapError;
+  // Fetch-generation counter. Each runEnrichment call bumps this;
+  // background enrichment closures capture the epoch at start and skip
+  // their setArchitecture if a newer fetch has resolved in the meantime.
   //
   // Bug this prevents: operator navigates alon-prod → cyntroprod within
   // the ~5-10s background-enrichment window. The OLD closure still holds
@@ -3993,244 +4045,217 @@ export default function TrafficFlowMap({
     }
   }, []);
 
-  const loadData = useCallback(async (isManualRefresh = false) => {
-    // Only show loading spinner on initial load
-    if (!rawArchitecture) {
-      setLoading(true);
-    }
+  // RFC — dep-map fetch flow (post useCachedFetch migration):
+  //
+  //   useCachedFetch(depMapUrl, { cacheKey: `tfm-depmap:${systemName}` })
+  //        │
+  //        │ synchronous localStorage read on mount
+  //        ▼
+  //   rawDepMap (data) ────► useEffect([rawDepMap]) ─► runEnrichment()
+  //        │                                              │
+  //        │                                              ├─ buildArchitecture
+  //        │                                              ├─ setArchitecture (epoch-guarded)
+  //        │                                              ├─ Promise.all IAM gap-analysis ──► setArchitecture
+  //        │                                              └─ Promise.all SG inspector     ──► setArchitecture
+  //        ▼
+  //   First paint on a cold backend now hits localStorage (1-2 ms) instead
+  //   of waiting 30-40 s for the proxy. Background refresh updates the
+  //   cache. If the refresh 504s, the hook keeps showing the cached
+  //   architecture (error suppressed) — operator never sees the red popup
+  //   unless there is no cache at all.
+  //
+  // Manual refresh (Refresh button) bumps `manualBustEpoch`, which:
+  //   1. Mutates depMapUrl (adds &_t=N) → URL change triggers hook refetch
+  //   2. Sets fetchInit.cache = 'no-store' → bypasses proxy edge cache
+  //   This preserves the previous isManualRefresh semantics: bust BOTH the
+  //   localStorage layer and the proxy edge layer.
+  //
+  // Auto-refresh interval calls retryDepMap() directly — refetches the same
+  //   URL (so proxy edge cache may serve, matching the old loadData(false)).
+  //
+  // Race protection — fetchEpochRef still gates enrichment commits. If the
+  //   operator navigates systems while IAM/SG fan-outs are in flight, the
+  //   captured myEpoch goes stale and the late .then() callback drops its
+  //   setArchitecture call. unchanged from the pre-migration design.
+  //
+  // The function below is now the enrichment runner (called from useEffect
+  // on rawDepMap). It does NOT issue the dep-map HTTP call any more — that
+  // is the hook's job. Kept inside useCallback so the auto-refresh
+  // dependency array stays stable.
+  const runEnrichment = useCallback((rawDepMap: { nodes?: any[]; edges?: any[]; relationships?: any[] }) => {
     setRefreshStatus('fetching');
-    setError(null);
 
     // Bump the epoch BEFORE any async work. Background enrichments
     // capture this value at start and only commit their setArchitecture
     // when the captured epoch still matches the ref's current value —
-    // any newer loadData call invalidates older in-flight enrichments.
+    // any newer runEnrichment call invalidates older in-flight enrichments.
     const myEpoch = ++fetchEpochRef.current;
 
-    // Hard ceiling on the "Building Architecture..." spinner. Even if
-    // the dep-map fetch is slow or some downstream enrichment hangs,
-    // the operator should never see the spinner for more than 20s.
-    // After the timeout the spinner clears unconditionally — the page
-    // shows the error state ("No data available") instead of an
-    // indefinite loading state. The actual fetch keeps running and
-    // will populate `architecture` if/when it returns.
-    const loadingTimeout = setTimeout(() => {
-      setLoading(false);
-    }, 20000);
-    const clearLoadingTimeout = () => clearTimeout(loadingTimeout);
+    const nodes = rawDepMap.nodes || [];
+    const edges = rawDepMap.edges || rawDepMap.relationships || [];
 
-    try {
-      // Let the proxy's edge cache (b560e72, s-maxage=120) serve when
-      // available — backend dep-map costs 30–40s cold, and the user
-      // routinely sees "Building Architecture..." stalls when each path
-      // navigation in this view triggers a fresh upstream call. Previous
-      // version cache-busted with &_t=timestamp + cache:no-store +
-      // Cache-Control:no-cache, which neutered the whole edge-cache
-      // layer. 2-min staleness is fine for the dependency map — the
-      // graph doesn't change at second resolution. Manual refresh
-      // button still bypasses cache when isManualRefresh is true.
-      const cacheBust = isManualRefresh ? `&_t=${Date.now()}` : "";
-      // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
-      // the backend past the 55s upstream timeout and surfaces 504/502
-      // when the in-memory + edge caches are cold. 300 nodes still
-      // covers all 7 EC2 instances + their SGs/NACLs/Subnets/VPCs + the
-      // top IAM roles, which is what this viz actually renders. Bump
-      // back up if a downstream operator workflow needs more breadth.
-      const depRes = await fetch(
-        `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${cacheBust}`,
-        isManualRefresh
-          ? { cache: "no-store", headers: { "Cache-Control": "no-cache" } }
-          : {},
-      );
+    console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neo4j`);
 
-      if (!depRes.ok) {
-        throw new Error(`Failed to fetch dependency map: ${depRes.status}`);
-      }
+    if (nodes.length === 0) {
+      setEmptyDataError('No data available');
+      setArchitecture(null);
+      setRefreshStatus('error');
+      return;
+    }
+    // Clear any previous "no data" state — fresh fetch returned nodes.
+    setEmptyDataError(null);
 
-      const depData = await depRes.json();
+    // Build architecture without IAM data first (will be fetched per-role)
+    const arch = buildArchitecture(nodes, edges, []);
 
-      const nodes = depData.nodes || [];
-      const edges = depData.edges || depData.relationships || [];
+    // SG rules + IAM gap-analysis are BOTH background-fetched. Earlier
+    // we left SG synchronous because "it's only ~9 SGs", but each
+    // /api/proxy/security-groups/{id}/inspector call is 2-5s and on
+    // path-filtered views with widened bucketing the SG list grew. Net:
+    // a 10-20s wait on "Building Architecture..." even after the IAM
+    // fix. Both enrichments now happen post-render so the operator sees
+    // the architecture immediately and counts fill in as data arrives.
+    //
+    // Role cards render with placeholder counts (0/0) until the IAM
+    // data arrives. No race risk: lookup is by role.id so a late-
+    // arriving result still maps to the right card.
+    const archForGaps = arch;
 
-      console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neo4j`);
+    // Detect changes from previous architecture (uses arch with
+    // placeholder IAM counts — that's fine, the totalGaps update
+    // below fires its own setArchitecture once IAM data arrives).
+    const changes = detectChanges(previousArchRef.current, arch);
+    previousArchRef.current = arch;
 
-      if (nodes.length === 0) {
-        setError('No data available');
-        setArchitecture(null);
-        setRefreshStatus('error');
-      } else {
-        // Build architecture without IAM data first (will be fetched per-role)
-        const arch = buildArchitecture(nodes, edges, []);
+    if (changes.totalChanges > 0) {
+      console.log(`[TrafficFlowMap] Changes detected:`, changes);
+    }
 
-        // SG rules + IAM gap-analysis are BOTH background-fetched now.
-        // Earlier we left SG synchronous because "it's only ~9 SGs", but
-        // each /api/proxy/security-groups/{id}/inspector call is 2-5s
-        // and on path-filtered views with widened bucketing the SG list
-        // grew. Net: a 10-20s wait on "Building Architecture..." even
-        // after the IAM fix. Both enrichments now happen post-render so
-        // the operator sees the architecture immediately and counts
-        // fill in as data arrives.
+    // Same epoch guard as the enrichment chains below. A slow render
+    // arriving AFTER a newer runEnrichment has fired its own
+    // setArchitecture would otherwise silently overwrite the fresh
+    // data with stale data (e.g. user navigated systems mid-fetch).
+    if (fetchEpochRef.current !== myEpoch) {
+      console.log('[TrafficFlowMap] Initial render skipped — superseded by newer fetch');
+      return;
+    }
+    setLastChanges(changes);
+    // setRawArchitecture stores the unfiltered fetch result; the
+    // displayed `architecture` is derived from it via useMemo so
+    // pathFilter changes never trigger a refetch and stale fetches
+    // can't race-overwrite the wrong filter.
+    setArchitecture(arch);
+    setLastUpdated(new Date());
+    setRefreshStatus('success');
 
-        // Render architecture immediately. IAM gap-analysis fetches
-        // happen in the background so we don't block first paint waiting
-        // on N parallel ~5s HTTP calls (N grew from ~5 BFS-path roles to
-        // ~41 attached roles after the dual-source bucketing in commit
-        // 86c865c — Promise.all on 41 × 5s exceeded operator patience
-        // and stalled the "Building Architecture..." loader).
-        //
-        // The role cards render with placeholder counts (0/0) until the
-        // IAM data arrives, then the architecture state updates and the
-        // counts fill in. No race risk: the lookup is by role.id so a
-        // late-arriving result still maps to the right card.
-        const archForGaps = arch;
-
-        // Detect changes from previous architecture (uses arch with
-        // placeholder IAM counts — that's fine, the totalGaps update
-        // below fires its own setArchitecture once IAM data arrives).
-        const changes = detectChanges(previousArchRef.current, arch);
-        previousArchRef.current = arch;
-
-        // Log changes for debugging
-        if (changes.totalChanges > 0) {
-          console.log(`[TrafficFlowMap] Changes detected:`, changes);
-        }
-
-        // Same epoch guard as the enrichment chains below. A slow fetch
-        // arriving AFTER a newer loadData has fired its own setArchitecture
-        // would otherwise silently overwrite the fresh data with stale
-        // data from the older fetch (e.g. user navigated systems mid-
-        // fetch). Skip the state update; the newer loadData owns the
-        // architecture state.
+    // Background IAM gap-analysis enrichment. Fires-and-forgets;
+    // does NOT block the architecture render.
+    if (archForGaps.iamRoles.length > 0) {
+      console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
+      Promise.all(
+        archForGaps.iamRoles.map(role =>
+          fetchIAMRoleData(role.name)
+            .then(data => ({ roleId: role.id, ...data }))
+            .catch(err => {
+              console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
+              return null;
+            }),
+        ),
+      ).then(iamResults => {
+        // Guard against stale enrichment: if a newer runEnrichment ran while
+        // these IAM lookups were in flight, the architecture state has
+        // since been replaced. Don't overwrite it with our stale data.
         if (fetchEpochRef.current !== myEpoch) {
-          console.log('[TrafficFlowMap] Initial render skipped — superseded by newer fetch');
+          console.log('[TrafficFlowMap] IAM enrichment skipped — superseded by newer fetch');
           return;
         }
-        setLastChanges(changes);
-        // setRawArchitecture stores the unfiltered fetch result; the
-        // displayed `architecture` is derived from it via useMemo so
-        // pathFilter changes never trigger a refetch and stale fetches
-        // can't race-overwrite the wrong filter.
-        setArchitecture(arch);
-        setLastUpdated(new Date());
-        setRefreshStatus('success');
-
-        // Background IAM gap-analysis enrichment. Fires-and-forgets;
-        // does NOT block the architecture render.
-        if (archForGaps.iamRoles.length > 0) {
-          console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
-          Promise.all(
-            archForGaps.iamRoles.map(role =>
-              fetchIAMRoleData(role.name)
-                .then(data => ({ roleId: role.id, ...data }))
-                .catch(err => {
-                  console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
-                  return null;
-                }),
-            ),
-          ).then(iamResults => {
-            // Guard against stale enrichment: if a newer loadData ran while
-            // these IAM lookups were in flight, the architecture state has
-            // since been replaced. Don't overwrite it with our stale data.
-            if (fetchEpochRef.current !== myEpoch) {
-              console.log('[TrafficFlowMap] IAM enrichment skipped — superseded by newer fetch');
-              return;
-            }
-            iamResults.forEach(result => {
-              if (!result) return;
-              const { roleId, usedCount, totalCount, gapCount } = result;
-              const role = archForGaps.iamRoles.find(r => r.id === roleId);
-              if (role) {
-                role.usedCount = usedCount;
-                role.totalCount = totalCount;
-                role.gapCount = gapCount;
-              }
-            });
-            // Recompute totalGaps after IAM enrichment
-            archForGaps.totalGaps =
-              archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
-              archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
-            // Push a new architecture object reference so React picks up
-            // the IAM count updates. Spread to force a new top-level
-            // identity even though arrays are mutated in place above.
-            setArchitecture({ ...archForGaps });
-          });
-        }
-
-        // Background SG rules enrichment (parallel to IAM). Fires-and-
-        // forgets; doesn't block architecture render. SG cards initially
-        // show 0 rules; counts fill in as per-SG inspector calls return.
-        if (archForGaps.securityGroups.length > 0) {
-          Promise.all(
-            archForGaps.securityGroups.map(sg =>
-              fetchSGRules(sg.id)
-                .then(rules => ({ sgId: sg.id, rules }))
-                .catch(err => {
-                  console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
-                  return null;
-                }),
-            ),
-          ).then(sgRulesResults => {
-            // Same epoch guard as IAM enrichment above — see comment there.
-            if (fetchEpochRef.current !== myEpoch) {
-              console.log('[TrafficFlowMap] SG enrichment skipped — superseded by newer fetch');
-              return;
-            }
-            sgRulesResults.forEach(result => {
-              if (!result) return;
-              const { sgId, rules } = result;
-              const sg = archForGaps.securityGroups.find(s => s.id === sgId);
-              if (sg) {
-                sg.rules = rules;
-                sg.totalCount = rules.length;
-                sg.usedCount = rules.filter(r => r.status === 'used').length;
-                sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
-              }
-            });
-            // Recompute totalGaps after SG enrichment
-            archForGaps.totalGaps =
-              archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
-              archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
-            setArchitecture({ ...archForGaps });
-          });
-        }
-
-        // Auto-dismiss success status after 5 seconds
-        if (changes.totalChanges > 0) {
-          setTimeout(() => setRefreshStatus('idle'), 5000);
-        } else {
-          setRefreshStatus('idle');
-        }
-      }
-    } catch (err: any) {
-      console.error('[TrafficFlowMap] Error loading data:', err);
-      setError(err.message);
-      setRefreshStatus('error');
-    } finally {
-      clearLoadingTimeout();
-      setLoading(false);
+        iamResults.forEach(result => {
+          if (!result) return;
+          const { roleId, usedCount, totalCount, gapCount } = result;
+          const role = archForGaps.iamRoles.find(r => r.id === roleId);
+          if (role) {
+            role.usedCount = usedCount;
+            role.totalCount = totalCount;
+            role.gapCount = gapCount;
+          }
+        });
+        archForGaps.totalGaps =
+          archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+          archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
+        setArchitecture({ ...archForGaps });
+      });
     }
-  }, [buildArchitecture, fetchSGRules, rawArchitecture, systemName]);
 
-  // Initial load + refetch when systemName changes. pathFilter changes
-  // do NOT trigger a refetch — the filter is applied via useMemo on the
-  // already-fetched rawArchitecture above.
-  useEffect(() => { loadData(); }, [systemName]);
+    // Background SG rules enrichment (parallel to IAM). Fires-and-
+    // forgets; doesn't block architecture render.
+    if (archForGaps.securityGroups.length > 0) {
+      Promise.all(
+        archForGaps.securityGroups.map(sg =>
+          fetchSGRules(sg.id)
+            .then(rules => ({ sgId: sg.id, rules }))
+            .catch(err => {
+              console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
+              return null;
+            }),
+        ),
+      ).then(sgRulesResults => {
+        if (fetchEpochRef.current !== myEpoch) {
+          console.log('[TrafficFlowMap] SG enrichment skipped — superseded by newer fetch');
+          return;
+        }
+        sgRulesResults.forEach(result => {
+          if (!result) return;
+          const { sgId, rules } = result;
+          const sg = archForGaps.securityGroups.find(s => s.id === sgId);
+          if (sg) {
+            sg.rules = rules;
+            sg.totalCount = rules.length;
+            sg.usedCount = rules.filter(r => r.status === 'used').length;
+            sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
+          }
+        });
+        archForGaps.totalGaps =
+          archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+          archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
+        setArchitecture({ ...archForGaps });
+      });
+    }
 
-  // Auto-refresh with configurable interval
+    if (changes.totalChanges > 0) {
+      setTimeout(() => setRefreshStatus('idle'), 5000);
+    } else {
+      setRefreshStatus('idle');
+    }
+  }, [buildArchitecture, fetchSGRules, fetchIAMRoleData]);
+
+  // Drive runEnrichment off the cached dep-map data. Fires on initial
+  // mount (when localStorage has cache, this runs synchronously with the
+  // first render → architecture paints from cache in ~1ms instead of a
+  // 30-40s cold backend wait), and again whenever the hook's background
+  // refresh writes new data to its state.
+  useEffect(() => {
+    if (!rawDepMap) return;
+    runEnrichment(rawDepMap);
+  }, [rawDepMap, runEnrichment]);
+
+  // Auto-refresh with configurable interval. retryDepMap refetches the
+  // same URL → proxy edge cache may serve (matches old loadData(false)).
   useEffect(() => {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      loadData(false);
+      retryDepMap();
     }, refreshInterval * 1000);
 
     return () => clearInterval(interval);
-  }, [loadData, autoRefresh, refreshInterval]);
+  }, [retryDepMap, autoRefresh, refreshInterval]);
 
-  // Manual refresh handler with force flag
+  // Manual refresh: bump epoch so depMapUrl changes → hook useEffect
+  // fires a fresh fetch with cache: 'no-store' (busts BOTH localStorage
+  // and the proxy edge cache, matching pre-migration isManualRefresh=true).
   const handleManualRefresh = useCallback(() => {
-    loadData(true);
-  }, [loadData]);
+    setManualBustEpoch(e => e + 1);
+  }, []);
 
   // Load attack paths when enabled
   const loadAttackPaths = useCallback(async () => {
@@ -4311,7 +4336,7 @@ export default function TrafficFlowMap({
         <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-6 text-center max-w-sm">
           <p className="text-red-400 font-medium mb-2">Error</p>
           <p className="text-slate-400 text-sm mb-4">{error}</p>
-          <button onClick={() => void loadData()} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">
+          <button onClick={() => retryDepMap()} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">
             Retry
           </button>
         </div>
@@ -4534,7 +4559,7 @@ export default function TrafficFlowMap({
             <p className="text-slate-400 text-sm max-w-md mx-auto">
               Generate traffic between services to see the live architecture diagram.
             </p>
-            <button onClick={() => void loadData()} className="mt-6 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm">
+            <button onClick={() => retryDepMap()} className="mt-6 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm">
               Refresh
             </button>
           </div>
