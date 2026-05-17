@@ -1326,13 +1326,68 @@ function PathCardList({
 // this panel is dumb render only. Empty insights array = honest
 // "no rule fired" (per feedback_no_mock_numbers_in_ui three-state).
 
-const _SEV_TONE: Record<EgressInsightCard["severity"], { border: string; bg: string; text: string; label: string }> = {
-  critical: { border: "border-rose-500/50", bg: "bg-rose-500/10", text: "text-rose-300", label: "CRITICAL" },
-  high: { border: "border-amber-500/50", bg: "bg-amber-500/10", text: "text-amber-300", label: "HIGH" },
-  medium: { border: "border-sky-500/40", bg: "bg-sky-500/10", text: "text-sky-300", label: "MEDIUM" },
-  low: { border: "border-slate-500/40", bg: "bg-slate-500/10", text: "text-slate-300", label: "LOW" },
+// Light-theme palette — matches the rest of the page chrome. Card
+// backgrounds are tinted by severity; borders are 2px solid with
+// shadow for visual weight. Headline text uses the deep tone for
+// contrast against the light tinted bg.
+const _SEV_TONE: Record<
+  EgressInsightCard["severity"],
+  {
+    border: string
+    bg: string
+    chipBg: string
+    chipText: string
+    headlineText: string
+    label: string
+    accentBorder: string
+  }
+> = {
+  critical: {
+    border: "border-rose-300",
+    bg: "bg-rose-50",
+    chipBg: "bg-rose-100",
+    chipText: "text-rose-800",
+    headlineText: "text-rose-900",
+    label: "CRITICAL",
+    accentBorder: "border-rose-200",
+  },
+  high: {
+    border: "border-amber-300",
+    bg: "bg-amber-50",
+    chipBg: "bg-amber-100",
+    chipText: "text-amber-800",
+    headlineText: "text-amber-900",
+    label: "HIGH",
+    accentBorder: "border-amber-200",
+  },
+  medium: {
+    border: "border-sky-300",
+    bg: "bg-sky-50",
+    chipBg: "bg-sky-100",
+    chipText: "text-sky-800",
+    headlineText: "text-sky-900",
+    label: "MEDIUM",
+    accentBorder: "border-sky-200",
+  },
+  low: {
+    border: "border-slate-300",
+    bg: "bg-slate-50",
+    chipBg: "bg-slate-100",
+    chipText: "text-slate-700",
+    headlineText: "text-slate-800",
+    label: "LOW",
+    accentBorder: "border-slate-200",
+  },
 }
 
+// Vendor-neutral label per feedback_demo_safe_source_labels — the
+// previous "AWS best-practice insights" header leaked the integration
+// list in demo recordings AND framed the recommendation as if AWS
+// owned it (when Cyntro is the authority, observation is the source,
+// AWS docs are merely a reference citation). Reframed throughout as
+// Cyntro Closure Recommendations — operator sees what we recommend
+// based on what we observed, with the upstream reference as a small
+// citation chip at the bottom.
 function EgressInsightsPanel({ insights }: { insights: EgressInsightCard[] }) {
   if (!insights || insights.length === 0) {
     // Honest empty state — backend rule engine ran and nothing fired.
@@ -1341,84 +1396,114 @@ function EgressInsightsPanel({ insights }: { insights: EgressInsightCard[] }) {
     return (
       <div>
         <div className="flex items-baseline gap-2 mb-3">
-          <h3 className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-400">
-            AWS best-practice insights
+          <h3 className="text-[12px] uppercase tracking-[0.12em] font-bold text-slate-700">
+            Cyntro Closure Recommendations
           </h3>
-          <span className="text-[10px] text-slate-500">no rule fired in this path's observation window</span>
+          <span className="text-[10px] text-slate-500">
+            no recommendation fired in this path's observation window
+          </span>
         </div>
-        <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/30 px-4 py-6 text-[11px] text-slate-500 leading-relaxed">
-          No AWS-best-practice rules matched this path's observed egress.
-          That means the destinations + gateways + signals seen here don't
-          map to a published AWS anti-pattern <em>this engine knows about</em>.
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-[11px] text-slate-600 leading-relaxed">
+          No closure recommendations matched this path's observed egress.
+          The destinations + gateways + signals seen here don't map to a
+          known closure pattern our recommendation engine recognizes.
           Operator review still recommended for any path with a non-zero
           severity score.
         </div>
       </div>
     )
   }
-  const critCount = insights.filter(i => i.severity === "critical").length
-  const highCount = insights.filter(i => i.severity === "high").length
+  const critCount = insights.filter((i) => i.severity === "critical").length
+  const highCount = insights.filter((i) => i.severity === "high").length
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-3">
-        <h3 className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-400">
-          AWS best-practice insights ({insights.length})
+        <h3 className="text-[12px] uppercase tracking-[0.12em] font-bold text-slate-700">
+          Cyntro Closure Recommendations ({insights.length})
         </h3>
         {(critCount > 0 || highCount > 0) && (
-          <span className="text-[10px] text-slate-500">
-            {critCount > 0 && <span className="text-rose-400 font-semibold">{critCount} critical</span>}
+          <span className="text-[10px] text-slate-600 font-medium">
+            {critCount > 0 && (
+              <span className="text-rose-700 font-bold">{critCount} critical</span>
+            )}
             {critCount > 0 && highCount > 0 && " · "}
-            {highCount > 0 && <span className="text-amber-400 font-semibold">{highCount} high</span>}
+            {highCount > 0 && (
+              <span className="text-amber-700 font-bold">{highCount} high</span>
+            )}
           </span>
         )}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {insights.map(card => {
+        {insights.map((card) => {
           const tone = _SEV_TONE[card.severity] || _SEV_TONE.low
           return (
             <div
               key={card.id}
-              className={`rounded-lg border ${tone.border} ${tone.bg} px-4 py-3`}
+              className={`rounded-lg border-2 ${tone.border} ${tone.bg} px-4 py-3 shadow-sm`}
             >
-              {/* Header: severity chip + category + title */}
+              {/* Header: severity chip + category */}
               <div className="flex items-start gap-2 mb-2">
                 <span
-                  className={`inline-flex items-center rounded border ${tone.border} ${tone.bg} ${tone.text} px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider shrink-0`}
+                  className={`inline-flex items-center rounded ${tone.chipBg} ${tone.chipText} px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0`}
                 >
                   {tone.label}
                 </span>
-                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold shrink-0 pt-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold shrink-0 pt-1">
                   {card.category}
                 </span>
               </div>
-              <div className={`text-[13px] font-semibold leading-snug ${tone.text} mb-1.5`}>
+
+              {/* Title — Cyntro's recommendation summary */}
+              <div className={`text-[14px] font-bold leading-snug ${tone.headlineText} mb-2`}>
                 {card.title}
               </div>
-              {/* WHAT — the observed fact */}
-              <div className="text-[11px] text-slate-300 leading-relaxed mb-2">
-                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Observed:</span>
+
+              {/* Observed: the evidence we collected from this path's traffic */}
+              <div className="text-[12px] text-slate-800 leading-relaxed mb-2">
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mr-1">
+                  What we observed:
+                </span>
                 {card.evidence}
               </div>
-              {/* WHY — AWS guidance */}
-              <div className="text-[11px] text-slate-400 leading-relaxed mb-2 border-l border-slate-700 pl-3">
-                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">AWS guidance:</span>
+
+              {/* Why: framed as Cyntro's reasoning, not AWS's. Reference
+                  citation moved to a footer chip below. */}
+              <div
+                className={`text-[12px] text-slate-700 leading-relaxed mb-2 border-l-2 ${tone.accentBorder} pl-3`}
+              >
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mr-1">
+                  Why this matters:
+                </span>
                 {card.guidance}
-                {" "}
-                <a
-                  href={card.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sky-400 hover:text-sky-300 underline decoration-dotted"
-                  title={card.source_url}
-                >
-                  {card.source}
-                </a>
               </div>
-              {/* HOW — the recommendation */}
-              <div className={`text-[11px] font-medium ${tone.text} leading-relaxed`}>
-                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Recommend:</span>
+
+              {/* Recommended action — the closure operator should take */}
+              <div className={`text-[12px] font-semibold ${tone.headlineText} leading-relaxed mb-2`}>
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mr-1">
+                  Recommended action:
+                </span>
                 {card.recommendation}
               </div>
+
+              {/* Reference citation — small footer chip, vendor-neutral
+                  wording. Reference doc IS upstream-vendor-published; we
+                  link to it for traceability but don't lead with it.
+                  Operators trust Cyntro's recommendation; the link is
+                  there if they want to verify against the upstream
+                  standard. */}
+              {card.source && card.source_url && (
+                <div className="mt-2 pt-2 border-t border-slate-200">
+                  <a
+                    href={card.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-700 underline decoration-dotted underline-offset-2"
+                    title={`Upstream reference: ${card.source_url}`}
+                  >
+                    📖 Reference: {card.source}
+                  </a>
+                </div>
+              )}
             </div>
           )
         })}
