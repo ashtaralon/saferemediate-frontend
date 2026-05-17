@@ -527,6 +527,94 @@ export function SGRemediationCard({
     | { kind: "error"; message: string }
   const [preflight, setPreflight] = useState<PreflightStatus>({ kind: "idle" })
 
+  // ── Per-rule Simulate preview ─────────────────────────────────
+  //
+  // Preflight runs only when the operator has selected rules and is
+  // about to apply. The per-rule "Simulate" link is the lighter-weight
+  // dry-run — single rule, no selection required, surfaces traffic
+  // impact + safety warnings before the operator commits to a checkbox.
+  // Reuses the same /simulate endpoint with a 1-element rules_to_remove
+  // payload.
+  type RuleSimState =
+    | { kind: "loading" }
+    | {
+        kind: "result"
+        is_safe: boolean
+        warnings: string[]
+        impact: Array<{ active_connections: number; sample_sources: string[]; warning: string }>
+        rules_matched: number
+      }
+    | { kind: "error"; message: string }
+  const [ruleSimResults, setRuleSimResults] = useState<Record<string, RuleSimState>>({})
+
+  const runRuleSimulate = (rule: RuleAnalysis) => {
+    if (ruleSimResults[rule.rule_id]?.kind === "loading") return
+    const m = /^(\d+)(?:-(\d+))?$/.exec(rule.port_range || "")
+    const fromPort = m ? parseInt(m[1], 10) : null
+    const toPort = m ? (m[2] ? parseInt(m[2], 10) : fromPort) : null
+    const dir =
+      rule.direction === "inbound" || rule.direction === "ingress"
+        ? "inbound"
+        : "outbound"
+    const ruleToRemove = {
+      protocol: (rule.protocol || "tcp").toLowerCase(),
+      port: fromPort ?? undefined,
+      port_range: toPort && fromPort !== toPort ? rule.port_range : undefined,
+      source: rule.source,
+      direction: dir,
+    }
+
+    setRuleSimResults((prev) => ({ ...prev, [rule.rule_id]: { kind: "loading" } }))
+
+    fetch(`/api/proxy/security-groups/${sgId}/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rules_to_remove: [ruleToRemove], dry_run: true }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.error || d?.detail) {
+          setRuleSimResults((prev) => ({
+            ...prev,
+            [rule.rule_id]: {
+              kind: "error",
+              message: String(d.error || d.detail || "Simulation failed"),
+            },
+          }))
+          return
+        }
+        const impact = Array.isArray(d?.potential_impact) ? d.potential_impact : []
+        setRuleSimResults((prev) => ({
+          ...prev,
+          [rule.rule_id]: {
+            kind: "result",
+            is_safe: d?.is_safe !== false && impact.length === 0,
+            warnings: Array.isArray(d?.safety_warnings) ? d.safety_warnings : [],
+            impact: impact.map((i: any) => ({
+              active_connections: i?.active_connections ?? 0,
+              sample_sources: Array.isArray(i?.sample_sources) ? i.sample_sources : [],
+              warning: i?.warning || "",
+            })),
+            rules_matched: typeof d?.rules_to_remove === "number" ? d.rules_to_remove : 0,
+          },
+        }))
+      })
+      .catch((e) => {
+        setRuleSimResults((prev) => ({
+          ...prev,
+          [rule.rule_id]: { kind: "error", message: e?.message || "Network error" },
+        }))
+      })
+  }
+
+  const clearRuleSim = (ruleId: string) => {
+    setRuleSimResults((prev) => {
+      const next = { ...prev }
+      delete next[ruleId]
+      return next
+    })
+  }
+
   useEffect(() => {
     if (selected.size === 0) {
       setPreflight({ kind: "idle" })
@@ -1135,9 +1223,21 @@ export function SGRemediationCard({
                   const execution = rule._execution_confidence
                   const capped = execution < evidence
                   const conn = rule.traffic?.connection_count ?? 0
+                  // SG-ref + no traffic + verify_first → the *evidence*
+                  // narrative ("no traffic in 30d") matches a CIDR rule's
+                  // narrative exactly, but the classification driver is
+                  // the SG self-reference, not the traffic count. Surface
+                  // that so the operator sees WHY this rule routes to
+                  // verify_first instead of safe_to_remove.
+                  const isSgRef = (rule.source || "").startsWith("sg-")
+                  const reasonText =
+                    rule._action === "verify_first" && isSgRef && conn === 0
+                      ? "References another security group — verify dependency before removing"
+                      : rule.recommendation?.reason || "—"
+                  const simState = ruleSimResults[rule.rule_id]
                   return (
+                    <div key={rule.rule_id}>
                     <div
-                      key={rule.rule_id}
                       className={`px-3 py-2 flex items-start gap-3 ${
                         isProtected ? "opacity-70" : "cursor-pointer hover:bg-gray-50"
                       }`}
@@ -1187,7 +1287,7 @@ export function SGRemediationCard({
                             : ""}
                           {" · "}
                           <span className="font-medium" style={{ color: style.color }}>
-                            {rule.recommendation?.reason || "—"}
+                            {reasonText}
                           </span>
                         </div>
                       </div>
@@ -1238,18 +1338,112 @@ export function SGRemediationCard({
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
+                              runRuleSimulate(rule)
                               onSimulate?.(
                                 data.sg_id,
                                 rule.rule_id,
                                 rule.recommendation?.action || "review",
                               )
                             }}
-                            className="text-[11px] text-[#8b5cf6] hover:underline mt-1 font-medium"
+                            disabled={simState?.kind === "loading"}
+                            className="text-[11px] text-[#8b5cf6] hover:underline mt-1 font-medium disabled:opacity-50 disabled:cursor-wait"
                           >
-                            Simulate
+                            {simState?.kind === "loading" ? "Simulating…" : "Simulate"}
                           </button>
                         )}
                       </div>
+                    </div>
+                    {simState && (
+                      <div
+                        className="px-3 py-2 text-[11px] border-t bg-[var(--muted,#f9fafb)]"
+                        style={{ borderColor: "var(--border, #e5e7eb)" }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold uppercase tracking-[0.08em] text-[10px] text-[var(--muted-foreground,#6b7280)] mb-1">
+                              Simulation preview
+                            </div>
+                            {simState.kind === "loading" && (
+                              <div className="text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
+                                <span className="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                                Running dry-run against current AWS state…
+                              </div>
+                            )}
+                            {simState.kind === "error" && (
+                              <div className="text-rose-700">
+                                <span className="font-semibold">⊘ Simulation failed.</span>{" "}
+                                {simState.message}
+                              </div>
+                            )}
+                            {simState.kind === "result" && simState.rules_matched === 0 && (
+                              <div className="text-amber-700">
+                                <span className="font-semibold">⚠ No AWS rule matched.</span>{" "}
+                                The recommended rule was not found in the live SG — it may
+                                have already been removed or modified outside Cyntro.
+                              </div>
+                            )}
+                            {simState.kind === "result" &&
+                              simState.rules_matched > 0 &&
+                              simState.is_safe && (
+                                <div className="text-emerald-700">
+                                  <span className="font-semibold">✓ Safe to remove.</span>{" "}
+                                  No active connections found for this rule. A rollback
+                                  snapshot will be captured before any change.
+                                  {simState.warnings.length > 0 && (
+                                    <ul className="mt-1 ml-3 list-disc text-[var(--muted-foreground,#6b7280)] space-y-0.5">
+                                      {simState.warnings.map((w, i) => (
+                                        <li key={i}>{w}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                            {simState.kind === "result" &&
+                              simState.rules_matched > 0 &&
+                              !simState.is_safe && (
+                                <div className="text-rose-700">
+                                  <span className="font-semibold">⊘ Would impact live traffic.</span>
+                                  <ul className="mt-1 ml-3 list-disc space-y-0.5">
+                                    {simState.impact.map((i, idx) => (
+                                      <li key={idx}>
+                                        {i.warning ||
+                                          `${i.active_connections} active connection${
+                                            i.active_connections === 1 ? "" : "s"
+                                          }`}
+                                        {i.sample_sources.length > 0 && (
+                                          <span className="text-[var(--muted-foreground,#6b7280)]">
+                                            {" "}
+                                            (e.g. {i.sample_sources.slice(0, 3).join(", ")})
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  {simState.warnings.length > 0 && (
+                                    <ul className="mt-1 ml-3 list-disc text-[var(--muted-foreground,#6b7280)] space-y-0.5">
+                                      {simState.warnings.map((w, i) => (
+                                        <li key={i}>{w}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              clearRuleSim(rule.rule_id)
+                            }}
+                            className="text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#111827)] text-[14px] leading-none shrink-0"
+                            aria-label="Close simulation preview"
+                            title="Close"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     </div>
                   )
                 })}
