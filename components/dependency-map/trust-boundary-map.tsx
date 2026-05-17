@@ -210,6 +210,232 @@ function formatBytes(n: number): string {
 
 // ---- Sub-components -----------------------------------------------
 
+// ProjectedAfterCard — ACT 4 of the CISO demo. Shows the projected
+// state of the system AFTER applying all recommendations. Renders
+// below SummaryHeader so the operator sees current-state alongside
+// projected-state side-by-side.
+//
+// Projection model (honest, no fabrication):
+//   - LATENT_EXPOSURE → ISOLATED (after REMOVE_SG_PUBLIC_EGRESS,
+//     workload has no internet capability remaining)
+//   - AWS_REDIRECTABLE → ISOLATED-effective (after ADD_VPC_ENDPOINT,
+//     all observed AWS traffic moves to backbone; workload retains
+//     IGW capability but practically has zero internet usage)
+//   - ACTIVE_INTERNET → SCOPED (after NARROW_SG_EGRESS_TO_OBSERVED,
+//     workload still reaches internet but only to observed dests)
+//   - ISOLATED → stays ISOLATED
+//
+// Cost projection: NAT GW data processing approximate $0.045/GB
+// (varies by region). We only show the projection when movable
+// bytes > 0 — never fabricate a "$X savings" if no bytes data.
+function ProjectedAfterCard({
+  summary,
+  destinations,
+  workloads,
+  lookbackDays,
+}: {
+  summary: PostureSummary
+  destinations: PostureResponse["destinations"]
+  workloads: PostureWorkload[]
+  lookbackDays: number
+}) {
+  // Projected bucket counts.
+  const projectedIsolated = summary.isolated + summary.latent_exposure + summary.aws_redirectable
+  const projectedScoped = summary.active_internet
+  const projectedLatent = 0
+  const projectedRedirectable = 0
+  const projectedActive = 0
+
+  // Exfil surface after — only ACTIVE workloads still have internet need.
+  const exfilBefore = summary.exfil_surface_count
+  const exfilAfter = projectedScoped
+  const exfilReductionPct = exfilBefore > 0
+    ? Math.round(((exfilBefore - exfilAfter) / exfilBefore) * 100)
+    : 0
+
+  // Recommendation breakdown.
+  const recCounts = workloads.reduce<Record<string, number>>((acc, w) => {
+    if (w.recommendation?.type) {
+      acc[w.recommendation.type] = (acc[w.recommendation.type] || 0) + 1
+    }
+    return acc
+  }, {})
+  const totalRecs = Object.values(recCounts).reduce((a, b) => a + b, 0)
+
+  // NAT savings projection — only for AWS clusters marked redirectable.
+  // Scale observed bytes to monthly rate using lookbackDays.
+  const movableBytes = destinations.aws_backbone
+    .filter((c) => c.redirectable)
+    .reduce((acc, c) => acc + (c.total_bytes || 0), 0)
+  const movableGB = movableBytes / (1024 ** 3)
+  const monthlyMovableGB = lookbackDays > 0 ? movableGB * (30 / lookbackDays) : 0
+  // $0.045/GB NAT processing fee (eu-west-1 baseline; varies per region)
+  const monthlyNatSavingsUSD = monthlyMovableGB * 0.045
+
+  if (totalRecs === 0) {
+    return null
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-br from-violet-50 to-white shadow-sm p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-base">✨</span>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-violet-800">
+          After applying all {totalRecs} closures · projected
+        </div>
+        <span className="ml-auto text-[10px] text-violet-700 italic">
+          Honest projection from observed traffic — no AWS mutation occurs
+        </span>
+      </div>
+
+      {/* Bucket diff — current → projected with arrows */}
+      <div className="grid grid-cols-4 gap-3 mb-3">
+        <DiffBucket
+          label="Isolated"
+          emoji="🟢"
+          before={summary.isolated}
+          after={projectedIsolated}
+          tone="border-emerald-300 bg-emerald-50 text-emerald-800"
+        />
+        <DiffBucket
+          label="Redirectable"
+          emoji="🟡"
+          before={summary.aws_redirectable}
+          after={projectedRedirectable}
+          tone="border-amber-300 bg-amber-50 text-amber-800"
+        />
+        <DiffBucket
+          label="Active (scoped)"
+          emoji="🟠"
+          before={summary.active_internet}
+          after={projectedScoped}
+          tone="border-orange-300 bg-orange-50 text-orange-800"
+          afterLabel="scoped"
+        />
+        <DiffBucket
+          label="Latent"
+          emoji="🔴"
+          before={summary.latent_exposure}
+          after={projectedLatent}
+          tone="border-red-400 bg-red-50 text-red-800"
+        />
+      </div>
+
+      {/* Headline metrics */}
+      <div className="grid grid-cols-3 gap-3">
+        <MetricCard
+          label="Exfil surface"
+          value={`-${exfilReductionPct}%`}
+          subtitle={`${exfilBefore} → ${exfilAfter} workloads`}
+          tone="emerald"
+        />
+        <MetricCard
+          label="Effort"
+          value={`${totalRecs}`}
+          subtitle={[
+            recCounts["REMOVE_SG_PUBLIC_EGRESS"]
+              ? `${recCounts["REMOVE_SG_PUBLIC_EGRESS"]}× REMOVE`
+              : null,
+            recCounts["ADD_VPC_ENDPOINT"]
+              ? `${recCounts["ADD_VPC_ENDPOINT"]}× VPCE`
+              : null,
+            recCounts["NARROW_SG_EGRESS_TO_OBSERVED"]
+              ? `${recCounts["NARROW_SG_EGRESS_TO_OBSERVED"]}× NARROW`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          tone="violet"
+        />
+        <MetricCard
+          label={monthlyMovableGB > 0 ? "Est. NAT savings" : "NAT savings"}
+          value={
+            monthlyMovableGB > 0
+              ? `$${monthlyNatSavingsUSD.toFixed(monthlyNatSavingsUSD < 10 ? 2 : 0)}/mo`
+              : "—"
+          }
+          subtitle={
+            monthlyMovableGB > 0
+              ? `${monthlyMovableGB.toFixed(monthlyMovableGB < 1 ? 3 : 1)} GB/mo movable to backbone`
+              : "no AWS-via-IGW traffic to redirect"
+          }
+          tone="cyan"
+        />
+      </div>
+    </div>
+  )
+}
+
+function DiffBucket({
+  label,
+  emoji,
+  before,
+  after,
+  tone,
+  afterLabel,
+}: {
+  label: string
+  emoji: string
+  before: number
+  after: number
+  tone: string
+  afterLabel?: string
+}) {
+  const delta = after - before
+  const deltaDisplay = delta === 0 ? "—" : delta > 0 ? `+${delta}` : `${delta}`
+  const deltaTone = delta < 0
+    ? "text-red-700"
+    : delta > 0
+      ? "text-emerald-700"
+      : "text-slate-500"
+  return (
+    <div className={`rounded border ${tone} px-2 py-1.5`}>
+      <div className="flex items-center gap-1 mb-0.5">
+        <span className="text-[10px]">{emoji}</span>
+        <span className="text-[9px] font-bold uppercase tracking-wider truncate">
+          {label}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-base font-bold text-slate-500 line-through">{before}</span>
+        <span className="text-slate-400 text-xs">→</span>
+        <span className="text-xl font-bold text-slate-900">{after}</span>
+        {afterLabel && (
+          <span className="text-[9px] text-slate-500 italic">{afterLabel}</span>
+        )}
+      </div>
+      <div className={`text-[10px] font-bold ${deltaTone}`}>{deltaDisplay}</div>
+    </div>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  subtitle,
+  tone,
+}: {
+  label: string
+  value: string
+  subtitle: string
+  tone: "emerald" | "violet" | "cyan"
+}) {
+  const toneClasses = {
+    emerald: "border-emerald-300 bg-emerald-50 text-emerald-900",
+    violet: "border-violet-300 bg-violet-50 text-violet-900",
+    cyan: "border-cyan-300 bg-cyan-50 text-cyan-900",
+  }[tone]
+  return (
+    <div className={`rounded border ${toneClasses} px-3 py-2`}>
+      <div className="text-[9px] font-bold uppercase tracking-wider opacity-75">
+        {label}
+      </div>
+      <div className="text-xl font-bold mt-0.5">{value}</div>
+      <div className="text-[10px] mt-0.5 opacity-80">{subtitle}</div>
+    </div>
+  )
+}
+
 function SummaryHeader({ summary, vpcLabel }: { summary: PostureSummary; vpcLabel: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4 mb-4">
@@ -704,6 +930,12 @@ export function TrustBoundaryMap({
   return (
     <div className="space-y-3">
       <SummaryHeader summary={data.summary} vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`} />
+      <ProjectedAfterCard
+        summary={data.summary}
+        destinations={data.destinations}
+        workloads={data.workloads}
+        lookbackDays={data.lookback_days}
+      />
       <VPCContainer
         vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`}
         subnets={data.subnets}
