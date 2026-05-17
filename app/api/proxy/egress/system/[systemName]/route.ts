@@ -8,7 +8,13 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+// Allow local dev to point at a localhost backend without touching this
+// constant. Render/Vercel never set BACKEND_URL_OVERRIDE so prod stays
+// on Render. Set BACKEND_URL_OVERRIDE=http://localhost:8000 in your
+// shell or .env.local to test backend changes before deploying.
+const BACKEND_URL =
+  process.env.BACKEND_URL_OVERRIDE ||
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(
   req: NextRequest,

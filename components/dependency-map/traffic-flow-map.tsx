@@ -1961,7 +1961,14 @@ export function ConnectionLinesSVG({
   }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges]);
 
   return (
-    <svg className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 1 }}>
+    // width/height="100%" is REQUIRED — SVG's intrinsic default is 300x150
+    // and `inset-0` only zeroes top/right/bottom/left, it does not stretch
+    // the SVG to its container the way it does for divs. Without these
+    // attrs the connection lines render clipped into the top-left 300x150
+    // corner of the container, invisible past the first column. This
+    // manifested in the Egress Flow Map as "SG cards present but no
+    // lines drawn through them."
+    <svg width="100%" height="100%" className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 1 }}>
       {/* Render non-highlighted lines first, then attack paths, then highlighted on top */}
       {lines
         .sort((a, b) => {
