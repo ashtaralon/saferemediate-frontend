@@ -854,6 +854,16 @@ interface SilentCandidateRow {
   rtId: string
   candidateCidr: string | null
   candidateTargetKind: string | null
+  // Fields below mirror RemoveRouteCandidate so a grouped section can
+  // mount RemoveRouteActionPanel inline. Single proposal_id per RT
+  // (content-addressed by the backend) means N workloads sharing an
+  // RT collapse to ONE executor — matching the design contract of
+  // RemoveRouteActionPanel ("one execute per proposal_id").
+  proposalId: string | null
+  candidateTargetId: string | null
+  candidateTargetName: string | null
+  scopeWorkloadCount: number
+  confidenceSignal: string
 }
 
 function buildSilentCandidateRows(data: EgressResponse | null): SilentCandidateRow[] {
@@ -876,6 +886,11 @@ function buildSilentCandidateRows(data: EgressResponse | null): SilentCandidateR
       rtId: rt.id,
       candidateCidr: rt.recommendation.candidate_route_cidr,
       candidateTargetKind: rt.recommendation.candidate_route_target_kind,
+      proposalId: rt.recommendation.proposal_id ?? null,
+      candidateTargetId: rt.recommendation.candidate_route_target_id,
+      candidateTargetName: rt.recommendation.candidate_route_target_name,
+      scopeWorkloadCount: rt.recommendation.scope_workload_count,
+      confidenceSignal: rt.recommendation.confidence_signal,
     })
   }
   // Sort by RT id then workload name so workloads sharing an RT
@@ -886,6 +901,22 @@ function buildSilentCandidateRows(data: EgressResponse | null): SilentCandidateR
     return a.workloadName.localeCompare(b.workloadName)
   })
   return out
+}
+
+// Group silent-candidate rows by rt_id so we render ONE execute
+// panel per RT (not N panels for the N workloads sharing it).
+// Prevents the "N buttons for the same proposal_id" UX trap.
+function groupSilentRowsByRT(rows: SilentCandidateRow[]) {
+  const map = new Map<string, { rt: SilentCandidateRow; workloads: SilentCandidateRow[] }>()
+  for (const r of rows) {
+    const existing = map.get(r.rtId)
+    if (existing) {
+      existing.workloads.push(r)
+    } else {
+      map.set(r.rtId, { rt: r, workloads: [r] })
+    }
+  }
+  return Array.from(map.values())
 }
 
 
@@ -1025,70 +1056,95 @@ function PathCardList({
           ARE the workloads whose silence is the safety guarantee for
           the route delete. Informational only; the actual execute
           surface is the Removable Infrastructure callout above. */}
-      {silentCandidates.length > 0 && (
-        <div
-          className="rounded-lg border overflow-hidden"
-          style={{ borderColor: "rgba(245,158,11,0.25)", background: "rgba(15,23,42,0.5)" }}
-        >
-          <div className="px-3 py-2 border-b" style={{ borderColor: "rgba(245,158,11,0.18)" }}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-300/80">
-                Zero observed egress · route removable
-              </span>
-              <span className="text-[11px] tabular-nums text-amber-100/90">
-                {silentCandidates.length} workload{silentCandidates.length === 1 ? "" : "s"}
-              </span>
+      {silentCandidates.length > 0 && (() => {
+        const groups = groupSilentRowsByRT(silentCandidates)
+        return (
+          <div
+            className="rounded-lg border overflow-hidden"
+            style={{ borderColor: "rgba(245,158,11,0.25)", background: "rgba(15,23,42,0.5)" }}
+          >
+            <div className="px-3 py-2 border-b" style={{ borderColor: "rgba(245,158,11,0.18)" }}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-300/80">
+                  Zero observed egress · route removable
+                </span>
+                <span className="text-[11px] tabular-nums text-amber-100/90">
+                  {groups.length} route table{groups.length === 1 ? "" : "s"}
+                  {" · "}
+                  {silentCandidates.length} workload{silentCandidates.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <p className="mt-1 text-[10px] text-amber-200/60 leading-relaxed">
+                Workloads with no outbound traffic in the 30-day window, grouped by the
+                route table whose public-egress route is removable. Their silence is the
+                safety basis for the removal. Simulate / Apply per RT below — one execute
+                covers every workload in scope.
+              </p>
             </div>
-            <p className="mt-1 text-[10px] text-amber-200/60 leading-relaxed">
-              These workloads have no outbound traffic in the 30-day window. Each one shares
-              a route table with a removable public-egress route — their silence is the
-              safety basis for the removal. Use the Removable Infrastructure callout above
-              to simulate or apply the change.
-            </p>
+            <ul className="divide-y" style={{ borderColor: "rgba(245,158,11,0.12)" }}>
+              {groups.map(({ rt, workloads }) => (
+                <li key={rt.rtId} className="px-3 py-2.5">
+                  {/* Group header: RT id + route + chip + scope count */}
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <ShieldOff className="w-3 h-3 text-amber-300 shrink-0" />
+                    <span className="font-mono text-[11px] text-indigo-200 truncate" title={rt.rtId}>
+                      {rt.rtId}
+                    </span>
+                    <span className="text-slate-500 text-[10px]">›</span>
+                    <span className="font-mono text-[10px] text-amber-100/90">{rt.candidateCidr || "?"}</span>
+                    <span className="text-amber-300/60 text-[10px]">→</span>
+                    <span className="text-[10px] text-amber-100/90">
+                      {rt.candidateTargetKind || "?"}{" "}
+                      <span className="font-mono">{rt.candidateTargetId || ""}</span>
+                    </span>
+                    <span className="ml-auto inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5">
+                      <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
+                        {workloads.length} workload{workloads.length === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                  </div>
+                  {/* Workload list inside the group — compact */}
+                  <div className="pl-5 mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+                    {workloads.map((w) => (
+                      <span key={w.workloadId} className="inline-flex items-center gap-1.5 text-slate-300">
+                        <span className="font-semibold text-slate-100">{w.workloadName}</span>
+                        {w.subnetIsPublic === true && (
+                          <span className="px-1 py-px rounded text-[8px] font-semibold uppercase tracking-wider border border-amber-500/40 bg-amber-500/10 text-amber-200">
+                            Public
+                          </span>
+                        )}
+                        {w.subnetIsPublic === false && (
+                          <span className="px-1 py-px rounded text-[8px] font-semibold uppercase tracking-wider border border-slate-600 bg-slate-800/40 text-slate-300">
+                            Private
+                          </span>
+                        )}
+                        <span className="text-slate-500 font-mono">{w.subnetName || w.subnetId}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {/* Per-RT executor — one panel, covers all workloads
+                      in this RT's scope. Same proposal_id as the
+                      top-level summary's expand list and (in the
+                      future) the per-path RT banner — re-firing from
+                      any surface dedupes by content-addressed id. */}
+                  <RemoveRouteActionPanel
+                    candidate={{
+                      rtId: rt.rtId,
+                      proposalId: rt.proposalId,
+                      cidr: rt.candidateCidr,
+                      targetKind: rt.candidateTargetKind,
+                      targetId: rt.candidateTargetId,
+                      targetName: rt.candidateTargetName,
+                      scopeWorkloadCount: rt.scopeWorkloadCount,
+                      confidenceSignal: rt.confidenceSignal,
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="divide-y" style={{ borderColor: "rgba(245,158,11,0.12)" }}>
-            {silentCandidates.map((s) => (
-              <li
-                key={s.workloadId + "|" + s.rtId}
-                className="px-3 py-2 flex items-center gap-3 text-[11px]"
-              >
-                <span className="font-semibold text-slate-100 truncate" title={s.workloadId}>
-                  {s.workloadName}
-                </span>
-                {s.subnetIsPublic === true && (
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border border-amber-500/40 bg-amber-500/10 text-amber-200">
-                    Public subnet
-                  </span>
-                )}
-                {s.subnetIsPublic === false && (
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border border-slate-600 bg-slate-800/40 text-slate-300">
-                    Private subnet
-                  </span>
-                )}
-                {s.subnetIsPublic === null && (
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border border-slate-700 bg-slate-900/40 text-slate-400">
-                    Subnet unknown
-                  </span>
-                )}
-                <span className="text-slate-500">›</span>
-                <span className="font-mono text-[10px] text-slate-400 truncate" title={s.subnetId || ""}>
-                  {s.subnetName || s.subnetId || "(no subnet)"}
-                </span>
-                <span className="text-slate-500">›</span>
-                <span className="font-mono text-[10px] text-indigo-200 truncate" title={s.rtId}>
-                  {s.rtId}
-                </span>
-                <span className="ml-auto inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5">
-                  <ShieldOff className="w-2.5 h-2.5 text-amber-300" />
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-200">
-                    Removable · {s.candidateCidr || "?"}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Path rows */}
       <div className="flex flex-col gap-2 mt-1">
