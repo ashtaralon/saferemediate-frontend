@@ -106,6 +106,21 @@ interface EgressDestination {
   // (workload-level attribution) so the connection line still draws.
   via_sg_id: string | null
   via_sg_name: string | null
+  // S3-only: candidate buckets this AWS-S3 IP could have served. S3
+  // service IPs are pooled across every bucket in the region, so the
+  // IP alone can't identify the bucket — backend joins via the
+  // workload's ACTUAL_S3_ACCESS / READS_FROM / WRITES_TO role-chain
+  // edges. Frontend renders as small chips under the IP card so the
+  // CISO sees "→ cyntro-demo-prod-data" instead of just "AWS · S3".
+  bucket_candidates?: Array<{
+    name: string
+    id: string
+    hits: number
+    bytes: number
+    operations: string[]
+    is_public: boolean
+    classification: string | null
+  }>
 }
 
 // Workload-level SG attribution (NOT per-flow). Backend emits one entry
@@ -2207,6 +2222,32 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     </span>
                   </div>
                 )}
+                {/* S3 bucket candidates — pooled S3 IPs can't identify
+                    the bucket from the network layer alone, so we
+                    surface the workload's observed buckets (via the
+                    role's ACTUAL_S3_ACCESS edges) as candidate chips.
+                    Lets the CISO read "→ cyntro-demo-prod-data" rather
+                    than guess what S3 IP 52.218.117.194 means. */}
+                {fullDest?.kind === "aws" &&
+                  (fullDest.aws_service ?? "").toUpperCase() === "S3" &&
+                  (fullDest.bucket_candidates?.length ?? 0) > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {fullDest.bucket_candidates!.slice(0, 3).map((b) => (
+                        <span
+                          key={b.id || b.name}
+                          className="inline-flex items-center rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-1.5 py-0.5 text-[9px] font-medium text-fuchsia-200"
+                          title={`Workload's role accessed s3://${b.name} (${b.hits.toLocaleString()} reads/writes${b.operations?.length ? " · " + b.operations.slice(0, 3).join(", ") : ""}). S3 IPs are pooled across all buckets in the region — this is one of the candidate buckets, not a definitive match.`}
+                        >
+                          → {b.name}
+                        </span>
+                      ))}
+                      {(fullDest.bucket_candidates?.length ?? 0) > 3 && (
+                        <span className="text-[9px] text-fuchsia-300/60 italic self-center">
+                          +{fullDest.bucket_candidates!.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  )}
                 {showExternalMeta && (
                   <div
                     className="mt-1 text-[10px] text-slate-400 truncate"
