@@ -133,6 +133,15 @@ export interface EgressDestination {
     //   inference vs the direct observation.
     attribution?: "workload" | "system"
   }>
+  // AWS-non-S3: resolved owning instance via :NetworkInterface.public_ip
+  // lookup. When present, the AWS chip drops the "(instance or API)"
+  // disclaimer and shows "→ alon-demo-app-2" so the CISO sees the
+  // actual EC2/Lambda/RDS/etc name instead of just the service kind.
+  // Null when the IP isn't matched to any ENI in our graph (typical
+  // for AWS API control-plane IPs or other accounts' resources).
+  aws_resource_type?: string | null
+  aws_resource_id?: string | null
+  aws_resource_name?: string | null
 }
 
 // Workload-level SG attribution (NOT per-flow). Backend emits one entry
@@ -2787,26 +2796,39 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   </div>
                 )}
 
-                {/* AWS service chip OR external org/ASN line */}
-                {fullDest?.kind === "aws" && (
-                  <div
-                    className="mt-1.5 text-[10px]"
-                    title={
-                      isEc2Service
-                        ? "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish."
-                        : `AWS ${fullDest.aws_service ?? "service"} published IP range`
-                    }
-                  >
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
-                      AWS · {fullDest.aws_service ?? "?"}
-                      {isEc2Service && (
-                        <span className="ml-1 font-normal text-emerald-300/80">
-                          (instance or API)
+                {/* AWS service chip OR external org/ASN line. When the
+                    backend resolved the IP to a specific instance via
+                    :NetworkInterface.public_ip, drop the "(instance or
+                    API)" disclaimer and show the resource name in a
+                    second emerald chip — "AWS · EC2 → alon-demo-app-2"
+                    is the demo win over "AWS · EC2 (instance or API)". */}
+                {fullDest?.kind === "aws" && (() => {
+                  const awsResName = (fullDest as any).aws_resource_name as string | null | undefined
+                  const awsResType = (fullDest as any).aws_resource_type as string | null | undefined
+                  const resolved = !!awsResName
+                  const tooltip = resolved
+                    ? `Resolved to ${awsResType || "AWS resource"} '${awsResName}' via :NetworkInterface.public_ip lookup.`
+                    : isEc2Service
+                      ? "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish."
+                      : `AWS ${fullDest.aws_service ?? "service"} published IP range`
+                  return (
+                    <div className="mt-1.5 text-[10px] flex flex-wrap items-center gap-1" title={tooltip}>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
+                        AWS · {fullDest.aws_service ?? "?"}
+                        {isEc2Service && !resolved && (
+                          <span className="ml-1 font-normal text-emerald-300/80">
+                            (instance or API)
+                          </span>
+                        )}
+                      </span>
+                      {resolved && (
+                        <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-200 border border-cyan-500/40 font-medium">
+                          → {awsResName}
                         </span>
                       )}
-                    </span>
-                  </div>
-                )}
+                    </div>
+                  )
+                })()}
                 {/* S3 bucket candidates — pooled S3 IPs can't identify
                     the bucket from the network layer alone, so we
                     surface candidate buckets (via the role's
