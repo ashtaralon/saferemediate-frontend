@@ -400,6 +400,11 @@ export function SGRemediationCard({
   const [err, setErr] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [overrideState, setOverrideState] = useState<OverrideState>(INITIAL_OVERRIDE)
+  // Inline error for transient apply failures (502/504/network). Distinct
+  // from `err` which is reserved for initial load failures — `err` triggers
+  // a full-card error replace (line 990); this banner shows in-place so
+  // the rule list stays visible and the operator can retry.
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -821,6 +826,7 @@ export function SGRemediationCard({
   const handleApply = async () => {
     if (selected.size === 0) return
     const selectedRuleIds = Array.from(selected)
+    setApplyError(null)
 
     // First attempt — no force, no lineage. Backend's score-based
     // gate may block; if so we open the override modal.
@@ -853,8 +859,37 @@ export function SGRemediationCard({
       return
     }
 
-    // Blocked path — open override modal with the reasons surfaced.
+    // Distinguish transient backend failures (502/503/504, network
+    // errors) from real safety-gate blocks. Override modal is for the
+    // latter ONLY — telling the operator to "override" a 502 is
+    // misleading; override doesn't fix infrastructure failure, retry
+    // does. Real blocks come back with success=false + at least one of:
+    // block_reason, blocked=true, decision=blocked, safety_warnings,
+    // score_breakdown. A bare success=false with just an error string
+    // and a 5xx status code is infra.
     const reasons = extractBlockReasons(first.body)
+    const isHttp5xx = !first.ok && first.status >= 500 && first.status < 600
+    const looksLikeRealBlock =
+      reasons.length > 0 ||
+      first.body?.blocked === true ||
+      first.body?.decision === "blocked" ||
+      first.body?.decision_canonical === "BLOCK" ||
+      first.body?.block_reason ||
+      first.body?.action_required === "approval" ||
+      first.body?.action_required === "manual_review"
+
+    if (isHttp5xx && !looksLikeRealBlock) {
+      // Transient infra failure — show retry-friendly inline error,
+      // don't open the override modal (override doesn't fix infra).
+      setApplyError(
+        first.status === 504
+          ? "Backend timed out (60s). Try again in a moment — the request may have partially completed."
+          : `Backend temporarily unavailable (HTTP ${first.status}). Try again in a moment.`,
+      )
+      return
+    }
+
+    // Real block path — open override modal with the reasons surfaced.
     if (reasons.length === 0) {
       reasons.push(
         "Backend declined to auto-apply but didn't return a structured reason. " +
@@ -1581,6 +1616,31 @@ export function SGRemediationCard({
               </span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Apply error banner — transient backend failures (5xx, network).
+          Inline so the rule list stays visible and the operator can
+          retry without losing selection. Distinct from `err` (initial
+          load failure) which replaces the whole card. */}
+      {applyError && (
+        <div
+          className="mx-4 mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2"
+          role="alert"
+        >
+          <span className="text-base leading-none">⚠</span>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold mb-0.5">Apply failed</div>
+            <div className="opacity-90">{applyError}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setApplyError(null)}
+            className="text-amber-700 hover:text-amber-900 text-base leading-none shrink-0"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
         </div>
       )}
 
