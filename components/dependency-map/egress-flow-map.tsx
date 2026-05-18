@@ -76,10 +76,14 @@ import {
   deriveRemoveRouteCandidates,
 } from "./RemovableInfrastructureCallout"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import {
+  FlowMapDetailPanel,
+  type FlowMapDetailSelection,
+} from "./flow-map-detail-panel"
 
 // ---- Backend response shape (api/egress_visibility.py) -----------------
 
-interface EgressDestination {
+export interface EgressDestination {
   ip: string
   kind: "aws" | "external" | "internal" | "unknown"
   aws_service: string | null
@@ -137,7 +141,7 @@ interface EgressDestination {
 // accepted on read — see CLAUDE.md). Per-rule attribution (which egress
 // rule allowed each specific destination/port/proto) is a follow-up —
 // requires CIDR matching against egress rule sets.
-interface EgressAttachedSecurityGroup {
+export interface EgressAttachedSecurityGroup {
   id: string
   name: string
   description: string | null
@@ -213,7 +217,7 @@ type EgressRouteTableRecommendation =
 // active route set — operators click the card to see every entry. null
 // at the workload level means the workload has no resolvable subnet
 // (Lambda outside a VPC, terminated ENI).
-interface EgressRouteTable {
+export interface EgressRouteTable {
   id: string
   routes: EgressRoute[]
   // null when no remediation candidate applies (the common case — most
@@ -227,7 +231,7 @@ interface EgressRouteTable {
 // matching shape in api/egress_visibility.py. Drives the Egress Flow
 // Map's CROWN JEWEL column (left of COMPUTE) so the operator sees the
 // full exfil chain at a glance: CJ → workload → SG → RT → gateway → internet.
-interface UpstreamCrownJewel {
+export interface UpstreamCrownJewel {
   id: string
   name: string
   type: string
@@ -246,7 +250,7 @@ interface UpstreamCrownJewel {
 // logs / CloudTrail. Frontend renders these as named cards in the
 // Destinations column so operators see "cyntro-demo-prod-data (47
 // reads)" instead of "S3 · 52.218.101.40".
-interface WorkloadBucketAccess {
+export interface WorkloadBucketAccess {
   id: string
   name: string
   is_public: boolean
@@ -322,7 +326,7 @@ interface EgressResponse {
 
 // ---- Signal label/tone (UI vocabulary; never "Suspicious") ------------
 
-const SIGNAL_META: Record<string, { label: string; tone: "warning" | "info" | "alert"; tooltip: string }> = {
+export const SIGNAL_META: Record<string, { label: string; tone: "warning" | "info" | "alert"; tooltip: string }> = {
   cross_region_aws: { label: "Cross-region AWS", tone: "info", tooltip: "Destination AWS region differs from workload region." },
   cross_cloud: { label: "Cross-cloud", tone: "info", tooltip: "Workload on AWS talking to a different cloud provider." },
   non_aws_public_from_private_subnet: { label: "Private→public IP", tone: "warning", tooltip: "Private-subnet workload reached a non-AWS public IP (likely via NAT)." },
@@ -340,7 +344,7 @@ function signalToneClasses(tone: "warning" | "info" | "alert"): string {
   }
 }
 
-function formatBytes(n: number): string {
+export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
@@ -351,7 +355,7 @@ function formatBytes(n: number): string {
 // risky-ports-dashboard so the operator sees the same vocabulary across
 // surfaces (minutes/hours/days/months ago). Returns null when the
 // timestamp is missing — caller should hide the line in that case.
-function formatTimeAgoShort(dateStr: string | null | undefined): string | null {
+export function formatTimeAgoShort(dateStr: string | null | undefined): string | null {
   if (!dateStr) return null
   const t = new Date(dateStr).getTime()
   if (Number.isNaN(t)) return null
@@ -414,7 +418,7 @@ function cjClassificationChip(c: string | null | undefined): string | null {
   return aliases[norm] || norm.slice(0, 6).toUpperCase()
 }
 
-function countryFlag(country: string | null): string {
+export function countryFlag(country: string | null): string {
   if (!country || country.length !== 2) return ""
   const code = country.toUpperCase()
   return String.fromCodePoint(...[...code].map((c) => 0x1f1a5 + c.charCodeAt(0)))
@@ -697,7 +701,7 @@ function routeKindIcon(kind: string | null) {
 // NETWORK, SIGNALS, REDUCE). Computed pure-functionally from the
 // adapter output so the render is dumb.
 
-interface PathRow {
+export interface PathRow {
   workloadId: string
   workloadName: string
   workloadType: NodeType
@@ -1560,6 +1564,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   // the visual flow first, route entries only when they're diagnosing
   // a specific destination. Click the RT card to flip it.
   const [routeTableOpen, setRouteTableOpen] = useState(false)
+  // Per-card detail side panel. Compute/SG/Gateway/Destination/Bucket
+  // open a Sheet from the right with rich details (subnet posture, role,
+  // SG rules, gateway routing, IP enrichment, bucket policy etc.). RT is
+  // intentionally NOT routed through this panel — it keeps its existing
+  // expand-below-grid behavior per user direction.
+  const [detailSelection, setDetailSelection] = useState<FlowMapDetailSelection | null>(null)
 
   // Per-path SystemArchitecture, derived from PathRow.
   const architecture = useMemo<SystemArchitecture>(() => {
@@ -1823,19 +1833,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             Compute (1)
           </div>
           <div data-compute-id={row.workloadId}>
-            <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3.5 py-2.5">
+            <button
+              type="button"
+              onClick={() => setDetailSelection({ kind: "compute", row })}
+              aria-expanded={detailSelection?.kind === "compute"}
+              aria-label={`Open details for workload ${row.workloadName}`}
+              className={`w-full text-left rounded-lg border px-3.5 py-2.5 transition-colors hover:bg-blue-500/20 hover:border-blue-400/70 ${
+                detailSelection?.kind === "compute"
+                  ? "border-blue-400/70 bg-blue-500/20 ring-1 ring-blue-400/30"
+                  : "border-blue-500/40 bg-blue-500/10"
+              }`}
+            >
               <div className="flex items-center gap-1.5">
                 <Server className="w-4 h-4 text-blue-300 shrink-0" />
-                <div className="text-[13px] font-semibold text-blue-50 truncate" title={row.workloadName}>
+                <div className="text-[13px] font-semibold text-blue-50 truncate flex-1" title={row.workloadName}>
                   {row.workloadName.length > 26
                     ? row.workloadName.slice(0, 26) + "…"
                     : row.workloadName}
                 </div>
+                <ChevronRight className="w-3 h-3 text-blue-300/70 shrink-0" />
               </div>
               <div className="text-[10px] text-blue-300 mt-0.5 font-semibold uppercase tracking-wider">
                 {row.workloadType === "lambda" ? "Lambda" : "EC2"}
               </div>
-            </div>
+            </button>
             {row.subnetId && (
               <div
                 className={`mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${subnetTone}`}
@@ -1859,29 +1880,40 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           </div>
           {architecture.securityGroups.map((sg) => {
             const sgRow = row.sgs.find((s) => s.id === sg.id)
-            const tone = sgRow?.hasPublicEgress
-              ? "border-amber-500/60 bg-amber-500/10"
-              : "border-orange-500/30 bg-orange-500/5"
+            const isSelected =
+              detailSelection?.kind === "sg" && detailSelection.sgId === sg.id
+            const tone = isSelected
+              ? sgRow?.hasPublicEgress
+                ? "border-amber-400/80 bg-amber-500/20 ring-1 ring-amber-400/40"
+                : "border-orange-400/70 bg-orange-500/15 ring-1 ring-orange-400/30"
+              : sgRow?.hasPublicEgress
+                ? "border-amber-500/60 bg-amber-500/10"
+                : "border-orange-500/30 bg-orange-500/5"
             return (
-              <div
+              <button
                 key={sg.id}
+                type="button"
                 data-sg-id={sg.id}
-                className={`rounded-lg border ${tone} px-3.5 py-2.5`}
+                onClick={() => setDetailSelection({ kind: "sg", row, sgId: sg.id })}
+                aria-expanded={isSelected}
+                aria-label={`Open details for security group ${sg.name || sg.id}`}
+                className={`w-full text-left rounded-lg border ${tone} px-3.5 py-2.5 transition-colors hover:brightness-110`}
               >
                 <div className="flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-orange-300 shrink-0" />
-                  <div className="text-[13px] font-semibold text-orange-50 truncate" title={sg.name}>
+                  <div className="text-[13px] font-semibold text-orange-50 truncate flex-1" title={sg.name}>
                     {(sg.name || sg.id).length > 28
                       ? (sg.name || sg.id).slice(0, 28) + "…"
                       : sg.name || sg.id}
                   </div>
+                  <ChevronRight className="w-3 h-3 text-orange-300/70 shrink-0" />
                 </div>
                 {sgRow?.hasPublicEgress && (
                   <div className="mt-1.5 text-[10px] text-amber-200 uppercase tracking-wider font-bold">
                     Public egress
                   </div>
                 )}
-              </div>
+              </button>
             )
           })}
         </div>
@@ -1993,18 +2025,27 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           </div>
           {architecture.iamRoles.map((g) => {
             const gw = row.gateways.find((gg) => gg.id === g.id)
-            const tone =
+            const isSelected =
+              detailSelection?.kind === "gateway" && detailSelection.gatewayId === g.id
+            const baseTone =
               gw?.bucket === "public"
                 ? "border-amber-500/60 bg-amber-500/10"
                 : gw?.bucket === "private"
                   ? "border-emerald-500/40 bg-emerald-500/5"
                   : "border-slate-700 bg-slate-900/40"
+            const tone = isSelected
+              ? `${baseTone} ring-1 ring-violet-400/40 border-violet-400/70`
+              : baseTone
             const isPublicEgress = gw?.bucket === "public"
             return (
-              <div
+              <button
                 key={g.id}
+                type="button"
                 data-role-id={g.id}
-                className={`rounded-lg border ${tone} px-3.5 py-2.5`}
+                onClick={() => setDetailSelection({ kind: "gateway", row, gatewayId: g.id })}
+                aria-expanded={isSelected}
+                aria-label={`Open details for gateway ${g.name || g.id}`}
+                className={`w-full text-left rounded-lg border ${tone} px-3.5 py-2.5 transition-colors hover:brightness-110`}
               >
                 <div className="flex items-center gap-1.5">
                   {routeKindIcon(gw?.kind || "")}
@@ -2013,6 +2054,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                       ? (g.name || g.id).slice(0, 26) + "…"
                       : g.name || g.id}
                   </span>
+                  <ChevronRight className="w-3 h-3 text-slate-400/70 shrink-0" />
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5 font-semibold">{gw?.kind}</div>
                 {isPublicEgress && (
@@ -2023,7 +2065,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     </span>
                   </div>
                 )}
-              </div>
+              </button>
             )
           })}
         </div>
@@ -2077,14 +2119,23 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           {row.bucketAccesses.slice(0, 8).map((b) => {
             const ops = (b.operations || []).slice(0, 3)
             const isAlert = b.is_public || b.is_internet_exposed
-            const cardTone = isAlert
+            const isSelected =
+              detailSelection?.kind === "bucket" && detailSelection.bucketName === b.name
+            const baseTone = isAlert
               ? "border-rose-500/50 bg-rose-500/10"
               : "border-fuchsia-500/40 bg-fuchsia-500/10"
+            const cardTone = isSelected
+              ? `${baseTone} ring-1 ring-fuchsia-400/50 brightness-110`
+              : baseTone
             return (
-              <div
+              <button
                 key={`bucket-${b.id}`}
+                type="button"
                 data-bucket-id={b.id}
-                className={`rounded-lg border ${cardTone} px-3 py-2`}
+                onClick={() => setDetailSelection({ kind: "bucket", row, bucketName: b.name })}
+                aria-expanded={isSelected}
+                aria-label={`Open details for S3 bucket ${b.name}`}
+                className={`w-full text-left rounded-lg border ${cardTone} px-3 py-2 transition-all hover:brightness-110`}
                 title={`S3 bucket · ${b.hits.toLocaleString()} reads${b.bytes_transferred > 0 ? ` · ${formatBytes(b.bytes_transferred)}` : ""}${b.classification ? ` · classification: ${b.classification}` : ""}${b.is_public ? " · ⚠ PUBLIC BUCKET" : ""}`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -2128,7 +2179,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     )}
                   </div>
                 )}
-              </div>
+              </button>
             )
           })}
           {row.bucketAccesses.length > 8 && (
@@ -2187,16 +2238,25 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             const primaryIsIp = primaryName === fullDest?.ip
             const bytePct = fullDest ? Math.round((fullDest.bytes / maxBytes) * 100) : 0
             // Card tone — alert > AWS > internet bare (dark theme).
-            const cardTone = isAlert
+            const isSelected =
+              detailSelection?.kind === "destination" && detailSelection.ip === dest.id
+            const baseTone = isAlert
               ? "border-rose-500/50 bg-rose-500/10"
               : dest.type === "internet"
                 ? "border-slate-700 bg-slate-900/60"
                 : "border-emerald-500/30 bg-emerald-500/5"
+            const cardTone = isSelected
+              ? `${baseTone} ring-1 ring-cyan-400/40 brightness-110`
+              : baseTone
             return (
-              <div
+              <button
                 key={dest.id}
+                type="button"
                 data-resource-id={dest.id}
-                className={`rounded-lg border ${cardTone} px-3 py-2`}
+                onClick={() => setDetailSelection({ kind: "destination", row, ip: dest.id })}
+                aria-expanded={isSelected}
+                aria-label={`Open details for destination ${primaryName || dest.name}`}
+                className={`w-full text-left rounded-lg border ${cardTone} px-3 py-2 transition-all hover:brightness-110`}
               >
                 {/* Primary line: country flag + org/hostname/svc + bytes */}
                 <div className="flex items-center justify-between gap-2">
@@ -2362,7 +2422,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     })}
                   </div>
                 )}
-              </div>
+              </button>
             )
             })
           })()}
@@ -2553,6 +2613,15 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           </div>
         </div>
       )}
+
+      {/* Per-card detail side panel. Renders nothing while detailSelection
+          is null. Portal-based Sheet so it overlays cleanly whether this
+          PathFlowMap is rendered inline (PathCard) or inside the per-path
+          fullscreen Dialog. */}
+      <FlowMapDetailPanel
+        selection={detailSelection}
+        onClose={() => setDetailSelection(null)}
+      />
     </div>
   )
 }
