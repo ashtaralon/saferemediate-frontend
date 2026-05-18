@@ -1326,10 +1326,9 @@ function PathCardList({
 // this panel is dumb render only. Empty insights array = honest
 // "no rule fired" (per feedback_no_mock_numbers_in_ui three-state).
 
-// Light-theme palette — matches the rest of the page chrome. Card
-// backgrounds are tinted by severity; borders are 2px solid with
-// shadow for visual weight. Headline text uses the deep tone for
-// contrast against the light tinted bg.
+// Dark-theme palette — user requested revert on 2026-05-18. The
+// "Cyntro Closure Recommendations" reframing (vs "AWS best-practice
+// insights") is preserved; only the colors are dark-theme variants.
 const _SEV_TONE: Record<
   EgressInsightCard["severity"],
   {
@@ -1343,40 +1342,40 @@ const _SEV_TONE: Record<
   }
 > = {
   critical: {
-    border: "border-rose-300",
-    bg: "bg-rose-50",
-    chipBg: "bg-rose-100",
-    chipText: "text-rose-800",
-    headlineText: "text-rose-900",
+    border: "border-rose-500/50",
+    bg: "bg-rose-500/10",
+    chipBg: "bg-rose-500/20",
+    chipText: "text-rose-200",
+    headlineText: "text-rose-300",
     label: "CRITICAL",
-    accentBorder: "border-rose-200",
+    accentBorder: "border-rose-500/30",
   },
   high: {
-    border: "border-amber-300",
-    bg: "bg-amber-50",
-    chipBg: "bg-amber-100",
-    chipText: "text-amber-800",
-    headlineText: "text-amber-900",
+    border: "border-amber-500/50",
+    bg: "bg-amber-500/10",
+    chipBg: "bg-amber-500/20",
+    chipText: "text-amber-200",
+    headlineText: "text-amber-300",
     label: "HIGH",
-    accentBorder: "border-amber-200",
+    accentBorder: "border-amber-500/30",
   },
   medium: {
-    border: "border-sky-300",
-    bg: "bg-sky-50",
-    chipBg: "bg-sky-100",
-    chipText: "text-sky-800",
-    headlineText: "text-sky-900",
+    border: "border-sky-500/40",
+    bg: "bg-sky-500/10",
+    chipBg: "bg-sky-500/20",
+    chipText: "text-sky-200",
+    headlineText: "text-sky-300",
     label: "MEDIUM",
-    accentBorder: "border-sky-200",
+    accentBorder: "border-sky-500/30",
   },
   low: {
-    border: "border-slate-300",
-    bg: "bg-slate-50",
-    chipBg: "bg-slate-100",
-    chipText: "text-slate-700",
-    headlineText: "text-slate-800",
+    border: "border-slate-500/40",
+    bg: "bg-slate-500/10",
+    chipBg: "bg-slate-500/20",
+    chipText: "text-slate-300",
+    headlineText: "text-slate-300",
     label: "LOW",
-    accentBorder: "border-slate-200",
+    accentBorder: "border-slate-500/30",
   },
 }
 
@@ -1396,14 +1395,14 @@ function EgressInsightsPanel({ insights }: { insights: EgressInsightCard[] }) {
     return (
       <div>
         <div className="flex items-baseline gap-2 mb-3">
-          <h3 className="text-[12px] uppercase tracking-[0.12em] font-bold text-slate-700">
+          <h3 className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-400">
             Cyntro Closure Recommendations
           </h3>
           <span className="text-[10px] text-slate-500">
             no recommendation fired in this path's observation window
           </span>
         </div>
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-[11px] text-slate-600 leading-relaxed">
+        <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/30 px-4 py-6 text-[11px] text-slate-500 leading-relaxed">
           No closure recommendations matched this path's observed egress.
           The destinations + gateways + signals seen here don't map to a
           known closure pattern our recommendation engine recognizes.
@@ -1418,17 +1417,17 @@ function EgressInsightsPanel({ insights }: { insights: EgressInsightCard[] }) {
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-3">
-        <h3 className="text-[12px] uppercase tracking-[0.12em] font-bold text-slate-700">
+        <h3 className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-400">
           Cyntro Closure Recommendations ({insights.length})
         </h3>
         {(critCount > 0 || highCount > 0) && (
-          <span className="text-[10px] text-slate-600 font-medium">
+          <span className="text-[10px] text-slate-500">
             {critCount > 0 && (
-              <span className="text-rose-700 font-bold">{critCount} critical</span>
+              <span className="text-rose-400 font-semibold">{critCount} critical</span>
             )}
             {critCount > 0 && highCount > 0 && " · "}
             {highCount > 0 && (
-              <span className="text-amber-700 font-bold">{highCount} high</span>
+              <span className="text-amber-400 font-semibold">{highCount} high</span>
             )}
           </span>
         )}
@@ -1439,65 +1438,46 @@ function EgressInsightsPanel({ insights }: { insights: EgressInsightCard[] }) {
           return (
             <div
               key={card.id}
-              className={`rounded-lg border-2 ${tone.border} ${tone.bg} px-4 py-3 shadow-sm`}
+              className={`rounded-lg border ${tone.border} ${tone.bg} px-4 py-3`}
             >
               {/* Header: severity chip + category */}
               <div className="flex items-start gap-2 mb-2">
                 <span
-                  className={`inline-flex items-center rounded ${tone.chipBg} ${tone.chipText} px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0`}
+                  className={`inline-flex items-center rounded ${tone.chipBg} ${tone.chipText} px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider shrink-0`}
                 >
                   {tone.label}
                 </span>
-                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold shrink-0 pt-1">
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold shrink-0 pt-0.5">
                   {card.category}
                 </span>
               </div>
 
-              {/* Title — Cyntro's recommendation summary */}
-              <div className={`text-[14px] font-bold leading-snug ${tone.headlineText} mb-2`}>
+              <div className={`text-[13px] font-semibold leading-snug ${tone.headlineText} mb-1.5`}>
                 {card.title}
               </div>
 
-              {/* Observed: the evidence we collected from this path's traffic */}
-              <div className="text-[12px] text-slate-800 leading-relaxed mb-2">
-                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mr-1">
-                  What we observed:
-                </span>
+              <div className="text-[11px] text-slate-300 leading-relaxed mb-2">
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">What we observed:</span>
                 {card.evidence}
               </div>
 
-              {/* Why: framed as Cyntro's reasoning, not AWS's. Reference
-                  citation moved to a footer chip below. */}
-              <div
-                className={`text-[12px] text-slate-700 leading-relaxed mb-2 border-l-2 ${tone.accentBorder} pl-3`}
-              >
-                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mr-1">
-                  Why this matters:
-                </span>
+              <div className={`text-[11px] text-slate-400 leading-relaxed mb-2 border-l ${tone.accentBorder} pl-3`}>
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Why this matters:</span>
                 {card.guidance}
               </div>
 
-              {/* Recommended action — the closure operator should take */}
-              <div className={`text-[12px] font-semibold ${tone.headlineText} leading-relaxed mb-2`}>
-                <span className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mr-1">
-                  Recommended action:
-                </span>
+              <div className={`text-[11px] font-medium ${tone.headlineText} leading-relaxed`}>
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Recommended action:</span>
                 {card.recommendation}
               </div>
 
-              {/* Reference citation — small footer chip, vendor-neutral
-                  wording. Reference doc IS upstream-vendor-published; we
-                  link to it for traceability but don't lead with it.
-                  Operators trust Cyntro's recommendation; the link is
-                  there if they want to verify against the upstream
-                  standard. */}
               {card.source && card.source_url && (
-                <div className="mt-2 pt-2 border-t border-slate-200">
+                <div className="mt-2 pt-2 border-t border-slate-700/50">
                   <a
                     href={card.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-700 underline decoration-dotted underline-offset-2"
+                    className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 underline decoration-dotted underline-offset-2"
                     title={`Upstream reference: ${card.source_url}`}
                   >
                     📖 Reference: {card.source}
@@ -1611,35 +1591,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   }, [row])
 
   const subnetIsPublic = row.subnetIsPublic
-  // Light-theme tones — matches the rest of the system page (post the
-  // Trust Boundary Map light-theme conversion). Previous dark-theme
-  // tones (slate-700 / amber-500/10) rendered as a "dark island" on
-  // the white page chrome and were called out as "looks bad" in the
-  // 2026-05-17 CISO review. All subsequent visual decisions in this
-  // file inherit from this palette switch.
+  // Dark-theme tones — user requested revert on 2026-05-18 ("retern to dark mode").
   const subnetTone =
     subnetIsPublic === true
-      ? "bg-amber-100 border-amber-400 text-amber-900"
+      ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
       : subnetIsPublic === false
-        ? "bg-emerald-100 border-emerald-400 text-emerald-900"
-        : "bg-slate-100 border-slate-300 text-slate-700"
+        ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+        : "bg-slate-700/40 border-slate-600 text-slate-300"
   const subnetLabel =
     subnetIsPublic === true ? "PUBLIC" : subnetIsPublic === false ? "PRIVATE" : "UNKNOWN"
 
   const routeKindIcon = (kind: string) => {
     switch (kind) {
       case "InternetGateway":
-        return <Globe className="w-4 h-4 text-amber-700" />
+        return <Globe className="w-4 h-4 text-amber-400" />
       case "NATGateway":
-        return <Network className="w-4 h-4 text-blue-700" />
+        return <Network className="w-4 h-4 text-blue-400" />
       case "VPCEndpoint":
-        return <Lock className="w-4 h-4 text-emerald-700" />
+        return <Lock className="w-4 h-4 text-emerald-400" />
       case "TransitGateway":
-        return <Activity className="w-4 h-4 text-violet-700" />
+        return <Activity className="w-4 h-4 text-violet-400" />
       case "EgressOnlyInternetGateway":
-        return <Globe className="w-4 h-4 text-orange-700" />
+        return <Globe className="w-4 h-4 text-orange-400" />
       case "AWSService":
-        return <Cloud className="w-4 h-4 text-emerald-700" />
+        return <Cloud className="w-4 h-4 text-emerald-400" />
       default:
         return <ShieldOff className="w-4 h-4 text-slate-500" />
     }
@@ -1648,15 +1623,14 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
   return (
     <div
       ref={containerRef}
-      className="relative rounded-lg border-2 bg-white p-5 min-h-[280px] overflow-x-auto shadow-sm"
-      style={{ borderColor: "#e2e8f0" }}
+      className="relative rounded-lg border bg-slate-950/60 p-4 min-h-[280px] overflow-x-auto"
+      style={{ borderColor: "rgba(148,163,184,0.15)" }}
     >
-      {/* Subtle dot grid on white — gives the canvas a "diagram" feel
-          without overwhelming. Dots are slate-200 on white at 50% opacity. */}
+      {/* Subtle dot grid background */}
       <div
-        className="absolute inset-0 opacity-50 pointer-events-none rounded-lg"
+        className="absolute inset-0 opacity-30 pointer-events-none rounded-lg"
         style={{
-          backgroundImage: "radial-gradient(circle, #cbd5e1 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(circle, #1e293b 1px, transparent 1px)",
           backgroundSize: "20px 20px",
         }}
       />
@@ -1780,36 +1754,34 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
         </div>
         )}
 
-        {/* COMPUTE column — the source workload. Custom light-theme card
-            because the shared ServiceNodeBox is dark-themed and renders
-            as a giant slate-700 island on the white canvas (operator
-            screenshot 2026-05-18). Replaced with an inline card that
-            matches the SG/RT/Gateway visual language. */}
+        {/* COMPUTE column — dark-theme custom card (avoids the bulky
+            shared ServiceNodeBox while staying readable on the dark
+            canvas). */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-            <Server className="w-3.5 h-3.5 text-blue-600" />
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Server className="w-3.5 h-3.5 text-blue-400" />
             Compute (1)
           </div>
           <div data-compute-id={row.workloadId}>
-            <div className="rounded-lg border-2 border-blue-300 bg-blue-50 px-3.5 py-2.5 shadow-sm">
+            <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3.5 py-2.5">
               <div className="flex items-center gap-1.5">
-                <Server className="w-4 h-4 text-blue-700 shrink-0" />
-                <div className="text-[13px] font-bold text-blue-900 truncate" title={row.workloadName}>
+                <Server className="w-4 h-4 text-blue-300 shrink-0" />
+                <div className="text-[13px] font-semibold text-blue-50 truncate" title={row.workloadName}>
                   {row.workloadName.length > 26
                     ? row.workloadName.slice(0, 26) + "…"
                     : row.workloadName}
                 </div>
               </div>
-              <div className="text-[10px] text-blue-700 mt-0.5 font-semibold uppercase tracking-wider">
+              <div className="text-[10px] text-blue-300 mt-0.5 font-semibold uppercase tracking-wider">
                 {row.workloadType === "lambda" ? "Lambda" : "EC2"}
               </div>
             </div>
             {row.subnetId && (
               <div
-                className={`mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${subnetTone}`}
+                className={`mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${subnetTone}`}
               >
                 {subnetLabel}
-                <span className="font-mono normal-case font-medium opacity-90">
+                <span className="font-mono normal-case font-normal opacity-80">
                   · {row.subnetName || row.subnetId}
                 </span>
               </div>
@@ -1817,34 +1789,35 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           </div>
         </div>
 
-        {/* SG column — sizes bumped 30% over prior version for readability
-            on light-theme system page. */}
+        {/* Security Group column — dark theme. Header renamed "SG" →
+            "Security Group" per user feedback (2026-05-18: "i want to
+            see InternetGateway" / "change SG to Security Group"). */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-            <Lock className="w-3.5 h-3.5 text-orange-600" />
-            SG ({architecture.securityGroups.length})
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5 text-orange-400" />
+            Security Group ({architecture.securityGroups.length})
           </div>
           {architecture.securityGroups.map((sg) => {
             const sgRow = row.sgs.find((s) => s.id === sg.id)
             const tone = sgRow?.hasPublicEgress
-              ? "border-amber-400 bg-amber-50"
-              : "border-orange-300 bg-orange-50"
+              ? "border-amber-500/60 bg-amber-500/10"
+              : "border-orange-500/30 bg-orange-500/5"
             return (
               <div
                 key={sg.id}
                 data-sg-id={sg.id}
-                className={`rounded-lg border-2 ${tone} px-3.5 py-2.5 shadow-sm`}
+                className={`rounded-lg border ${tone} px-3.5 py-2.5`}
               >
                 <div className="flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-orange-700 shrink-0" />
-                  <div className="text-[13px] font-semibold text-orange-900 truncate" title={sg.name}>
+                  <Lock className="w-3.5 h-3.5 text-orange-300 shrink-0" />
+                  <div className="text-[13px] font-semibold text-orange-50 truncate" title={sg.name}>
                     {(sg.name || sg.id).length > 28
                       ? (sg.name || sg.id).slice(0, 28) + "…"
                       : sg.name || sg.id}
                   </div>
                 </div>
                 {sgRow?.hasPublicEgress && (
-                  <div className="mt-1.5 text-[10px] text-amber-800 uppercase tracking-wider font-bold">
+                  <div className="mt-1.5 text-[10px] text-amber-200 uppercase tracking-wider font-bold">
                     Public egress
                   </div>
                 )}
@@ -1853,11 +1826,10 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           })}
         </div>
 
-        {/* ROUTE TABLE column — clickable card. Click toggles the
-            expanded panel below the grid showing every route entry. */}
+        {/* ROUTE TABLE column — dark theme. */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-            <Activity className="w-3.5 h-3.5 text-indigo-600" />
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-indigo-400" />
             Route Table ({row.routeTable ? 1 : 0})
           </div>
           {row.routeTable ? (
@@ -1865,30 +1837,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               type="button"
               onClick={() => setRouteTableOpen((v) => !v)}
               aria-expanded={routeTableOpen}
-              className={`text-left rounded-lg border-2 px-3.5 py-2.5 shadow-sm transition-colors hover:bg-indigo-100 hover:border-indigo-400 ${
+              className={`text-left rounded-lg border px-3.5 py-2.5 transition-colors hover:bg-indigo-500/15 hover:border-indigo-500/60 ${
                 routeTableOpen
-                  ? "border-indigo-500 bg-indigo-100"
+                  ? "border-indigo-500/60 bg-indigo-500/15"
                   : row.routeTable.recommendation?.type === "REMOVE_ROUTE"
-                    ? "border-amber-400 bg-amber-50"
+                    ? "border-amber-500/50 bg-amber-500/10"
                     : row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT"
-                      ? "border-emerald-400 bg-emerald-50"
-                      : "border-indigo-300 bg-indigo-50"
+                      ? "border-emerald-500/50 bg-emerald-500/10"
+                      : "border-indigo-500/40 bg-indigo-500/10"
               }`}
             >
               <div className="flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
-                <div className="text-[12px] font-semibold text-indigo-900 truncate font-mono">
+                <Activity className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                <div className="text-[12px] font-semibold text-indigo-50 truncate font-mono">
                   {row.routeTable.id}
                 </div>
                 <ChevronRight
-                  className={`w-3.5 h-3.5 text-indigo-700 ml-auto shrink-0 transition-transform ${
+                  className={`w-3.5 h-3.5 text-indigo-300 ml-auto shrink-0 transition-transform ${
                     routeTableOpen ? "rotate-90" : ""
                   }`}
                 />
               </div>
-              <div className="mt-1 text-[10px] text-indigo-700 uppercase tracking-wider font-bold">
+              <div className="mt-1 text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">
                 {row.routeTable.routes.length} route{row.routeTable.routes.length === 1 ? "" : "s"}
-                <span className="ml-1 text-indigo-600 normal-case font-medium">· click to view</span>
+                <span className="ml-1 text-indigo-400/70 normal-case font-normal">· click to view</span>
               </div>
               {/* Recommendation chip — variant by type. REMOVE_ROUTE = amber
                   ("this is dead weight"); ADD_VPC_ENDPOINT = emerald ("this
@@ -1897,22 +1869,22 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   Tooltip on the chip shows the full confidence signal. */}
               {row.routeTable.recommendation?.type === "REMOVE_ROUTE" && (
                 <div
-                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-400 bg-amber-100 px-1.5 py-0.5"
+                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-500/60 bg-amber-500/20 px-1.5 py-0.5"
                   title={row.routeTable.recommendation.confidence_signal}
                 >
-                  <ShieldOff className="w-2.5 h-2.5 text-amber-700" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                  <ShieldOff className="w-2.5 h-2.5 text-amber-300" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
                     Removable · {row.routeTable.recommendation.candidate_route_cidr}
                   </span>
                 </div>
               )}
               {row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT" && (
                 <div
-                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-emerald-400 bg-emerald-100 px-1.5 py-0.5"
+                  className="mt-1.5 inline-flex items-center gap-1 rounded border border-emerald-500/60 bg-emerald-500/20 px-1.5 py-0.5"
                   title={row.routeTable.recommendation.confidence_signal}
                 >
-                  <Lock className="w-2.5 h-2.5 text-emerald-700" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                  <Lock className="w-2.5 h-2.5 text-emerald-300" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">
                     Add VPCE · {row.routeTable.recommendation.candidate_aws_service}
                     {row.routeTable.recommendation.candidate_is_gateway_vpce ? " · free" : ""}
                   </span>
@@ -1920,10 +1892,10 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               )}
             </button>
           ) : (
-            <div className="rounded-lg border-2 border-slate-300 bg-slate-50 px-3.5 py-2.5">
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3.5 py-2.5">
               <div className="flex items-center gap-1.5">
                 <ShieldOff className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <div className="text-[12px] font-semibold text-slate-600 truncate">No route table</div>
+                <div className="text-[12px] font-semibold text-slate-300 truncate">No route table</div>
               </div>
               <div className="mt-1 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
                 Not in VPC
@@ -1932,49 +1904,61 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           )}
         </div>
 
-        {/* GATEWAY column — bumped sizes + No-L7-Filter chip for IGW/NAT
-            to surface unprotected-egress signal even when NFW isn't
-            collected (most customers don't have it; "no L7 filter" IS
-            the finding). */}
+        {/* GATEWAY column — dark theme. Header shows the SPECIFIC gateway
+            kind (e.g. "Internet Gateway", "NAT Gateway", "VPC Endpoint")
+            instead of generic "Gateway" per user feedback. When multiple
+            kinds present, falls back to "Gateways (N)". */}
         <div className="flex flex-col gap-2.5">
-          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-            <Network className="w-3.5 h-3.5 text-violet-600" />
-            Gateway ({architecture.iamRoles.length})
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Network className="w-3.5 h-3.5 text-violet-400" />
+            {(() => {
+              const kinds = Array.from(new Set(row.gateways.map((g) => g.kind)))
+              const labelize = (k: string) =>
+                k === "InternetGateway"
+                  ? "Internet Gateway"
+                  : k === "NATGateway"
+                    ? "NAT Gateway"
+                    : k === "VPCEndpoint"
+                      ? "VPC Endpoint"
+                      : k === "TransitGateway"
+                        ? "Transit Gateway"
+                        : k === "EgressOnlyInternetGateway"
+                          ? "Egress-Only IGW"
+                          : k || "Gateway"
+              if (kinds.length === 1) {
+                return `${labelize(kinds[0])} (${architecture.iamRoles.length})`
+              }
+              return `Gateways (${architecture.iamRoles.length})`
+            })()}
           </div>
           {architecture.iamRoles.map((g) => {
             const gw = row.gateways.find((gg) => gg.id === g.id)
             const tone =
               gw?.bucket === "public"
-                ? "border-amber-400 bg-amber-50"
+                ? "border-amber-500/60 bg-amber-500/10"
                 : gw?.bucket === "private"
-                  ? "border-emerald-400 bg-emerald-50"
-                  : "border-slate-300 bg-slate-50"
-            const textTone =
-              gw?.bucket === "public"
-                ? "text-amber-900"
-                : gw?.bucket === "private"
-                  ? "text-emerald-900"
-                  : "text-slate-800"
+                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  : "border-slate-700 bg-slate-900/40"
             const isPublicEgress = gw?.bucket === "public"
             return (
               <div
                 key={g.id}
                 data-role-id={g.id}
-                className={`rounded-lg border-2 ${tone} px-3.5 py-2.5 shadow-sm`}
+                className={`rounded-lg border ${tone} px-3.5 py-2.5`}
               >
                 <div className="flex items-center gap-1.5">
                   {routeKindIcon(gw?.kind || "")}
-                  <span className={`text-[13px] font-semibold ${textTone} truncate flex-1`} title={g.name}>
+                  <span className="text-[13px] font-semibold text-slate-100 truncate flex-1" title={g.name}>
                     {(g.name || g.id).length > 26
                       ? (g.name || g.id).slice(0, 26) + "…"
                       : g.name || g.id}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-600 mt-0.5 font-semibold">{gw?.kind}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5 font-semibold">{gw?.kind}</div>
                 {isPublicEgress && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 rounded border border-slate-400 bg-slate-100 px-1.5 py-0.5">
-                    <ShieldOff className="w-2.5 h-2.5 text-slate-600" />
-                    <span className="text-[10px] uppercase tracking-wider text-slate-700 font-bold">
+                  <div className="mt-1.5 inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/60 px-1.5 py-0.5">
+                    <ShieldOff className="w-2.5 h-2.5 text-slate-400" />
+                    <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">
                       No L7 Filter
                     </span>
                   </div>
@@ -1984,11 +1968,10 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           })}
         </div>
 
-        {/* DESTINATIONS column — denser rows + bigger fonts + clearer
-            byte counts (cyan-700 weight, not 400). */}
+        {/* DESTINATIONS column — dark theme. */}
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-            <Globe className="w-3.5 h-3.5 text-cyan-600" />
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Globe className="w-3.5 h-3.5 text-cyan-400" />
             Destinations ({architecture.resources.length})
           </div>
           {/* Compute max byte volume for relative bar widths — gives the
@@ -2018,17 +2001,17 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               dest.name
             const primaryIsIp = primaryName === fullDest?.ip
             const bytePct = fullDest ? Math.round((fullDest.bytes / maxBytes) * 100) : 0
-            // Card tone — alert > AWS > internet bare.
+            // Card tone — alert > AWS > internet bare (dark theme).
             const cardTone = isAlert
-              ? "border-rose-300 bg-rose-50"
+              ? "border-rose-500/50 bg-rose-500/10"
               : dest.type === "internet"
-                ? "border-slate-200 bg-white"
-                : "border-emerald-300 bg-emerald-50"
+                ? "border-slate-700 bg-slate-900/60"
+                : "border-emerald-500/30 bg-emerald-500/5"
             return (
               <div
                 key={dest.id}
                 data-resource-id={dest.id}
-                className={`rounded-lg border ${cardTone} px-3 py-2 shadow-sm transition-shadow hover:shadow-md`}
+                className={`rounded-lg border ${cardTone} px-3 py-2`}
               >
                 {/* Primary line: country flag + org/hostname/svc + bytes */}
                 <div className="flex items-center justify-between gap-2">
@@ -2042,7 +2025,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                       </span>
                     ) : null}
                     <span
-                      className="text-[12px] font-semibold text-slate-900 truncate"
+                      className="text-[12px] font-semibold text-slate-100 truncate"
                       title={primaryName || dest.name}
                     >
                       {(primaryName || dest.name).length > 32
@@ -2051,7 +2034,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                     </span>
                   </div>
                   {fullDest ? (
-                    <span className="text-[11px] font-mono font-bold text-slate-900 shrink-0">
+                    <span className="text-[11px] font-mono font-bold text-cyan-300 shrink-0">
                       {formatBytes(fullDest.bytes)}
                     </span>
                   ) : null}
@@ -2059,7 +2042,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
 
                 {/* Secondary line: IP + last-seen */}
                 {fullDest && (
-                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-slate-600">
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-slate-400">
                     {!primaryIsIp ? (
                       <span className="font-mono truncate" title={fullDest.ip}>
                         {fullDest.ip}
@@ -2078,15 +2061,15 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   </div>
                 )}
 
-                {/* Relative volume bar — visual scan of "who dwarfs whom" */}
+                {/* Relative volume bar */}
                 {fullDest && bytePct > 0 && (
-                  <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden">
+                  <div className="mt-1.5 h-1 rounded-full bg-slate-800 overflow-hidden">
                     <div
                       className={`h-full ${
                         isAlert
                           ? "bg-rose-400"
                           : dest.type === "internet"
-                            ? "bg-slate-400"
+                            ? "bg-slate-500"
                             : "bg-emerald-500"
                       }`}
                       style={{ width: `${bytePct}%` }}
@@ -2104,10 +2087,10 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                         : `AWS ${fullDest.aws_service ?? "service"} published IP range`
                     }
                   >
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
                       AWS · {fullDest.aws_service ?? "?"}
                       {isEc2Service && (
-                        <span className="ml-1 font-normal text-emerald-700">
+                        <span className="ml-1 font-normal text-emerald-300/80">
                           (instance or API)
                         </span>
                       )}
@@ -2116,12 +2099,12 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 )}
                 {showExternalMeta && (
                   <div
-                    className="mt-1 text-[10px] text-slate-600 truncate"
+                    className="mt-1 text-[10px] text-slate-400 truncate"
                     title={`${fullDest?.org || ""}${fullDest?.asn ? " · " + fullDest.asn : ""}`}
                   >
                     {fullDest?.org && <span className="font-medium">{fullDest.org}</span>}
                     {fullDest?.org && fullDest?.asn && (
-                      <span className="text-slate-400"> · </span>
+                      <span className="text-slate-600"> · </span>
                     )}
                     {fullDest?.asn && (
                       <span className="font-mono text-slate-500">{fullDest.asn}</span>
@@ -2129,9 +2112,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   </div>
                 )}
 
-                {/* Signal chips — surfaces WHY the severity score is what it is.
-                    Operator can now see "plaintext channel" inline instead
-                    of guessing why a destination is highlighted alert-red. */}
+                {/* Signal chips */}
                 {signalList.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {signalList.map((sig) => {
@@ -2139,10 +2120,10 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                       if (!meta) return null
                       const chipTone =
                         meta.tone === "alert"
-                          ? "bg-rose-100 text-rose-800 border-rose-300"
+                          ? "bg-rose-500/15 text-rose-200 border-rose-500/50"
                           : meta.tone === "warning"
-                            ? "bg-amber-100 text-amber-800 border-amber-300"
-                            : "bg-sky-100 text-sky-800 border-sky-300"
+                            ? "bg-amber-500/15 text-amber-200 border-amber-500/50"
+                            : "bg-sky-500/15 text-sky-200 border-sky-500/50"
                       return (
                         <span
                           key={sig}
@@ -2160,7 +2141,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             })
           })()}
           {architecture.resources.length > 12 && (
-            <div className="text-[11px] text-slate-500 pl-2 italic font-semibold">
+            <div className="text-[11px] text-slate-500 pl-2 italic">
               + {architecture.resources.length - 12} more — see Destinations table below
             </div>
           )}
@@ -2176,21 +2157,21 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           row gets a "PROPOSE: REMOVE" chip + amber pulse. */}
       {routeTableOpen && row.routeTable && (
         <div
-          className="relative mt-4 rounded-lg border-2 border-indigo-300 bg-indigo-50 p-3 shadow-sm"
+          className="relative mt-4 rounded-lg border border-indigo-500/30 bg-indigo-950/40 p-3"
           style={{ zIndex: 2 }}
         >
           <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-3.5 h-3.5 text-indigo-700" />
-            <div className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
+            <Activity className="w-3.5 h-3.5 text-indigo-400" />
+            <div className="text-[11px] font-semibold text-indigo-100 uppercase tracking-wider">
               Routes
             </div>
-            <span className="text-[10px] font-mono text-indigo-700">
+            <span className="text-[10px] font-mono text-indigo-300">
               {row.routeTable.id}
             </span>
             <button
               type="button"
               onClick={() => setRouteTableOpen(false)}
-              className="ml-auto text-[10px] text-indigo-700 hover:text-indigo-900 uppercase tracking-wider font-bold"
+              className="ml-auto text-[10px] text-indigo-300 hover:text-indigo-100 uppercase tracking-wider"
             >
               Close
             </button>
@@ -2202,22 +2183,22 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               here — actual execution is queued for the posture
               recommendations engine. */}
           {row.routeTable.recommendation?.type === "REMOVE_ROUTE" && (
-            <div className="mb-3 rounded border-2 border-amber-400 bg-amber-100 p-2.5">
+            <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
-                <ShieldOff className="w-3.5 h-3.5 text-amber-700" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
+                <ShieldOff className="w-3.5 h-3.5 text-amber-300" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-100">
                   Proposed: Remove unused route
                 </span>
-                <span className="ml-auto text-[10px] font-mono text-amber-800 font-semibold">
+                <span className="ml-auto text-[9px] font-mono text-amber-300">
                   {row.routeTable.recommendation.candidate_route_cidr}
                   {" → "}
                   {row.routeTable.recommendation.candidate_route_target_kind}
                 </span>
               </div>
-              <div className="text-[11px] text-amber-900 leading-relaxed font-medium">
+              <div className="text-[11px] text-amber-50/90 leading-relaxed">
                 {row.routeTable.recommendation.confidence_signal}
               </div>
-              <div className="mt-1.5 text-[10px] text-amber-800">
+              <div className="mt-1.5 text-[10px] text-amber-200/70">
                 Scope: {row.routeTable.recommendation.scope_workload_count} workload
                 {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
                 this route table. Removing the route affects all of them. Rare-use workloads
@@ -2231,7 +2212,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   Apply → applied → Rollback) — re-fire across N path
                   cards sharing this RT all hit the SAME proposal_id
                   (content-addressed by rt_id + cidr + target). */}
-              <div className="mt-2 pt-2 border-t border-amber-300">
+              <div className="mt-2 pt-2 border-t border-amber-500/20">
                 <RemoveRouteActionPanel
                   candidate={{
                     rtId: row.routeTable.id,
@@ -2248,23 +2229,23 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             </div>
           )}
           {row.routeTable.recommendation?.type === "ADD_VPC_ENDPOINT" && (
-            <div className="mb-3 rounded border-2 border-emerald-400 bg-emerald-100 p-2.5">
+            <div className="mb-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
-                <Lock className="w-3.5 h-3.5 text-emerald-700" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
+                <Lock className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">
                   Proposed: Add VPC Endpoint for{" "}
                   {row.routeTable.recommendation.candidate_aws_service}
                 </span>
                 {row.routeTable.recommendation.candidate_is_gateway_vpce && (
-                  <span className="ml-auto rounded border border-emerald-500 bg-emerald-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
+                  <span className="ml-auto rounded border border-emerald-400/60 bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-100">
                     Gateway · Free
                   </span>
                 )}
               </div>
-              <div className="text-[11px] text-emerald-900 leading-relaxed font-medium">
+              <div className="text-[11px] text-emerald-50/90 leading-relaxed">
                 {row.routeTable.recommendation.confidence_signal}
               </div>
-              <div className="mt-1.5 text-[10px] text-emerald-800">
+              <div className="mt-1.5 text-[10px] text-emerald-200/70">
                 Scope: {row.routeTable.recommendation.scope_workload_count} workload
                 {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
                 this route table. Adding the VPCE keeps observed AWS-service traffic on the
@@ -2276,18 +2257,18 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           )}
 
           {row.routeTable.routes.length === 0 ? (
-            <div className="text-[11px] text-slate-600 italic">
+            <div className="text-[11px] text-slate-400 italic">
               No active routes on this table — workload effectively cannot egress.
             </div>
           ) : (
             <div className="grid grid-cols-[1fr_140px_1.4fr] gap-2 text-[11px]">
-              <div className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider px-2">
+              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
                 Destination
               </div>
-              <div className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider px-2">
+              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
                 Target kind
               </div>
-              <div className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider px-2">
+              <div className="text-[9px] font-semibold text-indigo-300 uppercase tracking-wider px-2">
                 Target
               </div>
               {row.routeTable.routes.map((rt, idx) => {
@@ -2308,30 +2289,30 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   rec.candidate_route_target_id === rt.target_id
                 )
                 const rowTone = isCandidate
-                  ? "border-amber-400 bg-amber-100 ring-2 ring-amber-300"
+                  ? "border-amber-400/80 bg-amber-500/15 ring-1 ring-amber-400/40"
                   : isPublicEgress
-                    ? "border-amber-300 bg-amber-50"
+                    ? "border-amber-500/40 bg-amber-500/5"
                     : isPrivate
-                      ? "border-emerald-300 bg-emerald-50"
-                      : "border-slate-300 bg-white"
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : "border-slate-700/60 bg-slate-900/40"
                 return (
                   <React.Fragment key={`${rt.cidr}-${rt.target_id}-${idx}`}>
-                    <div className={`rounded border ${rowTone} px-2 py-1.5 font-mono text-slate-900 font-semibold`}>
+                    <div className={`rounded border ${rowTone} px-2 py-1.5 font-mono text-slate-100`}>
                       {rt.cidr || <span className="text-slate-500 italic">(no cidr)</span>}
                     </div>
                     <div className={`rounded border ${rowTone} px-2 py-1.5 flex items-center gap-1.5`}>
                       {routeKindIcon(kind)}
-                      <span className="text-slate-800 font-medium">{kind}</span>
+                      <span className="text-slate-200">{kind}</span>
                     </div>
                     <div className={`rounded border ${rowTone} px-2 py-1.5 truncate flex items-center gap-1.5`}>
-                      <span className="text-slate-900 truncate font-medium">{rt.target_name || rt.target_id || "—"}</span>
+                      <span className="text-slate-100 truncate">{rt.target_name || rt.target_id || "—"}</span>
                       {rt.target_name && rt.target_id && rt.target_name !== rt.target_id && (
                         <span className="ml-1 text-slate-500 font-mono text-[10px] truncate">
                           {rt.target_id}
                         </span>
                       )}
                       {isCandidate && (
-                        <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded border border-amber-500 bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                        <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded border border-amber-400/70 bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-100">
                           Propose: Remove
                         </span>
                       )}
@@ -2341,7 +2322,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               })}
             </div>
           )}
-          <div className="mt-2 text-[10px] text-indigo-700 font-medium">
+          <div className="mt-2 text-[10px] text-indigo-400/70">
             Routes with a public-egress target (IGW / NAT / EIGW) are highlighted in amber. Local-VPC and prefix-list routes resolve to private targets (VPCE / TGW).
           </div>
         </div>
@@ -2656,20 +2637,21 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
     !/public/i.test(row.subnetName || "")
   const hasPublicEgress = row.gateways.some(g => g.bucket === "public")
   const isPrivateOnly = row.gateways.length > 0 && row.gateways.every(g => g.bucket === "private")
-  // Right-side status chip — light-theme palette (was dark accents).
+  // Right-side status chip — dark-theme palette (user requested revert).
   const statusChip = subnetNameMismatch
-    ? { label: "Name mismatch", color: "#b91c1c", borderColor: "#fca5a5", bg: "#fef2f2", title: `Subnet named "${row.subnetName}" suggests private, but actually has a route to an Internet Gateway.` }
+    ? { label: "Name mismatch", color: "#fca5a5", borderColor: "rgba(220,38,38,0.4)", bg: "transparent", title: `Subnet named "${row.subnetName}" suggests private, but actually has a route to an Internet Gateway.` }
     : hasPublicEgress
-      ? { label: "Public internet", color: "#b45309", borderColor: "#fcd34d", bg: "#fffbeb", title: "Egress exits to the public internet via an Internet Gateway." }
+      ? { label: "Public internet", color: "#fcd34d", borderColor: "rgba(245,158,11,0.4)", bg: "rgba(245,158,11,0.06)", title: "Egress exits to the public internet via an Internet Gateway." }
       : isPrivateOnly
-        ? { label: "Private egress", color: "#15803d", borderColor: "#86efac", bg: "#f0fdf4", title: "Egress stays inside AWS / private networks (NAT, VPCE, TGW)." }
+        ? { label: "Private egress", color: "#86efac", borderColor: "rgba(22,163,74,0.4)", bg: "rgba(22,163,74,0.06)", title: "Egress stays inside AWS / private networks (NAT, VPCE, TGW)." }
         : null
 
   return (
     <div
-      className="group relative rounded-lg border-2 overflow-hidden shadow-sm bg-white"
+      className="group relative rounded-lg border overflow-hidden"
       style={{
-        borderColor: "#e2e8f0",
+        borderColor: "rgba(148,163,184,0.12)",
+        background: "rgba(30,41,59,0.6)",
       }}
     >
       {/* Severity ribbon */}
@@ -2682,21 +2664,21 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         type="button"
         onClick={() => setExpanded(e => !e)}
         aria-expanded={expanded}
-        className="flex flex-col gap-2 text-left transition-all hover:bg-slate-50 w-full"
+        className="flex flex-col gap-2 text-left transition-all hover:bg-white/[0.02] w-full"
       >
 
       {/* Top row: number · path # · meta · status · chevron */}
       <div className="flex items-center gap-4 pl-5 pr-4 pt-3">
         <div className="flex items-baseline gap-2 shrink-0 min-w-[64px]">
           <span
-            className="text-2xl font-bold tabular-nums leading-none"
+            className="text-2xl font-semibold tabular-nums leading-none"
             style={{ color: sevColor }}
             title={`Severity ${row.severity} (${row.severityScore}/100)`}
           >
             {row.severityScore}
           </span>
           <span
-            className="text-[10px] uppercase tracking-[0.12em] font-bold"
+            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
             style={{ color: sevColor }}
           >
             {row.severity}
@@ -2704,14 +2686,14 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         </div>
 
         <div
-          className="flex items-baseline gap-2 text-[11px] uppercase tracking-[0.1em] font-bold"
-          style={{ color: "#64748b" }}
+          className="flex items-baseline gap-2 text-[11px] uppercase tracking-[0.1em] font-semibold"
+          style={{ color: "#94a3b8" }}
         >
-          <span style={{ color: "#0f172a" }}>Path #{index}</span>
+          <span style={{ color: "#f1f5f9" }}>Path #{index}</span>
           <span>·</span>
           <span>{row.hopCount} hops</span>
           <span>·</span>
-          <span style={{ color: "#15803d" }}>{row.evidence}</span>
+          <span style={{ color: "#22c55e" }}>{row.evidence}</span>
         </div>
 
         {statusChip ? (
@@ -2743,28 +2725,27 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
               setFullscreen(true)
             }
           }}
-          className="shrink-0 p-1 rounded hover:bg-slate-100 focus:bg-slate-100 focus:outline-none cursor-pointer"
+          className="shrink-0 p-1 rounded hover:bg-white/[0.06] focus:bg-white/[0.06] focus:outline-none cursor-pointer"
         >
-          <Maximize2 className="w-3.5 h-3.5" style={{ color: "#64748b" }} />
+          <Maximize2 className="w-3.5 h-3.5" style={{ color: "#94a3b8" }} />
         </span>
         <ChevronRight
           className={`w-4 h-4 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
-          style={{ color: "#64748b" }}
+          style={{ color: "#94a3b8" }}
         />
       </div>
 
-      {/* Chain — clean typography, '›' separators, plain text. Light-theme
-          palette: slate-900 base + 700-tone semantic accents. */}
+      {/* Chain — clean typography, '›' separators, plain text */}
       <div
         className="pl-5 pr-4 text-sm font-medium"
-        style={{ color: "#0f172a" }}
+        style={{ color: "#f1f5f9" }}
       >
         <span>{row.workloadName}</span>
         {row.subnetName && (
           <>
             <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
             <span
-              style={{ color: subnetIsPublic === true ? "#b45309" : subnetIsPublic === false ? "#15803d" : "#64748b" }}
+              style={{ color: subnetIsPublic === true ? "#fcd34d" : subnetIsPublic === false ? "#86efac" : "#94a3b8" }}
               title={`Subnet posture: ${subnetText}`}
             >
               {subnetText} subnet · {row.subnetName}
@@ -2774,40 +2755,39 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         {row.sgs.map(sg => (
           <span key={sg.id}>
             <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
-            <span style={{ color: sg.hasPublicEgress ? "#b45309" : "#c2410c" }}>{sg.name}</span>
+            <span style={{ color: sg.hasPublicEgress ? "#fcd34d" : "#fdba74" }}>{sg.name}</span>
           </span>
         ))}
         {row.gateways.map(g => (
           <span key={g.id}>
             <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
-            <span style={{ color: g.bucket === "public" ? "#b45309" : g.bucket === "private" ? "#15803d" : "#475569" }}>
+            <span style={{ color: g.bucket === "public" ? "#fcd34d" : g.bucket === "private" ? "#86efac" : "#cbd5e1" }}>
               {g.name} ({g.kind})
             </span>
           </span>
         ))}
         <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
-        <span style={{ color: sevColor, fontWeight: 600 }}>
+        <span style={{ color: sevColor }}>
           {row.egressDestinationCount}{" "}
           {row.egressDestinationCount === 1 ? "egress destination" : "egress destinations"}
         </span>
         {row.eastWestDestinationCount > 0 && (
-          <span className="ml-2 text-[11px]" style={{ color: "#64748b" }}>
+          <span className="ml-2 text-[11px]" style={{ color: "#94a3b8" }}>
             +{row.eastWestDestinationCount} east-west (local route, not via gateway)
           </span>
         )}
       </div>
 
-      {/* Stats row — outlined chips, low saturation, clear labels.
-          Mirrors "On jewel" / "Lateral" / "Reduce" pattern. */}
+      {/* Stats row — outlined chips, low saturation, clear labels. */}
       <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap pl-5 pr-4 pb-3 mt-0.5">
         <div className="flex items-baseline gap-2">
           <span
-            className="text-[10px] uppercase tracking-[0.12em] font-bold"
-            style={{ color: "#64748b" }}
+            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+            style={{ color: "#94a3b8" }}
           >
             On workload
           </span>
-          <span className="text-xs" style={{ color: "#0f172a" }}>
+          <span className="text-xs" style={{ color: "#f1f5f9" }}>
             <span className="font-semibold tabular-nums">{formatBytes(row.totalBytes)}</span>
             <span style={{ color: "#94a3b8" }}> · </span>
             <span className="font-semibold tabular-nums">{row.totalHits.toLocaleString()}</span> hits
@@ -2818,13 +2798,13 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
 
         <div className="flex items-baseline gap-2">
           <span
-            className="text-[10px] uppercase tracking-[0.12em] font-bold"
-            style={{ color: "#64748b" }}
+            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+            style={{ color: "#94a3b8" }}
           >
             Network
           </span>
-          <span className="text-xs" style={{ color: "#475569" }}>
-            <span style={{ color: subnetIsPublic === true ? "#b45309" : subnetIsPublic === false ? "#15803d" : "#64748b" }}>
+          <span className="text-xs" style={{ color: "#cbd5e1" }}>
+            <span style={{ color: subnetIsPublic === true ? "#fcd34d" : subnetIsPublic === false ? "#86efac" : "#94a3b8" }}>
               {subnetText} subnet
             </span>
             {row.gateways.length > 0 && (
@@ -2839,12 +2819,12 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         {Object.keys(row.signals).length > 0 && (
           <div className="flex items-baseline gap-2 min-w-0">
             <span
-              className="text-[10px] uppercase tracking-[0.12em] font-bold"
-              style={{ color: "#64748b" }}
+              className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+              style={{ color: "#94a3b8" }}
             >
               Signals
             </span>
-            <span className="text-xs truncate" style={{ color: "#b91c1c", fontWeight: 600 }}>
+            <span className="text-xs truncate" style={{ color: "#fca5a5" }}>
               {Object.entries(row.signals)
                 .map(([code, count]) => {
                   const meta = SIGNAL_META[code] || { label: code, tone: "info" as const, tooltip: code }
@@ -2934,37 +2914,34 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
           full-viewport so the operator actually gets more canvas. */}
       <Dialog open={fullscreen} onOpenChange={setFullscreen}>
         <DialogContent
-          className="!max-w-[95vw] w-[95vw] h-[95vh] p-0 gap-0 flex flex-col bg-white border-slate-200 overflow-hidden"
+          className="!max-w-[95vw] w-[95vw] h-[95vh] p-0 gap-0 flex flex-col bg-slate-950 border-slate-800 overflow-hidden"
           showCloseButton={true}
         >
-          {/* Header: severity score + path # + chain summary. Light theme
-              with a subtle slate-50 gradient — same visual language as
-              the inline PathCard wrapper. */}
           <DialogTitle className="sr-only">
             Path #{index} · {row.workloadName}
           </DialogTitle>
           <div
-            className="px-5 py-3 border-b-2 border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50 flex items-center gap-4 shrink-0"
+            className="px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 flex items-center gap-4 shrink-0"
           >
             <div className="flex items-baseline gap-2 shrink-0">
               <span
-                className="text-3xl font-bold tabular-nums leading-none"
+                className="text-3xl font-semibold tabular-nums leading-none"
                 style={{ color: sevColor }}
               >
                 {row.severityScore}
               </span>
               <span
-                className="text-[11px] uppercase tracking-[0.12em] font-bold"
+                className="text-[11px] uppercase tracking-[0.12em] font-semibold"
                 style={{ color: sevColor }}
               >
                 {row.severity}
               </span>
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-600">
+              <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-slate-400">
                 Path #{index} · {row.hopCount} hops · {row.evidence}
               </span>
-              <span className="text-base font-semibold text-slate-900 truncate mt-0.5">
+              <span className="text-base font-semibold text-slate-100 truncate mt-0.5">
                 {row.workloadName}
               </span>
             </div>
@@ -2979,29 +2956,23 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
             )}
           </div>
 
-          {/* Body: 50/50 vertical split — flow map on top, Cyntro Closure
-              Recommendations below. The raw destination + east-west lists
-              are kept as collapsed disclosures at the bottom. */}
-          <div className="flex-1 overflow-hidden flex flex-col bg-slate-50">
-            {/* TOP HALF: flow map */}
-            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 border-b-2 border-slate-200 bg-white">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2">
+          <div className="flex-1 overflow-hidden flex flex-col bg-slate-950">
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 border-b border-slate-800">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
                 Flow map
               </div>
               <PathFlowMap row={row} sevColor={sevColor} />
             </div>
-            {/* BOTTOM HALF: Cyntro Closure Recommendations + collapsed
-                destination disclosures */}
-            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 space-y-4 bg-slate-50">
+            <div className="basis-1/2 min-h-0 overflow-y-auto p-5 space-y-4">
               <EgressInsightsPanel insights={row.insights} />
               {(row.egressDestinations.length > 0 || row.eastWestDestinations.length > 0) && (
                 <div className="space-y-2">
                   {row.egressDestinations.length > 0 && (
-                    <details className="rounded-lg border-2 border-slate-200 bg-white shadow-sm group">
-                      <summary className="cursor-pointer select-none px-4 py-2.5 flex items-center gap-2 text-[12px] font-semibold text-slate-800 hover:bg-slate-50">
+                    <details className="rounded-lg border border-slate-800 bg-slate-900/40 group">
+                      <summary className="cursor-pointer select-none px-4 py-2 flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-900/70">
                         <ChevronRight className="w-3.5 h-3.5 text-slate-500 transition-transform group-open:rotate-90" />
-                        <span className="uppercase tracking-wider text-slate-700 font-bold">Egress destinations</span>
-                        <span className="text-slate-500 normal-case font-medium">
+                        <span className="uppercase tracking-wider text-slate-400">Egress destinations</span>
+                        <span className="text-slate-500 normal-case font-normal">
                           {row.egressDestinationCount} via gateway (IGW / NAT / VPCE)
                         </span>
                       </summary>
@@ -3017,11 +2988,11 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
                     </details>
                   )}
                   {row.eastWestDestinations.length > 0 && (
-                    <details className="rounded-lg border-2 border-slate-200 bg-white shadow-sm group">
-                      <summary className="cursor-pointer select-none px-4 py-2.5 flex items-center gap-2 text-[12px] font-semibold text-slate-800 hover:bg-slate-50">
+                    <details className="rounded-lg border border-slate-800 bg-slate-900/40 group">
+                      <summary className="cursor-pointer select-none px-4 py-2 flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-900/70">
                         <ChevronRight className="w-3.5 h-3.5 text-slate-500 transition-transform group-open:rotate-90" />
-                        <span className="uppercase tracking-wider text-slate-700 font-bold">East-west peers</span>
-                        <span className="text-slate-500 normal-case font-medium">
+                        <span className="uppercase tracking-wider text-slate-400">East-west peers</span>
+                        <span className="text-slate-500 normal-case font-normal">
                           {row.eastWestDestinationCount} local VPC routes — never traverse the gateway
                         </span>
                       </summary>
