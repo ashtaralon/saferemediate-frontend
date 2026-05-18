@@ -760,10 +760,21 @@ export interface PathRow {
   severityScore: number
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
   scoreLabel: string
-  // The "OBSERVED" / "INFERRED" badge — always OBSERVED for now since
-  // every flow comes from real VPC Flow Logs. Reserve INFERRED for a
-  // future expansion (e.g., reachable-but-not-yet-observed paths).
-  evidence: "OBSERVED"
+  // Path evidence type:
+  //   "OBSERVED" — at least one ACTUAL_TRAFFIC edge in the lookback window.
+  //   "LATENT"   — workload has internet capability (SG public egress AND
+  //                subnet routes to IGW/NAT/EIGW) but made zero observed
+  //                requests in the 30-day window. The path is reachable
+  //                but unused — the killer-slide framing from
+  //                project_internet_dependency_framing.md.
+  evidence: "OBSERVED" | "LATENT"
+  // Coarse bucketing for the path row. Mirrors backend egress_posture
+  // buckets but only the two states the Flow Map currently distinguishes
+  // are surfaced here (ACTIVE renders the existing dense card; LATENT
+  // renders the muted "can egress · 0 observed" variant). ISOLATED and
+  // REDIRECTABLE remain Trust Boundary Map's concern — they have their
+  // own dedicated grid there.
+  bucket: "active" | "latent"
   // Crown jewels this workload reads from (drives the CROWN JEWEL
   // column left of COMPUTE in PathFlowMap). Empty array = no observed
   // CJ reads in the lookback window — the column renders a three-
@@ -1016,6 +1027,7 @@ function buildPathRows(
       severityScore,
       scoreLabel,
       evidence: "OBSERVED",
+      bucket: "active",
       upstreamCrownJewels: cjByWorkload.get(wid) || [],
       bucketAccesses: bucketsByWorkload.get(wid) || [],
       insights: insightsByWorkload.get(wid) || [],
@@ -1024,6 +1036,135 @@ function buildPathRows(
   // Sort by score desc — operators see the highest-impact path first,
   // matching the Identity Attack Paths card-list order.
   rows.sort((a, b) => b.severityScore - a.severityScore)
+  return rows
+}
+
+// ---- Latent path rows (workloads that CAN egress but never did) -------
+//
+// Mirrors backend egress_posture._has_internet_capability — a workload
+// has internet capability iff (a) any of its attached SGs has a 0.0.0.0/0
+// egress rule AND (b) its subnet's route table has a 0.0.0.0/0 route to a
+// public-egress kind (IGW / NAT / EIGW). Either plane alone is a dead end.
+//
+// We render these as their own path-row variant: same five-column layout
+// (subnet, SG, RT, gateway are populated from the workload's static AWS
+// state) but the Destinations column shows the "0 observed" placeholder.
+// Severity is intentionally not computed — there's no observed exposure
+// to score; the LATENT pill replaces the numeric score in the header.
+const PUBLIC_EGRESS_ROUTE_KINDS = new Set([
+  "InternetGateway",
+  "NATGateway",
+  "EgressOnlyInternetGateway",
+])
+
+function hasInternetCapability(w: EgressWorkload): {
+  hasCap: boolean
+  hasPublicSg: boolean
+  hasIgwRoute: boolean
+  hasSgs: boolean
+  sgFlagTrusted: boolean
+} {
+  const sgs = w.attached_security_groups || []
+  const hasPublicSg = sgs.some((sg) => !!sg.has_public_egress)
+  const hasSgs = sgs.length > 0
+  const routes = w.route_table?.routes || []
+  const hasIgwRoute = routes.some(
+    (r) =>
+      r.cidr === "0.0.0.0/0" &&
+      !!r.target_kind &&
+      PUBLIC_EGRESS_ROUTE_KINDS.has(r.target_kind),
+  )
+  // Capability detection. We'd prefer to require both planes (SG public
+  // egress AND subnet IGW route) per egress_posture._has_internet_capability,
+  // but the `has_public_egress` flag the egress_visibility collector emits
+  // is currently stale system-wide on alon-prod — it reports false even when
+  // the SG actually has a 0.0.0.0/0 egress rule. The backend egress_posture
+  // endpoint corrects this via Cypher round-trip on outbound_rules JSON,
+  // but the visibility endpoint doesn't. Until that's fixed at source, we
+  // use the network plane (IGW route present + SG attached) and surface the
+  // capability as "inferred" via tooltip so operators can verify per workload.
+  const sgFlagTrusted = hasPublicSg
+  const hasCap = hasIgwRoute && (hasPublicSg || hasSgs)
+  return { hasCap, hasPublicSg, hasIgwRoute, hasSgs, sgFlagTrusted }
+}
+
+function buildLatentPathRows(data: EgressResponse | null): PathRow[] {
+  if (!data) return []
+  const rows: PathRow[] = []
+  for (const w of data.workloads || []) {
+    // Latent = zero observed top_destinations + has both capability planes.
+    // (Workloads with observed traffic land in buildPathRows. Workloads
+    // missing one or both planes are ISOLATED — Trust Boundary Map's
+    // concern, not Flow Map's.)
+    if ((w.top_destinations || []).length > 0) continue
+    const cap = hasInternetCapability(w)
+    if (!cap.hasCap) continue
+
+    const sgs = (w.attached_security_groups || []).map((sg) => ({
+      id: sg.id,
+      name: sg.name || sg.id,
+      hasPublicEgress: !!sg.has_public_egress,
+    }))
+    // Resolve gateways from the RT's public-egress routes. Each unique
+    // (target_kind, target_id) gets a card — usually one (the IGW), but
+    // mixed routing (IGW for default + EIGW for v6) can produce two.
+    const gwSeen = new Set<string>()
+    const gateways: PathRow["gateways"] = []
+    for (const r of w.route_table?.routes || []) {
+      if (r.cidr !== "0.0.0.0/0") continue
+      if (!r.target_kind || !PUBLIC_EGRESS_ROUTE_KINDS.has(r.target_kind)) continue
+      const id = r.target_id || r.target_name || r.target_kind
+      if (gwSeen.has(id)) continue
+      gwSeen.add(id)
+      gateways.push({
+        id,
+        name: r.target_name || r.target_id || r.target_kind,
+        kind: r.target_kind,
+        bucket: "public",
+      })
+    }
+
+    const wl = w.workload
+    const workloadType: NodeType =
+      (wl.node_type || "").toLowerCase().includes("lambda") ? "lambda" : "compute"
+
+    rows.push({
+      workloadId: wl.id,
+      workloadName: wl.name || wl.id,
+      workloadType,
+      subnetId: wl.subnet_id ?? null,
+      subnetName: wl.subnet_name ?? null,
+      subnetIsPublic: wl.subnet_is_public ?? null,
+      sgs,
+      gateways,
+      routeTable: w.route_table ?? null,
+      destinationCount: 0,
+      topDestinations: [],
+      fullDestinations: [],
+      egressDestinations: [],
+      eastWestDestinations: [],
+      egressDestinationCount: 0,
+      eastWestDestinationCount: 0,
+      totalBytes: 0,
+      totalHits: 0,
+      signals: {},
+      // hops: compute + subnet(if present) + sgs + gateways. No destinations
+      // group since none were observed — keep the count truthful.
+      hopCount: 1 + (wl.subnet_id ? 1 : 0) + sgs.length + gateways.length,
+      severity: "LOW",
+      severityScore: 0,
+      scoreLabel: "LATENT",
+      evidence: "LATENT",
+      bucket: "latent",
+      upstreamCrownJewels: w.upstream_crown_jewels || [],
+      bucketAccesses: w.bucket_accesses || [],
+      insights: w.insights || [],
+    })
+  }
+  // Sort by workload name — there's no severity ordering for latent rows
+  // (no observed traffic to score). Alphabetical lets the operator scan
+  // for a specific service quickly.
+  rows.sort((a, b) => a.workloadName.localeCompare(b.workloadName))
   return rows
 }
 
@@ -1122,14 +1263,21 @@ function groupSilentRowsByRT(rows: SilentCandidateRow[]) {
 
 function PathCardList({
   rows,
+  latentRows,
   hiddenWorkloadCount,
   silentCandidates,
 }: {
   rows: PathRow[]
+  latentRows: PathRow[]
   hiddenWorkloadCount: number
   silentCandidates: SilentCandidateRow[]
 }) {
-  if (rows.length === 0 && silentCandidates.length === 0) {
+  // Filter chip — defaults to "active" so the existing OBSERVED-only
+  // narrative isn't disturbed for users who don't toggle. "latent"
+  // exposes the workloads that CAN egress but never did (LATENT_EXPOSURE
+  // bucket — the killer-slide framing). "all" interleaves both.
+  const [view, setView] = useState<"active" | "latent" | "all">("active")
+  if (rows.length === 0 && latentRows.length === 0 && silentCandidates.length === 0) {
     return (
       <div
         className="rounded-xl border p-8 text-center"
@@ -1146,6 +1294,9 @@ function PathCardList({
       </div>
     )
   }
+  const visibleActive = view === "latent" ? [] : rows
+  const visibleLatent = view === "active" ? [] : latentRows
+  const totalVisible = visibleActive.length + visibleLatent.length
 
   // Severity tally (matches identity-attack-paths/path-list-panel.tsx)
   const sevCounts = rows.reduce(
@@ -1186,16 +1337,61 @@ function PathCardList({
             className="text-2xl font-semibold tabular-nums"
             style={{ color: "#f1f5f9" }}
           >
-            {rows.length}
+            {totalVisible}
           </span>
           <span
             className="text-[11px] uppercase tracking-[0.12em] font-semibold"
             style={{ color: "#94a3b8" }}
           >
-            {rows.length === 1 ? "egress path" : "egress paths"}
+            {totalVisible === 1 ? "egress path" : "egress paths"}
           </span>
         </div>
       </div>
+
+      {/* Active / Latent / All filter — only renders when there are
+          latent workloads to show. When zero, the existing
+          "OBSERVED-only" header stays untouched. */}
+      {latentRows.length > 0 && (
+        <div className="flex items-center gap-1.5 text-[10px] -mt-2">
+          <span
+            className="uppercase tracking-[0.1em] font-semibold mr-1"
+            style={{ color: "#64748b" }}
+          >
+            Show
+          </span>
+          {(["active", "latent", "all"] as const).map((opt) => {
+            const labels: Record<typeof opt, string> = {
+              active: `Active · ${rows.length}`,
+              latent: `Latent · ${latentRows.length}`,
+              all: `All · ${rows.length + latentRows.length}`,
+            }
+            const tooltips: Record<typeof opt, string> = {
+              active:
+                "Workloads with at least one observed outbound flow in the 30-day window.",
+              latent:
+                "Workloads that CAN egress to the internet (SG public-egress rule + subnet route to IGW/NAT/EIGW) but made zero observed requests in the 30-day window. Reachable but unused.",
+              all: "Active + latent paths interleaved. Active are sorted by severity; latent are appended alphabetically.",
+            }
+            const isOn = view === opt
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setView(opt)}
+                aria-pressed={isOn}
+                title={tooltips[opt]}
+                className={`rounded border px-2 py-1 font-semibold uppercase tracking-[0.08em] transition-colors ${
+                  isOn
+                    ? "bg-slate-200 text-slate-900 border-slate-200"
+                    : "bg-slate-900/60 text-slate-300 border-slate-700 hover:bg-slate-800"
+                }`}
+              >
+                {labels[opt]}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Severity tally row */}
       {sevCounts.critical + sevCounts.high + sevCounts.medium + sevCounts.low > 0 && (
@@ -1344,10 +1540,28 @@ function PathCardList({
         )
       })()}
 
-      {/* Path rows */}
+      {/* Path rows — active first, latent appended below (or only one
+          group when the filter chip is set to "active" / "latent"). */}
       <div className="flex flex-col gap-2 mt-1">
-        {rows.map((row, i) => (
+        {visibleActive.map((row, i) => (
           <PathCard key={row.workloadId} row={row} index={i + 1} />
+        ))}
+        {visibleLatent.length > 0 && visibleActive.length > 0 && (
+          <div
+            className="mt-3 pt-2 border-t flex items-baseline gap-2 text-[10px] uppercase tracking-[0.12em] font-semibold"
+            style={{ borderColor: "rgba(148,163,184,0.15)", color: "#64748b" }}
+          >
+            <ShieldOff className="w-3 h-3 text-amber-400/70" />
+            <span className="text-amber-300/90">Latent · can egress · 0 observed</span>
+            <span style={{ color: "#475569" }}>· {visibleLatent.length} workload{visibleLatent.length === 1 ? "" : "s"}</span>
+          </div>
+        )}
+        {visibleLatent.map((row, i) => (
+          <PathCard
+            key={`latent-${row.workloadId}`}
+            row={row}
+            index={visibleActive.length + i + 1}
+          />
         ))}
       </div>
     </div>
@@ -2917,7 +3131,11 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
   // size with the path header chrome above it. The inline card stays
   // unchanged — fullscreen is additive.
   const [fullscreen, setFullscreen] = useState(false)
-  const sevColor = severityColor(row.severityScore)
+  const isLatent = row.bucket === "latent"
+  // For LATENT rows: there's no observed exposure to score — render a
+  // muted amber accent instead of the severity-derived color. Score
+  // ribbon stays so the row layout stays consistent.
+  const sevColor = isLatent ? "#f59e0b" : severityColor(row.severityScore)
   const subnetIsPublic = row.subnetIsPublic
   const subnetText = subnetIsPublic === true
     ? "PUBLIC"
@@ -2933,7 +3151,17 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
   const hasPublicEgress = row.gateways.some(g => g.bucket === "public")
   const isPrivateOnly = row.gateways.length > 0 && row.gateways.every(g => g.bucket === "private")
   // Right-side status chip — dark-theme palette (user requested revert).
-  const statusChip = subnetNameMismatch
+  // LATENT rows always carry a "Can egress · unused" chip — that's the
+  // entire reason the row exists; doesn't get drowned by status logic.
+  const statusChip = isLatent
+    ? {
+        label: "Can egress · unused",
+        color: "#fcd34d",
+        borderColor: "rgba(245,158,11,0.4)",
+        bg: "rgba(245,158,11,0.06)",
+        title: "Workload has the network capability to send data to the internet (SG public-egress rule + subnet route to IGW/NAT/EIGW), but made zero observed outbound requests in the 30-day window. Either narrow the egress rule or document the dependency.",
+      }
+    : subnetNameMismatch
     ? { label: "Name mismatch", color: "#fca5a5", borderColor: "rgba(220,38,38,0.4)", bg: "transparent", title: `Subnet named "${row.subnetName}" suggests private, but actually has a route to an Internet Gateway.` }
     : hasPublicEgress
       ? { label: "Public internet", color: "#fcd34d", borderColor: "rgba(245,158,11,0.4)", bg: "rgba(245,158,11,0.06)", title: "Egress exits to the public internet via an Internet Gateway." }
@@ -2965,19 +3193,35 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
       {/* Top row: number · path # · meta · status · chevron */}
       <div className="flex items-center gap-4 pl-5 pr-4 pt-3">
         <div className="flex items-baseline gap-2 shrink-0 min-w-[64px]">
-          <span
-            className="text-2xl font-semibold tabular-nums leading-none"
-            style={{ color: sevColor }}
-            title={`Severity ${row.severity} (${row.severityScore}/100)`}
-          >
-            {row.severityScore}
-          </span>
-          <span
-            className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-            style={{ color: sevColor }}
-          >
-            {row.severity}
-          </span>
+          {isLatent ? (
+            <span
+              className="text-[10px] uppercase tracking-[0.12em] font-bold leading-none px-2 py-1 rounded border"
+              style={{
+                color: "#fcd34d",
+                borderColor: "rgba(245,158,11,0.5)",
+                background: "rgba(245,158,11,0.08)",
+              }}
+              title="No observed exposure to score — this path is reachable but unused."
+            >
+              LATENT
+            </span>
+          ) : (
+            <>
+              <span
+                className="text-2xl font-semibold tabular-nums leading-none"
+                style={{ color: sevColor }}
+                title={`Severity ${row.severity} (${row.severityScore}/100)`}
+              >
+                {row.severityScore}
+              </span>
+              <span
+                className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+                style={{ color: sevColor }}
+              >
+                {row.severity}
+              </span>
+            </>
+          )}
         </div>
 
         <div
@@ -2988,7 +3232,7 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
           <span>·</span>
           <span>{row.hopCount} hops</span>
           <span>·</span>
-          <span style={{ color: "#22c55e" }}>{row.evidence}</span>
+          <span style={{ color: isLatent ? "#fcd34d" : "#22c55e" }}>{row.evidence}</span>
         </div>
 
         {statusChip ? (
@@ -3073,8 +3317,27 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
         )}
       </div>
 
-      {/* Stats row — outlined chips, low saturation, clear labels. */}
+      {/* Stats row — outlined chips, low saturation, clear labels.
+          LATENT rows render a single "capability" line instead of the
+          observed-traffic counters (which would all be 0 and read as
+          "missing data" instead of "reachable but unused"). */}
       <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap pl-5 pr-4 pb-3 mt-0.5">
+        {isLatent ? (
+          <div className="flex items-baseline gap-2">
+            <span
+              className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+              style={{ color: "#94a3b8" }}
+            >
+              Capability
+            </span>
+            <span className="text-xs" style={{ color: "#fcd34d" }}>
+              SG allows <span className="font-mono">0.0.0.0/0</span> + subnet routes to{" "}
+              {row.gateways.map((g) => g.kind).join(" / ") || "public gateway"}
+              <span style={{ color: "#94a3b8" }}> · </span>
+              <span style={{ color: "#f1f5f9" }}>0 observed requests (30d)</span>
+            </span>
+          </div>
+        ) : (
         <div className="flex items-baseline gap-2">
           <span
             className="text-[10px] uppercase tracking-[0.12em] font-semibold"
@@ -3090,6 +3353,7 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
             <span className="font-semibold tabular-nums">{row.destinationCount}</span> dests
           </span>
         </div>
+        )}
 
         <div className="flex items-baseline gap-2">
           <span
@@ -3588,6 +3852,7 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
             = three independent cards, not shared columns. */}
         <PathCardList
           rows={buildPathRows(architecture, data)}
+          latentRows={buildLatentPathRows(data)}
           hiddenWorkloadCount={
             ((architecture as SystemArchitecture & {
               hiddenSilentWorkloadCount?: number
