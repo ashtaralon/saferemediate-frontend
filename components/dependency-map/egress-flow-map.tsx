@@ -120,6 +120,14 @@ interface EgressDestination {
     operations: string[]
     is_public: boolean
     classification: string | null
+    // "workload": this workload's role chain has observed READS_FROM /
+    //   WRITES_TO / ACTUAL_S3_ACCESS to the bucket — direct evidence.
+    // "system":   workload itself has no observed bucket access, but
+    //   another workload in the same SystemName does, so this is the
+    //   best-guess attribution. Renders with a different visual + an
+    //   "observed elsewhere in system" tooltip — honest about the
+    //   inference vs the direct observation.
+    attribution?: "workload" | "system"
   }>
 }
 
@@ -2224,23 +2232,38 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 )}
                 {/* S3 bucket candidates — pooled S3 IPs can't identify
                     the bucket from the network layer alone, so we
-                    surface the workload's observed buckets (via the
-                    role's ACTUAL_S3_ACCESS edges) as candidate chips.
-                    Lets the CISO read "→ cyntro-demo-prod-data" rather
-                    than guess what S3 IP 52.218.117.194 means. */}
+                    surface candidate buckets (via the role's
+                    ACTUAL_S3_ACCESS edges, or system-wide if this
+                    workload has no observed bucket access). Lets the
+                    CISO read "→ cyntro-demo-prod-data" rather than
+                    guess what S3 IP 52.218.117.194 means. */}
                 {fullDest?.kind === "aws" &&
                   (fullDest.aws_service ?? "").toUpperCase() === "S3" &&
                   (fullDest.bucket_candidates?.length ?? 0) > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {fullDest.bucket_candidates!.slice(0, 3).map((b) => (
-                        <span
-                          key={b.id || b.name}
-                          className="inline-flex items-center rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-1.5 py-0.5 text-[9px] font-medium text-fuchsia-200"
-                          title={`Workload's role accessed s3://${b.name} (${b.hits.toLocaleString()} reads/writes${b.operations?.length ? " · " + b.operations.slice(0, 3).join(", ") : ""}). S3 IPs are pooled across all buckets in the region — this is one of the candidate buckets, not a definitive match.`}
-                        >
-                          → {b.name}
-                        </span>
-                      ))}
+                      {fullDest.bucket_candidates!.slice(0, 3).map((b) => {
+                        const isSystem = b.attribution === "system"
+                        const chipClass = isSystem
+                          ? "inline-flex items-center rounded border border-dashed border-fuchsia-500/35 bg-fuchsia-500/5 px-1.5 py-0.5 text-[9px] font-medium text-fuchsia-300/80"
+                          : "inline-flex items-center rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-1.5 py-0.5 text-[9px] font-medium text-fuchsia-200"
+                        const tooltip = isSystem
+                          ? `s3://${b.name} is accessed by other workloads in this system (${b.hits.toLocaleString()} reads/writes${b.operations?.length ? " · " + b.operations.slice(0, 3).join(", ") : ""}). This workload's role has no observed bucket access of its own — the link is inferred, not directly observed.`
+                          : `Workload's role accessed s3://${b.name} (${b.hits.toLocaleString()} reads/writes${b.operations?.length ? " · " + b.operations.slice(0, 3).join(", ") : ""}). S3 IPs are pooled across all buckets in the region — this is one of the candidate buckets, not a definitive match.`
+                        return (
+                          <span
+                            key={b.id || b.name}
+                            className={chipClass}
+                            title={tooltip}
+                          >
+                            → {b.name}
+                            {isSystem && (
+                              <span className="ml-1 text-[8px] uppercase tracking-wider opacity-70">
+                                sys
+                              </span>
+                            )}
+                          </span>
+                        )
+                      })}
                       {(fullDest.bucket_candidates?.length ?? 0) > 3 && (
                         <span className="text-[9px] text-fuchsia-300/60 italic self-center">
                           +{fullDest.bucket_candidates!.length - 3} more
