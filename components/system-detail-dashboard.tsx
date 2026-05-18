@@ -138,22 +138,6 @@ const CrownJewelProtection = dynamic(() => import("./crown-jewel-protection"), {
   ),
 })
 
-// Crown Jewel Egress — the inverse of Protection (inbound) view.
-// Lazy-loaded same as the protection-plan component above so the
-// crown-jewels tab still mounts fast.
-const CrownJewelEgress = dynamic(
-  () => import("./dependency-map/CrownJewelEgressView").then((m) => ({ default: m.CrownJewelEgressView })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-        <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
-        <span className="ml-3 text-slate-600">Loading crown jewel egress...</span>
-      </div>
-    ),
-  }
-)
-
 const GuidedSystemMap = dynamic(() => import("./guided-system-map"), {
   ssr: false,
   loading: () => (
@@ -2535,9 +2519,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "crown-jewels" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <CrownJewelsTab
+          <CrownJewelProtection
+            key={`${systemName}-${refreshKey}`}
             systemName={systemName}
-            refreshKey={refreshKey}
             onOpenLeastPrivilege={() => setActiveTab("least-privilege")}
           />
         </div>
@@ -3362,57 +3346,3 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   )
 }
 
-// Crown Jewels tab sub-view switcher: Protection Plan (inbound attack
-// paths — the existing surface) vs Egress (outbound exfil paths — new).
-// Same shape as the Traffic tab's Inventory | By workload | Flow map
-// toggle. Default lands on the existing Protection view so the change
-// is non-disruptive — operators discover Egress via the toggle.
-function CrownJewelsTab({
-  systemName,
-  refreshKey,
-  onOpenLeastPrivilege,
-}: {
-  systemName: string
-  refreshKey: number
-  onOpenLeastPrivilege: () => void
-}) {
-  const [view, setView] = useState<"protection" | "egress">("protection")
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-slate-500">View</span>
-        <button
-          type="button"
-          onClick={() => setView("protection")}
-          className={`px-3 py-1.5 rounded-md text-[12px] font-semibold border transition-colors ${
-            view === "protection"
-              ? "border-blue-500/60 bg-blue-500/15 text-blue-100"
-              : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-          }`}
-        >
-          Protection plan
-        </button>
-        <button
-          type="button"
-          onClick={() => setView("egress")}
-          className={`px-3 py-1.5 rounded-md text-[12px] font-semibold border transition-colors ${
-            view === "egress"
-              ? "border-amber-500/60 bg-amber-500/15 text-amber-100"
-              : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-          }`}
-        >
-          Egress paths
-        </button>
-      </div>
-      {view === "protection" ? (
-        <CrownJewelProtection
-          key={`${systemName}-${refreshKey}`}
-          systemName={systemName}
-          onOpenLeastPrivilege={onOpenLeastPrivilege}
-        />
-      ) : (
-        <CrownJewelEgress key={`${systemName}-egress-${refreshKey}`} systemName={systemName} />
-      )}
-    </div>
-  )
-}
