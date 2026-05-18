@@ -36,6 +36,7 @@ import {
   type OverrideLineagePayload,
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
+import { dispatchRemediationChanged } from "@/lib/remediation-events"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -830,6 +831,12 @@ export function SGRemediationCard({
         removed: (first.body.rules_removed || []).length,
         snapshot_id: first.body.snapshot_id || null,
       })
+      dispatchRemediationChanged({
+        action: "remediate",
+        resource_type: "SecurityGroup",
+        resource_id: sgId,
+        source_id: first.body?.snapshot_id || undefined,
+      })
       // Refresh data so the rule disappears from the card.
       setSelected(new Set())
       // Trigger a refetch of gap-analysis
@@ -878,6 +885,12 @@ export function SGRemediationCard({
           resultMessage: `Removed ${removed} rule${removed === 1 ? "" : "s"} from ${sgId}.\nSnapshot: ${snap || "(not captured)"}`,
         }))
         onApplied?.(sgId, { removed, snapshot_id: snap })
+        dispatchRemediationChanged({
+          action: "override-apply",
+          resource_type: "SecurityGroup",
+          resource_id: sgId,
+          source_id: snap || undefined,
+        })
         // Background refresh of the card data
         setTimeout(() => {
           fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {

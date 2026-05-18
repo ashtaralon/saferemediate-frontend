@@ -40,6 +40,7 @@ import {
   type OverrideLineagePayload,
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
+import { dispatchRemediationChanged } from "@/lib/remediation-events"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -509,6 +510,12 @@ export function S3RemediationCard({
         removed: first.body.policies_removed || 0,
         snapshot_id: first.body.snapshot_id || null,
       })
+      dispatchRemediationChanged({
+        action: "remediate",
+        resource_type: "S3Bucket",
+        resource_id: bucketName,
+        source_id: first.body?.snapshot_id || undefined,
+      })
       setSelected(new Set())
       setTimeout(refetch, 1500)
       return
@@ -546,6 +553,12 @@ export function S3RemediationCard({
           resultMessage: `Removed ${removed} statement${removed === 1 ? "" : "s"} from ${bucketName}.\nSnapshot: ${snap || "(not captured)"}`,
         }))
         onApplied?.(bucketName, { removed, snapshot_id: snap })
+        dispatchRemediationChanged({
+          action: "override-apply",
+          resource_type: "S3Bucket",
+          resource_id: bucketName,
+          source_id: snap || undefined,
+        })
         setTimeout(() => {
           refetch()
           setSelected(new Set())

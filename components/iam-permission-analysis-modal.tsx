@@ -7,6 +7,7 @@ import {
   CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { dispatchRemediationChanged } from "@/lib/remediation-events"
 import {
   composeOverriddenBy,
   resolveOperatorIdentity,
@@ -898,7 +899,17 @@ export function IAMPermissionAnalysisModal({
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear LP cache:', e)
         }
-        
+
+        // Broadcast to cross-tree subscribers (Trust Boundary map,
+        // dashboard counters, etc). LP Tab's own refresh is handled
+        // by the onRemediationSuccess callback below — this is purely
+        // for OTHER views. See lib/remediation-events.ts.
+        dispatchRemediationChanged({
+          action: "remediate",
+          resource_type: "IAMRole",
+          resource_id: roleName,
+        })
+
         // Also call parent callback if provided
         if (onApplyFix) {
           onApplyFix({
@@ -3669,6 +3680,11 @@ export function IAMPermissionAnalysisModal({
                           toast({ title: "Rollback Successful", description: `Restored ${roleName} to pre-remediation state`, variant: "default" })
                           fetchGapAnalysis(true)
                           onRollbackSuccess?.(roleName)
+                          dispatchRemediationChanged({
+                            action: "rollback",
+                            resource_type: "IAMRole",
+                            resource_id: roleName,
+                          })
                         } else if (res.status === 404) {
                           toast({ title: "No Snapshot Available", description: `No rollback snapshot found for ${roleName}. The remediation may have been done outside this system.`, variant: "destructive" })
                         } else {

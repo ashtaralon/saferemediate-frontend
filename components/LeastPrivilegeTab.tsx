@@ -8,6 +8,7 @@ import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
 import type { SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
 // Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
 // preserve existing JSX without further changes at the call sites.
@@ -512,19 +513,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   useEffect(() => {
     fetchGaps()
-    // Cross-component refresh: when a rollback fires from anywhere
-    // (Remediation Timeline, Trust Boundary modal, etc.), refetch with
-    // force_refresh=true so the proxy's 2-minute in-memory cache at
-    // app/api/proxy/least-privilege/issues/route.ts:14 doesn't serve
-    // stale "still Remediated" rows for up to 2 minutes after the
-    // operator's rollback actually cleared the role's remediated_at.
-    // Event is dispatched from remediation-timeline rollback success.
-    const onRemediationChanged = () => {
+    // Cross-component refresh: when a remediation/rollback fires from
+    // anywhere (Timeline, IAM modal, SG modal, Trust Boundary modal,
+    // etc.), refetch with force_refresh=true so the proxy's 2-min
+    // in-memory cache at app/api/proxy/least-privilege/issues/route.ts
+    // doesn't serve stale rows. See lib/remediation-events.ts.
+    const unsubscribe = onRemediationChanged(() => {
       void fetchGaps(true, true)
-    }
-    if (typeof window !== "undefined") {
-      window.addEventListener("cyntro:remediation-changed", onRemediationChanged)
-    }
+    })
     // Fetch BRSS in parallel — independent from LP data, so failures don't
     // block the main list view.
     ;(async () => {
@@ -543,9 +539,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       }
     })()
     return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("cyntro:remediation-changed", onRemediationChanged)
-      }
+      unsubscribe()
     }
   }, [systemName])
   
@@ -1024,6 +1018,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     })
 
     void fetchGaps(true, true)
+
+    // Broadcast so other views (Trust Boundary map, dashboard counters)
+    // refetch too. resource_type is best-effort: handleRollbackSuccess
+    // takes only resourceName, so we look it up from current data.
+    const resourceType =
+      data?.resources?.find(
+        r => r.resourceName === resourceName || r.id === resourceName,
+      )?.resourceType || "IAMRole"
+    dispatchRemediationChanged({
+      action: "rollback",
+      resource_type: resourceType,
+      resource_id: resourceName,
+    })
   }
 
   // ---------- Rollback from remediated tab ----------

@@ -61,6 +61,7 @@ import {
   type OverrideLineagePayload,
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
+import { dispatchRemediationChanged } from "@/lib/remediation-events"
 
 type StageStatus = "pending" | "running" | "complete" | "error" | "skipped"
 
@@ -688,6 +689,15 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         return
       }
       setMode("complete")
+      // Cross-component broadcast — LP Tab / dashboard re-read so the
+      // SG row reflects its new remediated state (or, if canary auto-
+      // rollback fired, reverts to active). See lib/remediation-events.ts.
+      dispatchRemediationChanged({
+        action: result.autoRolledBack ? "rollback" : "remediate",
+        resource_type: "SecurityGroup",
+        resource_id: rec!.candidate_sg_id!,
+        source_id: data.pipeline_id,
+      })
     } catch (e: any) {
       const elapsed = Date.now() - t0
       setStages((prev) =>
@@ -775,6 +785,12 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         phase: "success",
         resultMessage: "Apply complete via override — OverrideEvent recorded",
       }))
+      dispatchRemediationChanged({
+        action: result.autoRolledBack ? "rollback" : "override-apply",
+        resource_type: "SecurityGroup",
+        resource_id: rec!.candidate_sg_id!,
+        source_id: data.pipeline_id,
+      })
     } catch (e: any) {
       const elapsed = Date.now() - t0
       const msg = e?.message || "Network error"
@@ -864,6 +880,12 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         return
       }
       setRollbackState("done")
+      dispatchRemediationChanged({
+        action: "rollback",
+        resource_type: "SecurityGroup",
+        resource_id: rec!.candidate_sg_id!,
+        source_id: snapshotId || undefined,
+      })
     } catch (e: any) {
       setErrorMsg(e?.message || "Rollback failed")
       setRollbackState("error")
@@ -908,6 +930,12 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
         phase: "success",
         resultMessage: `Re-rollback complete${callsSummary}`,
       }))
+      dispatchRemediationChanged({
+        action: "force-rollback",
+        resource_type: "SecurityGroup",
+        resource_id: rec!.candidate_sg_id!,
+        source_id: snapshotId || undefined,
+      })
     } catch (e: any) {
       const msg = e?.message || "Network error"
       setErrorMsg(msg)
