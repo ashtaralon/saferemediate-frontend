@@ -19,7 +19,14 @@
  */
 
 import { useEffect, useState } from "react"
-import { AlertTriangle, Database, Globe, Key, Lock, RefreshCw, Server, Shield } from "lucide-react"
+import { AlertTriangle, Database, Globe, Key, Lock, RefreshCw, Server, Shield, Pause, Trash2 } from "lucide-react"
+import {
+  buildOverrideStateForOpen,
+  INITIAL_SHARED_OVERRIDE_STATE,
+  OverrideModalShared,
+  type OverrideLineagePayload,
+  type SharedOverrideState,
+} from "@/components/override-modal-shared"
 
 type Status = "orphan" | "stale" | "active" | "excluded"
 
@@ -151,6 +158,20 @@ function statusColor(status: string): string {
   }
 }
 
+/** Per-row in-flight + result status keyed by resource id. */
+type RowStatus = {
+  state: "idle" | "running" | "ok" | "err"
+  message?: string
+  snapshotId?: string
+}
+
+/** Pending delete operation captured while the override modal is open. */
+type PendingDelete = {
+  resourceType: "IAMRole" | "S3Bucket" | "IAMPolicy" | "SecurityGroup"
+  resourceId: string  // role_name | bucket_name | policy_arn | sg_id
+  displayName: string
+}
+
 export function OrphanResourcesPanel() {
   const [activeTab, setActiveTab] = useState<TabKey>("summary")
   const [loading, setLoading] = useState(false)
@@ -164,6 +185,160 @@ export function OrphanResourcesPanel() {
   const [policiesSummary, setPoliciesSummary] = useState<any>(null)
   const [sgs, setSgs] = useState<SGFinding[]>([])
   const [sgSummary, setSgSummary] = useState<any>(null)
+
+  // Per-row action state keyed by `${resourceType}:${resourceId}`
+  const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({})
+
+  // Override modal state — opens when operator clicks Delete on any row
+  const [overrideState, setOverrideState] = useState<SharedOverrideState>(
+    INITIAL_SHARED_OVERRIDE_STATE,
+  )
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
+
+  function rowKey(type: PendingDelete["resourceType"], id: string): string {
+    return `${type}:${id}`
+  }
+
+  /** Quarantine flow: pre-check → execute. Safe (no AWS destruction —
+   *  the engine revokes rules / detaches policies / sets DenyAll bucket
+   *  policy). 30-day hold starts; operator returns later to delete. */
+  async function handleQuarantine(
+    resourceType: PendingDelete["resourceType"],
+    resourceId: string,
+    systemName: string = "alon-prod",
+  ) {
+    const key = rowKey(resourceType, resourceId)
+    setRowStatus((p) => ({ ...p, [key]: { state: "running" } }))
+    try {
+      const preCheckResp = await fetch("/api/proxy/quarantine/pre-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resourceName: resourceId,
+          resourceType,
+          systemName,
+          idleDays: 90,
+          connections: 0,
+        }),
+      })
+      if (!preCheckResp.ok) {
+        const text = await preCheckResp.text()
+        throw new Error(`pre-check failed (${preCheckResp.status}): ${text.slice(0, 200)}`)
+      }
+      const pcJson = await preCheckResp.json()
+      const recordId = pcJson.recordId
+      if (!recordId) throw new Error("pre-check returned no recordId")
+
+      const execResp = await fetch("/api/proxy/quarantine/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId, actor: "operator" }),
+      })
+      if (!execResp.ok) {
+        const text = await execResp.text()
+        throw new Error(`execute failed (${execResp.status}): ${text.slice(0, 200)}`)
+      }
+      setRowStatus((p) => ({
+        ...p,
+        [key]: {
+          state: "ok",
+          message: `Quarantined · record ${String(recordId).slice(0, 12)} · 30-day hold started`,
+        },
+      }))
+    } catch (e: any) {
+      setRowStatus((p) => ({
+        ...p,
+        [key]: { state: "err", message: e?.message || "Quarantine failed" },
+      }))
+    }
+  }
+
+  /** Open the override modal — parent owns the actual DELETE call,
+   *  modal owns only the lineage capture. */
+  function openDeleteModal(
+    resourceType: PendingDelete["resourceType"],
+    resourceId: string,
+    displayName: string,
+  ) {
+    setPendingDelete({ resourceType, resourceId, displayName })
+    const blockReasons: string[] = [
+      `${resourceType} ${displayName}`,
+      "Direct delete bypasses the 30-day quarantine hold.",
+      "Records OverrideEvent in Neo4j before the AWS mutation (Decision Contract §7).",
+      "Pre-deletion snapshot is written for rollback context (data NOT in snapshot for S3).",
+    ]
+    setOverrideState(buildOverrideStateForOpen(blockReasons))
+  }
+
+  /** Modal calls this when the operator submits a valid lineage payload. */
+  async function handleDeleteWithLineage(lineage: OverrideLineagePayload) {
+    if (!pendingDelete) return
+    const key = rowKey(pendingDelete.resourceType, pendingDelete.resourceId)
+    setRowStatus((p) => ({ ...p, [key]: { state: "running" } }))
+    try {
+      let url: string
+      const extraQs: string[] = ["force=true"]
+      switch (pendingDelete.resourceType) {
+        case "IAMRole":
+          url = `/api/proxy/iam-roles/${encodeURIComponent(pendingDelete.resourceId)}`
+          break
+        case "S3Bucket":
+          // delete_objects=true required when bucket is non-empty;
+          // we always pass it so the backend can decide via its
+          // object-count check. Backend still refuses if non-empty
+          // and explicit double-opt-in isn't given via the param.
+          url = `/api/proxy/s3-buckets/${encodeURIComponent(pendingDelete.resourceId)}`
+          extraQs.push("delete_objects=true")
+          break
+        case "IAMPolicy":
+          url = `/api/proxy/iam-policies/by-arn?policy_arn=${encodeURIComponent(pendingDelete.resourceId)}`
+          break
+        case "SecurityGroup":
+          url = `/api/proxy/security-groups/${encodeURIComponent(pendingDelete.resourceId)}`
+          break
+      }
+      // Append force= to URL (handle ARN-style URLs that already have ?)
+      const sep = url.includes("?") ? "&" : "?"
+      url = `${url}${sep}${extraQs.join("&")}`
+
+      const resp = await fetch(url, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ override_lineage: lineage }),
+      })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        const detail = json?.detail || json?.error || `HTTP ${resp.status}`
+        setOverrideState((s) => ({
+          ...s,
+          phase: "error",
+          resultMessage: String(detail).slice(0, 600),
+        }))
+        setRowStatus((p) => ({ ...p, [key]: { state: "err", message: String(detail) } }))
+        return
+      }
+      setOverrideState((s) => ({
+        ...s,
+        phase: "success",
+        resultMessage: json?.message || "Deleted successfully",
+      }))
+      setRowStatus((p) => ({
+        ...p,
+        [key]: {
+          state: "ok",
+          message: `Deleted · snapshot ${String(json?.snapshot_id || "").slice(0, 24)}`,
+          snapshotId: json?.snapshot_id,
+        },
+      }))
+    } catch (e: any) {
+      setOverrideState((s) => ({
+        ...s,
+        phase: "error",
+        resultMessage: (e?.message || "Network error").slice(0, 600),
+      }))
+      setRowStatus((p) => ({ ...p, [key]: { state: "err", message: e?.message || "Delete failed" } }))
+    }
+  }
 
   async function loadAll() {
     setLoading(true)
@@ -288,11 +463,103 @@ export function OrphanResourcesPanel() {
             sgSummary={sgSummary}
           />
         )}
-        {activeTab === "iam_role" && <IAMRoleTable findings={iamRoles} />}
-        {activeTab === "s3_bucket" && <S3Table findings={s3Buckets} />}
-        {activeTab === "iam_policy" && <PolicyTable findings={policies} />}
-        {activeTab === "security_group" && <SGTable findings={sgs} />}
+        {activeTab === "iam_role" && (
+          <IAMRoleTable
+            findings={iamRoles}
+            rowStatus={rowStatus}
+            onQuarantine={(name) => handleQuarantine("IAMRole", name)}
+            onDelete={(name) => openDeleteModal("IAMRole", name, name)}
+          />
+        )}
+        {activeTab === "s3_bucket" && (
+          <S3Table
+            findings={s3Buckets}
+            rowStatus={rowStatus}
+            onQuarantine={(name) => handleQuarantine("S3Bucket", name)}
+            onDelete={(name) => openDeleteModal("S3Bucket", name, name)}
+          />
+        )}
+        {activeTab === "iam_policy" && (
+          <PolicyTable
+            findings={policies}
+            rowStatus={rowStatus}
+            onQuarantine={(arn, name) => handleQuarantine("IAMPolicy", name)}
+            onDelete={(arn, name) => openDeleteModal("IAMPolicy", arn, name)}
+          />
+        )}
+        {activeTab === "security_group" && (
+          <SGTable
+            findings={sgs}
+            rowStatus={rowStatus}
+            onQuarantine={(sgId, sgName) => handleQuarantine("SecurityGroup", sgId)}
+            onDelete={(sgId, sgName) => openDeleteModal("SecurityGroup", sgId, sgName)}
+          />
+        )}
       </div>
+
+      <OverrideModalShared
+        state={overrideState}
+        setState={setOverrideState}
+        acknowledgedTags={["orphan_resource_delete", "operator_override", "irreversible_action_acknowledged"]}
+        onSubmit={handleDeleteWithLineage}
+        contextBlurb={
+          pendingDelete
+            ? `You're about to DELETE ${pendingDelete.resourceType} ${pendingDelete.displayName}. This is a direct delete — bypasses the 30-day quarantine hold. A pre-deletion snapshot is written before the AWS mutation; for S3, object DATA is NOT in the snapshot.`
+            : undefined
+        }
+        rationalePlaceholder="e.g. test resource from prior demo run, confirmed no consumers, owner approved deletion."
+      />
+    </div>
+  )
+}
+
+function RowStatusPill({ status }: { status?: RowStatus }) {
+  if (!status || status.state === "idle") return null
+  const tone =
+    status.state === "ok"
+      ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"
+      : status.state === "err"
+        ? "bg-rose-500/20 text-rose-200 border-rose-500/40"
+        : "bg-amber-500/20 text-amber-200 border-amber-500/40"
+  return (
+    <span
+      className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded border ${tone} max-w-xs truncate`}
+      title={status.message || ""}
+    >
+      {status.state === "running" ? "Running…" : status.message || ""}
+    </span>
+  )
+}
+
+function ActionButtons({
+  onQuarantine,
+  onDelete,
+  disabled,
+}: {
+  onQuarantine: () => void
+  onDelete: () => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={onQuarantine}
+        disabled={disabled}
+        className="px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 text-[10px] uppercase tracking-wider flex items-center gap-1 disabled:opacity-50"
+        title="Start 30-day quarantine hold (safe — revoke rules / detach policies / DenyAll bucket policy). No AWS resources are deleted."
+      >
+        <Pause className="w-3 h-3" />
+        Quarantine
+      </button>
+      <button
+        onClick={onDelete}
+        disabled={disabled}
+        className="px-2 py-1 rounded border border-rose-500/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 text-[10px] uppercase tracking-wider flex items-center gap-1 disabled:opacity-50"
+        title="Direct delete (requires override_lineage). Bypasses the 30-day hold. Pre-deletion snapshot is written; S3 data is irreversible."
+      >
+        <Trash2 className="w-3 h-3" />
+        Delete
+      </button>
     </div>
   )
 }
@@ -392,7 +659,17 @@ function SummaryGrid({
   )
 }
 
-function IAMRoleTable({ findings }: { findings: IAMRoleFinding[] }) {
+function IAMRoleTable({
+  findings,
+  rowStatus,
+  onQuarantine,
+  onDelete,
+}: {
+  findings: IAMRoleFinding[]
+  rowStatus: Record<string, RowStatus>
+  onQuarantine: (roleName: string) => void
+  onDelete: (roleName: string) => void
+}) {
   if (findings.length === 0) {
     return <EmptyState message="No orphan or stale IAM roles to surface." />
   }
@@ -407,36 +684,59 @@ function IAMRoleTable({ findings }: { findings: IAMRoleFinding[] }) {
             <th className="py-2 px-3">AWS last used</th>
             <th className="py-2 px-3">Graph edges</th>
             <th className="py-2 px-3">Recommendation</th>
+            <th className="py-2 px-3">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {findings.map((f) => (
-            <tr key={f.role_arn || f.role_name} className="border-b border-slate-900 hover:bg-slate-900/40">
-              <td className="py-2 px-3 font-mono text-slate-200">{f.role_name}</td>
-              <td className={`py-2 px-3 capitalize ${statusColor(f.status)}`}>{f.status}</td>
-              <td className="py-2 px-3">
-                <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity)}`}>
-                  {f.severity}
-                </span>
-              </td>
-              <td className="py-2 px-3 text-slate-400">
-                {f.days_since_last_use !== null && f.days_since_last_use !== undefined
-                  ? `${f.days_since_last_use}d ago`
-                  : "never"}
-              </td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                {f.inbound_use_edges ?? 0}/{f.inbound_use_edges_fresh ?? 0}
-              </td>
-              <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation}</td>
-            </tr>
-          ))}
+          {findings.map((f) => {
+            const key = `IAMRole:${f.role_name}`
+            const status = rowStatus[key]
+            return (
+              <tr key={f.role_arn || f.role_name} className="border-b border-slate-900 hover:bg-slate-900/40">
+                <td className="py-2 px-3 font-mono text-slate-200">{f.role_name}</td>
+                <td className={`py-2 px-3 capitalize ${statusColor(f.status)}`}>{f.status}</td>
+                <td className="py-2 px-3">
+                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity)}`}>
+                    {f.severity}
+                  </span>
+                </td>
+                <td className="py-2 px-3 text-slate-400">
+                  {f.days_since_last_use !== null && f.days_since_last_use !== undefined
+                    ? `${f.days_since_last_use}d ago`
+                    : "never"}
+                </td>
+                <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                  {f.inbound_use_edges ?? 0}/{f.inbound_use_edges_fresh ?? 0}
+                </td>
+                <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation}</td>
+                <td className="py-2 px-3">
+                  <ActionButtons
+                    onQuarantine={() => onQuarantine(f.role_name)}
+                    onDelete={() => onDelete(f.role_name)}
+                    disabled={status?.state === "running"}
+                  />
+                  <RowStatusPill status={status} />
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
 
-function S3Table({ findings }: { findings: S3Finding[] }) {
+function S3Table({
+  findings,
+  rowStatus,
+  onQuarantine,
+  onDelete,
+}: {
+  findings: S3Finding[]
+  rowStatus: Record<string, RowStatus>
+  onQuarantine: (bucketName: string) => void
+  onDelete: (bucketName: string) => void
+}) {
   if (findings.length === 0) {
     return <EmptyState message="No orphan or stale S3 buckets to surface." />
   }
@@ -451,42 +751,65 @@ function S3Table({ findings }: { findings: S3Finding[] }) {
             <th className="py-2 px-3">Public</th>
             <th className="py-2 px-3">Objects (sample)</th>
             <th className="py-2 px-3">Recommendation</th>
+            <th className="py-2 px-3">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {findings.map((f) => (
-            <tr key={f.bucket_name} className="border-b border-slate-900 hover:bg-slate-900/40">
-              <td className="py-2 px-3 font-mono text-slate-200">{f.bucket_name}</td>
-              <td className={`py-2 px-3 capitalize ${statusColor(f.status)}`}>{f.status}</td>
-              <td className="py-2 px-3">
-                <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity)}`}>
-                  {f.severity}
-                </span>
-              </td>
-              <td className="py-2 px-3">
-                {f.is_public ? (
-                  <span className="inline-flex items-center gap-1 text-rose-300 text-xs">
-                    <Globe className="w-3 h-3" />
-                    public
+          {findings.map((f) => {
+            const key = `S3Bucket:${f.bucket_name}`
+            const status = rowStatus[key]
+            return (
+              <tr key={f.bucket_name} className="border-b border-slate-900 hover:bg-slate-900/40">
+                <td className="py-2 px-3 font-mono text-slate-200">{f.bucket_name}</td>
+                <td className={`py-2 px-3 capitalize ${statusColor(f.status)}`}>{f.status}</td>
+                <td className="py-2 px-3">
+                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity)}`}>
+                    {f.severity}
                   </span>
-                ) : (
-                  <span className="text-slate-500 text-xs">private</span>
-                )}
-              </td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                {(f.object_count_sample ?? 0).toLocaleString()}
-                {f.object_count_sampled_capped ? "+" : ""}
-              </td>
-              <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation}</td>
-            </tr>
-          ))}
+                </td>
+                <td className="py-2 px-3">
+                  {f.is_public ? (
+                    <span className="inline-flex items-center gap-1 text-rose-300 text-xs">
+                      <Globe className="w-3 h-3" />
+                      public
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-xs">private</span>
+                  )}
+                </td>
+                <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                  {(f.object_count_sample ?? 0).toLocaleString()}
+                  {f.object_count_sampled_capped ? "+" : ""}
+                </td>
+                <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation}</td>
+                <td className="py-2 px-3">
+                  <ActionButtons
+                    onQuarantine={() => onQuarantine(f.bucket_name)}
+                    onDelete={() => onDelete(f.bucket_name)}
+                    disabled={status?.state === "running"}
+                  />
+                  <RowStatusPill status={status} />
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
 
-function PolicyTable({ findings }: { findings: PolicyFinding[] }) {
+function PolicyTable({
+  findings,
+  rowStatus,
+  onQuarantine,
+  onDelete,
+}: {
+  findings: PolicyFinding[]
+  rowStatus: Record<string, RowStatus>
+  onQuarantine: (arn: string, name: string) => void
+  onDelete: (arn: string, name: string) => void
+}) {
   if (findings.length === 0) {
     return <EmptyState message="No orphan IAM policies to surface." />
   }
@@ -501,32 +824,55 @@ function PolicyTable({ findings }: { findings: PolicyFinding[] }) {
             <th className="py-2 px-3">Attachments (AWS / graph)</th>
             <th className="py-2 px-3">Versions</th>
             <th className="py-2 px-3">Recommendation</th>
+            <th className="py-2 px-3">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {findings.map((f) => (
-            <tr key={f.policy_arn} className="border-b border-slate-900 hover:bg-slate-900/40">
-              <td className="py-2 px-3 font-mono text-slate-200">{f.policy_name}</td>
-              <td className={`py-2 px-3 capitalize ${statusColor(f.status)}`}>{f.status}</td>
-              <td className="py-2 px-3">
-                <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity)}`}>
-                  {f.severity}
-                </span>
-              </td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                {f.attachment_count}/{f.graph_attachment_edges ?? 0}
-              </td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">{f.version_count ?? 1}</td>
-              <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation}</td>
-            </tr>
-          ))}
+          {findings.map((f) => {
+            const key = `IAMPolicy:${f.policy_arn}`
+            const status = rowStatus[key]
+            return (
+              <tr key={f.policy_arn} className="border-b border-slate-900 hover:bg-slate-900/40">
+                <td className="py-2 px-3 font-mono text-slate-200">{f.policy_name}</td>
+                <td className={`py-2 px-3 capitalize ${statusColor(f.status)}`}>{f.status}</td>
+                <td className="py-2 px-3">
+                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity)}`}>
+                    {f.severity}
+                  </span>
+                </td>
+                <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                  {f.attachment_count}/{f.graph_attachment_edges ?? 0}
+                </td>
+                <td className="py-2 px-3 text-slate-400 font-mono text-xs">{f.version_count ?? 1}</td>
+                <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation}</td>
+                <td className="py-2 px-3">
+                  <ActionButtons
+                    onQuarantine={() => onQuarantine(f.policy_arn, f.policy_name)}
+                    onDelete={() => onDelete(f.policy_arn, f.policy_name)}
+                    disabled={status?.state === "running"}
+                  />
+                  <RowStatusPill status={status} />
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
 
-function SGTable({ findings }: { findings: SGFinding[] }) {
+function SGTable({
+  findings,
+  rowStatus,
+  onQuarantine,
+  onDelete,
+}: {
+  findings: SGFinding[]
+  rowStatus: Record<string, RowStatus>
+  onQuarantine: (sgId: string, sgName: string) => void
+  onDelete: (sgId: string, sgName: string) => void
+}) {
   if (findings.length === 0) {
     return <EmptyState message="No orphan SGs returned by /api/security-groups/orphan-detection." />
   }
@@ -540,33 +886,48 @@ function SGTable({ findings }: { findings: SGFinding[] }) {
             <th className="py-2 px-3">Severity</th>
             <th className="py-2 px-3">Public ingress</th>
             <th className="py-2 px-3">Recommendation</th>
+            <th className="py-2 px-3">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {findings.map((f) => (
-            <tr key={f.sg_id || f.sg_name} className="border-b border-slate-900 hover:bg-slate-900/40">
-              <td className="py-2 px-3 font-mono text-slate-200">
-                {f.sg_name} <span className="text-slate-500 text-xs">{f.sg_id}</span>
-              </td>
-              <td className="py-2 px-3 text-slate-500 font-mono text-xs">{f.vpc_id}</td>
-              <td className="py-2 px-3">
-                <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity || "")}`}>
-                  {f.severity || "—"}
-                </span>
-              </td>
-              <td className="py-2 px-3">
-                {f.has_public_ingress ? (
-                  <span className="inline-flex items-center gap-1 text-rose-300 text-xs">
-                    <Globe className="w-3 h-3" />
-                    0.0.0.0/0
+          {findings.map((f) => {
+            const sgId = f.sg_id || ""
+            const sgName = f.sg_name || ""
+            const key = `SecurityGroup:${sgId}`
+            const status = rowStatus[key]
+            return (
+              <tr key={sgId || sgName} className="border-b border-slate-900 hover:bg-slate-900/40">
+                <td className="py-2 px-3 font-mono text-slate-200">
+                  {sgName} <span className="text-slate-500 text-xs">{sgId}</span>
+                </td>
+                <td className="py-2 px-3 text-slate-500 font-mono text-xs">{f.vpc_id}</td>
+                <td className="py-2 px-3">
+                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase border ${severityColor(f.severity || "")}`}>
+                    {f.severity || "—"}
                   </span>
-                ) : (
-                  <span className="text-slate-500 text-xs">no</span>
-                )}
-              </td>
-              <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation || ""}</td>
-            </tr>
-          ))}
+                </td>
+                <td className="py-2 px-3">
+                  {f.has_public_ingress ? (
+                    <span className="inline-flex items-center gap-1 text-rose-300 text-xs">
+                      <Globe className="w-3 h-3" />
+                      0.0.0.0/0
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-xs">no</span>
+                  )}
+                </td>
+                <td className="py-2 px-3 text-slate-400 text-xs max-w-md">{f.recommendation || ""}</td>
+                <td className="py-2 px-3">
+                  <ActionButtons
+                    onQuarantine={() => onQuarantine(sgId, sgName)}
+                    onDelete={() => onDelete(sgId, sgName)}
+                    disabled={status?.state === "running" || !sgId}
+                  />
+                  <RowStatusPill status={status} />
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
