@@ -2034,13 +2034,42 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
             bucket was accessed, not which shared S3 service IP). Then
             the IP-keyed destinations below. */}
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Globe className="w-3.5 h-3.5 text-cyan-400" />
-            Destinations ({architecture.resources.length}
-            {row.bucketAccesses.length > 0
-              ? ` · ${row.bucketAccesses.length} bucket${row.bucketAccesses.length === 1 ? "" : "s"}`
-              : ""})
-          </div>
+          {(() => {
+            // Compute hidden-IP count for the header. Same dedup rule
+            // as below: S3 IPs whose bucket_candidates are fully covered
+            // by the named bucket cards are hidden.
+            const renderedBucketNames = new Set(
+              (row.bucketAccesses || []).map((b) => b.name),
+            )
+            const visibleCount = architecture.resources.filter((dest) => {
+              const fd = row.fullDestinations.find((d) => d.ip === dest.id)
+              const isS3 =
+                fd?.kind === "aws" &&
+                (fd?.aws_service ?? "").toUpperCase() === "S3"
+              if (!isS3) return true
+              const cands = fd?.bucket_candidates || []
+              if (cands.length === 0) return true
+              return !cands.every((c) => renderedBucketNames.has(c.name))
+            }).length
+            const hiddenIpCount = architecture.resources.length - visibleCount
+            return (
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                Destinations ({visibleCount}
+                {row.bucketAccesses.length > 0
+                  ? ` · ${row.bucketAccesses.length} bucket${row.bucketAccesses.length === 1 ? "" : "s"}`
+                  : ""}
+                {hiddenIpCount > 0 && (
+                  <span
+                    className="ml-1 font-normal normal-case tracking-normal text-slate-500 lowercase"
+                    title={`${hiddenIpCount} pooled S3 IP${hiddenIpCount === 1 ? "" : "s"} hidden — same bucket(s) already shown above`}
+                  >
+                    · {hiddenIpCount} pooled IP{hiddenIpCount === 1 ? "" : "s"} merged
+                  </span>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Named S3 buckets — surfaced from ACTUAL_S3_ACCESS so the
               operator sees the actual bucket identity instead of just
@@ -2111,12 +2140,35 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
               operator a "this destination dwarfs the rest" visual scan
               without staring at numbers. */}
           {(() => {
+            // Dedup: hide S3 IP rows whose bucket_candidates are fully
+            // covered by the named bucket cards rendered above. An IP
+            // like 3.5.74.46 mapping to {cyntro-demo-prod-data,
+            // cyntro-demo-analytics} is REDUNDANT if both buckets are
+            // already in bucketAccesses — the operator sees the same
+            // buckets seven times otherwise (one per pooled S3 IP).
+            // Keep IPs whose candidates include ANY bucket NOT in
+            // bucketAccesses (could be system-attribution chips that
+            // aren't directly accessed by this workload's role).
+            const renderedBucketNames = new Set(
+              (row.bucketAccesses || []).map((b) => b.name),
+            )
+            const filteredResources = architecture.resources.filter((dest) => {
+              const fd = row.fullDestinations.find((d) => d.ip === dest.id)
+              const isS3 =
+                fd?.kind === "aws" &&
+                (fd?.aws_service ?? "").toUpperCase() === "S3"
+              if (!isS3) return true
+              const cands = fd?.bucket_candidates || []
+              if (cands.length === 0) return true
+              // All candidates already shown as bucket cards → drop the IP row.
+              return !cands.every((c) => renderedBucketNames.has(c.name))
+            })
             const maxBytes = Math.max(
               1,
-              ...architecture.resources
+              ...filteredResources
                 .map((d) => row.fullDestinations.find((fd) => fd.ip === d.id)?.bytes || 0),
             )
-            return architecture.resources.slice(0, 12).map((dest) => {
+            return filteredResources.slice(0, 12).map((dest) => {
             const fullDest = row.fullDestinations.find((d) => d.ip === dest.id)
             const signalList = (fullDest?.signals || []).filter((s) =>
               ["plaintext", "residential_isp", "rare_asn", "new_destination", "cross_region_aws", "cross_cloud"].includes(s),
