@@ -137,11 +137,21 @@ export interface EgressDestination {
   // lookup. When present, the AWS chip drops the "(instance or API)"
   // disclaimer and shows "→ alon-demo-app-2" so the CISO sees the
   // actual EC2/Lambda/RDS/etc name instead of just the service kind.
-  // Null when the IP isn't matched to any ENI in our graph (typical
-  // for AWS API control-plane IPs or other accounts' resources).
+  // Null when the IP isn't matched to any ENI in our graph.
   aws_resource_type?: string | null
   aws_resource_id?: string | null
   aws_resource_name?: string | null
+  // PTR-classified endpoint kind for AWS IPs that didn't match a
+  // customer ENI. Lets the chip render "AWS API control plane" /
+  // "VPC Endpoint" / "EC2 instance (other account)" instead of
+  // the generic "(instance or API)" disclaimer.
+  //   "instance"          — matched our ENI; aws_resource_name = our instance
+  //   "instance_unowned"  — IP-encoded PTR but not our ENI → other account
+  //   "api"               — AWS service endpoint (ec2./sts./kms./etc)
+  //   "vpc_endpoint"      — VPCE-fronted endpoint
+  //   "elb"               — ELB / ALB / NLB
+  //   "rds" / "lambda"    — RDS / Lambda endpoint
+  aws_endpoint_kind?: "instance" | "instance_unowned" | "api" | "vpc_endpoint" | "elb" | "rds" | "lambda" | null
 }
 
 // Workload-level SG attribution (NOT per-flow). Backend emits one entry
@@ -2796,34 +2806,58 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                   </div>
                 )}
 
-                {/* AWS service chip OR external org/ASN line. When the
-                    backend resolved the IP to a specific instance via
-                    :NetworkInterface.public_ip, drop the "(instance or
-                    API)" disclaimer and show the resource name in a
-                    second emerald chip — "AWS · EC2 → alon-demo-app-2"
-                    is the demo win over "AWS · EC2 (instance or API)". */}
+                {/* AWS service chip. When backend resolved the IP we
+                    show a secondary chip with the resolved name;
+                    different visual treatment per endpoint kind:
+                      instance  (cyan)  — our own EC2/Lambda/RDS
+                      api       (slate) — AWS API control plane
+                      vpc_endpoint (cyan) — VPCE
+                      elb / rds / lambda (cyan) — AWS service endpoint
+                      instance_unowned (amber) — EC2 in another account
+                      (no aws_endpoint_kind) → keep "(instance or API)" */}
                 {fullDest?.kind === "aws" && (() => {
                   const awsResName = (fullDest as any).aws_resource_name as string | null | undefined
                   const awsResType = (fullDest as any).aws_resource_type as string | null | undefined
+                  const awsEndpointKind = (fullDest as any).aws_endpoint_kind as string | null | undefined
                   const resolved = !!awsResName
-                  const tooltip = resolved
-                    ? `Resolved to ${awsResType || "AWS resource"} '${awsResName}' via :NetworkInterface.public_ip lookup.`
-                    : isEc2Service
-                      ? "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish."
-                      : `AWS ${fullDest.aws_service ?? "service"} published IP range`
+                  const isUnowned = awsEndpointKind === "instance_unowned"
+                  const isApi = awsEndpointKind === "api"
+                  let secondaryTone = "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                  let secondaryPrefix = "→ "
+                  if (isUnowned) {
+                    secondaryTone = "bg-amber-500/15 text-amber-200 border-amber-500/40"
+                    secondaryPrefix = "→ other account · "
+                  } else if (isApi) {
+                    secondaryTone = "bg-slate-500/15 text-slate-300 border-slate-500/40"
+                    secondaryPrefix = "→ "
+                  }
+                  let tooltip = ""
+                  if (awsEndpointKind === "instance") {
+                    tooltip = `Resolved to ${awsResType || "AWS resource"} '${awsResName}' via :NetworkInterface.public_ip lookup.`
+                  } else if (isUnowned) {
+                    tooltip = `EC2 instance in another AWS account (PTR ${fullDest.hostname || "ec2-X-X-X-X.region.compute.amazonaws.com"}). This workload is talking to a third-party EC2 instance over the public internet — verify intent.`
+                  } else if (isApi) {
+                    tooltip = `AWS service endpoint (PTR ${fullDest.hostname || "*.amazonaws.com"}). This is the API control plane, not a customer instance.`
+                  } else if (awsEndpointKind) {
+                    tooltip = `AWS-managed ${awsEndpointKind} endpoint (PTR ${fullDest.hostname || "*.amazonaws.com"}).`
+                  } else if (isEc2Service) {
+                    tooltip = "AWS EC2 service IP range covers both customer instance public IPs and EC2 API control-plane endpoints. IP alone does not distinguish."
+                  } else {
+                    tooltip = `AWS ${fullDest.aws_service ?? "service"} published IP range`
+                  }
                   return (
                     <div className="mt-1.5 text-[10px] flex flex-wrap items-center gap-1" title={tooltip}>
                       <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/50 font-semibold">
                         AWS · {fullDest.aws_service ?? "?"}
-                        {isEc2Service && !resolved && (
+                        {isEc2Service && !resolved && !awsEndpointKind && (
                           <span className="ml-1 font-normal text-emerald-300/80">
                             (instance or API)
                           </span>
                         )}
                       </span>
                       {resolved && (
-                        <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-200 border border-cyan-500/40 font-medium">
-                          → {awsResName}
+                        <span className={`px-1.5 py-0.5 rounded font-medium border ${secondaryTone}`}>
+                          {secondaryPrefix}{awsResName}
                         </span>
                       )}
                     </div>
