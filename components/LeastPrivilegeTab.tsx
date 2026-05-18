@@ -512,6 +512,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   useEffect(() => {
     fetchGaps()
+    // Cross-component refresh: when a rollback fires from anywhere
+    // (Remediation Timeline, Trust Boundary modal, etc.), refetch with
+    // force_refresh=true so the proxy's 2-minute in-memory cache at
+    // app/api/proxy/least-privilege/issues/route.ts:14 doesn't serve
+    // stale "still Remediated" rows for up to 2 minutes after the
+    // operator's rollback actually cleared the role's remediated_at.
+    // Event is dispatched from remediation-timeline rollback success.
+    const onRemediationChanged = () => {
+      void fetchGaps(true, true)
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("cyntro:remediation-changed", onRemediationChanged)
+    }
     // Fetch BRSS in parallel — independent from LP data, so failures don't
     // block the main list view.
     ;(async () => {
@@ -529,6 +542,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         setBrss(null)
       }
     })()
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cyntro:remediation-changed", onRemediationChanged)
+      }
+    }
   }, [systemName])
   
   // NOTE: Pre-fetch removed to prevent timeout errors

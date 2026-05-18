@@ -1465,6 +1465,22 @@ export function RemediationTimeline({
       if (result.success !== false) {
         const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || (isPartial ? selectedItems.length : 'all')
         alert(`✅ Restored Successfully!\n\n${resourceType}: ${resourceName}\nRestored: ${restoredCount} items\n\nThe selected items have been restored.`)
+        // Cross-component broadcast — the LP Tab (and any other view
+        // that lists remediated resources) listens for this and forces
+        // a refetch with refresh=true to bust the 2-min proxy cache.
+        // Without this, the timeline rollback succeeds but the LP Tab
+        // keeps the row on Remediated for up to 2 minutes.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("cyntro:remediation-changed", {
+            detail: {
+              action: "rollback",
+              event_id: eventId,
+              resource_type: resourceType,
+              resource_id: resourceName,
+              partial: isPartial,
+            },
+          }))
+        }
       } else {
         throw new Error(result.error || 'Rollback failed')
       }
