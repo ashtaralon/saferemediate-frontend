@@ -40,6 +40,7 @@ import {
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { CrownJewelExfilPaths } from "./crown-jewel-exfil-paths"
 import { TopExposureHero } from "./top-exposure-hero"
+import { ExecutiveSummary } from "./executive-summary"
 
 // ---- Types (mirrors api/egress_posture.py response shape) ----------
 
@@ -938,6 +939,10 @@ export function TrustBoundaryMap({
 }: TrustBoundaryMapProps) {
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
   const selectedWorkloadId = externalSelectedId ?? internalSelectedId
+  // Technical view hidden by default — page leads with the plain-English
+  // ExecutiveSummary. Operators click "Show technical details" to reveal
+  // the bucket grid, projection, VPC layout, gates, and destinations.
+  const [technicalShown, setTechnicalShown] = useState(false)
 
   const url = systemName ? `/api/proxy/egress/posture/${encodeURIComponent(systemName)}` : null
   const { data, loading, error, retry } = useCachedFetch<PostureResponse>(url, {
@@ -991,77 +996,87 @@ export function TrustBoundaryMap({
 
   return (
     <div className="space-y-3">
-      {/* HERO — single focal answer at the top. Picks the worst crown
-          jewel + its 1-hop exfil chain so the operator reads ONE sentence
-          and knows what to do. Always visible (no collapse). */}
-      <TopExposureHero
-        workloads={data.workloads}
-        systemName={data.system_name}
+      {/* DEFAULT VIEW — Executive Summary. Plain English, three problem
+          cards derived from real bucket counts + sensitive-data risk,
+          one primary CTA. Footer toggle reveals everything else. */}
+      <ExecutiveSummary
+        data={data}
         onSelectWorkload={handleSelectWorkload}
+        onShowTechnical={() => setTechnicalShown((v) => !v)}
+        technicalShown={technicalShown}
       />
 
-      {/* Inverted CJ list — collapsed by default since the hero already
-          surfaces the top jewel. Operators who want the full per-jewel
-          inverted view expand it themselves. */}
-      <CrownJewelExfilPaths
-        workloads={data.workloads}
-        onSelectWorkload={handleSelectWorkload}
-      />
+      {/* TECHNICAL VIEW — the original Trust Boundary layout, hidden by
+          default. Power users / engineers expand to get the bucket grid,
+          what-if projection, VPC layout, gates, destinations. */}
+      {technicalShown && (
+        <>
+          {/* HERO — picks the worst crown jewel + its 1-hop exfil chain
+              for the technical reader who wants the focal answer with
+              security vocabulary. */}
+          <TopExposureHero
+            workloads={data.workloads}
+            systemName={data.system_name}
+            onSelectWorkload={handleSelectWorkload}
+          />
 
-      {/* HEADLINE METRICS — bucket counts. Always visible. */}
-      <SummaryHeader summary={data.summary} vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`} />
+          {/* Inverted CJ list — collapsed by default. */}
+          <CrownJewelExfilPaths
+            workloads={data.workloads}
+            onSelectWorkload={handleSelectWorkload}
+          />
 
-      {/* PROJECTION — what changes if you apply all recommended closures.
-          Behind a drawer because it's a what-if, not the current state.
-          Operators chase the current state first; planning is secondary. */}
-      <CollapsibleSection
-        title="Projected state after applying all closures"
-        subtitle="What-if simulation — honest projection from observed traffic, no AWS mutation"
-        defaultOpen={false}
-      >
-        <ProjectedAfterCard
-          summary={data.summary}
-          destinations={data.destinations}
-          workloads={data.workloads}
-          lookbackDays={data.lookback_days}
-        />
-      </CollapsibleSection>
+          {/* HEADLINE METRICS — bucket counts with per-bucket tooltips. */}
+          <SummaryHeader summary={data.summary} vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`} />
 
-      {/* VPC + SUBNETS — the dense map. Behind a drawer because most
-          operators don't want a per-subnet picker on first look. */}
-      <CollapsibleSection
-        title="VPC layout — subnets and workloads"
-        subtitle={`${data.subnets.length} subnet${data.subnets.length === 1 ? "" : "s"}, ${data.workloads.length} workload${data.workloads.length === 1 ? "" : "s"}`}
-        defaultOpen={false}
-      >
-        <VPCContainer
-          vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`}
-          subnets={data.subnets}
-          workloads={data.workloads}
-          onSelectWorkload={handleSelectWorkload}
-          selectedWorkloadId={selectedWorkloadId}
-        />
-      </CollapsibleSection>
+          {/* PROJECTION drawer */}
+          <CollapsibleSection
+            title="Projected state after applying all closures"
+            subtitle="What-if simulation — honest projection from observed traffic, no AWS mutation"
+            defaultOpen={false}
+          >
+            <ProjectedAfterCard
+              summary={data.summary}
+              destinations={data.destinations}
+              workloads={data.workloads}
+              lookbackDays={data.lookback_days}
+            />
+          </CollapsibleSection>
 
-      {/* EGRESS GATES — VPCEs and their policy status. Drawer. */}
-      <CollapsibleSection
-        title="Egress boundary gates"
-        subtitle={`${data.gates.length} gate${data.gates.length === 1 ? "" : "s"} controlling private vs public egress`}
-        defaultOpen={false}
-      >
-        <EgressBoundary gates={data.gates} />
-      </CollapsibleSection>
+          {/* VPC + SUBNETS drawer */}
+          <CollapsibleSection
+            title="VPC layout — subnets and workloads"
+            subtitle={`${data.subnets.length} subnet${data.subnets.length === 1 ? "" : "s"}, ${data.workloads.length} workload${data.workloads.length === 1 ? "" : "s"}`}
+            defaultOpen={false}
+          >
+            <VPCContainer
+              vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`}
+              subnets={data.subnets}
+              workloads={data.workloads}
+              onSelectWorkload={handleSelectWorkload}
+              selectedWorkloadId={selectedWorkloadId}
+            />
+          </CollapsibleSection>
 
-      {/* DESTINATIONS — external orgs + AWS services. Drawer. NTP / pool
-          noise filtered out by default; toggle inside the area to show
-          all. */}
-      <CollapsibleSection
-        title="Destination clusters"
-        subtitle={`${data.destinations.external_clusters.length} external org${data.destinations.external_clusters.length === 1 ? "" : "s"}, ${data.destinations.aws_backbone.length} AWS service${data.destinations.aws_backbone.length === 1 ? "" : "s"}`}
-        defaultOpen={false}
-      >
-        <DestinationsArea destinations={data.destinations} />
-      </CollapsibleSection>
+          {/* EGRESS GATES drawer */}
+          <CollapsibleSection
+            title="Egress boundary gates"
+            subtitle={`${data.gates.length} gate${data.gates.length === 1 ? "" : "s"} controlling private vs public egress`}
+            defaultOpen={false}
+          >
+            <EgressBoundary gates={data.gates} />
+          </CollapsibleSection>
+
+          {/* DESTINATIONS drawer */}
+          <CollapsibleSection
+            title="Destination clusters"
+            subtitle={`${data.destinations.external_clusters.length} external org${data.destinations.external_clusters.length === 1 ? "" : "s"}, ${data.destinations.aws_backbone.length} AWS service${data.destinations.aws_backbone.length === 1 ? "" : "s"}`}
+            defaultOpen={false}
+          >
+            <DestinationsArea destinations={data.destinations} />
+          </CollapsibleSection>
+        </>
+      )}
     </div>
   )
 }
