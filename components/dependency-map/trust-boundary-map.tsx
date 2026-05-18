@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { CrownJewelExfilPaths } from "./crown-jewel-exfil-paths"
+import { TopExposureHero } from "./top-exposure-hero"
 
 // ---- Types (mirrors api/egress_posture.py response shape) ----------
 
@@ -468,10 +469,24 @@ function SummaryHeader({ summary, vpcLabel }: { summary: PostureSummary; vpcLabe
                     ? "active_internet"
                     : "latent_exposure"
             ]
+            // Per-bucket tooltip — explains the meaning + the operator
+            // action implied by membership in this bucket. Hover-only so
+            // the dense metric grid stays scannable.
+            const tooltip: Record<WorkloadBucket, string> = {
+              ISOLATED:
+                "Workloads that CANNOT reach the internet. No SG public-egress rule OR no subnet route to IGW/NAT/EIGW. No action needed.",
+              AWS_REDIRECTABLE:
+                "Workloads that egress ONLY to AWS services (S3, DynamoDB) but route through the public IGW instead of a VPC Endpoint. ADD VPCE to keep traffic on the AWS backbone (free for Gateway VPCEs).",
+              ACTIVE_INTERNET:
+                "Workloads with observed outbound traffic to external (non-AWS) destinations. Closures here are NARROW (constrain egress to observed endpoints) — they're using the internet capability, so removal would break them.",
+              LATENT_EXPOSURE:
+                "Workloads that CAN egress to the internet (SG allows 0.0.0.0/0 + subnet routes to IGW/NAT/EIGW) but made ZERO observed requests in the 30-day window. Closable TODAY — remove the public-egress rule, the workload's silence is the safety basis.",
+            }
             return (
               <div
                 key={b}
                 className={`rounded-lg border ${meta.bg} px-3 py-2`}
+                title={tooltip[b]}
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <span className="text-sm">{meta.emoji}</span>
@@ -487,13 +502,19 @@ function SummaryHeader({ summary, vpcLabel }: { summary: PostureSummary; vpcLabe
       </div>
 
       {summary.closable_today_count > 0 && (
-        <div className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 flex items-center gap-2">
+        <div
+          className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 flex items-center gap-2"
+          title="Closable today = LATENT_EXPOSURE workloads with a REMOVE_SG_PUBLIC_EGRESS recommendation. Exfil surface = active internet egress + latent capability count. Review = scoped narrows still need operator sign-off."
+        >
           <AlertTriangle className="w-4 h-4 text-red-600" />
           <span className="text-[11px] font-semibold text-red-900">
             {summary.closable_today_count} workload{summary.closable_today_count === 1 ? "" : "s"} with
             zero observed internet egress — closable today
           </span>
-          <span className="ml-auto text-[10px] text-red-700">
+          <span
+            className="ml-auto text-[10px] text-red-700"
+            title="Exfil surface = workloads that could send data out (active + latent). Review = workloads with narrowable rules needing manual sign-off."
+          >
             Exfil surface: {summary.exfil_surface_count} · Review: {summary.review_needed_count}
           </span>
         </div>
@@ -813,30 +834,70 @@ function AWSClusterCard({
   )
 }
 
+// Orgs / IPs whose traffic is overwhelmingly low-signal infrastructure
+// noise (NTP pools, AWS metadata, reverse-DNS providers). Filtered by
+// default so the operator sees BUSINESS-relevant destinations first
+// without scrolling past 50+ NTP entries.
+const NOISE_ORG_KEYWORDS = [
+  "ntp", // *.ntp.org pool participants
+  "amazon technologies inc.", // EC2/metadata neighbour orgs
+]
+const NOISE_ORG_REGEX = /\b(ntp|pool\.ntp|time\.)\b/i
+
+function isNoiseOrg(org: string | null | undefined): boolean {
+  if (!org) return false
+  const lower = org.toLowerCase()
+  if (NOISE_ORG_KEYWORDS.some((k) => lower.includes(k))) return true
+  if (NOISE_ORG_REGEX.test(org)) return true
+  return false
+}
+
 function DestinationsArea({
   destinations,
 }: {
   destinations: PostureResponse["destinations"]
 }) {
+  // Filter toggle — default ON (hide noise) so the destination list
+  // surfaces real business-tier traffic first. NTP probes (HEANET,
+  // YAHOO-IRD, etc.) overwhelm the volume metric otherwise — those orgs
+  // got "53k hits" because every workload pings them every minute, not
+  // because there's a real exfil signal.
+  const [hideNoise, setHideNoise] = useState(true)
+  const filtered = hideNoise
+    ? destinations.external_clusters.filter((c) => !isNoiseOrg(c.org))
+    : destinations.external_clusters
+  const hiddenCount = destinations.external_clusters.length - filtered.length
   return (
     <div className="grid grid-cols-2 gap-3">
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
         <div className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mb-2 flex items-center gap-1.5">
           <Globe className="w-3 h-3 text-cyan-700" />
-          External Destinations · {destinations.external_clusters.length} orgs
+          External Destinations · {filtered.length} org{filtered.length === 1 ? "" : "s"}
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setHideNoise((v) => !v)}
+              className="ml-auto text-[9px] normal-case font-normal tracking-normal text-slate-500 hover:text-slate-800 underline"
+              title="NTP pool / reverse-DNS / metadata orgs are demo-grade noise — they hit 50k+ times but carry no business signal. Toggle to show them anyway."
+            >
+              {hideNoise ? `+ ${hiddenCount} noise hidden` : "Hide noise"}
+            </button>
+          )}
         </div>
         <div className="flex flex-col gap-1.5">
-          {destinations.external_clusters.slice(0, 12).map((c) => (
+          {filtered.slice(0, 12).map((c) => (
             <ExternalClusterCard key={c.org} cluster={c} />
           ))}
-          {destinations.external_clusters.length === 0 && (
+          {filtered.length === 0 && (
             <div className="text-[10px] italic text-slate-500">
-              No external destinations observed
+              {destinations.external_clusters.length === 0
+                ? "No external destinations observed"
+                : `All ${destinations.external_clusters.length} destinations match the noise filter (NTP / metadata). Toggle to show.`}
             </div>
           )}
-          {destinations.external_clusters.length > 12 && (
+          {filtered.length > 12 && (
             <div className="text-[10px] text-slate-500 italic pl-1">
-              + {destinations.external_clusters.length - 12} more
+              + {filtered.length - 12} more
             </div>
           )}
         </div>
@@ -930,27 +991,115 @@ export function TrustBoundaryMap({
 
   return (
     <div className="space-y-3">
+      {/* HERO — single focal answer at the top. Picks the worst crown
+          jewel + its 1-hop exfil chain so the operator reads ONE sentence
+          and knows what to do. Always visible (no collapse). */}
+      <TopExposureHero
+        workloads={data.workloads}
+        systemName={data.system_name}
+        onSelectWorkload={handleSelectWorkload}
+      />
+
+      {/* Inverted CJ list — collapsed by default since the hero already
+          surfaces the top jewel. Operators who want the full per-jewel
+          inverted view expand it themselves. */}
       <CrownJewelExfilPaths
         workloads={data.workloads}
         onSelectWorkload={handleSelectWorkload}
       />
+
+      {/* HEADLINE METRICS — bucket counts. Always visible. */}
       <SummaryHeader summary={data.summary} vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`} />
-      <ProjectedAfterCard
-        summary={data.summary}
-        destinations={data.destinations}
-        workloads={data.workloads}
-        lookbackDays={data.lookback_days}
-      />
-      <VPCContainer
-        vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`}
-        subnets={data.subnets}
-        workloads={data.workloads}
-        onSelectWorkload={handleSelectWorkload}
-        selectedWorkloadId={selectedWorkloadId}
-      />
-      <EgressBoundary gates={data.gates} />
-      <DestinationsArea destinations={data.destinations} />
+
+      {/* PROJECTION — what changes if you apply all recommended closures.
+          Behind a drawer because it's a what-if, not the current state.
+          Operators chase the current state first; planning is secondary. */}
+      <CollapsibleSection
+        title="Projected state after applying all closures"
+        subtitle="What-if simulation — honest projection from observed traffic, no AWS mutation"
+        defaultOpen={false}
+      >
+        <ProjectedAfterCard
+          summary={data.summary}
+          destinations={data.destinations}
+          workloads={data.workloads}
+          lookbackDays={data.lookback_days}
+        />
+      </CollapsibleSection>
+
+      {/* VPC + SUBNETS — the dense map. Behind a drawer because most
+          operators don't want a per-subnet picker on first look. */}
+      <CollapsibleSection
+        title="VPC layout — subnets and workloads"
+        subtitle={`${data.subnets.length} subnet${data.subnets.length === 1 ? "" : "s"}, ${data.workloads.length} workload${data.workloads.length === 1 ? "" : "s"}`}
+        defaultOpen={false}
+      >
+        <VPCContainer
+          vpcLabel={`${vpcLabel}${vpcSubtitle ? ` · ${vpcSubtitle}` : ""}`}
+          subnets={data.subnets}
+          workloads={data.workloads}
+          onSelectWorkload={handleSelectWorkload}
+          selectedWorkloadId={selectedWorkloadId}
+        />
+      </CollapsibleSection>
+
+      {/* EGRESS GATES — VPCEs and their policy status. Drawer. */}
+      <CollapsibleSection
+        title="Egress boundary gates"
+        subtitle={`${data.gates.length} gate${data.gates.length === 1 ? "" : "s"} controlling private vs public egress`}
+        defaultOpen={false}
+      >
+        <EgressBoundary gates={data.gates} />
+      </CollapsibleSection>
+
+      {/* DESTINATIONS — external orgs + AWS services. Drawer. NTP / pool
+          noise filtered out by default; toggle inside the area to show
+          all. */}
+      <CollapsibleSection
+        title="Destination clusters"
+        subtitle={`${data.destinations.external_clusters.length} external org${data.destinations.external_clusters.length === 1 ? "" : "s"}, ${data.destinations.aws_backbone.length} AWS service${data.destinations.aws_backbone.length === 1 ? "" : "s"}`}
+        defaultOpen={false}
+      >
+        <DestinationsArea destinations={data.destinations} />
+      </CollapsibleSection>
     </div>
+  )
+}
+
+// CollapsibleSection — thin wrapper around <details>/<summary> with
+// our typography. Used to demote secondary sections behind a one-line
+// summary so the page doesn't show 7 dashboards at once.
+function CollapsibleSection({
+  title,
+  subtitle,
+  defaultOpen,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <details
+      className="rounded-lg border border-slate-200 bg-white shadow-sm group"
+      open={defaultOpen}
+    >
+      <summary className="cursor-pointer select-none px-4 py-3 flex items-center gap-3 hover:bg-slate-50">
+        <ChevronRight className="w-4 h-4 text-slate-400 transition-transform group-open:rotate-90 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] font-semibold text-slate-900 truncate">
+            {title}
+          </div>
+          {subtitle && (
+            <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+              {subtitle}
+            </div>
+          )}
+        </div>
+      </summary>
+      <div className="px-4 pb-4 pt-1">{children}</div>
+    </details>
   )
 }
 

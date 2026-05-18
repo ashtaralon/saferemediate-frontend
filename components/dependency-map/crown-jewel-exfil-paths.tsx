@@ -119,7 +119,11 @@ export function CrownJewelExfilPaths({
   workloads,
   onSelectWorkload,
 }: CrownJewelExfilPathsProps) {
-  const [expanded, setExpanded] = useState(true)
+  // Collapsed by default — the new TopExposureHero answers the
+  // "what's the worst jewel?" question above this widget. Operators
+  // who want the full inverted list expand it on demand. Keeps the
+  // top-of-page focal point clean (operator-overload fix 2026-05-19).
+  const [expanded, setExpanded] = useState(false)
 
   // Invert the workload→jewel mapping: build jewel→[reader workloads].
   // Skip jewels with no readers at all (no observed CJ-read traffic).
