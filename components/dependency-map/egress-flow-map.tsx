@@ -215,6 +215,26 @@ interface UpstreamCrownJewel {
   last_seen: string | null
 }
 
+// S3 bucket the workload accessed BY NAME (not by IP). Backend ships
+// these per workload via _load_workload_bucket_accesses_batch — see
+// matching shape in api/egress_visibility.py. Solves the "S3 IPs are
+// shared across all buckets — Flow Logs alone can't tell which bucket"
+// problem by correlating with ACTUAL_S3_ACCESS edges from S3 access
+// logs / CloudTrail. Frontend renders these as named cards in the
+// Destinations column so operators see "cyntro-demo-prod-data (47
+// reads)" instead of "S3 · 52.218.101.40".
+interface WorkloadBucketAccess {
+  id: string
+  name: string
+  is_public: boolean
+  is_internet_exposed: boolean
+  classification: string | null
+  hits: number
+  bytes_transferred: number
+  last_seen: string | null
+  operations: string[]  // ["GetObject", "PutObject", "ListObjects", ...]
+}
+
 interface EgressWorkload {
   workload: {
     id: string
@@ -257,6 +277,11 @@ interface EgressWorkload {
   // rather than hiding the column entirely (per
   // feedback_no_mock_numbers_in_ui).
   upstream_crown_jewels?: UpstreamCrownJewel[]
+  // S3 buckets this workload accessed (correlated via ACTUAL_S3_ACCESS
+  // edges). Solves the "S3 IPs are shared" problem — bucket NAMES, not
+  // service IPs. Empty when the S3 access-logs collector hasn't run
+  // for those buckets.
+  bucket_accesses?: WorkloadBucketAccess[]
   // Rule-based AWS-best-practice insight cards (see EgressInsightCard
   // type below). Backend computes via api/egress_insights.py — empty
   // when no rule fires.
@@ -717,6 +742,13 @@ interface PathRow {
   // CJ reads in the lookback window — the column renders a three-
   // state "no observed CJ reads" placeholder rather than hiding.
   upstreamCrownJewels: UpstreamCrownJewel[]
+  // S3 buckets this workload accessed BY NAME (via ACTUAL_S3_ACCESS
+  // edges from CloudTrail / S3 access logs — not from Flow Logs).
+  // Solves the "all S3 IPs look identical in Flow Logs" problem by
+  // surfacing actual bucket identities in the Destinations column.
+  // Empty = no observed bucket accesses (or the S3 access-logs
+  // collector hasn't run for those buckets yet).
+  bucketAccesses: WorkloadBucketAccess[]
   // Rule-based AWS-best-practice insight cards. Source: backend's
   // api/egress_insights.py rule engine, which maps observed-egress
   // facts onto authoritative AWS guidance (Well-Architected,
@@ -803,11 +835,15 @@ function buildPathRows(
   // _load_workload_upstream_crown_jewels_batch (one Cypher round-trip
   // for the whole system).
   const cjByWorkload = new Map<string, UpstreamCrownJewel[]>()
+  // S3 bucket accesses — workload-to-bucket reads via ACTUAL_S3_ACCESS.
+  // Powers the named bucket cards in the Destinations column.
+  const bucketsByWorkload = new Map<string, WorkloadBucketAccess[]>()
   // Insights — backend rule engine output. Keyed by workload id.
   const insightsByWorkload = new Map<string, EgressInsightCard[]>()
   for (const w of data?.workloads || []) {
     destsByWorkload.set(w.workload.id, w.top_destinations || [])
     cjByWorkload.set(w.workload.id, w.upstream_crown_jewels || [])
+    bucketsByWorkload.set(w.workload.id, w.bucket_accesses || [])
     insightsByWorkload.set(w.workload.id, w.insights || [])
   }
   // Per-workload aggregation. Walk flows, group by sourceId.
@@ -954,6 +990,7 @@ function buildPathRows(
       scoreLabel,
       evidence: "OBSERVED",
       upstreamCrownJewels: cjByWorkload.get(wid) || [],
+      bucketAccesses: bucketsByWorkload.get(wid) || [],
       insights: insightsByWorkload.get(wid) || [],
     })
   }
@@ -1968,12 +2005,85 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
           })}
         </div>
 
-        {/* DESTINATIONS column — dark theme. */}
+        {/* DESTINATIONS column — dark theme.
+            Renders BUCKET cards FIRST (named, from ACTUAL_S3_ACCESS edges)
+            because they carry the operator-relevant identity (which S3
+            bucket was accessed, not which shared S3 service IP). Then
+            the IP-keyed destinations below. */}
         <div className="flex flex-col gap-2">
           <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <Globe className="w-3.5 h-3.5 text-cyan-400" />
-            Destinations ({architecture.resources.length})
+            Destinations ({architecture.resources.length}
+            {row.bucketAccesses.length > 0
+              ? ` · ${row.bucketAccesses.length} bucket${row.bucketAccesses.length === 1 ? "" : "s"}`
+              : ""})
           </div>
+
+          {/* Named S3 buckets — surfaced from ACTUAL_S3_ACCESS so the
+              operator sees the actual bucket identity instead of just
+              "S3 · 52.218.x.x". Top by hits. */}
+          {row.bucketAccesses.slice(0, 8).map((b) => {
+            const ops = (b.operations || []).slice(0, 3)
+            const isAlert = b.is_public || b.is_internet_exposed
+            const cardTone = isAlert
+              ? "border-rose-500/50 bg-rose-500/10"
+              : "border-fuchsia-500/40 bg-fuchsia-500/10"
+            return (
+              <div
+                key={`bucket-${b.id}`}
+                data-bucket-id={b.id}
+                className={`rounded-lg border ${cardTone} px-3 py-2`}
+                title={`S3 bucket · ${b.hits.toLocaleString()} reads${b.bytes_transferred > 0 ? ` · ${formatBytes(b.bytes_transferred)}` : ""}${b.classification ? ` · classification: ${b.classification}` : ""}${b.is_public ? " · ⚠ PUBLIC BUCKET" : ""}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <Database className="w-3.5 h-3.5 text-fuchsia-300 shrink-0" />
+                    <span
+                      className="text-[12px] font-semibold text-fuchsia-50 truncate"
+                      title={b.name}
+                    >
+                      {b.name.length > 32 ? b.name.slice(0, 32) + "…" : b.name}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono font-bold text-fuchsia-300 shrink-0">
+                    {b.hits.toLocaleString()}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-fuchsia-300/80">
+                  <span className="font-semibold">
+                    S3 BUCKET{b.is_public ? " · ⚠ PUBLIC" : ""}
+                  </span>
+                  {b.last_seen && (
+                    <span className="text-fuchsia-400/60" title={`Last access: ${b.last_seen}`}>
+                      last {formatTimeAgoShort(b.last_seen)}
+                    </span>
+                  )}
+                </div>
+                {ops.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {ops.map((op) => (
+                      <span
+                        key={op}
+                        className="inline-flex items-center rounded border border-fuchsia-500/40 bg-fuchsia-500/15 px-1.5 py-0.5 text-[9px] font-mono text-fuchsia-200"
+                      >
+                        {op}
+                      </span>
+                    ))}
+                    {(b.operations || []).length > 3 && (
+                      <span className="text-[9px] text-fuchsia-300/60 italic self-center">
+                        +{(b.operations || []).length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {row.bucketAccesses.length > 8 && (
+            <div className="text-[10px] text-fuchsia-300/60 italic pl-2">
+              + {row.bucketAccesses.length - 8} more buckets
+            </div>
+          )}
           {/* Compute max byte volume for relative bar widths — gives the
               operator a "this destination dwarfs the rest" visual scan
               without staring at numbers. */}
