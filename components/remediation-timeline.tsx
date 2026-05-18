@@ -1436,10 +1436,27 @@ export function RemediationTimeline({
           ...(isPartial && { selected_items: selectedItems })
         }
       } else {
+        // Two SG snapshot formats coexist in production:
+        //   "sg-snap-{sg_id}-{ts}" — written by api/sg_least_privilege.py
+        //     rollback: POST /api/sg-least-privilege/{sg_id}/rollback
+        //   "snap-{sg_id}-{ts}"   — written by api/sg_gap_analysis.py
+        //     rollback: POST /api/security-groups/{sg_id}/rollback
+        // Each format needs its OWN endpoint; the generic legacy
+        // /api/snapshots/{sid}/rollback dispatcher only returns a
+        // "use the SG-specific endpoint" hint message for SGSnapshots,
+        // which the frontend was swallowing as "Rollback failed".
         const isSgLpSnapshot = snapshotId?.startsWith('sg-snap-')
+        const isSgGapSnapshot = snapshotId?.startsWith('snap-sg-') ||
+          (event.resource_type === 'SecurityGroup' && snapshotId?.startsWith('snap-'))
+        const sgId = event.sg_id || event.resource_id || ''
         if (isSgLpSnapshot) {
-          const sgId = event.sg_id || event.resource_id || ''
           endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+          bodyContent = {
+            snapshot_id: snapshotId,
+            ...(isPartial && { selected_items: selectedItems })
+          }
+        } else if (isSgGapSnapshot) {
+          endpoint = `/api/proxy/security-groups/${sgId}/rollback`
           bodyContent = {
             snapshot_id: snapshotId,
             ...(isPartial && { selected_items: selectedItems })

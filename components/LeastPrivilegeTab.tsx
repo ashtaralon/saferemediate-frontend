@@ -1168,7 +1168,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
         bodyContent = {}
       } else if (resource.resourceType === 'SecurityGroup' && sgId && snapshotId) {
-        endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+        // Two SG snapshot formats coexist; each has its own rollback endpoint.
+        // "sg-snap-{sg_id}-{ts}" ← api/sg_least_privilege.py
+        // "snap-{sg_id}-{ts}"   ← api/sg_gap_analysis.py
+        if (snapshotId.startsWith('sg-snap-')) {
+          endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+        } else {
+          endpoint = `/api/proxy/security-groups/${sgId}/rollback`
+        }
         bodyContent = { snapshot_id: snapshotId }
       } else if (resource.resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
