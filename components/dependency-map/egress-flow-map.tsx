@@ -1277,6 +1277,13 @@ function PathCardList({
   // exposes the workloads that CAN egress but never did (LATENT_EXPOSURE
   // bucket — the killer-slide framing). "all" interleaves both.
   const [view, setView] = useState<"active" | "latent" | "all">("active")
+  // Pivot toggle — "workload" is the existing flat list of paths sorted
+  // by severity. "crown-jewel" groups the same paths by upstream CJ they
+  // read, so the operator sees the full "jewel → reader → gateway →
+  // destinations" exfil chain inline. Only rendered when at least one
+  // row carries upstream_crown_jewels (silent absence when no CJs in
+  // play — matches feedback_no_mock_numbers_in_ui).
+  const [pivot, setPivot] = useState<"workload" | "crown-jewel">("workload")
   if (rows.length === 0 && latentRows.length === 0 && silentCandidates.length === 0) {
     return (
       <div
@@ -1297,6 +1304,53 @@ function PathCardList({
   const visibleActive = view === "latent" ? [] : rows
   const visibleLatent = view === "active" ? [] : latentRows
   const totalVisible = visibleActive.length + visibleLatent.length
+  // Aggregate visible rows for the CJ-pivoted view. Skip latent-only
+  // toggle vs active-only — pivot operates on whatever's visible per
+  // the filter chip. The CJ pivot itself is a SEPARATE control: same
+  // row set, just reorganized into jewel groups.
+  const allVisibleRows = [...visibleActive, ...visibleLatent]
+  // CJ pivot is only useful when there's at least one CJ on any row.
+  const hasAnyCj = allVisibleRows.some((r) => r.upstreamCrownJewels.length > 0)
+  // Group: { jewelId → { jewel, readers: PathRow[] } }. A row may appear
+  // in multiple groups if it reads multiple jewels — that's the truth of
+  // the data, not a bug. Rows with zero CJ go into a "No upstream jewel"
+  // bucket at the end.
+  type CjGroup = { jewel: UpstreamCrownJewel; readers: PathRow[]; exposedReadersCount: number }
+  const cjGroups: CjGroup[] = []
+  const cjMap = new Map<string, CjGroup>()
+  const noCjReaders: PathRow[] = []
+  if (pivot === "crown-jewel") {
+    for (const row of allVisibleRows) {
+      if (row.upstreamCrownJewels.length === 0) {
+        noCjReaders.push(row)
+        continue
+      }
+      for (const cj of row.upstreamCrownJewels) {
+        let group = cjMap.get(cj.id)
+        if (!group) {
+          group = { jewel: cj, readers: [], exposedReadersCount: 0 }
+          cjMap.set(cj.id, group)
+          cjGroups.push(group)
+        }
+        group.readers.push(row)
+        if (row.gateways.some((g) => g.bucket === "public")) {
+          group.exposedReadersCount += 1
+        }
+      }
+    }
+    // Sort jewels by severity: internet-exposed jewels first, then by
+    // exfil-capable-reader count, then by total reader count. Mirrors
+    // the prioritization in crown-jewel-exfil-paths.tsx.
+    cjGroups.sort((a, b) => {
+      const ax = a.jewel.is_internet_exposed ? 1 : 0
+      const bx = b.jewel.is_internet_exposed ? 1 : 0
+      if (ax !== bx) return bx - ax
+      if (a.exposedReadersCount !== b.exposedReadersCount) {
+        return b.exposedReadersCount - a.exposedReadersCount
+      }
+      return b.readers.length - a.readers.length
+    })
+  }
 
   // Severity tally (matches identity-attack-paths/path-list-panel.tsx)
   const sevCounts = rows.reduce(
@@ -1352,7 +1406,7 @@ function PathCardList({
           latent workloads to show. When zero, the existing
           "OBSERVED-only" header stays untouched. */}
       {latentRows.length > 0 && (
-        <div className="flex items-center gap-1.5 text-[10px] -mt-2">
+        <div className="flex items-center gap-1.5 text-[10px] -mt-2 flex-wrap">
           <span
             className="uppercase tracking-[0.1em] font-semibold mr-1"
             style={{ color: "#64748b" }}
@@ -1390,6 +1444,49 @@ function PathCardList({
               </button>
             )
           })}
+          {/* Pivot toggle — only renders when at least one visible row has
+              a CJ. Workload (default) = flat list. Crown Jewel = group
+              paths by jewel they read so the operator sees the exfil
+              chain inline. */}
+          {hasAnyCj && (
+            <>
+              <span
+                className="uppercase tracking-[0.1em] font-semibold ml-3 mr-1"
+                style={{ color: "#64748b" }}
+              >
+                Pivot
+              </span>
+              {(["workload", "crown-jewel"] as const).map((opt) => {
+                const labels: Record<typeof opt, string> = {
+                  workload: "Workload",
+                  "crown-jewel": "Crown Jewel",
+                }
+                const tooltips: Record<typeof opt, string> = {
+                  workload:
+                    "Default: one row per workload, sorted by severity. Existing flow-map layout.",
+                  "crown-jewel":
+                    "Group paths by the upstream crown jewel they READ from. Each jewel section lists its reader workloads with the full Compute → SG → RT → Gateway → Destinations chain — the 1-hop exfil view.",
+                }
+                const isOn = pivot === opt
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setPivot(opt)}
+                    aria-pressed={isOn}
+                    title={tooltips[opt]}
+                    className={`rounded border px-2 py-1 font-semibold uppercase tracking-[0.08em] transition-colors ${
+                      isOn
+                        ? "bg-fuchsia-500/30 text-fuchsia-100 border-fuchsia-400/60"
+                        : "bg-slate-900/60 text-slate-300 border-slate-700 hover:bg-slate-800"
+                    }`}
+                  >
+                    {labels[opt]}
+                  </button>
+                )
+              })}
+            </>
+          )}
         </div>
       )}
 
@@ -1540,8 +1637,10 @@ function PathCardList({
         )
       })()}
 
-      {/* Path rows — active first, latent appended below (or only one
-          group when the filter chip is set to "active" / "latent"). */}
+      {/* Path rows — render layout depends on pivot:
+            workload    → flat list (active first, latent appended)
+            crown-jewel → sections grouped by upstream CJ */}
+      {pivot === "workload" ? (
       <div className="flex flex-col gap-2 mt-1">
         {visibleActive.map((row, i) => (
           <PathCard key={row.workloadId} row={row} index={i + 1} />
@@ -1564,6 +1663,158 @@ function PathCardList({
           />
         ))}
       </div>
+      ) : (
+      <CjPivotedRows
+        cjGroups={cjGroups}
+        noCjReaders={noCjReaders}
+      />
+      )}
+    </div>
+  )
+}
+
+// CJ-pivoted view of the path list. Each visible jewel gets a section
+// header (jewel identity + posture chips) and the reader path cards are
+// stacked under it. A reader that reads N jewels appears in N sections —
+// that's a truthful representation of the data, not duplication. The
+// "No upstream crown jewel" trailing section holds rows with empty
+// upstreamCrownJewels so nothing visible disappears when pivot is on.
+function CjPivotedRows({
+  cjGroups,
+  noCjReaders,
+}: {
+  cjGroups: Array<{
+    jewel: UpstreamCrownJewel
+    readers: PathRow[]
+    exposedReadersCount: number
+  }>
+  noCjReaders: PathRow[]
+}) {
+  if (cjGroups.length === 0 && noCjReaders.length === 0) {
+    return (
+      <div
+        className="rounded-lg border p-6 mt-2 text-center text-[12px] italic"
+        style={{ borderColor: "rgba(148,163,184,0.15)", color: "#94a3b8" }}
+      >
+        No paths to display under the current filter.
+      </div>
+    )
+  }
+  let runningIndex = 0
+  return (
+    <div className="flex flex-col gap-5 mt-1">
+      {cjGroups.map((group) => {
+        const cj = group.jewel
+        const exposed = !!cj.is_internet_exposed
+        const exfil = group.exposedReadersCount > 0
+        return (
+          <section key={cj.id} className="flex flex-col gap-2">
+            {/* Jewel section header — visually distinct from workload-pivot
+                so the operator sees "this is a CJ section" at a glance.
+                Mirrors crown-jewel-exfil-paths.tsx tone (fuchsia for CJ,
+                rose-escalated when internet-exposed). */}
+            <div
+              className={`rounded-lg border-2 px-4 py-3 ${
+                exposed
+                  ? "border-rose-500/50 bg-rose-500/10"
+                  : "border-fuchsia-500/30 bg-fuchsia-500/10"
+              }`}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <Database
+                  className={`w-4 h-4 shrink-0 ${exposed ? "text-rose-300" : "text-fuchsia-300"}`}
+                />
+                <span
+                  className={`text-[14px] font-bold truncate ${exposed ? "text-rose-50" : "text-fuchsia-50"}`}
+                  title={cj.name}
+                >
+                  {cj.name}
+                </span>
+                <span
+                  className="text-[10px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border border-slate-700 bg-slate-900/60 text-slate-300"
+                  title="Crown jewel type"
+                >
+                  {cjTypeLabel(cj.type)}
+                </span>
+                {cj.classification && (
+                  <span className="text-[10px] uppercase tracking-[0.12em] font-bold px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/15 text-amber-200">
+                    {cjClassificationChip(cj.classification)}
+                  </span>
+                )}
+                {exposed && (
+                  <span className="text-[10px] uppercase tracking-[0.12em] font-bold px-1.5 py-0.5 rounded border border-rose-400/70 bg-rose-500/20 text-rose-100">
+                    Public jewel
+                  </span>
+                )}
+                <span
+                  className="ml-auto text-[10px] uppercase tracking-[0.12em] font-semibold"
+                  style={{ color: "#94a3b8" }}
+                >
+                  {group.readers.length} reader{group.readers.length === 1 ? "" : "s"}
+                  {exfil && (
+                    <span
+                      className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-rose-400/70 bg-rose-500/20 text-rose-100"
+                      title="Reader workload has internet egress capability — 1-hop exfil chain"
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                      {group.exposedReadersCount} can exfil
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: "#cbd5e1" }}>
+                {exfil
+                  ? `${group.exposedReadersCount} of ${group.readers.length} reader${group.readers.length === 1 ? "" : "s"} below has a public-egress gateway — if any are compromised, this jewel's data can exit to the internet in one hop.`
+                  : `Every reader below routes only to private (VPCE / NAT-protected / east-west) destinations — no observed exfil path from this jewel.`}
+              </div>
+            </div>
+            {/* Reader path cards, indented by border to read as "under this jewel". */}
+            <div className="flex flex-col gap-2 pl-4 border-l-2 border-fuchsia-500/20 ml-1">
+              {group.readers.map((row) => {
+                runningIndex += 1
+                return (
+                  <PathCard
+                    key={`cj-${cj.id}-${row.workloadId}`}
+                    row={row}
+                    index={runningIndex}
+                  />
+                )
+              })}
+            </div>
+          </section>
+        )
+      })}
+      {noCjReaders.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <div
+            className="rounded-lg border px-4 py-2 text-[11px]"
+            style={{
+              borderColor: "rgba(148,163,184,0.2)",
+              background: "rgba(15,23,42,0.6)",
+              color: "#94a3b8",
+            }}
+          >
+            <span className="uppercase tracking-[0.12em] font-semibold">
+              No upstream crown jewel
+            </span>
+            <span className="ml-2 normal-case font-normal" style={{ color: "#64748b" }}>
+              · {noCjReaders.length} workload{noCjReaders.length === 1 ? "" : "s"} egress without reading a tracked jewel in the 30-day window
+            </span>
+          </div>
+          <div className="flex flex-col gap-2 pl-4 border-l-2 border-slate-700/40 ml-1">
+            {noCjReaders.map((row) => {
+              runningIndex += 1
+              return (
+                <PathCard
+                  key={`nocj-${row.workloadId}`}
+                  row={row}
+                  index={runningIndex}
+                />
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
