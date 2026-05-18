@@ -80,6 +80,7 @@ import {
   FlowMapDetailPanel,
   type FlowMapDetailSelection,
 } from "./flow-map-detail-panel"
+import { DnsVisibilityBanner } from "./dns-visibility-banner"
 
 // ---- Backend response shape (api/egress_visibility.py) -----------------
 
@@ -4146,6 +4147,12 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
           requestFullscreen() promotes the whole map (header + body),
           not just this scroll region. */}
       <div className="px-5 pt-4">
+        {/* DNS visibility banner — surfaces Route 53 Resolver Query Logs
+            coverage. Three states (enabled / partial / not enabled) with
+            a one-click "Enable on N VPCs" button that creates the log
+            configs. Empty when /api/dns/status hasn't responded yet so
+            page doesn't flicker. */}
+        <DnsVisibilityBanner />
         <RemovableInfrastructureCallout
           candidates={deriveRemoveRouteCandidates(data.workloads || [])}
         />

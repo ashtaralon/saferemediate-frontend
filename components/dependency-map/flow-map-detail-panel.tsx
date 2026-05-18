@@ -771,14 +771,113 @@ function gatewayKindIcon(kind: string): React.ReactNode {
 
 // ---- DESTINATION -----------------------------------------------------
 
+// Matches backend api/dns_visibility.py /destinations/{ip}/domains shape.
+interface DestDomainsResponse {
+  ip?: string
+  domain_count?: number
+  domains?: Array<{
+    domain: string
+    first_seen?: string | null
+    last_seen?: string | null
+    total_queries?: number
+  }>
+}
+
 function DestinationDetail({ row, ip }: { row: PathRow; ip: string }) {
   const dest = row.fullDestinations.find((d) => d.ip === ip)
+  // Lazy fetch domains that resolved to this IP from Route 53 Resolver
+  // Query Logs. Surfaces the authoritative domain ("api.stripe.com")
+  // instead of just the IP + reverse-DNS PTR. Returns empty when DNS
+  // visibility isn't enabled OR no queries observed in the window.
+  const [dnsData, setDnsData] = useState<DestDomainsResponse | null>(null)
+  const [dnsLoading, setDnsLoading] = useState(true)
+  const [dnsErr, setDnsErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!ip) return
+    let cancelled = false
+    setDnsLoading(true)
+    setDnsErr(null)
+    fetch(`/api/proxy/dns/destinations/${encodeURIComponent(ip)}/domains`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json() as Promise<DestDomainsResponse>
+      })
+      .then((d) => {
+        if (cancelled) return
+        setDnsData(d)
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        setDnsErr(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => {
+        if (!cancelled) setDnsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ip])
+
   if (!dest) {
     return <p className="text-[12px] text-slate-500 italic">Destination not found.</p>
   }
 
+  const domainsList = dnsData?.domains || []
+
   return (
     <>
+      {/* DNS-resolved domains — authoritative names from Route 53 Resolver
+          Query Logs. Surfaces ABOVE the network identity so the operator
+          reads "api.stripe.com" first, IP second. */}
+      <Section title="Resolved domains" count={domainsList.length || undefined}>
+        {dnsLoading ? (
+          <p className="text-[12px] text-slate-500 italic">Loading DNS queries…</p>
+        ) : dnsErr ? (
+          <p className="text-[12px] text-rose-300">Could not load domains: {dnsErr}</p>
+        ) : domainsList.length === 0 ? (
+          <p className="text-[12px] text-slate-500 italic">
+            <ThreeStateValue
+              state="not-wired"
+              notWiredHint="No Route 53 Resolver Query Log records mention this IP. Either DNS visibility isn't enabled for the VPC, or the IP was reached without a DNS lookup (hardcoded IP, cached resolution). Enable per-VPC via the DNS visibility banner on the Flow Map."
+            />
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {domainsList.slice(0, 8).map((d) => (
+              <li
+                key={d.domain}
+                className="rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className="text-[12px] font-mono font-semibold text-emerald-100 truncate"
+                    title={d.domain}
+                  >
+                    {d.domain}
+                  </span>
+                  {(d.total_queries ?? 0) > 0 && (
+                    <span className="text-[10px] font-mono text-emerald-300/80 shrink-0 tabular-nums">
+                      {(d.total_queries ?? 0).toLocaleString()} queries
+                    </span>
+                  )}
+                </div>
+                {d.last_seen && (
+                  <div className="mt-0.5 text-[10px] text-slate-500" title={`Last DNS query: ${d.last_seen}`}>
+                    last {formatTimeAgoShort(d.last_seen)}
+                  </div>
+                )}
+              </li>
+            ))}
+            {domainsList.length > 8 && (
+              <li className="text-[10px] text-slate-500 italic pl-3">
+                + {domainsList.length - 8} more
+              </li>
+            )}
+          </ul>
+        )}
+      </Section>
+
       <Section title="Identity">
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
           <KVRow label="IP" value={dest.ip} mono />
