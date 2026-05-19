@@ -106,7 +106,14 @@ export function useMitigationExecution(
       }
       if (s === "simulate") return !!ex.simulate
       if (s === "stage")    return !!ex.stage && state.simulate?.ok === true
-      if (s === "full")     return !!ex.full  && state.stage?.ok === true
+      if (s === "full") {
+        if (!ex.full) return false
+        // When the mitigation has no native canary stage (SG, IAM):
+        // Full activates after a successful Simulate. When there IS a
+        // stage (VPCE): Full activates after a successful Stage.
+        if (ex.stage) return state.stage?.ok === true
+        return state.simulate?.ok === true
+      }
       return false
     },
     [mitigation, state],
