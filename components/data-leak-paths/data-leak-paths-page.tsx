@@ -25,14 +25,18 @@
 // rather than the technical `dataStore.type` ("S3Bucket"). Same for
 // mitigation titles (backend already neutral).
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronRight,
+  Circle,
   Globe2,
+  Loader2,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
+  XCircle,
 } from "lucide-react"
 import {
   DATA_LEAK_BUCKET_LABEL,
@@ -44,6 +48,18 @@ import {
   type DataLeakPathsResponse,
 } from "@/lib/types"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  INITIAL_SHARED_OVERRIDE_STATE,
+  OverrideModalShared,
+  buildOverrideStateForOpen,
+  type OverrideLineagePayload,
+  type SharedOverrideState,
+} from "@/components/override-modal-shared"
+import {
+  useMitigationExecution,
+  type MitigationStage,
+  type MitigationStageResult,
+} from "@/hooks/use-mitigation-execution"
 import { DataLeakFlowMap } from "./data-leak-flow-map"
 
 interface Props {
@@ -257,7 +273,9 @@ function PathCard({ path }: { path: DataLeakPath }) {
           ))}
         </div>
         <div className="mt-2 text-[10px] text-slate-500">
-          Simulate / Stage / Full execute via the existing UnifiedPipeline — wiring lands in the next phase.
+          Each action POSTs to the UnifiedPipeline. Stage applies to a canary scope;
+          Full runs end-to-end with a rollback snapshot. Full apply with override-lineage
+          writes an audit event per Decision Contract §7.
         </div>
       </div>
     </article>
@@ -301,6 +319,45 @@ function MitigationRow({ mitigation }: { mitigation: DataLeakMitigation }) {
   const planning = mitigation.requiresPlanning
   const override = mitigation.requiresOverrideLineage
 
+  const exec = useMitigationExecution(mitigation)
+  const [overrideState, setOverrideState] = useState<SharedOverrideState>(INITIAL_SHARED_OVERRIDE_STATE)
+
+  // The Full button click splits into two paths:
+  //   - mitigation.requiresOverrideLineage === true → open the
+  //     OverrideModalShared form; on submit, call exec.run with the
+  //     lineage payload and force=true (the hook merges it into the body).
+  //   - otherwise → call exec.run({stage: "full"}) directly.
+  const onFullClick = () => {
+    if (!exec.canRun("full")) return
+    if (override) {
+      setOverrideState(
+        buildOverrideStateForOpen([
+          `This will apply "${mitigation.title}" to AWS via the UnifiedPipeline.`,
+          "A rollback snapshot will be written before the change executes.",
+        ]),
+      )
+      return
+    }
+    void exec.run({ stage: "full" })
+  }
+
+  const onOverrideSubmit = async (lineage: OverrideLineagePayload) => {
+    const result = await exec.run({ stage: "full", overrideLineage: lineage })
+    if (result?.ok) {
+      setOverrideState((s) => ({
+        ...s,
+        phase: "success",
+        resultMessage: result.summary,
+      }))
+    } else {
+      setOverrideState((s) => ({
+        ...s,
+        phase: "error",
+        resultMessage: result?.summary || "Apply failed",
+      }))
+    }
+  }
+
   return (
     <div className="rounded-md border border-slate-200 bg-white p-3 flex items-start gap-3">
       <ChevronRight className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
@@ -333,33 +390,107 @@ function MitigationRow({ mitigation }: { mitigation: DataLeakMitigation }) {
           </div>
         )}
         <div className="flex items-center gap-2 mt-2">
-          <StubButton kind="simulate" disabled={!mitigation.execution?.simulate} />
-          <StubButton kind="stage"    disabled={!mitigation.execution?.stage}    />
-          <StubButton kind="full"     disabled={!mitigation.execution?.full}     />
+          <StageButton
+            kind="simulate"
+            disabled={!exec.canRun("simulate")}
+            inflight={exec.state.phase === "simulating"}
+            onClick={() => exec.run({ stage: "simulate" })}
+          />
+          <StageButton
+            kind="stage"
+            disabled={!exec.canRun("stage")}
+            inflight={exec.state.phase === "staging"}
+            onClick={() => exec.run({ stage: "stage" })}
+          />
+          <StageButton
+            kind="full"
+            disabled={!exec.canRun("full")}
+            inflight={exec.state.phase === "applying"}
+            onClick={onFullClick}
+          />
           {mitigation.execution === null && (
-            <span className="text-[10px] text-slate-500 italic">{mitigation.manualReason || "Manual change only"}</span>
+            <span className="text-[10px] text-slate-500 italic">
+              {mitigation.manualReason || "Manual change only"}
+            </span>
           )}
         </div>
+
+        {/* Inline result panel — appears once a stage has been run.
+            Renders one row per stage with the latest captured result. */}
+        {(exec.state.simulate || exec.state.stage || exec.state.full) && (
+          <div className="mt-2 rounded border border-slate-200 bg-slate-50/70 p-2 space-y-1">
+            <ResultRow label="Simulate" result={exec.state.simulate} />
+            <ResultRow label="Stage"    result={exec.state.stage}    />
+            <ResultRow label="Full"     result={exec.state.full}     />
+          </div>
+        )}
       </div>
+
+      <OverrideModalShared
+        state={overrideState}
+        setState={setOverrideState}
+        acknowledgedTags={["score_based_block", "operator_override"]}
+        onSubmit={onOverrideSubmit}
+        contextBlurb={
+          `You are about to apply "${mitigation.title}" with force=true. ` +
+          "Cyntro requires a recorded rationale before any auto-execution that bypasses a safety gate. " +
+          "The override is written to the audit log."
+        }
+      />
     </div>
   )
 }
 
-function StubButton({ kind, disabled }: { kind: "simulate" | "stage" | "full"; disabled?: boolean }) {
-  const label = kind === "simulate" ? "Simulate" : kind === "stage" ? "Approve & Stage" : "Approve & Full"
+function StageButton({
+  kind,
+  disabled,
+  inflight,
+  onClick,
+}: {
+  kind: MitigationStage
+  disabled?: boolean
+  inflight?: boolean
+  onClick: () => void
+}) {
+  const label =
+    kind === "simulate" ? "Simulate" :
+    kind === "stage"    ? "Approve & Stage" :
+                          "Approve & Full"
   return (
     <button
       type="button"
-      disabled={disabled}
-      title={disabled ? "Not available for this path" : "Wired in the next phase"}
-      className={`text-[11px] px-2 py-1 rounded border ${
-        disabled
+      disabled={disabled || inflight}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border transition-colors ${
+        disabled || inflight
           ? "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
-          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
       }`}
     >
+      {inflight && <Loader2 className="w-3 h-3 animate-spin" />}
       {label}
     </button>
+  )
+}
+
+function ResultRow({ label, result }: { label: string; result: MitigationStageResult | null }) {
+  if (!result) {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+        <Circle className="w-3 h-3" />
+        <span className="font-mono w-14 shrink-0">{label}</span>
+        <span className="italic">pending</span>
+      </div>
+    )
+  }
+  const Icon = result.ok ? CheckCircle2 : XCircle
+  const cls = result.ok ? "text-emerald-700" : "text-rose-700"
+  return (
+    <div className={`flex items-start gap-2 text-[11px] ${cls}`}>
+      <Icon className="w-3 h-3 mt-0.5 shrink-0" />
+      <span className="font-mono w-14 shrink-0">{label}</span>
+      <span className="break-words" title={result.summary}>{result.summary}</span>
+    </div>
   )
 }
 
