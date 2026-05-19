@@ -82,11 +82,7 @@ export function DataLeakFlowMap({ path }: Props) {
 
 function buildArchitecture(path: DataLeakPath): SystemArchitecture {
   const w = path.workload
-  const store = path.dataStore
   const dests = path.networkPlane.internetDestinations
-  const observed = path.dataPlane.observedApiCalls
-  const totalEvents = observed._state === "wired" ? observed.totalEvents ?? 0 : 0
-  const totalBytes = observed._state === "wired" ? observed.totalBytes ?? 0 : 0
 
   const computeServices: ServiceNode[] = [
     {
@@ -98,19 +94,20 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
     },
   ]
 
-  // Resources lane: data store (with crown-jewel marker — that's the
-  // value at risk) plus each observed internet destination as its own
-  // node. Operators see the destinations on the right alongside the
-  // data store, both rendered with the same ServiceNodeBox treatment.
-  const resources: ServiceNode[] = [
-    {
-      id: store.id,
-      name: store.name,
-      shortName: shortenStoreName(store.name),
-      type: storeNodeType(store.type),
-      isCrownJewel: true,
-    },
-  ]
+  // Resources lane = EGRESS TARGETS, i.e. where traffic leaves the VPC
+  // to. NOT the crown jewel data store — the data store is the value
+  // AT RISK (already named in the card title + risk explanation above
+  // the map), not the egress destination. The whole point of this map
+  // is to answer "where can this workload phone home?".
+  //
+  //   wired + N destinations  → render each observed destination
+  //   wired + 0 destinations  → single "Open internet" placeholder,
+  //                             so the SG → 0.0.0.0/0 path is visible
+  //                             even when unused (the killer-slide
+  //                             "egress open, no observed traffic")
+  //   not_wired / loading     → empty (parent shows the "not wired"
+  //                             copy elsewhere)
+  const resources: ServiceNode[] = []
   if (dests._state === "wired" && dests.topDestinations.length > 0) {
     dests.topDestinations.slice(0, 5).forEach((d, i) => {
       const idBase = d.ip || `dest-${i}`
@@ -124,6 +121,13 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
         shortName: secondary || primary,
         type: destNodeType(d.kind),
       })
+    })
+  } else if (dests._state === "wired") {
+    resources.push({
+      id: "egress:open-internet",
+      name: "Open internet",
+      shortName: "0.0.0.0/0",
+      type: "internet",
     })
   }
 
@@ -148,9 +152,8 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
           shortName: w.securityGroup.name || w.securityGroup.id,
           usedCount: 0,
           totalCount: 0,
-          // The renderer hides the Gaps badge in observedMode, but we
-          // still flag the public-egress posture so any future viewer
-          // surfacing has the signal.
+          // Public-egress posture flagged (Gaps badge is suppressed
+          // by observedMode but the upstream signal stays correct).
           gapCount: w.securityGroup.hasPublicEgress ? 1 : 0,
           connectedSources: [w.id],
           connectedTargets: resources.map((r) => r.id),
@@ -174,48 +177,20 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
       ]
     : []
 
-  // IAM role IS in the egress visualization — in egress terms it's
-  // the workload's identity, the thing that authenticates the read.
-  // Same node either way; the operator reads it as "this role has
-  // read access to the data store".
-  const iamRoles: SecurityCheckpoint[] = w.iamRole.id
-    ? [
-        {
-          id: w.iamRole.id,
-          type: "iam_role",
-          name: w.iamRole.name || w.iamRole.id,
-          shortName: w.iamRole.name || w.iamRole.id,
-          usedCount: observed.actions?.length || 0,
-          totalCount: observed.actions?.length || 0,
-          gapCount: 0,
-          connectedSources: [w.id],
-          connectedTargets: [store.id],
-        },
-      ]
-    : []
+  // IAM role is intentionally NOT in the egress map. The IAM role
+  // explains why the workload can READ the crown jewel — that lives
+  // in the data-plane half of the path (description + the "Remove
+  // unused permission" mitigation card). Egress is a network-plane
+  // concern: subnet → SG → NACL → internet/destinations.
+  const iamRoles: SecurityCheckpoint[] = []
 
-  // Flows:
-  //   1. workload → data store: real CloudTrail / S3-access-log totals
-  //   2. workload → each observed internet destination: VPC Flow Log bytes/hits
-  // ConnectionLinesSVG draws curves through the SG/NACL/role checkpoints;
-  // we set sgId/naclId/roleId on flows where they apply.
+  // Flows: workload → each egress target. sgId/naclId set so the
+  // ConnectionLinesSVG draws lines through those checkpoints. No
+  // roleId — egress doesn't traverse the IAM role.
   const sgId = w.securityGroup.id ?? undefined
   const naclId = w.nacl?.id ?? undefined
-  const roleId = w.iamRole.id ?? undefined
   const flows: TrafficFlow[] = []
-  flows.push({
-    sourceId: w.id,
-    targetId: store.id,
-    sgId,
-    naclId,
-    roleId,
-    ports: [],
-    protocol: "https",
-    bytes: totalBytes,
-    connections: totalEvents,
-    isActive: totalEvents > 0,
-  })
-  if (dests._state === "wired") {
+  if (dests._state === "wired" && dests.topDestinations.length > 0) {
     dests.topDestinations.slice(0, 5).forEach((d, i) => {
       const idBase = d.ip || `dest-${i}`
       flows.push({
@@ -229,6 +204,21 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
         connections: d.hits ?? 0,
         isActive: (d.hits ?? 0) > 0,
       })
+    })
+  } else if (dests._state === "wired") {
+    // Open-but-unused: a single flow workload → "Open internet"
+    // with 0 bytes / 0 hits, marking the path as available but
+    // not exercised. The SG public-egress flag carries the risk.
+    flows.push({
+      sourceId: w.id,
+      targetId: "egress:open-internet",
+      sgId,
+      naclId,
+      ports: [],
+      protocol: "tcp",
+      bytes: 0,
+      connections: 0,
+      isActive: false,
     })
   }
 
@@ -256,23 +246,9 @@ function workloadNodeType(type: string): NodeType {
   return "compute"
 }
 
-function storeNodeType(type: string): NodeType {
-  const t = type.toLowerCase()
-  if (t.includes("s3") || t.includes("bucket")) return "storage"
-  if (t.includes("dynamo")) return "dynamodb"
-  if (t.includes("rds") || t.includes("aurora") || t.includes("redshift")) return "database"
-  if (t.includes("kms") || t.includes("secret")) return "storage"
-  return "storage"
-}
-
 function destNodeType(kind?: string | null): NodeType {
   if (kind === "aws") return "api_gateway"
   return "internet"
-}
-
-function shortenStoreName(name: string): string {
-  if (name.length <= 24) return name
-  return name.slice(0, 22) + "…"
 }
 
 function humanService(svc: string): string {
