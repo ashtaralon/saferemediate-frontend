@@ -44,6 +44,9 @@ export function DataLeakFlowMap({ systemName, path }: Props) {
       architectureOverride={architecture}
       titleOverride={titleOverride}
       pathBadgeOverride={pathBadgeOverride}
+      innerTitleOverride="Egress flow"
+      innerSubtitleOverride="Real observed access + open network channel for this workload → data path"
+      observedMode
     />
   )
 }

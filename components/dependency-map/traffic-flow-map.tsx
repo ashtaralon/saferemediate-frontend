@@ -2040,6 +2040,9 @@ function UnifiedArchitectureDiagram({
   showVPCBoundaries = false,
   pathMode = false,
   exfilByWorkloadId,
+  innerTitleOverride,
+  innerSubtitleOverride,
+  observedMode = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -2060,6 +2063,13 @@ function UnifiedArchitectureDiagram({
   // on click — only the SG card was using onToggle (expand rules) on click;
   // in path mode we promote `onDetails` to single-click on the SG card too.
   pathMode?: boolean;
+  // Inner header overrides — forwarded from TrafficFlowMap. Data Leak
+  // Paths overrides with egress-flavored copy.
+  innerTitleOverride?: string;
+  innerSubtitleOverride?: string;
+  // When true, suppress the "(simulated)" tag and the Gaps badge —
+  // caller is feeding real observed telemetry.
+  observedMode?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -2161,8 +2171,12 @@ function UnifiedArchitectureDiagram({
             <Cloud className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">System Architecture</h3>
-            <p className="text-xs text-slate-400">Live traffic flow based on actual usage</p>
+            <h3 className="text-lg font-bold text-white">
+              {innerTitleOverride ?? "System Architecture"}
+            </h3>
+            <p className="text-xs text-slate-400">
+              {innerSubtitleOverride ?? "Live traffic flow based on actual usage"}
+            </p>
           </div>
           {/* Live indicator */}
           <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 rounded-full ml-4">
@@ -2179,7 +2193,7 @@ function UnifiedArchitectureDiagram({
             <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
             <div className="text-[10px] text-slate-500">Connections</div>
           </div>
-          {architecture.totalGaps > 0 && (
+          {architecture.totalGaps > 0 && !observedMode && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/20 rounded-lg border-l border-slate-700">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               <div>
@@ -2538,8 +2552,8 @@ function UnifiedArchitectureDiagram({
                       {apiActions.slice(0, 2).map(a => a.action).join(', ')}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
-                      {totalCalls.toLocaleString()} calls
-                      <span className="text-slate-500 ml-1">(simulated)</span>
+                      {totalCalls.toLocaleString()} {observedMode ? "events" : "calls"}
+                      {!observedMode && <span className="text-slate-500 ml-1">(simulated)</span>}
                     </div>
                   </div>
                 </div>
@@ -3097,6 +3111,9 @@ export default function TrafficFlowMap({
   architectureOverride,
   titleOverride,
   pathBadgeOverride,
+  innerTitleOverride,
+  innerSubtitleOverride,
+  observedMode = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -3116,6 +3133,15 @@ export default function TrafficFlowMap({
   // flavored; Data Leak Paths passes its own.
   titleOverride?: string;
   pathBadgeOverride?: string;
+  // Inner canvas header (the "System Architecture / Live traffic flow
+  // based on actual usage" copy). Data Leak Paths overrides both for
+  // egress-flavored copy.
+  innerTitleOverride?: string;
+  innerSubtitleOverride?: string;
+  // When true, the API CALLS lane drops the "(simulated)" tag and the
+  // Gaps badge is suppressed. Use when the architecture carries real
+  // observed telemetry (Data Leak Paths case).
+  observedMode?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -4548,6 +4574,9 @@ export default function TrafficFlowMap({
             architecture={architecture}
             animate={animate}
             pathMode={!!onPathNodeAction}
+            innerTitleOverride={innerTitleOverride}
+            innerSubtitleOverride={innerSubtitleOverride}
+            observedMode={observedMode}
             onSelectService={(service, type) => {
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the
