@@ -29,15 +29,10 @@ import { useMemo } from "react"
 import {
   AlertTriangle,
   ChevronRight,
-  Database,
   Globe2,
-  Lock,
   RefreshCw,
-  Server,
   ShieldAlert,
   ShieldCheck,
-  Wifi,
-  WifiOff,
 } from "lucide-react"
 import {
   DATA_LEAK_BUCKET_LABEL,
@@ -49,6 +44,7 @@ import {
   type DataLeakPathsResponse,
 } from "@/lib/types"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { DataLeakFlowMap } from "./data-leak-flow-map"
 
 interface Props {
   systemName: string
@@ -227,8 +223,6 @@ function KpiTile({
 
 function PathCard({ path }: { path: DataLeakPath }) {
   const band = DATA_LEAK_RISK_BAND_CONFIG[path.riskBand]
-  const observed = path.dataPlane.observedApiCalls
-  const dests = path.networkPlane.internetDestinations
 
   return (
     <article
@@ -247,95 +241,9 @@ function PathCard({ path }: { path: DataLeakPath }) {
         <p className="text-[13px] leading-relaxed text-slate-800">{path.riskExplanation}</p>
       </div>
 
-      {/* Endpoints (workload → data store) */}
+      {/* Flow map — dual-plane visualization */}
       <div className="px-5 pb-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <EndpointTile
-            icon={<Server className="w-4 h-4 text-slate-500" />}
-            kind="Workload"
-            primary={path.workload.name}
-            secondary={path.workload.type}
-            details={[
-              ["Subnet", path.workload.subnet.name || path.workload.subnet.id || "—",
-                path.workload.subnet.isPublic ? "public" : "private"],
-              ["Role", path.workload.iamRole.name || "—"],
-              ["SG", path.workload.securityGroup.name || path.workload.securityGroup.id || "—",
-                path.workload.securityGroup.hasPublicEgress ? "0.0.0.0/0 egress" : undefined],
-            ]}
-          />
-          <EndpointTile
-            icon={<Database className="w-4 h-4 text-slate-500" />}
-            kind={path.dataStore.crownJewelClass}
-            primary={path.dataStore.name}
-            secondary={path.dataStore.crownJewelClass}
-            details={[
-              ["Identifier", path.dataStore.id, undefined],
-            ]}
-          />
-        </div>
-      </div>
-
-      {/* Dual-plane signals */}
-      <div className="px-5 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <SignalTile
-          title="Data plane · observed access"
-          icon={<Lock className="w-4 h-4 text-slate-500" />}
-          state={observed._state}
-          notWiredCopy={observed.copy}
-        >
-          {observed._state !== "not_wired" && (
-            <>
-              <Row label="Events">
-                {typeof observed.totalEvents === "number"
-                  ? observed.totalEvents.toLocaleString()
-                  : "—"}
-              </Row>
-              <Row label="Last seen">
-                {observed.lastSeen
-                  ? new Date(observed.lastSeen).toLocaleDateString()
-                  : "—"}
-              </Row>
-              {!!observed.actions?.length && (
-                <Row label="Actions">
-                  <span className="text-[11px] font-mono text-slate-700">
-                    {observed.actions.slice(0, 4).join(", ")}
-                    {observed.actions.length > 4
-                      ? `, +${observed.actions.length - 4} more`
-                      : ""}
-                  </span>
-                </Row>
-              )}
-            </>
-          )}
-        </SignalTile>
-
-        <SignalTile
-          title="Network plane · egress"
-          icon={path.networkPlane.bucket === "ISOLATED" ? (
-            <WifiOff className="w-4 h-4 text-slate-500" />
-          ) : (
-            <Wifi className="w-4 h-4 text-slate-500" />
-          )}
-          state={dests._state}
-        >
-          <Row label="Egress gate">
-            {path.networkPlane.egressGate
-              ? `${egressGateLabel(path.networkPlane.egressGate.kind)} · ${path.networkPlane.egressGate.id ?? "—"}`
-              : "—"}
-          </Row>
-          <Row label="Destinations">
-            {dests.totalDistinct === 0
-              ? "0 in last 30 days"
-              : `${dests.totalDistinct} (aws ${dests.byClass.aws} · external ${dests.byClass.external}${dests.byClass.unknown ? ` · unknown ${dests.byClass.unknown}` : ""})`}
-          </Row>
-          {!!dests.signals.length && (
-            <Row label="Signals">
-              <span className="text-[11px] text-amber-700 font-mono">
-                {dests.signals.join(", ")}
-              </span>
-            </Row>
-          )}
-        </SignalTile>
+        <DataLeakFlowMap path={path} />
       </div>
 
       {/* Mitigations */}
@@ -385,113 +293,6 @@ function BucketChip({ bucket }: { bucket: DataLeakBucket }) {
       <Globe2 className="w-3 h-3" />
       {label}
     </span>
-  )
-}
-
-function EndpointTile({
-  icon,
-  kind,
-  primary,
-  secondary,
-  details,
-}: {
-  icon: React.ReactNode
-  kind: string
-  primary: string
-  secondary?: string
-  details: Array<[string, string | null | undefined, string | undefined]>
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex items-center gap-2">
-        {icon}
-        <div className="text-[10px] uppercase tracking-wider text-slate-500">{kind}</div>
-      </div>
-      <div className="mt-1.5">
-        <div className="text-[13px] font-semibold text-slate-900 truncate" title={primary}>
-          {primary}
-        </div>
-        {secondary && <div className="text-[11px] text-slate-500">{secondary}</div>}
-      </div>
-      <dl className="mt-2 space-y-1">
-        {details.map(([k, v, badge]) => (
-          <div key={k} className="flex items-center gap-2 text-[11px]">
-            <dt className="text-slate-500 w-16 shrink-0">{k}</dt>
-            <dd className="text-slate-800 truncate" title={v ?? ""}>{v || "—"}</dd>
-            {badge && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                {badge}
-              </span>
-            )}
-          </div>
-        ))}
-      </dl>
-    </div>
-  )
-}
-
-function SignalTile({
-  title,
-  icon,
-  state,
-  notWiredCopy,
-  children,
-}: {
-  title: string
-  icon: React.ReactNode
-  state: DataLeakPath["dataPlane"]["observedApiCalls"]["_state"]
-  notWiredCopy?: string
-  children?: React.ReactNode
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex items-center gap-2">
-        {icon}
-        <div className="text-[10px] uppercase tracking-wider text-slate-500">{title}</div>
-        <StateChip state={state} />
-      </div>
-      <div className="mt-2 space-y-1">
-        {state === "not_wired" ? (
-          <div className="text-[11px] text-slate-500 italic">
-            {notWiredCopy || "Not yet computed for this system."}
-          </div>
-        ) : (
-          children
-        )}
-      </div>
-    </div>
-  )
-}
-
-function StateChip({ state }: { state: DataLeakPath["dataPlane"]["observedApiCalls"]["_state"] }) {
-  if (state === "wired") return (
-    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-      live
-    </span>
-  )
-  if (state === "partial") return (
-    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-      partial
-    </span>
-  )
-  if (state === "loading") return (
-    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-200">
-      loading
-    </span>
-  )
-  return (
-    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 border border-slate-200">
-      not wired
-    </span>
-  )
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 text-[11px]">
-      <span className="text-slate-500 w-20 shrink-0">{label}</span>
-      <span className="text-slate-800 truncate">{children}</span>
-    </div>
   )
 }
 
@@ -607,16 +408,6 @@ function LoadingSkeleton() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function egressGateLabel(kind: string): string {
-  // Vendor-neutral display — the page must read clean even when the
-  // gate kind is the underlying technical label.
-  if (kind === "InternetGateway") return "Internet gateway"
-  if (kind === "NATGateway") return "NAT gateway"
-  if (kind === "EgressOnlyInternetGateway") return "Egress-only gateway"
-  if (kind === "VPCEndpoint") return "Private network bridge"
-  return kind || "Gateway"
-}
 
 function humanizeBlockingReason(code: string): string {
   switch (code) {
