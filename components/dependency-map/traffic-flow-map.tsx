@@ -2027,7 +2027,7 @@ export function ConnectionLinesSVG({
 // ============================================
 // MAIN UNIFIED ARCHITECTURE DIAGRAM
 // ============================================
-function UnifiedArchitectureDiagram({
+export function UnifiedArchitectureDiagram({
   architecture,
   animate,
   onSelectService,

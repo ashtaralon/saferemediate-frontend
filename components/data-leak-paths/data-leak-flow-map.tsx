@@ -1,9 +1,16 @@
 "use client"
 
-// Data Leak Flow Map — thin wrapper over the canonical TrafficFlowMap
-// renderer used by Attack Paths. Same visual: dark canvas, animated
-// SVG curves, ServiceNodeBox node cards, STACK COMPONENTS sidebar,
-// LIVE pill, crown-jewel marker, traffic + connections metrics.
+// Data Leak Flow Map — renders the INNER architecture diagram from
+// the System Map renderer (UnifiedArchitectureDiagram) inside a
+// minimal per-path header. We deliberately do NOT use the full
+// TrafficFlowMap wrapper here — that wrapper is the system-level
+// dashboard (Pause/Auto/Heatmap/VPC/Export/Refresh/Time Travel,
+// "Sync failed" status, Attack Paths controls). Inside a per-path
+// leak card, all of that chrome is wrong; we only want the canvas:
+// dark background, animated SVG curves, ServiceNodeBox node cards,
+// STACK COMPONENTS sidebar, LIVE pill, crown-jewel marker, and the
+// traffic/connections metrics — exactly what UnifiedArchitectureDiagram
+// renders.
 //
 // We feed it a SystemArchitecture built from one DataLeakPath:
 //   COMPUTE      = workload
@@ -21,9 +28,9 @@
 //
 // `observedMode` is on so the renderer drops the "(simulated)" tag
 // and the "Gaps" header badge (both are Attack-Paths-flavored).
-// Title overrides flip the header copy to egress-flavored language.
 
-import TrafficFlowMap, {
+import {
+  UnifiedArchitectureDiagram,
   type NodeType,
   type SecurityCheckpoint,
   type ServiceNode,
@@ -34,22 +41,35 @@ import TrafficFlowMap, {
 import type { DataLeakPath } from "@/lib/types"
 
 interface Props {
-  systemName: string
   path: DataLeakPath
 }
 
-export function DataLeakFlowMap({ systemName, path }: Props) {
+export function DataLeakFlowMap({ path }: Props) {
   const architecture = buildArchitecture(path)
   return (
-    <TrafficFlowMap
-      systemName={systemName}
-      architectureOverride={architecture}
-      titleOverride="Egress Flow Map"
-      pathBadgeOverride={`Path → ${path.dataStore.name}`}
-      innerTitleOverride="Egress flow"
-      innerSubtitleOverride="Observed read access + open network channel for this workload → data path"
-      observedMode
-    />
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="px-3 py-2 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+        <div className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-600">
+          Egress flow map
+        </div>
+        <span className="ml-auto text-[11px] text-slate-600 font-mono">
+          Path → {path.dataStore.name}
+        </span>
+      </div>
+      <div className="p-3">
+        <UnifiedArchitectureDiagram
+          architecture={architecture}
+          animate={true}
+          innerTitleOverride="Egress flow"
+          innerSubtitleOverride="Observed read access + open network channel for this workload → data path"
+          observedMode={true}
+          onSelectService={() => {
+            // No-op inside leak cards — mitigation actions live in the
+            // panel below, not behind node clicks.
+          }}
+        />
+      </div>
+    </div>
   )
 }
 
