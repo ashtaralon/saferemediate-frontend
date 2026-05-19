@@ -493,6 +493,185 @@ export interface SimulateFixResponse {
   safety: SimulateFixSafety
 }
 
+// ============================================================================
+// DATA LEAK PATHS — backed by GET /api/data-leak-paths?systemName=<>
+// ============================================================================
+//
+// One path per (internet-capable workload → accessible crown jewel) pair.
+// Each path carries dual-plane state (data-plane access + network-plane reach)
+// and the four available mitigations. Mutation flows through the existing
+// UnifiedPipeline endpoints listed in `availableMitigations[].execution`.
+
+export type DataLeakInternetDependencyLevel = "NONE" | "MIN" | "MOD" | "FULL"
+export type DataLeakRiskBand = "low" | "moderate" | "high" | "critical"
+export type DataLeakBucket =
+  | "ISOLATED"
+  | "AWS_REDIRECTABLE"
+  | "ACTIVE_INTERNET"
+  | "LATENT_EXPOSURE"
+
+export type DataLeakMitigationType =
+  | "vpc_endpoint"
+  | "remove_iam_permission"
+  | "tighten_sg_egress"
+  | "move_to_private_subnet"
+
+export type DataLeakFieldState = "wired" | "partial" | "loading" | "not_wired"
+
+export interface DataLeakEgressGate {
+  kind: string                 // "InternetGateway" | "NATGateway" | ...
+  id: string | null
+  name?: string | null
+  cidr?: string | null
+  routeTableId?: string | null
+}
+
+export interface DataLeakWorkloadSnapshot {
+  id: string
+  name: string
+  type: string                 // EC2Instance | Lambda | ECSTask | ...
+  subnet: { id: string | null; name?: string | null; isPublic?: boolean | null }
+  securityGroup: {
+    id: string | null
+    name?: string | null
+    hasPublicEgress?: boolean | null
+    additionalCount?: number
+  }
+  nacl: { id?: string | null; isDefault?: boolean | null } | null
+  routeTable: { id: string | null; egressGate: DataLeakEgressGate | null }
+  iamRole: { id: string | null; name: string | null }
+  instanceProfile: { name?: string | null } | null
+  bucket: DataLeakBucket
+}
+
+export interface DataLeakStoreSnapshot {
+  id: string
+  name: string
+  arn?: string | null
+  type: string                  // Neo4j label: S3Bucket | RDSInstance | ...
+  crownJewelClass: string       // vendor-neutral: "Object storage" | "Managed database" | ...
+}
+
+export interface DataLeakObservedApiCalls {
+  _state: DataLeakFieldState
+  copy?: string                 // shown when _state === "not_wired"
+  totalEvents?: number
+  totalBytes?: number
+  lastSeen?: string | null
+  edgeTypes?: string[]
+  actions?: string[]
+}
+
+export interface DataLeakIamPermissions {
+  _state: DataLeakFieldState
+  observedActions?: string[]
+  deeplinkSuggestion?: string
+}
+
+export interface DataLeakInternetDestinations {
+  _state: DataLeakFieldState
+  totalDistinct: number
+  byClass: { aws: number; external: number; unknown: number }
+  signals: string[]
+  topDestinations: Array<{
+    ip?: string | null
+    kind?: string | null
+    org?: string | null
+    service?: string | null
+    country?: string | null
+    bytes?: number | null
+    hits?: number | null
+    firstSeen?: string | null
+    signals?: string[]
+  }>
+}
+
+export interface DataLeakMitigationExecutionEndpoint {
+  method: "POST" | "GET"
+  path: string
+  body?: Record<string, unknown>
+}
+
+export interface DataLeakMitigation {
+  type: DataLeakMitigationType
+  title: string
+  explanation: string
+  applicable: boolean
+  requiresPlanning?: boolean
+  requiresOverrideLineage?: boolean
+  blockingReason?: string
+  manualReason?: string
+  params?: Record<string, unknown>
+  execution: {
+    simulate?: DataLeakMitigationExecutionEndpoint
+    stage?: DataLeakMitigationExecutionEndpoint
+    full?: DataLeakMitigationExecutionEndpoint
+  } | null
+  safetySignals?: {
+    canRemediate: boolean
+    confidenceQualitative?: "high" | "medium" | "low" | "n/a"
+    evidence?: string
+  }
+}
+
+export interface DataLeakPath {
+  pathId: string
+  riskScore: number             // 0-100
+  riskBand: DataLeakRiskBand
+  riskExplanation: string       // plain English, backend-composed
+  workload: DataLeakWorkloadSnapshot
+  dataStore: DataLeakStoreSnapshot
+  dataPlane: {
+    iamPermissions: DataLeakIamPermissions
+    observedApiCalls: DataLeakObservedApiCalls
+  }
+  networkPlane: {
+    bucket: DataLeakBucket
+    egressGate: DataLeakEgressGate | null
+    internetDestinations: DataLeakInternetDestinations
+  }
+  availableMitigations: DataLeakMitigation[]
+}
+
+export interface DataLeakPathsResponse {
+  systemName: string
+  exposedStores: number         // distinct stores reached by internet-capable workloads
+  accessibleStores: number      // distinct stores reached by ANY workload
+  totalStores: number           // total crown-jewel candidates in system
+  pathCount: number
+  internetDependency: {
+    level: DataLeakInternetDependencyLevel
+    summary: string
+  }
+  evidenceAge: {
+    egressLookbackDays: number
+    computedAt: string
+  }
+  paths: DataLeakPath[]
+}
+
+// Vendor-neutral display config for the four mitigations + risk-band visuals.
+export const DATA_LEAK_RISK_BAND_CONFIG: Record<DataLeakRiskBand, { label: string; color: string; bgColor: string; borderColor: string }> = {
+  critical: { label: "Critical", color: "#DC2626", bgColor: "rgba(220, 38, 38, 0.10)",  borderColor: "#DC2626" },
+  high:     { label: "High",     color: "#EA580C", bgColor: "rgba(234, 88, 12, 0.10)",  borderColor: "#EA580C" },
+  moderate: { label: "Moderate", color: "#CA8A04", bgColor: "rgba(202, 138, 4, 0.10)",  borderColor: "#CA8A04" },
+  low:      { label: "Low",      color: "#0284C7", bgColor: "rgba(2, 132, 199, 0.10)",  borderColor: "#0284C7" },
+}
+
+export const DATA_LEAK_BUCKET_LABEL: Record<DataLeakBucket, string> = {
+  ISOLATED:         "Cannot reach internet",
+  LATENT_EXPOSURE:  "Internet path open · no traffic observed",
+  AWS_REDIRECTABLE: "Reaches managed cloud via public route",
+  ACTIVE_INTERNET:  "Actively reaching external destinations",
+}
+
+export const DATA_LEAK_DEPENDENCY_LABEL: Record<DataLeakInternetDependencyLevel, { label: string; tone: "ok" | "warn" | "bad" }> = {
+  NONE: { label: "None",     tone: "ok"   },
+  MIN:  { label: "Minimal",  tone: "ok"   },
+  MOD:  { label: "Moderate", tone: "warn" },
+  FULL: { label: "Full",     tone: "bad"  },
+}
+
 // Safety decision UI config
 export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: string; color: string; bgColor: string; icon: string }> = {
   auto_eligible: {

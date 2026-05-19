@@ -302,10 +302,12 @@ function EgressTabContainer({
   systemName,
   deepLink,
   onDeepLinkConsumed,
+  onNavigateToSection,
 }: {
   systemName: string
   deepLink: TrafficDeepLink | null
   onDeepLinkConsumed: () => void
+  onNavigateToSection?: (section: string) => void
 }) {
   // Trust Boundary Map is the new default — the killer-demo headline
   // visualization. Other views (inventory/by-workload/flow-map) stay
@@ -399,6 +401,7 @@ function EgressTabContainer({
               systemName={systemName}
               selectedWorkloadId={selectedTbmWorkload?.workload?.id ?? null}
               onSelectWorkload={(w) => setSelectedTbmWorkload(w)}
+              onNavigateToSection={onNavigateToSection}
             />
           </div>
           {selectedTbmWorkload && (
@@ -544,6 +547,10 @@ const BehavioralIntelligence = dynamic(
 interface SystemDetailDashboardProps {
   systemName: string
   onBack: () => void
+  // Optional navigation callback so embedded views (Trust Boundary Map's
+  // "Show the path" CTA) can deep-link into other sections without
+  // imperative router calls.
+  onNavigateToSection?: (section: string) => void
 }
 
 interface CriticalIssue {
@@ -620,7 +627,7 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
+export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection }: SystemDetailDashboardProps) {
   const [activeTab, setActiveTab] = useState("overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
@@ -2540,6 +2547,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             systemName={systemName}
             deepLink={trafficDeepLink}
             onDeepLinkConsumed={() => setTrafficDeepLink(null)}
+            onNavigateToSection={onNavigateToSection}
           />
         </div>
       )}

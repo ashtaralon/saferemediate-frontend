@@ -100,6 +100,10 @@ interface Props {
   onSelectWorkload?: (w: PostureWorkload) => void
   onShowTechnical?: () => void
   technicalShown: boolean
+  // Optional: deep-link to the Data Leak Paths page. When provided, the
+  // "Show the path" CTA on the sensitive-data card navigates there
+  // instead of opening the per-workload drawer.
+  onShowDataLeakPaths?: () => void
 }
 
 export function ExecutiveSummary({
@@ -107,6 +111,7 @@ export function ExecutiveSummary({
   onSelectWorkload,
   onShowTechnical,
   technicalShown,
+  onShowDataLeakPaths,
 }: Props) {
   const risk = useMemo(() => deriveSensitiveDataRisk(data.workloads), [data.workloads])
   const summary = data.summary
@@ -218,9 +223,16 @@ export function ExecutiveSummary({
                 }
                 actionLabel="Show the path"
                 onAction={() => {
-                  if (risk.worstJewel?.reader) onSelectWorkload?.(risk.worstJewel.reader)
+                  // Navigate to the Data Leak Paths page when the parent
+                  // wired the section callback; otherwise fall back to
+                  // the legacy drawer-open behavior.
+                  if (onShowDataLeakPaths) {
+                    onShowDataLeakPaths()
+                  } else if (risk.worstJewel?.reader) {
+                    onSelectWorkload?.(risk.worstJewel.reader)
+                  }
                 }}
-                actionDisabled={!risk.worstJewel?.reader}
+                actionDisabled={!onShowDataLeakPaths && !risk.worstJewel?.reader}
               />
             )}
 
