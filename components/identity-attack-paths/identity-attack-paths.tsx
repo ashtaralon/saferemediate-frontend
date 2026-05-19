@@ -1145,6 +1145,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     selectedPathIndex={selectedPathIndex}
                     onNodeClick={handleNodeClick}
                     selectedNodeId={selectedNodeId}
+                    systemPosture={data?.system_posture ?? null}
                   />
                 )
               )}

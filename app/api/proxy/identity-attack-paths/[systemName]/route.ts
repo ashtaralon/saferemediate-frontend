@@ -8,7 +8,12 @@ export const runtime = "nodejs"
 // virtue of reading req.url params; explicit force-dynamic isn't needed.
 export const maxDuration = 60
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+// BACKEND_URL_OVERRIDE env hook lets dev point at localhost:8000
+// without editing this file. Render/Vercel never set it, so prod stays
+// on the Render URL.
+const BACKEND_URL =
+  process.env.BACKEND_URL_OVERRIDE ||
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(
   req: NextRequest,

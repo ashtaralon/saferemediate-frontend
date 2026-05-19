@@ -295,6 +295,26 @@ export interface LaneDefinition {
 
 // -- Node types --
 
+// Tier-1 enrichment (2026-05-19): SecurityFinding annotation attached
+// per node. Backend joins SecurityFinding.resourceArn to node.id in one
+// batch Cypher round-trip — caps at 10 findings per node to keep
+// response size sane.
+export interface NodeFinding {
+  id: string
+  title: string
+  // Lowercase (matches backend SecurityFinding.severity convention)
+  severity: "critical" | "high" | "medium" | "low"
+  type?: string | null
+  category?: string | null
+  description?: string | null
+  remediation?: string | null
+  can_auto_remediate?: boolean
+  status?: string | null
+  confidence?: number | null
+  source?: string | null
+  discovered_at?: string | null
+}
+
 export interface PathNodeDetail {
   id: string
   name: string
@@ -306,6 +326,18 @@ export interface PathNodeDetail {
   gap_count: number
   remediation: NodeRemediation | null
   internet_exposure_alert: InternetExposureAlert | null
+  // Tier-1: identity-protection three-state on IAMUser / IAMRole
+  // nodes — `true` = MFA enabled, `false` = explicitly disabled,
+  // `null` / undefined = unknown (collector hasn't observed this user).
+  // Frontend renders an "MFA OFF" / "MFA ON" / "MFA unknown" pill on
+  // identity-tier cards. IAMRole rarely needs MFA so the badge stays
+  // muted for roles; IAMUser without MFA is a HARD signal.
+  has_mfa?: boolean | null
+  has_console_access?: boolean | null
+  // Tier-1: SecurityFinding nodes whose resourceArn === this node.id.
+  // Empty array when no findings reference this node. Backend caps at
+  // 10 per node — operator drills in via the detail panel for the rest.
+  findings?: NodeFinding[]
   // Enriched fields (optional for backward compat)
   permissions?: NodePermissions | null
   policy_details?: NodePolicyDetails | null
@@ -397,6 +429,19 @@ export interface CrownJewelSummary {
   priority_score: number
 }
 
+// Tier-1: system-level posture summary attached to the top of the
+// response. Lives alongside the path list because PostureRecord is a
+// system aggregate, not per-resource — every node on every path in this
+// response shares the same posture context. Frontend uses
+// `overall_score` to colour the per-node ring (green/amber/red).
+// `null` when no PostureRecord exists yet (not-wired three-state).
+export interface SystemPosture {
+  overall_score: number | null
+  grade: string | null
+  dimensions: Record<string, number> | null
+  last_observed: string | null
+}
+
 export interface IdentityAttackPathsResponse {
   system_name: string
   timestamp: string
@@ -408,6 +453,8 @@ export interface IdentityAttackPathsResponse {
   exposed_jewels: number
   total_jewels: number
   error?: string | null
+  // Tier-1 enrichment: system-level posture summary (live/loading/not-wired).
+  system_posture?: SystemPosture | null
 }
 
 export interface JewelDetailResponse {
