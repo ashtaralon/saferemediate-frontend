@@ -3094,6 +3094,9 @@ export default function TrafficFlowMap({
   pathFilter,
   onPathNodeAction,
   exfilByWorkloadId,
+  architectureOverride,
+  titleOverride,
+  pathBadgeOverride,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -3102,6 +3105,17 @@ export default function TrafficFlowMap({
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
   exfilByWorkloadId?: Record<string, NodeExfilSummary>;
+  // When provided, this fully-formed SystemArchitecture is used in place
+  // of the dependency-map fetch. The dep-map fetch is still kicked off
+  // for stale-cache warming, but the override wins the render. This is
+  // how Data Leak Paths feeds its per-path egress architecture through
+  // the same renderer Attack Paths uses, so both pages share the visual
+  // language (header, lanes, ServiceNodeBox, ConnectionLinesSVG).
+  architectureOverride?: SystemArchitecture | null;
+  // Header title + the "PATH → …" pill. Default copy is attack-paths
+  // flavored; Data Leak Paths passes its own.
+  titleOverride?: string;
+  pathBadgeOverride?: string;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -3110,9 +3124,10 @@ export default function TrafficFlowMap({
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
   const architecture = useMemo(() => {
+    if (architectureOverride) return architectureOverride;
     if (!rawArchitecture) return null;
     return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
-  }, [rawArchitecture, pathFilter]);
+  }, [rawArchitecture, pathFilter, architectureOverride]);
   const setArchitecture = setRawArchitecture;
 
   // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips
@@ -3165,8 +3180,11 @@ export default function TrafficFlowMap({
   //   the hook only surfaces when there is no cached fallback at all —
   //   so a 504 during background refresh keeps the stale view rather
   //   than flashing the red popup.
-  const loading = depMapLoading && !rawArchitecture;
-  const error = emptyDataError ?? depMapError;
+  // When the caller passes an architectureOverride we already have the
+  // data — never block the render on the dep-map fetch (which is best-
+  // effort warming only in that mode).
+  const loading = !architectureOverride && depMapLoading && !rawArchitecture;
+  const error = architectureOverride ? null : (emptyDataError ?? depMapError);
   // Fetch-generation counter. Each runEnrichment call bumps this;
   // background enrichment closures capture the epoch at start and skip
   // their setArchitecture if a newer fetch has resolved in the meantime.
@@ -4381,15 +4399,17 @@ export default function TrafficFlowMap({
             <Layers className="w-4 h-4" />
           </button>
           <h2 className="text-white font-bold text-lg">
-            {pathFilter ? 'Path Flow Map' : 'Traffic Flow Map'}
+            {titleOverride ?? (pathFilter ? 'Path Flow Map' : 'Traffic Flow Map')}
           </h2>
-          {pathFilter && (pathFilter.jewelName || pathFilter.pathLabel) && (
+          {(pathBadgeOverride || (pathFilter && (pathFilter.jewelName || pathFilter.pathLabel))) && (
             <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30">
               <Target className="w-3.5 h-3.5 text-rose-300" />
               <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-200">
-                {pathFilter.pathLabel
-                  ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
-                  : `Path to ${pathFilter.jewelName}`}
+                {pathBadgeOverride
+                  ? pathBadgeOverride
+                  : pathFilter?.pathLabel
+                    ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
+                    : `Path to ${pathFilter?.jewelName}`}
               </span>
             </div>
           )}
