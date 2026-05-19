@@ -110,7 +110,7 @@ export function DataLeakPathsPage({ systemName, days = 30 }: Props) {
       ) : (
         <div className="space-y-4">
           {data.paths.map((p) => (
-            <PathCard key={p.pathId} path={p} systemName={data.systemName} />
+            <PathCard key={p.pathId} path={p} />
           ))}
         </div>
       )}
@@ -238,7 +238,7 @@ function KpiTile({
 // Per-path card
 // ---------------------------------------------------------------------------
 
-function PathCard({ path, systemName }: { path: DataLeakPath; systemName: string }) {
+function PathCard({ path }: { path: DataLeakPath }) {
   const band = DATA_LEAK_RISK_BAND_CONFIG[path.riskBand]
 
   return (
@@ -258,9 +258,9 @@ function PathCard({ path, systemName }: { path: DataLeakPath; systemName: string
         <p className="text-[13px] leading-relaxed text-slate-800">{path.riskExplanation}</p>
       </div>
 
-      {/* Flow map — same visual as Attack Paths, filtered to this path */}
+      {/* Flow map — egress plane with real destination nodes + access plane */}
       <div className="px-5 pb-3">
-        <DataLeakFlowMap systemName={systemName} path={path} />
+        <DataLeakFlowMap path={path} />
       </div>
 
       {/* Internet destinations — answers "where could this workload phone home?" */}
