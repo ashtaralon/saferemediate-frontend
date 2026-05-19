@@ -56,12 +56,27 @@ export function DataLeakFlowMap({ systemName, path }: Props) {
 // ---------------------------------------------------------------------------
 
 function buildArchitecture(path: DataLeakPath): SystemArchitecture {
+  // EGRESS — strictly the outbound network path. NO data store and NO
+  // IAM role in this flow: those belong to the access plane (a separate
+  // concern surfaced in the risk-explanation paragraph above the map).
+  // What goes here:
+  //   computeServices  = [workload]
+  //   subnets          = workload's subnet (egress posture)
+  //   securityGroups   = workload's SG (with 0.0.0.0/0 egress flag)
+  //   nacls            = workload's NACL
+  //   iamRoles         = [] (not egress; deliberately empty)
+  //   resources        = ONLY internet destinations the workload phoned
+  //                      home to. Each destination = one node card.
+  //   flows            = workload → each destination, with REAL observed
+  //                      bytes + hits per destination. No data-store flow.
+  //
+  // For LATENT paths (zero observed destinations) the resources array is
+  // empty — the renderer naturally surfaces "No API Calls" / empty
+  // RESOURCES lane. That's the honest answer: path is open, traffic is
+  // zero. The "1.5M S3 events" lives in the access plane (text above
+  // the flow map), NOT here.
   const w = path.workload
-  const store = path.dataStore
   const dests = path.networkPlane.internetDestinations
-  const observed = path.dataPlane.observedApiCalls
-  const totalEvents = observed._state === "wired" ? observed.totalEvents ?? 0 : 0
-  const totalBytes = observed._state === "wired" ? observed.totalBytes ?? 0 : 0
 
   const computeServices: ServiceNode[] = [
     {
@@ -73,20 +88,9 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
     },
   ]
 
-  // resources holds the data store + each observed internet destination
-  // as separate nodes. Renders them in the RESOURCES lane on the right.
-  const resources: ServiceNode[] = [
-    {
-      id: store.id,
-      name: store.name,
-      shortName: shortenStoreName(store.name),
-      type: storeNodeType(store.type),
-      isCrownJewel: true,
-    },
-  ]
-
+  const resources: ServiceNode[] = []
   if (dests._state === "wired" && dests.topDestinations.length > 0) {
-    dests.topDestinations.slice(0, 5).forEach((d, i) => {
+    dests.topDestinations.slice(0, 8).forEach((d, i) => {
       const idBase = d.ip || `dest-${i}`
       const primary = d.service
         ? humanService(d.service)
@@ -124,7 +128,7 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
           totalCount: 0,
           gapCount: w.securityGroup.hasPublicEgress ? 1 : 0,
           connectedSources: [w.id],
-          connectedTargets: [store.id, ...resources.slice(1).map((r) => r.id)],
+          connectedTargets: resources.map((r) => r.id),
         },
       ]
     : []
@@ -140,49 +144,22 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
           totalCount: 0,
           gapCount: 0,
           connectedSources: [w.id],
-          connectedTargets: [store.id, ...resources.slice(1).map((r) => r.id)],
+          connectedTargets: resources.map((r) => r.id),
         },
       ]
     : []
 
-  const iamRoles: SecurityCheckpoint[] = w.iamRole.id
-    ? [
-        {
-          id: w.iamRole.id,
-          type: "iam_role",
-          name: w.iamRole.name || w.iamRole.id,
-          shortName: w.iamRole.name || w.iamRole.id,
-          usedCount: observed.actions?.length || 0,
-          totalCount: observed.actions?.length || 0,
-          gapCount: 0,
-          connectedSources: [w.id],
-          connectedTargets: [store.id],
-        },
-      ]
-    : []
+  // IAM role left empty on purpose — not part of egress.
+  const iamRoles: SecurityCheckpoint[] = []
 
-  // Flows: one workload → data store flow with real observed events/bytes,
-  // plus one workload → destination flow per destination card (with that
-  // destination's observed bytes/hits).
-  // TrafficFlow accepts `string | undefined` for these — coalesce nulls.
+  // Flows: workload → each observed destination. NO workload → data
+  // store flow here. The bytes/hits come from per-destination observed
+  // traffic, not from access events.
   const sgId = w.securityGroup.id ?? undefined
   const naclId = w.nacl?.id ?? undefined
-  const roleId = w.iamRole.id ?? undefined
   const flows: TrafficFlow[] = []
-  flows.push({
-    sourceId: w.id,
-    targetId: store.id,
-    sgId,
-    naclId,
-    roleId,
-    ports: [],
-    protocol: "https",
-    bytes: totalBytes,
-    connections: totalEvents,
-    isActive: totalEvents > 0,
-  })
   if (dests._state === "wired") {
-    dests.topDestinations.slice(0, 5).forEach((d, i) => {
+    dests.topDestinations.slice(0, 8).forEach((d, i) => {
       const idBase = d.ip || `dest-${i}`
       flows.push({
         sourceId: w.id,
@@ -200,8 +177,6 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
 
   const totalBytesSum = flows.reduce((s, f) => s + (f.bytes || 0), 0)
   const totalConnectionsSum = flows.reduce((s, f) => s + (f.connections || 0), 0)
-  const totalGapsSum =
-    (securityGroups[0]?.gapCount || 0) + (iamRoles[0]?.gapCount || 0)
 
   return {
     computeServices,
@@ -213,7 +188,7 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
     flows,
     totalBytes: totalBytesSum,
     totalConnections: totalConnectionsSum,
-    totalGaps: totalGapsSum,
+    totalGaps: 0,
   }
 }
 
@@ -229,23 +204,9 @@ function workloadNodeType(type: string): NodeType {
   return "compute"
 }
 
-function storeNodeType(type: string): NodeType {
-  const t = type.toLowerCase()
-  if (t.includes("s3") || t.includes("bucket")) return "storage"
-  if (t.includes("dynamo")) return "dynamodb"
-  if (t.includes("rds") || t.includes("aurora") || t.includes("redshift")) return "database"
-  if (t.includes("kms") || t.includes("secret")) return "storage"
-  return "storage"
-}
-
 function destNodeType(kind?: string | null): NodeType {
   if (kind === "aws") return "api_gateway"
   return "internet"
-}
-
-function shortenStoreName(name: string): string {
-  if (name.length <= 24) return name
-  return name.slice(0, 22) + "…"
 }
 
 function humanService(svc: string): string {
