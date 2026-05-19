@@ -2458,7 +2458,14 @@ export function UnifiedArchitectureDiagram({
             )}
           </div>
 
-          {/* API CALLS - Simulated from VPC Traffic patterns */}
+          {/* API CALLS - Simulated from VPC Traffic patterns.
+              Suppressed in observedMode (Data Leak Paths): when the
+              caller is feeding real CloudTrail / S3-access-log counts
+              already in the flow + the description copy, the synthetic
+              "totalBytes / 51200" multiplier math reads as a fabricated
+              number alongside the real one and breaks operator trust
+              (per feedback_no_hardcoded_multipliers + feedback_no_mock_numbers_in_ui). */}
+          {!observedMode && (
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Zap className="w-4 h-4 text-lime-400" />
@@ -2566,6 +2573,7 @@ export function UnifiedArchitectureDiagram({
               <div className="text-xs text-slate-500 italic p-4 text-center">No API Calls</div>
             )}
           </div>
+          )}
 
           {/* RESOURCES */}
           <div className="flex flex-col gap-3">

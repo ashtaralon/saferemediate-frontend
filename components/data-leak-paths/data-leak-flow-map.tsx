@@ -56,7 +56,10 @@ export function DataLeakFlowMap({ path }: Props) {
           Path → {path.dataStore.name}
         </span>
       </div>
-      <div className="p-3">
+      {/* Dark backdrop — UnifiedArchitectureDiagram uses bg-slate-900/50
+          which is designed for a dark page; without a dark parent the
+          50%-opacity navy washes out into hazy gray. */}
+      <div className="bg-slate-950 p-3">
         <UnifiedArchitectureDiagram
           architecture={architecture}
           animate={true}
