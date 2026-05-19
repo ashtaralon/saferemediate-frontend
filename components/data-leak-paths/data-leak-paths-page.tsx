@@ -61,6 +61,7 @@ import {
   type MitigationStageResult,
 } from "@/hooks/use-mitigation-execution"
 import { DataLeakFlowMap } from "./data-leak-flow-map"
+import { InternetDestinationsTable } from "./internet-destinations-table"
 
 interface Props {
   systemName: string
@@ -109,7 +110,7 @@ export function DataLeakPathsPage({ systemName, days = 30 }: Props) {
       ) : (
         <div className="space-y-4">
           {data.paths.map((p) => (
-            <PathCard key={p.pathId} path={p} />
+            <PathCard key={p.pathId} path={p} systemName={data.systemName} />
           ))}
         </div>
       )}
@@ -237,7 +238,7 @@ function KpiTile({
 // Per-path card
 // ---------------------------------------------------------------------------
 
-function PathCard({ path }: { path: DataLeakPath }) {
+function PathCard({ path, systemName }: { path: DataLeakPath; systemName: string }) {
   const band = DATA_LEAK_RISK_BAND_CONFIG[path.riskBand]
 
   return (
@@ -257,9 +258,14 @@ function PathCard({ path }: { path: DataLeakPath }) {
         <p className="text-[13px] leading-relaxed text-slate-800">{path.riskExplanation}</p>
       </div>
 
-      {/* Flow map — dual-plane visualization */}
+      {/* Flow map — same visual as Attack Paths, filtered to this path */}
+      <div className="px-5 pb-3">
+        <DataLeakFlowMap systemName={systemName} path={path} />
+      </div>
+
+      {/* Internet destinations — answers "where could this workload phone home?" */}
       <div className="px-5 pb-4">
-        <DataLeakFlowMap path={path} />
+        <InternetDestinationsTable dests={path.networkPlane.internetDestinations} />
       </div>
 
       {/* Mitigations */}
