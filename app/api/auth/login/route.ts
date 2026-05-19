@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const response = NextResponse.json({ success: true })
   response.cookies.set("cyntro_auth", "authenticated", {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     maxAge: 60 * 60 * 24 * 30, // 30 days
     path: "/",
