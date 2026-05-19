@@ -930,12 +930,18 @@ interface TrustBoundaryMapProps {
   systemName: string
   onSelectWorkload?: (workload: PostureWorkload) => void
   selectedWorkloadId?: string | null
+  // Optional navigation callback so the executive-summary "Show the
+  // path" CTA can deep-link into the Data Leak Paths page. When
+  // omitted, the CTA falls back to opening the per-workload drawer
+  // (legacy behavior).
+  onNavigateToSection?: (section: string) => void
 }
 
 export function TrustBoundaryMap({
   systemName,
   onSelectWorkload,
   selectedWorkloadId: externalSelectedId = null,
+  onNavigateToSection,
 }: TrustBoundaryMapProps) {
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
   const selectedWorkloadId = externalSelectedId ?? internalSelectedId
@@ -1004,6 +1010,9 @@ export function TrustBoundaryMap({
         onSelectWorkload={handleSelectWorkload}
         onShowTechnical={() => setTechnicalShown((v) => !v)}
         technicalShown={technicalShown}
+        onShowDataLeakPaths={
+          onNavigateToSection ? () => onNavigateToSection("data-leak-paths") : undefined
+        }
       />
 
       {/* TECHNICAL VIEW — the original Trust Boundary layout, hidden by
