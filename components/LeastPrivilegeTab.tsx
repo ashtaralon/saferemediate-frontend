@@ -142,6 +142,13 @@ interface GapResource {
   description: string
   remediation: string
   region?: string  // For Security Groups
+  // Operator-facing subtab routing — backend is source of truth.
+  // 'removable' = action available (remove/tighten)
+  // 'coverage'  = no observation data; enable upstream data source
+  // 'audit'     = well-utilized; periodic review only
+  // Older backend responses may omit this — treated as 'removable' so
+  // rows stay visible during/right after deploy.
+  category?: 'removable' | 'coverage' | 'audit'
 }
 
 interface LeastPrivilegeSummary {
@@ -198,7 +205,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
-  const [activeTab, setActiveTab] = useState<'active' | 'remediated'>('active')
+  // Subtab routing — was 'active' | 'remediated' (a single catch-all "active" tab
+  // mixed three operator-facing categories). Backend now tags rows with
+  // category = 'removable' | 'coverage' | 'audit'; we route to one tab each.
+  const [activeTab, setActiveTab] = useState<'removable' | 'coverage' | 'audit' | 'remediated'>('removable')
+  const [syncingFlowLogs, setSyncingFlowLogs] = useState(false)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
@@ -618,6 +629,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             resourceName: r.resourceName,
             resourceArn: r.resourceArn,
             systemName: r.systemName,
+            // Backend-driven subtab routing — must be carried through the
+            // transform, otherwise every row falls back to 'removable' and
+            // the Coverage/Audit subtabs render empty.
+            category: r.category,
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
             allowedCount: r.allowedCount || 0,
@@ -1465,7 +1480,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const activeResources = nonDeletedResources.filter(r => !isRemediated(r))
   const remediatedResources = nonDeletedResources.filter(r => isRemediated(r))
 
-  const filteredResources = (activeTab === 'remediated' ? remediatedResources : activeResources)
+  // Subtab partition. Rows missing `category` (older backend response shape
+  // during deploy) fall into 'removable' to match prior behaviour where every
+  // active row was shown.
+  const categoryOf = (r: GapResource): 'removable' | 'coverage' | 'audit' =>
+    r.category ?? 'removable'
+  const removableResources = activeResources.filter(r => categoryOf(r) === 'removable')
+  const coverageResources = activeResources.filter(r => categoryOf(r) === 'coverage')
+  const auditResources = activeResources.filter(r => categoryOf(r) === 'audit')
+
+  const tabResources: GapResource[] =
+    activeTab === 'remediated' ? remediatedResources
+      : activeTab === 'coverage' ? coverageResources
+        : activeTab === 'audit' ? auditResources
+          : removableResources
+
+  const filteredResources = tabResources
     .filter(r => {
       if (resourceTypeFilter === 'all') return true
       return r.resourceType === resourceTypeFilter
@@ -1476,12 +1506,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
     })
     .filter(r => {
-      if (activeTab === 'remediated') return true
+      // Was: "hide IAM roles with gapCount=0 on the Active Issues tab" — that
+      // gate is now redundant because such rows route to Audit (gap=0 → audit).
+      // Keep the gate only on the Removable tab as a defence-in-depth filter
+      // in case the backend mis-categorises.
+      if (activeTab !== 'removable') return true
       if (r.resourceType === 'IAMRole') return (r.gapCount ?? 0) > 0
       return true
     })
     .filter(r => {
-      if (activeTab === 'remediated') return true
+      if (activeTab !== 'removable') return true
       if (r.resourceType !== 'IAMRole') return true
       if (!showRemediableOnly) return true
       return r.isRemediable !== false
@@ -1614,19 +1648,51 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         })()}
       </div>
 
-      {/* Tabs: Active Issues / Remediated */}
+      {/* Subtabs: Removable / Coverage Gaps / Audit / Remediated.
+          Replaces the catch-all "Active Issues" tab. Each subtab corresponds to a
+          backend-assigned category so operators see one role at a time:
+          fix, fix-the-pipeline, or just review. */}
       <div className="flex gap-1 border-b" style={{ borderColor: "var(--border-subtle)" }}>
         <button
-          onClick={() => { setActiveTab('active'); setResourceTypeFilter('all') }}
+          onClick={() => { setActiveTab('removable'); setResourceTypeFilter('all') }}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'active' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+            activeTab === 'removable' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
           }`}
-          style={activeTab !== 'active' ? { color: "var(--text-secondary)" } : undefined}
+          style={activeTab !== 'removable' ? { color: "var(--text-secondary)" } : undefined}
+          title="Resources where an action is available right now — remove unused permissions, tighten rules, fix a public policy."
         >
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
-            Active Issues
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{activeResources.length}</span>
+            Removable
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{removableResources.length}</span>
+          </span>
+        </button>
+        <button
+          onClick={() => { setActiveTab('coverage'); setResourceTypeFilter('all') }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'coverage' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+          }`}
+          style={activeTab !== 'coverage' ? { color: "var(--text-secondary)" } : undefined}
+          title="Resources we cannot analyse because observation data is missing — enable VPC Flow Logs, S3 Data Events, or CloudTrail."
+        >
+          <span className="flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            Coverage Gaps
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#f59e0b20] text-[#f59e0b]">{coverageResources.length}</span>
+          </span>
+        </button>
+        <button
+          onClick={() => { setActiveTab('audit'); setResourceTypeFilter('all') }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'audit' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+          }`}
+          style={activeTab !== 'audit' ? { color: "var(--text-secondary)" } : undefined}
+          title="Fully-utilised resources surfaced for periodic review. No action required today."
+        >
+          <span className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            Audit
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">{auditResources.length}</span>
           </span>
         </button>
         <button
@@ -1664,12 +1730,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             className="px-3 py-2 rounded-lg border text-sm"
             style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           >
-            <option value="all">All Types ({(activeTab === 'remediated' ? remediatedResources : activeResources).length})</option>
-            <option value="IAMRole">IAM Roles ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'IAMRole').length})</option>
-            <option value="SecurityGroup">Security Groups ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'SecurityGroup').length})</option>
-            <option value="S3Bucket">S3 Buckets ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'S3Bucket').length})</option>
+            <option value="all">All Types ({tabResources.length})</option>
+            <option value="IAMRole">IAM Roles ({tabResources.filter(r => r.resourceType === 'IAMRole').length})</option>
+            <option value="SecurityGroup">Security Groups ({tabResources.filter(r => r.resourceType === 'SecurityGroup').length})</option>
+            <option value="S3Bucket">S3 Buckets ({tabResources.filter(r => r.resourceType === 'S3Bucket').length})</option>
           </select>
-          {activeTab === 'active' && (
+          {activeTab === 'removable' && (
             <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
               <input
                 type="checkbox"
@@ -1698,6 +1764,83 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           <span className="text-sm whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{filteredResources.length} results</span>
         </div>
       </div>
+
+      {/* Coverage Gaps explanatory banner — only on the Coverage tab.
+          Rows here are NOT problems with the resource; they're problems
+          with our observability. The CTA triggers the same flow-logs sync
+          that the SG remediation flow uses. */}
+      {activeTab === 'coverage' && (
+        <div
+          className="rounded-lg border p-4 flex items-start gap-3"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <Eye className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: "#f59e0b" }} />
+          <div className="flex-1">
+            <div className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+              These resources don't have enough observation data to analyse
+            </div>
+            <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              Cyntro decides what's removable from observed traffic and API calls.
+              When VPC Flow Logs, S3 Data Events, or CloudTrail Data Events are
+              missing for a resource, we surface it here instead of guessing.
+              Enable the upstream source and re-sync to move these rows to
+              Removable or Audit.
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              setSyncingFlowLogs(true)
+              try {
+                const res = await fetch('/api/proxy/sg-least-privilege/sync-flow-logs?days=30', {
+                  method: 'POST',
+                })
+                if (res.ok) {
+                  toast({
+                    title: 'Flow logs sync started',
+                    description: 'Re-run LP analysis in a few minutes to see resources move out of Coverage Gaps.',
+                  })
+                } else {
+                  toast({
+                    title: 'Sync failed',
+                    description: `Backend returned ${res.status}.`,
+                    variant: 'destructive',
+                  })
+                }
+              } catch (err) {
+                toast({
+                  title: 'Sync failed',
+                  description: err instanceof Error ? err.message : 'Unknown error',
+                  variant: 'destructive',
+                })
+              } finally {
+                setSyncingFlowLogs(false)
+              }
+            }}
+            disabled={syncingFlowLogs}
+            className="px-3 py-1.5 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+            style={{ background: "#f59e0b" }}
+          >
+            {syncingFlowLogs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {syncingFlowLogs ? 'Syncing…' : 'Sync flow logs'}
+          </button>
+        </div>
+      )}
+
+      {/* Audit subtab subtitle — softer treatment than Removable/Coverage.
+          No red badges, no CTA — these rows are info, not work. */}
+      {activeTab === 'audit' && (
+        <div
+          className="rounded-lg border p-4 flex items-start gap-3"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <BarChart3 className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: "#64748b" }} />
+          <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Periodic review.</span>
+            {" "}These resources are fully utilised — every permission or rule has been used in the observation window.
+            Listed for awareness; no action required today.
+          </div>
+        </div>
+      )}
 
       {/* Resources Table */}
       <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
