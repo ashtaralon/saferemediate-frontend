@@ -61,6 +61,12 @@ interface PathKillerMapProps {
   systemName: string
   onRemediateNode: (nodeId: string, dryRun: boolean) => void
   onRemediateAll?: (dryRun: boolean) => void
+  // Optional slot for the embedded dynamic map. When provided, the
+  // chain section renders this node (typically a TrafficFlowMap filtered
+  // to the path's chain nodes) instead of the static card row. Parent
+  // owns the map wiring (path filter, click-routing to remediation
+  // modals) so this component stays presentational.
+  mapNode?: React.ReactNode
 }
 
 // ─── Type-aware icon for a node card (Identity, Compute, Crown Jewel) ──
@@ -258,6 +264,7 @@ export function PathKillerMap({
   systemPosture,
   onRemediateNode,
   onRemediateAll,
+  mapNode,
 }: PathKillerMapProps) {
   const [showLateral, setShowLateral] = useState(false)
 
@@ -391,32 +398,46 @@ export function PathKillerMap({
       </div>
 
       {/* ─── CHAIN ─────────────────────────────────────────────────── */}
+      {/* When the parent passes mapNode (TrafficFlowMap filtered to
+          this path's chain), the chain section renders as the live
+          animated map. When not, fall back to the static card row.
+          Both render under the same "Attack chain" header for
+          consistency. */}
       <div
-        className="rounded-xl border border-slate-700/60 px-4 py-4"
+        className="rounded-xl border border-slate-700/60 overflow-hidden"
         style={{ background: "rgba(15, 23, 42, 0.6)" }}
       >
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
-          Attack chain
+        <div className="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+          <span>Attack chain</span>
+          {mapNode && (
+            <span className="text-[9px] text-slate-500 normal-case tracking-normal">
+              Animated · traffic observed on solid edges, configured on dashed
+            </span>
+          )}
         </div>
-        <div className="flex items-stretch gap-2 flex-wrap">
-          {storyNodes.map((n, i) => (
-            <React.Fragment key={n.id}>
-              <ChainCard
-                node={n}
-                ringClass={ringClass}
-                isJewel={n.lane === "crown_jewel"}
-                onClick={() => onRemediateNode(n.id, true)}
-              />
-              {i < storyNodes.length - 1 && (
-                <ChainArrow
-                  source={n}
-                  target={storyNodes[i + 1]}
-                  edges={path.edges || []}
+        {mapNode ? (
+          <div style={{ height: 520 }}>{mapNode}</div>
+        ) : (
+          <div className="flex items-stretch gap-2 flex-wrap px-4 pb-4">
+            {storyNodes.map((n, i) => (
+              <React.Fragment key={n.id}>
+                <ChainCard
+                  node={n}
+                  ringClass={ringClass}
+                  isJewel={n.lane === "crown_jewel"}
+                  onClick={() => onRemediateNode(n.id, true)}
                 />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
+                {i < storyNodes.length - 1 && (
+                  <ChainArrow
+                    source={n}
+                    target={storyNodes[i + 1]}
+                    edges={path.edges || []}
+                  />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ─── WHAT'S WRONG ─────────────────────────────────────────── */}
