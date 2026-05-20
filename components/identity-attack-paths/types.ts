@@ -369,6 +369,51 @@ export interface PathNodeDetail {
     city?: string
     aws?: { service?: string; region?: string; network_border_group?: string } | null
   }
+  // ── Tier-1 enrichment Part 2 fields (proxy ?enriched=true) ───────
+  // Each field only appears when backend `_apply_enriched_supplements`
+  // resolved a relevant graph fact for THIS node. Frontend renders the
+  // section conditionally — `node.<field>` truthy → show section,
+  // otherwise drop silently (no empty-state spam).
+  //
+  // Per `feedback_remediation_safety_signals.md` these ARE evidence
+  // signals next to the recommendation — render them on the node
+  // detail panel so the operator sees WHY a recommendation routed
+  // the way it did (e.g. mitigation_history showing a prior rollback).
+  egress_destinations?: Array<{
+    destination_ip: string
+    destination_class?: string
+    bytes?: number
+    hits?: number
+    org?: string | null
+    aws_service?: string | null
+  }>
+  eni_count?: number
+  mitigation_history?: Array<{
+    rule_id: string
+    outcome: string  // "success" | "rolled_back" | "failed" | string
+    at: string       // ISO 8601
+    actor?: string | null
+  }>
+  target_groups?: Array<{
+    tg_arn: string
+    protocol?: string
+    port?: number
+    health?: string | null
+  }>
+  s3_prefixes?: Array<{
+    prefix: string
+    principals_with_access?: string[]
+  }>
+  route_tables?: Array<{
+    rt_id: string
+    routes?: Array<{ dest: string; target: string }>
+  }>
+  load_balancer_targets?: Array<{
+    instance_id: string
+    az?: string | null
+    health?: string | null
+  }>
+  lambda_invocations?: number
 }
 
 export interface PathEdgeDetail {

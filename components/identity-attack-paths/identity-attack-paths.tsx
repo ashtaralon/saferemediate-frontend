@@ -109,6 +109,14 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // resources confirmed absent from AWS during the last successful scan).
   // Default off — live view hides zombies.
   const [includeDeleted, setIncludeDeleted] = useState(false)
+  // Enriched-evidence toggle (2026-05-20). When on, the proxy passes
+  // enriched=true so the backend's Tier-1 Part 2 supplements attach
+  // extra fields per path node — egress destinations, ENI count,
+  // mitigation history, target groups, S3 prefixes, route tables,
+  // LB targets, lambda invocation counts. Additive only — path graph
+  // shape unchanged. Default off so the lighter payload stays the
+  // norm and operators opt in when they want the deeper drill.
+  const [enriched, setEnriched] = useState(false)
 
   // Stale-while-revalidate via useCachedFetch (localStorage SWR).
   // Replaced the raw fetch + AbortController + useState pattern because
@@ -129,7 +137,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // independently — without that, the two snapshots would clobber
   // each other.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}${enriched ? "&enriched=true" : ""}`
     : null
   const {
     data: rawData,
@@ -137,7 +145,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     error,
     retry,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}`,
+    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}:${enriched}`,
   })
 
   // Envelope unwrap. Backend optionally wraps responses in a
@@ -898,6 +906,40 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             >
               <span className="text-[10px]">
                 {includeDeleted ? "● Show deleted" : "○ Hide deleted"}
+              </span>
+            </button>
+            {/* Enriched-evidence toggle (2026-05-20): when ON, each path
+                node carries the Tier-1 Part 2 supplement fields (egress
+                destinations, ENI count, mitigation history, target
+                groups, S3 prefixes, route tables, LB targets, lambda
+                invocations). The node detail panel renders these as
+                additional evidence sections — additive only, never
+                changes the path graph. Default off so the lighter
+                payload stays the norm. */}
+            <button
+              onClick={() => setEnriched((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-semibold transition-colors"
+              style={
+                enriched
+                  ? {
+                      background: "rgba(56, 189, 248, 0.15)",
+                      color: "#7dd3fc",
+                      border: "1px solid rgba(56, 189, 248, 0.35)",
+                    }
+                  : {
+                      background: "rgba(15, 23, 42, 0.8)",
+                      color: "#94a3b8",
+                      border: "1px solid rgba(148, 163, 184, 0.15)",
+                    }
+              }
+              title={
+                enriched
+                  ? "Enriched evidence ON — showing route tables, egress destinations, ENI counts, target groups, prior mitigations, and more per node. Click to switch to the standard view."
+                  : "Standard view — click to attach Tier-1 evidence (route tables, egress destinations, ENI counts, target groups, prior mitigations) to each path node."
+              }
+            >
+              <span className="text-[10px]">
+                {enriched ? "● Enriched" : "○ Standard"}
               </span>
             </button>
             <button
