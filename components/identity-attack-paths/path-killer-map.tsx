@@ -35,14 +35,21 @@ import React, { useMemo, useState } from "react"
 import {
   AlertTriangle,
   ArrowRight,
+  ChevronDown,
+  ChevronRight,
   Crown,
   Database,
   Globe,
+  History,
   Key,
   KeyRound,
+  Layers,
   Lock,
+  Network,
+  RotateCcw,
   Server,
   Shield,
+  ShieldCheck,
   ShieldOff,
   Table2,
   UserCheck,
@@ -50,8 +57,10 @@ import {
 } from "lucide-react"
 import type {
   IdentityAttackPath,
+  MitigationEvent,
   NodeFinding,
   PathNodeDetail,
+  S3PrefixEntry,
   SystemPosture,
 } from "./types"
 
@@ -611,82 +620,396 @@ function ChainCard({
   const isUser = String(node.type || "") === "IAMUser"
   const perms = node.permissions
 
+  // Tier-1 expanded enrichment fields (all opt-in; undefined when
+  // ?enriched=true wasn't set on the request).
+  const lambdaCalls = node.lambda_invocation_count
+  const eniCount = node.eni_count
+  const s3Prefixes = node.s3_prefixes ?? []
+  const lbTargetGroups = node.target_groups ?? []
+  const mitigations = node.mitigation_history ?? []
+  const mitigationSummary = useMitigationSummary(mitigations)
+  const [expandedSection, setExpandedSection] = useState<
+    "prefixes" | "mitigations" | "targets" | null
+  >(null)
+  const toggleSection = (s: "prefixes" | "mitigations" | "targets") =>
+    setExpandedSection(expandedSection === s ? null : s)
+
+  const isLambda = /lambda|function/i.test(String(node.type || ""))
+  const isCompute =
+    /ec2|instance/i.test(String(node.type || "")) || isLambda
+  const isS3 = /s3.*bucket|^s3bucket$/i.test(String(node.type || ""))
+  const isLb = /loadbalancer|^alb$|^nlb$|^elb$/i.test(String(node.type || ""))
+
   return (
-    <button
-      onClick={onClick}
-      className={`flex flex-col items-start gap-1 min-w-[180px] max-w-[220px] text-left rounded-xl border px-3 py-2 transition-colors ${
+    <div
+      className={`flex flex-col items-start gap-1 min-w-[180px] max-w-[260px] rounded-xl border ${
         isJewel
-          ? "bg-red-500/10 border-red-500/40 hover:bg-red-500/20"
-          : "bg-slate-800/70 border-slate-700 hover:bg-slate-800"
+          ? "bg-red-500/10 border-red-500/40"
+          : "bg-slate-800/70 border-slate-700"
       } ${ringClass}`}
-      title={`${nodeTypeLabel(node)} · ${node.name}\nClick to open remediation modal.`}
     >
-      <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-slate-400">
-        {nodeIcon(node)}
-        <span className="font-semibold">{nodeTypeLabel(node)}</span>
-      </div>
-      <div className="text-[12px] font-semibold text-white truncate w-full" title={node.name}>
-        {shortName(node.name)}
-      </div>
-      {/* Metric line — different per node kind */}
-      {perms && (
-        <div className="text-[10px] text-slate-400 tabular-nums">
-          {perms.used}/{perms.total} perms · <span className="text-amber-400">{perms.unused} unused</span>
+      {/* Main clickable card body — opens remediation modal */}
+      <button
+        onClick={onClick}
+        className={`w-full text-left rounded-t-xl px-3 py-2 transition-colors ${
+          isJewel ? "hover:bg-red-500/20" : "hover:bg-slate-800"
+        }`}
+        title={`${nodeTypeLabel(node)} · ${node.name}\nClick to open remediation modal.`}
+      >
+        <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-slate-400">
+          {nodeIcon(node)}
+          <span className="font-semibold">{nodeTypeLabel(node)}</span>
+        </div>
+        <div className="text-[12px] font-semibold text-white truncate w-full" title={node.name}>
+          {shortName(node.name)}
+        </div>
+        {/* Metric line — different per node kind */}
+        {perms && (
+          <div className="text-[10px] text-slate-400 tabular-nums">
+            {perms.used}/{perms.total} perms · <span className="text-amber-400">{perms.unused} unused</span>
+          </div>
+        )}
+        {isJewel && node.access_summary?.total_accessors != null && (
+          <div className="text-[10px] text-slate-400 tabular-nums">
+            {node.access_summary.total_accessors} accessor{node.access_summary.total_accessors === 1 ? "" : "s"}
+          </div>
+        )}
+        {/* Item 4: Lambda activity annotation. Three-state per
+            `feedback_no_mock_numbers_in_ui`:
+              undefined  → field not requested (no badge)
+              0          → "no invocations observed" (operator-honest)
+              > 0        → "N calls observed"  */}
+        {isLambda && lambdaCalls !== undefined && lambdaCalls !== null && (
+          <div className="text-[10px] text-amber-300/90 tabular-nums">
+            <Zap className="w-2.5 h-2.5 inline-block mr-0.5" />
+            {lambdaCalls === 0
+              ? "no invocations observed"
+              : `${lambdaCalls.toLocaleString()} call${lambdaCalls === 1 ? "" : "s"} observed`}
+          </div>
+        )}
+        {/* Badge strip — MFA (IAMUser only) + finding count + new tier-1 expanded badges */}
+        <div className="flex items-center gap-1 flex-wrap mt-1">
+          {isUser && (
+            <span
+              className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold border ${
+                hasMfa === true
+                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                  : hasMfa === false
+                    ? "bg-red-500/20 text-red-200 border-red-500/40"
+                    : "bg-slate-700/40 text-slate-400 border-slate-600"
+              }`}
+              title={
+                hasMfa === true
+                  ? "MFA enabled"
+                  : hasMfa === false
+                    ? "MFA disabled — credential compromise = direct API access"
+                    : "MFA status unknown for this user"
+              }
+            >
+              {hasMfa === false ? (
+                <ShieldOff className="w-2.5 h-2.5" />
+              ) : (
+                <Shield className="w-2.5 h-2.5" />
+              )}
+              {hasMfa === true ? "MFA on" : hasMfa === false ? "MFA off" : "MFA ?"}
+            </span>
+          )}
+          {findings.length > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-red-500/20 text-red-200 border border-red-500/40"
+              title={findings.map((f) => `[${f.severity.toUpperCase()}] ${f.title}`).join("\n")}
+            >
+              <AlertTriangle className="w-2.5 h-2.5" />
+              {findings.length} {findings.length === 1 ? "finding" : "findings"}
+            </span>
+          )}
+          {node.is_internet_exposed && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-200 border border-rose-500/40"
+              title="Internet-exposed"
+            >
+              <Globe className="w-2.5 h-2.5" />
+              public
+            </span>
+          )}
+          {/* Item 12: ENI multi-homed badge. Renders only when compute is
+              attached to MORE THAN ONE network interface. Single-homed
+              is the common case, no badge. Per `feedback_signal_language`:
+              "multi-homed" is descriptive, not "Suspicious". */}
+          {isCompute && eniCount !== undefined && eniCount > 1 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-500/40"
+              title={`Attached to ${eniCount} network interfaces — workload lives in multiple subnets. Click compute card to inspect each ENI's subnet posture.`}
+            >
+              <Network className="w-2.5 h-2.5" />
+              {eniCount} ENI
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* Expandable footer rows — separated from main click target so
+          chevron toggles don't open the remediation modal. */}
+      {(s3Prefixes.length > 0 || mitigationSummary.total > 0 || lbTargetGroups.length > 0) && (
+        <div className="w-full border-t border-slate-700/60 px-2 py-1.5 flex flex-col gap-1">
+          {/* Item 6: S3 prefix expansion. Only shown on S3Bucket nodes
+              when the backend returned ≥1 prefix. Clicking the chevron
+              reveals the prefix sub-rows with per-operation access
+              counts. */}
+          {isS3 && s3Prefixes.length > 0 && (
+            <button
+              onClick={(ev) => {
+                ev.stopPropagation()
+                toggleSection("prefixes")
+              }}
+              className="flex items-center justify-between gap-2 text-[10px] text-emerald-300 hover:text-emerald-200"
+              title={`${s3Prefixes.length} prefix${s3Prefixes.length === 1 ? "" : "es"} observed under this bucket.`}
+            >
+              <span className="flex items-center gap-1">
+                <Database className="w-3 h-3" />
+                {s3Prefixes.length} prefix{s3Prefixes.length === 1 ? "" : "es"}
+              </span>
+              {expandedSection === "prefixes" ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+            </button>
+          )}
+          {expandedSection === "prefixes" && (
+            <div className="flex flex-col gap-0.5 pl-3 border-l border-emerald-500/30 ml-1">
+              {s3Prefixes.slice(0, 8).map((p) => (
+                <S3PrefixRow key={p.id} prefix={p} />
+              ))}
+              {s3Prefixes.length > 8 && (
+                <div className="text-[9px] text-slate-500 italic">
+                  +{s3Prefixes.length - 8} more prefix{s3Prefixes.length - 8 === 1 ? "" : "es"} not shown
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Item 11: LB TargetGroup chips. Only shown on LoadBalancer
+              nodes. Expandable to reveal targets per TG. */}
+          {isLb && lbTargetGroups.length > 0 && (
+            <button
+              onClick={(ev) => {
+                ev.stopPropagation()
+                toggleSection("targets")
+              }}
+              className="flex items-center justify-between gap-2 text-[10px] text-cyan-300 hover:text-cyan-200"
+              title={`${lbTargetGroups.length} target group${lbTargetGroups.length === 1 ? "" : "s"} attached to this load balancer.`}
+            >
+              <span className="flex items-center gap-1">
+                <Layers className="w-3 h-3" />
+                {lbTargetGroups.length} target group{lbTargetGroups.length === 1 ? "" : "s"}
+              </span>
+              {expandedSection === "targets" ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+            </button>
+          )}
+          {expandedSection === "targets" && (
+            <div className="flex flex-col gap-0.5 pl-3 border-l border-cyan-500/30 ml-1">
+              {lbTargetGroups.map((tg) => (
+                <div key={tg.id} className="text-[9px] text-slate-300">
+                  <span className="font-semibold text-cyan-300">{tg.name}</span>
+                  {tg.port != null && <span className="text-slate-500"> :{tg.port}/{tg.protocol ?? "?"}</span>}
+                  {tg.targets.length > 0 && (
+                    <div className="pl-2 text-slate-400">
+                      → {tg.targets.map((t) => t.name).slice(0, 3).join(", ")}
+                      {tg.targets.length > 3 && ` +${tg.targets.length - 3}`}
+                    </div>
+                  )}
+                  {tg.targets.length === 0 && (
+                    <div className="pl-2 text-slate-500 italic">no registered targets</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Item 15: Mitigation history summary badge. Click to expand
+              the timeline. Per `feedback_remediation_safety_signals` we
+              surface success/partial/rollback state — never a generic
+              "safe" claim. Per `feedback_signal_language` the badges are
+              descriptive ("3 prior mitigations" not "Suspicious"). */}
+          {mitigationSummary.total > 0 && (
+            <button
+              onClick={(ev) => {
+                ev.stopPropagation()
+                toggleSection("mitigations")
+              }}
+              className="flex items-center justify-between gap-2 text-[10px] text-slate-300 hover:text-white"
+              title={mitigationSummary.tooltip}
+            >
+              <span className="flex items-center gap-1">
+                {mitigationSummary.icon}
+                <span>{mitigationSummary.label}</span>
+              </span>
+              {expandedSection === "mitigations" ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+            </button>
+          )}
+          {expandedSection === "mitigations" && (
+            <div className="flex flex-col gap-1 pl-3 border-l border-slate-600 ml-1">
+              {mitigations.slice(0, 6).map((m) => (
+                <MitigationRow key={m.id} event={m} />
+              ))}
+              {mitigations.length > 6 && (
+                <div className="text-[9px] text-slate-500 italic">
+                  +{mitigations.length - 6} older event{mitigations.length - 6 === 1 ? "" : "s"} not shown
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
-      {isJewel && node.access_summary?.total_accessors != null && (
-        <div className="text-[10px] text-slate-400 tabular-nums">
-          {node.access_summary.total_accessors} accessor{node.access_summary.total_accessors === 1 ? "" : "s"}
-        </div>
-      )}
-      {/* Badge strip — MFA (IAMUser only) + finding count */}
-      <div className="flex items-center gap-1 flex-wrap">
-        {isUser && (
-          <span
-            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold border ${
-              hasMfa === true
-                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                : hasMfa === false
-                  ? "bg-red-500/20 text-red-200 border-red-500/40"
-                  : "bg-slate-700/40 text-slate-400 border-slate-600"
-            }`}
-            title={
-              hasMfa === true
-                ? "MFA enabled"
-                : hasMfa === false
-                  ? "MFA disabled — credential compromise = direct API access"
-                  : "MFA status unknown for this user"
-            }
-          >
-            {hasMfa === false ? (
-              <ShieldOff className="w-2.5 h-2.5" />
-            ) : (
-              <Shield className="w-2.5 h-2.5" />
-            )}
-            {hasMfa === true ? "MFA on" : hasMfa === false ? "MFA off" : "MFA ?"}
-          </span>
-        )}
-        {findings.length > 0 && (
-          <span
-            className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-red-500/20 text-red-200 border border-red-500/40"
-            title={findings.map((f) => `[${f.severity.toUpperCase()}] ${f.title}`).join("\n")}
-          >
-            <AlertTriangle className="w-2.5 h-2.5" />
-            {findings.length} {findings.length === 1 ? "finding" : "findings"}
-          </span>
-        )}
-        {node.is_internet_exposed && (
-          <span
-            className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-200 border border-rose-500/40"
-            title="Internet-exposed"
-          >
-            <Globe className="w-2.5 h-2.5" />
-            public
-          </span>
-        )}
-      </div>
-    </button>
+    </div>
   )
+}
+
+// ─── Item 6 supporting row: per-prefix access summary ──────────────────
+function S3PrefixRow({ prefix }: { prefix: S3PrefixEntry }) {
+  // Aggregate access events by operation (read/write/delete/list).
+  // Distinct from raw .hits because each access row is one principal.
+  const ops = new Map<string, number>()
+  for (const a of prefix.access || []) {
+    const k = String(a.operation || "unknown").toLowerCase()
+    ops.set(k, (ops.get(k) ?? 0) + (a.hits || 0))
+  }
+  return (
+    <div className="text-[9px] text-slate-300 tabular-nums">
+      <span className="font-mono text-emerald-300">{prefix.prefix}</span>
+      {prefix.hits > 0 && (
+        <span className="text-slate-500"> · {prefix.hits.toLocaleString()} hit{prefix.hits === 1 ? "" : "s"}</span>
+      )}
+      {ops.size > 0 && (
+        <span className="ml-1 text-slate-400">
+          {Array.from(ops.entries()).map(([op, n]) => (
+            <span key={op} className="ml-1">
+              <span className={
+                op === "delete"
+                  ? "text-red-300 font-semibold"
+                  : op === "write" || op === "put"
+                    ? "text-amber-300"
+                    : "text-slate-300"
+              }>{op}</span>
+              :{n}
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─── Item 15 supporting row: one mitigation event in the timeline ──────
+function MitigationRow({ event }: { event: MitigationEvent }) {
+  const palette =
+    event.success === false
+      ? "text-amber-300"
+      : event.kind === "OverrideEvent"
+        ? "text-fuchsia-300"
+        : event.kind === "QuarantineRecord"
+          ? "text-cyan-300"
+          : "text-emerald-300"
+  const at = event.at ? formatRelativeIso(event.at) : ""
+  return (
+    <div className="text-[9px] text-slate-300" title={mitigationTooltip(event)}>
+      <span className={`font-semibold ${palette}`}>{event.event_type ?? event.kind}</span>
+      {event.success === false && <span className="text-amber-300 ml-1">· partial</span>}
+      {event.rolled_back_at && <span className="text-amber-300 ml-1">· rolled back</span>}
+      {event.confidence != null && (
+        <span className="text-slate-500 ml-1">· conf {Math.round(event.confidence * (event.confidence > 1 ? 1 : 100))}{event.confidence > 1 ? "" : "%"}</span>
+      )}
+      {at && <span className="text-slate-500 ml-1">· {at}</span>}
+      <div className="text-[9px] text-slate-500 ml-1">
+        {event.overridden_by && <>override by {event.overridden_by}</>}
+        {event.initiated_by && <>by {event.initiated_by}</>}
+      </div>
+    </div>
+  )
+}
+
+// Build the human-readable summary for the mitigation history badge.
+// Returns the icon (sigil per event kind) + label ("3 mitigated · 1 rolled back")
+// + tooltip with the full picture.
+function useMitigationSummary(events: MitigationEvent[]): {
+  icon: React.ReactNode
+  label: string
+  tooltip: string
+  total: number
+} {
+  return useMemo(() => {
+    if (events.length === 0) {
+      return { icon: null, label: "", tooltip: "", total: 0 }
+    }
+    const rolledBack = events.filter((e) => e.rolled_back_at).length
+    const overridden = events.filter((e) => e.kind === "OverrideEvent").length
+    const quarantined = events.filter((e) => e.kind === "QuarantineRecord").length
+    const successful = events.filter((e) => e.success === true).length
+    const partials = events.filter((e) => e.success === false).length
+    // Pick the most operator-relevant icon. Override > rollback > quarantine > mitigated.
+    let icon: React.ReactNode = <ShieldCheck className="w-3 h-3 text-emerald-300" />
+    if (overridden > 0) icon = <ShieldOff className="w-3 h-3 text-fuchsia-300" />
+    else if (rolledBack > 0) icon = <RotateCcw className="w-3 h-3 text-amber-300" />
+    else if (quarantined > 0) icon = <Lock className="w-3 h-3 text-cyan-300" />
+    else if (successful > 0) icon = <ShieldCheck className="w-3 h-3 text-emerald-300" />
+    else icon = <History className="w-3 h-3 text-slate-300" />
+    const parts: string[] = []
+    if (successful > 0) parts.push(`${successful} mitigated`)
+    if (partials > 0) parts.push(`${partials} partial`)
+    if (rolledBack > 0) parts.push(`${rolledBack} rolled back`)
+    if (overridden > 0) parts.push(`${overridden} override`)
+    if (quarantined > 0) parts.push(`${quarantined} quarantine`)
+    const label = parts.length > 0 ? parts.join(" · ") : `${events.length} event${events.length === 1 ? "" : "s"}`
+    const tooltip =
+      `Mitigation history for this node (${events.length} recent event${events.length === 1 ? "" : "s"}):\n` +
+      events
+        .slice(0, 6)
+        .map(
+          (e) =>
+            `  · ${e.event_type ?? e.kind}${e.success === false ? " (partial)" : ""}${e.rolled_back_at ? " — rolled back" : ""}${e.at ? "  " + e.at : ""}`,
+        )
+        .join("\n") +
+      (events.length > 6 ? `\n  · +${events.length - 6} older` : "") +
+      "\n\nThis is a record of past actions on this resource. Per Cyntro's safety contract, every action has a snapshot + rollback path — review the event for context before re-acting."
+    return { icon, label, tooltip, total: events.length }
+  }, [events])
+}
+
+function mitigationTooltip(e: MitigationEvent): string {
+  const lines: string[] = [`${e.event_type ?? e.kind}`]
+  if (e.success != null) lines.push(`success: ${e.success}`)
+  if (e.confidence != null) lines.push(`confidence: ${e.confidence}`)
+  if (e.rationale) lines.push(`rationale: ${e.rationale}`)
+  if (e.rolled_back_at) lines.push(`rolled back: ${e.rolled_back_at}`)
+  if (e.overridden_by) lines.push(`overridden by: ${e.overridden_by}`)
+  if (e.at) lines.push(`at: ${e.at}`)
+  if (e.rel_type) lines.push(`linkage: ${e.rel_type}`)
+  return lines.join("\n")
+}
+
+// Lightweight relative-time helper — keeps "5h ago" / "Tue" tone for
+// the mitigation chips. Hands the full ISO to the tooltip.
+function formatRelativeIso(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const ms = Date.now() - d.getTime()
+  const min = Math.floor(ms / 60000)
+  if (min < 1) return "just now"
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  const day = Math.floor(hr / 24)
+  if (day < 14) return `${day}d ago`
+  return d.toISOString().slice(0, 10)
 }
 
 // ─── Chain arrow with edge label ──────────────────────────────────────
