@@ -379,31 +379,11 @@ export interface PathNodeDetail {
   // signals next to the recommendation — render them on the node
   // detail panel so the operator sees WHY a recommendation routed
   // the way it did (e.g. mitigation_history showing a prior rollback).
-  egress_destinations?: Array<{
-    destination_ip: string
-    destination_class?: string
-    bytes?: number
-    hits?: number
-    org?: string | null
-    aws_service?: string | null
-  }>
+  egress_destinations?: EgressDestinationEntry[]
   eni_count?: number
-  mitigation_history?: Array<{
-    rule_id: string
-    outcome: string  // "success" | "rolled_back" | "failed" | string
-    at: string       // ISO 8601
-    actor?: string | null
-  }>
-  target_groups?: Array<{
-    tg_arn: string
-    protocol?: string
-    port?: number
-    health?: string | null
-  }>
-  s3_prefixes?: Array<{
-    prefix: string
-    principals_with_access?: string[]
-  }>
+  mitigation_history?: MitigationEvent[]
+  target_groups?: TargetGroupEntry[]
+  s3_prefixes?: S3PrefixEntry[]
   route_tables?: Array<{
     rt_id: string
     routes?: Array<{ dest: string; target: string }>
@@ -413,7 +393,79 @@ export interface PathNodeDetail {
     az?: string | null
     health?: string | null
   }>
+  lambda_invocation_count?: number
   lambda_invocations?: number
+}
+
+/** ── Tier-1 expanded supplements (?enriched=true) ─────────────────
+ * Per-node arrays attached by backend `_apply_enriched_supplements`.
+ * Each interface mirrors the backend Cypher's RETURN shape. All fields
+ * optional — backend tolerates missing graph data; frontend renders the
+ * three-state contract per `feedback_no_mock_numbers_in_ui`.
+ */
+
+export interface EgressDestinationEntry {
+  destination_ip: string
+  destination_class?: string
+  bytes?: number
+  hits?: number
+  org?: string | null
+  aws_service?: string | null
+  domain?: string | null
+}
+
+export interface S3PrefixEntry {
+  id: string
+  prefix: string
+  hits: number
+  bytes?: number
+  last_seen?: string | null
+  access?: Array<{
+    principal_id: string
+    operation: string
+    hits: number
+    last_seen?: string | null
+  }>
+}
+
+export interface TargetGroupEntry {
+  id: string
+  name: string
+  protocol?: string | null
+  port?: number | null
+  target_type?: string | null
+  targets: Array<{
+    id: string
+    name: string
+    type?: string | null
+  }>
+}
+
+export type MitigationKind =
+  | "RemediationEvent"
+  | "OverrideEvent"
+  | "MutationEvent"
+  | "RollbackEvent"
+  | "QuarantineRecord"
+
+export interface MitigationEvent {
+  id: string
+  kind: MitigationKind
+  rel_type?: string
+  event_type?: string
+  status?: string | null
+  success?: boolean | null
+  confidence?: number | null
+  rollback_available?: boolean | null
+  rolled_back_at?: string | null
+  rolled_back_by?: string | null
+  overridden_by?: string | null
+  rationale?: string | null
+  resource_type?: string | null
+  initiated_by?: string | null
+  quarantined_at?: string | null
+  restored_at?: string | null
+  at: string
 }
 
 export interface PathEdgeDetail {

@@ -63,6 +63,7 @@ import type {
   S3PrefixEntry,
   SystemPosture,
 } from "./types"
+import { MitigationTimelinePanel } from "./mitigation-timeline-panel"
 
 interface PathKillerMapProps {
   path: IdentityAttackPath
@@ -631,6 +632,10 @@ function ChainCard({
   const [expandedSection, setExpandedSection] = useState<
     "prefixes" | "mitigations" | "targets" | null
   >(null)
+  // Stage C: full mitigation-timeline panel (chip item 15). Opens on
+  // demand when the operator wants filter / detail beyond the inline
+  // preview of recent events.
+  const [timelineOpen, setTimelineOpen] = useState(false)
   const toggleSection = (s: "prefixes" | "mitigations" | "targets") =>
     setExpandedSection(expandedSection === s ? null : s)
 
@@ -866,9 +871,28 @@ function ChainCard({
                   +{mitigations.length - 6} older event{mitigations.length - 6 === 1 ? "" : "s"} not shown
                 </div>
               )}
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  setTimelineOpen(true)
+                }}
+                className="self-start mt-1 text-[10px] font-medium text-sky-300 hover:text-sky-200 underline-offset-2 hover:underline transition-colors"
+              >
+                View full timeline →
+              </button>
             </div>
           )}
         </div>
+      )}
+      {mitigations.length > 0 && (
+        <MitigationTimelinePanel
+          open={timelineOpen}
+          onOpenChange={setTimelineOpen}
+          nodeName={String(node.name ?? node.id ?? "Unknown")}
+          nodeType={node.type}
+          events={mitigations}
+        />
       )}
     </div>
   )
