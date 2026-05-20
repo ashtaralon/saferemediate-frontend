@@ -1085,11 +1085,16 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                 graphMode === "killer" ? (
                   // Story view (default 2026-05-20). Hero + chain +
                   // findings + actions + lateral. The chain section
-                  // embeds the same TrafficFlowMap used in "Flow"
-                  // mode — filtered to this path — so the operator
-                  // gets the animated topology *inside* the narrative,
-                  // not in a separate tab. mapNode is just the JSX;
-                  // PathKillerMap renders it in a fixed-height container.
+                  // embeds the *Lanes* view (AttackPathFlowViz, the
+                  // 5-column attack-aware diagram) — the one that
+                  // carries the Tier-1 enrichments: AssumedRole chain
+                  // strip, finding pills, MFA badges, KMS/DDB/RDS
+                  // type labels, posture ring, ALSO REACHES.
+                  // Swapped from TrafficFlowMap (2026-05-20 #2) per
+                  // operator feedback: Flow has no Tier-1 badges; the
+                  // narrative wrapper deserves the lane-aware diagram.
+                  // mapNode is just JSX; PathKillerMap renders it in
+                  // a fixed-height container.
                   <PathKillerMap
                     path={currentPath}
                     systemPosture={data?.system_posture ?? null}
@@ -1099,54 +1104,12 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     }
                     onRemediateAll={handleRemediateAll}
                     mapNode={
-                      <TrafficFlowMap
-                        systemName={systemName}
-                        pathFilter={trafficFlowPathFilter}
-                        exfilByWorkloadId={pathExfilSummaries}
-                        onPathNodeAction={(kind, node) => {
-                          if (kind === "security_group") {
-                            const sgId = node.id.startsWith("sg-")
-                              ? node.id
-                              : node.name.startsWith("sg-")
-                                ? node.name
-                                : node.id.match(/sg-[a-z0-9]+/)?.[0] ?? node.id
-                            setModalResource({ name: node.name, sgId })
-                            setSgModalOpen(true)
-                            return
-                          }
-                          if (kind === "iam_role") {
-                            setModalResource({ name: node.name })
-                            setIamModalOpen(true)
-                            return
-                          }
-                          if (kind === "instance_profile") {
-                            const ipId = node.id
-                            const wrappedEdge = currentPath?.edges?.find(
-                              (e: any) => e.source === ipId && (e.type === "USES_ROLE" || e.type === "uses_role"),
-                            )
-                            let wrappedRoleId = wrappedEdge?.target as string | undefined
-                            let wrappedRoleName: string | undefined
-                            if (wrappedRoleId) {
-                              const wn = currentPath?.nodes?.find((n: any) => n.id === wrappedRoleId) as any
-                              wrappedRoleName = wn?.name
-                            }
-                            if (!wrappedRoleName) wrappedRoleName = node.name
-                            setModalResource({
-                              name: wrappedRoleName,
-                              viaInstanceProfile: { name: node.name, arn: ipId },
-                            })
-                            setIamModalOpen(true)
-                            return
-                          }
-                          if (kind === "resource") {
-                            const t = (node.type ?? "").toLowerCase()
-                            if (t.includes("s3") || t.includes("bucket")) {
-                              setModalResource({ name: node.name })
-                              setS3ModalOpen(true)
-                              return
-                            }
-                          }
-                        }}
+                      <AttackPathFlowViz
+                        paths={jewelPaths}
+                        selectedPathIndex={selectedPathIndex}
+                        onNodeClick={handleNodeClick}
+                        selectedNodeId={selectedNodeId}
+                        systemPosture={data?.system_posture ?? null}
                       />
                     }
                   />
