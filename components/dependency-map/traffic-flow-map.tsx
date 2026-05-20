@@ -3369,6 +3369,21 @@ export default function TrafficFlowMap({
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
   const [showVPCBoundaries, setShowVPCBoundaries] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  // Resource-path filter — set when the user clicks a leaf in the
+  // Stack Components sidebar drill-down (S3 prefix, RDS table, DDB
+  // table). Shape: { resourceId, parentJewelId, accessorIds, ... }.
+  // Used to highlight matching map nodes + show the active filter
+  // banner. null = no filter.
+  const [resourcePathsFilter, setResourcePathsFilter] = useState<{
+    resourceId: string;
+    resolvedTargetId: string;
+    parentJewelId: string;
+    resolvedTargetType: string | null;
+    accessorIds: string[];
+    sourceIps: string[];
+    filter: { database?: string; table?: string } | null;
+    leafType: string | null;
+  } | null>(null);
   const [timelineActive, setTimelineActive] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
   const [timePoint, setTimePoint] = useState(100);
@@ -4627,6 +4642,23 @@ export default function TrafficFlowMap({
           highlightedNodeId={highlightedNodeId}
           onHighlightNode={setHighlightedNodeId}
           attackPaths={attackPaths}
+          systemName={systemName}
+          onFilterPaths={(filter) => {
+            // Resource drill-down filter (S3 prefix / RDS table / DDB
+            // table). The active filter is stored on local state so we
+            // can highlight matching map nodes + show the active banner
+            // in the sidebar. Defer the actual node-dimming overlay to
+            // the follow-up commit — for now we scroll to the parent
+            // jewel + select it so the path-context becomes visible.
+            setResourcePathsFilter(filter);
+            if (filter) {
+              setSelectedNodeForHops(filter.parentJewelId);
+              const el = mapContainerRef.current?.querySelector(
+                `[data-resource-id="${filter.parentJewelId}"]`
+              );
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }}
         />
       )}
 
@@ -4658,6 +4690,27 @@ export default function TrafficFlowMap({
                     ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
                     : `Path to ${pathFilter?.jewelName}`}
               </span>
+            </div>
+          )}
+
+          {/* Resource drill-down filter banner — set when the operator
+              clicked a leaf (S3 prefix / RDS table) in the sidebar. */}
+          {resourcePathsFilter && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
+              <Target className="w-3.5 h-3.5 text-blue-300" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-200">
+                {resourcePathsFilter.leafType === 'S3Prefix' && 'Prefix → '}
+                {resourcePathsFilter.leafType === 'RDSTable' && 'Table → '}
+                {!resourcePathsFilter.leafType && 'Resource → '}
+                {resourcePathsFilter.resourceId.split('/').pop()?.split('::').pop() ?? resourcePathsFilter.resourceId}
+              </span>
+              <button
+                onClick={() => setResourcePathsFilter(null)}
+                className="text-blue-300 hover:text-blue-100 text-[11px] font-medium"
+                title="Clear resource filter"
+              >
+                ×
+              </button>
             </div>
           )}
 
