@@ -14,7 +14,7 @@ import { ExportControls } from './export-controls';
 // ============================================
 // TYPES
 // ============================================
-export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal' | 'vpc_endpoint';
 
 export interface ServiceNode {
   id: string;
@@ -60,11 +60,31 @@ export interface TrafficFlow {
   sgId?: string;
   naclId?: string;
   roleId?: string;
+  // VPC endpoint the packet egresses through to reach an AWS service
+  // (e.g. S3 Gateway VPCE com.amazonaws.<region>.s3). Populated when the
+  // target is an S3/DynamoDB service AND the source compute's VPC has a
+  // matching Gateway endpoint. SG egress doesn't apply to Gateway VPCEs —
+  // this is the missing hop that explains "0-rule SG → S3 still works".
+  vpceId?: string;
   ports: string[];
   protocol: string;
   bytes: number;
   connections: number;
   isActive?: boolean;
+}
+
+// VPC endpoint chip for the "VPC ENDPOINTS" lane. Render-only — full
+// AWS detail (DNS names, policy doc, route-table associations) is not
+// pulled into this view; the lane exists to make the egress path
+// visible, not to replace the endpoint inspector.
+export interface VPCEndpointNode {
+  id: string;            // vpce-xxxxxxxx
+  name: string;
+  shortName: string;
+  vpcId: string | null;
+  serviceName: string | null;     // com.amazonaws.<region>.<service>
+  serviceShort: string;            // "S3", "DynamoDB", "EC2" — derived
+  endpointType: 'Gateway' | 'Interface' | null;
 }
 
 // Subnet posture for the SUBNETS column on the Path Flow Map.
@@ -96,6 +116,7 @@ export interface SystemArchitecture {
   securityGroups: SecurityCheckpoint[];
   nacls: SecurityCheckpoint[];
   iamRoles: SecurityCheckpoint[];
+  vpcEndpoints: VPCEndpointNode[];
   flows: TrafficFlow[];
   totalBytes: number;
   totalConnections: number;
@@ -202,7 +223,27 @@ function mapNodeType(type: string): NodeType {
   if (t === 'iamrole' || t === 'iam_role') return 'iam_role';
   if (t === 'instanceprofile' || t === 'instance_profile' || t.includes('instanceprofile')) return 'instance_profile';
   if (t === 'securitygroup' || t === 'security_group') return 'security_group';
+  if (t === 'vpcendpoint' || t === 'vpc_endpoint') return 'vpc_endpoint';
   return 'network';
+}
+
+// Pretty-print an AWS service endpoint name. Gateway endpoints carry the
+// canonical "com.amazonaws.<region>.<service>" form; Interface endpoints
+// the same. We want the "S3" / "DynamoDB" suffix as a compact chip label
+// so operators can read the lane at a glance — full name lives in the
+// tooltip.
+function vpceServiceShort(serviceName: string | null | undefined): string {
+  if (!serviceName) return '?';
+  const m = serviceName.match(/com\.amazonaws\.[^.]+\.(.+)$/);
+  const tail = (m ? m[1] : serviceName).split('.').pop() || serviceName;
+  if (tail === 's3') return 'S3';
+  if (tail === 'dynamodb') return 'DynamoDB';
+  if (tail === 'sqs') return 'SQS';
+  if (tail === 'sns') return 'SNS';
+  if (tail === 'ec2') return 'EC2';
+  if (tail === 'sts') return 'STS';
+  if (tail === 'kms') return 'KMS';
+  return tail.toUpperCase();
 }
 
 // ============================================
@@ -1873,6 +1914,12 @@ export function ConnectionLinesSVG({
         const roleEl = flow.roleId ? container.querySelector(`[data-role-id="${flow.roleId}"]`) : null;
         // Find API call node for this target resource
         const apiEl = container.querySelector(`[data-api-id="${flow.targetId}"]`);
+        // VPC endpoint hop — sits between API/IAM and the target. For an S3
+        // Gateway VPCE, this is the actual egress point from the VPC; the
+        // SG never gates Gateway-VPCE traffic, so showing the VPCE in the
+        // polyline is how the operator sees why a 0-rule SG still permits
+        // S3 access.
+        const vpceEl = flow.vpceId ? container.querySelector(`[data-vpce-id="${flow.vpceId}"]`) : null;
 
         const sourcePos = getNodeCenter(sourceEl, 'right');
         const targetPos = getNodeCenter(targetEl, 'left');
@@ -1913,6 +1960,12 @@ export function ConnectionLinesSVG({
           const posL = getNodeCenter(apiEl, 'left');
           const posR = getNodeCenter(apiEl, 'right');
           if (posL && posR) checkpoints.push({ el: apiEl, posL, posR });
+        }
+        // VPC endpoint hop — last gate before the AWS service / bucket.
+        if (vpceEl) {
+          const posL = getNodeCenter(vpceEl, 'left');
+          const posR = getNodeCenter(vpceEl, 'right');
+          if (posL && posR) checkpoints.push({ el: vpceEl, posL, posR });
         }
 
         // Draw lines through all checkpoints
@@ -2575,6 +2628,53 @@ export function UnifiedArchitectureDiagram({
           </div>
           )}
 
+          {/* VPC ENDPOINTS — the missing egress hop between SG/IAM and
+              the AWS service. Gateway endpoints (S3, DynamoDB) bypass
+              SG egress entirely; this lane is what makes a "0-rule SG
+              still reaches S3" path legible to the operator. Empty
+              state renders a faint "No VPC endpoints" so the lane
+              still occupies grid space when none apply to the path. */}
+          {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-3 items-center">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-violet-400" />
+              VPC Endpoints ({architecture.vpcEndpoints.length})
+            </div>
+            {architecture.vpcEndpoints.map(vpce => {
+              const isInUseForFlow = architecture.flows.some(f => f.vpceId === vpce.id);
+              return (
+                <div
+                  key={vpce.id}
+                  data-vpce-id={vpce.id}
+                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${
+                    isInUseForFlow
+                      ? 'bg-violet-500/15 border-violet-400/70 shadow-lg shadow-violet-500/10'
+                      : 'bg-violet-500/5 border-violet-500/30'
+                  }`}
+                  title={vpce.serviceName ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}` : vpce.id}
+                  onMouseEnter={() => setHoveredId(vpce.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                >
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Cloud className="w-4 h-4 text-violet-300" />
+                    <span className="text-sm font-semibold text-white">{vpce.serviceShort}</span>
+                  </div>
+                  <div className="text-[10px] text-violet-300/90 text-center font-mono truncate max-w-[140px]">
+                    {vpce.shortName}
+                  </div>
+                  {vpce.endpointType && (
+                    <div className="mt-1 text-center">
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded border bg-violet-500/10 border-violet-400/40 text-violet-200">
+                        {vpce.endpointType}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
+
           {/* RESOURCES */}
           <div className="flex flex-col gap-3">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -3070,6 +3170,24 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   const flows: TrafficFlow[] = [...flowMap.values()];
 
+  // Keep only VPCEs whose VPC contains a compute on the filtered path —
+  // same rule as SGs/NACLs/IAM: don't ghost-render network infra
+  // unrelated to this path. The compute → VPC mapping lives in
+  // arch.vpcGroups[].subnets[].nodeIds (built by buildArchitecture).
+  const pathComputeIds = new Set(computeServices.map(c => c.id));
+  const pathVPCIdsFiltered = new Set<string>();
+  (arch.vpcGroups || []).forEach(vg => {
+    const hasPathCompute = vg.subnets.some(sn => sn.nodeIds.some(nid => pathComputeIds.has(nid)));
+    if (hasPathCompute) pathVPCIdsFiltered.add(vg.vpcId);
+  });
+  // Also keep any VPCE that a flow explicitly routes through, in case
+  // the compute→VPC chain is broken in the dep-map slice but the flow
+  // pickVPCEForTarget already paired them up at build time.
+  const filteredFlowVPCEIds = new Set<string>(flows.map(f => f.vpceId).filter(Boolean) as string[]);
+  const vpcEndpoints = arch.vpcEndpoints.filter(v =>
+    filteredFlowVPCEIds.has(v.id) || (v.vpcId !== null && pathVPCIdsFiltered.has(v.vpcId)),
+  );
+
   return {
     computeServices,
     resources: resources.map((r) =>
@@ -3079,6 +3197,7 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     securityGroups,
     nacls,
     iamRoles,
+    vpcEndpoints,
     flows,
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
@@ -3351,6 +3470,11 @@ export default function TrafficFlowMap({
     const roleNodeMap = new Map<string, any>();
     const subnetToNACL = new Map<string, string>();
     const nodeToVPC = new Map<string, string>();
+    // vpcId → list of VPCEndpoint nodes in that VPC. Populated from
+    // two sources: IN_VPC edges (canonical) and node.vpc_id properties
+    // (fallback, since the dep-map flattens some properties without
+    // emitting the edge for legacy schema reasons).
+    const vpceByVPC = new Map<string, any[]>();
     // isPublic kept tri-state (boolean | null) so the SUBNETS column can
     // render the three-state badge (Public / Private / Unknown). Coercing
     // null→false would silently lie when subnet_visibility_collector hasn't
@@ -3451,6 +3575,13 @@ export default function TrafficFlowMap({
         const canonicalSrc = extractInstanceId(srcId);
         nodeToVPC.set(canonicalSrc, tgtId);
         nodeToVPC.set(srcId, tgtId);
+        // Index VPCE nodes by their parent VPC, so a compute→S3 flow can
+        // be matched to the right S3 Gateway endpoint at flow-tag time.
+        const srcNode = nodeMap.get(srcId);
+        if (srcNode && (srcNode.type || '').toLowerCase() === 'vpcendpoint') {
+          if (!vpceByVPC.has(tgtId)) vpceByVPC.set(tgtId, []);
+          vpceByVPC.get(tgtId)!.push(srcNode);
+        }
       }
 
       if (edgeType === 'USES_ROLE' || edgeType === 'ASSUMES_ROLE') {
@@ -3470,6 +3601,52 @@ export default function TrafficFlowMap({
         }
       }
     });
+
+    // Property-based VPCE→VPC index. Catches VPCEs whose IN_VPC edge
+    // wasn't emitted by the dep-map slice (the backend strips some
+    // structural edges to keep payload size down). serviceName +
+    // endpoint_type come from the node payload; without them the lane
+    // chip falls back to "?" which is honest about data absence.
+    nodes.forEach(n => {
+      const t = (n.type || '').toLowerCase();
+      if (t !== 'vpcendpoint') return;
+      const vpcId = n.vpc_id || n.vpcId || null;
+      if (!vpcId) return;
+      if (!vpceByVPC.has(vpcId)) vpceByVPC.set(vpcId, []);
+      const existing = vpceByVPC.get(vpcId)!;
+      if (!existing.find(v => v.id === n.id)) existing.push(n);
+    });
+
+    // Compute → VPC index. nodeToVPC stores by canonical instance id
+    // for compute, but flows are tagged with the canonical id too, so
+    // a direct .get(canonicalId) works.
+    const resolveComputeVPC = (canonicalSrc: string): string | null => {
+      const direct = nodeToVPC.get(canonicalSrc);
+      if (direct) return direct;
+      const node = nodeByInstanceId.get(canonicalSrc) || nodeMap.get(canonicalSrc);
+      return node?.vpc_id || node?.vpcId || null;
+    };
+
+    // Match flow target to a VPCE service. Gateway endpoints exist for
+    // S3 + DynamoDB only (per AWS); interface endpoints exist for most
+    // services. For the demo path the S3 Gateway is the case that
+    // matters.
+    const pickVPCEForTarget = (canonicalSrc: string, targetType: string): string | undefined => {
+      const vpcId = resolveComputeVPC(canonicalSrc);
+      if (!vpcId) return undefined;
+      const candidates = vpceByVPC.get(vpcId) || [];
+      const needle =
+        targetType === 'storage' || targetType === 's3' ? 's3' :
+        targetType === 'dynamodb' ? 'dynamodb' :
+        targetType === 'sqs' ? 'sqs' :
+        targetType === 'sns' ? 'sns' : null;
+      if (!needle) return undefined;
+      const match = candidates.find(v => {
+        const svc = (v.service_name || v.serviceName || '').toLowerCase();
+        return svc.endsWith(`.${needle}`) || svc === `com.amazonaws.${needle}`;
+      });
+      return match?.id;
+    };
 
     const trafficEdges = edges.filter(e => {
       const type = (e.edge_type || e.type || '').toUpperCase();
@@ -3565,6 +3742,7 @@ export default function TrafficFlowMap({
           sgId: computeToSG.get(canonicalSrc),
           naclId: computeToNACL.get(canonicalSrc),
           roleId: computeToRole.get(canonicalSrc),
+          vpceId: pickVPCEForTarget(canonicalSrc, finalTargetType),
           ports: [],
           protocol: 'TCP',
           bytes: 0,
@@ -3677,6 +3855,7 @@ export default function TrafficFlowMap({
                 sourceId: cs.id, targetId: node.id,
                 sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
                 roleId: computeToRole.get(cs.id),
+                vpceId: pickVPCEForTarget(cs.id, nType),
                 ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false,
               });
             }
@@ -3722,6 +3901,7 @@ export default function TrafficFlowMap({
               sourceId: cs.id, targetId: res.id,
               sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
               roleId: computeToRole.get(cs.id),
+              vpceId: pickVPCEForTarget(cs.id, res.type),
               ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: true,
             });
           }
@@ -4024,6 +4204,38 @@ export default function TrafficFlowMap({
       subnets: Array.from(vpc.subnets.values()),
     }));
 
+    // Build the VPC ENDPOINTS lane. Only include VPCEs that sit in a VPC
+    // reachable from a compute on this path — otherwise the lane fills
+    // up with VPCEs from unrelated VPCs that have no causal relationship
+    // to the rendered flows.
+    const pathVPCs = new Set<string>();
+    computeServices.forEach(cs => {
+      const v = resolveComputeVPC(cs.id);
+      if (v) pathVPCs.add(v);
+    });
+    const seenVPCEIds = new Set<string>();
+    const vpcEndpoints: VPCEndpointNode[] = [];
+    pathVPCs.forEach(vpcId => {
+      (vpceByVPC.get(vpcId) || []).forEach(v => {
+        if (seenVPCEIds.has(v.id)) return;
+        seenVPCEIds.add(v.id);
+        const serviceName = v.service_name || v.serviceName || null;
+        const epTypeRaw = (v.vpc_endpoint_type || v.endpoint_type || '').toString();
+        const endpointType: 'Gateway' | 'Interface' | null =
+          /gateway/i.test(epTypeRaw) ? 'Gateway' :
+          /interface/i.test(epTypeRaw) ? 'Interface' : null;
+        vpcEndpoints.push({
+          id: v.id,
+          name: v.name || v.id,
+          shortName: shortName(v.name || v.id, 16),
+          vpcId,
+          serviceName,
+          serviceShort: vpceServiceShort(serviceName),
+          endpointType,
+        });
+      });
+    });
+
     return {
       computeServices,
       resources,
@@ -4031,6 +4243,7 @@ export default function TrafficFlowMap({
       securityGroups,
       nacls,
       iamRoles,
+      vpcEndpoints,
       flows,
       totalBytes,
       totalConnections,
