@@ -4597,7 +4597,12 @@ export default function TrafficFlowMap({
         .querySelectorAll(`.${dimClass}`)
         .forEach((el) => el.classList.remove(dimClass));
     };
-  }, [resourcePathsFilter]);
+    // architecture in deps so an auto-refresh that swaps node DOM
+    // (new nodes appear) re-runs the dim pass and the fresh DOM
+    // gets the right state. Without this, a refresh-during-active-
+    // filter window would show all nodes bright until the user
+    // toggles the filter.
+  }, [resourcePathsFilter, architecture]);
 
   // Manual refresh: bump epoch so depMapUrl changes → hook useEffect
   // fires a fresh fetch with cache: 'no-store' (busts BOTH localStorage
