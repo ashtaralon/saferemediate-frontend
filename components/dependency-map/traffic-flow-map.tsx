@@ -5,7 +5,7 @@ import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
-import { StackSidebar } from './stack-sidebar';
+import { StackSidebar, type ResourcePathsFilter } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
 import { TimelineSlider } from './timeline-slider';
 import { VPCBoundaries } from './vpc-boundaries';
@@ -3369,6 +3369,10 @@ export default function TrafficFlowMap({
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
   const [showVPCBoundaries, setShowVPCBoundaries] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  // Click-to-filter spec bubbled up from StackSidebar when the operator
+  // clicks the Filter icon on a drillable resource or a leaf child. Null
+  // means no filter active. Header chip renders when non-null.
+  const [resourcePathsFilter, setResourcePathsFilter] = useState<ResourcePathsFilter | null>(null);
   const [timelineActive, setTimelineActive] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
   const [timePoint, setTimePoint] = useState(100);
@@ -4627,6 +4631,21 @@ export default function TrafficFlowMap({
           highlightedNodeId={highlightedNodeId}
           onHighlightNode={setHighlightedNodeId}
           attackPaths={attackPaths}
+          systemName={systemName}
+          onFilterPaths={(f) => {
+            setResourcePathsFilter(f);
+            if (f && f.parentJewelId) {
+              // Focus the parent jewel: select it for hop highlighting and
+              // scroll it into view. The actual click-to-filter UI on the
+              // map (dimming etc) can hang off resourcePathsFilter in a
+              // later patch — for now we just steer the viewport.
+              setSelectedNodeForHops(f.parentJewelId);
+              const el = mapContainerRef.current?.querySelector(
+                `[data-compute-id="${f.parentJewelId}"], [data-resource-id="${f.parentJewelId}"]`,
+              );
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }}
         />
       )}
 
@@ -4658,6 +4677,34 @@ export default function TrafficFlowMap({
                     ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
                     : `Path to ${pathFilter?.jewelName}`}
               </span>
+            </div>
+          )}
+
+          {/* Resource-paths drill-down filter badge — set by StackSidebar
+              click-to-filter. Blue palette so it doesn't get confused with
+              the rose attack-path filter above. */}
+          {resourcePathsFilter && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
+              <Target className="w-3.5 h-3.5 text-blue-300" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-200">
+                {resourcePathsFilter.leafType === 'S3Prefix'
+                  ? 'Prefix → '
+                  : resourcePathsFilter.leafType === 'RDSTable'
+                    ? 'Table → '
+                    : resourcePathsFilter.leafType === 'RDSDatabase'
+                      ? 'DB → '
+                      : 'Filter → '}
+                {resourcePathsFilter.displayName}
+              </span>
+              <button
+                type="button"
+                onClick={() => setResourcePathsFilter(null)}
+                className="flex-shrink-0 -mr-1 p-0.5 rounded hover:bg-blue-500/30 text-blue-200 hover:text-white"
+                aria-label="Clear path filter"
+                title="Clear filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
           )}
 
