@@ -87,6 +87,26 @@ export interface VPCEndpointNode {
   endpointType: 'Gateway' | 'Interface' | null;
 }
 
+// Chip item 10: explicit InternetGateway / NATGateway / Egress-only IGW
+// rendering in the EGRESS lane. Previously the map showed IGW only
+// implicitly (Subnet "Public" amber badge) — operators could read
+// "this subnet has an IGW route" but couldn't see *which* IGW or how
+// many. Per memory `project_pilot_decommissioned_2026_05_19` IGW typed
+// labels were fixed 2026-05-19, so :InternetGateway label-keyed
+// queries now resolve both production IGWs in alon-prod.
+//
+// kind discriminates the icon + chip palette; `kindLabel` is the
+// operator-facing short name shown beneath the icon ("IGW", "NAT GW",
+// "Egress-only IGW", "Transit GW").
+export interface EgressGatewayNode {
+  id: string;            // igw-xxxxxxxx / nat-xxxxxxxx / etc.
+  name: string;
+  shortName: string;
+  vpcId: string | null;
+  kind: 'InternetGateway' | 'NATGateway' | 'EgressOnlyInternetGateway' | 'TransitGateway';
+  kindLabel: string;     // "IGW" | "NAT GW" | "Egress-only IGW" | "Transit GW"
+}
+
 // Subnet posture for the SUBNETS column on the Path Flow Map.
 // `isPublic` semantics:
 //   true  → effective route table has a route to an IGW (per AWS canonical
@@ -117,6 +137,10 @@ export interface SystemArchitecture {
   nacls: SecurityCheckpoint[];
   iamRoles: SecurityCheckpoint[];
   vpcEndpoints: VPCEndpointNode[];
+  /** Chip item 10: explicit IGW / NAT / Egress-only IGW / Transit GW
+   * nodes for the EGRESS lane. Filtered to gateways attached to a VPC
+   * that contains at least one compute on the current path. */
+  egressGateways: EgressGatewayNode[];
   flows: TrafficFlow[];
   totalBytes: number;
   totalConnections: number;
@@ -2675,6 +2699,53 @@ export function UnifiedArchitectureDiagram({
           </div>
           )}
 
+          {/* EGRESS GATEWAYS — chip item 10. Renders explicit
+              InternetGateway / NATGateway / EgressOnlyIGW / TransitGW
+              nodes when the path's VPCs have them. Previously this was
+              implicit (Subnet "Public" amber badge meant "route table →
+              IGW") which left operators guessing WHICH IGW or how many.
+              The label-keyed extraction lives in buildArchitecture and
+              filterArchitectureToPath. Empty array → lane hidden so the
+              grid doesn't grow a dead column for IGW-less paths. */}
+          {architecture.egressGateways.length > 0 && (
+            <div className="flex flex-col gap-3 items-center">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Globe className="w-4 h-4 text-amber-400" />
+                Egress Gateways ({architecture.egressGateways.length})
+              </div>
+              {architecture.egressGateways.map(gw => {
+                const palette =
+                  gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
+                  gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
+                  gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
+                  'bg-violet-500/10 border-violet-500/40';
+                const iconColor =
+                  gw.kind === 'InternetGateway' ? 'text-amber-300' :
+                  gw.kind === 'NATGateway' ? 'text-sky-300' :
+                  gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-300' :
+                  'text-violet-300';
+                return (
+                  <div
+                    key={gw.id}
+                    data-gateway-id={gw.id}
+                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette}`}
+                    title={`${gw.kindLabel} · ${gw.name}${gw.vpcId ? ` · ${gw.vpcId}` : ''}`}
+                    onMouseEnter={() => setHoveredId(gw.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <Globe className={`w-4 h-4 ${iconColor}`} />
+                      <span className="text-sm font-semibold text-white">{gw.kindLabel}</span>
+                    </div>
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
+                      {gw.shortName}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* RESOURCES */}
           <div className="flex flex-col gap-3">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -3188,6 +3259,12 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     filteredFlowVPCEIds.has(v.id) || (v.vpcId !== null && pathVPCIdsFiltered.has(v.vpcId)),
   );
 
+  // Chip item 10: same VPC-membership filter for egress gateways. Keep
+  // any gateway attached to a VPC that contains a compute on the path.
+  const egressGateways = arch.egressGateways.filter(
+    g => g.vpcId !== null && pathVPCIdsFiltered.has(g.vpcId),
+  );
+
   return {
     computeServices,
     resources: resources.map((r) =>
@@ -3198,6 +3275,7 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     nacls,
     iamRoles,
     vpcEndpoints,
+    egressGateways,
     flows,
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
@@ -3490,6 +3568,13 @@ export default function TrafficFlowMap({
     // (fallback, since the dep-map flattens some properties without
     // emitting the edge for legacy schema reasons).
     const vpceByVPC = new Map<string, any[]>();
+    // vpcId → list of InternetGateway / NATGateway / EgressOnlyIGW /
+    // TransitGateway nodes attached to this VPC. Mirrors `vpceByVPC`:
+    // two sources of truth, IN_VPC edge (canonical) and node.vpc_id
+    // property fallback (since the dep-map flattens some properties
+    // without emitting the IN_VPC edge for legacy schema reasons).
+    // Drives the EGRESS GATEWAYS lane (chip item 10).
+    const gatewayByVPC = new Map<string, any[]>();
     // isPublic kept tri-state (boolean | null) so the SUBNETS column can
     // render the three-state badge (Public / Private / Unknown). Coercing
     // null→false would silently lie when subnet_visibility_collector hasn't
@@ -3597,6 +3682,22 @@ export default function TrafficFlowMap({
           if (!vpceByVPC.has(tgtId)) vpceByVPC.set(tgtId, []);
           vpceByVPC.get(tgtId)!.push(srcNode);
         }
+        // Chip item 10: index IGW / NATGateway / EgressOnlyIGW /
+        // TransitGateway by parent VPC. Tolerant of label casing —
+        // labels are written by the IGW collector (commit 88983a9)
+        // and historically lower-cased some types.
+        if (srcNode) {
+          const sty = String(srcNode.type || '').toLowerCase();
+          if (
+            sty === 'internetgateway' ||
+            sty === 'natgateway' ||
+            sty === 'egressonlyinternetgateway' ||
+            sty === 'transitgateway'
+          ) {
+            if (!gatewayByVPC.has(tgtId)) gatewayByVPC.set(tgtId, []);
+            gatewayByVPC.get(tgtId)!.push(srcNode);
+          }
+        }
       }
 
       if (edgeType === 'USES_ROLE' || edgeType === 'ASSUMES_ROLE') {
@@ -3629,6 +3730,24 @@ export default function TrafficFlowMap({
       if (!vpcId) return;
       if (!vpceByVPC.has(vpcId)) vpceByVPC.set(vpcId, []);
       const existing = vpceByVPC.get(vpcId)!;
+      if (!existing.find(v => v.id === n.id)) existing.push(n);
+    });
+
+    // Property-based gateway→VPC index for chip item 10. Same fallback
+    // pattern as VPCE: dep-map sometimes drops IN_VPC edges for
+    // IGW/NAT/Transit; the node payload carries vpc_id / vpcId.
+    nodes.forEach(n => {
+      const t = (n.type || '').toLowerCase();
+      const isGateway =
+        t === 'internetgateway' ||
+        t === 'natgateway' ||
+        t === 'egressonlyinternetgateway' ||
+        t === 'transitgateway';
+      if (!isGateway) return;
+      const vpcId = n.vpc_id || n.vpcId || null;
+      if (!vpcId) return;
+      if (!gatewayByVPC.has(vpcId)) gatewayByVPC.set(vpcId, []);
+      const existing = gatewayByVPC.get(vpcId)!;
       if (!existing.find(v => v.id === n.id)) existing.push(n);
     });
 
@@ -4251,6 +4370,41 @@ export default function TrafficFlowMap({
       });
     });
 
+    // Chip item 10: collect egress gateways (IGW / NAT / Egress-only
+    // IGW / Transit GW) per path VPC. Mirrors the VPCE pass above —
+    // dedup by id since both IN_VPC edge and node.vpc_id property can
+    // push the same gateway twice. Order: deterministic by id so the
+    // lane doesn't reshuffle between renders.
+    const seenGatewayIds = new Set<string>();
+    const egressGateways: EgressGatewayNode[] = [];
+    pathVPCs.forEach(vpcId => {
+      (gatewayByVPC.get(vpcId) || []).forEach(g => {
+        if (seenGatewayIds.has(g.id)) return;
+        seenGatewayIds.add(g.id);
+        const rawType = String(g.type || '');
+        const kind =
+          /internetgateway/i.test(rawType) && !/egress/i.test(rawType) ? 'InternetGateway' :
+          /egressonly/i.test(rawType) ? 'EgressOnlyInternetGateway' :
+          /natgateway/i.test(rawType) ? 'NATGateway' :
+          /transitgateway/i.test(rawType) ? 'TransitGateway' :
+          'InternetGateway';
+        const kindLabel =
+          kind === 'InternetGateway' ? 'IGW' :
+          kind === 'NATGateway' ? 'NAT GW' :
+          kind === 'EgressOnlyInternetGateway' ? 'Egress-only IGW' :
+          'Transit GW';
+        egressGateways.push({
+          id: g.id,
+          name: g.name || g.id,
+          shortName: shortName(g.name || g.id, 18),
+          vpcId,
+          kind,
+          kindLabel,
+        });
+      });
+    });
+    egressGateways.sort((a, b) => a.id.localeCompare(b.id));
+
     return {
       computeServices,
       resources,
@@ -4259,6 +4413,7 @@ export default function TrafficFlowMap({
       nacls,
       iamRoles,
       vpcEndpoints,
+      egressGateways,
       flows,
       totalBytes,
       totalConnections,

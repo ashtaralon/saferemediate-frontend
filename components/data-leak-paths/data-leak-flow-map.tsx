@@ -229,6 +229,8 @@ function buildArchitecture(path: DataLeakPath): SystemArchitecture {
     securityGroups,
     nacls,
     iamRoles,
+    vpcEndpoints: [],
+    egressGateways: [],
     flows,
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),

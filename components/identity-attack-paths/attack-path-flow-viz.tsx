@@ -686,10 +686,13 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
   return {
     // SystemArchitecture fields (repurposed for ConnectionLinesSVG)
     computeServices: entries,               // data-compute-id → Entry Points
+    subnets: [],                             // lateral view doesn't use the subnets lane
     securityGroups: computeCheckpoints,      // data-sg-id → Compute
     nacls: identities,                       // data-nacl-id → Identity (IAM)
     iamRoles: pivotCheckpoints,              // data-role-id → Pivot Services
     resources: jewels,                       // data-resource-id → Crown Jewels
+    vpcEndpoints: [],                        // lateral view doesn't render VPCEs
+    egressGateways: [],                      // lateral view doesn't render egress gateways
     flows,
     totalBytes,
     totalConnections,
