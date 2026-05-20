@@ -4530,6 +4530,80 @@ export default function TrafficFlowMap({
     return () => clearInterval(interval);
   }, [retryDepMap, autoRefresh, refreshInterval]);
 
+  // Resource-path focus: when a leaf was clicked in the Stack
+  // Components sidebar (S3 prefix / RDS table / DDB), dim every map
+  // node whose id is NOT in the active set (parent jewel, accessor
+  // principals, source IPs) so the path context jumps out visually.
+  //
+  // Implementation choice — DOM walker via classList rather than a
+  // React-state opacity prop on every node. The renderer is 5K LOC
+  // with many node-render branches (compute, resource, sg, nacl,
+  // role, instance_profile, api_call); threading an `isDimmed`
+  // boolean through every branch would touch dozens of files and
+  // risk subtle regressions in unrelated render paths. A one-shot
+  // post-render DOM pass keyed on the existing `data-*-id`
+  // attributes is surgical and reverts cleanly on cleanup.
+  //
+  // The CSS rule for `.focus-dimmed` lives in app/globals.css so
+  // the transition is consistent with the rest of the design system.
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+    const dimClass = 'focus-dimmed';
+
+    // No filter → strip any leftover class and bail.
+    if (!resourcePathsFilter) {
+      container
+        .querySelectorAll(`.${dimClass}`)
+        .forEach((el) => el.classList.remove(dimClass));
+      return;
+    }
+
+    const activeIds = new Set<string>(
+      [
+        resourcePathsFilter.parentJewelId,
+        resourcePathsFilter.resolvedTargetId,
+        resourcePathsFilter.resourceId,
+        ...resourcePathsFilter.accessorIds,
+        ...resourcePathsFilter.sourceIps,
+      ].filter(Boolean) as string[],
+    );
+
+    // Selector covers every data-*-id attribute the map renders.
+    // Keep this list in sync with the data attributes used on node
+    // wrappers in this component (search for `data-resource-id=` /
+    // `data-compute-id=` etc. to confirm coverage).
+    const selector =
+      '[data-resource-id], [data-compute-id], [data-sg-id], [data-nacl-id], [data-role-id]';
+    const allNodes = container.querySelectorAll(selector);
+
+    allNodes.forEach((n) => {
+      const id =
+        n.getAttribute('data-resource-id') ||
+        n.getAttribute('data-compute-id') ||
+        n.getAttribute('data-sg-id') ||
+        n.getAttribute('data-nacl-id') ||
+        n.getAttribute('data-role-id');
+      if (id && !activeIds.has(id)) {
+        n.classList.add(dimClass);
+      } else {
+        n.classList.remove(dimClass);
+      }
+    });
+
+    // Cleanup on filter change / unmount.
+    return () => {
+      container
+        .querySelectorAll(`.${dimClass}`)
+        .forEach((el) => el.classList.remove(dimClass));
+    };
+    // architecture in deps so an auto-refresh that swaps node DOM
+    // (new nodes appear) re-runs the dim pass and the fresh DOM
+    // gets the right state. Without this, a refresh-during-active-
+    // filter window would show all nodes bright until the user
+    // toggles the filter.
+  }, [resourcePathsFilter, architecture]);
+
   // Manual refresh: bump epoch so depMapUrl changes → hook useEffect
   // fires a fresh fetch with cache: 'no-store' (busts BOTH localStorage
   // and the proxy edge cache, matching pre-migration isManualRefresh=true).
