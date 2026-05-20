@@ -7,6 +7,7 @@ import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { PathListPanel } from "./path-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
+import { PathKillerMap } from "./path-killer-map"
 // Reuse the actual System Map (traffic-flow-map.tsx) — the Traffic Flow Map
 // rendered behind the "System Map" tab in Topology. Same component, same
 // data, same Stack Components sidebar / IAM / SG / NACL / API-Calls /
@@ -74,9 +75,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [pathView, setPathView] = useState<"list" | "detail">("list")
 
   const [showFlowViz, setShowFlowViz] = useState(true)
-  // "clean" = new reactflow DAG (default, the polished CISO view).
-  // "lanes" = legacy 5-column lane view (kept for back-compat).
-  const [graphMode, setGraphMode] = useState<"clean" | "lanes">("clean")
+  // "killer" = PathKillerMap (default 2026-05-20) — hero + chain +
+  //            findings + actions + lateral, the operator-facing story.
+  // "clean"  = TrafficFlowMap (legacy CISO view, topology + traffic).
+  // "lanes"  = AttackPathFlowViz (legacy 5-column lane diagram).
+  const [graphMode, setGraphMode] = useState<"killer" | "clean" | "lanes">("killer")
   // Maximize the attack graph: hides the hero + Damage Reduction Plan
   // so the graph gets the full viewport. Per operator feedback the
   // static analysis takes too much screen — the dynamic graph is the
@@ -1015,8 +1018,23 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {/* View toggle: clean DAG (default) vs legacy 5-lane columns */}
+                  {/* View toggle: Story (default) | Flow | Lanes.
+                      Story is the operator-facing PathKillerMap — hero +
+                      chain + findings + actions + lateral. Flow is the
+                      shared TrafficFlowMap topology view. Lanes is the
+                      5-column lateral diagram with enrichment badges. */}
                   <div className="inline-flex items-center bg-slate-800/60 rounded p-0.5 border border-slate-700">
+                    <button
+                      onClick={() => setGraphMode("killer")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                        graphMode === "killer"
+                          ? "bg-emerald-500/20 text-emerald-200"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                      title="Story view — severity, attack chain, every active finding, and the prioritized fix queue, on one screen."
+                    >
+                      Story
+                    </button>
                     <button
                       onClick={() => setGraphMode("clean")}
                       className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
@@ -1064,7 +1082,21 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               </div>
 
               {showFlowViz && (
-                graphMode === "clean" ? (
+                graphMode === "killer" ? (
+                  // Story view (default 2026-05-20). Hero + chain +
+                  // findings + actions + lateral. The operator-facing
+                  // path narrative — replaces the dense lanes/flow
+                  // diagrams as the first thing shown.
+                  <PathKillerMap
+                    path={currentPath}
+                    systemPosture={data?.system_posture ?? null}
+                    systemName={systemName}
+                    onRemediateNode={(nodeId, dryRun) =>
+                      handleNodeRemediate(nodeId, dryRun)
+                    }
+                    onRemediateAll={handleRemediateAll}
+                  />
+                ) : graphMode === "clean" ? (
                   // Reuse the actual System Map (TrafficFlowMap), but
                   // pass it the CURRENT path's nodes as a filter so each
                   // crown jewel renders its own real data flow — not the
