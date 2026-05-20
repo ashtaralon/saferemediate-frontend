@@ -41,6 +41,13 @@ export async function GET(
   // confirmed absent from AWS during the last successful scan).
   // Default off — live view hides zombies.
   const includeDeleted = searchParams.get("include_deleted") === "true" ? "true" : ""
+  // Enriched toggle: when true, the backend's Tier-1 Part 2 supplements
+  // attach extra fields to existing path nodes (egress_destinations,
+  // eni_count, mitigation_history, target_groups, s3_prefixes,
+  // route_tables, load_balancer_targets, lambda_invocations). Additive
+  // — the path graph shape is unchanged. Default off so callers that
+  // don't render the extra fields see the lighter payload.
+  const enriched = searchParams.get("enriched") === "true" ? "true" : ""
 
   // Server-side cache (5 min TTL — match the /all aggregator pattern).
   // Backend call costs 30–50s on alon-prod-scale systems; without a
@@ -50,8 +57,8 @@ export async function GET(
   // repeats instant.
   //
   // Cache key includes every query param that affects the response so
-  // toggling include_stale / include_deleted forces a fresh fetch
-  // instead of reading the wrong shape.
+  // toggling include_stale / include_deleted / enriched forces a fresh
+  // fetch instead of reading the wrong shape.
   const cacheKey = [
     "identity-attack-paths",
     systemName,
@@ -60,6 +67,7 @@ export async function GET(
     envelope,
     includeStale,
     includeDeleted,
+    enriched,
   ].join(":")
 
   // Per-instance in-memory cache (warm-instance path — instant on repeat).
@@ -82,7 +90,8 @@ export async function GET(
     const envelopeParam = envelope ? `&envelope=${envelope}` : ""
     const staleParam = includeStale ? `&include_stale=${includeStale}` : ""
     const deletedParam = includeDeleted ? `&include_deleted=${includeDeleted}` : ""
-    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}${staleParam}${deletedParam}`
+    const enrichedParam = enriched ? `&enriched=${enriched}` : ""
+    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}${staleParam}${deletedParam}${enrichedParam}`
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}`
     console.log("[identity-attack-paths] Fetching:", url)
     const t0 = Date.now()
