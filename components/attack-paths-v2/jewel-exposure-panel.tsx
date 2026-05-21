@@ -135,6 +135,21 @@ interface ExposurePolicy {
   has_wildcard_resource?: boolean
   attached_to_roles?: string[]
   shared_jewels?: Array<{ id: string; name: string }>
+  // Slice 6 — cross-jewel fix-impact computation.
+  jewel_reach?: Array<{
+    jewel_id: string
+    jewel_name: string
+    is_current_jewel: boolean
+    observed_access_hits: number
+    is_droppable: boolean
+  }>
+  narrowing_impact?: {
+    current_jewel_count: number | null
+    droppable_jewel_count: number | null
+    droppable_jewel_names: string[]
+    confidence: "high" | "unknown"
+    reason?: string
+  }
 }
 
 // ─── Panel ───────────────────────────────────────────────────────────
@@ -500,17 +515,85 @@ function PolicyRow({ policy }: { policy: ExposurePolicy }) {
           </span>
         )}
       </div>
-      {sharedCount > 0 && (
-        <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-red-500/10 border border-red-500/30">
-          <AlertTriangle className="h-3 w-3 text-red-300 shrink-0 mt-0.5" />
-          <div className="text-[10px] text-red-200 leading-snug">
-            <span className="font-semibold">Shared policy:</span> also grants access to{" "}
-            <span className="font-mono">
-              {policy.shared_jewels!.map((j) => j.name).join(", ")}
-            </span>
-            . Closing this policy reduces access to {sharedCount + 1} jewel{sharedCount + 1 === 1 ? "" : "s"}.
+      {/* Slice 6 — narrowing-impact chip. Renders one of three honest
+          states based on the backend's fix-impact computation:
+            unknown    — wildcard policy, scope unprovable
+            droppable  — N jewels in scope have ZERO observed access from
+                         the attached roles; narrowing drops them safely
+            all-used   — every jewel in scope has observed access; the
+                         policy is genuinely needed at the resource level
+                         (action-level narrowing is a separate signal)
+          shared_jewels still renders the cross-jewel WARNING below the
+          impact chip — operator needs both "this policy is wide" AND
+          "narrowing it actually closes N doors." */}
+      {policy.narrowing_impact?.confidence === "unknown" && (
+        <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-slate-800/40 border border-slate-700">
+          <AlertTriangle className="h-3 w-3 text-slate-400 shrink-0 mt-0.5" />
+          <div className="text-[10px] text-slate-300 leading-snug">
+            <span className="font-semibold">Scope unknown:</span> {policy.narrowing_impact.reason ?? "wildcard policy"}.
           </div>
         </div>
+      )}
+      {policy.narrowing_impact?.confidence === "high" && (policy.narrowing_impact.droppable_jewel_count ?? 0) > 0 && (
+        <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-emerald-500/10 border border-emerald-500/30">
+          <Layers className="h-3 w-3 text-emerald-300 shrink-0 mt-0.5" />
+          <div className="text-[10px] text-emerald-100 leading-snug">
+            <span className="font-semibold">
+              Narrowing protects {policy.narrowing_impact.droppable_jewel_count} additional jewel
+              {policy.narrowing_impact.droppable_jewel_count === 1 ? "" : "s"}:
+            </span>{" "}
+            <span className="font-mono">{policy.narrowing_impact.droppable_jewel_names.join(", ")}</span>{" "}
+            <span className="text-emerald-300/80">(no observed access from attached roles)</span>.
+          </div>
+        </div>
+      )}
+      {policy.narrowing_impact?.confidence === "high" &&
+        (policy.narrowing_impact.current_jewel_count ?? 0) > 1 &&
+        (policy.narrowing_impact.droppable_jewel_count ?? 0) === 0 && (
+          <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-amber-500/10 border border-amber-500/30">
+            <AlertTriangle className="h-3 w-3 text-amber-300 shrink-0 mt-0.5" />
+            <div className="text-[10px] text-amber-100 leading-snug">
+              <span className="font-semibold">
+                Shared across {policy.narrowing_impact.current_jewel_count} jewels — all observed in use.
+              </span>{" "}
+              <span className="text-amber-200/80">
+                Resource scope can't be reduced safely, but action-level narrowing is still available (see role's unused actions).
+              </span>
+            </div>
+          </div>
+        )}
+      {/* Optional drill-down: per-jewel observed-access detail. Hidden
+          by default to keep the row compact; the impact chip above
+          summarizes. Surface jewel_reach[] inline only when there are
+          shared jewels worth scrutinizing. */}
+      {policy.jewel_reach && policy.jewel_reach.length > 1 && (
+        <details className="mt-1.5">
+          <summary className="text-[9px] uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-300">
+            per-jewel access detail ({policy.jewel_reach.length} jewels)
+          </summary>
+          <div className="mt-1 space-y-0.5">
+            {policy.jewel_reach.map((jr) => (
+              <div key={jr.jewel_id} className="flex items-center gap-2 text-[10px]">
+                <span className={`font-mono truncate ${jr.is_current_jewel ? "text-amber-200" : "text-slate-300"}`}>
+                  {jr.jewel_name}
+                  {jr.is_current_jewel && <span className="ml-1 text-[9px] uppercase text-amber-400">current</span>}
+                </span>
+                <span className="ml-auto tabular-nums shrink-0">
+                  {jr.observed_access_hits > 0 ? (
+                    <span className="text-emerald-300">{jr.observed_access_hits} hits</span>
+                  ) : (
+                    <span className="text-slate-500 italic">no observed access</span>
+                  )}
+                </span>
+                {jr.is_droppable && (
+                  <span className="text-[9px] font-bold uppercase tracking-wider rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 px-1 py-0.5">
+                    droppable
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   )
