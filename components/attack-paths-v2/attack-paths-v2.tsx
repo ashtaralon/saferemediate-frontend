@@ -35,6 +35,7 @@ import type {
 import { PathListGrouped } from "./path-list-grouped"
 import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
+import { AttackerViewPanel } from "./attacker-view-panel"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -57,12 +58,13 @@ export function AttackPathsV2() {
   const selectedPathId = searchParams?.get("path") ?? null
   const expandMode = searchParams?.get("expand") ?? null
   const isPathExpanded = expandMode === "path" && !!selectedPathId
-  // Slice 5: per-path vs exposure lens toggle. Default = per-path so the
-  // existing operator mental model is preserved. ?mode=exposure flips
-  // the right column to the all-doors view (still scoped to the selected
-  // jewel; the center "paths" list is hidden in exposure mode since the
-  // whole point is to aggregate across paths).
-  const viewMode = (searchParams?.get("mode") ?? "path") === "exposure" ? "exposure" : "path"
+  // Slice 5 + 9: three-lens toggle.
+  //   path     — per-path forensic view (legacy default)
+  //   exposure — all-doors aggregate per jewel
+  //   attacker — live Neo4j graph view with lateral moves per hop
+  const modeParam = searchParams?.get("mode") ?? "path"
+  const viewMode: "path" | "exposure" | "attacker" =
+    modeParam === "exposure" ? "exposure" : modeParam === "attacker" ? "attacker" : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -130,12 +132,12 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure") => {
-    // Switching to exposure clears the path selection — exposure
-    // aggregates ACROSS paths, so leaving a selected path id in the URL
-    // would imply a per-path scope that no longer applies. Switching
-    // back to path mode preserves the jewel selection so the operator
-    // doesn't lose their place.
+  const handleSetMode = (next: "path" | "exposure" | "attacker") => {
+    // Switching to exposure clears the path selection (exposure
+    // aggregates ACROSS paths). Switching to attacker REQUIRES a
+    // selected path — preserve it. Switching back to path-view
+    // preserves the jewel and path selection so the operator doesn't
+    // lose their place.
     setUrl({ mode: next, path: next === "exposure" ? null : undefined })
   }
 
@@ -258,6 +260,20 @@ export function AttackPathsV2() {
                 jewel={jewels.find((j) => j.id === selectedJewelId)!}
                 systemName={systemName}
               />
+            ) : viewMode === "attacker" ? (
+              !selectedPath ? (
+                <EmptyState
+                  title="Select a path for attacker view"
+                  subtitle="Attacker view renders the live Neo4j graph + lateral moves per hop. Pick a path on the left."
+                  large
+                />
+              ) : (
+                <AttackerViewPanel
+                  path={selectedPath}
+                  jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                  systemName={systemName}
+                />
+              )
             ) : !selectedPath ? (
               <EmptyState
                 title="Select a path"
@@ -297,8 +313,8 @@ function ModeToggle({
   jewelName,
   pathCount,
 }: {
-  mode: "path" | "exposure"
-  onChange: (next: "path" | "exposure") => void
+  mode: "path" | "exposure" | "attacker"
+  onChange: (next: "path" | "exposure" | "attacker") => void
   jewelName: string | null
   pathCount: number
 }) {
@@ -307,10 +323,10 @@ function ModeToggle({
       <div className="flex rounded-md border border-slate-700 overflow-hidden">
         <button
           onClick={() => onChange("path")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
             mode === "path"
-              ? "bg-blue-500/15 text-blue-200 border-r border-slate-700"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200 border-r border-slate-700"
+              ? "bg-blue-500/15 text-blue-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
           }`}
           title="Explain one attack route — the path's full chain of hops, IAM, network, and damage."
         >
@@ -318,7 +334,7 @@ function ModeToggle({
         </button>
         <button
           onClick={() => onChange("exposure")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
             mode === "exposure"
               ? "bg-violet-500/15 text-violet-200"
               : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -327,11 +343,24 @@ function ModeToggle({
         >
           Exposure view
         </button>
+        <button
+          onClick={() => onChange("attacker")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            mode === "attacker"
+              ? "bg-red-500/15 text-red-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Attacker view — live Neo4j graph for the path, with lateral pivot options per hop. No column-fill, no synthesized lanes — the graph as the attacker would explore it."
+        >
+          Attacker view
+        </button>
       </div>
       <div className="text-[10px] text-slate-500 italic min-w-0 truncate">
         {mode === "path"
           ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"}`
-          : `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`}
+          : mode === "exposure"
+            ? `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`
+            : `Live Neo4j graph + lateral moves per hop — the attacker's pivot tree`}
       </div>
     </div>
   )
