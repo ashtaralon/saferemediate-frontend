@@ -4677,7 +4677,18 @@ export default function TrafficFlowMap({
           const sg = archForGaps.securityGroups.find(s => s.id === sgId);
           if (sg) {
             sg.rules = rules;
-            sg.totalCount = rules.length;
+            // Only overwrite totalCount when the inspector returned a
+            // non-zero count. Otherwise keep the build-time seed
+            // (gap_count fallback from buildArchitecture) so the chip
+            // doesn't drop back to "0 rules" when the inspector returns
+            // empty (cold, no policy parsed yet, or the endpoint
+            // omits config-only rules). The 2026-05-21 demo bug:
+            // alon-prod default SG has 3 real rules but inspector
+            // returned empty array → chip read "0 rules" while the
+            // closure footer said "review ingress rules."
+            if (rules.length > 0) {
+              sg.totalCount = rules.length;
+            }
             sg.usedCount = rules.filter(r => r.status === 'used').length;
             sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
           }
