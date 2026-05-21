@@ -5,6 +5,7 @@ import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, Ch
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
+import { AttackTreePanel } from "./attack-tree-panel"
 import { PathListPanel } from "./path-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { PathKillerMap } from "./path-killer-map"
@@ -972,6 +973,26 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           {selectedJewelId && (
             <CrownJewelSurfaceCard systemName={systemName} jewelId={selectedJewelId} />
           )}
+
+          {/* Attack Tree — structural "every door to this bucket" view for
+              S3 jewels. Sits between the surface card and the per-path list
+              so the operator gets the cross-path picture (which roles +
+              workloads reach this bucket, multi-role pivots, default-SG
+              exposure) before drilling into any single path. Suppressed for
+              non-S3 jewels until the backend Cypher generalises. */}
+          {selectedJewelId && (() => {
+            const sel = (data?.crown_jewels ?? []).find((j) => j.id === selectedJewelId)
+            if (!sel) return null
+            const isS3 =
+              (sel.type || "").toLowerCase().includes("s3") ||
+              sel.id.includes(":s3:::") ||
+              sel.id.startsWith("arn:aws:s3:")
+            if (!isS3) return null
+            // Prefer the bucket name (matches Neo4j b.name); fall back to ARN.
+            // Backend accepts name / id / arn — name is the most readable.
+            const identifier = sel.name || sel.id
+            return <AttackTreePanel bucketIdentifier={identifier} bucketLabel={sel.name || sel.id} />
+          })()}
 
           {/* PATH LIST — default landing per jewel. Operator picks one
               path's risk/damage to drill into. Skip in detail mode. */}
