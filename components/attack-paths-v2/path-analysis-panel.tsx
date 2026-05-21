@@ -265,6 +265,15 @@ export function PathAnalysisPanel({
               innerTitleOverride="Flow Map"
               innerSubtitleOverride="Services on this attack path"
               pathBadgeOverride={pathFilter.pathLabel}
+              // observedMode=true suppresses the synthesized API CALLS
+              // lane that renders fabricated "N calls (simulated)"
+              // counts derived from totalBytes/51200. The credibility
+              // bug from the 2026-05-21 review: the UI badge says
+              // OBSERVED, the chip says simulated. v2 hides the
+              // synthetic lane entirely — real action counts surface
+              // in the DataPlanePanel below via damage_capability +
+              // ACTUAL_S3_ACCESS edge data, which IS observed truth.
+              observedMode={true}
             />
           </div>
         </div>
