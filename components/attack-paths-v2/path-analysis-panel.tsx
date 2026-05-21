@@ -23,6 +23,8 @@ import type {
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
+import { HardeningPanel } from "./hardening-panel"
+import { DamagePanel } from "./damage-panel"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -241,19 +243,12 @@ export function PathAnalysisPanel({ path, jewel, systemName }: PathAnalysisPanel
         <IdentityPlanePanel path={path} />
         <DataPlanePanel path={path} />
 
-        {/* Slices 3+4 still placeholders — surface as "coming next"
-            until those slices land. The plane panels above are now
-            live data. */}
-        <PlanePlaceholder
-          title="POTENTIAL DAMAGE"
-          subtitle="Plain-English projection of what an attacker on this path could actually do."
-          icon={<AlertTriangle className="h-4 w-4 text-red-300" />}
-        />
-        <PlanePlaceholder
-          title="RECOMMENDED HARDENING"
-          subtitle="Observation-grounded narrowing — drop unused permissions, close SG ingress, narrow S3 to observed actions."
-          icon={<Sparkles className="h-4 w-4 text-emerald-300" />}
-        />
+        {/* Slice 3 — plain-English damage projection (iam-action-to-english
+            lookup + LLM damage_narrative + damage_capability counts). */}
+        <DamagePanel path={path} />
+
+        {/* Slice 4 — live hardening recommendations */}
+        <HardeningPanel path={path} systemName={systemName} />
       </div>
     </div>
   )
