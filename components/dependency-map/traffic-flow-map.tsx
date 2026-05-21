@@ -1953,8 +1953,19 @@ export function ConnectionLinesSVG({
         const isHighlighted = hoveredId === flow.sourceId || hoveredId === flow.targetId ||
           hoveredId === flow.sgId || hoveredId === flow.naclId || hoveredId === flow.roleId ||
           hoveredId === `api-${flow.targetId}`;
-        // All flows from traffic edges are active
-        const isActive = true;
+        // Respect the per-flow isActive flag rather than hardcoding true.
+        //
+        // 2026-05-22 credibility audit fix: previously isActive was
+        // hardcoded to true for every line, meaning a compute→resource
+        // flow we synthesized with bytes=0 (because no direct
+        // compute→resource edge exists in the path) STILL rendered as
+        // an animated live blue line. Operator saw fake activity.
+        //
+        // Now we respect flow.isActive — applyPathFilter sets it
+        // explicitly per (source, target) based on whether a direct
+        // observed edge exists. Default-true preserves legacy flows
+        // that don't set the field (System Map / Topology view).
+        const isActive = flow.isActive !== false;
         const trafficIntensity = getTrafficIntensity(flow.bytes);
 
         // Check if this edge is part of an attack path
@@ -2252,14 +2263,18 @@ export function UnifiedArchitectureDiagram({
               {innerTitleOverride ?? "System Architecture"}
             </h3>
             <p className="text-xs text-slate-400">
-              {innerSubtitleOverride ?? "Live traffic flow based on actual usage"}
+              {innerSubtitleOverride ?? "Traffic flow from observed CloudTrail and VPC Flow Log events"}
             </p>
           </div>
-          {/* Live indicator */}
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 rounded-full ml-4">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-            <span className="text-xs font-medium text-emerald-400">LIVE</span>
-          </div>
+          {/* LIVE indicator removed per the 2026-05-22 credibility audit.
+              The badge was always rendered with an animated green pulse
+              regardless of actual data age — combined with cached data
+              and slow backend sync windows it could read LIVE when the
+              graph was 30+ minutes stale. The outer TrafficFlowMap
+              header already shows "Last sync: HH:MM:SS PM" and
+              PAUSED/AUTO state, which conveys freshness honestly.
+              Adding a separate inner "LIVE" badge with no freshness
+              gating was misleading visual noise. */}
         </div>
         <div className="flex items-center gap-4 text-sm">
           <div className="text-center px-3">
@@ -2551,14 +2566,21 @@ export function UnifiedArchitectureDiagram({
             )}
           </div>
 
-          {/* API CALLS - Simulated from VPC Traffic patterns.
-              Suppressed in observedMode (Data Leak Paths): when the
-              caller is feeding real CloudTrail / S3-access-log counts
-              already in the flow + the description copy, the synthetic
-              "totalBytes / 51200" multiplier math reads as a fabricated
-              number alongside the real one and breaks operator trust
-              (per feedback_no_hardcoded_multipliers + feedback_no_mock_numbers_in_ui). */}
-          {!observedMode && (
+          {/* API CALLS — synthetic-multiplier lane (totalBytes / 1024,
+              totalBytes / 51200, totalBytes / 512). These are FABRICATED
+              counts derived from byte aggregates × hardcoded divisors,
+              not real CloudTrail / access-log data. Per the 2026-05-22
+              credibility audit, fabricating numbers — even with a
+              "(simulated)" tag next to them — is a hard credibility
+              loss on a security platform. Stripped from production
+              entirely; kept in dev for testing the lane visuals. The
+              real fix is to wire actual CloudTrail action counts from
+              the backend (separate slice).
+              Existing observedMode flag still applies — Attack Paths v2
+              and Data Leak Paths set it true → lane was already hidden
+              there. This new NODE_ENV gate covers the Topology view
+              that previously rendered the synthetic lane in prod. */}
+          {process.env.NODE_ENV !== 'production' && !observedMode && (
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Zap className="w-4 h-4 text-lime-400" />
