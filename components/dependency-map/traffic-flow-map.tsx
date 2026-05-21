@@ -3257,28 +3257,44 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   const flows: TrafficFlow[] = [...flowMap.values()];
 
-  // Keep only VPCEs whose VPC contains a compute on the filtered path —
-  // same rule as SGs/NACLs/IAM: don't ghost-render network infra
-  // unrelated to this path. The compute → VPC mapping lives in
-  // arch.vpcGroups[].subnets[].nodeIds (built by buildArchitecture).
-  const pathComputeIds = new Set(computeServices.map(c => c.id));
-  const pathVPCIdsFiltered = new Set<string>();
-  (arch.vpcGroups || []).forEach(vg => {
-    const hasPathCompute = vg.subnets.some(sn => sn.nodeIds.some(nid => pathComputeIds.has(nid)));
-    if (hasPathCompute) pathVPCIdsFiltered.add(vg.vpcId);
-  });
-  // Also keep any VPCE that a flow explicitly routes through, in case
-  // the compute→VPC chain is broken in the dep-map slice but the flow
-  // pickVPCEForTarget already paired them up at build time.
+  // VPCE rendering rule — STRICT after 2026-05-21 credibility audit.
+  //
+  // VPCEs render ONLY when there's actual evidence the path's traffic
+  // uses them:
+  //   (a) BFS path includes the VPCE as a node (filter.nodeIds), OR
+  //   (b) A flow explicitly carries flow.vpceId from route-table-driven
+  //       dep-map matching (filteredFlowVPCEIds).
+  //
+  // The old rule — "VPCE exists in the same VPC as a path compute" —
+  // was fabrication-by-implication. Across all 48 paths on alon-prod,
+  // ZERO have VPCEndpoint as a BFS node. The "same VPC" rule was
+  // painting the S3 Gateway VPCE on every EC2-rooted path even though
+  // we had no route table data to prove the traffic uses it. CISOs
+  // would (rightly) ask "how do you know it goes via VPCE?" and we
+  // had no answer.
+  //
+  // Per feedback_verify_against_sources — Neo4j is the single source
+  // of truth. If the BFS didn't include the VPCE, and no flow has
+  // route-table-driven evidence binding it, the VPCE lane stays empty.
+  // Honest empty > fake placement.
+  //
+  // egressGateways (IGW/NAT) gets the same treatment for the same reason.
   const filteredFlowVPCEIds = new Set<string>(flows.map(f => f.vpceId).filter(Boolean) as string[]);
   const vpcEndpoints = arch.vpcEndpoints.filter(v =>
-    filteredFlowVPCEIds.has(v.id) || (v.vpcId !== null && pathVPCIdsFiltered.has(v.vpcId)),
+    inPath(v.id) || filteredFlowVPCEIds.has(v.id),
   );
 
-  // Chip item 10: same VPC-membership filter for egress gateways. Keep
-  // any gateway attached to a VPC that contains a compute on the path.
+  // Egress gateways — same evidence standard. Either the BFS includes
+  // the gateway, or a flow explicitly carries gateway routing
+  // evidence. No "same VPC" inference. (egressGatewayId field on
+  // TrafficFlow is the future hook for route-table-driven gateway
+  // tagging; until that's wired, this lane stays empty by default
+  // for path views — which is the honest read.)
+  const filteredFlowGatewayIds = new Set<string>(
+    flows.map(f => (f as any).egressGatewayId).filter(Boolean) as string[],
+  );
   const egressGateways = arch.egressGateways.filter(
-    g => g.vpcId !== null && pathVPCIdsFiltered.has(g.vpcId),
+    g => inPath(g.id) || filteredFlowGatewayIds.has(g.id),
   );
 
   return {
@@ -5065,24 +5081,35 @@ export default function TrafficFlowMap({
             )}
           </button>
 
-          {/* Inject CVE Scenario */}
-          <button
-            onClick={injectAttackScenario}
-            disabled={injectingCVE}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
-              injectingCVE
-                ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
-                : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
-            }`}
-            title="Inject simulated CVE data for testing vulnerability-based paths"
-          >
-            {injectingCVE ? (
-              <RefreshCw className="w-3 h-3 animate-spin" />
-            ) : (
-              <Target className="w-3 h-3" />
-            )}
-            Inject CVE Test Data
-          </button>
+          {/* Inject CVE Scenario — DEV-ONLY.
+              This button writes SYNTHETIC CVE nodes into Neo4j. It's a
+              developer test tool for exercising vulnerability-based
+              paths and must NEVER ship to production. Per
+              feedback_no_mock_numbers_in_ui + the 2026-05-21
+              credibility audit — operators / customers / design
+              partners can never see a "Inject Test Data" button on a
+              security platform; that's instant credibility loss.
+              Gated by NODE_ENV; Next.js inlines this at build time so
+              the button code is dead-stripped from prod bundles. */}
+          {process.env.NODE_ENV !== 'production' && (
+            <button
+              onClick={injectAttackScenario}
+              disabled={injectingCVE}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+                injectingCVE
+                  ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
+                  : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
+              }`}
+              title="DEV ONLY — inject synthetic CVE data for testing vulnerability-based paths"
+            >
+              {injectingCVE ? (
+                <RefreshCw className="w-3 h-3 animate-spin" />
+              ) : (
+                <Target className="w-3 h-3" />
+              )}
+              [DEV] Inject CVE Test Data
+            </button>
+          )}
 
           {/* Auto-refresh toggle */}
           <button
@@ -5268,16 +5295,21 @@ export default function TrafficFlowMap({
                   <div className="text-center">
                     <div className="text-slate-300 text-xs font-medium mb-1">No CVE Attack Paths Found</div>
                     <div className="text-slate-500 text-[10px] leading-relaxed">
-                      No current CVE-driven routes to crown jewels were detected. You can still inject CVE test data to simulate vulnerability-based paths.
+                      No current CVE-driven routes to crown jewels were detected.
+                      {process.env.NODE_ENV !== 'production' && ' You can still inject CVE test data to simulate vulnerability-based paths.'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => { setShowAttackPaths(false); injectAttackScenario(); }}
-                    className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
-                  >
-                    <Target className="w-3 h-3" />
-                    Inject CVE Test Data
-                  </button>
+                  {/* DEV-only — see comment on the primary inject button.
+                      This is the empty-state fallback inject; same gating. */}
+                  {process.env.NODE_ENV !== 'production' && (
+                    <button
+                      onClick={() => { setShowAttackPaths(false); injectAttackScenario(); }}
+                      className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
+                    >
+                      <Target className="w-3 h-3" />
+                      [DEV] Inject CVE Test Data
+                    </button>
+                  )}
                   <button
                     onClick={() => loadAttackPaths()}
                     className="px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 border border-slate-600/30 rounded-lg text-slate-400 text-[10px] font-medium flex items-center gap-1.5 transition-colors"
