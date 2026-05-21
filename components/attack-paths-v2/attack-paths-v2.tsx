@@ -22,7 +22,7 @@
 // reduction_narrative, risk_reduction, and damage_capability per path;
 // Slice 1 surfaces these directly in the right column header.
 
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Loader2, AlertTriangle, RefreshCw } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
@@ -44,13 +44,18 @@ export function AttackPathsV2() {
   const router = useRouter()
   const pathname = usePathname()
 
-  // URL-driven state — three keys: system (which AWS account/system),
-  // jewel (which crown jewel selected), path (which path selected).
+  // URL-driven state — four keys: system (which AWS account/system),
+  // jewel (which crown jewel selected), path (which path selected),
+  // expand ("path" → hide left+center columns, give path analysis the
+  // full screen; null → standard 3-column layout). Deep-linkable so a
+  // shared URL preserves the maximize state.
   // useSearchParams returns null on the server / before hydration; the
   // optional chain + ?? guard against that without a useEffect.
   const systemName = searchParams?.get("system") ?? "alon-prod"
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
+  const expandMode = searchParams?.get("expand") ?? null
+  const isPathExpanded = expandMode === "path" && !!selectedPathId
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -95,7 +100,7 @@ export function AttackPathsV2() {
 
   // Selection helpers — write to URL so deep links work and the
   // browser back button restores state.
-  const setUrl = (next: { jewel?: string | null; path?: string | null }) => {
+  const setUrl = (next: { jewel?: string | null; path?: string | null; expand?: string | null }) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "")
     if (next.jewel !== undefined) {
       if (next.jewel === null) params.delete("jewel")
@@ -105,10 +110,34 @@ export function AttackPathsV2() {
       if (next.path === null) params.delete("path")
       else params.set("path", next.path)
     }
+    if (next.expand !== undefined) {
+      if (next.expand === null) params.delete("expand")
+      else params.set("expand", next.expand)
+    }
     // Always preserve system param across navigations.
     if (!params.get("system") && systemName) params.set("system", systemName)
     router.replace(`${pathname}?${params.toString()}`)
   }
+
+  const handleToggleExpand = () => {
+    setUrl({ expand: isPathExpanded ? null : "path" })
+  }
+
+  // Esc collapses the maximized view back to the 3-column layout.
+  // Bound at the document level so the operator doesn't have to focus
+  // any particular element first. isPathExpanded captures the current
+  // open state; re-binding when it flips avoids stale-closure bugs.
+  useEffect(() => {
+    if (!isPathExpanded) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setUrl({ expand: null })
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPathExpanded])
 
   const handleSelectJewel = (jewelId: string) => {
     // Selecting a new jewel resets the path selection — different
@@ -155,8 +184,10 @@ export function AttackPathsV2() {
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
-      {/* Column 1 — Crown jewels */}
-      <aside className="w-[260px] shrink-0 border-r border-slate-800 bg-slate-950 overflow-y-auto">
+      {/* Column 1 — Crown jewels (hidden when path is maximized) */}
+      <aside
+        className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-slate-800 bg-slate-950 overflow-y-auto`}
+      >
         <div className="px-4 py-3 border-b border-slate-800/60">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">
             CYNTRO · ATTACK PATHS V2
@@ -173,8 +204,10 @@ export function AttackPathsV2() {
         />
       </aside>
 
-      {/* Column 2 — Paths grouped by source type */}
-      <section className="w-[400px] shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-950/60">
+      {/* Column 2 — Paths grouped by source type (hidden when maximized) */}
+      <section
+        className={`${isPathExpanded ? "hidden" : "w-[400px]"} shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-950/60`}
+      >
         {!selectedJewelId ? (
           <EmptyState
             title="Select a crown jewel"
@@ -213,6 +246,8 @@ export function AttackPathsV2() {
             path={selectedPath}
             jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
             systemName={systemName}
+            isExpanded={isPathExpanded}
+            onToggleExpand={handleToggleExpand}
           />
         )}
       </main>

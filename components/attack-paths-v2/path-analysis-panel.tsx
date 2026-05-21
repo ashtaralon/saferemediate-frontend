@@ -14,7 +14,7 @@
 // existing attack-paths drill-in, just embedded smaller.
 
 import { useMemo } from "react"
-import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles } from "lucide-react"
+import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles, Maximize2, Minimize2 } from "lucide-react"
 import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
 } from "@/components/dependency-map/traffic-flow-map"
@@ -30,6 +30,11 @@ interface PathAnalysisPanelProps {
   path: IdentityAttackPath
   jewel: CrownJewelSummary | null
   systemName: string
+  /** When true, the parent has hidden the left + center columns so this
+   *  panel fills the whole screen. We render a Minimize button in the
+   *  header to return to the 3-column layout. */
+  isExpanded?: boolean
+  onToggleExpand?: () => void
 }
 
 // Map severity level → tone for the score badge. Same palette as the
@@ -44,7 +49,13 @@ function severityTone(level?: string) {
   return "bg-slate-500/15 border-slate-500/40 text-slate-200"
 }
 
-export function PathAnalysisPanel({ path, jewel, systemName }: PathAnalysisPanelProps) {
+export function PathAnalysisPanel({
+  path,
+  jewel,
+  systemName,
+  isExpanded = false,
+  onToggleExpand,
+}: PathAnalysisPanelProps) {
   // Build the TrafficFlowMap pathFilter shape from the path's nodes
   // and edges. The filter tells the map "show only these nodes; draw
   // the polyline through these checkpoint hops." applyPathFilter()
@@ -108,8 +119,27 @@ export function PathAnalysisPanel({ path, jewel, systemName }: PathAnalysisPanel
       <div className="px-6 py-4 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-              PATH ANALYSIS
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-2">
+              <span>PATH ANALYSIS</span>
+              {onToggleExpand && (
+                <button
+                  onClick={onToggleExpand}
+                  title={isExpanded ? "Collapse (Esc)" : "Expand to full screen"}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-700 bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600 transition-colors normal-case tracking-normal"
+                >
+                  {isExpanded ? (
+                    <>
+                      <Minimize2 className="h-2.5 w-2.5" />
+                      <span className="text-[9px] font-semibold uppercase tracking-wider">Collapse</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="h-2.5 w-2.5" />
+                      <span className="text-[9px] font-semibold uppercase tracking-wider">Expand</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${sevTone}`}>
