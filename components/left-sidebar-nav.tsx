@@ -40,6 +40,10 @@ export function LeftSidebarNav({
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
     { id: "least-privilege", label: "Least Privilege", icon: Shield, href: "/?section=least-privilege" },
     { id: "attack-paths", label: "Attack Paths", icon: Route, href: "/?section=attack-paths" },
+    // v2 redesign — coexists with the legacy section above. Operators
+    // can toggle while the redesign is being reviewed. Drop the legacy
+    // entry once v2 is approved as canonical.
+    { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2?system=alon-prod" },
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
     { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
     { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },
