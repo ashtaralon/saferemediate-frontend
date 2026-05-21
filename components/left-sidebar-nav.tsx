@@ -150,7 +150,7 @@ export function LeftSidebarNav({
           // activeSection didn't update. Now using an explicit set of
           // dedicated-route ids so additions in either direction are
           // unambiguous.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources"])
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button
