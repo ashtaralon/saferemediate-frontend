@@ -4464,20 +4464,36 @@ export default function TrafficFlowMap({
       const data = await res.json();
       const configuredRules = data.configured_rules || [];
 
-      // Transform API response to our SGRule interface
-      return configuredRules.map((rule: any) => ({
-        direction: rule.direction === 'ingress' ? 'ingress' : 'egress',
-        protocol: rule.protocol || rule.proto || 'tcp',
-        fromPort: rule.from_port,
-        toPort: rule.to_port,
-        portDisplay: rule.port_display || (rule.from_port === rule.to_port ? String(rule.from_port || 'All') : `${rule.from_port}-${rule.to_port}`),
-        source: rule.source_cidr || rule.source_sg || rule.peer_value || 'unknown',
-        sourceType: rule.source_type || (rule.source_sg ? 'security_group' : 'cidr'),
-        status: rule.status || 'unknown',
-        flowCount: rule.flow_count || 0,
-        lastSeen: rule.last_seen || null,
-        isPublic: rule.is_public || (rule.source_cidr === '0.0.0.0/0'),
-      }));
+      // Transform API response to our SGRule interface.
+      //
+      // Direction mapping bug fix (2026-05-21): the inspector v2 returns
+      // direction='inbound' / 'outbound' (AWS-canonical names) but the
+      // frontend SGRule interface and the SecurityGroupPanel filters
+      // expect 'ingress' / 'egress' (Cypher-canonical names). The old
+      // ternary `=== 'ingress' ? 'ingress' : 'egress'` evaluated false
+      // on every 'inbound' value, so every inbound rule got labelled
+      // egress. Visible symptom: SecurityGroupPanel rendered 0 inbound
+      // rules + N "egress" rules (which were really inbound), and the
+      // chip's "↓N in / ↑N out" badge always read 0 in.
+      //
+      // Accept both vocabularies on the inspector side; emit the
+      // Cypher-canonical names on the SGRule side.
+      return configuredRules.map((rule: any) => {
+        const isInbound = rule.direction === 'inbound' || rule.direction === 'ingress';
+        return {
+          direction: isInbound ? 'ingress' : 'egress',
+          protocol: rule.protocol || rule.proto || 'tcp',
+          fromPort: rule.from_port,
+          toPort: rule.to_port,
+          portDisplay: rule.port_display || (rule.from_port === rule.to_port ? String(rule.from_port || 'All') : `${rule.from_port}-${rule.to_port}`),
+          source: rule.source_cidr || rule.source_sg || rule.peer_value || 'unknown',
+          sourceType: rule.source_type || (rule.source_sg ? 'security_group' : 'cidr'),
+          status: rule.status || 'unknown',
+          flowCount: rule.flow_count || 0,
+          lastSeen: rule.last_seen || null,
+          isPublic: rule.is_public || (rule.source_cidr === '0.0.0.0/0'),
+        };
+      });
     } catch (err) {
       console.error(`Failed to fetch rules for SG ${sgId}:`, err);
       return [];
