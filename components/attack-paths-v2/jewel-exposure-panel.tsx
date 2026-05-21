@@ -42,6 +42,11 @@ import {
   AlertTriangle,
   EyeOff,
   Eye,
+  Clock,
+  Plus,
+  Minus,
+  ArrowRightLeft,
+  History,
 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
@@ -89,6 +94,32 @@ export interface JewelExposureResponse {
     criticality: string | null
   }
   generated_at: string
+  // Slice 8 — exposure-diff timeline. Present only when the request
+  // included include_changes=true. change_log = null means first scan
+  // (no prior snapshot to diff against); explicit null + reason in
+  // change_summary surfaces an honest "first scan" empty state instead
+  // of guessing.
+  change_log?: ExposureChange[] | null
+  change_summary?: ExposureChangeSummary
+}
+
+export interface ExposureChange {
+  category: "workload" | "identity" | "policy" | "data_plane"
+  type: "added" | "removed" | "modified"
+  subject: string
+  subject_id: string
+  narrative: string
+  detail?: Record<string, any>
+}
+
+export interface ExposureChangeSummary {
+  previous_snapshot_date: string | null
+  previous_snapshot_time: string | null
+  added_count: number
+  removed_count: number
+  modified_count: number
+  total_count: number
+  reason?: "first_scan" | "diff_unavailable"
 }
 
 interface ExposureIdentity {
@@ -162,11 +193,17 @@ interface JewelExposurePanelProps {
 export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProps) {
   const [showStale, setShowStale] = useState(false)
 
-  const url = `/api/proxy/jewel-exposure/${encodeURIComponent(systemName)}/${encodeURIComponent(jewel.id)}${
-    showStale ? "?include_stale=true" : ""
-  }`
+  // Slice 8 — always request include_changes=true. Backend writes a
+  // daily snapshot + returns the diff against the most recent prior
+  // snapshot. First-scan state surfaces as change_log=null +
+  // change_summary.reason="first_scan" and the UI handles that
+  // honestly below.
+  const params = new URLSearchParams()
+  if (showStale) params.set("include_stale", "true")
+  params.set("include_changes", "true")
+  const url = `/api/proxy/jewel-exposure/${encodeURIComponent(systemName)}/${encodeURIComponent(jewel.id)}?${params.toString()}`
   const { data, loading, error } = useCachedFetch<JewelExposureResponse>(url, {
-    cacheKey: `jewel-exposure:${systemName}:${jewel.id}:stale=${showStale}`,
+    cacheKey: `jewel-exposure:${systemName}:${jewel.id}:stale=${showStale}:changes=true`,
   })
 
   if (loading && !data) {
@@ -208,6 +245,19 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         showStale={showStale}
         onToggleStale={() => setShowStale((s) => !s)}
       />
+
+      {/* Slice 8 — "WHAT CHANGED SINCE LAST SCAN" timeline. Renders
+          above the lanes so attack-surface drift is the first thing
+          the operator sees. Three states:
+            - change_log present + non-empty → render the timeline
+            - change_log null + reason=first_scan → honest "first scan" empty
+            - change_log empty array → "no changes since last scan"
+          (We don't surface change_log when change_summary is missing;
+          that means the request didn't include_changes or the backend
+          had a transient diff failure.) */}
+      {data.change_summary && (
+        <ChangeTimeline changeLog={data.change_log} summary={data.change_summary} />
+      )}
 
       {/* The 8-lane "all doors" panel */}
       <div className="px-6 py-4 space-y-3">
@@ -647,6 +697,136 @@ function DataPlaneRow({ dp }: { dp: JewelExposureResponse["data_plane"] }) {
       <DPCell label="Bucket policy" value={dp.bucket_policy} okWhen="present" />
       <DPCell label="Is sensitive" value={dp.is_sensitive_data} />
       <DPCell label="Criticality" value={dp.criticality} />
+    </div>
+  )
+}
+
+// ─── Slice 8 — Change timeline ──────────────────────────────────────
+//
+// Three render states match the three honest backend states:
+//   first_scan       → muted "First scan — nothing to compare yet"
+//   diff_unavailable → muted "Diff temporarily unavailable" (operator
+//                       still sees the live exposure data; just no diff)
+//   has_changes      → expandable list of change_log entries grouped
+//                       by category (workload / identity / policy /
+//                       data_plane)
+// We deliberately keep this collapsed by default — operators glance at
+// the count chip, click to expand only when they want detail.
+function ChangeTimeline({
+  changeLog,
+  summary,
+}: {
+  changeLog: ExposureChange[] | null | undefined
+  summary: ExposureChangeSummary
+}) {
+  const [expanded, setExpanded] = useState(true)
+
+  // first_scan / diff_unavailable empty states
+  if (changeLog === null || changeLog === undefined) {
+    return (
+      <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-900/20">
+        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+          <Clock className="h-3 w-3" />
+          {summary.reason === "first_scan" ? (
+            <span>First scan for this jewel — nothing to compare yet. Future visits will show what changed.</span>
+          ) : (
+            <span>Diff temporarily unavailable. Live exposure data above is still accurate.</span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // No changes since last scan
+  if (changeLog.length === 0) {
+    return (
+      <div className="px-6 py-3 border-b border-slate-800/60 bg-emerald-500/[0.04]">
+        <div className="flex items-center gap-2 text-[10px] text-emerald-300">
+          <Clock className="h-3 w-3" />
+          <span>
+            No changes since {summary.previous_snapshot_date ?? "last scan"} — attack surface is steady.
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  // Has changes — render the timeline
+  return (
+    <div className="border-b border-slate-800/60 bg-amber-500/[0.04]">
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full px-6 py-3 flex items-center gap-2 text-left hover:bg-amber-500/[0.06] transition-colors"
+      >
+        <History className="h-3.5 w-3.5 text-amber-300" />
+        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
+          What changed since {summary.previous_snapshot_date ?? "last scan"}
+        </span>
+        <span className="ml-2 text-[10px] text-slate-300">
+          {summary.added_count > 0 && (
+            <span className="text-emerald-300 mr-2">+{summary.added_count}</span>
+          )}
+          {summary.removed_count > 0 && (
+            <span className="text-red-300 mr-2">−{summary.removed_count}</span>
+          )}
+          {summary.modified_count > 0 && (
+            <span className="text-amber-300">∼{summary.modified_count}</span>
+          )}
+        </span>
+        <span className="ml-auto text-[10px] text-slate-500">
+          {expanded ? "click to collapse" : `${summary.total_count} change${summary.total_count === 1 ? "" : "s"} — click to expand`}
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-6 pb-4 space-y-1.5">
+          {changeLog.map((c, i) => (
+            <ChangeRow key={`${c.category}-${c.subject_id}-${i}`} change={c} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChangeRow({ change }: { change: ExposureChange }) {
+  // Type → icon + tone
+  const typeMeta: Record<ExposureChange["type"], { icon: any; tone: string }> = {
+    added: { icon: Plus, tone: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
+    removed: { icon: Minus, tone: "text-red-300 border-red-500/40 bg-red-500/10" },
+    modified: { icon: ArrowRightLeft, tone: "text-amber-300 border-amber-500/40 bg-amber-500/10" },
+  }
+  const m = typeMeta[change.type]
+  const TypeIcon = m.icon
+
+  // Category → icon for the subject side
+  const catIcon: Record<ExposureChange["category"], any> = {
+    workload: Server,
+    identity: Key,
+    policy: FileText,
+    data_plane: Database,
+  }
+  const CatIcon = catIcon[change.category]
+
+  // Strip simple markdown bold marks (**X**) from the narrative for
+  // inline rendering. Keep them stylable.
+  const parts = change.narrative.split(/\*\*/)
+  return (
+    <div className="flex items-start gap-2 p-2 rounded-md bg-slate-900/40 border border-slate-800">
+      <span className={`shrink-0 inline-flex items-center justify-center w-4 h-4 rounded border ${m.tone}`}>
+        <TypeIcon className="h-2.5 w-2.5" />
+      </span>
+      <CatIcon className="h-3.5 w-3.5 text-slate-500 shrink-0 mt-0.5" />
+      <div className="text-[11px] text-slate-200 leading-snug min-w-0">
+        {parts.map((p, i) =>
+          i % 2 === 1 ? (
+            <span key={i} className="font-mono font-semibold text-white">
+              {p}
+            </span>
+          ) : (
+            <span key={i}>{p}</span>
+          )
+        )}
+      </div>
     </div>
   )
 }

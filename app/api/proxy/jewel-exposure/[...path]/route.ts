@@ -26,9 +26,14 @@ export async function GET(
 
   const { searchParams } = new URL(req.url)
   const includeStale = searchParams.get("include_stale") === "true" ? "true" : ""
+  // Slice 8 — exposure-diff timeline. When set, the backend writes
+  // today's snapshot and computes a change_log against the most recent
+  // prior snapshot.
+  const includeChanges = searchParams.get("include_changes") === "true" ? "true" : ""
 
   const params_str = new URLSearchParams()
   if (includeStale) params_str.set("include_stale", includeStale)
+  if (includeChanges) params_str.set("include_changes", includeChanges)
   const qs = params_str.toString()
 
   const upstream = `${BACKEND_URL}/api/jewel-exposure/${upstreamPath}${qs ? `?${qs}` : ""}`
@@ -36,8 +41,8 @@ export async function GET(
   // Server-side cache. Exposure query is read-heavy on Neo4j (4 Cypher
   // queries with multi-hop walks); cache for 5 min so repeats are
   // instant. Cache key includes every search param so flipping
-  // include_stale forces a fresh fetch.
-  const cacheKey = `jewel-exposure:${upstreamPath}:stale=${includeStale}`
+  // include_stale / include_changes forces a fresh fetch.
+  const cacheKey = `jewel-exposure:${upstreamPath}:stale=${includeStale}:changes=${includeChanges}`
   const cached = await getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
