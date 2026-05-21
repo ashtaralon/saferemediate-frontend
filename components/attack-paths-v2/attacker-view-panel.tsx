@@ -281,10 +281,14 @@ function friendlyName(rawName: string | null, id: string): string {
   return candidate
 }
 
-function shortName(name: string, maxLen = 18): string {
+function shortName(name: string, maxLen = 22): string {
   if (!name) return ""
   if (name.length <= maxLen) return name
-  return name.slice(0, maxLen - 1) + "…"
+  // Middle-truncate so prefix AND suffix stay visible — "SafeRemediate-Test-Frontend-1"
+  // becomes "SafeRem…Frontend-1" instead of "SafeRemediate-Tes…" which makes
+  // every SafeRemediate-* instance look identical.
+  const half = Math.floor((maxLen - 1) / 2)
+  return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
 }
 
 // Map graph-view node type → TrafficFlowMap lane bucket. The TFM has
@@ -313,7 +317,15 @@ function bucketForGraphType(
     return "resource"
   if (t === "securitygroup") return "sg"
   if (t === "networkacl" || t === "nacl") return "nacl"
-  if (t === "iamrole" || t === "instanceprofile" || t === "iampolicy" || t === "role") return "iam_role"
+  // IAMRole, InstanceProfile go to the IAM lane.
+  // IAMPolicy is a different shape (a permission grant document, not an
+  // identity) — we explicitly OMIT it from the iam_role lane to keep
+  // the lane focused on the identities themselves. Policy details
+  // surface on the role card (existing iam-permission-analysis modal)
+  // when the operator clicks through. Re-introduce as a dedicated
+  // POLICIES lane in a later slice if needed.
+  if (t === "iamrole" || t === "instanceprofile" || t === "role") return "iam_role"
+  if (t === "iampolicy") return "ignore"
   if (t === "subnet") return "subnet"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
     return "principal"
@@ -337,9 +349,19 @@ function buildAttackerArchitecture(
     (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
   )
 
-  // Track inserted node ids so the lateral pass doesn't duplicate nodes
-  // already added by the path pass.
-  const seen = new Set<string>()
+  // Dedup key combines (lowercased friendly name, lane bucket) so that
+  // a Role and an InstanceProfile sharing a name stay distinct, but
+  // dual-label-graph duplicates of the same logical node collapse.
+  // The Neo4j graph has each node under multiple ids (full ARN, short
+  // id, dual-label Resource/Service) — without canonical dedup the
+  // lanes end up with 2-3 cards for the same workload.
+  const seen = new Set<string>() // raw ids already added
+  const seenByCanonical = new Set<string>() // canonical "name|lane" keys
+
+  const canonicalKey = (name: string | null, id: string, lane: string): string => {
+    const fname = friendlyName(name, id).toLowerCase()
+    return `${fname}|${lane}`
+  }
 
   const computeSubtype = (type: string): "compute" | "lambda" => {
     return type.toLowerCase().includes("lambda") ? "lambda" : "compute"
@@ -353,7 +375,10 @@ function buildAttackerArchitecture(
 
   const addAsCompute = (id: string, type: string, name: string | null) => {
     if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "compute")
+    if (seenByCanonical.has(canon)) return
     seen.add(id)
+    seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     computeServices.push({
       id,
@@ -365,7 +390,10 @@ function buildAttackerArchitecture(
   }
   const addAsResource = (id: string, type: string, name: string | null) => {
     if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "resource")
+    if (seenByCanonical.has(canon)) return
     seen.add(id)
+    seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     const sub = resourceSubtype(type)
     const node: ServiceNode = {
@@ -381,7 +409,14 @@ function buildAttackerArchitecture(
   }
   const addAsRole = (id: string, type: string, name: string | null) => {
     if (seen.has(id)) return
+    // Roles and InstanceProfiles can share names — preserve the
+    // distinction in canonical dedup. dual-label Resource/Service
+    // duplicates of the SAME role collapse.
+    const subLane = (type || "").toLowerCase().includes("instanceprofile") ? "iam_ip" : "iam_role"
+    const canon = canonicalKey(name, id, subLane)
+    if (seenByCanonical.has(canon)) return
     seen.add(id)
+    seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     iamRoles.push({
       id,
@@ -397,7 +432,10 @@ function buildAttackerArchitecture(
   }
   const addAsSG = (id: string, name: string | null) => {
     if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "sg")
+    if (seenByCanonical.has(canon)) return
     seen.add(id)
+    seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     securityGroups.push({
       id,
@@ -413,7 +451,10 @@ function buildAttackerArchitecture(
   }
   const addAsNACL = (id: string, name: string | null) => {
     if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "nacl")
+    if (seenByCanonical.has(canon)) return
     seen.add(id)
+    seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     nacls.push({
       id,
@@ -429,7 +470,10 @@ function buildAttackerArchitecture(
   }
   const addAsSubnet = (id: string, name: string | null, vpcId: string | null, isPublic: boolean | null) => {
     if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "subnet")
+    if (seenByCanonical.has(canon)) return
     seen.add(id)
+    seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     subnets.push({
       id,
@@ -461,12 +505,37 @@ function buildAttackerArchitecture(
   // Second pass — laterals. Add each lateral neighbor to the right
   // lane, and synthesize flows for data-relevant edges with observed
   // bytes or hits.
+  //
+  // Filtering rules to keep the canvas operator-readable:
+  //   * Skip MISC significance — these are pure system-level wrappers
+  //     (BELONGS_TO_SYSTEM, etc.) that add nodes without informing
+  //     the attack story.
+  //   * Cap PER-CLASS PER-PATH-NODE laterals at 6. The lanes show the
+  //     top 6 by significance order (escalation > data > identity > …);
+  //     remaining laterals are still in the underlying data but don't
+  //     spawn new cards. Operator overload protection.
+  const LATERAL_CAP_PER_CLASS = 6
+  const classCounters = new Map<string, number>() // key: `${pathNodeId}|${significance}`
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
-    for (const e of edges) {
+    // Sort by significance order first so the cap surfaces the most
+    // attacker-relevant pivots.
+    const sortedEdges = [...edges].sort((a, b) => {
+      const sigOrder: Record<string, number> = {
+        escalation: 0, data: 1, control: 2, identity: 3, forensic: 4, network: 5, misc: 6,
+      }
+      return (sigOrder[a.significance] ?? 99) - (sigOrder[b.significance] ?? 99)
+    })
+    for (const e of sortedEdges) {
       if (e.on_path) continue
+      if (e.significance === "misc") continue
+      const counterKey = `${pathNodeId}|${e.significance}`
+      const used = classCounters.get(counterKey) ?? 0
+      if (used >= LATERAL_CAP_PER_CLASS) continue
+      classCounters.set(counterKey, used + 1)
       const neighborBucket = bucketForGraphType(e.neighbor_type)
       const neighborId = e.neighbor_id
       if (!neighborId) continue
+      if (neighborBucket === "ignore") continue
 
       if (neighborBucket === "compute") addAsCompute(neighborId, e.neighbor_type, e.neighbor_name)
       else if (neighborBucket === "resource") addAsResource(neighborId, e.neighbor_type, e.neighbor_name)
