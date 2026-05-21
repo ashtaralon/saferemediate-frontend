@@ -34,6 +34,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { PathListGrouped } from "./path-list-grouped"
 import { PathAnalysisPanel } from "./path-analysis-panel"
+import { JewelExposurePanel } from "./jewel-exposure-panel"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -56,6 +57,12 @@ export function AttackPathsV2() {
   const selectedPathId = searchParams?.get("path") ?? null
   const expandMode = searchParams?.get("expand") ?? null
   const isPathExpanded = expandMode === "path" && !!selectedPathId
+  // Slice 5: per-path vs exposure lens toggle. Default = per-path so the
+  // existing operator mental model is preserved. ?mode=exposure flips
+  // the right column to the all-doors view (still scoped to the selected
+  // jewel; the center "paths" list is hidden in exposure mode since the
+  // whole point is to aggregate across paths).
+  const viewMode = (searchParams?.get("mode") ?? "path") === "exposure" ? "exposure" : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -100,7 +107,7 @@ export function AttackPathsV2() {
 
   // Selection helpers — write to URL so deep links work and the
   // browser back button restores state.
-  const setUrl = (next: { jewel?: string | null; path?: string | null; expand?: string | null }) => {
+  const setUrl = (next: { jewel?: string | null; path?: string | null; expand?: string | null; mode?: string | null }) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "")
     if (next.jewel !== undefined) {
       if (next.jewel === null) params.delete("jewel")
@@ -114,9 +121,22 @@ export function AttackPathsV2() {
       if (next.expand === null) params.delete("expand")
       else params.set("expand", next.expand)
     }
+    if (next.mode !== undefined) {
+      if (next.mode === null || next.mode === "path") params.delete("mode")
+      else params.set("mode", next.mode)
+    }
     // Always preserve system param across navigations.
     if (!params.get("system") && systemName) params.set("system", systemName)
     router.replace(`${pathname}?${params.toString()}`)
+  }
+
+  const handleSetMode = (next: "path" | "exposure") => {
+    // Switching to exposure clears the path selection — exposure
+    // aggregates ACROSS paths, so leaving a selected path id in the URL
+    // would imply a per-path scope that no longer applies. Switching
+    // back to path mode preserves the jewel selection so the operator
+    // doesn't lose their place.
+    setUrl({ mode: next, path: next === "exposure" ? null : undefined })
   }
 
   const handleToggleExpand = () => {
@@ -192,9 +212,12 @@ export function AttackPathsV2() {
         />
       </aside>
 
-      {/* Column 2 — Paths grouped by source type (hidden when maximized) */}
+      {/* Column 2 — Paths grouped by source type (hidden when maximized,
+          and hidden in exposure mode since exposure aggregates across
+          paths). Operator can still get back to per-path view via the
+          mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded ? "hidden" : "w-[400px]"} shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-950/60`}
+        className={`${isPathExpanded || viewMode === "exposure" ? "hidden" : "w-[400px]"} shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-950/60`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -211,34 +234,105 @@ export function AttackPathsV2() {
         )}
       </section>
 
-      {/* Column 3 — Per-path analysis */}
+      {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main className="flex-1 overflow-y-auto bg-slate-950">
         {!selectedJewelId ? (
           <EmptyState
             title="No jewel selected"
-            subtitle="Select a crown jewel and a specific path to see the full attack analysis."
-            large
-          />
-        ) : !selectedPath ? (
-          <EmptyState
-            title="Select a path"
-            subtitle={
-              jewelPaths.length === 0
-                ? "No attack paths to this jewel today. Nothing to fix here."
-                : `Pick one of the ${jewelPaths.length} paths on the left to drill in.`
-            }
+            subtitle="Select a crown jewel on the left to see attack paths or exposure analysis."
             large
           />
         ) : (
-          <PathAnalysisPanel
-            path={selectedPath}
-            jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
-            systemName={systemName}
-            isExpanded={isPathExpanded}
-            onToggleExpand={handleToggleExpand}
-          />
+          <>
+            {/* Mode toggle — sticky header above the per-mode panel. URL-driven
+                so deep links to ?mode=exposure work, and switching is instant
+                (no refetch of the jewels list). */}
+            <ModeToggle
+              mode={viewMode}
+              onChange={handleSetMode}
+              jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
+              pathCount={jewelPaths.length}
+            />
+            {viewMode === "exposure" ? (
+              <JewelExposurePanel
+                jewel={jewels.find((j) => j.id === selectedJewelId)!}
+                systemName={systemName}
+              />
+            ) : !selectedPath ? (
+              <EmptyState
+                title="Select a path"
+                subtitle={
+                  jewelPaths.length === 0
+                    ? "No attack paths to this jewel today. Switch to Exposure view to see standing access."
+                    : `Pick one of the ${jewelPaths.length} paths on the left to drill in.`
+                }
+                large
+              />
+            ) : (
+              <PathAnalysisPanel
+                path={selectedPath}
+                jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                systemName={systemName}
+                isExpanded={isPathExpanded}
+                onToggleExpand={handleToggleExpand}
+              />
+            )}
+          </>
         )}
       </main>
+    </div>
+  )
+}
+
+// ─── Helper: Per-path ↔ Exposure mode toggle ────────────────────
+//
+// Sticky bar above the right-column panel. Two pills, URL-driven via
+// ?mode={path|exposure}. Switching to exposure clears any selected path
+// (the URL handler in setUrl does that) so the operator can't end up in
+// a state where the URL says ?mode=exposure but the panel still reads
+// from a stale ?path id.
+function ModeToggle({
+  mode,
+  onChange,
+  jewelName,
+  pathCount,
+}: {
+  mode: "path" | "exposure"
+  onChange: (next: "path" | "exposure") => void
+  jewelName: string | null
+  pathCount: number
+}) {
+  return (
+    <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
+      <div className="flex rounded-md border border-slate-700 overflow-hidden">
+        <button
+          onClick={() => onChange("path")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            mode === "path"
+              ? "bg-blue-500/15 text-blue-200 border-r border-slate-700"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200 border-r border-slate-700"
+          }`}
+          title="Explain one attack route — the path's full chain of hops, IAM, network, and damage."
+        >
+          Per-path view
+        </button>
+        <button
+          onClick={() => onChange("exposure")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            mode === "exposure"
+              ? "bg-violet-500/15 text-violet-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
+          }`}
+          title="All doors view — aggregate every workload, role, and policy that exposes this jewel."
+        >
+          Exposure view
+        </button>
+      </div>
+      <div className="text-[10px] text-slate-500 italic min-w-0 truncate">
+        {mode === "path"
+          ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"}`
+          : `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`}
+      </div>
     </div>
   )
 }
