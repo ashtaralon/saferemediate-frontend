@@ -404,9 +404,9 @@ export function IdentityPlanePanel({ path }: { path: IdentityAttackPath }) {
                 key={r.id}
                 className="p-3 rounded-md bg-pink-500/5 border border-pink-500/20 mb-2"
               >
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <Key className="h-3.5 w-3.5 text-pink-300 shrink-0" />
-                  <span className="text-xs font-mono text-pink-200 truncate flex-1">
+                  <span className="text-xs font-mono text-pink-200 truncate flex-1 min-w-0">
                     {r.name}
                   </span>
                   {(r as any).gap_count !== undefined && r.gap_count > 0 && (
@@ -415,6 +415,45 @@ export function IdentityPlanePanel({ path }: { path: IdentityAttackPath }) {
                     </span>
                   )}
                 </div>
+                {/* InstanceProfile binding chip — surfaces the EC2 ↔ Role
+                    binding mechanism even when the path itself didn't
+                    traverse the InstanceProfile node (e.g. the BFS
+                    chose the direct USES_ROLE edge). Data lives in
+                    role.infra_context.iam_roles (where AWS-shaped
+                    InstanceProfile neighbors are mixed with EC2 and
+                    Lambda consumers) plus role.infra_context.instance_profiles
+                    when the backend surfaces it explicitly. */}
+                {(() => {
+                  const ic = (r as any).infra_context
+                  if (!ic) return null
+                  const ipFromExplicit: any[] = Array.isArray(ic.instance_profiles)
+                    ? ic.instance_profiles
+                    : []
+                  const ipFromMixed: any[] = (
+                    Array.isArray(ic.iam_roles) ? ic.iam_roles : []
+                  ).filter((n: any) => n?.type === "InstanceProfile")
+                  const names = Array.from(
+                    new Set([...ipFromExplicit, ...ipFromMixed].map((n) => n?.name).filter(Boolean)),
+                  )
+                  if (names.length === 0) return null
+                  return (
+                    <div className="mb-2 flex items-center gap-1.5 text-[10px] text-amber-200/90 flex-wrap">
+                      <span className="text-slate-500 uppercase tracking-wider">bound via:</span>
+                      {names.map((n) => (
+                        <span
+                          key={n}
+                          className="font-mono rounded border border-amber-500/30 bg-amber-500/5 px-1.5 py-0.5"
+                          title={`InstanceProfile ${n} binds an EC2 instance to this role. Compromise of the EC2 inherits this role's permissions automatically.`}
+                        >
+                          {n}
+                        </span>
+                      ))}
+                      <span className="text-[9px] uppercase tracking-wider text-slate-600">
+                        (instance profile)
+                      </span>
+                    </div>
+                  )
+                })()}
                 {perms && (
                   <>
                     <div className="grid grid-cols-3 gap-3 mb-2">
