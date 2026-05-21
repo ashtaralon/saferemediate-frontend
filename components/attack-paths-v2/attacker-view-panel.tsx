@@ -630,34 +630,55 @@ function buildAttackerArchitecture(
     // own lane in the existing TFM; the role/EC2 it acted as carries it)
   }
 
-  // Slice 9.4 — Attacker view is PATH-ONLY.
+  // Slice 9.5 — distinguish PATH INFRASTRUCTURE from LATERAL PIVOTS.
   //
-  // Earlier builds (9.0-9.3) fanned out every lateral pivot from every
-  // hop into the lanes — operator saw 9 computes, 9 IAM roles, 8 S3
-  // buckets including buckets that have nothing to do with this path.
+  // 9.4 stripped EVERY lateral. That was over-correction: it also
+  // removed NACL / IGW / ENI / Policy, which aren't "what else this
+  // role could do" — they're the actual network/identity controls
+  // ATTACHED to path nodes, modeled as decoration edges in Neo4j
+  // rather than as BFS hops.
   //
-  // 2026-05-22 user feedback: "show me only the real, live traffic of
-  // a specific path from resource A to CJ — why u present disconnected
-  // services?" Right framing. Drop all lateral NODE adds. Use lateral
-  // EDGES only for one purpose: harvesting observed-traffic flows that
-  // connect two existing path nodes (e.g. the IAMRole→crown-jewel
-  // ACCESSES_RESOURCE edge with real bytes — it's a "lateral" by
-  // graph traversal but both endpoints are on the path so the flow
-  // belongs on this canvas).
-  //
-  // Operators who want the full pivot fan-out switch to Exposure view;
-  // Attacker view stays focused on the chain.
+  // The honest rule:
+  //   Path infrastructure (attached to a path node) → INCLUDE
+  //     - NACL associated with the path's subnet
+  //     - IGW/NAT the path's subnet routes through
+  //     - ENI on the path's EC2
+  //     - IAMPolicy attached to the path's role
+  //   Lateral pivots (siblings/alternatives reachable from a path
+  //   node but unrelated to THIS attack) → SKIP
+  //     - Other roles the path role can ASSUME_ROLE into
+  //     - Other resources the path role can ACCESSES_RESOURCE
+  //     - Other workloads sharing the path role via USES_ROLE
+  //     - Other accessors of the crown jewel
+  // Operators who want the full pivot fan-out switch to Exposure view.
+  const PATH_INFRA_BUCKETS: ReadonlySet<string> = new Set([
+    "nacl",
+    "egress_gateway",
+    "iam_policy",
+    "network_interface",
+  ])
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
     for (const e of edges) {
       if (e.on_path) continue
       const neighborId = e.neighbor_id
-      // Only consider laterals where BOTH endpoints are on the path.
-      // This skips every "what else this role can reach" sibling and
-      // keeps only the edges that animate the chain itself.
+      if (!neighborId) continue
+      const neighborBucket = bucketForGraphType(e.neighbor_type)
+      // Path-infrastructure adds — always include, even though the
+      // neighbor isn't a BFS path node.
+      if (PATH_INFRA_BUCKETS.has(neighborBucket)) {
+        if (neighborBucket === "nacl") addAsNACL(neighborId, e.neighbor_name)
+        else if (neighborBucket === "egress_gateway") addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
+        else if (neighborBucket === "iam_policy") addAsPolicy(neighborId, e.neighbor_name)
+        else if (neighborBucket === "network_interface") addAsNetworkInterface(neighborId, e.neighbor_name)
+        // Don't synthesize a flow for these — they're context cards
+        // for the lane, not animated traffic endpoints. The TFM will
+        // draw them on the chain without needing a flow line.
+        continue
+      }
+      // Lateral pivots — only kept if BOTH endpoints are on the path
+      // (lets us animate observed-traffic flows like role→jewel
+      // ACCESSES_RESOURCE with real bytes). Skip everything else.
       if (!seen.has(neighborId)) continue
-      // Synthesize a flow for observed bytes/hits between the two
-      // path nodes. Skipped for configured-only edges so the canvas
-      // doesn't draw a line where there's no traffic evidence.
       const hits = e.hit_count ?? 0
       const bytes = e.bytes ?? 0
       if (hits === 0 && bytes === 0 && !e.observed) continue
