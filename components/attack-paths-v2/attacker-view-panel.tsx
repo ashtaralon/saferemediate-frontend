@@ -659,43 +659,54 @@ function buildAttackerArchitecture(
   ])
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
     for (const e of edges) {
-      if (e.on_path) continue
       const neighborId = e.neighbor_id
       if (!neighborId) continue
+
+      // Branch A — edge between two path nodes (on_path=true). These
+      // are the inter-hop observed-traffic edges that animate the
+      // chain (role→jewel ACCESSES_RESOURCE with real hits/bytes).
+      // The backend sets e.on_path when the neighbor is also a path
+      // node; we use it to detect "this edge is on the chain itself."
+      if (e.on_path) {
+        const hits = e.hit_count ?? 0
+        const bytes = e.bytes ?? 0
+        // Skip configured-only edges — no flow line unless there's
+        // at least one observed signal (the edge was seen in CloudTrail
+        // / VPC Flow Logs / explicit observed flag).
+        if (hits === 0 && bytes === 0 && !e.observed) continue
+        if (!seen.has(neighborId)) continue
+        const sourceId = e.direction === "out" ? pathNodeId : neighborId
+        const targetId = e.direction === "out" ? neighborId : pathNodeId
+        flows.push({
+          sourceId,
+          targetId,
+          sgId: undefined,
+          naclId: undefined,
+          roleId: undefined,
+          ports: e.port ? [String(e.port)] : [],
+          protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
+          bytes,
+          connections: hits || 1,
+          isActive: !!e.observed || hits > 0 || bytes > 0,
+        })
+        continue
+      }
+
+      // Branch B — true lateral (neighbor is NOT on the path).
       const neighborBucket = bucketForGraphType(e.neighbor_type)
-      // Path-infrastructure adds — always include, even though the
-      // neighbor isn't a BFS path node.
+      // Path-infrastructure adds (NACL / IGW / ENI / Policy). These
+      // appear on the canvas because they're the controls attached
+      // to path nodes, not pivot options.
       if (PATH_INFRA_BUCKETS.has(neighborBucket)) {
         if (neighborBucket === "nacl") addAsNACL(neighborId, e.neighbor_name)
         else if (neighborBucket === "egress_gateway") addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
         else if (neighborBucket === "iam_policy") addAsPolicy(neighborId, e.neighbor_name)
         else if (neighborBucket === "network_interface") addAsNetworkInterface(neighborId, e.neighbor_name)
-        // Don't synthesize a flow for these — they're context cards
-        // for the lane, not animated traffic endpoints. The TFM will
-        // draw them on the chain without needing a flow line.
+        // Context cards, no flow synth (these aren't traffic endpoints).
         continue
       }
-      // Lateral pivots — only kept if BOTH endpoints are on the path
-      // (lets us animate observed-traffic flows like role→jewel
-      // ACCESSES_RESOURCE with real bytes). Skip everything else.
-      if (!seen.has(neighborId)) continue
-      const hits = e.hit_count ?? 0
-      const bytes = e.bytes ?? 0
-      if (hits === 0 && bytes === 0 && !e.observed) continue
-      const sourceId = e.direction === "out" ? pathNodeId : neighborId
-      const targetId = e.direction === "out" ? neighborId : pathNodeId
-      flows.push({
-        sourceId,
-        targetId,
-        sgId: undefined,
-        naclId: undefined,
-        roleId: undefined,
-        ports: e.port ? [String(e.port)] : [],
-        protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
-        bytes,
-        connections: hits || 1,
-        isActive: !!e.observed,
-      })
+      // Otherwise: lateral pivot (other role / other bucket / sibling
+      // workload). Skip — lives in Exposure view, not Attacker view.
     }
   }
 
@@ -704,11 +715,17 @@ function buildAttackerArchitecture(
   // line between them. Most path edges are config-only (USES_ROLE,
   // SECURED_BY, IN_SUBNET) so they don't create new flow lines;
   // only the observed data-bearing edges do.
+  //
+  // 2026-05-22 fix: also keep edges with hit_count > 0. The IAP
+  // backend's role→S3 ACCESSES_RESOURCE edge often carries
+  // hit_count (CloudTrail action count) without populating
+  // traffic_bytes — pre-fix we lost these flows entirely.
   for (const edge of path.edges ?? []) {
     if (!seen.has(edge.source) || !seen.has(edge.target)) continue
     const observed = edge.is_observed ?? false
     const bytes = edge.traffic_bytes ?? 0
-    if (!observed && bytes === 0) continue
+    const hits = edge.hit_count ?? 0
+    if (!observed && bytes === 0 && hits === 0) continue
     const t = (edge.type || "").toUpperCase()
     if (t === "USES_ROLE" || t === "SECURED_BY" || t === "IN_SUBNET" || t === "IN_VPC" || t === "HAS_INSTANCE_PROFILE")
       continue
