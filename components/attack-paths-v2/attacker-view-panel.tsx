@@ -569,12 +569,20 @@ function buildAttackerArchitecture(
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
+    // shortName is what the TFM SubnetNode card renders as the
+    // identifier — without it, the card shows ONLY the
+    // Public/Private/Unknown posture chip and no name. v1.2 omitted
+    // this field, which is why every subnet read as just "Private"
+    // in the previous screenshot.
     subnets.push({
       id,
       name: display,
-      vpcId: vpcId || "unknown-vpc",
-      vpcName: vpcId || "unknown-vpc",
-      isPublic: !!isPublic,
+      shortName: shortName(display),
+      // Preserve null three-state (Public / Private / Unknown). Coercing
+      // to boolean lost the "Unknown" state when subnet_is_public is
+      // unclassified — per the earlier credibility audit.
+      isPublic,
+      vpcId: vpcId || undefined,
       connectedComputeIds: [],
     })
   }
@@ -607,18 +615,26 @@ function buildAttackerArchitecture(
   // bytes or hits.
   //
   // Filtering rules to keep the canvas operator-readable:
-  //   * Skip MISC significance — these are pure system-level wrappers
-  //     (BELONGS_TO_SYSTEM, etc.) that add nodes without informing
-  //     the attack story.
-  //   * Cap PER-CLASS PER-PATH-NODE laterals at 6. The lanes show the
-  //     top 6 by significance order (escalation > data > identity > …);
-  //     remaining laterals are still in the underlying data but don't
-  //     spawn new cards. Operator overload protection.
+  //   * Skip MISC significance — pure system-level wrappers.
+  //   * Skip lateral nodes with is_active=false (stale/terminated) —
+  //     the alon-prod graph has zombie EC2s like xxxxweb1 that
+  //     pollute the Compute lane without informing the attack story.
+  //   * Cap PER-CLASS PER-PATH-NODE laterals at 6 EXCEPT for the
+  //     always-include neighbor types below. Without the exception,
+  //     subnets with 8+ workloads-in-subnet IN_SUBNET edges fill the
+  //     network class quota before the NACL/IGW/ENI edges make it
+  //     through. Result: "NACLs (0)" while a real NACL exists.
+  //     Now: NACL, IGW/NAT, IAMPolicy, ENI bypass the cap because
+  //     they're rare and operator-critical.
   const LATERAL_CAP_PER_CLASS = 6
+  const ALWAYS_INCLUDE_BUCKETS: ReadonlySet<string> = new Set([
+    "nacl",
+    "egress_gateway",
+    "iam_policy",
+    "network_interface",
+  ])
   const classCounters = new Map<string, number>() // key: `${pathNodeId}|${significance}`
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
-    // Sort by significance order first so the cap surfaces the most
-    // attacker-relevant pivots.
     const sortedEdges = [...edges].sort((a, b) => {
       const sigOrder: Record<string, number> = {
         escalation: 0, data: 1, control: 2, identity: 3, forensic: 4, network: 5, misc: 6,
@@ -628,14 +644,25 @@ function buildAttackerArchitecture(
     for (const e of sortedEdges) {
       if (e.on_path) continue
       if (e.significance === "misc") continue
-      const counterKey = `${pathNodeId}|${e.significance}`
-      const used = classCounters.get(counterKey) ?? 0
-      if (used >= LATERAL_CAP_PER_CLASS) continue
-      classCounters.set(counterKey, used + 1)
       const neighborBucket = bucketForGraphType(e.neighbor_type)
       const neighborId = e.neighbor_id
       if (!neighborId) continue
       if (neighborBucket === "ignore") continue
+      // Stale-resource filter. Only applies to lateral nodes (the path
+      // itself can include stale nodes if the BFS chose them). Each
+      // lateral edge's neighbor has is_active surfaced via
+      // neighbor_labels containing "StaleResource".
+      const isStale = (e.neighbor_labels || []).some((l) => l === "StaleResource")
+      if (isStale) continue
+      // Always-include override: NACL / IGW-NAT / IAMPolicy / ENI
+      // bypass the per-class cap because they're high-signal + rare.
+      const bypassCap = ALWAYS_INCLUDE_BUCKETS.has(neighborBucket)
+      if (!bypassCap) {
+        const counterKey = `${pathNodeId}|${e.significance}`
+        const used = classCounters.get(counterKey) ?? 0
+        if (used >= LATERAL_CAP_PER_CLASS) continue
+        classCounters.set(counterKey, used + 1)
+      }
 
       if (neighborBucket === "compute") addAsCompute(neighborId, e.neighbor_type, e.neighbor_name)
       else if (neighborBucket === "resource") addAsResource(neighborId, e.neighbor_type, e.neighbor_name)
