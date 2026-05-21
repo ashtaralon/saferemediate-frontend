@@ -22,6 +22,7 @@ import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
+import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -234,23 +235,15 @@ export function PathAnalysisPanel({ path, jewel, systemName }: PathAnalysisPanel
         </div>
       )}
 
-      {/* ─── Slice 2+ placeholders ─────────────────────────────── */}
+      {/* ─── Plane panels (Slice 2 — live data) ────────────────── */}
       <div className="px-6 py-6 space-y-4">
-        <PlanePlaceholder
-          title="NETWORK PLANE"
-          subtitle="SG rules, NACLs, VPC endpoints, public-IP exposure on this path."
-          icon={<ShieldAlert className="h-4 w-4 text-orange-300" />}
-        />
-        <PlanePlaceholder
-          title="IDENTITY PLANE"
-          subtitle="Role + instance profile chain, allowed/used/unused actions, multi-role pivots."
-          icon={<ShieldAlert className="h-4 w-4 text-pink-300" />}
-        />
-        <PlanePlaceholder
-          title="DATA PLANE"
-          subtitle="Reachable resources from this path, observed actions, theoretical actions per allowed policy."
-          icon={<ShieldAlert className="h-4 w-4 text-violet-300" />}
-        />
+        <NetworkPlanePanel path={path} />
+        <IdentityPlanePanel path={path} />
+        <DataPlanePanel path={path} />
+
+        {/* Slices 3+4 still placeholders — surface as "coming next"
+            until those slices land. The plane panels above are now
+            live data. */}
         <PlanePlaceholder
           title="POTENTIAL DAMAGE"
           subtitle="Plain-English projection of what an attacker on this path could actually do."
