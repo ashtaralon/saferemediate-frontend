@@ -1,52 +1,40 @@
 "use client"
 
-// Attacker View — Slice 9 of Attack Paths v2.
+// Attacker View — Slice 9 v1.1.
 //
-// Renders the path as the attacker sees it: each hop is a card with
-// the actual Neo4j labels + key properties, the explicit edge to the
-// next hop, and BELOW each card the lateral edges grouped by their
-// attacker-relevance class (escalation / data / identity / network /
-// forensic / misc). No column-fill abstraction, no synthesized lanes.
+// Renders the path + lateral pivots as a dynamic flow map using the
+// same TrafficFlowMap renderer the Per-Path view uses. Visual
+// consistency with the other lens (animated lanes, click-to-detail,
+// SG/IAM cards) — but the underlying architecture comes from the
+// /api/attack-chain/graph-view endpoint, which surfaces the actual
+// Neo4j graph: every lateral role the attacker could assume, every
+// other resource on the role, every other workload sharing the role.
 //
-// The data source is the new /api/attack-chain/graph-view endpoint
-// which returns whatever Neo4j actually holds — no transformation,
-// no inference, no lane-completeness rules. If the graph has an
-// IAMPolicy attached to the role, it appears. If the role assumes
-// another role, that appears. If the role accesses a second crown
-// jewel, that appears with its observed hit count.
-//
-// Per feedback_no_mock_numbers_in_ui + the 2026-05-22 credibility
-// audit. This is the architectural pivot: render the explicit graph
-// hops, not pattern-fill predefined columns.
+// 2026-05-22: rewrote from the v1.0 tree-list rendering (developer-
+// grade JSON dump). The TrafficFlowMap reuse means operators see the
+// attack surface in the same visual language as Per-Path, just with
+// the lateral fan-out lanes populated by the graph-view endpoint.
 
 import { useEffect, useMemo, useState } from "react"
-import {
-  Crown,
-  Server,
-  Zap,
-  Box,
-  Key,
-  FileText,
-  ShieldAlert,
-  Database,
-  Network,
-  ArrowRight,
-  ArrowDown,
-  ArrowUp,
-  Layers,
-  AlertOctagon,
-  AlertTriangle,
-  Eye,
-  Lock,
-  Globe,
-  ExternalLink,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react"
+import { Crown, AlertTriangle, Eye } from "lucide-react"
+import dynamic from "next/dynamic"
+import type {
+  SystemArchitecture,
+  ServiceNode,
+  SubnetNode,
+  SecurityCheckpoint,
+  TrafficFlow,
+} from "@/components/dependency-map/traffic-flow-map"
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
+
+// Heavy renderer — lazy-load so the v2 page doesn't pull the full
+// dep-map bundle until the operator switches to attacker view.
+const TrafficFlowMap = dynamic(() => import("@/components/dependency-map/traffic-flow-map"), {
+  ssr: false,
+})
 
 interface AttackerViewPanelProps {
   path: IdentityAttackPath
@@ -96,56 +84,11 @@ interface GraphViewEdge {
     | "misc"
 }
 
-// Significance ordering for sorting laterals — highest attacker
-// relevance first.
-const SIG_ORDER: Record<GraphViewEdge["significance"], number> = {
-  escalation: 0,
-  data: 1,
-  control: 2,
-  identity: 3,
-  forensic: 4,
-  network: 5,
-  misc: 6,
-}
-
-const SIG_META: Record<
-  GraphViewEdge["significance"],
-  { label: string; tone: string; icon: any }
-> = {
-  escalation: { label: "ESCALATION", tone: "text-red-300 border-red-500/40 bg-red-500/10", icon: ArrowUp },
-  data: { label: "DATA ACCESS", tone: "text-violet-300 border-violet-500/40 bg-violet-500/10", icon: Database },
-  control: { label: "CONTROL", tone: "text-orange-300 border-orange-500/40 bg-orange-500/10", icon: ShieldAlert },
-  identity: { label: "IDENTITY", tone: "text-pink-300 border-pink-500/40 bg-pink-500/10", icon: Key },
-  forensic: { label: "OBSERVED", tone: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10", icon: Eye },
-  network: { label: "NETWORK", tone: "text-cyan-300 border-cyan-500/40 bg-cyan-500/10", icon: Network },
-  misc: { label: "CONTEXT", tone: "text-slate-400 border-slate-700 bg-slate-900/40", icon: Box },
-}
-
-function nodeTypeIcon(type: string) {
-  const t = (type || "").toLowerCase()
-  if (t.includes("ec2") || t.includes("instance")) return Server
-  if (t.includes("lambda")) return Zap
-  if (t.includes("ecs") || t.includes("fargate")) return Box
-  if (t.includes("iamrole") || t === "role") return Key
-  if (t.includes("policy")) return FileText
-  if (t.includes("instanceprofile")) return Layers
-  if (t.includes("s3") || t.includes("bucket")) return Database
-  if (t.includes("dynamo")) return Database
-  if (t.includes("rds")) return Database
-  if (t.includes("kms")) return Lock
-  if (t.includes("cloudtrail") || t.includes("principal")) return Globe
-  if (t.includes("securitygroup")) return ShieldAlert
-  if (t.includes("subnet") || t.includes("vpc")) return Network
-  return Box
-}
-
 export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanelProps) {
   const [data, setData] = useState<GraphViewResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch the graph view for the path's nodes. We do this as a POST
-  // so we can ship the full node_ids array + path_edges hint.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -183,37 +126,53 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
     }
   }, [path.id, systemName])
 
-  // Map path.edges into a per-hop transition: prev-node → curr-node
-  // with the original edge metadata. The frontend renders the
-  // arrow between cards using this info.
-  const edgeByTransition = useMemo(() => {
-    const map = new Map<string, IdentityAttackPath["edges"][number]>()
-    for (const e of path.edges ?? []) {
-      map.set(`${e.source}|${e.target}`, e)
-      map.set(`${e.target}|${e.source}`, e)
+  // Synthesize a SystemArchitecture from the graph-view response.
+  // Path nodes get added to their canonical lanes; lateral nodes also
+  // get added to lanes (so the operator sees the fan-out); flows are
+  // synthesized from both the path's chain edges AND any lateral
+  // edges with real observed bytes or hits so the TrafficFlowMap
+  // animates the actual data flow rather than implying connections
+  // that don't have evidence.
+  const architecture = useMemo<SystemArchitecture | null>(() => {
+    if (!data) return null
+    return buildAttackerArchitecture(data, path)
+  }, [data, path])
+
+  // Lateral counts for the header narrative — "X paths + Y pivot
+  // moves" reads more honest than "N nodes."
+  const lateralSummary = useMemo(() => {
+    if (!data) return { lateralCount: 0, byClass: {} as Record<string, number> }
+    let count = 0
+    const byClass: Record<string, number> = {}
+    for (const edges of Object.values(data.laterals_by_node)) {
+      for (const e of edges) {
+        if (e.on_path) continue
+        count++
+        byClass[e.significance] = (byClass[e.significance] ?? 0) + 1
+      }
     }
-    return map
-  }, [path])
+    return { lateralCount: count, byClass }
+  }, [data])
 
   if (loading) {
     return (
-      <div className="flex flex-col h-full px-6 py-4">
-        <ViewHeader jewel={jewel} />
+      <div className="flex flex-col h-full">
+        <Header jewel={jewel} subtitle="Loading the live attack surface…" />
         <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
-          Loading the live graph for this path…
+          Querying Neo4j for the path's neighborhood…
         </div>
       </div>
     )
   }
   if (error) {
     return (
-      <div className="flex flex-col h-full px-6 py-4">
-        <ViewHeader jewel={jewel} />
+      <div className="flex flex-col h-full">
+        <Header jewel={jewel} subtitle="Could not load attacker view" />
         <div className="flex-1 flex items-center justify-center px-6">
           <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md text-sm text-red-200">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="h-4 w-4" />
-              <span className="font-semibold">Could not load graph view</span>
+              <span className="font-semibold">Graph view failed</span>
             </div>
             <div className="text-xs text-red-200/80">{error}</div>
           </div>
@@ -221,53 +180,45 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
       </div>
     )
   }
-  if (!data) return null
+  if (!data || !architecture) return null
+
+  // Build a one-line subtitle summarizing the lateral classes that
+  // matter most for the attacker narrative.
+  const classOrder: Array<keyof typeof CLASS_LABELS> = [
+    "escalation",
+    "data",
+    "identity",
+    "forensic",
+    "network",
+    "control",
+    "misc",
+  ]
+  const classBits = classOrder
+    .filter((c) => (lateralSummary.byClass[c] ?? 0) > 0)
+    .map((c) => `${lateralSummary.byClass[c]} ${CLASS_LABELS[c]}`)
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      <ViewHeader
+    <div className="flex flex-col h-full">
+      <Header
         jewel={jewel}
-        subtitle={`${data.node_count} hop${data.node_count === 1 ? "" : "s"} · live Neo4j neighborhood`}
+        subtitle={
+          lateralSummary.lateralCount === 0
+            ? `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · no lateral pivots found`
+            : `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · ${lateralSummary.lateralCount} lateral pivot${
+                lateralSummary.lateralCount === 1 ? "" : "s"
+              } (${classBits.join(" · ")})`
+        }
       />
-
-      <div className="px-6 py-4 space-y-4">
-        {data.nodes.map((node, idx) => {
-          const prevNode = idx > 0 ? data.nodes[idx - 1] : null
-          const transitionEdge = prevNode
-            ? edgeByTransition.get(`${prevNode.id}|${node.id}`)
-            : null
-          const laterals = (data.laterals_by_node[node.id] ?? []).filter((e) => !e.on_path)
-          // Sort laterals: significance order, then observed > unobserved
-          laterals.sort((a, b) => {
-            if (SIG_ORDER[a.significance] !== SIG_ORDER[b.significance])
-              return SIG_ORDER[a.significance] - SIG_ORDER[b.significance]
-            if (!!a.observed !== !!b.observed) return a.observed ? -1 : 1
-            return (b.bytes ?? 0) - (a.bytes ?? 0)
-          })
-          return (
-            <div key={node.id}>
-              {/* Inbound chain arrow + edge label, between cards */}
-              {prevNode && transitionEdge && (
-                <TransitionArrow
-                  from={prevNode}
-                  to={node}
-                  edgeType={transitionEdge.type ?? "unknown"}
-                  observed={transitionEdge.is_observed ?? false}
-                  bytes={transitionEdge.traffic_bytes ?? 0}
-                />
-              )}
-              <HopCard
-                node={node}
-                hopNumber={idx + 1}
-                totalHops={data.nodes.length}
-                isCrownJewel={(jewel?.id ?? "") === node.id}
-              />
-              {laterals.length > 0 && (
-                <LateralFanout laterals={laterals} hostNodeName={node.name ?? node.id} />
-              )}
-            </div>
-          )
-        })}
+      <div className="flex-1 min-h-0">
+        <TrafficFlowMap
+          systemName={systemName}
+          architectureOverride={architecture}
+          observedMode={true}
+          titleOverride=""
+          innerTitleOverride="Attack Surface"
+          innerSubtitleOverride="Path chain + lateral pivots, sourced from Neo4j as-is"
+          pathBadgeOverride={`Path → ${jewel?.name ?? path.id}`}
+        />
       </div>
     </div>
   )
@@ -275,259 +226,330 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
 
 // ─── Header ──────────────────────────────────────────────────────────
 
-function ViewHeader({
-  jewel,
-  subtitle,
-}: {
-  jewel: CrownJewelSummary | null
-  subtitle?: string
-}) {
+function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle: string }) {
   return (
-    <div className="px-6 py-4 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-            ATTACKER VIEW · live Neo4j graph
-          </div>
-          <div className="text-sm font-semibold text-slate-100 leading-snug">
-            Hop-by-hop traversal as the graph holds it — every node, every edge, every
-            lateral pivot the attacker could take from each step.
-          </div>
-          {subtitle && (
-            <div className="text-[11px] text-slate-400 mt-1">{subtitle}</div>
-          )}
+    <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10 flex items-start justify-between gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1.5">
+          <Eye className="h-3 w-3 text-red-300" />
+          ATTACKER VIEW · live attack surface
         </div>
-        {jewel && (
-          <div className="text-right shrink-0">
-            <div className="flex items-center gap-1.5 justify-end mb-0.5">
-              <Crown className="h-3 w-3 text-amber-400" />
-              <span className="text-[10px] uppercase tracking-wider text-slate-500">
-                target
-              </span>
-            </div>
-            <div className="text-xs font-mono text-amber-200/90 truncate max-w-[260px]" title={jewel.name}>
-              {jewel.name}
-            </div>
+        <div className="text-[11px] text-slate-400">{subtitle}</div>
+      </div>
+      {jewel && (
+        <div className="text-right shrink-0">
+          <div className="flex items-center gap-1.5 justify-end mb-0.5">
+            <Crown className="h-3 w-3 text-amber-400" />
+            <span className="text-[10px] uppercase tracking-wider text-slate-500">target</span>
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Transition arrow (the path edge between two adjacent hops) ─────
-
-function TransitionArrow({
-  from,
-  to,
-  edgeType,
-  observed,
-  bytes,
-}: {
-  from: GraphViewNode
-  to: GraphViewNode
-  edgeType: string
-  observed: boolean
-  bytes: number
-}) {
-  return (
-    <div className="flex items-center gap-2 pl-6 my-1 text-[10px]">
-      <ArrowDown className={`h-3 w-3 ${observed ? "text-emerald-400" : "text-amber-400"}`} />
-      <span className={`font-mono ${observed ? "text-emerald-300" : "text-amber-300"}`}>
-        {edgeType}
-      </span>
-      {observed ? (
-        <span className="text-emerald-400 uppercase tracking-wider">observed</span>
-      ) : (
-        <span className="text-amber-400 uppercase tracking-wider">configured</span>
-      )}
-      {bytes > 0 && (
-        <span className="text-slate-400 font-mono">{formatBytes(bytes)} on the wire</span>
-      )}
-    </div>
-  )
-}
-
-// ─── Hop card ────────────────────────────────────────────────────────
-
-function HopCard({
-  node,
-  hopNumber,
-  totalHops,
-  isCrownJewel,
-}: {
-  node: GraphViewNode
-  hopNumber: number
-  totalHops: number
-  isCrownJewel: boolean
-}) {
-  const Icon = nodeTypeIcon(node.type)
-  const tone = isCrownJewel
-    ? "border-amber-500/50 bg-amber-500/[0.06]"
-    : node.type === "CloudTrailPrincipal" || node.type === "IAMUser"
-      ? "border-rose-500/30 bg-rose-500/[0.04]"
-      : "border-slate-700 bg-slate-900/30"
-  const keyProps = Object.entries(node.key_properties || {}).filter(
-    ([k, v]) => v !== null && v !== undefined && v !== "" && !(typeof v === "string" && v.length > 200),
-  )
-  return (
-    <div className={`rounded-xl border ${tone} p-4`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-          HOP {hopNumber}/{totalHops}
-        </span>
-        {isCrownJewel && (
-          <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider rounded border border-amber-500/40 bg-amber-500/15 text-amber-200 px-1.5 py-0.5">
-            <Crown className="h-2.5 w-2.5" /> crown jewel
-          </span>
-        )}
-        <Icon className="h-3.5 w-3.5 text-slate-300 ml-1" />
-        <span className="text-sm font-semibold text-white truncate">
-          {node.name ?? node.id}
-        </span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 ml-auto">
-          {node.type}
-        </span>
-      </div>
-      <div className="text-[10px] font-mono text-slate-500 truncate mb-2" title={node.id}>
-        {node.id}
-      </div>
-      {/* Labels stripe — the actual Neo4j labels, no abstraction */}
-      <div className="flex items-center gap-1 flex-wrap mb-2">
-        {(node.labels || []).map((l) => (
-          <span
-            key={l}
-            className="text-[9px] font-mono rounded border border-slate-700 bg-slate-900/60 text-slate-400 px-1 py-0.5"
-            title={`Neo4j label: ${l}`}
+          <div
+            className="text-xs font-mono text-amber-200/90 truncate max-w-[260px]"
+            title={jewel.name}
           >
-            :{l}
-          </span>
-        ))}
-      </div>
-      {/* Key properties — per-type curated set, real values only */}
-      {keyProps.length > 0 && (
-        <div className="grid grid-cols-2 gap-1.5 mt-2 text-[10px]">
-          {keyProps.slice(0, 8).map(([k, v]) => (
-            <div key={k} className="flex items-baseline gap-2 min-w-0">
-              <span className="text-slate-500 uppercase tracking-wider shrink-0">{k}</span>
-              <span className="font-mono text-slate-200 truncate" title={String(v)}>
-                {String(v)}
-              </span>
-            </div>
-          ))}
+            {jewel.name}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Lateral fan-out — the attacker's pivot options from this hop ───
+// ─── Architecture synthesis ──────────────────────────────────────────
 
-function LateralFanout({
-  laterals,
-  hostNodeName,
-}: {
-  laterals: GraphViewEdge[]
-  hostNodeName: string
-}) {
-  const [collapsed, setCollapsed] = useState(false)
-  // Group by significance for visual grouping
-  const grouped = useMemo(() => {
-    const map = new Map<GraphViewEdge["significance"], GraphViewEdge[]>()
-    for (const e of laterals) {
-      const arr = map.get(e.significance) ?? []
-      arr.push(e)
-      map.set(e.significance, arr)
-    }
-    return Array.from(map.entries()).sort(
-      ([a], [b]) => SIG_ORDER[a] - SIG_ORDER[b],
-    )
-  }, [laterals])
+const CLASS_LABELS = {
+  escalation: "escalation",
+  data: "data-access",
+  identity: "identity",
+  forensic: "observed",
+  network: "network",
+  control: "control",
+  misc: "misc",
+} as const
 
-  return (
-    <div className="ml-6 mt-2 mb-2 border-l-2 border-slate-800 pl-3">
-      <button
-        onClick={() => setCollapsed((c) => !c)}
-        className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-400 hover:text-slate-200 transition-colors"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
-        )}
-        <span>
-          From {hostNodeName}: {laterals.length} lateral move{laterals.length === 1 ? "" : "s"}
-        </span>
-      </button>
-      {!collapsed && (
-        <div className="mt-2 space-y-2">
-          {grouped.map(([sig, edges]) => {
-            const meta = SIG_META[sig]
-            const SigIcon = meta.icon
-            return (
-              <div key={sig}>
-                <div className={`inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${meta.tone}`}>
-                  <SigIcon className="h-2.5 w-2.5" />
-                  {meta.label}
-                  <span className="opacity-60 ml-0.5">({edges.length})</span>
-                </div>
-                <div className="mt-1 space-y-1">
-                  {edges.map((e, i) => (
-                    <LateralEdgeRow key={`${e.direction}-${e.type}-${e.neighbor_id}-${i}`} edge={e} />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function LateralEdgeRow({ edge }: { edge: GraphViewEdge }) {
-  const Icon = nodeTypeIcon(edge.neighbor_type)
-  const DirIcon = edge.direction === "out" ? ArrowRight : ArrowUp
-  return (
-    <div className="flex items-center gap-2 p-1.5 rounded-md bg-slate-900/40 border border-slate-800 text-[11px]">
-      <DirIcon className={`h-3 w-3 shrink-0 ${edge.direction === "in" ? "text-violet-400" : "text-slate-500"}`} />
-      <span className="font-mono text-slate-500 text-[10px] shrink-0">
-        {edge.type}
-      </span>
-      <Icon className="h-3 w-3 text-slate-400 shrink-0" />
-      <span className="font-mono text-slate-200 truncate flex-1">
-        {edge.neighbor_name || edge.neighbor_id}
-      </span>
-      <span className="text-[9px] uppercase text-slate-500 shrink-0">
-        {edge.neighbor_type}
-      </span>
-      {edge.observed === true && (
-        <span className="text-[9px] uppercase tracking-wider text-emerald-300 font-bold shrink-0">
-          obs
-        </span>
-      )}
-      {edge.hit_count !== null && edge.hit_count > 0 && (
-        <span className="text-[10px] text-emerald-400 font-semibold shrink-0">
-          {edge.hit_count} hits
-        </span>
-      )}
-      {edge.bytes !== null && edge.bytes > 0 && (
-        <span className="text-[10px] text-slate-400 font-mono shrink-0">
-          {formatBytes(edge.bytes)}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function formatBytes(n: number): string {
-  if (n === 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
+// Strip ARN noise from a name when present — "arn:aws:iam::1234:role/foo"
+// → "foo". Keep the original when the input doesn't look like an ARN.
+function friendlyName(rawName: string | null, id: string): string {
+  const candidate = rawName || id
+  if (!candidate) return id
+  if (candidate.includes(":::")) {
+    return candidate.split(":::")[1] || candidate
   }
-  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+  if (candidate.startsWith("arn:")) {
+    const tail = candidate.split("/").pop()
+    if (tail) return tail
+  }
+  return candidate
+}
+
+function shortName(name: string, maxLen = 18): string {
+  if (!name) return ""
+  if (name.length <= maxLen) return name
+  return name.slice(0, maxLen - 1) + "…"
+}
+
+// Map graph-view node type → TrafficFlowMap lane bucket. The TFM has
+// 5 lanes the attacker view will populate:
+//   compute   → COMPUTE
+//   resource  → RESOURCES (S3, RDS, DynamoDB, KMS, Secret)
+//   sg        → SECURITY GROUPS
+//   nacl      → NACLS
+//   iam_role  → IAM ROLES (also catches InstanceProfile + IAMPolicy as
+//               attached identity-plane context)
+//   subnet    → SUBNETS lane (rendered as decoration column)
+function bucketForGraphType(
+  type: string,
+): "compute" | "resource" | "sg" | "nacl" | "iam_role" | "subnet" | "principal" | "ignore" {
+  const t = (type || "").toLowerCase()
+  if (t.includes("ec2") || t.includes("lambda") || t.includes("ecs") || t.includes("fargate"))
+    return "compute"
+  if (
+    t === "s3bucket" ||
+    t === "dynamodbtable" ||
+    t === "rdsinstance" ||
+    t === "rds" ||
+    t === "kmskey" ||
+    t === "secret"
+  )
+    return "resource"
+  if (t === "securitygroup") return "sg"
+  if (t === "networkacl" || t === "nacl") return "nacl"
+  if (t === "iamrole" || t === "instanceprofile" || t === "iampolicy" || t === "role") return "iam_role"
+  if (t === "subnet") return "subnet"
+  if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
+    return "principal"
+  return "ignore"
+}
+
+function buildAttackerArchitecture(
+  graph: GraphViewResponse,
+  path: IdentityAttackPath,
+): SystemArchitecture {
+  const computeServices: ServiceNode[] = []
+  const resources: ServiceNode[] = []
+  const subnets: SubnetNode[] = []
+  const securityGroups: SecurityCheckpoint[] = []
+  const nacls: SecurityCheckpoint[] = []
+  const iamRoles: SecurityCheckpoint[] = []
+  const flows: TrafficFlow[] = []
+
+  // Crown jewel ids from the path so we can tag resource cards.
+  const crownJewelIds = new Set(
+    (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
+  )
+
+  // Track inserted node ids so the lateral pass doesn't duplicate nodes
+  // already added by the path pass.
+  const seen = new Set<string>()
+
+  const computeSubtype = (type: string): "compute" | "lambda" => {
+    return type.toLowerCase().includes("lambda") ? "lambda" : "compute"
+  }
+  const resourceSubtype = (type: string): "storage" | "database" | "dynamodb" => {
+    const t = type.toLowerCase()
+    if (t.includes("dynamo")) return "dynamodb"
+    if (t.includes("rds") || t.includes("database")) return "database"
+    return "storage"
+  }
+
+  const addAsCompute = (id: string, type: string, name: string | null) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const display = friendlyName(name, id)
+    computeServices.push({
+      id,
+      name: display,
+      shortName: shortName(display),
+      type: computeSubtype(type),
+      instanceId: id.startsWith("i-") ? id : id.slice(-12),
+    })
+  }
+  const addAsResource = (id: string, type: string, name: string | null) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const display = friendlyName(name, id)
+    const sub = resourceSubtype(type)
+    const node: ServiceNode = {
+      id,
+      name: display,
+      shortName: shortName(display),
+      type: sub,
+    }
+    if (crownJewelIds.has(id)) {
+      ;(node as any).isCrownJewel = true
+    }
+    resources.push(node)
+  }
+  const addAsRole = (id: string, type: string, name: string | null) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const display = friendlyName(name, id)
+    iamRoles.push({
+      id,
+      type: "iam_role",
+      name: display,
+      shortName: shortName(display),
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })
+  }
+  const addAsSG = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const display = friendlyName(name, id)
+    securityGroups.push({
+      id,
+      type: "security_group",
+      name: display,
+      shortName: shortName(display),
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })
+  }
+  const addAsNACL = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const display = friendlyName(name, id)
+    nacls.push({
+      id,
+      type: "nacl",
+      name: display,
+      shortName: shortName(display),
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })
+  }
+  const addAsSubnet = (id: string, name: string | null, vpcId: string | null, isPublic: boolean | null) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const display = friendlyName(name, id)
+    subnets.push({
+      id,
+      name: display,
+      vpcId: vpcId || "unknown-vpc",
+      vpcName: vpcId || "unknown-vpc",
+      isPublic: !!isPublic,
+      connectedComputeIds: [],
+    })
+  }
+
+  // First pass — add every path node to its canonical lane.
+  for (const node of graph.nodes) {
+    const bucket = bucketForGraphType(node.type)
+    if (bucket === "compute") addAsCompute(node.id, node.type, node.name)
+    else if (bucket === "resource") addAsResource(node.id, node.type, node.name)
+    else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name)
+    else if (bucket === "sg") addAsSG(node.id, node.name)
+    else if (bucket === "nacl") addAsNACL(node.id, node.name)
+    else if (bucket === "subnet") {
+      const vpcId = (node.key_properties as any)?.vpc_id ?? null
+      const isPub = (node.key_properties as any)?.subnet_is_public ?? null
+      addAsSubnet(node.id, node.name, vpcId, isPub)
+    }
+    // 'principal' / 'ignore' — skip (CloudTrailPrincipal doesn't get its
+    // own lane in the existing TFM; the role/EC2 it acted as carries it)
+  }
+
+  // Second pass — laterals. Add each lateral neighbor to the right
+  // lane, and synthesize flows for data-relevant edges with observed
+  // bytes or hits.
+  for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
+    for (const e of edges) {
+      if (e.on_path) continue
+      const neighborBucket = bucketForGraphType(e.neighbor_type)
+      const neighborId = e.neighbor_id
+      if (!neighborId) continue
+
+      if (neighborBucket === "compute") addAsCompute(neighborId, e.neighbor_type, e.neighbor_name)
+      else if (neighborBucket === "resource") addAsResource(neighborId, e.neighbor_type, e.neighbor_name)
+      else if (neighborBucket === "iam_role") addAsRole(neighborId, e.neighbor_type, e.neighbor_name)
+      else if (neighborBucket === "sg") addAsSG(neighborId, e.neighbor_name)
+      else if (neighborBucket === "nacl") addAsNACL(neighborId, e.neighbor_name)
+      else if (neighborBucket === "subnet") {
+        addAsSubnet(neighborId, e.neighbor_name, null, null)
+      }
+
+      // Flow synthesis — render lines for edges where the attacker
+      // narrative depends on visual flow:
+      //   data        — compute/role → resource (with bytes when present)
+      //   forensic    — RUNTIME_CALLS between computes; ACCESSES_RESOURCE
+      //                 from a non-path role to the crown jewel
+      //   escalation  — role → role (ASSUMES_ROLE) becomes role→role flow
+      // We deliberately skip edge types that are pure relationship
+      // (USES_ROLE, IN_VPC, IN_SUBNET, BELONGS_TO_SYSTEM) since they're
+      // already implied by lane membership and adding them as flows
+      // creates visual noise.
+      if (e.significance === "data" || e.significance === "forensic") {
+        const hits = e.hit_count ?? 0
+        const bytes = e.bytes ?? 0
+        if (hits > 0 || bytes > 0) {
+          const sourceId = e.direction === "out" ? pathNodeId : neighborId
+          const targetId = e.direction === "out" ? neighborId : pathNodeId
+          flows.push({
+            sourceId,
+            targetId,
+            sgId: undefined,
+            naclId: undefined,
+            roleId: undefined,
+            ports: e.port ? [String(e.port)] : [],
+            protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
+            bytes,
+            connections: hits || 1,
+            isActive: !!e.observed,
+          })
+        }
+      }
+    }
+  }
+
+  // Path edges — add as the primary flows (these are the chain).
+  // Source/target must already be in seen for the TFM to render the
+  // line between them. Most path edges are config-only (USES_ROLE,
+  // SECURED_BY, IN_SUBNET) so they don't create new flow lines;
+  // only the observed data-bearing edges do.
+  for (const edge of path.edges ?? []) {
+    if (!seen.has(edge.source) || !seen.has(edge.target)) continue
+    const observed = edge.is_observed ?? false
+    const bytes = edge.traffic_bytes ?? 0
+    if (!observed && bytes === 0) continue
+    const t = (edge.type || "").toUpperCase()
+    if (t === "USES_ROLE" || t === "SECURED_BY" || t === "IN_SUBNET" || t === "IN_VPC" || t === "HAS_INSTANCE_PROFILE")
+      continue
+    flows.push({
+      sourceId: edge.source,
+      targetId: edge.target,
+      sgId: undefined,
+      naclId: undefined,
+      roleId: undefined,
+      ports: edge.port ? [String(edge.port)] : [],
+      protocol: edge.protocol || (t.includes("S3") ? "s3" : "tcp"),
+      bytes,
+      connections: edge.hit_count ?? 1,
+      isActive: observed,
+    })
+  }
+
+  return {
+    computeServices,
+    resources,
+    subnets,
+    securityGroups,
+    nacls,
+    iamRoles,
+    vpcEndpoints: [],
+    egressGateways: [],
+    flows,
+    totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
+    totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
+    totalGaps: 0,
+    vpcGroups: [],
+  }
 }
