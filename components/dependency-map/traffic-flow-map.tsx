@@ -2319,7 +2319,15 @@ export function UnifiedArchitectureDiagram({
             architecture.securityGroups.length === 0 &&
             architecture.nacls.length === 0
               ? "grid-cols-[1fr_2fr_1fr]"
-              : "grid-cols-[1fr_auto_auto_auto_1fr]"
+              : pathFilter
+                // Path-filter mode: 7-col template so every lane —
+                // including VPC ENDPOINTS and RESOURCES — fits on one
+                // horizontal row. The diagonal "skip to row 2" that
+                // operators flagged on 2026-05-21 went away once
+                // VPC Endpoints landed inline between IAM and the
+                // crown jewel rather than below the fold.
+                ? "grid-cols-[1fr_auto_auto_auto_auto_auto_1fr]"
+                : "grid-cols-[1fr_auto_auto_auto_1fr]"
           } gap-6 items-start`}
           style={{ zIndex: 2 }}
         >
