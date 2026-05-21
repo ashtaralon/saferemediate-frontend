@@ -37,6 +37,29 @@ interface PathAnalysisPanelProps {
   onToggleExpand?: () => void
 }
 
+// Short uppercase label for the decoration chips attached to
+// traversal-node breadcrumbs. Kept stable + abbreviated so operators
+// can scan the chip row without parsing AWS service names.
+function decorationLabel(type: string): string {
+  switch (type) {
+    case "SecurityGroup":
+      return "sg"
+    case "Subnet":
+      return "subnet"
+    case "VPC":
+      return "vpc"
+    case "NetworkACL":
+    case "NACL":
+      return "nacl"
+    case "InstanceProfile":
+      return "ip"
+    case "NetworkNode":
+      return "net"
+    default:
+      return type.toLowerCase()
+  }
+}
+
 // Map severity level → tone for the score badge. Same palette as the
 // path list so the operator sees consistent severity coloring across
 // the page.
@@ -112,6 +135,75 @@ export function PathAnalysisPanel({
     return p?.name === "root"
   }, [path])
 
+  // Classify nodes as breadcrumb traversal hops or contextual
+  // decorations attached to a workload.
+  //
+  // 2026-05-22 follow-on credibility fix: the legacy breadcrumb
+  // rendered EVERY node in path.nodes in lane order, including
+  // SG/VPC/Subnet/NACL. Those don't have direct graph edges in
+  // sequence (real path had 7 nodes but only 5 edges, with SG/VPC/
+  // Subnet contributing zero chain edges) — so the chevrons between
+  // them implied a graph traversal that didn't exist. Filtering them
+  // out of the breadcrumb means every remaining chevron is backed by
+  // a real edge. Decorations get rendered as chips attached to the
+  // immediately-preceding workload node.
+  const TRAVERSAL_TYPES = new Set([
+    "CloudTrailPrincipal",
+    "HumanIdentity",
+    "IAMUser",
+    "ExternalIP",
+    "EC2Instance",
+    "LambdaFunction",
+    "ECSTask",
+    "FargateTask",
+    "IAMRole",
+    "S3Bucket",
+    "DynamoDBTable",
+    "RDSInstance",
+    "RDS",
+    "KMSKey",
+    "Secret",
+    "NetworkEndpoint",
+  ])
+  const DECORATION_TYPES = new Set([
+    "SecurityGroup",
+    "NetworkACL",
+    "NACL",
+    "Subnet",
+    "VPC",
+    "InstanceProfile",
+    "NetworkNode",
+  ])
+  const { traversalNodes, decorationsByNeighbor } = useMemo(() => {
+    const nodes = path.nodes ?? []
+    const traversal: typeof nodes = []
+    const decorations: Array<{ idx: number; node: (typeof nodes)[number] }> = []
+    // Walk in order; carry the most recent traversal node so the
+    // following decorations group under it. Decorations BEFORE any
+    // traversal node attach to the first traversal node (rare —
+    // network gates ahead of the entry).
+    nodes.forEach((n, i) => {
+      if (TRAVERSAL_TYPES.has(n.type)) {
+        traversal.push(n)
+      } else if (DECORATION_TYPES.has(n.type)) {
+        decorations.push({ idx: Math.max(0, traversal.length - 1), node: n })
+      } else {
+        // Unknown — render as traversal so we never accidentally hide
+        // a path node we don't have a classification for. Better to
+        // over-render than to silently drop a hop.
+        traversal.push(n)
+      }
+    })
+    // Group decorations by the traversal-node index they attach to.
+    const byNeighbor = new Map<number, typeof nodes>()
+    decorations.forEach(({ idx, node }) => {
+      const arr = byNeighbor.get(idx) ?? []
+      arr.push(node)
+      byNeighbor.set(idx, arr)
+    })
+    return { traversalNodes: traversal, decorationsByNeighbor: byNeighbor }
+  }, [path])
+
   // Per-hop evidence map — Slice 5b credibility fix (2026-05-21 audit).
   //
   // The old single "OBSERVED" / "CONFIGURED" badge merged every hop's
@@ -144,8 +236,13 @@ export function PathAnalysisPanel({
   }, [path])
 
   // Aggregate counts for the header summary chip.
+  //
+  // Uses traversalNodes (graph-traversal hops) rather than the full
+  // path.nodes list so we don't surface bogus "unknown" hops between
+  // SG/VPC/Subnet decorations that were never meant to be sequential
+  // chain edges. Counts only the chevrons actually drawn.
   const evidenceSummary = useMemo(() => {
-    const nodes = path.nodes ?? []
+    const nodes = traversalNodes
     let observed = 0
     let configured = 0
     let unknown = 0
@@ -159,8 +256,8 @@ export function PathAnalysisPanel({
       else if (evidence === "configured") configured++
       else unknown++
     }
-    return { observed, configured, unknown, total: nodes.length - 1 }
-  }, [path, edgeEvidence])
+    return { observed, configured, unknown, total: Math.max(0, nodes.length - 1) }
+  }, [traversalNodes, edgeEvidence])
 
   // Concise narrative line. Prefer the LLM-generated damage_narrative
   // when present; fall back to a deterministic "service A → service B"
@@ -284,18 +381,15 @@ export function PathAnalysisPanel({
           {summaryLine}
         </div>
 
-        {/* Chain summary — start → target with ChevronRight separators.
-            Each chevron is colored by the EDGE'S evidence class
-            (observed/configured/unknown). Replaces the legacy uniform
-            chevron tone, which implied every hop in the chain had the
-            same evidence backing. The 2026-05-21 credibility audit
-            found that nearly every path has mixed evidence — typically
-            ONE observed edge (role→S3 CloudTrail) and the rest
-            configured. Showing the truth per-hop lets operators see
-            exactly which hops we have direct observation for. Tooltip
-            on each chevron names the edge type + observed flag. */}
+        {/* Chain breadcrumb — traversal nodes only (decorations like
+            SG/VPC/Subnet/NACL are rendered as chips below). Each
+            chevron is colored by the edge's actual evidence class. By
+            filtering to traversal nodes, every chevron in this row
+            is backed by a real edge in the graph (no more "ghost
+            traversals" between network controls that have no
+            sequential edges connecting them). */}
         <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 font-mono overflow-x-auto">
-          {(path.nodes ?? []).map((n, i) => {
+          {traversalNodes.map((n, i) => {
             const isRootHere = n.type === "CloudTrailPrincipal" && n.name === "root"
             const toneClass = isRootHere
               ? "text-red-300 font-semibold inline-flex items-center gap-1"
@@ -305,21 +399,21 @@ export function PathAnalysisPanel({
                   ? "text-rose-200"
                   : "text-slate-300"
             // For the chevron BEFORE this node (i>0), look up the edge
-            // evidence between nodes[i-1] and nodes[i].
+            // evidence between traversalNodes[i-1] and traversalNodes[i].
             let chevTone = "text-slate-600"
             let chevTitle: string | undefined
             if (i > 0) {
-              const prev = (path.nodes ?? [])[i - 1]
+              const prev = traversalNodes[i - 1]
               const ev = edgeEvidence.get(`${prev.id}|${n.id}`) ?? edgeEvidence.get(`${n.id}|${prev.id}`)
               if (ev === "observed") {
                 chevTone = "text-emerald-400"
                 chevTitle = `Observed: ${prev.name} → ${n.name} (CloudTrail / flow log evidence)`
               } else if (ev === "configured") {
                 chevTone = "text-amber-500/70"
-                chevTitle = `Configured: ${prev.name} → ${n.name} (IAM attachment / SG attachment / subnet membership — no direct traffic evidence)`
+                chevTitle = `Configured: ${prev.name} → ${n.name} (USES_ROLE / ASSUMES_ROLE — IAM attachment, no direct traffic evidence)`
               } else {
                 chevTone = "text-slate-600"
-                chevTitle = `Unknown evidence: ${prev.name} → ${n.name}`
+                chevTitle = `Unknown evidence: ${prev.name} → ${n.name} (no direct graph edge — the BFS connected these via intermediaries not shown in the breadcrumb)`
               }
             }
             return (
@@ -334,6 +428,21 @@ export function PathAnalysisPanel({
                   {isRootHere && <AlertOctagon className="h-3 w-3" />}
                   {n.name}
                 </span>
+                {/* Decoration chips attached to this traversal node —
+                    network controls (SG/Subnet/VPC/NACL) and IAM-binding
+                    wrappers (InstanceProfile). Rendered inline immediately
+                    after the node so operators see the context without
+                    inferring sequential traversal through them. */}
+                {(decorationsByNeighbor.get(i) ?? []).map((dec) => (
+                  <span
+                    key={`dec-${dec.id}`}
+                    className="inline-flex items-center gap-0.5 text-[9px] font-mono text-slate-500 rounded border border-slate-700 bg-slate-900/40 px-1 py-0.5"
+                    title={`${dec.type}: ${dec.name} — context attached to ${n.name}, not a chain hop. No direct edge connects this to the next breadcrumb entry.`}
+                  >
+                    <span className="text-[8px] uppercase tracking-wider text-slate-600">{decorationLabel(dec.type)}</span>
+                    <span className="text-slate-400">{dec.name}</span>
+                  </span>
+                ))}
               </span>
             )
           })}
