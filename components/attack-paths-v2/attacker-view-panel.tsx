@@ -139,21 +139,39 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
     return buildAttackerArchitecture(data, path)
   }, [data, path])
 
-  // Lateral counts for the header narrative — "X paths + Y pivot
-  // moves" reads more honest than "N nodes."
-  const lateralSummary = useMemo(() => {
-    if (!data) return { lateralCount: 0, byClass: {} as Record<string, number> }
-    let count = 0
-    const byClass: Record<string, number> = {}
+  // Header summary — path-only build (Slice 9.4) so lateral counts are
+  // no longer the headline. We count the OBSERVED flows the canvas is
+  // about to draw (path edges + lateral edges that connect two path
+  // nodes with observed bytes/hits). That's the operator-meaningful
+  // signal — "you'll see N animated flows on the chain."
+  const flowSummary = useMemo(() => {
+    if (!data) return { observedFlows: 0, totalBytes: 0, totalHits: 0 }
+    let observedFlows = 0
+    let totalBytes = 0
+    let totalHits = 0
+    const pathIds = new Set(data.nodes.map((n) => n.id))
     for (const edges of Object.values(data.laterals_by_node)) {
       for (const e of edges) {
         if (e.on_path) continue
-        count++
-        byClass[e.significance] = (byClass[e.significance] ?? 0) + 1
+        if (!pathIds.has(e.neighbor_id)) continue
+        const hits = e.hit_count ?? 0
+        const bytes = e.bytes ?? 0
+        if (hits === 0 && bytes === 0 && !e.observed) continue
+        observedFlows++
+        totalBytes += bytes
+        totalHits += hits
       }
     }
-    return { lateralCount: count, byClass }
-  }, [data])
+    // Also count path.edges observed flows
+    for (const e of path.edges ?? []) {
+      if (e.is_observed && (e.traffic_bytes ?? 0) > 0) {
+        observedFlows++
+        totalBytes += e.traffic_bytes ?? 0
+        totalHits += e.hit_count ?? 0
+      }
+    }
+    return { observedFlows, totalBytes, totalHits }
+  }, [data, path])
 
   if (loading) {
     return (
@@ -183,33 +201,22 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
   }
   if (!data || !architecture) return null
 
-  // Build a one-line subtitle summarizing the lateral classes that
-  // matter most for the attacker narrative.
-  const classOrder: Array<keyof typeof CLASS_LABELS> = [
-    "escalation",
-    "data",
-    "identity",
-    "forensic",
-    "network",
-    "control",
-    "misc",
-  ]
-  const classBits = classOrder
-    .filter((c) => (lateralSummary.byClass[c] ?? 0) > 0)
-    .map((c) => `${lateralSummary.byClass[c]} ${CLASS_LABELS[c]}`)
+  // Path-only header — reflects what's actually on the canvas after
+  // Slice 9.4. Operator sees the chain length + observed-flow count +
+  // total observed bytes. No lateral-pivot count in the header
+  // anymore (move to Exposure view for the full fan-out).
+  const subtitle =
+    flowSummary.observedFlows === 0
+      ? `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · no observed traffic on this path`
+      : `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · ${
+          flowSummary.observedFlows
+        } observed flow${flowSummary.observedFlows === 1 ? "" : "s"} · ${formatBytesShort(
+          flowSummary.totalBytes,
+        )} on the wire`
 
   return (
     <div className="flex flex-col h-full">
-      <Header
-        jewel={jewel}
-        subtitle={
-          lateralSummary.lateralCount === 0
-            ? `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · no lateral pivots found`
-            : `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · ${lateralSummary.lateralCount} lateral pivot${
-                lateralSummary.lateralCount === 1 ? "" : "s"
-              } (${classBits.join(" · ")})`
-        }
-      />
+      <Header jewel={jewel} subtitle={subtitle} />
       <div className="flex-1 min-h-0">
         <TrafficFlowMap
           systemName={systemName}
@@ -280,6 +287,19 @@ function friendlyName(rawName: string | null, id: string): string {
     if (tail) return tail
   }
   return candidate
+}
+
+// Compact byte formatter used in the header subtitle.
+function formatBytesShort(n: number): string {
+  if (n <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
 }
 
 function shortName(name: string, maxLen = 22): string {
@@ -610,102 +630,51 @@ function buildAttackerArchitecture(
     // own lane in the existing TFM; the role/EC2 it acted as carries it)
   }
 
-  // Second pass — laterals. Add each lateral neighbor to the right
-  // lane, and synthesize flows for data-relevant edges with observed
-  // bytes or hits.
+  // Slice 9.4 — Attacker view is PATH-ONLY.
   //
-  // Filtering rules to keep the canvas operator-readable:
-  //   * Skip MISC significance — pure system-level wrappers.
-  //   * Skip lateral nodes with is_active=false (stale/terminated) —
-  //     the alon-prod graph has zombie EC2s like xxxxweb1 that
-  //     pollute the Compute lane without informing the attack story.
-  //   * Cap PER-CLASS PER-PATH-NODE laterals at 6 EXCEPT for the
-  //     always-include neighbor types below. Without the exception,
-  //     subnets with 8+ workloads-in-subnet IN_SUBNET edges fill the
-  //     network class quota before the NACL/IGW/ENI edges make it
-  //     through. Result: "NACLs (0)" while a real NACL exists.
-  //     Now: NACL, IGW/NAT, IAMPolicy, ENI bypass the cap because
-  //     they're rare and operator-critical.
-  const LATERAL_CAP_PER_CLASS = 6
-  const ALWAYS_INCLUDE_BUCKETS: ReadonlySet<string> = new Set([
-    "nacl",
-    "egress_gateway",
-    "iam_policy",
-    "network_interface",
-  ])
-  const classCounters = new Map<string, number>() // key: `${pathNodeId}|${significance}`
+  // Earlier builds (9.0-9.3) fanned out every lateral pivot from every
+  // hop into the lanes — operator saw 9 computes, 9 IAM roles, 8 S3
+  // buckets including buckets that have nothing to do with this path.
+  //
+  // 2026-05-22 user feedback: "show me only the real, live traffic of
+  // a specific path from resource A to CJ — why u present disconnected
+  // services?" Right framing. Drop all lateral NODE adds. Use lateral
+  // EDGES only for one purpose: harvesting observed-traffic flows that
+  // connect two existing path nodes (e.g. the IAMRole→crown-jewel
+  // ACCESSES_RESOURCE edge with real bytes — it's a "lateral" by
+  // graph traversal but both endpoints are on the path so the flow
+  // belongs on this canvas).
+  //
+  // Operators who want the full pivot fan-out switch to Exposure view;
+  // Attacker view stays focused on the chain.
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
-    const sortedEdges = [...edges].sort((a, b) => {
-      const sigOrder: Record<string, number> = {
-        escalation: 0, data: 1, control: 2, identity: 3, forensic: 4, network: 5, misc: 6,
-      }
-      return (sigOrder[a.significance] ?? 99) - (sigOrder[b.significance] ?? 99)
-    })
-    for (const e of sortedEdges) {
+    for (const e of edges) {
       if (e.on_path) continue
-      if (e.significance === "misc") continue
-      const neighborBucket = bucketForGraphType(e.neighbor_type)
       const neighborId = e.neighbor_id
-      if (!neighborId) continue
-      if (neighborBucket === "ignore") continue
-      // Stale-resource filter. Only applies to lateral nodes (the path
-      // itself can include stale nodes if the BFS chose them). Each
-      // lateral edge's neighbor has is_active surfaced via
-      // neighbor_labels containing "StaleResource".
-      const isStale = (e.neighbor_labels || []).some((l) => l === "StaleResource")
-      if (isStale) continue
-      // Always-include override: NACL / IGW-NAT / IAMPolicy / ENI
-      // bypass the per-class cap because they're high-signal + rare.
-      const bypassCap = ALWAYS_INCLUDE_BUCKETS.has(neighborBucket)
-      if (!bypassCap) {
-        const counterKey = `${pathNodeId}|${e.significance}`
-        const used = classCounters.get(counterKey) ?? 0
-        if (used >= LATERAL_CAP_PER_CLASS) continue
-        classCounters.set(counterKey, used + 1)
-      }
-
-      if (neighborBucket === "compute") addAsCompute(neighborId, e.neighbor_type, e.neighbor_name)
-      else if (neighborBucket === "resource") addAsResource(neighborId, e.neighbor_type, e.neighbor_name)
-      else if (neighborBucket === "iam_role") addAsRole(neighborId, e.neighbor_type, e.neighbor_name)
-      else if (neighborBucket === "iam_policy") addAsPolicy(neighborId, e.neighbor_name)
-      else if (neighborBucket === "sg") addAsSG(neighborId, e.neighbor_name)
-      else if (neighborBucket === "nacl") addAsNACL(neighborId, e.neighbor_name)
-      else if (neighborBucket === "egress_gateway") addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
-      else if (neighborBucket === "network_interface") addAsNetworkInterface(neighborId, e.neighbor_name)
-      else if (neighborBucket === "subnet") {
-        addAsSubnet(neighborId, e.neighbor_name, null, null)
-      }
-
-      // Flow synthesis — render lines for edges where the attacker
-      // narrative depends on visual flow:
-      //   data        — compute/role → resource (with bytes when present)
-      //   forensic    — RUNTIME_CALLS between computes; ACCESSES_RESOURCE
-      //                 from a non-path role to the crown jewel
-      //   escalation  — role → role (ASSUMES_ROLE) becomes role→role flow
-      // We deliberately skip edge types that are pure relationship
-      // (USES_ROLE, IN_VPC, IN_SUBNET, BELONGS_TO_SYSTEM) since they're
-      // already implied by lane membership and adding them as flows
-      // creates visual noise.
-      if (e.significance === "data" || e.significance === "forensic") {
-        const hits = e.hit_count ?? 0
-        const bytes = e.bytes ?? 0
-        if (hits > 0 || bytes > 0) {
-          const sourceId = e.direction === "out" ? pathNodeId : neighborId
-          const targetId = e.direction === "out" ? neighborId : pathNodeId
-          flows.push({
-            sourceId,
-            targetId,
-            sgId: undefined,
-            naclId: undefined,
-            roleId: undefined,
-            ports: e.port ? [String(e.port)] : [],
-            protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
-            bytes,
-            connections: hits || 1,
-            isActive: !!e.observed,
-          })
-        }
-      }
+      // Only consider laterals where BOTH endpoints are on the path.
+      // This skips every "what else this role can reach" sibling and
+      // keeps only the edges that animate the chain itself.
+      if (!seen.has(neighborId)) continue
+      // Synthesize a flow for observed bytes/hits between the two
+      // path nodes. Skipped for configured-only edges so the canvas
+      // doesn't draw a line where there's no traffic evidence.
+      const hits = e.hit_count ?? 0
+      const bytes = e.bytes ?? 0
+      if (hits === 0 && bytes === 0 && !e.observed) continue
+      const sourceId = e.direction === "out" ? pathNodeId : neighborId
+      const targetId = e.direction === "out" ? neighborId : pathNodeId
+      flows.push({
+        sourceId,
+        targetId,
+        sgId: undefined,
+        naclId: undefined,
+        roleId: undefined,
+        ports: e.port ? [String(e.port)] : [],
+        protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
+        bytes,
+        connections: hits || 1,
+        isActive: !!e.observed,
+      })
     }
   }
 
