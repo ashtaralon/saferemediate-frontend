@@ -14,7 +14,7 @@
 // existing attack-paths drill-in, just embedded smaller.
 
 import { useMemo } from "react"
-import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles, Maximize2, Minimize2 } from "lucide-react"
+import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles, Maximize2, Minimize2, AlertOctagon } from "lucide-react"
 import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
 } from "@/components/dependency-map/traffic-flow-map"
@@ -101,6 +101,17 @@ export function PathAnalysisPanel({
   const sevLabel = (path.severity?.severity || "—").toUpperCase()
   const sevScore = path.severity?.overall_score
 
+  // Root-principal detection — surfaces as a header badge AND a chip
+  // overlay on the COMPUTE/IAM lane card. The auth identity is
+  // already on path.nodes[0] (CloudTrailPrincipal) but the scorer
+  // doesn't yet boost root paths (see open task — backend +20 floor).
+  // Operators scanning the score-sorted path list miss the worst signal
+  // without an explicit badge here.
+  const isRootPrincipal = useMemo(() => {
+    const p = (path.nodes ?? []).find((n) => n.type === "CloudTrailPrincipal")
+    return p?.name === "root"
+  }, [path])
+
   // Concise narrative line. Prefer the LLM-generated damage_narrative
   // when present; fall back to a deterministic "service A → service B"
   // string so the panel always reads. Per feedback_no_mock_numbers_in_ui
@@ -148,6 +159,19 @@ export function PathAnalysisPanel({
                   <span className="ml-1.5 opacity-80">{sevScore}/100</span>
                 )}
               </span>
+              {/* Root-principal badge — operator-critical signal that the
+                  6-factor severity scorer doesn't yet weight. Surfaces at
+                  the path title and again on the COMPUTE/IAM chip via
+                  the chain visualization below. */}
+              {isRootPrincipal && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider rounded border border-red-500/50 bg-red-500/15 text-red-200 px-2 py-0.5"
+                  title="This path was authenticated with the AWS account root user. Root credentials bypass every IAM permission boundary and SCP — their presence on any attack path is a hard finding regardless of the rest of the chain."
+                >
+                  <AlertOctagon className="h-3 w-3" />
+                  Auth: root
+                </span>
+              )}
               <span className="text-[11px] text-slate-400">
                 {path.hop_count ?? path.nodes.length - 1} hops
               </span>
@@ -188,16 +212,30 @@ export function PathAnalysisPanel({
           {summaryLine}
         </div>
 
-        {/* Chain summary — start → target with ▶ separators */}
+        {/* Chain summary — start → target with ▶ separators. Root-named
+            CloudTrailPrincipals render with a red tone + AlertOctagon so
+            operators see the auth context in the chain itself, not just
+            in the badge above. */}
         <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 font-mono overflow-x-auto">
-          {(path.nodes ?? []).map((n, i) => (
-            <span key={`${n.id}-${i}`} className="flex items-center gap-1 shrink-0">
-              {i > 0 && <ChevronRight className="h-3 w-3 text-slate-600" />}
-              <span className={n.tier === "crown_jewel" ? "text-amber-200" : n.tier === "entry" ? "text-rose-200" : "text-slate-300"}>
-                {n.name}
+          {(path.nodes ?? []).map((n, i) => {
+            const isRootHere = n.type === "CloudTrailPrincipal" && n.name === "root"
+            const toneClass = isRootHere
+              ? "text-red-300 font-semibold inline-flex items-center gap-1"
+              : n.tier === "crown_jewel"
+                ? "text-amber-200"
+                : n.tier === "entry"
+                  ? "text-rose-200"
+                  : "text-slate-300"
+            return (
+              <span key={`${n.id}-${i}`} className="flex items-center gap-1 shrink-0">
+                {i > 0 && <ChevronRight className="h-3 w-3 text-slate-600" />}
+                <span className={toneClass}>
+                  {isRootHere && <AlertOctagon className="h-3 w-3" />}
+                  {n.name}
+                </span>
               </span>
-            </span>
-          ))}
+            )
+          })}
         </div>
       </div>
 

@@ -3440,8 +3440,21 @@ export default function TrafficFlowMap({
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
-  // New killer map features
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // New killer map features.
+  //
+  // Default sidebar state is driven by the rendering mode:
+  //   - Path-filter mode (Attack Paths v2, attack-paths drill-in): closed
+  //     by default. The map shows only the path's nodes, the lane chips
+  //     are the navigation, and the Stack Components tree just duplicates
+  //     what the map already renders. Sidebar wastes ~280px of
+  //     horizontal space the operator wants for the flow itself.
+  //   - Unfiltered System Map (Topology tab): open by default. Operator
+  //     uses the sidebar tree to navigate the full system inventory.
+  //
+  // A toggle button stays available either way so the operator can
+  // re-open the sidebar on demand (per the 2026-05-21 design review:
+  // "collapse by default, don't permanently hide").
+  const [sidebarOpen, setSidebarOpen] = useState(!pathFilter);
   const [heatmapMode, setHeatmapMode] = useState(false);
   const [hopDepth, setHopDepth] = useState(3);
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
@@ -4092,18 +4105,38 @@ export default function TrafficFlowMap({
         .filter(f => f.sgId === sgId)
         .map(f => f.sourceId);
 
-      // Rules will be populated by fetchSGRules() - no mock data
+      // Rules will be populated by fetchSGRules() — no mock data. But
+      // seed totalCount from whatever rule-count signal the dep-map
+      // node carries, so the chip doesn't read "0 rules" between
+      // build-time and the async inspector fetch completing.
+      // Precedence: total_rules → (inbound+outbound) → gap_count.
+      // Last fallback is `gap_count`, which is technically "rules with
+      // gaps" but on every real SG it correlates with "has rules" and
+      // gives the operator a non-zero floor. The fetchSGRules
+      // completion later replaces this with the accurate rule list +
+      // breakdown.
+      //
+      // This fixes the path screenshot from 2026-05-21 where the
+      // 'default' SG (3 actual rules, including 0.0.0.0/0:0-65535)
+      // rendered as "default · 0 rules" — a credibility bug that
+      // contradicted the closure footer's "review ingress rules"
+      // recommendation.
+      const seedTotalCount =
+        (typeof sgNode.total_rules === 'number' && sgNode.total_rules) ||
+        ((sgNode.inbound_rule_count || 0) + (sgNode.outbound_rule_count || 0)) ||
+        (typeof sgNode.gap_count === 'number' && sgNode.gap_count) ||
+        0;
       securityGroups.push({
         id: sgId,
         type: 'security_group',
         name: sgNode.name || sgId,
         shortName: shortName(sgNode.name || sgId, 14),
         usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
+        totalCount: seedTotalCount,
+        gapCount: typeof sgNode.gap_count === 'number' ? sgNode.gap_count : 0,
         connectedSources,
         connectedTargets: [],
-        rules: [], // Will be populated with real data from API
+        rules: [], // Replaced by real data from /security-groups/{id}/inspector
         vpcId: sgNode.vpc_id,
       });
     });
