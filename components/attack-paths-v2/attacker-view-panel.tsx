@@ -24,6 +24,7 @@ import type {
   SubnetNode,
   SecurityCheckpoint,
   TrafficFlow,
+  EgressGatewayNode,
 } from "@/components/dependency-map/traffic-flow-map"
 import type {
   IdentityAttackPath,
@@ -302,7 +303,18 @@ function shortName(name: string, maxLen = 22): string {
 //   subnet    → SUBNETS lane (rendered as decoration column)
 function bucketForGraphType(
   type: string,
-): "compute" | "resource" | "sg" | "nacl" | "iam_role" | "subnet" | "principal" | "ignore" {
+):
+  | "compute"
+  | "resource"
+  | "sg"
+  | "nacl"
+  | "iam_role"
+  | "iam_policy"
+  | "subnet"
+  | "principal"
+  | "egress_gateway"
+  | "network_interface"
+  | "ignore" {
   const t = (type || "").toLowerCase()
   if (t.includes("ec2") || t.includes("lambda") || t.includes("ecs") || t.includes("fargate"))
     return "compute"
@@ -317,18 +329,34 @@ function bucketForGraphType(
     return "resource"
   if (t === "securitygroup") return "sg"
   if (t === "networkacl" || t === "nacl") return "nacl"
-  // IAMRole, InstanceProfile go to the IAM lane.
-  // IAMPolicy is a different shape (a permission grant document, not an
-  // identity) — we explicitly OMIT it from the iam_role lane to keep
-  // the lane focused on the identities themselves. Policy details
-  // surface on the role card (existing iam-permission-analysis modal)
-  // when the operator clicks through. Re-introduce as a dedicated
-  // POLICIES lane in a later slice if needed.
+  // IAMRole + InstanceProfile share the iam_role lane.
+  // IAMPolicy gets its own bucket so it can render with a distinct
+  // visual treatment in the IAM lane (or future POLICIES lane). The
+  // 2026-05-22 audit explicitly called out that the IAMPolicy is THE
+  // finding — dropping it from the render was hiding the most
+  // important node on the path. Even sharing a lane with roles is
+  // better than invisible.
   if (t === "iamrole" || t === "instanceprofile" || t === "role") return "iam_role"
-  if (t === "iampolicy") return "ignore"
+  if (t === "iampolicy") return "iam_policy"
   if (t === "subnet") return "subnet"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
     return "principal"
+  // Egress gateways — IGW, NAT, EgressOnlyIGW, TransitGateway. TFM
+  // already has an egressGateways lane (chip item 10); populating
+  // it from the attacker view's lateral neighbors surfaces the
+  // missing egress story the audit flagged ("data leaves the cloud").
+  if (
+    t === "internetgateway" ||
+    t === "natgateway" ||
+    t === "egressonlyinternetgateway" ||
+    t === "transitgateway"
+  )
+    return "egress_gateway"
+  // NetworkInterface — the ENI carries the SG attachment and IP. Right
+  // now we route it to the compute lane (it acts as a workload-side
+  // attachment). Visual distinction TBD; getting it on the canvas
+  // matters more than which lane today.
+  if (t === "networkinterface" || t === "eni") return "network_interface"
   return "ignore"
 }
 
@@ -342,6 +370,7 @@ function buildAttackerArchitecture(
   const securityGroups: SecurityCheckpoint[] = []
   const nacls: SecurityCheckpoint[] = []
   const iamRoles: SecurityCheckpoint[] = []
+  const egressGateways: EgressGatewayNode[] = []
   const flows: TrafficFlow[] = []
 
   // Crown jewel ids from the path so we can tag resource cards.
@@ -468,6 +497,71 @@ function buildAttackerArchitecture(
       connectedTargets: [],
     })
   }
+  // IAMPolicy → render alongside roles in the IAM Roles lane. The
+  // operator needs to see the actual permission grant document
+  // because it IS the finding (S3OverPermissiveAccess on alon-prod).
+  // We mark the card with a `_policyMarker` flag so downstream
+  // rendering can differentiate when we add a dedicated POLICIES lane.
+  const addAsPolicy = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "iam_policy")
+    if (seenByCanonical.has(canon)) return
+    seen.add(id)
+    seenByCanonical.add(canon)
+    const display = friendlyName(name, id)
+    iamRoles.push({
+      id,
+      type: "iam_role", // sharing the IAM lane for now; visually mixed
+      name: `📜 ${display}`, // prefix marker — disambiguates from role cards until separate lane lands
+      shortName: shortName(`📜 ${display}`),
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })
+  }
+
+  // Egress gateway (IGW / NAT / EgressOnlyIGW / TransitGateway) →
+  // egressGateways lane. The TFM already renders this lane (chip
+  // item 10 from the topology work); we just need to populate it.
+  const addAsEgressGateway = (id: string, name: string | null, gatewayType: string, vpcId: string | null) => {
+    if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "egress_gateway")
+    if (seenByCanonical.has(canon)) return
+    seen.add(id)
+    seenByCanonical.add(canon)
+    const display = friendlyName(name, id)
+    egressGateways.push({
+      id,
+      name: display,
+      shortName: shortName(display),
+      gatewayType: gatewayType as any, // TFM type is constrained; we trust the upstream classification
+      vpcId,
+    })
+  }
+
+  // NetworkInterface (ENI) → compute lane for now, marked with an
+  // "ENI" prefix so operators see it's not an EC2/Lambda. The ENI
+  // carries the SG attachment, so visually grouping with compute
+  // makes the SG-ENI-EC2 relationship readable. Move to a dedicated
+  // lane in a later slice if needed.
+  const addAsNetworkInterface = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "network_interface")
+    if (seenByCanonical.has(canon)) return
+    seen.add(id)
+    seenByCanonical.add(canon)
+    const display = friendlyName(name, id)
+    computeServices.push({
+      id,
+      name: `ENI ${display}`,
+      shortName: shortName(`ENI ${display}`),
+      type: "compute", // generic compute icon; the ENI prefix in the name disambiguates
+      instanceId: id,
+    })
+  }
+
   const addAsSubnet = (id: string, name: string | null, vpcId: string | null, isPublic: boolean | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "subnet")
@@ -491,9 +585,15 @@ function buildAttackerArchitecture(
     if (bucket === "compute") addAsCompute(node.id, node.type, node.name)
     else if (bucket === "resource") addAsResource(node.id, node.type, node.name)
     else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name)
+    else if (bucket === "iam_policy") addAsPolicy(node.id, node.name)
     else if (bucket === "sg") addAsSG(node.id, node.name)
     else if (bucket === "nacl") addAsNACL(node.id, node.name)
-    else if (bucket === "subnet") {
+    else if (bucket === "egress_gateway") {
+      const vpcId = (node.key_properties as any)?.vpc_id ?? null
+      addAsEgressGateway(node.id, node.name, node.type, vpcId)
+    } else if (bucket === "network_interface") {
+      addAsNetworkInterface(node.id, node.name)
+    } else if (bucket === "subnet") {
       const vpcId = (node.key_properties as any)?.vpc_id ?? null
       const isPub = (node.key_properties as any)?.subnet_is_public ?? null
       addAsSubnet(node.id, node.name, vpcId, isPub)
@@ -540,8 +640,11 @@ function buildAttackerArchitecture(
       if (neighborBucket === "compute") addAsCompute(neighborId, e.neighbor_type, e.neighbor_name)
       else if (neighborBucket === "resource") addAsResource(neighborId, e.neighbor_type, e.neighbor_name)
       else if (neighborBucket === "iam_role") addAsRole(neighborId, e.neighbor_type, e.neighbor_name)
+      else if (neighborBucket === "iam_policy") addAsPolicy(neighborId, e.neighbor_name)
       else if (neighborBucket === "sg") addAsSG(neighborId, e.neighbor_name)
       else if (neighborBucket === "nacl") addAsNACL(neighborId, e.neighbor_name)
+      else if (neighborBucket === "egress_gateway") addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
+      else if (neighborBucket === "network_interface") addAsNetworkInterface(neighborId, e.neighbor_name)
       else if (neighborBucket === "subnet") {
         addAsSubnet(neighborId, e.neighbor_name, null, null)
       }
@@ -614,7 +717,7 @@ function buildAttackerArchitecture(
     nacls,
     iamRoles,
     vpcEndpoints: [],
-    egressGateways: [],
+    egressGateways,
     flows,
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
