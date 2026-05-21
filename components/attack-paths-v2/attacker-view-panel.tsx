@@ -552,12 +552,33 @@ function buildAttackerArchitecture(
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
+    // Map graph node-type → EgressGatewayNode.kind. The TFM expects
+    // one of: InternetGateway | NATGateway | EgressOnlyInternetGateway
+    // | TransitGateway. Default to InternetGateway when the graph
+    // gives us an unexpected string (safer fallback — most laterals
+    // we'd surface here are IGWs anyway).
+    const t = (gatewayType || "").toLowerCase()
+    const kind: EgressGatewayNode["kind"] =
+      t === "natgateway"
+        ? "NATGateway"
+        : t === "egressonlyinternetgateway"
+          ? "EgressOnlyInternetGateway"
+          : t === "transitgateway"
+            ? "TransitGateway"
+            : "InternetGateway"
+    const kindLabel: Record<EgressGatewayNode["kind"], string> = {
+      InternetGateway: "IGW",
+      NATGateway: "NAT GW",
+      EgressOnlyInternetGateway: "Egress-only IGW",
+      TransitGateway: "Transit GW",
+    }
     egressGateways.push({
       id,
       name: display,
       shortName: shortName(display),
-      gatewayType: gatewayType as any, // TFM type is constrained; we trust the upstream classification
       vpcId,
+      kind,
+      kindLabel: kindLabel[kind],
     })
   }
 
