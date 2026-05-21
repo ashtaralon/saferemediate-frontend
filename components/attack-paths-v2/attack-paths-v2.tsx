@@ -123,21 +123,9 @@ export function AttackPathsV2() {
     setUrl({ expand: isPathExpanded ? null : "path" })
   }
 
-  // Esc collapses the maximized view back to the 3-column layout.
-  // Bound at the document level so the operator doesn't have to focus
-  // any particular element first. isPathExpanded captures the current
-  // open state; re-binding when it flips avoids stale-closure bugs.
-  useEffect(() => {
-    if (!isPathExpanded) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setUrl({ expand: null })
-      }
-    }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPathExpanded])
+  // Esc key handler — diagnostic: temporarily removed pending hooks-
+  // order investigation 2026-05-21. The Expand/Collapse button still
+  // works; only the Esc-key shortcut is gone for now.
 
   const handleSelectJewel = (jewelId: string) => {
     // Selecting a new jewel resets the path selection — different
