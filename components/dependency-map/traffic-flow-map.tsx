@@ -3172,45 +3172,70 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
   const flowKey = (s: string, t: string) => `${s}->${t}`;
   const flowMap = new Map<string, TrafficFlow>();
 
-  // Aggregate path-edge bytes per resource — any edge ending at the
-  // resource (or starting at the role and ending at the resource) counts.
-  const bytesByResource = new Map<string, { bytes: number; hits: number; observed: boolean; ports: Set<string>; protocols: Set<string> }>();
+  // Aggregate path-edge bytes per (source, target) pair.
+  //
+  // 2026-05-21 credibility audit fix: previously we aggregated all
+  // bytes by target_id only, then attributed them to the synthesized
+  // compute→resource flow regardless of which node actually carried
+  // the bytes on the original edge. That's how the EC2 card ended up
+  // showing 771.3 KB on a path where the EC2 has zero direct traffic
+  // edges — those bytes actually lived on a downstream IAMRole→S3
+  // ACCESSES_RESOURCE edge.
+  //
+  // Now we key per-pair so each synthesized flow only inherits bytes
+  // from a path edge with matching (source, target). The compute→
+  // resource flow gets 0 bytes when there's no direct compute→resource
+  // edge; the role→resource flow inherits the role's actual observed
+  // bytes. Operator sees the truth: bytes painted on the lane where
+  // they actually were observed.
+  type ByteAgg = { bytes: number; hits: number; observed: boolean; ports: Set<string>; protocols: Set<string> };
+  const bytesBySrcTgt = new Map<string, ByteAgg>();
+  // Keep the per-resource aggregate for the resource lane (which is
+  // honest — total inbound bytes to a resource = sum of all edges
+  // landing on it, regardless of source).
+  const bytesByResource = new Map<string, ByteAgg>();
   (filter.pathEdges ?? []).forEach((e) => {
     if (!resourceIds.includes(e.target)) return;
-    const cur = bytesByResource.get(e.target) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
-    cur.bytes += e.bytes ?? 0;
-    cur.hits += e.hits ?? 0;
-    if (e.is_observed) cur.observed = true;
-    if (e.port) cur.ports.add(String(e.port));
-    if (e.protocol) cur.protocols.add(e.protocol);
-    bytesByResource.set(e.target, cur);
+    const pairKey = `${e.source}->${e.target}`;
+    const pair = bytesBySrcTgt.get(pairKey) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+    pair.bytes += e.bytes ?? 0;
+    pair.hits += e.hits ?? 0;
+    if (e.is_observed) pair.observed = true;
+    if (e.port) pair.ports.add(String(e.port));
+    if (e.protocol) pair.protocols.add(e.protocol);
+    bytesBySrcTgt.set(pairKey, pair);
+
+    const resAgg = bytesByResource.get(e.target) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+    resAgg.bytes += e.bytes ?? 0;
+    resAgg.hits += e.hits ?? 0;
+    if (e.is_observed) resAgg.observed = true;
+    if (e.port) resAgg.ports.add(String(e.port));
+    if (e.protocol) resAgg.protocols.add(e.protocol);
+    bytesByResource.set(e.target, resAgg);
   });
 
-  // IAM-only paths (no compute on the path — e.g. AWS service roles
-  // assumed by AWS itself like AWSServiceRoleForResourceExplorer) need
-  // their own flow synthesis here. The compute→resource loop below
-  // produces nothing because computeIds is empty. Without this block,
-  // ConnectionLinesSVG sees zero flows and draws no lines between IAM,
-  // API, and RESOURCE columns — operator sees disconnected boxes.
-  //
-  // Mirrors the same fallback in buildArchitecture but operates on the
-  // path-filtered iamRoles/resources arrays so the flow's source/target
-  // are guaranteed to pass the inPath gate in the merge step below.
-  if (computeIds.length === 0 && iamRoles.length > 0 && resourceIds.length > 0) {
+  // IAM role→resource flow synthesis. Now ALWAYS runs (was previously
+  // gated to "computeIds.length === 0" only). Role→resource bytes are
+  // the truth signal on EC2-rooted paths too — when the EC2 has no
+  // direct traffic but the role does, the bytes belong on the role
+  // edge, not the compute edge.
+  if (iamRoles.length > 0 && resourceIds.length > 0) {
     iamRoles.forEach((role) => {
       resourceIds.forEach((rid) => {
-        const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+        // Look for a direct role→resource edge in the path data
+        const direct = bytesBySrcTgt.get(`${role.id}->${rid}`);
+        if (!direct || (direct.bytes === 0 && !direct.observed)) return;
         flowMap.set(flowKey(role.id, rid), {
           sourceId: role.id,
           targetId: rid,
           sgId: undefined,
           naclId: undefined,
           roleId: role.id,
-          ports: [...agg.ports],
-          protocol: [...agg.protocols][0] || 'IAM',
-          bytes: agg.bytes,
-          connections: agg.hits > 0 ? agg.hits : (agg.bytes > 0 ? 1 : 0),
-          isActive: agg.observed && agg.bytes > 0,
+          ports: [...direct.ports],
+          protocol: [...direct.protocols][0] || 'IAM',
+          bytes: direct.bytes,
+          connections: direct.hits > 0 ? direct.hits : (direct.bytes > 0 ? 1 : 0),
+          isActive: direct.observed && direct.bytes > 0,
         });
       });
     });
@@ -3218,7 +3243,11 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   computeIds.forEach((cid) => {
     resourceIds.forEach((rid) => {
-      const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+      // STRICT: only include bytes if there's a DIRECT compute→resource
+      // edge in the path. No more "inherit aggregate bytes from any
+      // edge touching this resource."
+      const direct = bytesBySrcTgt.get(`${cid}->${rid}`);
+      const agg = direct ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
       const bytes = agg.bytes;
       // Use 1 connection minimum when there's traffic so the animated
       // line renders. The path data sets hit_count to 0 even when bytes

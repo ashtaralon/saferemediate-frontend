@@ -112,6 +112,56 @@ export function PathAnalysisPanel({
     return p?.name === "root"
   }, [path])
 
+  // Per-hop evidence map — Slice 5b credibility fix (2026-05-21 audit).
+  //
+  // The old single "OBSERVED" / "CONFIGURED" badge merged every hop's
+  // evidence into one claim. Real attack chains have mixed evidence:
+  // typically ONE observed edge (CloudTrail role→S3) and the rest
+  // configured (USES_ROLE, SECURED_BY, IN_SUBNET). Painting the whole
+  // path "OBSERVED" was misleading.
+  //
+  // This builds a map keyed by "src|dst" returning the observation flag
+  // from path.edges. The chain renderer below uses it to color each
+  // chevron (and the summary header to count observed vs configured
+  // hops honestly). If multiple edges connect the same pair (USES_ROLE
+  // + ASSUMES_ROLE), the hop is marked observed if ANY edge is observed.
+  const edgeEvidence = useMemo(() => {
+    const map = new Map<string, "observed" | "configured">()
+    for (const e of path.edges ?? []) {
+      // Bidirectional: chain layout may go src→dst or dst→src.
+      const fwd = `${e.source}|${e.target}`
+      const rev = `${e.target}|${e.source}`
+      const cur = map.get(fwd) ?? map.get(rev)
+      const next: "observed" | "configured" = e.is_observed ? "observed" : "configured"
+      // Observed wins — never downgrade an observed hop because of a
+      // sibling configured edge between the same nodes.
+      const merged: "observed" | "configured" =
+        cur === "observed" || next === "observed" ? "observed" : "configured"
+      map.set(fwd, merged)
+      map.set(rev, merged)
+    }
+    return map
+  }, [path])
+
+  // Aggregate counts for the header summary chip.
+  const evidenceSummary = useMemo(() => {
+    const nodes = path.nodes ?? []
+    let observed = 0
+    let configured = 0
+    let unknown = 0
+    for (let i = 1; i < nodes.length; i++) {
+      const prev = nodes[i - 1]
+      const here = nodes[i]
+      const key = `${prev.id}|${here.id}`
+      const revKey = `${here.id}|${prev.id}`
+      const evidence = edgeEvidence.get(key) ?? edgeEvidence.get(revKey)
+      if (evidence === "observed") observed++
+      else if (evidence === "configured") configured++
+      else unknown++
+    }
+    return { observed, configured, unknown, total: nodes.length - 1 }
+  }, [path, edgeEvidence])
+
   // Concise narrative line. Prefer the LLM-generated damage_narrative
   // when present; fall back to a deterministic "service A → service B"
   // string so the panel always reads. Per feedback_no_mock_numbers_in_ui
@@ -175,16 +225,38 @@ export function PathAnalysisPanel({
               <span className="text-[11px] text-slate-400">
                 {path.hop_count ?? path.nodes.length - 1} hops
               </span>
-              {path.evidence_type === "observed" && (
-                <span className="text-[10px] text-emerald-400 uppercase tracking-wider">
-                  observed
-                </span>
-              )}
-              {path.evidence_type === "configured" && (
-                <span className="text-[10px] text-slate-500 uppercase tracking-wider">
-                  configured
-                </span>
-              )}
+              {/* Per-hop evidence summary — replaces the legacy single
+                  "OBSERVED" / "CONFIGURED" badge per the 2026-05-21
+                  credibility audit. Renders the count of observed vs
+                  configured hops in the chain. Tooltip explains the
+                  evidence classes so operators understand what each
+                  color means. Color coding matches the chain chevrons
+                  below: green=observed, amber=configured. */}
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider rounded border border-slate-700 bg-slate-900/60 px-1.5 py-0.5"
+                title="Per-hop evidence: green = CloudTrail/flow-log observed; amber = configured-only (USES_ROLE / SECURED_BY / IN_SUBNET); gray = unknown."
+              >
+                <span className="text-slate-400">Evidence:</span>
+                {evidenceSummary.observed > 0 && (
+                  <span className="text-emerald-400">
+                    {evidenceSummary.observed} observed
+                  </span>
+                )}
+                {evidenceSummary.observed > 0 && evidenceSummary.configured > 0 && (
+                  <span className="text-slate-600">·</span>
+                )}
+                {evidenceSummary.configured > 0 && (
+                  <span className="text-amber-300">
+                    {evidenceSummary.configured} configured
+                  </span>
+                )}
+                {evidenceSummary.unknown > 0 && (
+                  <>
+                    <span className="text-slate-600">·</span>
+                    <span className="text-slate-500">{evidenceSummary.unknown} unknown</span>
+                  </>
+                )}
+              </span>
               {path.path_kind_tag && (
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider">
                   {path.path_kind_tag}
@@ -212,10 +284,16 @@ export function PathAnalysisPanel({
           {summaryLine}
         </div>
 
-        {/* Chain summary — start → target with ▶ separators. Root-named
-            CloudTrailPrincipals render with a red tone + AlertOctagon so
-            operators see the auth context in the chain itself, not just
-            in the badge above. */}
+        {/* Chain summary — start → target with ChevronRight separators.
+            Each chevron is colored by the EDGE'S evidence class
+            (observed/configured/unknown). Replaces the legacy uniform
+            chevron tone, which implied every hop in the chain had the
+            same evidence backing. The 2026-05-21 credibility audit
+            found that nearly every path has mixed evidence — typically
+            ONE observed edge (role→S3 CloudTrail) and the rest
+            configured. Showing the truth per-hop lets operators see
+            exactly which hops we have direct observation for. Tooltip
+            on each chevron names the edge type + observed flag. */}
         <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 font-mono overflow-x-auto">
           {(path.nodes ?? []).map((n, i) => {
             const isRootHere = n.type === "CloudTrailPrincipal" && n.name === "root"
@@ -226,10 +304,33 @@ export function PathAnalysisPanel({
                 : n.tier === "entry"
                   ? "text-rose-200"
                   : "text-slate-300"
+            // For the chevron BEFORE this node (i>0), look up the edge
+            // evidence between nodes[i-1] and nodes[i].
+            let chevTone = "text-slate-600"
+            let chevTitle: string | undefined
+            if (i > 0) {
+              const prev = (path.nodes ?? [])[i - 1]
+              const ev = edgeEvidence.get(`${prev.id}|${n.id}`) ?? edgeEvidence.get(`${n.id}|${prev.id}`)
+              if (ev === "observed") {
+                chevTone = "text-emerald-400"
+                chevTitle = `Observed: ${prev.name} → ${n.name} (CloudTrail / flow log evidence)`
+              } else if (ev === "configured") {
+                chevTone = "text-amber-500/70"
+                chevTitle = `Configured: ${prev.name} → ${n.name} (IAM attachment / SG attachment / subnet membership — no direct traffic evidence)`
+              } else {
+                chevTone = "text-slate-600"
+                chevTitle = `Unknown evidence: ${prev.name} → ${n.name}`
+              }
+            }
             return (
               <span key={`${n.id}-${i}`} className="flex items-center gap-1 shrink-0">
-                {i > 0 && <ChevronRight className="h-3 w-3 text-slate-600" />}
-                <span className={toneClass}>
+                {i > 0 && (
+                  <ChevronRight
+                    className={`h-3 w-3 ${chevTone}`}
+                    aria-label={chevTitle}
+                  />
+                )}
+                <span className={toneClass} title={chevTitle}>
                   {isRootHere && <AlertOctagon className="h-3 w-3" />}
                   {n.name}
                 </span>
@@ -237,6 +338,21 @@ export function PathAnalysisPanel({
             )
           })}
         </div>
+        {/* Evidence legend — operator can hover the badge above for a
+            tooltip, but a small inline legend makes the per-hop coloring
+            self-explanatory on first read. Hidden when the chain only
+            has one evidence class (no point in legend-ing for a single
+            color). */}
+        {evidenceSummary.observed > 0 && evidenceSummary.configured > 0 && (
+          <div className="mt-1.5 flex items-center gap-3 text-[9px] uppercase tracking-wider text-slate-500">
+            <span className="inline-flex items-center gap-1">
+              <ChevronRight className="h-2.5 w-2.5 text-emerald-400" /> observed hop
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <ChevronRight className="h-2.5 w-2.5 text-amber-500/70" /> configured-only hop
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ─── Embedded path-filtered map ────────────────────────── */}
