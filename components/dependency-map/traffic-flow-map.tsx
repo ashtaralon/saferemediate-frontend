@@ -3683,20 +3683,59 @@ export default function TrafficFlowMap({
       const srcId = edge.source || edge.from;
       const tgtId = edge.target || edge.to;
 
-      // NACL is associated with subnet or directly with compute
-      if (edgeType === 'HAS_NACL' || edgeType === 'USES_NACL' || edgeType === 'PROTECTED_BY_NACL') {
-        subnetToNACL.set(srcId, tgtId);
+      // NACL is associated with a subnet (canonical AWS pattern) or
+      // attached directly to a compute (legacy fallback).
+      //
+      // 2026-05-22 credibility audit fix: the canonical AWS edge type
+      // is ASSOCIATED_WITH going (NACL)->(Subnet), matching AWS's
+      // describe-network-acls Associations[].SubnetId field. The
+      // legacy matcher only accepted (Subnet)->(NACL) edges named
+      // HAS_NACL / USES_NACL / PROTECTED_BY_NACL — none of which the
+      // collector actually writes for the alon-prod graph. Result:
+      // every path subnet showed "No NACLs" while a real NACL was
+      // associated. Verified against Neo4j for subnet-0ac239d3cb...
+      // where acl-07e8be9e7f719df3e exists as a (:NACL)-[ASSOCIATED_WITH]->(:Subnet)
+      // edge.
+      //
+      // Now accept ASSOCIATED_WITH and handle either direction —
+      // when the edge starts on the NACL and ends on the subnet,
+      // the canonical "subnet -> nacl" mapping needs the reverse
+      // direction lookup.
+      const sourceType = (nodeMap.get(srcId)?.type || '').toLowerCase();
+      const targetType = (nodeMap.get(tgtId)?.type || '').toLowerCase();
+      const sourceIsNACL = sourceType.includes('nacl') || sourceType.includes('networkacl');
+      const targetIsNACL = targetType.includes('nacl') || targetType.includes('networkacl');
+      const sourceIsSubnet = sourceType === 'subnet';
+      const targetIsSubnet = targetType === 'subnet';
+      const isNACLEdge =
+        edgeType === 'HAS_NACL' ||
+        edgeType === 'USES_NACL' ||
+        edgeType === 'PROTECTED_BY_NACL' ||
+        (edgeType === 'ASSOCIATED_WITH' && (sourceIsNACL || targetIsNACL));
+      if (isNACLEdge) {
+        // Normalize so subnetId is always srcId and naclId is always tgtId
+        // for the rest of the existing wiring.
+        let subnetId = srcId;
+        let naclId = tgtId;
+        if (sourceIsNACL && targetIsSubnet) {
+          subnetId = tgtId;
+          naclId = srcId;
+        }
+        subnetToNACL.set(subnetId, naclId);
         // Also directly map compute to NACL for EC2 -> NACL edges
-        const canonicalSrc = extractInstanceId(srcId);
-        computeToNACL.set(canonicalSrc, tgtId);
-        const naclNode = nodeMap.get(tgtId);
+        const canonicalSrc = extractInstanceId(subnetId);
+        computeToNACL.set(canonicalSrc, naclId);
+        const naclNode = nodeMap.get(naclId);
         if (naclNode) {
-          naclNodeMap.set(tgtId, naclNode);
+          naclNodeMap.set(naclId, naclNode);
         } else {
-          // Create placeholder for NACL
-          naclNodeMap.set(tgtId, {
-            id: tgtId,
-            name: tgtId.includes('acl-') ? tgtId : `NACL-${tgtId.slice(-8)}`,
+          // Create placeholder for NACL — only used when the dep-map
+          // gave an edge but no node. Properties stay null (not
+          // fabricated) so the UI honestly shows "not collected" for
+          // the missing fields.
+          naclNodeMap.set(naclId, {
+            id: naclId,
+            name: naclId.includes('acl-') ? naclId : `NACL-${naclId.slice(-8)}`,
             type: 'NetworkAcl',
             vpc_id: null,
           });
