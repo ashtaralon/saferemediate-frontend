@@ -3061,13 +3061,45 @@ export interface TrafficFlowMapPathFilter {
 function bucketForType(rawType: string): 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'principal' | 'network' | 'unknown' {
   const t = (rawType || '').toLowerCase();
   if (t.includes('ec2') || t === 'ec2instance' || t.includes('lambda') || t.includes('fargate') || t.includes('ecs')) return 'compute';
-  if (t.includes('s3') || t.includes('bucket') || t.includes('dynamo') || t.includes('rds') || t.includes('aurora') || t.includes('database')) return 'resource';
+  // 2026-05-23: extended resource bucketing for the AttackChain hop
+  // graph. KMSKey, SecretsManagerSecret, and SSMParameter are first-
+  // class targets in the v0.3 attack-chain materialization — chains
+  // walk through KMS for crypto envelopes and Secrets/SSM for
+  // credential sources. Previously they bucketed as 'unknown' and
+  // were dropped from the flow map, hiding entire hops.
+  if (
+    t.includes('s3') ||
+    t.includes('bucket') ||
+    t.includes('dynamo') ||
+    t.includes('rds') ||
+    t.includes('aurora') ||
+    t.includes('database') ||
+    t.includes('kmskey') ||
+    t === 'kms' ||
+    t.includes('secret') ||
+    t.includes('ssmparameter') ||
+    t.includes('parameterstore')
+  ) return 'resource';
   if (t.includes('securitygroup')) return 'security_group';
   if (t.includes('nacl') || t.includes('networkacl')) return 'nacl';
   // InstanceProfile is the AWS attachment container that binds an EC2 to an
   // IAMRole — bucketed alongside iam_role so the sidebar shows the real
   // 3-node chain (EC2 → InstanceProfile → IAMRole) instead of collapsing it.
-  if (t.includes('iamrole') || t === 'role' || t.includes('instanceprofile') || t === 'instance_profile') return 'iam_role';
+  //
+  // 2026-05-23: IAMPolicy + IAMUser + IAMGroup added. IAMPolicy is the
+  // actual permission grant operators must remediate (e.g.
+  // S3OverPermissiveAccess) — without this it dropped silently from
+  // AttackChain hops and the "what to fix" anchor disappeared.
+  if (
+    t.includes('iamrole') ||
+    t === 'role' ||
+    t.includes('instanceprofile') ||
+    t === 'instance_profile' ||
+    t.includes('iampolicy') ||
+    t === 'policy' ||
+    t.includes('iamuser') ||
+    t.includes('iamgroup')
+  ) return 'iam_role';
   if (t.includes('principal')) return 'principal';
   if (t.includes('vpc') || t.includes('subnet') || t.includes('routetable') || t.includes('igw') || t.includes('gateway')) return 'network';
   return 'unknown';
