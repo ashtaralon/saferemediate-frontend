@@ -1119,13 +1119,22 @@ function buildAttackerArchitecture(
   }
   // Fallback — when the path doesn't surface IN_SUBNET edges (e.g.
   // CloudTrail-only paths whose serializer drops topology edges), give
-  // each subnet ALL the path's compute ids so VPCBoundaries has
-  // enough anchors to compute a bounding box. Without this the VPC
-  // toggle silently no-ops because every subnet group has nodeIds=[].
-  if (subnetToComputes.size === 0 && subnets.length > 0 && computeServices.length > 0) {
-    const allComputeIds = computeServices.map((c) => c.id)
+  // each subnet ALL the network-relevant ids on the path so
+  // VPCBoundaries has enough anchors to compute a bounding box that
+  // genuinely wraps the network region (not just the Compute column).
+  // Without this the VPC box rendered only around Compute, missing
+  // the SG / NACL / IAMRole cards that are also network-scoped.
+  if (subnetToComputes.size === 0 && subnets.length > 0) {
+    const networkScopedIds = [
+      ...computeServices.map((c) => c.id),
+      ...securityGroups.map((sg) => sg.id),
+      ...nacls.map((n) => n.id),
+      ...iamRoles.map((r) => r.id),
+      ...instanceProfiles.map((p) => p.id),
+      ...egressGateways.map((g) => g.id),
+    ]
     for (const s of subnets) {
-      subnetToComputes.set(s.id, allComputeIds)
+      subnetToComputes.set(s.id, networkScopedIds)
     }
   }
 
