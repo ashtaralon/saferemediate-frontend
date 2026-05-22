@@ -22,6 +22,7 @@ import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
+import { isPrincipalNodeType, PRINCIPAL_NODE_TYPES } from "@/components/identity-attack-paths/types"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
@@ -126,12 +127,15 @@ export function PathAnalysisPanel({
 
   // Root-principal detection — surfaces as a header badge AND a chip
   // overlay on the COMPUTE/IAM lane card. The auth identity is
-  // already on path.nodes[0] (CloudTrailPrincipal) but the scorer
-  // doesn't yet boost root paths (see open task — backend +20 floor).
-  // Operators scanning the score-sorted path list miss the worst signal
-  // without an explicit badge here.
+  // already on path.nodes[0] (a principal-like wrapper) but the
+  // scorer doesn't yet boost root paths (see open task — backend +20
+  // floor). Operators scanning the score-sorted path list miss the
+  // worst signal without an explicit badge here.
+  // Post 2026-05-22 canonical-type fix: root arrives as type
+  // "AWSPrincipal" (was "CloudTrailPrincipal"); widen via
+  // isPrincipalNodeType so the badge still lights up.
   const isRootPrincipal = useMemo(() => {
-    const p = (path.nodes ?? []).find((n) => n.type === "CloudTrailPrincipal")
+    const p = (path.nodes ?? []).find((n) => isPrincipalNodeType(n.type))
     return p?.name === "root"
   }, [path])
 
@@ -147,8 +151,15 @@ export function PathAnalysisPanel({
   // out of the breadcrumb means every remaining chevron is backed by
   // a real edge. Decorations get rendered as chips attached to the
   // immediately-preceding workload node.
-  const TRAVERSAL_TYPES = new Set([
-    "CloudTrailPrincipal",
+  // TRAVERSAL_TYPES = nodes that should appear in the chain breadcrumb
+  // (entry → … → crown_jewel). Includes the legacy "CloudTrailPrincipal"
+  // for back-compat plus every principal-like canonical type the IAP
+  // backend may now emit (AWSPrincipal/Principal/Root) after the
+  // 2026-05-22 type-canonicalization fix — without this, the entry
+  // node would silently drop out of the breadcrumb for root + STS
+  // sessions whose Neo4j labels resolve to AWSPrincipal.
+  const TRAVERSAL_TYPES = new Set<string>([
+    ...PRINCIPAL_NODE_TYPES,
     "HumanIdentity",
     "IAMUser",
     "ExternalIP",
@@ -390,7 +401,10 @@ export function PathAnalysisPanel({
             sequential edges connecting them). */}
         <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 font-mono overflow-x-auto">
           {traversalNodes.map((n, i) => {
-            const isRootHere = n.type === "CloudTrailPrincipal" && n.name === "root"
+            // Root marker — same widening as the header isRootPrincipal
+            // memo above so root keeps highlighting after the
+            // 2026-05-22 canonical-type fix.
+            const isRootHere = isPrincipalNodeType(n.type) && n.name === "root"
             const toneClass = isRootHere
               ? "text-red-300 font-semibold inline-flex items-center gap-1"
               : n.tier === "crown_jewel"

@@ -30,6 +30,7 @@ import {
   EyeOff,
 } from "lucide-react"
 import type { IdentityAttackPath, PathNodeDetail } from "@/components/identity-attack-paths/types"
+import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 
 // ─────────────────────────────────────────────────────────────────
 // Shared scaffold for the three panels — collapsible header,
@@ -300,7 +301,14 @@ export function IdentityPlanePanel({ path }: { path: IdentityAttackPath }) {
     const roles = (path.nodes ?? []).filter((n) => n.type === "IAMRole")
     const users = (path.nodes ?? []).filter((n) => n.type === "IAMUser" || n.type === "HumanIdentity")
     const profiles = (path.nodes ?? []).filter((n) => n.type === "InstanceProfile")
-    const principals = (path.nodes ?? []).filter((n) => n.type === "CloudTrailPrincipal")
+    // Principal-like = the entry-tier "who is authenticating" wrapper.
+    // After the 2026-05-22 IAP canonical-type fix, STS-derived sessions
+    // arrive as type "AWSPrincipal" (root + most SDK calls) or are
+    // absorbed into the role bucket above as "IAMRole" (assumed-role
+    // sessions). Widen the check so root + cross-account principals
+    // keep landing in this bucket. STS sessions that already typed as
+    // IAMRole intentionally land in `roles` above.
+    const principals = (path.nodes ?? []).filter((n) => isPrincipalNodeType(n.type))
     return { roles, users, profiles, principals }
   }, [path])
 

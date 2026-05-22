@@ -121,6 +121,28 @@ export type SeverityFactor =
   | "identity_chain"
   | "network_controls"
 
+// Principal-like node types that show up as the entry-tier "who is
+// authenticating" wrapper on an attack path. As of 2026-05-22 the IAP
+// backend serializes path-node `type` from Neo4j labels rather than
+// the collector-written `n.type` property — so an STS-derived session
+// that the harness sees as labels=[AWSPrincipal, Principal] now arrives
+// here as type="AWSPrincipal" (was "CloudTrailPrincipal" previously),
+// and an STS session whose labels include IAMRole arrives as
+// type="IAMRole". This set lets any code that needs to detect the
+// "entry principal" widen the check without duplicating the list.
+// "CloudTrailPrincipal" is retained for back-compat in case future
+// nodes lack a more-specific label.
+export const PRINCIPAL_NODE_TYPES = new Set<string>([
+  "CloudTrailPrincipal",
+  "AWSPrincipal",
+  "Principal",
+  "Root",
+])
+
+export function isPrincipalNodeType(type: string | undefined | null): boolean {
+  return !!type && PRINCIPAL_NODE_TYPES.has(type)
+}
+
 export const FACTOR_LABELS: Record<SeverityFactor, string> = {
   impact: "Impact Severity",
   internet_exposure: "Internet Exposure",

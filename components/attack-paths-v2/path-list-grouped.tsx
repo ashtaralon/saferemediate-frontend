@@ -18,6 +18,7 @@ import type {
   CrownJewelSummary,
   PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
+import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 
 interface PathListGroupedProps {
   paths: IdentityAttackPath[]
@@ -78,14 +79,18 @@ function classifySource(nodes: PathNodeDetail[] | undefined): keyof typeof SOURC
   // see it instantly. Two paths with "root" as the principal name on
   // alon-prod today; the design doc specifically calls this out as
   // the kind of finding the page should NOT bury.
-  if (first.type === "CloudTrailPrincipal" && first.name === "root") {
+  // Post 2026-05-22 canonical-type fix: root arrives as AWSPrincipal
+  // (was CloudTrailPrincipal); the type check is widened to any
+  // principal-like wrapper so the bucket keeps catching it.
+  if (isPrincipalNodeType(first.type) && first.name === "root") {
     return "root"
   }
 
   // External-account principal — an ARN that's not from this account
   // landed on a workload here. Sprint 4 territory (cross-account); we
-  // detect by ARN prefix mismatch.
-  if (first.type === "CloudTrailPrincipal" && /^arn:aws:[^:]+:[^:]*:(\d+):/.test(first.id || "")) {
+  // detect by ARN prefix mismatch. Widened for the same reason as
+  // root detection above.
+  if (isPrincipalNodeType(first.type) && /^arn:aws:[^:]+:[^:]*:(\d+):/.test(first.id || "")) {
     const acct = (first.id.match(/^arn:aws:[^:]+:[^:]*:(\d+):/) || [])[1]
     // Cyntro's primary account is 745783559495 today (per memory). If
     // we ever multi-tenant, this needs to come from the system config.
@@ -256,9 +261,13 @@ export function PathListGrouped({
                   {bucketPaths.map((p, idxInBucket) => {
                     const isSelected = p.id === selectedPathId
                     // Operator-meaningful "start" — first node that isn't a
-                    // CloudTrailPrincipal wrapper. Falls back to node 0.
+                    // principal-like wrapper (CTP/AWSPrincipal/etc). Falls
+                    // back to node 0. Post 2026-05-22 the entry node may
+                    // arrive as type AWSPrincipal or IAMRole (STS session
+                    // with role label) — widen via isPrincipalNodeType
+                    // so the first real workload is still picked.
                     const start =
-                      p.nodes?.find((n) => n.type !== "CloudTrailPrincipal") ??
+                      p.nodes?.find((n) => !isPrincipalNodeType(n.type)) ??
                       p.nodes?.[0]
                     const target = p.nodes?.[p.nodes.length - 1]
                     const sevLabel = p.severity?.severity?.toUpperCase() ?? "—"
