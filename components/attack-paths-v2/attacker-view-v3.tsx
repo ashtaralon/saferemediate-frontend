@@ -36,6 +36,9 @@ import {
   fetchChainsForCJ,
   triggerAttackChainsMaterialization,
 } from "@/lib/api-client"
+import TrafficFlowMap, {
+  type TrafficFlowMapPathFilter,
+} from "@/components/dependency-map/traffic-flow-map"
 import {
   Globe,
   Shield,
@@ -360,9 +363,14 @@ export interface AttackerViewV3Props {
   /** Optional pre-known crown-jewel display name to render while
    *  loading. The backend will overwrite with the canonical name. */
   jewelName?: string | null
+  /** AWS account/system the jewel belongs to. Required to render the
+   *  embedded flow map (TrafficFlowMap fetches topology by systemName).
+   *  When omitted, the flow map section is hidden — the 9-lane grid
+   *  still renders since it reads from chains-for-cj directly. */
+  systemName?: string
 }
 
-export function AttackerViewV3({ jewelId, jewelName }: AttackerViewV3Props) {
+export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV3Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [chains, setChains] = useState<AttackChain[]>([])
@@ -426,7 +434,7 @@ export function AttackerViewV3({ jewelId, jewelName }: AttackerViewV3Props) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0f172a] text-slate-100">
+    <div className="flex flex-col h-full overflow-y-auto bg-[#0f172a] text-slate-100">
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
         <div>
@@ -475,7 +483,7 @@ export function AttackerViewV3({ jewelId, jewelName }: AttackerViewV3Props) {
       />
 
       {/* The 9-lane grid */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="overflow-auto p-4">
         {!loading && projected.length === 0 ? (
           <EmptyState onMaterialize={onMaterialize} materializing={materializing} />
         ) : selected ? (
@@ -483,8 +491,117 @@ export function AttackerViewV3({ jewelId, jewelName }: AttackerViewV3Props) {
         ) : null}
       </div>
 
+      {/* Embedded flow map — same TrafficFlowMap as PER-PATH VIEW but
+          scoped to the selected chain's hop list. Operator can see the
+          actual SG / NACL / IAM ROLES / VPC ENDPOINTS that gate this
+          specific chain. Hidden when systemName isn't provided or no
+          chain is selected. Added 2026-05-23 in response to "where is
+          the flow map?" — Phase View v0.3 originally shipped without
+          this section, which made the 9-lane grid feel like a
+          standalone categorization with no actionable detail. */}
+      {selected && systemName ? (
+        <ChainFlowMapSection chain={selected.chain} systemName={systemName} />
+      ) : null}
+
       {/* Business sentence + closure */}
       {selected ? <BusinessSentencePanel projected={selected} /> : null}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Embedded flow map — bridges the AttackChain hop list to TrafficFlowMap
+// via pathFilter. Reuses the same renderer (and the 2026-05-23 widened
+// applyPathFilter) so operators see the actual gates protecting the
+// selected chain instead of just lane-categorized node chips.
+// ---------------------------------------------------------------------------
+
+function ChainFlowMapSection({
+  chain,
+  systemName,
+}: {
+  chain: AttackChain
+  systemName: string
+}) {
+  const pathFilter = useMemo<TrafficFlowMapPathFilter>(() => {
+    // Collect unique nodes from chain.hops (each hop has source + target).
+    type NodeRow = { id: string; name: string; type: string }
+    const nodeMap = new Map<string, NodeRow>()
+    for (const hop of chain.hops || []) {
+      if (hop.source_id && !nodeMap.has(hop.source_id)) {
+        nodeMap.set(hop.source_id, {
+          id: hop.source_id,
+          name: hop.source_name || hop.source_id,
+          type: hop.source_type,
+        })
+      }
+      if (hop.target_id && !nodeMap.has(hop.target_id)) {
+        nodeMap.set(hop.target_id, {
+          id: hop.target_id,
+          name: hop.target_name || hop.target_id,
+          type: hop.target_type,
+        })
+      }
+    }
+    const pathNodes = Array.from(nodeMap.values()).map((n) => ({
+      id: n.id,
+      name: n.name,
+      type: n.type,
+    }))
+    const nodeIds = pathNodes.map((n) => n.id)
+    const pathEdges = (chain.hops || []).map((h) => ({
+      source: h.source_id,
+      target: h.target_id,
+      type: h.edge_type,
+      label: h.edge_type,
+      bytes: 0,
+      hits: h.hit_count ?? 0,
+      is_observed: h.evidence === "observed",
+    }))
+    const crownJewelIds = [chain.cj_arn, chain.cj_name].filter(Boolean) as string[]
+    return {
+      nodeIds,
+      pathNodes,
+      pathEdges,
+      crownJewelIds,
+      jewelName: chain.cj_name || undefined,
+      pathLabel: `Chain → ${chain.cj_name ?? chain.cj_arn ?? chain.id}`,
+    }
+  }, [chain])
+
+  return (
+    <div className="border-t border-slate-700/60 bg-slate-950/60">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+            Flow Map · This Chain's Gates
+          </div>
+          <div className="text-xs text-slate-300 mt-0.5">
+            {chain.workload_name || "(unknown workload)"}{" "}
+            <span className="text-slate-500">→</span>{" "}
+            {chain.role_name || "(unknown role)"}{" "}
+            <span className="text-slate-500">→</span>{" "}
+            {chain.cj_name || chain.cj_arn || "(crown jewel)"}{" "}
+            <span className="text-slate-500">· {chain.hop_count} hops</span>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 pb-4">
+        <div
+          className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
+          style={{ height: "520px" }}
+        >
+          <TrafficFlowMap
+            systemName={systemName}
+            pathFilter={pathFilter}
+            titleOverride=""
+            innerTitleOverride="Flow Map"
+            innerSubtitleOverride="Gates on this attack chain"
+            pathBadgeOverride={pathFilter.pathLabel}
+            observedMode={true}
+          />
+        </div>
+      </div>
     </div>
   )
 }

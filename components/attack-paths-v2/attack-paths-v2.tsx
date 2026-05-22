@@ -345,6 +345,7 @@ export function AttackPathsV2() {
                 <AttackerViewV3
                   jewelId={selectedJewelId}
                   jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? selectedJewelId}
+                  systemName={systemName}
                 />
               )
             ) : !selectedPath ? (
