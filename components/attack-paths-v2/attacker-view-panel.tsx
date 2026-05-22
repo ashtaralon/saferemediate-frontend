@@ -357,18 +357,18 @@ function bucketForGraphType(
   if (t === "securitygroup") return "sg"
   if (t === "networkacl" || t === "nacl") return "nacl"
   // IAMRole / InstanceProfile / IAMPolicy are THREE different node
-  // types with different semantics. Order matters here: InstanceProfile
-  // is checked FIRST because Neo4j gives some nodes the multi-label
-  // [:IAMRole, :Resource, :InstanceProfile] (alon-prod convention where
-  // the InstanceProfile and Role share a name). The :node.type field
-  // surfaces ONE label per node — if "IAMRole" surfaces first, an
-  // earlier `t === "iamrole"` check would bucket the InstanceProfile
-  // as a role and undercount the "INSTANCE PROFILES" lane. By matching
-  // "instanceprofile" substring first we make the dispatch robust to
-  // the label-ordering quirk.
-  if (t === "instanceprofile" || t.includes("instanceprofile")) return "instance_profile"
-  if (t === "iampolicy") return "iam_policy"
+  // types with different semantics. Exact-match checks only — the
+  // earlier `t.includes("instanceprofile")` was too eager and silently
+  // stripped IAMRole nodes from the path on the legacy Attacker View
+  // (any node whose serialized type contained that substring fell out
+  // of every lane). Per 2026-05-22 hotfix: keep exact-match dispatch
+  // and accept the InstanceProfile-count edge case for multi-label
+  // nodes (InstanceProfile-bucket lookups can resolve to 0 when the
+  // backend surfaces "IAMRole" instead of "InstanceProfile" as
+  // node.type — preferable to dropping the entire role from the view).
   if (t === "iamrole" || t === "role") return "iam_role"
+  if (t === "instanceprofile") return "instance_profile"
+  if (t === "iampolicy") return "iam_policy"
   if (t === "subnet") return "subnet"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
     return "principal"
