@@ -107,6 +107,46 @@ export function AttackPathsV2() {
     return jewelPaths.find((p) => p.id === selectedPathId) ?? null
   }, [selectedPathId, jewelPaths])
 
+  // Auto-select the highest-observed-traffic path when a jewel is
+  // selected and no path id is in the URL.
+  //
+  // 2026-05-22 audit fix: previously the operator had to click into
+  // the center column to pick a path. With paths sorted by synthetic
+  // severity score, they often landed on a low-hit path (Chain C, 2
+  // hits) while the highest-traffic chain (Chain A, 11 hits) sat
+  // un-selected lower in the list. Auto-selecting the most-observed
+  // path means operators see the real attack first.
+  useEffect(() => {
+    if (!selectedJewelId) return
+    if (selectedPathId) return
+    if (jewelPaths.length === 0) return
+    // Rank by sum(hit_count) on observed edges. Ties broken by
+    // severity score then hop count.
+    const ranked = [...jewelPaths].sort((a, b) => {
+      const ha = (a.edges ?? []).reduce(
+        (s, e) => s + (e.is_observed ? e.hit_count ?? 0 : 0),
+        0,
+      )
+      const hb = (b.edges ?? []).reduce(
+        (s, e) => s + (e.is_observed ? e.hit_count ?? 0 : 0),
+        0,
+      )
+      if (hb !== ha) return hb - ha
+      const sa = a.severity?.overall_score ?? 0
+      const sb = b.severity?.overall_score ?? 0
+      if (sb !== sa) return sb - sa
+      return (a.hop_count ?? 0) - (b.hop_count ?? 0)
+    })
+    if (ranked[0]) {
+      // Use the URL setter so deep links + back-button restore work.
+      setUrl({ path: ranked[0].id })
+    }
+    // setUrl intentionally excluded from deps — it closes over the
+    // current URL params so its identity changes on every render; we
+    // only want to trigger when jewel selection or path-set changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedJewelId, selectedPathId, jewelPaths])
+
   // Selection helpers — write to URL so deep links work and the
   // browser back button restores state.
   const setUrl = (next: { jewel?: string | null; path?: string | null; expand?: string | null; mode?: string | null }) => {

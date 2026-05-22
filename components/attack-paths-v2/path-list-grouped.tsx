@@ -127,11 +127,33 @@ export function PathListGrouped({
   selectedPathId,
   onSelectPath,
 }: PathListGroupedProps) {
+  // Compute observed-hit total per path — the sum of hit_count across
+  // every observed edge on the path. This is the OPERATOR-MEANINGFUL
+  // ranking: a path with 11 CloudTrail-observed accesses is a bigger
+  // attack than a path with 2.
+  //
+  // 2026-05-22 audit fix: previously sorted by severity.overall_score,
+  // which is a synthesized 6-factor score that didn't correlate with
+  // observed traffic. Result: the 11-hit alon-demo-ec2-role path was
+  // listed BELOW the 2-hit cyntro-demo-ec2-s3-role path because of
+  // synthetic-score arithmetic. Operator clicked the top one and saw
+  // the LOWEST-traffic chain. Sorting by observed hits surfaces the
+  // real "biggest door" first.
+  const observedHits = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const p of paths) {
+      let total = 0
+      for (const e of p.edges ?? []) {
+        if (e.is_observed) total += e.hit_count ?? 0
+      }
+      map.set(p.id, total)
+    }
+    return map
+  }, [paths])
+
   // Group paths by source bucket. Each bucket holds its paths sorted
-  // descending by severity.score (when present) — within a bucket,
-  // worst-first. Across buckets, we order by bucket population (most
-  // paths first), so operators see the largest exposure surface up
-  // top.
+  // descending by OBSERVED HIT COUNT (real CloudTrail/flow-log evidence)
+  // then by severity, then by hop count.
   const grouped = useMemo(() => {
     const buckets = new Map<keyof typeof SOURCE_BUCKETS, IdentityAttackPath[]>()
     for (const p of paths) {
@@ -139,18 +161,27 @@ export function PathListGrouped({
       if (!buckets.has(bucket)) buckets.set(bucket, [])
       buckets.get(bucket)!.push(p)
     }
-    // Sort within bucket — severity.overall_score desc, then hop_count asc.
+    // Sort within bucket — observed hits desc, then severity desc, then hop asc
     for (const list of buckets.values()) {
       list.sort((a, b) => {
+        const ha = observedHits.get(a.id) ?? 0
+        const hb = observedHits.get(b.id) ?? 0
+        if (hb !== ha) return hb - ha
         const sa = a.severity?.overall_score ?? 0
         const sb = b.severity?.overall_score ?? 0
         if (sb !== sa) return sb - sa
         return (a.hop_count ?? 0) - (b.hop_count ?? 0)
       })
     }
-    // Order buckets by population.
-    return Array.from(buckets.entries()).sort((a, b) => b[1].length - a[1].length)
-  }, [paths])
+    // Order buckets by highest-hit-path in each (so the bucket containing
+    // the busiest path appears first, regardless of bucket population).
+    return Array.from(buckets.entries()).sort((a, b) => {
+      const maxA = Math.max(...a[1].map((p) => observedHits.get(p.id) ?? 0), 0)
+      const maxB = Math.max(...b[1].map((p) => observedHits.get(p.id) ?? 0), 0)
+      if (maxB !== maxA) return maxB - maxA
+      return b[1].length - a[1].length
+    })
+  }, [paths, observedHits])
 
   // All groups start expanded. Operator can collapse to focus.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -222,7 +253,7 @@ export function PathListGrouped({
               {/* Group contents */}
               {!isCollapsed && (
                 <div className="pl-2 pb-2">
-                  {bucketPaths.map((p) => {
+                  {bucketPaths.map((p, idxInBucket) => {
                     const isSelected = p.id === selectedPathId
                     // Operator-meaningful "start" — first node that isn't a
                     // CloudTrailPrincipal wrapper. Falls back to node 0.
@@ -232,6 +263,11 @@ export function PathListGrouped({
                     const target = p.nodes?.[p.nodes.length - 1]
                     const sevLabel = p.severity?.severity?.toUpperCase() ?? "—"
                     const sevScore = p.severity?.overall_score
+                    const hits = observedHits.get(p.id) ?? 0
+                    // Top-of-bucket marker — flag the path with the
+                    // most observed traffic so operators don't need to
+                    // squint at every hit-count chip.
+                    const isTopOfBucket = idxInBucket === 0 && hits > 0
                     return (
                       <button
                         key={p.id}
@@ -242,19 +278,40 @@ export function PathListGrouped({
                             : "bg-transparent border-transparent hover:bg-slate-900/40 hover:border-slate-800"
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityTone(p.severity?.severity)}`}>
                             {sevLabel}
                             {sevScore !== undefined && sevScore !== null && (
                               <span className="ml-1 opacity-80">{sevScore}</span>
                             )}
                           </span>
+                          {/* Observed-hit chip — surfaces the real
+                              CloudTrail/flow-log volume per path. The
+                              alon-demo-ec2-role path (11 hits) now shows
+                              the same as cyntro-demo-ec2-s3-role (2
+                              hits) at a glance. */}
+                          {hits > 0 && (
+                            <span
+                              className="inline-flex items-center text-[9px] font-bold rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 px-1.5 py-0.5"
+                              title={`${hits} CloudTrail/flow-log events observed across this path`}
+                            >
+                              {hits.toLocaleString()} hits
+                            </span>
+                          )}
+                          {isTopOfBucket && (
+                            <span
+                              className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border border-amber-500/50 bg-amber-500/15 text-amber-200 px-1.5 py-0.5"
+                              title="Highest observed traffic in this source bucket — most likely the real attack route"
+                            >
+                              top
+                            </span>
+                          )}
                           <span className="text-[10px] text-slate-500">
                             {p.hop_count} hop{p.hop_count === 1 ? "" : "s"}
                           </span>
-                          {p.evidence_type === "observed" && (
-                            <span className="text-[9px] text-emerald-400 uppercase tracking-wider">
-                              observed
+                          {p.evidence_type === "observed" && hits === 0 && (
+                            <span className="text-[9px] text-slate-500 uppercase tracking-wider">
+                              observed (no hit count)
                             </span>
                           )}
                         </div>
