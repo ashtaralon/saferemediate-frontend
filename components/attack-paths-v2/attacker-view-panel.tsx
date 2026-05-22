@@ -672,32 +672,50 @@ function buildAttackerArchitecture(
   //     - Other workloads sharing the path role via USES_ROLE
   //     - Other accessors of the crown jewel
   // Operators who want the full pivot fan-out switch to Exposure view.
-  const PATH_INFRA_BUCKETS: ReadonlySet<string> = new Set([
-    "nacl",
-    "egress_gateway",
-    "iam_policy",
-    "network_interface",
-  ])
+  // Path-infrastructure rule — RESTRICTED to attachments of the
+  // CORRECT path-node type. The 2026-05-22 over-include bug: we were
+  // adding every ENI lateral of every path node, including the SG's
+  // reverse-associations (5 ENIs from sibling workloads sharing the
+  // SG). Result: 6 ENI cards in Compute lane for what should be 1.
+  //
+  // Rule per neighbor type — only add when the SOURCE path node is
+  // the natural carrier:
+  //   ENI         → only when path node is a workload (EC2 / Lambda)
+  //   NACL        → only when path node is a Subnet
+  //   IGW/NAT     → only when path node is a Subnet or VPC
+  //   IAMPolicy   → only when path node is an IAMRole
+  //
+  // Skip every other ENI / NACL / IGW reference (those are siblings
+  // discovered via SG fan-out etc).
+  const pathNodeTypeByKey = new Map<string, string>()
+  for (const node of graph.nodes) {
+    pathNodeTypeByKey.set(node.id, bucketForGraphType(node.type))
+  }
+
+  // Dedupe flow synthesis — same edge can appear from both this
+  // loop's on_path branch AND the path.edges loop below. Without a
+  // key set we doubled the role→jewel flow's hit count (the
+  // 1,579,582 connections bug).
+  const flowKeys = new Set<string>()
+
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
+    const pathNodeBucket = pathNodeTypeByKey.get(pathNodeId)
     for (const e of edges) {
       const neighborId = e.neighbor_id
       if (!neighborId) continue
 
-      // Branch A — edge between two path nodes (on_path=true). These
-      // are the inter-hop observed-traffic edges that animate the
-      // chain (role→jewel ACCESSES_RESOURCE with real hits/bytes).
-      // The backend sets e.on_path when the neighbor is also a path
-      // node; we use it to detect "this edge is on the chain itself."
+      // Branch A — edge between two path nodes (on_path=true). The
+      // inter-hop observed-traffic edges that animate the chain.
       if (e.on_path) {
         const hits = e.hit_count ?? 0
         const bytes = e.bytes ?? 0
-        // Skip configured-only edges — no flow line unless there's
-        // at least one observed signal (the edge was seen in CloudTrail
-        // / VPC Flow Logs / explicit observed flag).
         if (hits === 0 && bytes === 0 && !e.observed) continue
         if (!seen.has(neighborId)) continue
         const sourceId = e.direction === "out" ? pathNodeId : neighborId
         const targetId = e.direction === "out" ? neighborId : pathNodeId
+        const key = `${sourceId}->${targetId}`
+        if (flowKeys.has(key)) continue
+        flowKeys.add(key)
         flows.push({
           sourceId,
           targetId,
@@ -713,21 +731,39 @@ function buildAttackerArchitecture(
         continue
       }
 
-      // Branch B — true lateral (neighbor is NOT on the path).
+      // Branch B — true lateral. Only add when this neighbor is the
+      // natural infrastructure attachment of the path node type.
       const neighborBucket = bucketForGraphType(e.neighbor_type)
-      // Path-infrastructure adds (NACL / IGW / ENI / Policy). These
-      // appear on the canvas because they're the controls attached
-      // to path nodes, not pivot options.
-      if (PATH_INFRA_BUCKETS.has(neighborBucket)) {
-        if (neighborBucket === "nacl") addAsNACL(neighborId, e.neighbor_name)
-        else if (neighborBucket === "egress_gateway") addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
-        else if (neighborBucket === "iam_policy") addAsPolicy(neighborId, e.neighbor_name)
-        else if (neighborBucket === "network_interface") addAsNetworkInterface(neighborId, e.neighbor_name)
-        // Context cards, no flow synth (these aren't traffic endpoints).
+      if (neighborBucket === "network_interface") {
+        if (pathNodeBucket === "compute") {
+          addAsNetworkInterface(neighborId, e.neighbor_name)
+        }
+        // ENI lateral on a non-workload path node (SG / Subnet / VPC)
+        // — those are sibling-workload ENIs, skip.
         continue
       }
-      // Otherwise: lateral pivot (other role / other bucket / sibling
-      // workload). Skip — lives in Exposure view, not Attacker view.
+      if (neighborBucket === "nacl") {
+        if (pathNodeBucket === "subnet") {
+          addAsNACL(neighborId, e.neighbor_name)
+        }
+        continue
+      }
+      if (neighborBucket === "egress_gateway") {
+        if (pathNodeBucket === "subnet" || pathNodeBucket === "ignore") {
+          // VPC nodes bucket as 'ignore' currently (no VPC lane in
+          // TFM). Subnet ROUTES_VIA → IGW is the canonical edge.
+          addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
+        }
+        continue
+      }
+      if (neighborBucket === "iam_policy") {
+        if (pathNodeBucket === "iam_role") {
+          addAsPolicy(neighborId, e.neighbor_name)
+        }
+        continue
+      }
+      // Otherwise: lateral pivot (sibling role / other bucket / etc).
+      // Skip — Exposure view handles the full fan-out.
     }
   }
 
@@ -750,6 +786,12 @@ function buildAttackerArchitecture(
     const t = (edge.type || "").toUpperCase()
     if (t === "USES_ROLE" || t === "SECURED_BY" || t === "IN_SUBNET" || t === "IN_VPC" || t === "HAS_INSTANCE_PROFILE")
       continue
+    // Dedupe — same flow may also be in the lateral loop's on_path
+    // branch. Without this guard the role→jewel observed flow showed
+    // up twice (1,579,582 connections bug from the 2026-05-22 audit).
+    const flowKey = `${edge.source}->${edge.target}`
+    if (flowKeys.has(flowKey)) continue
+    flowKeys.add(flowKey)
     flows.push({
       sourceId: edge.source,
       targetId: edge.target,
