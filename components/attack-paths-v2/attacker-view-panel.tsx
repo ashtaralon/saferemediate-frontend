@@ -357,15 +357,18 @@ function bucketForGraphType(
   if (t === "securitygroup") return "sg"
   if (t === "networkacl" || t === "nacl") return "nacl"
   // IAMRole / InstanceProfile / IAMPolicy are THREE different node
-  // types with different semantics. Per 2026-05-22 audit, collapsing
-  // all three into "IAM Roles" produced wrong counts and hid the
-  // identity-chain story (EC2 → InstanceProfile → IAMRole → IAMPolicy
-  // → bucket). Each now gets its own bucket; render layer decides
-  // whether to show them in separate lanes or grouped under an
-  // "Identity" supergroup with a breakdown tooltip.
-  if (t === "iamrole" || t === "role") return "iam_role"
-  if (t === "instanceprofile") return "instance_profile"
+  // types with different semantics. Order matters here: InstanceProfile
+  // is checked FIRST because Neo4j gives some nodes the multi-label
+  // [:IAMRole, :Resource, :InstanceProfile] (alon-prod convention where
+  // the InstanceProfile and Role share a name). The :node.type field
+  // surfaces ONE label per node — if "IAMRole" surfaces first, an
+  // earlier `t === "iamrole"` check would bucket the InstanceProfile
+  // as a role and undercount the "INSTANCE PROFILES" lane. By matching
+  // "instanceprofile" substring first we make the dispatch robust to
+  // the label-ordering quirk.
+  if (t === "instanceprofile" || t.includes("instanceprofile")) return "instance_profile"
   if (t === "iampolicy") return "iam_policy"
+  if (t === "iamrole" || t === "role") return "iam_role"
   if (t === "subnet") return "subnet"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
     return "principal"

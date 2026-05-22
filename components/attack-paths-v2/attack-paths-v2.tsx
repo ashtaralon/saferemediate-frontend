@@ -36,6 +36,7 @@ import { PathListGrouped } from "./path-list-grouped"
 import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewPanel } from "./attacker-view-panel"
+import { AttackerViewV3 } from "./attacker-view-v3"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -63,8 +64,19 @@ export function AttackPathsV2() {
   //   exposure — all-doors aggregate per jewel
   //   attacker — live Neo4j graph view with lateral moves per hop
   const modeParam = searchParams?.get("mode") ?? "path"
-  const viewMode: "path" | "exposure" | "attacker" =
-    modeParam === "exposure" ? "exposure" : modeParam === "attacker" ? "attacker" : "path"
+  // v0.3 phase view = the 9-lane attacker-phase Attacker View built
+  // 2026-05-22. Renders chains from materialized AttackPath nodes (hop-
+  // reified per v0.2 §3) — every line on the canvas comes from a real
+  // Neo4j edge, no checkpoint inference. Default route still "path" to
+  // avoid disrupting existing operators; phase view opted in via URL.
+  const viewMode: "path" | "exposure" | "attacker" | "phase" =
+    modeParam === "exposure"
+      ? "exposure"
+      : modeParam === "attacker"
+        ? "attacker"
+        : modeParam === "phase"
+          ? "phase"
+          : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -172,13 +184,16 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure" | "attacker") => {
-    // Switching to exposure clears the path selection (exposure
-    // aggregates ACROSS paths). Switching to attacker REQUIRES a
-    // selected path — preserve it. Switching back to path-view
-    // preserves the jewel and path selection so the operator doesn't
-    // lose their place.
-    setUrl({ mode: next, path: next === "exposure" ? null : undefined })
+  const handleSetMode = (next: "path" | "exposure" | "attacker" | "phase") => {
+    // Switching to exposure or phase clears the path selection — both
+    // aggregate ACROSS paths (phase shows every chain targeting the
+    // selected jewel). Switching to attacker REQUIRES a selected path
+    // — preserve it. Switching back to path-view preserves jewel +
+    // path selection.
+    setUrl({
+      mode: next,
+      path: next === "exposure" || next === "phase" ? null : undefined,
+    })
   }
 
   const handleToggleExpand = () => {
@@ -314,6 +329,24 @@ export function AttackPathsV2() {
                   systemName={systemName}
                 />
               )
+            ) : viewMode === "phase" ? (
+              // v0.3 — 9-lane attacker-phase view. Reads materialized
+              // :AttackPath nodes (hop-reified per v0.2 §3) via the
+              // chains-for-cj endpoint. Doesn't depend on a selected
+              // path — it shows ALL chains targeting the selected jewel,
+              // ranked by severity / freshness / foothold.
+              !selectedJewelId ? (
+                <EmptyState
+                  title="Select a crown jewel for phase view"
+                  subtitle="Phase view shows every attack chain targeting the selected jewel across 9 attacker-phase lanes (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense)."
+                  large
+                />
+              ) : (
+                <AttackerViewV3
+                  jewelId={selectedJewelId}
+                  jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? selectedJewelId}
+                />
+              )
             ) : !selectedPath ? (
               <EmptyState
                 title="Select a path"
@@ -353,8 +386,8 @@ function ModeToggle({
   jewelName,
   pathCount,
 }: {
-  mode: "path" | "exposure" | "attacker"
-  onChange: (next: "path" | "exposure" | "attacker") => void
+  mode: "path" | "exposure" | "attacker" | "phase"
+  onChange: (next: "path" | "exposure" | "attacker" | "phase") => void
   jewelName: string | null
   pathCount: number
 }) {
@@ -385,7 +418,7 @@ function ModeToggle({
         </button>
         <button
           onClick={() => onChange("attacker")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
             mode === "attacker"
               ? "bg-red-500/15 text-red-200"
               : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -394,13 +427,26 @@ function ModeToggle({
         >
           Attacker view
         </button>
+        <button
+          onClick={() => onChange("phase")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            mode === "phase"
+              ? "bg-emerald-500/15 text-emerald-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Phase view (v0.3) — 9-lane attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge."
+        >
+          Phase view <span className="text-[8px] opacity-60">v0.3</span>
+        </button>
       </div>
       <div className="text-[10px] text-slate-500 italic min-w-0 truncate">
         {mode === "path"
           ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"}`
           : mode === "exposure"
             ? `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`
-            : `Live Neo4j graph + lateral moves per hop — the attacker's pivot tree`}
+            : mode === "attacker"
+              ? `Live Neo4j graph + lateral moves per hop — the attacker's pivot tree`
+              : `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`}
       </div>
     </div>
   )

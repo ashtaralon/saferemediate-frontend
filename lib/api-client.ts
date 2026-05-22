@@ -749,3 +749,84 @@ export async function fetchPostureScore(systemName: string): Promise<PostureScor
     return null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Attack Chains v2 (v0.2 §3 hop-reified attack paths)
+// ---------------------------------------------------------------------------
+
+import type { AttackChainsResponse } from "@/lib/types"
+
+/**
+ * Fetch all AttackChain objects targeting a crown jewel. The backend
+ * returns materialized Phase-3 AttackPath data with the full hop list
+ * per chain — the v0.3 Attacker View renderer iterates `chain.hops` to
+ * draw connections directly from real graph edges.
+ *
+ * Empty response (`note: "crown_jewel_not_resolved"`) means the cj id
+ * didn't match any graph node. Empty `chains[]` with successful
+ * response means Phase 3 hasn't materialized any paths yet — UI can
+ * offer the `triggerAttackChainsMaterialization()` admin CTA.
+ *
+ * Errors return an object with `error` populated and `chains: []` so
+ * callers can render an empty-state without try/catch boilerplate.
+ */
+export async function fetchChainsForCJ(
+  cjId: string,
+  opts?: {
+    include_blocked?: boolean
+    rank_by?: "severity" | "freshness" | "foothold"
+  },
+): Promise<AttackChainsResponse & { error?: string }> {
+  const qs = new URLSearchParams({ cj_id: cjId })
+  if (opts?.include_blocked) qs.set("include_blocked", "true")
+  if (opts?.rank_by) qs.set("rank_by", opts.rank_by)
+  try {
+    const res = await fetch(`/api/proxy/attack-chain/chains-for-cj?${qs.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      return {
+        cj: { id: cjId, name: cjId, type: "Unknown" },
+        chains: [],
+        stats: { total: 0, by_status: {}, total_hops: 0, avg_hop_count: 0 },
+        error: `proxy ${res.status}: ${text.slice(0, 200)}`,
+      }
+    }
+    return await res.json()
+  } catch (e: any) {
+    return {
+      cj: { id: cjId, name: cjId, type: "Unknown" },
+      chains: [],
+      stats: { total: 0, by_status: {}, total_hops: 0, avg_hop_count: 0 },
+      error: String(e?.message ?? e),
+    }
+  }
+}
+
+/**
+ * Admin trigger: re-run Phase 3 materialization. Useful when sync-all
+ * is failing on flow_logs (Phase 3 doesn't depend on flow_logs) or
+ * when the operator wants fresh AttackPath data without a full sync.
+ */
+export async function triggerAttackChainsMaterialization(): Promise<{
+  success: boolean
+  result?: any
+  error?: string
+}> {
+  try {
+    const res = await fetch(`/api/proxy/attack-chain/chains-for-cj`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      return { success: false, error: `proxy ${res.status}: ${text.slice(0, 200)}` }
+    }
+    return await res.json()
+  } catch (e: any) {
+    return { success: false, error: String(e?.message ?? e) }
+  }
+}

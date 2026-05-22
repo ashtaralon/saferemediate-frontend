@@ -693,3 +693,208 @@ export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: 
     icon: "🚫"
   }
 }
+
+// =============================================================================
+// Attack Chains v2 — hop-reified attack-path model (v0.2 §3)
+// =============================================================================
+//
+// Replaces the column-bucket + checkpoint-route layout with explicit
+// ordered hops walked from real Neo4j edges. Each AttackChain object
+// is produced by the backend Phase 3 materialization and read via
+// /api/attack-chain/chains-for-cj. The v0.3 9-lane Attacker View
+// renderer iterates these hops and draws connections directly — no
+// inference, no orphan cards.
+
+export type AttackChainEvidence = "observed" | "config" | "unknown"
+
+export interface AttackChainHop {
+  /** Drawing order within the chain. */
+  ordinal: number
+  /** Graph node id of the source side. */
+  source_id: string
+  /** Neo4j label of the source node (e.g. 'EC2Instance', 'IAMRole'). */
+  source_type: string
+  /** Human-readable name; falls back to id when unset on the node. */
+  source_name: string | null
+  target_id: string
+  target_type: string
+  target_name: string | null
+  /** Neo4j relationship type. Some are observation-backed
+   *  (HAS_NETWORK_INTERFACE), some are synthetic (EXFILTRATES_VIA). */
+  edge_type: string
+  /** observed = real traffic / activity data underlies this hop.
+   *  config   = the edge exists but no observation data.
+   *  unknown  = the hop is referenced but a node didn't resolve. */
+  evidence: AttackChainEvidence
+  hit_count: number | null
+  first_seen: string | null
+  last_seen: string | null
+}
+
+export type AttackChainStatus =
+  | "OBSERVED"
+  | "POTENTIAL_EXCESS"
+  | "UNVERIFIED"
+  | "BLOCKED"
+
+export type AttackChainGate =
+  | "OPEN_OBSERVED"
+  | "OPEN_CONFIG"
+  | "CLOSED"
+  | "UNKNOWN"
+
+export type AttackChainDamageType =
+  | "read"
+  | "write"
+  | "delete"
+  | "admin"
+  | "encrypt"
+  | "corrupt"
+  | "exfiltrate"
+
+export interface AttackChainClosure {
+  remove_actions: string[]
+  keep_actions: string[]
+  scope_to_prefixes: string[]
+  preserve_kms_chain: boolean
+  posture_notes: string[]
+  remediation_window_days: number
+}
+
+export interface AttackChain {
+  /** sha256(workload|role|cj) — stable across re-runs. */
+  id: string
+  cj_arn: string | null
+  cj_name: string | null
+  cj_type: string
+  workload_arn: string | null
+  workload_name: string | null
+  /** Neo4j label of the workload — 'EC2Instance', 'LambdaFunction', 'ECSService'. */
+  workload_kind: string
+  role_arn: string | null
+  role_name: string | null
+  path_status: AttackChainStatus
+  damage_types: AttackChainDamageType[]
+  observed_actions: string[]
+  observed_prefixes: string[]
+  observed_object_keys: string[]
+  excess_actions: string[]
+  identity_gate: AttackChainGate
+  route_gate: AttackChainGate
+  data_plane_gate: AttackChainGate
+  /** v2 §7 killer paragraph rendered from structured fields. */
+  business_sentence: string
+  closure_recommendation: AttackChainClosure
+  hops: AttackChainHop[]
+  hop_count: number
+  computed_at: string | null
+  schema_version: string
+}
+
+export interface AttackChainsResponse {
+  cj: { id: string; name: string; type: string }
+  chains: AttackChain[]
+  stats: {
+    total: number
+    by_status: Partial<Record<AttackChainStatus, number>>
+    total_hops: number
+    avg_hop_count: number
+  }
+  /** Set when the crown jewel id didn't resolve to a graph node —
+   *  chains[] will be empty in that case. */
+  note?: string
+}
+
+/**
+ * v0.3 9-lane attacker-phase taxonomy. Each Neo4j node type maps to
+ * exactly one lane via `laneForNodeType()` in the renderer; the same
+ * node may participate in multiple lanes across different chains
+ * (e.g. KMSKey shows up in 'creds' when read by a workload, and in
+ * 'data' when it IS the crown jewel).
+ */
+export type AttackLane =
+  | "entry"      // Internet, ExternalIP, public ALB/NLB/API GW, Lambda URL
+  | "reach"      // Subnet, SecurityGroup, NACL, VPCEndpoint, RouteTable
+  | "land"       // EC2, Lambda, ECS, NetworkInterface
+  | "creds"      // AccessKey, SecretsManagerSecret, KMSKey-as-source
+  | "become"     // IAMRole, InstanceProfile, IAMPolicy, PermissionSet, SSOUser/Group
+  | "data"       // S3Bucket, DynamoDBTable, RDSInstance, KMSKey-as-target
+  | "exfil"      // InternetGateway, NATGateway, VPCEndpoint-as-egress
+  | "persist"    // derived from role allowed_actions (iam:Create*, lambda:UpdateFunction*)
+  | "defense"    // overlay — VPC Flow Logs present? CloudTrail data events? etc.
+
+export interface AttackLaneConfig {
+  id: AttackLane
+  label: string
+  attackerQuestion: string
+  /** Hex color for chip / accent. */
+  accent: string
+  /** Lucide icon name (resolved in the component). */
+  icon: string
+}
+
+export const ATTACK_LANES: AttackLaneConfig[] = [
+  {
+    id: "entry",
+    label: "ENTRY POINTS",
+    attackerQuestion: "Where can I land?",
+    accent: "#ef4444",
+    icon: "Globe",
+  },
+  {
+    id: "reach",
+    label: "REACH GATES",
+    attackerQuestion: "What sits between me and my next hop?",
+    accent: "#f97316",
+    icon: "Shield",
+  },
+  {
+    id: "land",
+    label: "WORKLOADS",
+    attackerQuestion: "What did I land on?",
+    accent: "#3b82f6",
+    icon: "Server",
+  },
+  {
+    id: "creds",
+    label: "CREDENTIAL SOURCES",
+    attackerQuestion: "What creds can I steal here?",
+    accent: "#a855f7",
+    icon: "KeyRound",
+  },
+  {
+    id: "become",
+    label: "IDENTITIES & ESCALATION",
+    attackerQuestion: "Who can I become next?",
+    accent: "#ec4899",
+    icon: "Key",
+  },
+  {
+    id: "data",
+    label: "CROWN JEWELS",
+    attackerQuestion: "What's the prize?",
+    accent: "#10b981",
+    icon: "Database",
+  },
+  {
+    id: "exfil",
+    label: "EXFIL CHANNELS",
+    attackerQuestion: "How do I get data out?",
+    accent: "#f59e0b",
+    icon: "ArrowUpRight",
+  },
+  {
+    id: "persist",
+    label: "PERSISTENCE",
+    attackerQuestion: "How do I stay?",
+    accent: "#8b5cf6",
+    icon: "Lock",
+  },
+  {
+    id: "defense",
+    label: "DEFENSE GAPS",
+    attackerQuestion: "What would catch me?",
+    accent: "#64748b",
+    icon: "Eye",
+  },
+]
