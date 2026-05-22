@@ -791,14 +791,61 @@ export interface AttackChain {
   schema_version: string
 }
 
+/** Per-node enrichment surfaced via /chains-for-cj.node_meta.
+ *  Backend reads these properties at request time from the live graph
+ *  so they reflect the latest collector run without re-materialization
+ *  of Phase 3. Every field is optional — null/missing means the
+ *  collector hasn't populated that signal yet (itself rendering
+ *  information). */
+export interface AttackChainNodeMeta {
+  labels?: string[]
+  // EC2 IMDS state
+  imds_http_tokens?: string | null
+  imds_http_endpoint?: string | null
+  imdsv2_enforced?: boolean | null
+  imds_disabled?: boolean | null
+  // Subnet posture
+  subnet_public?: boolean | null
+  subnet_cidr?: string | null
+  // Workload-level internet posture
+  is_internet_exposed?: boolean | null
+  public_ip?: string | null
+  internet_dependency_tier?: string | null
+  // Security group posture
+  sg_total_rules?: number | null
+  sg_high_risk?: boolean | null
+  sg_public_ingress?: boolean | null
+  // S3 / data-plane posture
+  bucket_versioning?: string | null
+  bucket_object_lock?: string | boolean | null
+  bucket_kms_key?: string | null
+  bucket_public_access_block?: boolean | null
+  // EC2 vuln signals
+  cve_count?: number | null
+  critical_cves?: number | null
+  // IAM role usage signals
+  role_allowed_actions?: number | null
+  role_used_actions?: number | null
+  role_data_events?: string[] | null
+  // Synthetic sentinel marker
+  is_synthetic?: boolean
+  description?: string
+}
+
 export interface AttackChainsResponse {
   cj: { id: string; name: string; type: string }
   chains: AttackChain[]
+  /** Per-node enrichment keyed by node id. Added 2026-05-23 to surface
+   *  IMDS / subnet public/private / internet exposure / SG rules / bucket
+   *  posture / role usage on the Phase View v0.3 chips. Optional — older
+   *  backends won't include it; renderer should fall back gracefully. */
+  node_meta?: Record<string, AttackChainNodeMeta>
   stats: {
     total: number
     by_status: Partial<Record<AttackChainStatus, number>>
     total_hops: number
     avg_hop_count: number
+    nodes_enriched?: number
   }
   /** Set when the crown jewel id didn't resolve to a graph node —
    *  chains[] will be empty in that case. */

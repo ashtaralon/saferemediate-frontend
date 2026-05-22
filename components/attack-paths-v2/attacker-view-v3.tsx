@@ -29,6 +29,7 @@ import {
   ATTACK_LANES,
   type AttackChain,
   type AttackChainHop,
+  type AttackChainNodeMeta,
   type AttackLane,
   type AttackChainStatus,
 } from "@/lib/types"
@@ -374,6 +375,11 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [chains, setChains] = useState<AttackChain[]>([])
+  // node_meta surfaces per-node posture (IMDSv1 enabled, subnet public,
+  // bucket KMS key, role allowed_actions, etc.) for chip rendering on
+  // the lane cards. Updated on every fetch — read-time enrichment from
+  // the live graph so running ec2_imds_collector reflects immediately.
+  const [nodeMeta, setNodeMeta] = useState<Record<string, AttackChainNodeMeta>>({})
   const [cjMeta, setCjMeta] = useState<{ id: string; name: string; type: string }>({
     id: jewelId,
     name: jewelName || jewelId,
@@ -395,6 +401,7 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
         setError(res.error)
       }
       setChains(res.chains || [])
+      setNodeMeta(res.node_meta || {})
       setCjMeta(res.cj || { id: jewelId, name: jewelName || jewelId, type: "Unknown" })
       // Auto-select the first chain (highest-severity after rank)
       if (res.chains?.length) {
@@ -427,6 +434,7 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
     // Re-fetch chains after materialization
     const res = await fetchChainsForCJ(jewelId, { rank_by: rankBy })
     setChains(res.chains || [])
+    setNodeMeta(res.node_meta || {})
     setCjMeta(res.cj)
     if (!selectedChainId && res.chains?.length) {
       setSelectedChainId(res.chains[0].id)
@@ -487,7 +495,7 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
         {!loading && projected.length === 0 ? (
           <EmptyState onMaterialize={onMaterialize} materializing={materializing} />
         ) : selected ? (
-          <NineLaneGrid projected={selected} />
+          <NineLaneGrid projected={selected} nodeMeta={nodeMeta} />
         ) : null}
       </div>
 
@@ -724,7 +732,13 @@ function EmptyState({
   )
 }
 
-function NineLaneGrid({ projected }: { projected: ProjectedChain }) {
+function NineLaneGrid({
+  projected,
+  nodeMeta = {},
+}: {
+  projected: ProjectedChain
+  nodeMeta?: Record<string, AttackChainNodeMeta>
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Map node-id → position for SVG arrow drawing. Updated on render.
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
@@ -822,6 +836,7 @@ function NineLaneGrid({ projected }: { projected: ProjectedChain }) {
                     key={n.id}
                     node={n}
                     chain={projected.chain}
+                    meta={nodeMeta[n.id]}
                     setRef={(el) => {
                       cardRefs.current.set(n.id, el)
                     }}
@@ -850,10 +865,12 @@ function NineLaneGrid({ projected }: { projected: ProjectedChain }) {
 function NodeCard({
   node,
   chain,
+  meta,
   setRef,
 }: {
   node: LaneNode
   chain: AttackChain
+  meta?: AttackChainNodeMeta
   setRef: (el: HTMLDivElement | null) => void
 }) {
   const isCrownJewel =
@@ -868,6 +885,15 @@ function NodeCard({
   }, "")
 
   const shortName = node.name.length > 22 ? node.name.slice(0, 10) + "…" + node.name.slice(-10) : node.name
+
+  // Per-node posture chips. Backend node_meta carries the live graph
+  // state — render only the chips relevant to this node's type so we
+  // don't clutter cards with irrelevant signals. Color semantics:
+  //   red    = exploitable / open / red-flag for the attacker
+  //   amber  = unknown / partial / needs operator attention
+  //   green  = closed / safe / posture is correct
+  //   slate  = neutral metadata (cidr, rule count, etc.)
+  const chips = useMemo(() => buildNodeChips(node, meta), [node, meta])
 
   return (
     <div
@@ -887,8 +913,151 @@ function NodeCard({
         <span className="text-slate-200 truncate flex-1 font-mono">{shortName}</span>
       </div>
       <div className="text-[9px] text-slate-500 mt-0.5 truncate">{node.type}</div>
+      {chips.length > 0 ? (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {chips.map((c) => (
+            <span
+              key={c.label}
+              className={`px-1.5 py-0.5 rounded text-[9px] border ${c.tone}`}
+              title={c.tooltip || c.label}
+            >
+              {c.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Per-node chip derivation
+//
+// Reads the chain payload's node_meta and emits compact posture chips
+// per node type. All chips are evidence-grounded — no "could be" / "if"
+// language. Missing data is rendered as amber "unknown" rather than
+// hidden, because absence-of-collection IS information the operator
+// needs.
+// ---------------------------------------------------------------------------
+
+interface NodeChip {
+  label: string
+  tone: string
+  tooltip?: string
+}
+
+const CHIP_RED = "bg-red-900/40 border-red-500/60 text-red-200"
+const CHIP_AMBER = "bg-amber-900/30 border-amber-500/50 text-amber-200"
+const CHIP_GREEN = "bg-emerald-900/30 border-emerald-500/50 text-emerald-200"
+const CHIP_SLATE = "bg-slate-700/60 border-slate-600 text-slate-300"
+
+function buildNodeChips(node: LaneNode, meta?: AttackChainNodeMeta): NodeChip[] {
+  if (!meta) return []
+  const out: NodeChip[] = []
+  const t = (node.type || "").toLowerCase()
+
+  // EC2 / workload — IMDS state is the headline signal
+  if (t.includes("ec2")) {
+    if (meta.imds_disabled === true) {
+      out.push({ label: "IMDS off", tone: CHIP_GREEN, tooltip: "Instance Metadata Service disabled — no creds via 169.254.169.254" })
+    } else if (meta.imdsv2_enforced === true) {
+      out.push({ label: "IMDSv2", tone: CHIP_GREEN, tooltip: "IMDSv2 enforced (HttpTokens=required) — token-bound creds" })
+    } else if (meta.imdsv2_enforced === false) {
+      out.push({ label: "IMDSv1 enabled", tone: CHIP_RED, tooltip: "HttpTokens=optional — curl-to-creds with no token. #1 credential-theft path" })
+    } else {
+      out.push({ label: "IMDS unknown", tone: CHIP_AMBER, tooltip: "IMDS state not collected — run /api/admin/run-ec2-imds-collector" })
+    }
+    if (meta.is_internet_exposed === true) {
+      out.push({ label: "Internet exposed", tone: CHIP_RED, tooltip: "Public ingress reaches this workload" })
+    } else if (meta.is_internet_exposed === false) {
+      out.push({ label: "no ingress", tone: CHIP_GREEN, tooltip: "No observed public ingress to this workload" })
+    }
+    if (meta.public_ip) {
+      out.push({ label: `pub ${meta.public_ip}`, tone: CHIP_AMBER, tooltip: "Workload has a public IP" })
+    }
+    if (typeof meta.critical_cves === "number" && meta.critical_cves > 0) {
+      out.push({ label: `${meta.critical_cves} critical CVE`, tone: CHIP_RED })
+    } else if (typeof meta.cve_count === "number" && meta.cve_count > 0) {
+      out.push({ label: `${meta.cve_count} CVE`, tone: CHIP_AMBER })
+    }
+  }
+
+  // Subnet — public/private classification
+  if (t === "subnet") {
+    if (meta.subnet_public === true) {
+      out.push({ label: "Public subnet", tone: CHIP_AMBER, tooltip: "Route table routes 0.0.0.0/0 to IGW" })
+    } else if (meta.subnet_public === false) {
+      out.push({ label: "Private subnet", tone: CHIP_GREEN, tooltip: "No route to IGW" })
+    } else {
+      out.push({ label: "Public/private unknown", tone: CHIP_AMBER })
+    }
+    if (meta.subnet_cidr) {
+      out.push({ label: meta.subnet_cidr, tone: CHIP_SLATE })
+    }
+  }
+
+  // Security Group
+  if (t === "securitygroup" || t.includes("security_group")) {
+    if (typeof meta.sg_total_rules === "number") {
+      out.push({ label: `${meta.sg_total_rules} rules`, tone: CHIP_SLATE })
+    }
+    if (meta.sg_public_ingress === true) {
+      out.push({ label: "0.0.0.0/0 ingress", tone: CHIP_RED })
+    }
+    if (meta.sg_high_risk === true) {
+      out.push({ label: "high-risk rule", tone: CHIP_RED })
+    }
+  }
+
+  // S3 bucket — crown jewel posture
+  if (t === "s3bucket" || t.includes("bucket")) {
+    if (meta.bucket_versioning && String(meta.bucket_versioning).toLowerCase() === "enabled") {
+      out.push({ label: "Versioned", tone: CHIP_GREEN, tooltip: "Versioning enabled — deletes are recoverable" })
+    } else if (meta.bucket_versioning) {
+      out.push({ label: "Not versioned", tone: CHIP_RED, tooltip: "Versioning suspended/off — delete is irreversible" })
+    }
+    if (meta.bucket_object_lock === true || String(meta.bucket_object_lock).toLowerCase() === "enabled") {
+      out.push({ label: "Object Lock", tone: CHIP_GREEN })
+    }
+    if (meta.bucket_kms_key) {
+      out.push({ label: "KMS encrypted", tone: CHIP_GREEN, tooltip: meta.bucket_kms_key })
+    }
+    if (meta.bucket_public_access_block === false) {
+      out.push({ label: "PAB off", tone: CHIP_RED, tooltip: "Public Access Block disabled — bucket can be made public" })
+    }
+  }
+
+  // IAM Role — usage gap
+  if (t === "iamrole" || t === "role") {
+    const allowed = meta.role_allowed_actions
+    const used = meta.role_used_actions
+    if (typeof allowed === "number" && typeof used === "number" && allowed > 0) {
+      const excess = allowed - used
+      if (excess > 0) {
+        out.push({
+          label: `${used}/${allowed} actions used`,
+          tone: CHIP_AMBER,
+          tooltip: `${excess} excess actions — closure opportunity`,
+        })
+      } else {
+        out.push({ label: `${allowed} actions, all used`, tone: CHIP_GREEN })
+      }
+    }
+    if (Array.isArray(meta.role_data_events) && meta.role_data_events.length > 0) {
+      out.push({
+        label: `data events: ${meta.role_data_events.length}`,
+        tone: CHIP_GREEN,
+        tooltip: `CloudTrail data events captured for: ${meta.role_data_events.join(", ")}`,
+      })
+    }
+  }
+
+  // Internet synthetic — always renders as the entry boundary
+  if (t === "internet") {
+    out.push({ label: "0.0.0.0/0", tone: CHIP_AMBER, tooltip: "Public Internet — outside the trust boundary" })
+  }
+
+  return out
 }
 
 function PersistLaneContent({ signals }: { signals: PersistSignal[] }) {

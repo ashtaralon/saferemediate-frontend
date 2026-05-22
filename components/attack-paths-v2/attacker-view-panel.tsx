@@ -226,6 +226,11 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
           innerTitleOverride="Attack Surface"
           innerSubtitleOverride="Path chain + lateral pivots, sourced from Neo4j as-is"
           pathBadgeOverride={`Path → ${jewel?.name ?? path.id}`}
+          // VPC is genuinely on the attack chain (network container
+          // between SG and Subnet), not a layered overlay — show its
+          // boundary by default so the path doesn't visually skip the
+          // hop. Operator can still toggle it off via the header.
+          defaultShowVPCBoundaries={true}
         />
       </div>
     </div>
@@ -338,6 +343,7 @@ function bucketForGraphType(
   | "instance_profile"
   | "iam_policy"
   | "subnet"
+  | "vpc"
   | "principal"
   | "egress_gateway"
   | "network_interface"
@@ -370,6 +376,7 @@ function bucketForGraphType(
   if (t === "instanceprofile") return "instance_profile"
   if (t === "iampolicy") return "iam_policy"
   if (t === "subnet") return "subnet"
+  if (t === "vpc") return "vpc"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
     return "principal"
   // Egress gateways — IGW, NAT, EgressOnlyIGW, TransitGateway. TFM
@@ -408,6 +415,13 @@ function buildAttackerArchitecture(
   const iamPolicies: SecurityCheckpoint[] = []
   const egressGateways: EgressGatewayNode[] = []
   const flows: TrafficFlow[] = []
+  // VPC tracker — collected during the first pass so we can build the
+  // TFM `vpcGroups` payload that drives the existing VPCBoundaries
+  // renderer (toggled by the "VPC" checkbox in the header). VPCs were
+  // previously dropped via the "ignore" bucket; for a path that goes
+  // EC2 → SG → VPC → Subnet → Role the container hop just vanished
+  // from the canvas without any indication. Now we surface them.
+  const vpcsById = new Map<string, { vpcId: string; vpcName: string }>()
 
   // Crown jewel ids from the path so we can tag resource cards.
   const crownJewelIds = new Set(
@@ -747,6 +761,21 @@ function buildAttackerArchitecture(
     })
   }
 
+  // VPC — render via TFM's VPCBoundaries by populating vpcGroups (built
+  // at the end). Path nodes that match the VPC bucket land here; they
+  // also seed seen/seenByCanonical so flow synthesis treats them as
+  // legit endpoints (USES_VPC / IN_VPC config edges are filtered out
+  // separately so they don't draw an extra line, but the visual
+  // container box is what the operator actually wants here).
+  const addAsVPC = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "vpc")
+    if (seenByCanonical.has(canon)) return
+    seen.add(id)
+    seenByCanonical.add(canon)
+    const display = friendlyName(name, id)
+    vpcsById.set(id, { vpcId: id, vpcName: display })
+  }
   const addAsSubnet = (id: string, name: string | null, vpcId: string | null, isPublic: boolean | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "subnet")
@@ -788,6 +817,7 @@ function buildAttackerArchitecture(
     else if (bucket === "sg") addAsSG(node.id, node.name, props)
     else if (bucket === "nacl") addAsNACL(node.id, node.name, props)
     else if (bucket === "principal") addAsPrincipal(node.id, node.name)
+    else if (bucket === "vpc") addAsVPC(node.id, node.name)
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
       addAsEgressGateway(node.id, node.name, node.type, vpcId)
@@ -996,7 +1026,17 @@ function buildAttackerArchitecture(
     const hits = edge.hit_count ?? 0
     if (!observed && bytes === 0 && hits === 0) continue
     const t = (edge.type || "").toUpperCase()
-    if (t === "USES_ROLE" || t === "SECURED_BY" || t === "IN_SUBNET" || t === "IN_VPC" || t === "HAS_INSTANCE_PROFILE")
+    if (
+      t === "USES_ROLE" ||
+      t === "SECURED_BY" ||
+      t === "USES_SECURITY_GROUP" ||
+      t === "IN_SUBNET" ||
+      t === "IN_VPC" ||
+      t === "RUNS_IN_VPC" ||
+      t === "HAS_INSTANCE_PROFILE" ||
+      t === "HAS_POLICY" ||
+      t === "ASSUMES_ROLE"
+    )
       continue
     // Dedupe — same flow may also be in the lateral loop's on_path
     // branch. Without this guard the role→jewel observed flow showed
@@ -1053,6 +1093,58 @@ function buildAttackerArchitecture(
     }
   }
 
+  // ─── vpcGroups assembly ──────────────────────────────────────────
+  //
+  // TFM's VPCBoundaries draws bounding boxes from this payload (gated
+  // by the "VPC" toggle in the header). For each VPC node on the path
+  // we group: its subnets (matched via subnet.vpcId) and the compute
+  // nodes attached to each subnet. Computes whose vpcId isn't known
+  // (principals, free-floating workloads) are skipped.
+  //
+  // Build a subnet → compute-ids index from the architecture as it
+  // stands today. Subnets carry connectedComputeIds=[]; we haven't
+  // populated them in the per-path builder, so derive from path edges
+  // (IN_SUBNET) as a best-effort. Falls back to "this subnet has no
+  // computes" if the path didn't carry that edge.
+  const subnetToComputes = new Map<string, string[]>()
+  for (const edge of path.edges ?? []) {
+    const t = (edge.type || "").toUpperCase()
+    if (t !== "IN_SUBNET") continue
+    // Direction: compute -> subnet
+    const subnetId = edge.target
+    const computeId = edge.source
+    if (!subnetId || !computeId) continue
+    if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
+    subnetToComputes.get(subnetId)!.push(computeId)
+  }
+  // Fallback — when the path doesn't surface IN_SUBNET edges (e.g.
+  // CloudTrail-only paths whose serializer drops topology edges), give
+  // each subnet ALL the path's compute ids so VPCBoundaries has
+  // enough anchors to compute a bounding box. Without this the VPC
+  // toggle silently no-ops because every subnet group has nodeIds=[].
+  if (subnetToComputes.size === 0 && subnets.length > 0 && computeServices.length > 0) {
+    const allComputeIds = computeServices.map((c) => c.id)
+    for (const s of subnets) {
+      subnetToComputes.set(s.id, allComputeIds)
+    }
+  }
+
+  const vpcGroups = Array.from(vpcsById.values()).map((v) => {
+    const groupSubnets = subnets
+      .filter((s) => s.vpcId === v.vpcId || !s.vpcId)
+      .map((s) => ({
+        subnetId: s.id,
+        subnetName: s.shortName ?? s.name,
+        // SubnetNode.isPublic is three-state (true/false/null). VPCBoundaries
+        // expects boolean; coerce null → false (private fallback) for the
+        // boundary-coloring decision only — the SubnetNode card itself
+        // still renders the honest three-state Unknown chip.
+        isPublic: s.isPublic === true,
+        nodeIds: subnetToComputes.get(s.id) ?? [],
+      }))
+    return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
+  })
+
   return {
     computeServices,
     resources,
@@ -1074,6 +1166,6 @@ function buildAttackerArchitecture(
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
     totalGaps: 0,
-    vpcGroups: [],
+    vpcGroups,
   }
 }

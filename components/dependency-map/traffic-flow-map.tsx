@@ -3478,6 +3478,7 @@ export default function TrafficFlowMap({
   innerTitleOverride,
   innerSubtitleOverride,
   observedMode = false,
+  defaultShowVPCBoundaries = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -3506,6 +3507,12 @@ export default function TrafficFlowMap({
   // Gaps badge is suppressed. Use when the architecture carries real
   // observed telemetry (Data Leak Paths case).
   observedMode?: boolean;
+  // When true, the VPC-boundary overlay is on by default (operator can
+  // still toggle it off via the header VPC checkbox). Attacker view
+  // turns this on so the VPC container hop on the path is visible
+  // without requiring an extra click — the VPC is genuinely part of
+  // the chain (EC2 → SG → VPC → Subnet → Role), not a layered overlay.
+  defaultShowVPCBoundaries?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -3617,7 +3624,7 @@ export default function TrafficFlowMap({
   const [heatmapMode, setHeatmapMode] = useState(false);
   const [hopDepth, setHopDepth] = useState(3);
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
-  const [showVPCBoundaries, setShowVPCBoundaries] = useState(false);
+  const [showVPCBoundaries, setShowVPCBoundaries] = useState(defaultShowVPCBoundaries);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   // Resource-path filter — set when the user clicks a leaf in the
   // Stack Components sidebar drill-down (S3 prefix, RDS table, DDB
