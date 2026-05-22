@@ -136,6 +136,21 @@ export interface SystemArchitecture {
   securityGroups: SecurityCheckpoint[];
   nacls: SecurityCheckpoint[];
   iamRoles: SecurityCheckpoint[];
+  /** InstanceProfile is AWS's "binding object" between an EC2 instance
+   *  and an IAM role. Semantically distinct from a role — having three
+   *  cards labeled "IAM Roles" when one is a role, one is the profile
+   *  that binds it to EC2, and one is the attached policy is a count
+   *  bug + a semantic bug. Kept optional so consumers that haven't
+   *  updated still compile (they'll just not show the dedicated lane).
+   *  Added 2026-05-22 to fix the "IAM ROLES (3)" miscount on the
+   *  Attacker view. */
+  instanceProfiles?: SecurityCheckpoint[];
+  /** IAMPolicy nodes are the actual permission grants — the docstring
+   *  finding the operator must see (e.g. S3OverPermissiveAccess on
+   *  alon-prod). Previously rendered with a 📜 emoji prefix into the
+   *  iamRoles bucket; now its own first-class array. Kept optional
+   *  for back-compat. */
+  iamPolicies?: SecurityCheckpoint[];
   vpcEndpoints: VPCEndpointNode[];
   /** Chip item 10: explicit IGW / NAT / Egress-only IGW / Transit GW
    * nodes for the EGRESS lane. Filtered to gateways attached to a VPC

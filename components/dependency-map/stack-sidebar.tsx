@@ -18,6 +18,8 @@ import {
   Filter,
   Table2,
   KeyRound,
+  FileText,
+  IdCard,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -77,6 +79,11 @@ interface Architecture {
   securityGroups: SecurityGroup[];
   nacls: Nacl[];
   iamRoles: IamRole[];
+  /** Split out of iamRoles 2026-05-22 — see attacker-view-panel for
+   *  rationale. Optional so consumers compiled against the old shape
+   *  keep working (they just won't show the new lanes). */
+  instanceProfiles?: IamRole[];
+  iamPolicies?: IamRole[];
   flows: Flow[];
   totalBytes: number;
   totalConnections: number;
@@ -226,7 +233,14 @@ const GROUP_CONFIGS: GroupConfig[] = [
   { key: 'compute', label: 'Compute', icon: Server, iconColor: 'text-blue-400' },
   { key: 'securityGroups', label: 'Security Groups', icon: Shield, iconColor: 'text-orange-400' },
   { key: 'nacls', label: 'NACLs', icon: Lock, iconColor: 'text-cyan-400' },
+  // Identity is now three distinct lanes — see attacker-view-panel for
+  // the 2026-05-22 split rationale. Ordering reflects the attack-path
+  // narrative: Role (what the principal IS) → InstanceProfile (the
+  // binding that wires a role to compute) → IAMPolicy (the grant that
+  // makes the wildcard finding visible). Each shows its own count.
   { key: 'iamRoles', label: 'IAM Roles', icon: Key, iconColor: 'text-pink-400' },
+  { key: 'instanceProfiles', label: 'Instance Profiles', icon: IdCard, iconColor: 'text-fuchsia-400' },
+  { key: 'iamPolicies', label: 'IAM Policies', icon: FileText, iconColor: 'text-rose-400' },
   { key: 'databases', label: 'Databases', icon: Database, iconColor: 'text-purple-400' },
   { key: 'storage', label: 'Storage', icon: HardDrive, iconColor: 'text-green-400' },
   { key: 'apiCalls', label: 'API Calls', icon: Zap, iconColor: 'text-lime-400' },
@@ -300,6 +314,15 @@ export function StackSidebar({
       ),
       nacls: architecture.nacls.filter((n) => matchesSearch(n.name, n.shortName)),
       iamRoles: architecture.iamRoles.filter((r) => matchesSearch(r.name, r.shortName)),
+      // Optional architecture fields — fall back to empty array so the
+      // sidebar renders cleanly when an older builder version didn't
+      // populate them (instead of throwing on .filter on undefined).
+      instanceProfiles: (architecture.instanceProfiles ?? []).filter((p) =>
+        matchesSearch(p.name, p.shortName),
+      ),
+      iamPolicies: (architecture.iamPolicies ?? []).filter((p) =>
+        matchesSearch(p.name, p.shortName),
+      ),
       databases: filterResources((r) =>
         /database|rds|dynamodb/i.test(r.type),
       ),
@@ -436,6 +459,8 @@ export function StackSidebar({
       architecture.securityGroups.length +
       architecture.nacls.length +
       architecture.iamRoles.length +
+      (architecture.instanceProfiles?.length ?? 0) +
+      (architecture.iamPolicies?.length ?? 0) +
       architecture.resources.length
     );
   }, [architecture]);
@@ -668,6 +693,13 @@ export function StackSidebar({
                     status = getNaclStatus(item);
                     break;
                   case 'iamRoles':
+                  case 'instanceProfiles':
+                  case 'iamPolicies':
+                    // All three identity types use the same gap-ratio
+                    // status. InstanceProfile + IAMPolicy will show
+                    // 'green' until per-row usedCount/totalCount get
+                    // piped in (currently both are 0/0). That's the
+                    // honest neutral — better than fake amber.
                     status = getIamStatus(item);
                     break;
                   default:

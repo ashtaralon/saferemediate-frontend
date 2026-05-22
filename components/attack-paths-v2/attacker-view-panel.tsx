@@ -314,13 +314,19 @@ function shortName(name: string, maxLen = 22): string {
 
 // Map graph-view node type → TrafficFlowMap lane bucket. The TFM has
 // 5 lanes the attacker view will populate:
-//   compute   → COMPUTE
-//   resource  → RESOURCES (S3, RDS, DynamoDB, KMS, Secret)
-//   sg        → SECURITY GROUPS
-//   nacl      → NACLS
-//   iam_role  → IAM ROLES (also catches InstanceProfile + IAMPolicy as
-//               attached identity-plane context)
-//   subnet    → SUBNETS lane (rendered as decoration column)
+//   compute            → COMPUTE
+//   resource           → RESOURCES (S3, RDS, DynamoDB, KMS, Secret)
+//   sg                 → SECURITY GROUPS
+//   nacl               → NACLS
+//   iam_role           → IAM ROLES (true IAMRoles only)
+//   instance_profile   → INSTANCE PROFILES (separate from roles —
+//                        AWS's binding object between EC2 and Role.
+//                        Previously merged into iam_role which caused
+//                        the "IAM ROLES (3)" miscount on Attacker view.
+//                        Split 2026-05-22 per audit.)
+//   iam_policy         → IAM POLICIES (the actual grant document; IS
+//                        the finding for over-permissive paths)
+//   subnet             → SUBNETS lane (rendered as decoration column)
 function bucketForGraphType(
   type: string,
 ):
@@ -329,6 +335,7 @@ function bucketForGraphType(
   | "sg"
   | "nacl"
   | "iam_role"
+  | "instance_profile"
   | "iam_policy"
   | "subnet"
   | "principal"
@@ -349,14 +356,15 @@ function bucketForGraphType(
     return "resource"
   if (t === "securitygroup") return "sg"
   if (t === "networkacl" || t === "nacl") return "nacl"
-  // IAMRole + InstanceProfile share the iam_role lane.
-  // IAMPolicy gets its own bucket so it can render with a distinct
-  // visual treatment in the IAM lane (or future POLICIES lane). The
-  // 2026-05-22 audit explicitly called out that the IAMPolicy is THE
-  // finding — dropping it from the render was hiding the most
-  // important node on the path. Even sharing a lane with roles is
-  // better than invisible.
-  if (t === "iamrole" || t === "instanceprofile" || t === "role") return "iam_role"
+  // IAMRole / InstanceProfile / IAMPolicy are THREE different node
+  // types with different semantics. Per 2026-05-22 audit, collapsing
+  // all three into "IAM Roles" produced wrong counts and hid the
+  // identity-chain story (EC2 → InstanceProfile → IAMRole → IAMPolicy
+  // → bucket). Each now gets its own bucket; render layer decides
+  // whether to show them in separate lanes or grouped under an
+  // "Identity" supergroup with a breakdown tooltip.
+  if (t === "iamrole" || t === "role") return "iam_role"
+  if (t === "instanceprofile") return "instance_profile"
   if (t === "iampolicy") return "iam_policy"
   if (t === "subnet") return "subnet"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
@@ -389,7 +397,12 @@ function buildAttackerArchitecture(
   const subnets: SubnetNode[] = []
   const securityGroups: SecurityCheckpoint[] = []
   const nacls: SecurityCheckpoint[] = []
+  // Identity types are split (2026-05-22 fix). Previously all three
+  // were mashed into iamRoles[] which made "IAM ROLES (3)" lie on
+  // single-role paths and hid the EC2→InstanceProfile→Role chain.
   const iamRoles: SecurityCheckpoint[] = []
+  const instanceProfiles: SecurityCheckpoint[] = []
+  const iamPolicies: SecurityCheckpoint[] = []
   const egressGateways: EgressGatewayNode[] = []
   const flows: TrafficFlow[] = []
 
@@ -456,13 +469,16 @@ function buildAttackerArchitecture(
     }
     resources.push(node)
   }
-  const addAsRole = (id: string, type: string, name: string | null) => {
+  // True IAMRole only (InstanceProfile is handled by addAsInstanceProfile
+  // and IAMPolicy by addAsPolicy — each owns its own array). usedCount /
+  // totalCount remain 0 here because the per-role gap data isn't on
+  // GraphViewResponse.nodes[].key_properties yet; the IAM Roles lane
+  // renders the chip with role.totalCount and falls back to "—" when 0.
+  // Future: pipe allowed_actions_count / used_actions_count through the
+  // graph-view payload so the lane shows real gap numbers.
+  const addAsRole = (id: string, _type: string, name: string | null) => {
     if (seen.has(id)) return
-    // Roles and InstanceProfiles can share names — preserve the
-    // distinction in canonical dedup. dual-label Resource/Service
-    // duplicates of the SAME role collapse.
-    const subLane = (type || "").toLowerCase().includes("instanceprofile") ? "iam_ip" : "iam_role"
-    const canon = canonicalKey(name, id, subLane)
+    const canon = canonicalKey(name, id, "iam_role")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
@@ -479,63 +495,159 @@ function buildAttackerArchitecture(
       connectedTargets: [],
     })
   }
-  const addAsSG = (id: string, name: string | null) => {
+  // InstanceProfile — AWS's binding object that wires an EC2 instance
+  // to an IAM role. Semantically distinct from a role; previously
+  // collapsed into iamRoles which produced the wrong "IAM ROLES (3)"
+  // count for a single-role path. The InstanceProfile typically shares
+  // its name with the role it points at (alon-prod convention), so the
+  // canonical key includes the "instance_profile" lane discriminator
+  // to keep them as separate cards.
+  const addAsInstanceProfile = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "instance_profile")
+    if (seenByCanonical.has(canon)) return
+    seen.add(id)
+    seenByCanonical.add(canon)
+    const display = friendlyName(name, id)
+    instanceProfiles.push({
+      // Keep `type: "iam_role"` on the checkpoint so existing
+      // SecurityCheckpoint consumers (status color, drilldown) still
+      // work — the distinction is encoded by which array the node
+      // lands in, not by the type discriminator. We can introduce a
+      // dedicated 'instance_profile' type on SecurityCheckpoint in a
+      // follow-up if the rendering needs to diverge further.
+      id,
+      type: "iam_role",
+      name: display,
+      shortName: shortName(display),
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })
+  }
+  // SG populates totalCount from the graph node's rule counters. Per
+  // 2026-05-22 audit the panel was initializing all SGs with
+  // totalCount=0 which made TFM render "0 rules" even on the
+  // saferemediate-test-app-sg (real rules in Neo4j). Now we pipe:
+  //   - total_rules  (preferred — single canonical scalar set by the
+  //                   security_group_collector)
+  //   - inbound_rule_count + outbound_rule_count (fallback for older
+  //                   collector versions that hadn't materialized
+  //                   total_rules yet)
+  //   - inbound_rules.length + outbound_rules.length (last-resort
+  //                   fallback from the raw rule arrays)
+  // gapCount uses unused_rules_count when present (rules with no
+  // observed traffic match) — that's the "configured-but-unused"
+  // signal the operator can act on.
+  const addAsSG = (id: string, name: string | null, props?: Record<string, any> | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "sg")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
+    const p = props || {}
+    const inboundCount = Number(p.inbound_rule_count ?? 0) || 0
+    const outboundCount = Number(p.outbound_rule_count ?? 0) || 0
+    const inboundArr = Array.isArray(p.inbound_rules) ? p.inbound_rules.length : 0
+    const outboundArr = Array.isArray(p.outbound_rules) ? p.outbound_rules.length : 0
+    // Fallback chain — prefer scalar total_rules, fall back to summed
+    // count fields, then to array-length fallback. Don't use ??-chains
+    // here: the intermediate sums are always numbers (never nullish),
+    // so the chain collapses to the first non-null and skips the
+    // fallbacks. Plain `||` on zero gives the right effect.
+    let totalCount = Number(p.total_rules ?? 0) || 0
+    if (totalCount === 0) totalCount = inboundCount + outboundCount
+    if (totalCount === 0) totalCount = inboundArr + outboundArr
+    const gapCount = Number(p.unused_rules_count ?? 0) || 0
+    const usedCount = totalCount > 0 ? Math.max(0, totalCount - gapCount) : 0
     securityGroups.push({
       id,
       type: "security_group",
       name: display,
       shortName: shortName(display),
-      usedCount: 0,
-      totalCount: 0,
-      gapCount: 0,
+      usedCount,
+      totalCount,
+      gapCount,
       connectedSources: [],
       connectedTargets: [],
     })
   }
-  const addAsNACL = (id: string, name: string | null) => {
+  // NACL populates totalCount from rule counters on the graph node.
+  // Per 2026-05-22 audit the panel rendered "NACLs (1) · 0 affected"
+  // even when the subnet was associated and the NACL had rules. The
+  // "0 affected" label comes from totalCount=0 (TFM checks blastRadius
+  // from these scalars). Source fields on :NACL nodes:
+  //   - total_rules (preferred)
+  //   - inbound_rule_count + outbound_rule_count (fallback)
+  //   - inbound_rules.length + outbound_rules.length (last-resort)
+  // gapCount uses inbound_deny_count + outbound_deny_count when
+  // present — explicit denies are the high-signal rules an operator
+  // should know about.
+  const addAsNACL = (id: string, name: string | null, props?: Record<string, any> | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "nacl")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
+    const p = props || {}
+    const inboundCount = Number(p.inbound_rule_count ?? 0) || 0
+    const outboundCount = Number(p.outbound_rule_count ?? 0) || 0
+    const inboundArr = Array.isArray(p.inbound_rules) ? p.inbound_rules.length : 0
+    const outboundArr = Array.isArray(p.outbound_rules) ? p.outbound_rules.length : 0
+    // Same fallback chain pattern as addAsSG — see comment there.
+    let totalCount = Number(p.total_rules ?? 0) || 0
+    if (totalCount === 0) totalCount = inboundCount + outboundCount
+    if (totalCount === 0) totalCount = inboundArr + outboundArr
+    const denyCount = Number(p.inbound_deny_count ?? 0) + Number(p.outbound_deny_count ?? 0)
+    const gapCount = denyCount || 0
+    const usedCount = totalCount > 0 ? Math.max(0, totalCount - gapCount) : 0
     nacls.push({
       id,
       type: "nacl",
       name: display,
       shortName: shortName(display),
-      usedCount: 0,
-      totalCount: 0,
-      gapCount: 0,
+      usedCount,
+      totalCount,
+      gapCount,
       connectedSources: [],
       connectedTargets: [],
     })
   }
-  // IAMPolicy → render alongside roles in the IAM Roles lane. The
-  // operator needs to see the actual permission grant document
-  // because it IS the finding (S3OverPermissiveAccess on alon-prod).
-  // We mark the card with a `_policyMarker` flag so downstream
-  // rendering can differentiate when we add a dedicated POLICIES lane.
-  const addAsPolicy = (id: string, name: string | null) => {
+  // IAMPolicy — the actual permission grant document, IS the finding
+  // for over-permissive paths (e.g. S3OverPermissiveAccess on
+  // alon-prod). Promoted from "🤝 emoji-prefixed card in iamRoles lane"
+  // to its own iamPolicies array per 2026-05-22 fix. No name prefix
+  // needed now that they have their own lane and aren't competing for
+  // visual space with role cards.
+  //
+  // totalCount = permission_count (the number of distinct actions the
+  // policy grants) when present on the graph node. gapCount = unused
+  // permissions when we can compute them (currently we can't from the
+  // graph-view payload alone — would need to join against the role's
+  // observed actions). usedCount falls out the same way.
+  const addAsPolicy = (id: string, name: string | null, props?: Record<string, any> | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "iam_policy")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
-    iamRoles.push({
+    const p = props || {}
+    const totalCount = Number(p.permission_count ?? 0) || 0
+    iamPolicies.push({
       id,
-      type: "iam_role", // sharing the IAM lane for now; visually mixed
-      name: `📜 ${display}`, // prefix marker — disambiguates from role cards until separate lane lands
-      shortName: shortName(`📜 ${display}`),
+      type: "iam_role", // keep existing checkpoint discriminator —
+                       // SecurityCheckpoint.type doesn't yet have an
+                       // 'iam_policy' variant; the distinction is
+                       // encoded by being in iamPolicies[]
+      name: display,
+      shortName: shortName(display),
       usedCount: 0,
-      totalCount: 0,
+      totalCount,
       gapCount: 0,
       connectedSources: [],
       connectedTargets: [],
@@ -629,22 +741,28 @@ function buildAttackerArchitecture(
   }
 
   // First pass — add every path node to its canonical lane.
+  // SG / NACL / IAMPolicy helpers now receive key_properties so
+  // totalCount / gapCount / rule arrays come from real graph data
+  // (fix for the "0 rules" / "0 affected" / "permission_count missing"
+  // class of credibility bugs).
   for (const node of graph.nodes) {
     const bucket = bucketForGraphType(node.type)
+    const props = (node.key_properties as Record<string, any> | undefined) ?? null
     if (bucket === "compute") addAsCompute(node.id, node.type, node.name)
     else if (bucket === "resource") addAsResource(node.id, node.type, node.name)
     else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name)
-    else if (bucket === "iam_policy") addAsPolicy(node.id, node.name)
-    else if (bucket === "sg") addAsSG(node.id, node.name)
-    else if (bucket === "nacl") addAsNACL(node.id, node.name)
+    else if (bucket === "instance_profile") addAsInstanceProfile(node.id, node.name)
+    else if (bucket === "iam_policy") addAsPolicy(node.id, node.name, props)
+    else if (bucket === "sg") addAsSG(node.id, node.name, props)
+    else if (bucket === "nacl") addAsNACL(node.id, node.name, props)
     else if (bucket === "egress_gateway") {
-      const vpcId = (node.key_properties as any)?.vpc_id ?? null
+      const vpcId = props?.vpc_id ?? null
       addAsEgressGateway(node.id, node.name, node.type, vpcId)
     } else if (bucket === "network_interface") {
       addAsNetworkInterface(node.id, node.name)
     } else if (bucket === "subnet") {
-      const vpcId = (node.key_properties as any)?.vpc_id ?? null
-      const isPub = (node.key_properties as any)?.subnet_is_public ?? null
+      const vpcId = props?.vpc_id ?? null
+      const isPub = props?.subnet_is_public ?? null
       addAsSubnet(node.id, node.name, vpcId, isPub)
     }
     // 'principal' / 'ignore' — skip (CloudTrailPrincipal doesn't get its
@@ -719,10 +837,14 @@ function buildAttackerArchitecture(
   const pathCheckpoints = {
     sgId: securityGroups[0]?.id,
     naclId: nacls[0]?.id,
-    roleId: iamRoles.find((r) => !r.name.startsWith("📜"))?.id,
-    // egressGatewayId isn't a TFM flow field today; lane card still
-    // renders. Future: extend TrafficFlow type to carry it for
-    // explicit egress visualization.
+    // iamRoles[] is now policy-free (policies live in iamPolicies[] post
+    // 2026-05-22 split), so no need for the 📜-prefix filter.
+    roleId: iamRoles[0]?.id,
+    // egressGatewayId / eniId / instanceProfileId / policyId aren't TFM
+    // flow fields today; lane cards render but no connecting line. Fix
+    // for these orphan-card edges lands with the materialized-hop
+    // renderer (v0.2 §3) which iterates AttackPath.hops instead of
+    // inferring checkpoints from a flat node list.
   }
 
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
@@ -877,6 +999,14 @@ function buildAttackerArchitecture(
     securityGroups,
     nacls,
     iamRoles,
+    // 2026-05-22: identity types are split across three arrays so the
+    // sidebar count is honest ("IAM ROLES (1) · INSTANCE PROFILES (1)
+    // · IAM POLICIES (1)" instead of the previous wrong "IAM ROLES
+    // (3)"). Both new arrays are optional on SystemArchitecture for
+    // back-compat — consumers that don't know about them just ignore
+    // the new lanes.
+    instanceProfiles,
+    iamPolicies,
     vpcEndpoints: [],
     egressGateways,
     flows,
