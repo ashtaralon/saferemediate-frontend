@@ -698,6 +698,33 @@ function buildAttackerArchitecture(
   // 1,579,582 connections bug).
   const flowKeys = new Set<string>()
 
+  // ─── Path-level checkpoint identifiers ───────────────────────────
+  //
+  // TFM's ConnectionLinesSVG routes each flow line THROUGH whichever
+  // checkpoints the flow carries: sgId → naclId → roleId → vpceId.
+  // Without setting these, the role→S3 flow draws as a straight
+  // diagonal from IAM ROLES lane to RESOURCES lane, skipping the SG
+  // and NACL visually — even though the operator KNOWS the path
+  // traverses them.
+  //
+  // For the Attacker view, wire every synthesized flow with the
+  // path's specific gates so the line zigzags through SG → NACL →
+  // IAMRole on its way to the crown jewel. That's the visual the
+  // user wants: every service in the chain connected by an actual
+  // routed line.
+  //
+  // We pick the FIRST item per lane (paths typically have one of
+  // each). Future enhancement: multi-checkpoint routing when paths
+  // genuinely fan out (rare).
+  const pathCheckpoints = {
+    sgId: securityGroups[0]?.id,
+    naclId: nacls[0]?.id,
+    roleId: iamRoles.find((r) => !r.name.startsWith("📜"))?.id,
+    // egressGatewayId isn't a TFM flow field today; lane card still
+    // renders. Future: extend TrafficFlow type to carry it for
+    // explicit egress visualization.
+  }
+
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
     const pathNodeBucket = pathNodeTypeByKey.get(pathNodeId)
     for (const e of edges) {
@@ -719,9 +746,11 @@ function buildAttackerArchitecture(
         flows.push({
           sourceId,
           targetId,
-          sgId: undefined,
-          naclId: undefined,
-          roleId: undefined,
+          // Route THROUGH path checkpoints so the line zigzags
+          // visually instead of going straight from source to target.
+          sgId: pathCheckpoints.sgId,
+          naclId: pathCheckpoints.naclId,
+          roleId: pathCheckpoints.roleId,
           ports: e.port ? [String(e.port)] : [],
           protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
           bytes,
@@ -795,15 +824,50 @@ function buildAttackerArchitecture(
     flows.push({
       sourceId: edge.source,
       targetId: edge.target,
-      sgId: undefined,
-      naclId: undefined,
-      roleId: undefined,
+      // Route through path checkpoints (same as Branch A above).
+      sgId: pathCheckpoints.sgId,
+      naclId: pathCheckpoints.naclId,
+      roleId: pathCheckpoints.roleId,
       ports: edge.port ? [String(edge.port)] : [],
       protocol: edge.protocol || (t.includes("S3") ? "s3" : "tcp"),
       bytes,
       connections: edge.hit_count ?? 1,
       isActive: observed,
     })
+  }
+
+  // ─── Chain-completion flows ──────────────────────────────────────
+  //
+  // If we have a compute workload AND a crown-jewel resource on the
+  // path but NO synthesized observed flow between them yet (because
+  // the BFS only emitted role→S3 with traffic, not compute→S3), add
+  // a chain-completing flow so the line draws compute → SG → NACL →
+  // role → resource visually. Marked isActive=false (dimmed gray)
+  // since it's a CONFIGURED relationship, not observed traffic. This
+  // gives the operator the full visual chain without lying about
+  // traffic evidence.
+  const pathComputes = computeServices.filter((c) => !c.name.startsWith("ENI "))
+  const pathResources = resources
+  for (const compute of pathComputes) {
+    for (const resource of pathResources) {
+      const key = `${compute.id}->${resource.id}`
+      if (flowKeys.has(key)) continue
+      flowKeys.add(key)
+      flows.push({
+        sourceId: compute.id,
+        targetId: resource.id,
+        sgId: pathCheckpoints.sgId,
+        naclId: pathCheckpoints.naclId,
+        roleId: pathCheckpoints.roleId,
+        ports: [],
+        protocol: "configured",
+        bytes: 0,
+        connections: 0,
+        // false = gray static line, no animation. Honest about
+        // "this is the configured chain, not observed traffic."
+        isActive: false,
+      })
+    }
   }
 
   return {
