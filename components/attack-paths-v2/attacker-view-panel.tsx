@@ -453,6 +453,35 @@ function buildAttackerArchitecture(
       instanceId: id.startsWith("i-") ? id : id.slice(-12),
     })
   }
+  // Principal (CloudTrailPrincipal / AWSPrincipal / IAMUser / HumanIdentity)
+  // — the actor making the API call. Previously skipped, which collapsed
+  // any Principal → Resource path to a single-node canvas (only the
+  // target rendered). For API-only paths where the chain is
+  // <principal> → <S3 bucket> with no EC2/Lambda hop, the principal IS
+  // the source side of the flow — dropping it left the operator looking
+  // at a target with no caller, no observed connection, and no E2E
+  // service flow visible.
+  //
+  // Render in the compute lane with type:'principal' so the existing
+  // ServiceNodeBox renderer picks up the cyan Target icon from
+  // NODE_CONFIG. Lane co-location with compute matches semantics —
+  // both are "the actor" in attack-narrative terms — without needing
+  // a new lane in TrafficFlowMap.
+  const addAsPrincipal = (id: string, name: string | null) => {
+    if (seen.has(id)) return
+    const canon = canonicalKey(name, id, "principal")
+    if (seenByCanonical.has(canon)) return
+    seen.add(id)
+    seenByCanonical.add(canon)
+    const display = friendlyName(name, id)
+    computeServices.push({
+      id,
+      name: display,
+      shortName: shortName(display),
+      type: "principal",
+      instanceId: id.slice(-12),
+    })
+  }
   const addAsResource = (id: string, type: string, name: string | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "resource")
@@ -758,6 +787,7 @@ function buildAttackerArchitecture(
     else if (bucket === "iam_policy") addAsPolicy(node.id, node.name, props)
     else if (bucket === "sg") addAsSG(node.id, node.name, props)
     else if (bucket === "nacl") addAsNACL(node.id, node.name, props)
+    else if (bucket === "principal") addAsPrincipal(node.id, node.name)
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
       addAsEgressGateway(node.id, node.name, node.type, vpcId)
@@ -768,8 +798,7 @@ function buildAttackerArchitecture(
       const isPub = props?.subnet_is_public ?? null
       addAsSubnet(node.id, node.name, vpcId, isPub)
     }
-    // 'principal' / 'ignore' — skip (CloudTrailPrincipal doesn't get its
-    // own lane in the existing TFM; the role/EC2 it acted as carries it)
+    // 'ignore' — bucket didn't match a node type we render in any lane.
   }
 
   // Slice 9.5 — distinguish PATH INFRASTRUCTURE from LATERAL PIVOTS.
@@ -911,8 +940,37 @@ function buildAttackerArchitecture(
         continue
       }
       if (neighborBucket === "iam_policy") {
-        if (pathNodeBucket === "iam_role") {
+        if (pathNodeBucket === "iam_role" || pathNodeBucket === "principal") {
+          // Principal → IAMPolicy is the natural attachment too (an
+          // IAMUser carries inline/attached policies directly, no role
+          // hop). Surfacing it tells the operator WHICH grant document
+          // authorized the observed API call.
           addAsPolicy(neighborId, e.neighbor_name)
+        }
+        continue
+      }
+      if (neighborBucket === "iam_role") {
+        if (pathNodeBucket === "principal") {
+          // Principal → IAMRole is path infrastructure for assumed-role
+          // sessions: the CloudTrailPrincipal is a session, the role is
+          // what gave it permissions. Without the role card the operator
+          // sees only "<session> accessed <bucket>" with no answer to
+          // "which role's permissions made this possible?" — exactly the
+          // E2E context the user complained was missing. Sibling roles
+          // (assume-role chains the path didn't take) still skip via the
+          // default branch at the bottom.
+          addAsRole(neighborId, e.neighbor_type, e.neighbor_name)
+        }
+        continue
+      }
+      if (neighborBucket === "instance_profile") {
+        if (pathNodeBucket === "compute") {
+          // EC2 → InstanceProfile is the binding object that wires the
+          // workload to the role it runs as. Already surfaced as a
+          // path node when the path includes the chain, but lateral
+          // surfacing covers the case where the path skipped the IP
+          // hop (older IAP builders).
+          addAsInstanceProfile(neighborId, e.neighbor_name)
         }
         continue
       }
