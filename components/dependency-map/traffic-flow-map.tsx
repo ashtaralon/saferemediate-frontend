@@ -3088,9 +3088,38 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
   const subnets: SubnetNode[] = (arch.subnets || []).filter((s) =>
     inPath(s.id) || s.connectedComputeIds.some((cid) => filteredComputeIds.has(cid)),
   );
-  const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter((sg) => inPath(sg.id));
-  const nacls: SecurityCheckpoint[] = arch.nacls.filter((n) => inPath(n.id));
-  const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter((r) => inPath(r.id));
+
+  // 2026-05-23 regression fix: applyPathFilter used to strict-filter
+  // securityGroups / nacls / iamRoles by inPath(id) only. The path's
+  // BFS (IdentityAttackPath) frequently produces a node list that only
+  // contains the chain's identity + resource hops (e.g. principal →
+  // role → S3), NOT the network gates attached to the workload (SG,
+  // NACL, subnet, IGW) or the instance-profile binding. Strict-filter
+  // therefore stripped every gate out → the embedded TrafficFlowMap
+  // collapsed to the 3-column "NO NETWORK CONTROLS" banner with
+  // COMPUTE 0 / SG 0 / NACL 0 / IAM ROLES 0, contradicting both the
+  // chain card and the Neo4j graph.
+  //
+  // Mirror the subnet rescue above: keep any checkpoint whose
+  // connectedSources / connectedTargets intersects the path's compute
+  // or resource set. SecurityCheckpoint.connectedSources is populated
+  // upstream from flowMap.sourceId (compute IDs that flow through this
+  // gate) + role/SG/NACL attachment edges — so the overlap test
+  // surfaces every gate that genuinely protects a workload on this
+  // path, even when the BFS didn't enumerate it as a path step.
+  const filteredResourceIds = new Set(resources.map((r) => r.id));
+  const touchesPath = (cp: SecurityCheckpoint): boolean => {
+    if (inPath(cp.id)) return true;
+    const src = cp.connectedSources || [];
+    const tgt = cp.connectedTargets || [];
+    return (
+      src.some((cid) => filteredComputeIds.has(cid) || filteredResourceIds.has(cid)) ||
+      tgt.some((cid) => filteredComputeIds.has(cid) || filteredResourceIds.has(cid))
+    );
+  };
+  const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter(touchesPath);
+  const nacls: SecurityCheckpoint[] = arch.nacls.filter(touchesPath);
+  const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter(touchesPath);
 
   // Seed any path node that didn't survive the System Map's traffic-only
   // bucketing (e.g. an EC2 with no flow logs but reachable via the attack
