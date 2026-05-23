@@ -2982,10 +2982,20 @@ export function UnifiedArchitectureDiagram({
                     </div>
                     <div className="flex items-center gap-2 text-[10px] text-slate-500">
                       <span>{flow.connections} conn</span>
-                      <span className="flex items-center gap-1 text-emerald-400">
-                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                        active
-                      </span>
+                      {/*
+                        Gate the "active" badge on the flow's actual state.
+                        Previously rendered unconditionally — appeared on rows
+                        with 0 connections, which read as "live traffic
+                        observed" when there was none. Both legs (isActive
+                        AND connections > 0) must hold so an upstream bug in
+                        isActive can't silently re-introduce the issue.
+                      */}
+                      {flow.isActive && flow.connections > 0 && (
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                          active
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
