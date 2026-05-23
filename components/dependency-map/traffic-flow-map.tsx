@@ -66,6 +66,15 @@ export interface TrafficFlow {
   // matching Gateway endpoint. SG egress doesn't apply to Gateway VPCEs —
   // this is the missing hop that explains "0-rule SG → S3 still works".
   vpceId?: string;
+  // Egress gateway the packet exits the VPC through when there's NO
+  // Gateway VPCE for the target service — IGW for internet-routed
+  // traffic (default S3 endpoint), NAT for outbound IPv4, etc.
+  // ConnectionLinesSVG inserts this checkpoint between the role hop
+  // and the target resource so the EGRESS GATEWAYS lane chip is
+  // visually wired into the chain instead of floating as an orphan
+  // box while the header reports observed bytes through it (the
+  // 2026-05-23 audit caught this inconsistency).
+  egressGatewayId?: string;
   ports: string[];
   protocol: string;
   bytes: number;
@@ -1976,6 +1985,13 @@ export function ConnectionLinesSVG({
         // polyline is how the operator sees why a 0-rule SG still permits
         // S3 access.
         const vpceEl = flow.vpceId ? container.querySelector(`[data-vpce-id="${flow.vpceId}"]`) : null;
+        // Egress gateway hop — IGW / NAT / EgressOnlyIGW / TGW. Routed
+        // AFTER the role hop and BEFORE the VPCE/target so the
+        // polyline reads EC2 → SG → NACL → Role → IGW → S3.
+        // Without this, the IGW chip renders as an orphan box even when
+        // the path header reports observed bytes that genuinely flowed
+        // through it (the 2026-05-23 audit's "egress orphan" issue).
+        const igwEl = flow.egressGatewayId ? container.querySelector(`[data-gateway-id="${flow.egressGatewayId}"]`) : null;
 
         const sourcePos = getNodeCenter(sourceEl, 'right');
         const targetPos = getNodeCenter(targetEl, 'left');
@@ -1984,6 +2000,7 @@ export function ConnectionLinesSVG({
 
         const isHighlighted = hoveredId === flow.sourceId || hoveredId === flow.targetId ||
           hoveredId === flow.sgId || hoveredId === flow.naclId || hoveredId === flow.roleId ||
+          hoveredId === flow.egressGatewayId ||
           hoveredId === `api-${flow.targetId}`;
         // Respect the per-flow isActive flag rather than hardcoding true.
         //
@@ -2033,6 +2050,18 @@ export function ConnectionLinesSVG({
           const posL = getNodeCenter(vpceEl, 'left');
           const posR = getNodeCenter(vpceEl, 'right');
           if (posL && posR) checkpoints.push({ el: vpceEl, posL, posR });
+        }
+        // Egress gateway hop — IGW / NAT / etc. when traffic exits the
+        // VPC to a public-endpoint service (S3 without a Gateway VPCE,
+        // any non-AWS internet destination). Sits at the END of the
+        // checkpoint chain so the line draws Role → IGW → target.
+        // The 2026-05-23 audit specifically called this the single
+        // biggest UI inconsistency: orphan IGW card while the path
+        // header showed 771 KB observed bytes through it.
+        if (igwEl) {
+          const posL = getNodeCenter(igwEl, 'left');
+          const posR = getNodeCenter(igwEl, 'right');
+          if (posL && posR) checkpoints.push({ el: igwEl, posL, posR });
         }
 
         // Draw lines through all checkpoints

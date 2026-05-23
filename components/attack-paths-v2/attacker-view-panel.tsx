@@ -901,18 +901,46 @@ function buildAttackerArchitecture(
   // We pick the FIRST item per lane (paths typically have one of
   // each). Future enhancement: multi-checkpoint routing when paths
   // genuinely fan out (rare).
+  // Getter-backed checkpoint object — IDs are resolved at READ time so
+  // the lateral loop (which both populates `egressGateways` and
+  // synthesizes flows that consume `pathCheckpoints.egressGatewayId`)
+  // sees the current state of each lane array. A snapshot-style object
+  // captured the IDs before the lateral loop added the IGW, leaving
+  // `egressGatewayId === undefined` on every flow and producing the
+  // orphan IGW the 2026-05-23 audit caught.
   const pathCheckpoints = {
-    sgId: securityGroups[0]?.id,
-    naclId: nacls[0]?.id,
+    get sgId() { return securityGroups[0]?.id },
+    get naclId() { return nacls[0]?.id },
     // iamRoles[] is now policy-free (policies live in iamPolicies[] post
     // 2026-05-22 split), so no need for the 📜-prefix filter.
-    roleId: iamRoles[0]?.id,
-    // egressGatewayId / eniId / instanceProfileId / policyId aren't TFM
-    // flow fields today; lane cards render but no connecting line. Fix
-    // for these orphan-card edges lands with the materialized-hop
-    // renderer (v0.2 §3) which iterates AttackPath.hops instead of
-    // inferring checkpoints from a flat node list.
+    get roleId() { return iamRoles[0]?.id },
+    // Egress gateway — IGW / NAT / EgressOnlyIGW / TGW. Routes the
+    // line through the EGRESS GATEWAYS lane chip so it stops floating
+    // as an orphan box (2026-05-23 audit finding). Picked from the
+    // path's lateral neighbors; the getter ensures we read the IGW
+    // that the lateral loop adds DURING iteration. Multi-egress paths
+    // are rare — single-checkpoint pick is honest until we
+    // materialize hops.
+    get egressGatewayId() { return egressGateways[0]?.id },
+    // eniId / instanceProfileId / policyId aren't TFM flow fields
+    // today; lane cards render but no connecting line. Fix for these
+    // orphan-card edges lands with the materialized-hop renderer
+    // (v0.2 §3) which iterates AttackPath.hops instead of inferring
+    // checkpoints from a flat node list.
   }
+
+  // Branch A flows are deferred — synthesized AFTER the lateral loop
+  // completes so that lateral-added checkpoints (IGW, etc.) populated
+  // during the loop are available when the flow's egressGatewayId
+  // getter resolves. Capturing during the loop would freeze the
+  // getter against an incomplete egressGateways[] (depends on which
+  // path node iterates first), which produced the 2026-05-23 audit's
+  // "orphan IGW with 771 KB observed bytes" bug.
+  const pendingOnPathFlows: Array<{
+    sourceId: string
+    targetId: string
+    edge: GraphViewEdge
+  }> = []
 
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
     const pathNodeBucket = pathNodeTypeByKey.get(pathNodeId)
@@ -922,6 +950,8 @@ function buildAttackerArchitecture(
 
       // Branch A — edge between two path nodes (on_path=true). The
       // inter-hop observed-traffic edges that animate the chain.
+      // Deferred: defer flow synthesis until after the lateral loop
+      // (see pendingOnPathFlows above for rationale).
       if (e.on_path) {
         const hits = e.hit_count ?? 0
         const bytes = e.bytes ?? 0
@@ -929,23 +959,7 @@ function buildAttackerArchitecture(
         if (!seen.has(neighborId)) continue
         const sourceId = e.direction === "out" ? pathNodeId : neighborId
         const targetId = e.direction === "out" ? neighborId : pathNodeId
-        const key = `${sourceId}->${targetId}`
-        if (flowKeys.has(key)) continue
-        flowKeys.add(key)
-        flows.push({
-          sourceId,
-          targetId,
-          // Route THROUGH path checkpoints so the line zigzags
-          // visually instead of going straight from source to target.
-          sgId: pathCheckpoints.sgId,
-          naclId: pathCheckpoints.naclId,
-          roleId: pathCheckpoints.roleId,
-          ports: e.port ? [String(e.port)] : [],
-          protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
-          bytes,
-          connections: hits || 1,
-          isActive: !!e.observed || hits > 0 || bytes > 0,
-        })
+        pendingOnPathFlows.push({ sourceId, targetId, edge: e })
         continue
       }
 
@@ -1014,6 +1028,34 @@ function buildAttackerArchitecture(
     }
   }
 
+  // Drain the deferred on-path flows now that the lateral loop has
+  // finished populating egressGateways / instanceProfiles / etc. The
+  // pathCheckpoints getters resolve against the final state of each
+  // array, so flow.egressGatewayId is now correctly set to the IGW
+  // that lateral processing added during the loop.
+  for (const { sourceId, targetId, edge: e } of pendingOnPathFlows) {
+    const key = `${sourceId}->${targetId}`
+    if (flowKeys.has(key)) continue
+    flowKeys.add(key)
+    const hits = e.hit_count ?? 0
+    const bytes = e.bytes ?? 0
+    flows.push({
+      sourceId,
+      targetId,
+      // Route THROUGH path checkpoints so the line zigzags visually
+      // instead of going straight from source to target.
+      sgId: pathCheckpoints.sgId,
+      naclId: pathCheckpoints.naclId,
+      roleId: pathCheckpoints.roleId,
+      egressGatewayId: pathCheckpoints.egressGatewayId,
+      ports: e.port ? [String(e.port)] : [],
+      protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
+      bytes,
+      connections: hits || 1,
+      isActive: !!e.observed || hits > 0 || bytes > 0,
+    })
+  }
+
   // Path edges — add as the primary flows (these are the chain).
   // Source/target must already be in seen for the TFM to render the
   // line between them. Most path edges are config-only (USES_ROLE,
@@ -1056,6 +1098,7 @@ function buildAttackerArchitecture(
       sgId: pathCheckpoints.sgId,
       naclId: pathCheckpoints.naclId,
       roleId: pathCheckpoints.roleId,
+      egressGatewayId: pathCheckpoints.egressGatewayId,
       ports: edge.port ? [String(edge.port)] : [],
       protocol: edge.protocol || (t.includes("S3") ? "s3" : "tcp"),
       bytes,
@@ -1091,6 +1134,7 @@ function buildAttackerArchitecture(
         sgId: pathCheckpoints.sgId,
         naclId: pathCheckpoints.naclId,
         roleId: pathCheckpoints.roleId,
+        egressGatewayId: pathCheckpoints.egressGatewayId,
         ports: [],
         protocol: "configured",
         bytes: 0,
