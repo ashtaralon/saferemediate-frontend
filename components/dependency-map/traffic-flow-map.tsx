@@ -2722,51 +2722,60 @@ export function UnifiedArchitectureDiagram({
             </>
           )}
 
-          {/* IAM ROLES + INSTANCE PROFILES (rendered in the same lane —
-              IAMRoleNode's auto-detected isInstanceProfile drives the
-              amber styling, so cards visually self-identify even
-              though they share a column).
+          {/* INSTANCE PROFILES — dedicated column so the canvas count
+              for IAM Roles isn't inflated by binding objects. Renders
+              ONLY when there's actually an Instance Profile on the
+              path (skipped silently otherwise so the layout doesn't
+              widen with an empty column).
+              2026-05-24 split: previously both arrays rendered in
+              "IAM Roles" with a combined count — partners reading
+              "IAM ROLES (2)" on a chain with one role + one binding
+              read it as "two roles", which it isn't. */}
+          {(architecture.instanceProfiles?.length ?? 0) > 0 && (
+            <div className="flex flex-col gap-3 items-center">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-amber-300" />
+                Instance Profiles ({architecture.instanceProfiles?.length ?? 0})
+              </div>
+              {(architecture.instanceProfiles ?? []).map((ip) => (
+                <div key={`profile:${ip.id}`} data-role-id={ip.id}>
+                  <IAMRoleNode
+                    role={ip}
+                    isHighlighted={isNodeHighlighted(ip.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(ip, 'instance_profile')}
+                    forceInstanceProfile={true}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
-              2026-05-23: instance profiles previously went to a
-              dedicated `architecture.instanceProfiles[]` array that
-              wasn't rendered anywhere on the canvas, making the
-              EC2 → InstanceProfile → Role binding hop invisible.
-              Now both arrays render together so the count = real
-              identity-lane size (role + binding); the sidebar still
-              splits them via the separate `instanceProfiles` group. */}
+          {/* IAM ROLES — actual IAM roles only, counted honestly. */}
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Key className="w-4 h-4 text-pink-400" />
-              IAM Roles ({architecture.iamRoles.length + (architecture.instanceProfiles?.length ?? 0)})
+              IAM Roles ({architecture.iamRoles.length})
             </div>
-            {[
-              ...architecture.iamRoles.map((r) => ({ r, kind: 'role' as const })),
-              ...(architecture.instanceProfiles ?? []).map((r) => ({ r, kind: 'profile' as const })),
-            ].map(({ r: role, kind }) => {
-              // The merged-label node carries a role/ ARN even though
-              // it's logically the InstanceProfile binding — the array
-              // it came from is the authoritative signal, so force the
-              // profile styling for any entry sourced from
-              // instanceProfiles[]. ARN-pattern detection stays as the
-              // fallback for the role[] entries (covers cases where a
-              // proper :instance-profile/ id snuck into iamRoles[]).
+            {architecture.iamRoles.map((role) => {
+              // ARN-pattern auto-detect remains as a fallback for cases
+              // where a proper :instance-profile/ id snuck into the
+              // iamRoles[] array via some upstream miscategorization.
               const isIP =
-                kind === 'profile' ||
                 role.id.includes(':instance-profile/') ||
                 /instance.?profile/i.test(role.id);
               return (
-                <div key={`${kind}:${role.id}`} data-role-id={role.id}>
+                <div key={`role:${role.id}`} data-role-id={role.id}>
                   <IAMRoleNode
                     role={role}
                     isHighlighted={isNodeHighlighted(role.id)}
                     onHover={setHoveredId}
                     onClick={() => onSelectService(role, isIP ? 'instance_profile' : 'iam_role')}
-                    forceInstanceProfile={kind === 'profile'}
                   />
                 </div>
               );
             })}
-            {architecture.iamRoles.length === 0 && (architecture.instanceProfiles?.length ?? 0) === 0 && (
+            {architecture.iamRoles.length === 0 && (
               <div className="text-xs text-slate-500 italic p-4 text-center">No Roles</div>
             )}
           </div>

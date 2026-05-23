@@ -547,14 +547,15 @@ function buildAttackerArchitecture(
     const p = props || {}
     const totalCount = Number(p.allowed_actions_count ?? 0) || 0
     const usedCount = Number(p.used_actions_count ?? 0) || 0
-    // unused_actions_count is the collector-emitted scalar; if missing
-    // derive from totalCount - usedCount (clamped at 0). When both are
-    // 0 we display nothing — honest neutral, not fabricated.
-    const unusedFromProps = p.unused_actions_count
-    const gapCount =
-      unusedFromProps != null
-        ? Number(unusedFromProps) || 0
-        : Math.max(0, totalCount - usedCount)
+    // Math invariant: gap = max(0, allowed − used). DO NOT trust the
+    // collector's `unused_actions_count` field — at least one writer
+    // emits values that don't match (allowed=7, used=1 → unused=7
+    // instead of 6 on cyntro-demo-ec2-s3-role as of 2026-05-24). A
+    // partner doing the 5-second mental check on "1/7 · 7 unused"
+    // would spot the inconsistency immediately, so we recompute here
+    // and ignore the broken scalar. The collector should be fixed
+    // separately; the UI must not propagate the bug.
+    const gapCount = Math.max(0, totalCount - usedCount)
     iamRoles.push({
       id,
       type: "iam_role",
@@ -668,8 +669,28 @@ function buildAttackerArchitecture(
     const p = props || {}
     const inboundCount = Number(p.inbound_rule_count ?? 0) || 0
     const outboundCount = Number(p.outbound_rule_count ?? 0) || 0
-    const inboundArr = Array.isArray(p.inbound_rules) ? p.inbound_rules.length : 0
-    const outboundArr = Array.isArray(p.outbound_rules) ? p.outbound_rules.length : 0
+    // 2026-05-24 data-quirk fix: inbound_rules / outbound_rules come
+    // back from Neo4j as JSON-encoded STRINGS (not arrays) on some
+    // collector versions. Array.isArray() returned false, so the
+    // previous fallback never fired even on NACLs with real rule
+    // data. Parse the string defensively so the last-resort path
+    // doesn't silently no-op. (`total_rules` scalar is preferred
+    // when present, which it is on the current collector — this is
+    // belt-and-suspenders against older/inconsistent writers.)
+    const rulesArrayLength = (val: any): number => {
+      if (Array.isArray(val)) return val.length
+      if (typeof val === "string" && val.length > 0) {
+        try {
+          const parsed = JSON.parse(val)
+          return Array.isArray(parsed) ? parsed.length : 0
+        } catch {
+          return 0
+        }
+      }
+      return 0
+    }
+    const inboundArr = rulesArrayLength(p.inbound_rules)
+    const outboundArr = rulesArrayLength(p.outbound_rules)
     // Same fallback chain pattern as addAsSG — see comment there.
     let totalCount = Number(p.total_rules ?? 0) || 0
     if (totalCount === 0) totalCount = inboundCount + outboundCount
@@ -1240,65 +1261,22 @@ function buildAttackerArchitecture(
     }
   }
 
-  // Synthetic Internet entry node — when an InternetGateway is on the
-  // chain, the operator's mental model is "EC2 → IGW → public internet
-  // → S3 endpoint". Without an Internet card on the canvas, the IGW
-  // has no left-side terminus and the "outside" entity is invisible.
-  // The backend phase3 materializer already MERGEs a singleton
-  // (:Internet {id:'internet'}) and writes (Internet)-[:REACHES]->(IGW)
-  // edges; the IAP path enumerator doesn't yet extend chains to the
-  // Internet node, so we synthesize the card client-side until the
-  // backend extension lands.
+  // 2026-05-24: REVERTED — the synthetic Internet node (added briefly
+  // in commit 5ea36fe) was a category error. AWS IAM "Principal" means
+  // an identity (user, role, federated user, service principal); the
+  // public internet is a network traffic source, not an identity. A
+  // CISO / cloud-engineer reviewer spots the mis-categorization in
+  // seconds. The IGW + the SG's `tcp 0-65535 from 0.0.0.0/0` rule
+  // (when surfaced) already communicate "this chain is internet-
+  // exposed" without needing a separate node. Kept this block as a
+  // hostile comment so future PRs don't re-add the node without the
+  // upstream context.
   //
-  // 2026-05-23 audit: "until there's an 'outside' node, the egress chip
-  // will never connect properly". This is the visible-but-disconnected
-  // pass — the card renders so the chain's left edge has a clear
-  // terminus; flow-line routing through Internet is queued separately
-  // (the existing ConnectionLinesSVG only targets data-resource-id
-  // elements, so wiring a flow that lands on the Internet card needs
-  // either a new attribute or a flow that routes Internet → S3 with
-  // IGW as a checkpoint).
-  const hasInternetFacingEgress = egressGateways.some(
-    (gw) => gw.kind === "InternetGateway",
-  )
-  if (hasInternetFacingEgress) {
-    // Use the same sentinel id the backend materializer uses
-    // ("internet:0.0.0.0/0") so future Neo4j-edge-based extensions
-    // dedupe correctly against the client-side synthesis.
-    const internetId = "internet:0.0.0.0/0"
-    if (!seen.has(internetId)) {
-      seen.add(internetId)
-      principals.push({
-        id: internetId,
-        name: "Internet",
-        shortName: "Internet",
-        type: "principal",
-        instanceId: "0.0.0.0/0",
-      })
-    }
-    // Synthesize a configured (non-observed) flow from Internet to
-    // every InternetGateway on the path so the operator sees the
-    // entry edge into the cloud. Marked isActive=false (gray line, no
-    // animation) — honest about "this is the wire, no observed
-    // inbound traffic on it for this chain". ConnectionLinesSVG now
-    // resolves data-gateway-id as a valid target so the line
-    // terminates on the IGW card properly.
-    for (const gw of egressGateways) {
-      if (gw.kind !== "InternetGateway") continue
-      const key = `${internetId}->${gw.id}`
-      if (flowKeys.has(key)) continue
-      flowKeys.add(key)
-      flows.push({
-        sourceId: internetId,
-        targetId: gw.id,
-        ports: [],
-        protocol: "configured",
-        bytes: 0,
-        connections: 0,
-        isActive: false,
-      })
-    }
-  }
+  // If we DO want a visible "outside the perimeter" anchor later,
+  // either (a) add a dedicated ENTRY / NETWORK SOURCE lane (separate
+  // grid column), or (b) render as an annotation chip on the IGW
+  // card itself ("↔ Internet"). Both keep the AWS-IAM ontology
+  // consistent. Don't put it in PRINCIPALS.
 
   const vpcGroups = Array.from(vpcsById.values()).map((v) => {
     const groupSubnets = subnets
