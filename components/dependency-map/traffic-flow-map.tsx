@@ -23,6 +23,13 @@ export interface ServiceNode {
   type: NodeType;
   instanceId?: string;
   isCrownJewel?: boolean;
+  /** Attached ENIs (NetworkInterfaces) for EC2 / workload nodes.
+   *  Rendered as compact chips on the workload card so the SG-ENI-EC2
+   *  binding is visible without taking up a separate Compute row.
+   *  Added 2026-05-23 after the audit flagged "ENI as its own COMPUTE
+   *  row" as a UI clutter issue — the ENI is conceptually part of
+   *  the EC2, not a peer workload. */
+  enis?: Array<{ id: string; name: string; shortName: string }>;
 }
 
 export interface SGRule {
@@ -402,6 +409,25 @@ export function ServiceNodeBox({
           <div className="text-[10px] text-slate-500 font-mono">{node.instanceId}</div>
         )}
         <div className={`text-[10px] ${config.color} uppercase tracking-wider`}>{config.text}</div>
+        {/* ENI chips — attached NetworkInterface(s) folded onto the
+            workload card so the SG-ENI-EC2 binding is visible
+            without taking up a separate Compute row. Compact chip
+            list; full ENI detail lives in the workload drill-down. */}
+        {node.enis && node.enis.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {node.enis.map((eni) => (
+              <span
+                key={eni.id}
+                data-eni-id={eni.id}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/80 text-[9px] font-mono text-slate-300"
+                title={`Attached ENI: ${eni.name}`}
+              >
+                <Network className="w-2.5 h-2.5 text-slate-400" />
+                <span className="truncate max-w-[100px]">{eni.shortName}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Live traffic indicator */}
@@ -1973,7 +1999,16 @@ export function ConnectionLinesSVG({
         if (!sourceEl) {
           sourceEl = container.querySelector(`[data-role-id="${flow.sourceId}"]`);
         }
-        const targetEl = container.querySelector(`[data-resource-id="${flow.targetId}"]`);
+        // Target lookup — primary is data-resource-id (the lane that holds
+        // the crown-jewel / S3 / RDS cards). 2026-05-24 extension:
+        // gateway-targeted flows (Internet → IGW) need
+        // data-gateway-id as a target option too, otherwise the line
+        // drawing returns early on a gateway terminus and the Internet
+        // card stays orphaned even after we synthesize the source.
+        let targetEl = container.querySelector(`[data-resource-id="${flow.targetId}"]`);
+        if (!targetEl) {
+          targetEl = container.querySelector(`[data-gateway-id="${flow.targetId}"]`);
+        }
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
         const roleEl = flow.roleId ? container.querySelector(`[data-role-id="${flow.roleId}"]`) : null;
@@ -2539,6 +2574,30 @@ export function UnifiedArchitectureDiagram({
               <Globe className="w-4 h-4 text-cyan-400" />
               Subnets ({architecture.subnets?.length ?? 0})
             </div>
+            {/* VPC chip — shown ABOVE the subnet cards so the operator
+                sees the container hop the path traverses. Sourced from
+                architecture.vpcGroups (already populated by the
+                attacker-view builder + VPCBoundaries overlay). Rendered
+                as a slim chip rather than a full card so it acts as a
+                lane subheader without competing with the subnet card
+                for visual weight. Click-through and SVG-boundary
+                toggle stay as the deeper drill paths. */}
+            {(architecture.vpcGroups ?? []).map((vpc) => (
+              <div
+                key={`vpc:${vpc.vpcId}`}
+                data-vpc-id={vpc.vpcId}
+                className="rounded-lg border border-blue-500/40 bg-blue-500/5 px-2.5 py-1.5"
+                title={`VPC container — toggle the VPC boundary box in the header to see which subnets / workloads sit inside it.`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <Cloud className="w-3.5 h-3.5 text-blue-300 shrink-0" />
+                  <span className="text-[10px] uppercase tracking-wider text-blue-300 font-semibold">VPC</span>
+                </div>
+                <div className="text-xs font-mono text-slate-200 truncate mt-0.5" title={vpc.vpcName}>
+                  {vpc.vpcName}
+                </div>
+              </div>
+            ))}
             {(architecture.subnets || []).map(subnet => {
               const postureCls =
                 subnet.isPublic === true

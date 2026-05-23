@@ -745,25 +745,30 @@ function buildAttackerArchitecture(
     })
   }
 
-  // NetworkInterface (ENI) → compute lane for now, marked with an
-  // "ENI" prefix so operators see it's not an EC2/Lambda. The ENI
-  // carries the SG attachment, so visually grouping with compute
-  // makes the SG-ENI-EC2 relationship readable. Move to a dedicated
-  // lane in a later slice if needed.
-  const addAsNetworkInterface = (id: string, name: string | null) => {
+  // NetworkInterface (ENI) — folded into its parent EC2 / workload as
+  // a chip on the existing Compute card. Previously rendered as a
+  // separate "ENI eni-…" Compute row, which the 2026-05-23 audit
+  // flagged as visual clutter (the ENI is conceptually part of the
+  // workload, not a peer compute resource). When parentComputeId is
+  // omitted (e.g. orphan ENI surfaced via a Subnet path-node), fall
+  // back to attaching to the first available compute on the path so
+  // the ENI is visible somewhere; if no compute exists at all, skip.
+  const addAsNetworkInterface = (id: string, name: string | null, parentComputeId?: string) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "network_interface")
     if (seenByCanonical.has(canon)) return
+    const parent =
+      (parentComputeId
+        ? computeServices.find((c) => c.id === parentComputeId)
+        : undefined) ?? computeServices[0]
+    if (!parent) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
-    computeServices.push({
-      id,
-      name: `ENI ${display}`,
-      shortName: shortName(`ENI ${display}`),
-      type: "compute", // generic compute icon; the ENI prefix in the name disambiguates
-      instanceId: id,
-    })
+    const enis = parent.enis ?? (parent.enis = [])
+    if (!enis.some((e) => e.id === id)) {
+      enis.push({ id, name: display, shortName: shortName(display) })
+    }
   }
 
   // VPC — render via TFM's VPCBoundaries by populating vpcGroups (built
@@ -968,7 +973,10 @@ function buildAttackerArchitecture(
       const neighborBucket = bucketForGraphType(e.neighbor_type)
       if (neighborBucket === "network_interface") {
         if (pathNodeBucket === "compute") {
-          addAsNetworkInterface(neighborId, e.neighbor_name)
+          // Pass the path node id so the ENI attaches to THAT compute
+          // card (rather than the first compute by accident on
+          // multi-EC2 paths).
+          addAsNetworkInterface(neighborId, e.neighbor_name, pathNodeId)
         }
         // ENI lateral on a non-workload path node (SG / Subnet / VPC)
         // — those are sibling-workload ENIs, skip.
@@ -1225,6 +1233,28 @@ function buildAttackerArchitecture(
         shortName: "Internet",
         type: "principal",
         instanceId: "0.0.0.0/0",
+      })
+    }
+    // Synthesize a configured (non-observed) flow from Internet to
+    // every InternetGateway on the path so the operator sees the
+    // entry edge into the cloud. Marked isActive=false (gray line, no
+    // animation) — honest about "this is the wire, no observed
+    // inbound traffic on it for this chain". ConnectionLinesSVG now
+    // resolves data-gateway-id as a valid target so the line
+    // terminates on the IGW card properly.
+    for (const gw of egressGateways) {
+      if (gw.kind !== "InternetGateway") continue
+      const key = `${internetId}->${gw.id}`
+      if (flowKeys.has(key)) continue
+      flowKeys.add(key)
+      flows.push({
+        sourceId: internetId,
+        targetId: gw.id,
+        ports: [],
+        protocol: "configured",
+        bytes: 0,
+        connections: 0,
+        isActive: false,
       })
     }
   }
