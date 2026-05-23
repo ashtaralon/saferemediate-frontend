@@ -1191,6 +1191,44 @@ function buildAttackerArchitecture(
     }
   }
 
+  // Synthetic Internet entry node — when an InternetGateway is on the
+  // chain, the operator's mental model is "EC2 → IGW → public internet
+  // → S3 endpoint". Without an Internet card on the canvas, the IGW
+  // has no left-side terminus and the "outside" entity is invisible.
+  // The backend phase3 materializer already MERGEs a singleton
+  // (:Internet {id:'internet'}) and writes (Internet)-[:REACHES]->(IGW)
+  // edges; the IAP path enumerator doesn't yet extend chains to the
+  // Internet node, so we synthesize the card client-side until the
+  // backend extension lands.
+  //
+  // 2026-05-23 audit: "until there's an 'outside' node, the egress chip
+  // will never connect properly". This is the visible-but-disconnected
+  // pass — the card renders so the chain's left edge has a clear
+  // terminus; flow-line routing through Internet is queued separately
+  // (the existing ConnectionLinesSVG only targets data-resource-id
+  // elements, so wiring a flow that lands on the Internet card needs
+  // either a new attribute or a flow that routes Internet → S3 with
+  // IGW as a checkpoint).
+  const hasInternetFacingEgress = egressGateways.some(
+    (gw) => gw.kind === "InternetGateway",
+  )
+  if (hasInternetFacingEgress) {
+    // Use the same sentinel id the backend materializer uses
+    // ("internet:0.0.0.0/0") so future Neo4j-edge-based extensions
+    // dedupe correctly against the client-side synthesis.
+    const internetId = "internet:0.0.0.0/0"
+    if (!seen.has(internetId)) {
+      seen.add(internetId)
+      principals.push({
+        id: internetId,
+        name: "Internet",
+        shortName: "Internet",
+        type: "principal",
+        instanceId: "0.0.0.0/0",
+      })
+    }
+  }
+
   const vpcGroups = Array.from(vpcsById.values()).map((v) => {
     const groupSubnets = subnets
       .filter((s) => s.vpcId === v.vpcId || !s.vpcId)
