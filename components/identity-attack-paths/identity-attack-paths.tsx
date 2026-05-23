@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { filterActivePaths } from "@/lib/active-filters"
+import { filterActivePaths, narrowActivePaths } from "@/lib/active-filters"
+import type { ActivePathList } from "@/lib/active-filters"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { AttackTreePanel } from "./attack-tree-panel"
@@ -181,14 +182,17 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // single read site so EVERY downstream useMemo / render gets a
   // pre-filtered array. Catches localStorage-SWR-cached responses
   // from before backend hardening landed.
-  const activePaths = useMemo(
+  const activePaths: ActivePathList<IdentityAttackPath> = useMemo(
     () => filterActivePaths(data?.paths ?? []),
     [data?.paths],
   )
 
-  const jewelPaths = useMemo(() => {
-    if (!selectedJewelId) return []
-    return activePaths.filter((p) => p.crown_jewel_id === selectedJewelId)
+  // narrowActivePaths preserves the ActivePathList brand through the
+  // crown-jewel filter so downstream components requiring the brand
+  // type-check correctly.
+  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
+    if (!selectedJewelId) return filterActivePaths([])
+    return narrowActivePaths(activePaths, (p) => p.crown_jewel_id === selectedJewelId)
   }, [activePaths, selectedJewelId])
 
   // ── Partition jewels + paths by "safe" definition: no actionable remediation ──

@@ -4,42 +4,70 @@
  *
  * Why this exists
  * ---------------
- * The backend ships a centralized is_active filter (commits 7c0c1f1
- * through a41c1c7) that drops phantom workloads/jewels at the API
- * boundary. That filter is correct for live API responses. But the
- * frontend serves CACHED IAP responses from localStorage when the
- * backend returns 5xx (useCachedFetch's stale-while-revalidate). A
- * cached response from before the backend hardening can contain
- * phantom nodes the freshly-deployed backend would never emit.
+ * The backend's centralized is_active filter (commits 7c0c1f1 through
+ * a41c1c7) drops phantom workloads/jewels at the API boundary. That's
+ * correct for live API responses. But useCachedFetch surfaces
+ * localStorage-cached IAP responses on backend 5xx — including
+ * payloads captured before backend hardening landed. The client-side
+ * gate (filterActivePaths) runs at render time on EVERY response,
+ * fresh or cached, closing that leak.
  *
- * This module is the client-side gate that runs at render time on
- * EVERY IAP response — fresh or cached — so the phantom-leak surface
- * is closed regardless of cache age.
+ * Enforcement model
+ * -----------------
+ * Compile-time fact, not runtime heuristic. The output of
+ * filterActivePaths is a branded type, `ActivePathList<T>`. Components
+ * that render path data declare their prop as `ActivePathList<T>`
+ * instead of `T[]`. The TypeScript compiler then proves at build time
+ * that filterActivePaths was called — there is no other constructor
+ * for the branded type. A future fetch site that forgets to call the
+ * filter will fail to compile when it tries to pass a raw array to a
+ * brand-typed prop.
  *
- * Apply at every path-list render site. The lint guard
- * (eslint-no-raw-path-rendering, ./eslint/no-raw-path-render.js)
- * fails the build if a new component renders an IdentityAttackPath[]
- * without first passing it through filterActivePaths.
+ * The only way to bypass is an explicit `as ActivePathList<T>` cast
+ * — which is an obvious operator error, not a silent regression.
  *
- * Memory: feedback_fix_model_not_paths.md (model-level central filter,
- * not per-strategy patches) — same lesson, applied to the frontend
- * surface. The variant lesson is in
+ * Memory: feedback_fix_model_not_paths.md (central enforcement, not
+ * per-strategy). The frontend variant is captured in
  * feedback_frontend_cache_can_serve_stale_phantoms.md.
  */
 
-/** Shape of a node within a path's `nodes` array, as returned by IAP. */
+/** Minimal shape this module needs to read from a path node. Concrete
+ *  shapes (PathNodeDetail, dep_map MapNode, etc.) satisfy this
+ *  structurally without an explicit `extends`. */
 export interface PathNodeLike {
   id?: string | null
   type?: string | null
   is_active?: boolean | null
-  [key: string]: unknown
 }
 
-/** Shape of an attack path returned by IAP. */
+/** Minimal shape this module needs from a path. Concrete shapes
+ *  (IdentityAttackPath, AttackPath, etc.) satisfy this structurally.
+ *  No `[key: string]: unknown` index signature — it conflicts with
+ *  concrete interfaces that have typed extra fields. */
 export interface AttackPathLike {
   id?: string
   nodes?: PathNodeLike[]
-  [key: string]: unknown
+}
+
+// ─── Branded type for compile-time enforcement ───────────────────────
+//
+// `unique symbol` declared but never assigned — exists only in the
+// TypeScript type domain. At runtime, ActivePathList<T> is just T[];
+// the brand is erased. Anyone trying to construct one without
+// filterActivePaths needs an explicit `as` cast (caught by code
+// review).
+declare const __activeFiltered: unique symbol
+
+/**
+ * A path array that has been gated through filterActivePaths.
+ *
+ * Components rendering path data should declare their prop as
+ * `ActivePathList<IdentityAttackPath>` rather than `IdentityAttackPath[]`.
+ * Callers must then call filterActivePaths before passing the data
+ * down. The compiler enforces this; no lint heuristic needed.
+ */
+export type ActivePathList<T extends AttackPathLike> = T[] & {
+  readonly [__activeFiltered]: true
 }
 
 /**
@@ -76,8 +104,8 @@ export function isActiveNode(
 export function filterActivePaths<T extends AttackPathLike>(
   paths: T[] | undefined | null,
   staleIds?: ReadonlySet<string>,
-): T[] {
-  if (!paths || !Array.isArray(paths)) return []
+): ActivePathList<T> {
+  if (!paths || !Array.isArray(paths)) return EMPTY_ACTIVE_LIST as ActivePathList<T>
   const kept: T[] = []
   const dropped: { id: string; reason: string }[] = []
 
@@ -108,7 +136,33 @@ export function filterActivePaths<T extends AttackPathLike>(
     )
   }
 
-  return kept
+  // The brand cast is the ONLY place where unverified data acquires
+  // the ActivePathList shape. Every render site downstream then has
+  // a compile-time guarantee that this function was called.
+  return kept as unknown as ActivePathList<T>
+}
+
+// Shared empty list to avoid allocating a new empty array per call.
+// Frozen so a consumer can't push into it (would corrupt the brand
+// across renders).
+const EMPTY_ACTIVE_LIST = Object.freeze([]) as unknown as ActivePathList<AttackPathLike>
+
+
+/**
+ * Narrow an already-branded list to a subset that still carries the
+ * brand. Use this for derivations like "paths for the selected jewel"
+ * — TypeScript's built-in `.filter()` returns a non-branded array, so
+ * passing the result downstream would lose the compile-time proof.
+ *
+ * Safe by construction: filterActivePaths already gated the input;
+ * `narrowActivePaths` only removes items, never adds. The output is
+ * a strict subset of an already-gated set.
+ */
+export function narrowActivePaths<T extends AttackPathLike>(
+  paths: ActivePathList<T>,
+  predicate: (path: T) => boolean,
+): ActivePathList<T> {
+  return (paths as T[]).filter(predicate) as unknown as ActivePathList<T>
 }
 
 /**

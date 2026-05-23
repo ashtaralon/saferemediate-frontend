@@ -19,6 +19,8 @@ import {
   filterActivePaths,
   isActiveNode,
 } from "@/lib/active-filters"
+import type { ActivePathList } from "@/lib/active-filters"
+import type { AttackPathLike } from "@/lib/active-filters"
 
 describe("isActiveNode", () => {
   test("rejects explicit is_active=false", () => {
@@ -194,6 +196,50 @@ describe("filterActivePaths — defensive paths", () => {
     }
     const out = filterActivePaths([dualLabelPath], new Set(["i-shadowed"]))
     expect(out).toEqual([])
+  })
+})
+
+// ─── Branded type — compile-time enforcement ──────────────────────────
+//
+// These tests don't ASSERT anything at runtime. They use `@ts-expect-error`
+// to prove the TypeScript compiler rejects bypasses. If the compiler
+// stops rejecting (someone removed the brand, weakened the type, etc.),
+// the @ts-expect-error annotation fails the build with
+// "Unused @ts-expect-error directive".
+//
+// This is the fact-based half of the enforcement model. The runtime
+// tests above prove the filter logic; these prove the type system
+// won't let anyone skip the filter at the call site.
+
+describe("ActivePathList — compile-time brand enforcement", () => {
+  test("filterActivePaths returns the branded type", () => {
+    const paths: AttackPathLike[] = []
+    const filtered: ActivePathList<AttackPathLike> = filterActivePaths(paths)
+    // Runtime check that the array is usable as a normal array
+    expect(filtered.length).toBe(0)
+  })
+
+  test("a raw array is NOT assignable to ActivePathList — compile error", () => {
+    const raw: AttackPathLike[] = [{ id: "i-test", nodes: [] }]
+    // @ts-expect-error — raw paths lack the brand; assigning must fail
+    const _branded: ActivePathList<AttackPathLike> = raw
+    void _branded
+  })
+
+  test("an empty literal is NOT assignable either — compile error", () => {
+    // @ts-expect-error — literals don't carry the brand
+    const _branded: ActivePathList<AttackPathLike> = []
+    void _branded
+  })
+
+  test("the only construction path is filterActivePaths", () => {
+    // Sanity check that the filter accepts undefined/null without TS error
+    const ok1: ActivePathList<AttackPathLike> = filterActivePaths(undefined)
+    const ok2: ActivePathList<AttackPathLike> = filterActivePaths(null)
+    const ok3: ActivePathList<AttackPathLike> = filterActivePaths([])
+    expect(ok1).toBeDefined()
+    expect(ok2).toBeDefined()
+    expect(ok3).toBeDefined()
   })
 })
 

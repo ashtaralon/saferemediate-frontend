@@ -19,9 +19,12 @@ import type {
   PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
+import type { ActivePathList } from "@/lib/active-filters"
 
 interface PathListGroupedProps {
-  paths: IdentityAttackPath[]
+  // ActivePathList enforces at compile time that the caller passed
+  // this array through filterActivePaths. See lib/active-filters.ts.
+  paths: ActivePathList<IdentityAttackPath>
   jewel: CrownJewelSummary | null
   selectedPathId: string | null
   onSelectPath: (pathId: string) => void

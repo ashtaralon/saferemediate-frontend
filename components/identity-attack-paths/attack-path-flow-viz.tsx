@@ -7,6 +7,7 @@ import {
   Maximize2, Minimize2, X, Layers, Table2, KeyRound, ShieldOff,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
+import type { ActivePathList } from "@/lib/active-filters"
 import type {
   IdentityAttackPath,
   PathNodeDetail,
@@ -30,7 +31,9 @@ import type {
 
 // ── Props ───────────────────────────────────────────────────────────
 interface AttackPathFlowVizProps {
-  paths: IdentityAttackPath[]
+  // ActivePathList enforces at compile time that filterActivePaths
+  // ran on this array. See lib/active-filters.ts.
+  paths: ActivePathList<IdentityAttackPath>
   selectedPathIndex: number
   onNodeClick: (nodeId: string) => void
   selectedNodeId: string | null
