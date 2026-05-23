@@ -143,6 +143,13 @@ export interface SubnetNode {
   // Lets the connection-line renderer draw compute→subnet edges so the
   // path reads "EC2 → Subnet → SG → NACL → IAM" visually.
   connectedComputeIds: string[];
+  /** Effective route table for this subnet — chip on the subnet card
+   *  carrying the "Allowed − Actual = Blast Radius" closure narrative
+   *  onto the network plane. Sourced from the backend's RouteTable
+   *  enrichment join (graph-view feat: join RouteTable into Subnet). */
+  routeTableId?: string;
+  routeTableCount?: number;
+  routeTableIsMain?: boolean;
 }
 
 export interface SystemArchitecture {
@@ -2662,6 +2669,33 @@ export function UnifiedArchitectureDiagram({
                   {subnet.connectedComputeIds.length > 1 && (
                     <div className="mt-1 text-[10px] text-slate-500">
                       {subnet.connectedComputeIds.length} workloads
+                    </div>
+                  )}
+                  {/* Route-table chip — surfaces the effective route
+                      table this subnet uses + the route count. Carries
+                      the "Allowed − Actual = Blast Radius" closure
+                      narrative onto the network plane: N routes
+                      configured, X observed (X / N will land once the
+                      flowlogs-vs-routes correlator ships).
+                      Hidden when no route_table_id is wired — older
+                      backends without the RouteTable enrichment don't
+                      get an empty chip. */}
+                  {subnet.routeTableId && (
+                    <div
+                      className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-700/80 bg-slate-800/60 text-[10px] font-mono text-slate-300"
+                      title={`Effective route table: ${subnet.routeTableId}${typeof subnet.routeTableCount === 'number' ? ` · ${subnet.routeTableCount} routes` : ''}${subnet.routeTableIsMain ? ' · main' : ''}`}
+                    >
+                      <ArrowRight className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                      <span className="truncate max-w-[90px]">{subnet.routeTableId}</span>
+                      {typeof subnet.routeTableCount === 'number' && (
+                        <span className="text-slate-500">·</span>
+                      )}
+                      {typeof subnet.routeTableCount === 'number' && (
+                        <span className="text-slate-300">{subnet.routeTableCount} {subnet.routeTableCount === 1 ? 'route' : 'routes'}</span>
+                      )}
+                      {subnet.routeTableIsMain && (
+                        <span className="ml-1 px-1 py-px text-[8px] uppercase tracking-wider rounded bg-slate-700 text-slate-300 border border-slate-600">main</span>
+                      )}
                     </div>
                   )}
                 </div>

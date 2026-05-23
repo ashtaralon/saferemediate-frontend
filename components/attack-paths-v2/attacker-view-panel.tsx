@@ -837,7 +837,13 @@ function buildAttackerArchitecture(
     const display = friendlyName(name, id)
     vpcsById.set(id, { vpcId: id, vpcName: display })
   }
-  const addAsSubnet = (id: string, name: string | null, vpcId: string | null, isPublic: boolean | null) => {
+  const addAsSubnet = (
+    id: string,
+    name: string | null,
+    vpcId: string | null,
+    isPublic: boolean | null,
+    rt?: { id?: string | null; count?: number | null; isMain?: boolean | null } | null,
+  ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "subnet")
     if (seenByCanonical.has(canon)) return
@@ -859,6 +865,13 @@ function buildAttackerArchitecture(
       isPublic,
       vpcId: vpcId || undefined,
       connectedComputeIds: [],
+      // Route-table chip metadata (backend feat 9bc86f9). All optional —
+      // older backends without the RouteTable enrichment will simply
+      // skip the chip rather than render blanks.
+      routeTableId: rt?.id || undefined,
+      routeTableCount:
+        typeof rt?.count === "number" && rt.count > 0 ? rt.count : undefined,
+      routeTableIsMain: rt?.isMain === true ? true : undefined,
     })
   }
 
@@ -898,7 +911,16 @@ function buildAttackerArchitecture(
         props?.subnet_is_public ??
         props?.is_public ??
         null
-      addAsSubnet(node.id, node.name, vpcId, isPub)
+      // Route-table metadata — backend graph-view joins RouteTable
+      // and injects route_table_route_count / route_table_is_main on
+      // the Subnet's key_properties (feat 9bc86f9). Falls back to
+      // just the route_table_id when count isn't surfaced.
+      const rt = {
+        id: (props?.route_table_id as string | undefined) ?? null,
+        count: (props?.route_table_route_count as number | undefined) ?? null,
+        isMain: (props?.route_table_is_main as boolean | undefined) ?? null,
+      }
+      addAsSubnet(node.id, node.name, vpcId, isPub, rt)
     }
     // 'ignore' — bucket didn't match a node type we render in any lane.
   }
