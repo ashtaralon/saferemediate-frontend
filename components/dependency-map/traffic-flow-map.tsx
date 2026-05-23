@@ -752,6 +752,12 @@ export function NACLNode({
 }) {
   const hasGap = nacl.gapCount > 0;
   const blastRadius = nacl.connectedTargets?.length || nacl.connectedSources?.length || 0;
+  // Subnets covered by this NACL. Pulled from Neo4j into SecurityCheckpoint
+  // via the addAsNACL helper. The "0 affected" label this card used to
+  // show was meaningless on chains where the NACL had only allow rules
+  // (gapCount=0 by design); the operator's real question is "what does
+  // this NACL apply to" — which is rule count + subnet attachment.
+  const subnetCount = (nacl as any).subnetCount ?? 0;
 
   return (
     <div
@@ -773,10 +779,30 @@ export function NACLNode({
         <div className="text-[10px] text-slate-400">
           Network ACL
         </div>
-        <div className="flex items-center gap-2 mt-1">
-          <span className={`text-[9px] px-1.5 py-0.5 rounded ${blastRadius > 0 ? 'bg-orange-500/20 text-amber-400' : 'bg-slate-600/50 text-slate-400'}`}>
-            {blastRadius} affected
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {/* Rule count — the actionable signal for an attacker view.
+              Replaces the old "{blastRadius} affected" label which was
+              always 0 on NACLs with only allow rules (no denies =
+              gapCount 0). N rules tells the operator what's enforceable
+              here. */}
+          <span className={`text-[9px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-600/50 text-slate-400'}`}>
+            {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
           </span>
+          {/* Deny count — only when there ARE denies. Coloured amber
+              because explicit denies are what catch unintended egress. */}
+          {nacl.gapCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-400">
+              {nacl.gapCount} {nacl.gapCount === 1 ? 'deny' : 'denies'}
+            </span>
+          )}
+          {/* Subnet attachment count — shows the NACL's blast surface
+              ("this NACL applies to N subnets"). Hidden when 0 (orphan
+              NACL — operator should look elsewhere). */}
+          {subnetCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
+              {subnetCount} {subnetCount === 1 ? 'subnet' : 'subnets'}
+            </span>
+          )}
         </div>
       </div>
 

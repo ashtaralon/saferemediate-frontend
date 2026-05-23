@@ -522,26 +522,47 @@ function buildAttackerArchitecture(
   }
   // True IAMRole only (InstanceProfile is handled by addAsInstanceProfile
   // and IAMPolicy by addAsPolicy — each owns its own array). usedCount /
-  // totalCount remain 0 here because the per-role gap data isn't on
-  // GraphViewResponse.nodes[].key_properties yet; the IAM Roles lane
-  // renders the chip with role.totalCount and falls back to "—" when 0.
-  // Future: pipe allowed_actions_count / used_actions_count through the
-  // graph-view payload so the lane shows real gap numbers.
-  const addAsRole = (id: string, _type: string, name: string | null) => {
+  // totalCount / gapCount now pipe through from the role node's
+  // key_properties (allowed_actions_count / used_actions_count /
+  // unused_actions_count) so the IAM Roles lane card shows the real
+  // gap story — "1 used / 6 excess" — instead of dashes. This is what
+  // makes the Cyntro closure narrative visible on the canvas; the
+  // 2026-05-23 audit called the empty IAM Policies lane "the most
+  // visible product-value gap right now". With the counts piped here
+  // the role's status ring also colour-codes by usage percent (the
+  // shared IAMRoleNode logic already had the visual rules; just
+  // wasn't getting real data).
+  const addAsRole = (
+    id: string,
+    _type: string,
+    name: string | null,
+    props?: Record<string, any> | null,
+  ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "iam_role")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
+    const p = props || {}
+    const totalCount = Number(p.allowed_actions_count ?? 0) || 0
+    const usedCount = Number(p.used_actions_count ?? 0) || 0
+    // unused_actions_count is the collector-emitted scalar; if missing
+    // derive from totalCount - usedCount (clamped at 0). When both are
+    // 0 we display nothing — honest neutral, not fabricated.
+    const unusedFromProps = p.unused_actions_count
+    const gapCount =
+      unusedFromProps != null
+        ? Number(unusedFromProps) || 0
+        : Math.max(0, totalCount - usedCount)
     iamRoles.push({
       id,
       type: "iam_role",
       name: display,
       shortName: shortName(display),
-      usedCount: 0,
-      totalCount: 0,
-      gapCount: 0,
+      usedCount,
+      totalCount,
+      gapCount,
       connectedSources: [],
       connectedTargets: [],
     })
@@ -656,7 +677,12 @@ function buildAttackerArchitecture(
     const denyCount = Number(p.inbound_deny_count ?? 0) + Number(p.outbound_deny_count ?? 0)
     const gapCount = denyCount || 0
     const usedCount = totalCount > 0 ? Math.max(0, totalCount - gapCount) : 0
-    nacls.push({
+    // subnet_count — number of subnets this NACL applies to. Drives
+    // the "M subnets" pill on the NACL card so the operator sees the
+    // blast surface; the previous "0 affected" label was always 0 on
+    // NACLs with only allow rules.
+    const subnetCount = Number(p.subnet_count ?? 0) || 0
+    const naclEntry: SecurityCheckpoint & { subnetCount?: number } = {
       id,
       type: "nacl",
       name: display,
@@ -666,7 +692,11 @@ function buildAttackerArchitecture(
       gapCount,
       connectedSources: [],
       connectedTargets: [],
-    })
+    }
+    if (subnetCount > 0) {
+      naclEntry.subnetCount = subnetCount
+    }
+    nacls.push(naclEntry)
   }
   // IAMPolicy — the actual permission grant document, IS the finding
   // for over-permissive paths (e.g. S3OverPermissiveAccess on
@@ -821,7 +851,7 @@ function buildAttackerArchitecture(
     const props = (node.key_properties as Record<string, any> | undefined) ?? null
     if (bucket === "compute") addAsCompute(node.id, node.type, node.name)
     else if (bucket === "resource") addAsResource(node.id, node.type, node.name)
-    else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name)
+    else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name, props)
     else if (bucket === "instance_profile") addAsInstanceProfile(node.id, node.name)
     else if (bucket === "iam_policy") addAsPolicy(node.id, node.name, props)
     else if (bucket === "sg") addAsSG(node.id, node.name, props)
@@ -835,7 +865,18 @@ function buildAttackerArchitecture(
       addAsNetworkInterface(node.id, node.name)
     } else if (bucket === "subnet") {
       const vpcId = props?.vpc_id ?? null
-      const isPub = props?.subnet_is_public ?? null
+      // Subnet is_public has three collector-side property names in
+      // flight: `public` (canonical, written by
+      // subnet_visibility_collector), `subnet_is_public` (legacy
+      // CSPM ingest), `is_public` (older wrapper). Read all three
+      // with `public` winning so the card stops rendering "Unknown"
+      // when the visibility collector has already classified the
+      // route table.
+      const isPub =
+        props?.public ??
+        props?.subnet_is_public ??
+        props?.is_public ??
+        null
       addAsSubnet(node.id, node.name, vpcId, isPub)
     }
     // 'ignore' — bucket didn't match a node type we render in any lane.
