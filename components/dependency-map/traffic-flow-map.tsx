@@ -131,6 +131,14 @@ export interface SubnetNode {
 
 export interface SystemArchitecture {
   computeServices: ServiceNode[];
+  /** Principals (AWSPrincipal, CloudTrailPrincipal, IAMUser, root). The
+   *  actor making the API call. Rendered in a dedicated leftmost lane,
+   *  not in Compute — operators correctly read Compute as "EC2 / Lambda
+   *  / ECS workloads" and conflating it with API callers caused
+   *  visual misclassification (e.g. `root` rendering as a Compute card
+   *  on the SafeRemediate-Test-App-2 → S3 chain). Optional for back-
+   *  compat with consumers that don't render the lane yet. */
+  principals?: ServiceNode[];
   resources: ServiceNode[];
   subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
@@ -2378,8 +2386,45 @@ export function UnifiedArchitectureDiagram({
           } gap-6 items-start`}
           style={{ zIndex: 2 }}
         >
-          {/* COMPUTE */}
+          {/* PRINCIPALS + COMPUTE (single leftmost column, stacked).
+              Principals lane renders ABOVE Compute so the visual
+              narrative reads "actor → workload → … → target" top to
+              bottom. Principals (AWSPrincipal, CloudTrailPrincipal,
+              IAMUser, root) live in their own architecture array and
+              don't appear under Compute — they're API callers, not
+              workloads. Added 2026-05-23 after audit feedback that
+              `root` was rendering as "Compute (3)" alongside an
+              actual EC2 + ENI on the SafeRemediate-Test-App-2 chain.
+              Sharing data-compute-id keeps the existing
+              ConnectionLinesSVG source-lookup working without
+              extending the selector list. */}
           <div className="flex flex-col gap-3">
+            {architecture.principals && architecture.principals.length > 0 && (
+              <>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Target className="w-4 h-4 text-cyan-300" />
+                  Principals ({architecture.principals.length})
+                </div>
+                {architecture.principals.map((node) => {
+                  const isInAttackPath = attackPathNodeIds.has(node.id);
+                  return (
+                    <div key={`principal:${node.id}`} data-compute-id={node.id} className="relative mb-3">
+                      {isInAttackPath && (
+                        <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-cyan-400/50" />
+                      )}
+                      <ServiceNodeBox
+                        node={node}
+                        position="left"
+                        flowInfo={computeFlowInfo.get(node.id)}
+                        isHighlighted={isNodeHighlighted(node.id)}
+                        onHover={setHoveredId}
+                        onClick={() => onSelectService(node, 'compute')}
+                      />
+                    </div>
+                  );
+                })}
+              </>
+            )}
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-400" />
               Compute ({architecture.computeServices.length})

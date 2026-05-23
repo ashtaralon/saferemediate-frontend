@@ -415,6 +415,13 @@ function buildAttackerArchitecture(
   const iamPolicies: SecurityCheckpoint[] = []
   const egressGateways: EgressGatewayNode[] = []
   const flows: TrafficFlow[] = []
+  // Principals (AWSPrincipal / CloudTrailPrincipal / IAMUser / root) —
+  // rendered in their own dedicated lane on the canvas. Previously
+  // pushed into computeServices with type:'principal' which made `root`
+  // render under the Compute lane heading — a category mistake that
+  // suggested root was a workload running on this chain. Per the
+  // 2026-05-23 audit feedback: principals are actors, not compute.
+  const principals: ServiceNode[] = []
   // VPC tracker — collected during the first pass so we can build the
   // TFM `vpcGroups` payload that drives the existing VPCBoundaries
   // renderer (toggled by the "VPC" checkbox in the header). VPCs were
@@ -468,19 +475,17 @@ function buildAttackerArchitecture(
     })
   }
   // Principal (CloudTrailPrincipal / AWSPrincipal / IAMUser / HumanIdentity)
-  // — the actor making the API call. Previously skipped, which collapsed
-  // any Principal → Resource path to a single-node canvas (only the
-  // target rendered). For API-only paths where the chain is
-  // <principal> → <S3 bucket> with no EC2/Lambda hop, the principal IS
-  // the source side of the flow — dropping it left the operator looking
-  // at a target with no caller, no observed connection, and no E2E
-  // service flow visible.
+  // — the actor making the API call. Pushed into a dedicated
+  // `principals[]` array so the TFM canvas can render them in their
+  // own leftmost lane.
   //
-  // Render in the compute lane with type:'principal' so the existing
-  // ServiceNodeBox renderer picks up the cyan Target icon from
-  // NODE_CONFIG. Lane co-location with compute matches semantics —
-  // both are "the actor" in attack-narrative terms — without needing
-  // a new lane in TrafficFlowMap.
+  // History note: an earlier version pushed principals into
+  // `computeServices` with type:'principal'. That fixed the "only the
+  // target renders" bug for API-only paths, but introduced a category
+  // mistake — `root` rendered under "COMPUTE" which suggested it was
+  // a workload on this chain. Per 2026-05-23 audit feedback the lane
+  // is now separate so the visual reads correctly: principals are
+  // actors, not compute.
   const addAsPrincipal = (id: string, name: string | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "principal")
@@ -488,7 +493,7 @@ function buildAttackerArchitecture(
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
-    computeServices.push({
+    principals.push({
       id,
       name: display,
       shortName: shortName(display),
@@ -1061,23 +1066,27 @@ function buildAttackerArchitecture(
 
   // ─── Chain-completion flows ──────────────────────────────────────
   //
-  // If we have a compute workload AND a crown-jewel resource on the
-  // path but NO synthesized observed flow between them yet (because
-  // the BFS only emitted role→S3 with traffic, not compute→S3), add
-  // a chain-completing flow so the line draws compute → SG → NACL →
-  // role → resource visually. Marked isActive=false (dimmed gray)
-  // since it's a CONFIGURED relationship, not observed traffic. This
-  // gives the operator the full visual chain without lying about
-  // traffic evidence.
+  // If we have a compute workload OR a principal AND a crown-jewel
+  // resource on the path but NO synthesized observed flow between
+  // them yet (because the BFS only emitted role→S3 with traffic, not
+  // compute→S3), add a chain-completing flow so the line draws
+  // source → SG → NACL → role → resource visually. Marked
+  // isActive=false (dimmed gray) since it's a CONFIGURED relationship,
+  // not observed traffic. Principals are included as sources now that
+  // they're in their own lane — without this the principal lane
+  // would render as a card with no outgoing line on direct-access
+  // paths (root → S3 etc.) when the BFS edge filter dropped the
+  // observed terminal edge for any reason.
   const pathComputes = computeServices.filter((c) => !c.name.startsWith("ENI "))
+  const pathSources = [...pathComputes, ...principals]
   const pathResources = resources
-  for (const compute of pathComputes) {
+  for (const source of pathSources) {
     for (const resource of pathResources) {
-      const key = `${compute.id}->${resource.id}`
+      const key = `${source.id}->${resource.id}`
       if (flowKeys.has(key)) continue
       flowKeys.add(key)
       flows.push({
-        sourceId: compute.id,
+        sourceId: source.id,
         targetId: resource.id,
         sgId: pathCheckpoints.sgId,
         naclId: pathCheckpoints.naclId,
@@ -1156,6 +1165,7 @@ function buildAttackerArchitecture(
 
   return {
     computeServices,
+    principals,
     resources,
     subnets,
     securityGroups,

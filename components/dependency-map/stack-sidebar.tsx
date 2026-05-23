@@ -20,6 +20,7 @@ import {
   KeyRound,
   FileText,
   IdCard,
+  Target,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,10 @@ interface GroupConfig {
 }
 
 const GROUP_CONFIGS: GroupConfig[] = [
+  // Principals lane (AWSPrincipal / CloudTrailPrincipal / IAMUser / root).
+  // Added 2026-05-23 so the sidebar groups API callers separately from
+  // workloads (previously root rendered under Compute).
+  { key: 'principals', label: 'Principals', icon: Target, iconColor: 'text-cyan-300' },
   { key: 'compute', label: 'Compute', icon: Server, iconColor: 'text-blue-400' },
   { key: 'securityGroups', label: 'Security Groups', icon: Shield, iconColor: 'text-orange-400' },
   { key: 'nacls', label: 'NACLs', icon: Lock, iconColor: 'text-cyan-400' },
@@ -306,6 +311,12 @@ export function StackSidebar({
       );
 
     return {
+      // Optional — populated by the Attacker view's per-path
+      // architecture builder; the system-map fetch doesn't carry
+      // principals yet, so guard with `?? []` for back-compat.
+      principals: ((architecture as any).principals ?? []).filter((p: ComputeService) =>
+        matchesSearch(p.name, p.shortName),
+      ),
       compute: architecture.computeServices.filter((c) =>
         matchesSearch(c.name, c.shortName),
       ),
@@ -455,6 +466,7 @@ export function StackSidebar({
   // Total count across all groups
   const totalCount = useMemo(() => {
     return (
+      ((architecture as any).principals?.length ?? 0) +
       architecture.computeServices.length +
       architecture.securityGroups.length +
       architecture.nacls.length +
