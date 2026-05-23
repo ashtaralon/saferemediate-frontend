@@ -195,7 +195,11 @@ const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
 // severity hero, attack-chain strip, hop-by-hop graph viz, crown-jewel
 // list panel). The component already takes a ``systemName`` prop and
 // hits ``/api/proxy/identity-attack-paths/<systemName>`` so the data
-// scope is the same set of resources tagged into this system. Replaced
+// scope is the same set of resources tagged into this system.
+//
+// WAIVER_active_filter: the URL mention above is documentation only —
+// this dashboard does not fetch IAP itself; it dynamically imports
+// IdentityAttackPaths, which has its own filterActivePaths gate. Replaced
 // the legacy AttackPathsTab — operators were getting two different
 // visual languages for the same concept across the org-level and
 // per-system views.

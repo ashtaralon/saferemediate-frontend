@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { filterActivePaths } from "@/lib/active-filters"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { AttackTreePanel } from "./attack-tree-panel"
@@ -175,16 +176,26 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     retry()
   }, [retry])
 
+  // Client-side stale-node gate. See lib/active-filters.ts —
+  // drops paths where any node carries is_active=false. Applied at the
+  // single read site so EVERY downstream useMemo / render gets a
+  // pre-filtered array. Catches localStorage-SWR-cached responses
+  // from before backend hardening landed.
+  const activePaths = useMemo(
+    () => filterActivePaths(data?.paths ?? []),
+    [data?.paths],
+  )
+
   const jewelPaths = useMemo(() => {
-    if (!data || !selectedJewelId) return []
-    return (data.paths ?? []).filter((p) => p.crown_jewel_id === selectedJewelId)
-  }, [data, selectedJewelId])
+    if (!selectedJewelId) return []
+    return activePaths.filter((p) => p.crown_jewel_id === selectedJewelId)
+  }, [activePaths, selectedJewelId])
 
   // ── Partition jewels + paths by "safe" definition: no actionable remediation ──
   const { atRiskJewels, safeJewels, atRiskPathCount, safePathCount } = useMemo(() => {
     if (!data) return { atRiskJewels: [], safeJewels: [], atRiskPathCount: 0, safePathCount: 0 }
     const jewels = data.crown_jewels ?? []
-    const paths = data.paths ?? []
+    const paths = activePaths
     const pathHasAction = (p: IdentityAttackPath) =>
       (p.risk_reduction?.top_actions?.length ?? 0) > 0
 

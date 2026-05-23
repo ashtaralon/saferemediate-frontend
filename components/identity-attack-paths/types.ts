@@ -356,6 +356,13 @@ export interface PathNodeDetail {
   // muted for roles; IAMUser without MFA is a HARD signal.
   has_mfa?: boolean | null
   has_console_access?: boolean | null
+  // 2026-05-23: soft-delete flag surfaced through the response so the
+  // frontend's client-side stale gate (lib/active-filters.ts) can drop
+  // paths through inactive nodes even when localStorage SWR serves a
+  // cached IAP response from before backend hardening. `false` = node
+  // is_active=false in Neo4j (soft-deleted by reconciliation pass).
+  // `true` / `null` / undefined = node is renderable.
+  is_active?: boolean | null
   // Tier-1: SecurityFinding nodes whose resourceArn === this node.id.
   // Empty array when no findings reference this node. Backend caps at
   // 10 per node — operator drills in via the detail panel for the rest.

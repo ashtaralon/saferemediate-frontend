@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { filterActivePaths } from "@/lib/active-filters"
 
 // ── Fetch types (aligned to existing proxy responses) ────────────────────
 
@@ -284,6 +285,17 @@ export function useHomeData(systemName: string): UseHomeDataResult {
     runFetch<IdentityAttackPathsData>(
       `/api/proxy/identity-attack-paths/${encodeURIComponent(sys)}`,
       setAttackPaths,
+      // Client-side stale-node gate. Filter happens here so every
+      // downstream consumer of `attackPaths.data` sees a clean array
+      // even when useCachedFetch surfaces a stale localStorage copy
+      // after a backend 502. See lib/active-filters.ts.
+      (raw: any): IdentityAttackPathsData => {
+        const inner = raw?.result ?? raw
+        return {
+          ...inner,
+          paths: filterActivePaths(inner?.paths ?? []),
+        }
+      },
     )
   }, [runFetch])
 

@@ -26,6 +26,7 @@ import { useEffect, useMemo } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Loader2, AlertTriangle, RefreshCw } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { filterActivePaths } from "@/lib/active-filters"
 import { CrownJewelListPanel } from "@/components/identity-attack-paths/crown-jewel-list-panel"
 import type {
   IdentityAttackPathsResponse,
@@ -101,7 +102,17 @@ export function AttackPathsV2() {
   }, [rawData])
 
   const jewels: CrownJewelSummary[] = data?.crown_jewels ?? []
-  const allPaths: IdentityAttackPath[] = data?.paths ?? []
+  // Client-side stale-node gate. Runs on EVERY render — fresh AND
+  // localStorage-SWR-cached. Drops paths whose nodes carry
+  // is_active=false. The backend already filters on fresh responses;
+  // this catches the case where useCachedFetch surfaces a stale IAP
+  // response from before backend hardening landed (e.g. on a 502).
+  // See lib/active-filters.ts and
+  // feedback_frontend_cache_can_serve_stale_phantoms.md.
+  const allPaths: IdentityAttackPath[] = useMemo(
+    () => filterActivePaths(data?.paths ?? []),
+    [data?.paths],
+  )
 
   // Paths for the currently-selected jewel. Empty list = no jewel
   // selected or no paths to it.
