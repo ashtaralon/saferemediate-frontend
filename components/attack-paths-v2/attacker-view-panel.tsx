@@ -1070,6 +1070,15 @@ function buildAttackerArchitecture(
   const pathCheckpoints = {
     get sgId() { return securityGroups[0]?.id },
     get naclId() { return nacls[0]?.id },
+    // InstanceProfile — the AWS binding between EC2 and IAMRole. TFM
+    // now treats this as a dedicated flow checkpoint (added with
+    // `instanceProfileId` on TrafficFlow) so the polyline reads
+    // EC2 → SG → NACL → IP → Role → S3. Without this, the IP lane
+    // card rendered but no line connected it (orphan card; user
+    // report 2026-05-24 on SafeRemediate-Test-App-2 → cyntro-demo-
+    // prod-data). Getter so the lateral loop's IP-add is visible
+    // when the flow synthesis below runs.
+    get instanceProfileId() { return instanceProfiles[0]?.id },
     // iamRoles[] is now policy-free (policies live in iamPolicies[] post
     // 2026-05-22 split), so no need for the 📜-prefix filter.
     get roleId() { return iamRoles[0]?.id },
@@ -1081,10 +1090,10 @@ function buildAttackerArchitecture(
     // are rare — single-checkpoint pick is honest until we
     // materialize hops.
     get egressGatewayId() { return egressGateways[0]?.id },
-    // eniId / instanceProfileId / policyId aren't TFM flow fields
-    // today; lane cards render but no connecting line. Fix for these
-    // orphan-card edges lands with the materialized-hop renderer
-    // (v0.2 §3) which iterates AttackPath.hops instead of inferring
+    // eniId / policyId aren't TFM flow fields today; lane cards
+    // render but no connecting line. Fix for these orphan-card
+    // edges lands with the materialized-hop renderer (v0.2 §3)
+    // which iterates AttackPath.hops instead of inferring
     // checkpoints from a flat node list.
   }
 
@@ -1209,6 +1218,7 @@ function buildAttackerArchitecture(
       // instead of going straight from source to target.
       sgId: pathCheckpoints.sgId,
       naclId: pathCheckpoints.naclId,
+      instanceProfileId: pathCheckpoints.instanceProfileId,
       roleId: pathCheckpoints.roleId,
       egressGatewayId: pathCheckpoints.egressGatewayId,
       ports: e.port ? [String(e.port)] : [],
@@ -1260,6 +1270,7 @@ function buildAttackerArchitecture(
       // Route through path checkpoints (same as Branch A above).
       sgId: pathCheckpoints.sgId,
       naclId: pathCheckpoints.naclId,
+      instanceProfileId: pathCheckpoints.instanceProfileId,
       roleId: pathCheckpoints.roleId,
       egressGatewayId: pathCheckpoints.egressGatewayId,
       ports: edge.port ? [String(edge.port)] : [],
@@ -1335,19 +1346,41 @@ function buildAttackerArchitecture(
   }
   // Fallback — when the path doesn't surface IN_SUBNET edges (e.g.
   // CloudTrail-only paths whose serializer drops topology edges), give
-  // each subnet ALL the network-relevant ids on the path so
-  // VPCBoundaries has enough anchors to compute a bounding box that
-  // genuinely wraps the network region (not just the Compute column).
-  // Without this the VPC box rendered only around Compute, missing
-  // the SG / NACL / IAMRole cards that are also network-scoped.
+  // each subnet a set of TRULY VPC-SCOPED ids so VPCBoundaries can
+  // compute a bounding box that wraps the network region.
+  //
+  // 2026-05-24 user report: the dashed VPC boundary visually wrapped
+  // the S3 RESOURCES card. Root cause: this fallback used to include
+  // IAM Roles AND InstanceProfiles in the anchor set. Those are GLOBAL
+  // IAM objects — not VPC-scoped — but they got rendered in lanes
+  // positioned visually to the RIGHT of the RESOURCES lane. Bounding-
+  // box math then stretched the boundary past S3 to reach the IP card,
+  // making S3 fall inside geometrically.
+  //
+  // What stays in the anchor set (genuinely VPC-scoped):
+  //   - Compute (EC2/Lambda in subnet)
+  //   - Security Groups (VPC-scoped)
+  //   - NACLs (subnet-scoped, so VPC-scoped)
+  //   - Egress Gateways (IGW/NAT — attached to VPC)
+  //
+  // What's removed (not VPC-scoped OR layout-wise misleading):
+  //   - IAMRoles (IAM service, global)
+  //   - InstanceProfiles (IAM service, global)
+  //   - Resources (S3/DynamoDB/KMS — most are global; the few that ARE
+  //     in-VPC like RDS render in their own subnet anyway, the boundary
+  //     can pick them up via IN_SUBNET when that edge surfaces)
+  //   - EgressGateways: although IGW/NAT attach AT the VPC perimeter,
+  //     the canvas lays them out in ROW 2 (same row as RESOURCES). A
+  //     boundary that includes IGW stretches DOWN into row 2 and
+  //     engulfs the RESOURCES lane (S3) geometrically, which reads as
+  //     "S3 is in the VPC" — wrong. Leaving IGW outside the dashed box
+  //     is the lesser evil: it sits at the VPC edge visually, and the
+  //     flow line still routes through it.
   if (subnetToComputes.size === 0 && subnets.length > 0) {
     const networkScopedIds = [
       ...computeServices.map((c) => c.id),
       ...securityGroups.map((sg) => sg.id),
       ...nacls.map((n) => n.id),
-      ...iamRoles.map((r) => r.id),
-      ...instanceProfiles.map((p) => p.id),
-      ...egressGateways.map((g) => g.id),
     ]
     for (const s of subnets) {
       subnetToComputes.set(s.id, networkScopedIds)

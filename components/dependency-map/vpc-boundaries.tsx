@@ -55,9 +55,9 @@ function findNodeElements(
       `[data-compute-id="${nodeId}"]`,
       `[data-sg-id="${nodeId}"]`,
       `[data-nacl-id="${nodeId}"]`,
+      `[data-ip-id="${nodeId}"]`,
       `[data-role-id="${nodeId}"]`,
-      `[data-resource-id="${nodeId}"]`,
-      `[data-api-id="${nodeId}"]`,
+      `[data-gateway-id="${nodeId}"]`,
     ];
     for (const selector of selectors) {
       const el = container.querySelector<HTMLElement>(selector);
@@ -105,15 +105,26 @@ function computeBoundingBox(
   };
 }
 
-// Fallback: find ALL architecture nodes in container
+// Fallback: find network-scoped architecture nodes in container.
+//
+// 2026-05-24 user report: the VPC dashed boundary visually wrapped
+// the S3 RESOURCES lane card. Resources (S3, DynamoDB, KMS) are
+// GLOBAL AWS services — they don't live inside any VPC. Including
+// `[data-resource-id]` here pulled them into the bounding box, which
+// made the box overshoot to the right past the EGRESS GATEWAYS lane
+// and look like the IGW + S3 were both VPC-internal. Excluded.
+//
+// API call chips ([data-api-id]) are also outside the VPC trust
+// boundary — they represent the AWS service endpoint the workload
+// invokes. Excluded for the same reason.
 function findAllArchitectureNodes(container: HTMLElement): HTMLElement[] {
   const selectors = [
     '[data-compute-id]',
     '[data-sg-id]',
     '[data-nacl-id]',
     '[data-role-id]',
-    '[data-resource-id]',
-    '[data-api-id]',
+    '[data-ip-id]',
+    '[data-gateway-id]',
   ];
   const elements: HTMLElement[] = [];
   for (const sel of selectors) {

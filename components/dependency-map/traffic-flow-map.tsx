@@ -66,6 +66,13 @@ export interface TrafficFlow {
   targetId: string;
   sgId?: string;
   naclId?: string;
+  // InstanceProfile is the AWS binding between EC2 and IAMRole. When
+  // set, ConnectionLinesSVG routes the polyline through the
+  // [data-ip-id="..."] card so it sits BEFORE the role hop. Without
+  // this checkpoint, the IP lane card renders but no flow points at
+  // it → orphan card visually disconnected from the chain (2026-05-24
+  // user report on SafeRemediate-Test-App-2 → cyntro-demo-prod-data).
+  instanceProfileId?: string;
   roleId?: string;
   // VPC endpoint the packet egresses through to reach an AWS service
   // (e.g. S3 Gateway VPCE com.amazonaws.<region>.s3). Populated when the
@@ -2044,6 +2051,13 @@ export function ConnectionLinesSVG({
         }
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
+        // IP card carries both data-ip-id (preferred, new) and data-role-id
+        // (back-compat). Query data-ip-id first so the IP checkpoint can
+        // be distinguished from the role checkpoint even when both share
+        // an underlying SecurityCheckpoint type.
+        const ipEl = flow.instanceProfileId
+          ? container.querySelector(`[data-ip-id="${flow.instanceProfileId}"]`)
+          : null;
         const roleEl = flow.roleId ? container.querySelector(`[data-role-id="${flow.roleId}"]`) : null;
         // Find API call node for this target resource
         const apiEl = container.querySelector(`[data-api-id="${flow.targetId}"]`);
@@ -2101,6 +2115,15 @@ export function ConnectionLinesSVG({
           const posL = getNodeCenter(naclEl, 'left');
           const posR = getNodeCenter(naclEl, 'right');
           if (posL && posR) checkpoints.push({ el: naclEl, posL, posR });
+        }
+        // InstanceProfile sits BEFORE the role hop. AWS chain shape:
+        // EC2 → SG → NACL → IP → Role → resource. Drawing it here makes
+        // the polyline pass through the IP card instead of bypassing it
+        // and leaving the IP visually disconnected.
+        if (ipEl) {
+          const posL = getNodeCenter(ipEl, 'left');
+          const posR = getNodeCenter(ipEl, 'right');
+          if (posL && posR) checkpoints.push({ el: ipEl, posL, posR });
         }
         if (roleEl) {
           const posL = getNodeCenter(roleEl, 'left');
@@ -2772,7 +2795,15 @@ export function UnifiedArchitectureDiagram({
                 Instance Profiles ({architecture.instanceProfiles?.length ?? 0})
               </div>
               {(architecture.instanceProfiles ?? []).map((ip) => (
-                <div key={`profile:${ip.id}`} data-role-id={ip.id}>
+                // data-ip-id (new) + data-role-id (back-compat for the
+                // previous querySelector code paths). InstanceProfile
+                // is the AWS binding object between EC2 and IAMRole;
+                // ConnectionLinesSVG now routes flows through it as a
+                // dedicated checkpoint when flow.instanceProfileId is
+                // set so the polyline reads EC2 → SG → NACL → IP →
+                // Role → S3 instead of jumping straight from NACL to
+                // Role and leaving the IP card orphan.
+                <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id}>
                   <IAMRoleNode
                     role={ip}
                     isHighlighted={isNodeHighlighted(ip.id)}
