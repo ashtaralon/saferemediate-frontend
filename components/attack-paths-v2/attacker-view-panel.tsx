@@ -15,8 +15,8 @@
 // attack surface in the same visual language as Per-Path, just with
 // the lateral fan-out lanes populated by the graph-view endpoint.
 
-import { useEffect, useMemo, useState } from "react"
-import { Crown, AlertTriangle, Eye } from "lucide-react"
+import { useMemo } from "react"
+import { Crown, AlertTriangle, Eye, RefreshCw } from "lucide-react"
 import dynamic from "next/dynamic"
 import type {
   SystemArchitecture,
@@ -30,6 +30,7 @@ import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 
 // Heavy renderer — lazy-load so the v2 page doesn't pull the full
 // dep-map bundle until the operator switches to attacker view.
@@ -86,46 +87,59 @@ interface GraphViewEdge {
 }
 
 export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanelProps) {
-  const [data, setData] = useState<GraphViewResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
+  // Stable request body — recomputed only when path identity / system
+  // changes. Without useMemo the body would be a fresh string on every
+  // render and the fetchInit reference flip would trip useRetryFetch's
+  // dependency comparison.
+  const requestBody = useMemo(() => {
     const nodeIds = (path.nodes ?? []).map((n) => n.id)
     const pathEdges = (path.edges ?? []).map((e) => ({
       source: e.source,
       target: e.target,
     }))
-    fetch("/api/proxy/attack-chain/graph-view", {
+    return JSON.stringify({
+      system_name: systemName,
+      node_ids: nodeIds,
+      path_edges: pathEdges,
+      lateral_cap_per_node: 30,
+    })
+  }, [path.id, path.nodes, path.edges, systemName])
+
+  // Auto-retry on 502/503/504 — the Render backend's IAP endpoint can
+  // saturate the worker pool when a slow query is in flight, causing
+  // graph-view to return 5xx transiently even though it's a fast
+  // query in isolation (~0.75s warm). useRetryFetch handles the
+  // transient-status set + provides a manual retry handle.
+  //
+  // refetchKey=path.id triggers a fresh sequence when the user clicks
+  // a different path in the left rail. maxRetries=2 means the user
+  // gets 3 attempts spaced ~1s/2s before seeing the error UI — covers
+  // a typical worker-pool blip without making them stare at a spinner
+  // for the worst case.
+  const fetchInit = useMemo<RequestInit>(
+    () => ({
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_name: systemName,
-        node_ids: nodeIds,
-        path_edges: pathEdges,
-        lateral_cap_per_node: 30,
-      }),
-    })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((d: GraphViewResponse) => {
-        if (!cancelled) setData(d)
-      })
-      .catch((e: any) => {
-        if (!cancelled) setError(String(e?.message ?? e))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [path.id, systemName])
+      body: requestBody,
+    }),
+    [requestBody],
+  )
+  const {
+    data,
+    loading,
+    error,
+    retry,
+    retrying,
+    attempt,
+  } = useRetryFetch<GraphViewResponse>(
+    "/api/proxy/attack-chain/graph-view",
+    {
+      fetchInit,
+      refetchKey: path.id,
+      maxRetries: 2,
+      initialDelayMs: 1000,
+    },
+  )
 
   // Synthesize a SystemArchitecture from the graph-view response.
   // Path nodes get added to their canonical lanes; lateral nodes also
@@ -174,16 +188,25 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
   }, [data, path])
 
   if (loading) {
+    const retryLabel =
+      retrying && attempt > 0
+        ? `Backend was slow — retrying (attempt ${attempt + 1})…`
+        : "Querying Neo4j for the path's neighborhood…"
     return (
       <div className="flex flex-col h-full">
         <Header jewel={jewel} subtitle="Loading the live attack surface…" />
         <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
-          Querying Neo4j for the path's neighborhood…
+          {retryLabel}
         </div>
       </div>
     )
   }
   if (error) {
+    // Error copy distinguishes the two failure modes operators care
+    // about: transient 5xx (backend worker pool busy — retry usually
+    // works) vs everything else (bad request / network gone). Both get
+    // a Retry button so the operator can act without reloading the page.
+    const looks5xx = /\b5\d\d\b/.test(error)
     return (
       <div className="flex flex-col h-full">
         <Header jewel={jewel} subtitle="Could not load attacker view" />
@@ -194,6 +217,21 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
               <span className="font-semibold">Graph view failed</span>
             </div>
             <div className="text-xs text-red-200/80">{error}</div>
+            {looks5xx && (
+              <div className="mt-2 text-[11px] text-red-200/60">
+                The backend's worker pool was likely busy with a slow
+                upstream query (the per-system IAP enrichment can run
+                long). Retrying usually clears it.
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={retry}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/20"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Retry
+            </button>
           </div>
         </div>
       </div>
