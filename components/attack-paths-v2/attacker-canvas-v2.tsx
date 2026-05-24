@@ -31,7 +31,7 @@
  *       trust it)
  */
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Server, Database, HardDrive, Key, Layers, Shield, Lock,
   Globe, Cloud, Target, FileText, Network, AlertTriangle,
@@ -148,38 +148,65 @@ function CanvasBody({ canvas }: { canvas: AttackCanvas }) {
   const hasIamPolicies = lanes.iamPolicies.length > 0
   const hasRemediationTargets = canvas.nodes.some((n) => n.included_reason === "REMEDIATION_TARGET")
 
+  // Node lookup by aws_id — drives line-style decisions
+  // (REMEDIATION_TARGET → dashed amber) and hover propagation.
+  const nodesByAwsId = useMemo(() => {
+    const m = new Map<string, CanvasNode>()
+    for (const n of canvas.nodes) m.set(n.aws_id, n)
+    return m
+  }, [canvas.nodes])
+
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
   return (
     <div className="flex flex-col h-full">
       <Header canvas={canvas} />
       <div className="flex-1 overflow-auto p-6">
-        <div className="flex gap-6 min-w-max">
-          <Lane title="Principals" icon={Target} iconColor="text-cyan-300" nodes={lanes.principals} />
-          <LaneStack>
-            <Lane title="Compute" icon={Server} iconColor="text-blue-400" nodes={lanes.compute} />
-            <Lane title="Egress Gateways" icon={Globe} iconColor="text-amber-300" nodes={lanes.egressGateways} />
-          </LaneStack>
-          <Lane title="Subnets" icon={Globe} iconColor="text-cyan-400" nodes={lanes.subnets} canvas={canvas} />
-          <Lane title="Security Groups" icon={Shield} iconColor="text-orange-400" nodes={lanes.securityGroups} />
-          <Lane title="NACLs" icon=  {Lock} iconColor="text-cyan-400" nodes={lanes.nacls} />
-          {hasInstanceProfiles && (
-            <Lane title="Instance Profiles" icon={Layers} iconColor="text-amber-300" nodes={lanes.instanceProfiles} />
-          )}
-          <Lane title="IAM Roles" icon={Key} iconColor="text-pink-400" nodes={lanes.iamRoles} />
-          {hasIamPolicies && (
-            <Lane title="IAM Policies" icon={FileText} iconColor="text-rose-400" nodes={lanes.iamPolicies} />
-          )}
-          <LaneStack>
-            <Lane title="Resources" icon={Database} iconColor="text-green-400" nodes={lanes.resources} />
-            {hasRemediationTargets && (
-              <Lane
-                title="Remediation Targets"
-                icon={AlertTriangle}
-                iconColor="text-amber-400"
-                nodes={lanes.remediationTargets}
-                subtitle="Sibling resources covered by the same grant"
-              />
+        {/* Relative wrapper for the absolute-positioned SVG overlay.
+            The SVG measures each card's bounding box against this
+            container and draws lines from dto.edges. Pure DTO — no
+            inference; if an endpoint isn't rendered (e.g., REMEDIATION_TARGET
+            node not in the lanes), we skip the line and emit
+            EDGE_ENDPOINT_NOT_RENDERED at debug level. */}
+        <div ref={containerRef} className="relative">
+          <div className="flex gap-6 min-w-max">
+            <Lane title="Principals" icon={Target} iconColor="text-cyan-300" nodes={lanes.principals} hoveredId={hoveredId} onHover={setHoveredId} />
+            <LaneStack>
+              <Lane title="Compute" icon={Server} iconColor="text-blue-400" nodes={lanes.compute} hoveredId={hoveredId} onHover={setHoveredId} />
+              <Lane title="Egress Gateways" icon={Globe} iconColor="text-amber-300" nodes={lanes.egressGateways} hoveredId={hoveredId} onHover={setHoveredId} />
+            </LaneStack>
+            <Lane title="Subnets" icon={Globe} iconColor="text-cyan-400" nodes={lanes.subnets} canvas={canvas} hoveredId={hoveredId} onHover={setHoveredId} />
+            <Lane title="Security Groups" icon={Shield} iconColor="text-orange-400" nodes={lanes.securityGroups} hoveredId={hoveredId} onHover={setHoveredId} />
+            <Lane title="NACLs" icon={Lock} iconColor="text-cyan-400" nodes={lanes.nacls} hoveredId={hoveredId} onHover={setHoveredId} />
+            {hasInstanceProfiles && (
+              <Lane title="Instance Profiles" icon={Layers} iconColor="text-amber-300" nodes={lanes.instanceProfiles} hoveredId={hoveredId} onHover={setHoveredId} />
             )}
-          </LaneStack>
+            <Lane title="IAM Roles" icon={Key} iconColor="text-pink-400" nodes={lanes.iamRoles} hoveredId={hoveredId} onHover={setHoveredId} />
+            {hasIamPolicies && (
+              <Lane title="IAM Policies" icon={FileText} iconColor="text-rose-400" nodes={lanes.iamPolicies} hoveredId={hoveredId} onHover={setHoveredId} />
+            )}
+            <LaneStack>
+              <Lane title="Resources" icon={Database} iconColor="text-green-400" nodes={lanes.resources} hoveredId={hoveredId} onHover={setHoveredId} />
+              {hasRemediationTargets && (
+                <Lane
+                  title="Remediation Targets"
+                  icon={AlertTriangle}
+                  iconColor="text-amber-400"
+                  nodes={lanes.remediationTargets}
+                  subtitle="Sibling resources covered by the same grant"
+                  hoveredId={hoveredId}
+                  onHover={setHoveredId}
+                />
+              )}
+            </LaneStack>
+          </div>
+          <CanvasEdgesSVG
+            edges={canvas.edges}
+            nodesByAwsId={nodesByAwsId}
+            containerRef={containerRef}
+            hoveredId={hoveredId}
+          />
         </div>
       </div>
       {(canvas.warnings.length > 0 || Object.keys(canvas.diagnostics).length > 0) && (
@@ -238,9 +265,11 @@ interface LaneProps {
   nodes: CanvasNode[]
   subtitle?: string
   canvas?: AttackCanvas
+  hoveredId: string | null
+  onHover: (id: string | null) => void
 }
 
-function Lane({ title, icon: Icon, iconColor, nodes, subtitle, canvas }: LaneProps) {
+function Lane({ title, icon: Icon, iconColor, nodes, subtitle, canvas, hoveredId, onHover }: LaneProps) {
   if (nodes.length === 0) {
     return (
       <div className="flex flex-col gap-2 min-w-[150px]">
@@ -279,7 +308,7 @@ function Lane({ title, icon: Icon, iconColor, nodes, subtitle, canvas }: LanePro
             )
           })}
         {nodes.map((node) => (
-          <NodeCard key={node.aws_id} node={node} />
+          <NodeCard key={node.aws_id} node={node} hoveredId={hoveredId} onHover={onHover} />
         ))}
       </div>
     </div>
@@ -297,15 +326,26 @@ function LaneHeader({ title, icon: Icon, iconColor, count }: { title: string; ic
 
 // ─── Node card (pure DTO rendering) ─────────────────────────────────
 
-function NodeCard({ node }: { node: CanvasNode }) {
+function NodeCard({
+  node,
+  hoveredId,
+  onHover,
+}: {
+  node: CanvasNode
+  hoveredId: string | null
+  onHover: (id: string | null) => void
+}) {
   const visual = visualForType(node.type)
   const isRemediationTarget = node.included_reason === "REMEDIATION_TARGET"
+  const isHovered = hoveredId === node.aws_id
   return (
     <div
       data-canvas-node-id={node.aws_id}
-      className={`relative rounded-lg border-2 px-3 py-2 ${visual.cardBg} ${visual.cardBorder} ${
+      onMouseEnter={() => onHover(node.aws_id)}
+      onMouseLeave={() => onHover(null)}
+      className={`relative rounded-lg border-2 px-3 py-2 transition-all duration-150 ${visual.cardBg} ${visual.cardBorder} ${
         isRemediationTarget ? "border-dashed" : ""
-      }`}
+      } ${isHovered ? "ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/20" : ""}`}
       title={`${node.aws_id} · included_reason=${node.included_reason}`}
     >
       <div className="flex items-center gap-2">
@@ -632,6 +672,208 @@ interface NodeVisual {
   cardBg: string
   cardBorder: string
   label: string
+}
+
+// ─── SVG connection-line overlay ────────────────────────────────────
+
+interface LineStyle {
+  stroke: string
+  width: number
+  dasharray?: string
+  opacity: number
+}
+
+interface RenderedLine {
+  edge: CanvasEdge
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  style: LineStyle
+}
+
+/**
+ * Pure DTO consumer for connection lines.
+ *
+ * Iterates dto.edges, finds each endpoint via data-canvas-node-id
+ * lookups, and draws an SVG line between the right edge of the
+ * source card and the left edge of the target card.
+ *
+ * Forbidden behaviors (would compromise DTO-only contract):
+ *   ❌ Synthesizing edges not in dto.edges
+ *   ❌ Inferring source/target by name match if id lookup fails
+ *   ❌ Drawing "implied" lines (e.g. EC2 → S3 when only edges are
+ *      EC2 → role and role → S3) — only edges that physically
+ *      exist in the DTO get drawn
+ *
+ * When an endpoint isn't rendered (e.g. REMEDIATION_TARGET node
+ * not on this lane layout), we log EDGE_ENDPOINT_NOT_RENDERED at
+ * debug level and skip the line. Visible canvas stays honest.
+ */
+function CanvasEdgesSVG({
+  edges,
+  nodesByAwsId,
+  containerRef,
+  hoveredId,
+}: {
+  edges: CanvasEdge[]
+  nodesByAwsId: Map<string, CanvasNode>
+  containerRef: React.RefObject<HTMLDivElement | null>
+  hoveredId: string | null
+}) {
+  const [lines, setLines] = useState<RenderedLine[]>([])
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
+  const recalc = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    const cRect = container.getBoundingClientRect()
+    setSize({ width: container.scrollWidth, height: container.scrollHeight })
+    const result: RenderedLine[] = []
+    let dropped = 0
+    for (const edge of edges) {
+      const srcEl =
+        container.querySelector(`[data-canvas-node-id="${cssEscape(edge.source_aws_id)}"]`) ||
+        container.querySelector(`[data-canvas-vpc-id="${cssEscape(edge.source_aws_id)}"]`)
+      const dstEl =
+        container.querySelector(`[data-canvas-node-id="${cssEscape(edge.target_aws_id)}"]`) ||
+        container.querySelector(`[data-canvas-vpc-id="${cssEscape(edge.target_aws_id)}"]`)
+      if (!srcEl || !dstEl) {
+        dropped++
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.debug(
+            "[canvas v2] EDGE_ENDPOINT_NOT_RENDERED",
+            edge.id,
+            !srcEl ? `source not rendered: ${edge.source_aws_id}` : `target not rendered: ${edge.target_aws_id}`,
+          )
+        }
+        continue
+      }
+      const sr = srcEl.getBoundingClientRect()
+      const dr = dstEl.getBoundingClientRect()
+      // Right edge of source → left edge of target. Falls back to
+      // straight-through if both happen to be in the same column.
+      const x1 = sr.right - cRect.left
+      const y1 = sr.top + sr.height / 2 - cRect.top
+      const x2 = dr.left - cRect.left
+      const y2 = dr.top + dr.height / 2 - cRect.top
+      const srcNode = nodesByAwsId.get(edge.source_aws_id)
+      const dstNode = nodesByAwsId.get(edge.target_aws_id)
+      result.push({
+        edge,
+        x1, y1, x2, y2,
+        style: lineStyleForEdge(edge, srcNode, dstNode),
+      })
+    }
+    if (dropped > 0 && process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug(`[canvas v2] ${dropped}/${edges.length} edges skipped (endpoints not rendered)`)
+    }
+    setLines(result)
+  }, [edges, nodesByAwsId, containerRef])
+
+  // Recalculate on mount + when edges/nodes change + on container
+  // resize. ResizeObserver covers layout reflow from window resize,
+  // sidebar collapse, and tab switching.
+  useEffect(() => {
+    recalc()
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(recalc)
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [recalc, containerRef])
+
+  // Also recalc once after a tiny delay to catch async font/icon
+  // loading that shifts card positions a few px after first paint.
+  useEffect(() => {
+    const t = setTimeout(recalc, 120)
+    return () => clearTimeout(t)
+  }, [recalc])
+
+  return (
+    <svg
+      className="absolute top-0 left-0 pointer-events-none"
+      width={size.width}
+      height={size.height}
+      style={{ zIndex: 1 }}
+    >
+      {lines.map((line) => {
+        const isOnHovered =
+          hoveredId !== null &&
+          (hoveredId === line.edge.source_aws_id || hoveredId === line.edge.target_aws_id)
+        const isDimmed = hoveredId !== null && !isOnHovered
+        return (
+          <line
+            key={line.edge.id}
+            x1={line.x1}
+            y1={line.y1}
+            x2={line.x2}
+            y2={line.y2}
+            stroke={line.style.stroke}
+            strokeWidth={isOnHovered ? line.style.width + 1 : line.style.width}
+            strokeDasharray={line.style.dasharray}
+            opacity={isDimmed ? 0.1 : isOnHovered ? 1.0 : line.style.opacity}
+            strokeLinecap="round"
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+/** Edge-style decision. Pure DTO — looks only at the edge's
+ *  relationship type + the endpoints' included_reason. Three
+ *  styles per user spec:
+ *    - dashed amber  : either endpoint is a REMEDIATION_TARGET
+ *                       (the "sibling reach" story)
+ *    - subtle gray   : context/container edges (IN_VPC,
+ *                       IN_SUBNET, BELONGS_TO, RUNS_IN_VPC)
+ *    - solid (bright if observed, dim if config)
+ *                    : path/proof edges (everything else)
+ */
+function lineStyleForEdge(
+  edge: CanvasEdge,
+  srcNode?: CanvasNode,
+  dstNode?: CanvasNode,
+): LineStyle {
+  // Remediation reach — dashed amber
+  if (
+    srcNode?.included_reason === "REMEDIATION_TARGET" ||
+    dstNode?.included_reason === "REMEDIATION_TARGET"
+  ) {
+    return { stroke: "#f59e0b", width: 1.5, dasharray: "6,4", opacity: 0.7 }
+  }
+  // Context/container — subtle gray
+  if (
+    edge.relationship === "IN_VPC" ||
+    edge.relationship === "IN_SUBNET" ||
+    edge.relationship === "RUNS_IN_VPC" ||
+    edge.relationship === "BELONGS_TO"
+  ) {
+    return { stroke: "#475569", width: 1, dasharray: "2,3", opacity: 0.4 }
+  }
+  // Path/proof — solid; brighter when the edge carries observed
+  // traffic (CloudTrail hits / Flow Log bytes), dimmer for config.
+  const observed =
+    edge.observed === true || (edge.hit_count != null && edge.hit_count > 0)
+  return {
+    stroke: observed ? "#60a5fa" : "#64748b",
+    width: observed ? 2 : 1.5,
+    opacity: observed ? 0.85 : 0.6,
+  }
+}
+
+/** Minimal CSS.escape polyfill — Neo4j ids may contain `:` and `/`
+ *  which aren't valid in CSS attribute selectors without escaping. */
+function cssEscape(s: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(s)
+  }
+  return s.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1")
 }
 
 /** Per-type visual constants. Pure lookup table — no inference. */
