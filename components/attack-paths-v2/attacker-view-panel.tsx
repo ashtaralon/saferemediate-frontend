@@ -1004,6 +1004,38 @@ function buildAttackerArchitecture(
     pathNodeTypeByKey.set(node.id, bucketForGraphType(node.type))
   }
 
+  // Pre-compute the set of InstanceProfile ids that the path's IAMRole
+  // ACTUALLY routes through. Read incoming USES_ROLE laterals on each
+  // path role; any IP that appears there is a real on-chain hop.
+  //
+  // Background (2026-05-24 user report): when an EC2 has both a
+  // HAS_INSTANCE_PROFILE edge (its static AWS config) AND a direct
+  // USES_ROLE edge to a different role (CloudTrail-observed via STS
+  // AssumeRole), the BFS picks the CloudTrail role (because that's
+  // the one with ACCESSES_RESOURCE → jewel). The InstanceProfile's
+  // USES_ROLE target is the *other* role, not the one on the path,
+  // so adding it as a lateral produced an orphan card with no flow
+  // line — the IP lane card rendered but couldn't be wired through
+  // (its role isn't on the chain, and the TFM has no flow checkpoint
+  // for InstanceProfile anyway).
+  //
+  // Filter: only add the IP if it directly USES_ROLE → a path role.
+  // Otherwise it's a sibling attachment that belongs in System Detail
+  // or Per-Path view, not the Attacker chain.
+  const ipsOnPathChain = new Set<string>()
+  for (const role of iamRoles) {
+    const roleLaterals = graph.laterals_by_node[role.id] || []
+    for (const e of roleLaterals) {
+      if (
+        e.direction === "in" &&
+        e.type === "USES_ROLE" &&
+        bucketForGraphType(e.neighbor_type) === "instance_profile"
+      ) {
+        ipsOnPathChain.add(e.neighbor_id)
+      }
+    }
+  }
+
   // Dedupe flow synthesis — same edge can appear from both this
   // loop's on_path branch AND the path.edges loop below. Without a
   // key set we doubled the role→jewel flow's hit count (the
@@ -1143,12 +1175,13 @@ function buildAttackerArchitecture(
         continue
       }
       if (neighborBucket === "instance_profile") {
-        if (pathNodeBucket === "compute") {
-          // EC2 → InstanceProfile is the binding object that wires the
-          // workload to the role it runs as. Already surfaced as a
-          // path node when the path includes the chain, but lateral
-          // surfacing covers the case where the path skipped the IP
-          // hop (older IAP builders).
+        // Only add when (a) the path node is a compute (natural
+        // carrier) AND (b) the IP actually USES_ROLE → a role on the
+        // path. The second gate prevents the orphan-card class of
+        // bug: an EC2 may carry HAS_INSTANCE_PROFILE → IP whose role
+        // is NOT the one on this attack chain (see ipsOnPathChain
+        // precompute above for full context).
+        if (pathNodeBucket === "compute" && ipsOnPathChain.has(neighborId)) {
           addAsInstanceProfile(neighborId, e.neighbor_name)
         }
         continue
