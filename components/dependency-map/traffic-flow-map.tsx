@@ -169,6 +169,15 @@ export interface SystemArchitecture {
    *  on the SafeRemediate-Test-App-2 → S3 chain). Optional for back-
    *  compat with consumers that don't render the lane yet. */
   principals?: ServiceNode[];
+  /** ENTRY lane (Phase 2 — 2026-05-25): explicit attacker-entry-point
+   *  nodes. Surfaces the question "how does the attacker reach the
+   *  workload?" before the chain proceeds. Includes network entry
+   *  (Internet → IGW / ALB / NLB / APIGateway) and identity entry
+   *  (root / IAMUser / federated principals). Optional for back-compat;
+   *  the lane is hidden when empty so paths without a meaningful
+   *  entry-point (e.g. internal lateral movement) don't grow a dead
+   *  column. Cards carry `data-entry-id` for ConnectionLinesSVG. */
+  entryPoints?: ServiceNode[];
   resources: ServiceNode[];
   subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
@@ -2487,48 +2496,54 @@ export function UnifiedArchitectureDiagram({
             architecture.nacls.length === 0
               ? "grid-cols-[1fr_2fr_1fr]"
               : pathMode
-                // Path-filter mode: 7-col template so every lane —
-                // including VPC ENDPOINTS and RESOURCES — fits on one
-                // horizontal row. The diagonal "skip to row 2" that
-                // operators flagged on 2026-05-21 went away once
-                // VPC Endpoints landed inline between IAM and the
-                // crown jewel rather than below the fold.
+                // Path-filter mode: 8-col template so the Phase 1+2
+                // lane set fits on one row — ENTRY (conditional,
+                // leftmost) | COMPUTE | SUBNETS | ROUTE TABLES
+                // (conditional) | SG | NACL | IDENTITY | RESOURCES.
+                // When ENTRY isn't rendered the auto-col collapses
+                // to zero width, so paths without an entry point
+                // don't get a phantom gap at the left.
                 //
-                // 2026-05-21 fix: this branch used to reference `pathFilter`,
-                // which is the prop name on the OUTER TrafficFlowMap
-                // component — undefined inside UnifiedArchitectureDiagram's
-                // scope. Production threw `ReferenceError: pathFilter is
-                // not defined` on every v2 path render. Use the
-                // existing `pathMode` prop (already wired from
-                // TrafficFlowMap → !!pathFilter || !!onPathNodeAction).
-                ? "grid-cols-[1fr_auto_auto_auto_auto_auto_1fr]"
+                // History: original 7-col template predates the
+                // ENTRY lane (Phase 2 — 2026-05-25 user feedback)
+                // and the ROUTE TABLES promotion (Phase 1). 2026-05-
+                // 24's `pathFilter` undefined bug fixed in the same
+                // branch.
+                ? "grid-cols-[auto_1fr_auto_auto_auto_auto_auto_1fr]"
                 : "grid-cols-[1fr_auto_auto_auto_1fr]"
           } gap-6 items-start`}
           style={{ zIndex: 2 }}
         >
-          {/* PRINCIPALS + COMPUTE (single leftmost column, stacked).
-              Principals lane renders ABOVE Compute so the visual
-              narrative reads "actor → workload → … → target" top to
-              bottom. Principals (AWSPrincipal, CloudTrailPrincipal,
-              IAMUser, root) live in their own architecture array and
-              don't appear under Compute — they're API callers, not
-              workloads. Added 2026-05-23 after audit feedback that
-              `root` was rendering as "Compute (3)" alongside an
-              actual EC2 + ENI on the SafeRemediate-Test-App-2 chain.
-              Sharing data-compute-id keeps the existing
-              ConnectionLinesSVG source-lookup working without
-              extending the selector list. */}
-          <div className="flex flex-col gap-3">
-            {architecture.principals && architecture.principals.length > 0 && (
-              <>
+          {/* ENTRY lane (Phase 2 — 2026-05-25). Leftmost column.
+              Surfaces the attacker's entry point — Internet / IGW /
+              ALB / APIGateway on the network side, root / IAMUser /
+              federated principal on the identity side. Hidden when
+              the path has no meaningful entry-point (lateral-only
+              movement), so the grid doesn't grow a dead column on
+              every chain.
+              Principals are sourced from architecture.principals
+              when entryPoints is unset (back-compat for older builds
+              that haven't started populating entryPoints yet). */}
+          {(() => {
+            const entries = (architecture.entryPoints && architecture.entryPoints.length > 0)
+              ? architecture.entryPoints
+              : (architecture.principals || []);
+            if (entries.length === 0) return null;
+            return (
+              <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <Target className="w-4 h-4 text-cyan-300" />
-                  Principals ({architecture.principals.length})
+                  Entry ({entries.length})
                 </div>
-                {architecture.principals.map((node) => {
+                {entries.map((node) => {
                   const isInAttackPath = attackPathNodeIds.has(node.id);
                   return (
-                    <div key={`principal:${node.id}`} data-compute-id={node.id} className="relative mb-3">
+                    <div
+                      key={`entry:${node.id}`}
+                      data-entry-id={node.id}
+                      data-compute-id={node.id}
+                      className="relative mb-3"
+                    >
                       {isInAttackPath && (
                         <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-cyan-400/50" />
                       )}
@@ -2543,8 +2558,14 @@ export function UnifiedArchitectureDiagram({
                     </div>
                   );
                 })}
-              </>
-            )}
+              </div>
+            );
+          })()}
+
+          {/* COMPUTE column.
+              Workloads only — EC2/Lambda/ECS. Principals moved to the
+              dedicated ENTRY lane above 2026-05-25. */}
+          <div className="flex flex-col gap-3">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-400" />
               Compute ({architecture.computeServices.length})
@@ -2616,44 +2637,21 @@ export function UnifiedArchitectureDiagram({
             </div>
           ) : (
             <>
-          {/* SUBNETS */}
-          {/* Renders every subnet that contains a compute on this path,
-              with the public/private/unknown posture from
-              subnet_visibility_collector. Posture coloring matches the
-              egress chip vocabulary (commit 5db6032):
-                Public  → amber  (route table → IGW, can reach internet)
-                Private → emerald (no IGW route)
-                Unknown → slate  (Subnet.public not classified yet — never
-                                  fabricated, three-state contract). */}
+          {/* SUBNETS — Phase 1 cleanup (2026-05-25 user feedback):
+              - VPC card dropped (was redundant with the dashed
+                VPCBoundaries header).
+              - Public/Private posture moved inline next to the
+                subnet name as a chip (was awkwardly on its own row
+                below).
+              - Route Table promoted to its own sibling card in the
+                ROUTE TABLES lane (next column) — the user wants it
+                as a separated service in the flow, not nested
+                inside the subnet card. */}
           <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Globe className="w-4 h-4 text-cyan-400" />
               Subnets ({architecture.subnets?.length ?? 0})
             </div>
-            {/* VPC chip — shown ABOVE the subnet cards so the operator
-                sees the container hop the path traverses. Sourced from
-                architecture.vpcGroups (already populated by the
-                attacker-view builder + VPCBoundaries overlay). Rendered
-                as a slim chip rather than a full card so it acts as a
-                lane subheader without competing with the subnet card
-                for visual weight. Click-through and SVG-boundary
-                toggle stay as the deeper drill paths. */}
-            {(architecture.vpcGroups ?? []).map((vpc) => (
-              <div
-                key={`vpc:${vpc.vpcId}`}
-                data-vpc-id={vpc.vpcId}
-                className="rounded-lg border border-blue-500/40 bg-blue-500/5 px-2.5 py-1.5"
-                title={`VPC container — toggle the VPC boundary box in the header to see which subnets / workloads sit inside it.`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Cloud className="w-3.5 h-3.5 text-blue-300 shrink-0" />
-                  <span className="text-[10px] uppercase tracking-wider text-blue-300 font-semibold">VPC</span>
-                </div>
-                <div className="text-xs font-mono text-slate-200 truncate mt-0.5" title={vpc.vpcName}>
-                  {vpc.vpcName}
-                </div>
-              </div>
-            ))}
             {(architecture.subnets || []).map(subnet => {
               const postureCls =
                 subnet.isPublic === true
@@ -2676,49 +2674,23 @@ export function UnifiedArchitectureDiagram({
                   className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5"
                   title={tooltip}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                       <span className="text-xs font-semibold text-slate-200 truncate">
                         {subnet.shortName}
                       </span>
                     </div>
-                  </div>
-                  <div className="mt-1.5">
-                    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${postureCls}`}>
+                    {/* Posture chip — inline with the subnet name so
+                        operators see "subnet-xxx · Public" at a glance
+                        instead of having to scan to the next row. */}
+                    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${postureCls} shrink-0`}>
                       {postureLabel}
                     </span>
                   </div>
                   {subnet.connectedComputeIds.length > 1 && (
                     <div className="mt-1 text-[10px] text-slate-500">
                       {subnet.connectedComputeIds.length} workloads
-                    </div>
-                  )}
-                  {/* Route-table chip — surfaces the effective route
-                      table this subnet uses + the route count. Carries
-                      the "Allowed − Actual = Blast Radius" closure
-                      narrative onto the network plane: N routes
-                      configured, X observed (X / N will land once the
-                      flowlogs-vs-routes correlator ships).
-                      Hidden when no route_table_id is wired — older
-                      backends without the RouteTable enrichment don't
-                      get an empty chip. */}
-                  {subnet.routeTableId && (
-                    <div
-                      className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-700/80 bg-slate-800/60 text-[10px] font-mono text-slate-300"
-                      title={`Effective route table: ${subnet.routeTableId}${typeof subnet.routeTableCount === 'number' ? ` · ${subnet.routeTableCount} routes` : ''}${subnet.routeTableIsMain ? ' · main' : ''}`}
-                    >
-                      <ArrowRight className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                      <span className="truncate max-w-[90px]">{subnet.routeTableId}</span>
-                      {typeof subnet.routeTableCount === 'number' && (
-                        <span className="text-slate-500">·</span>
-                      )}
-                      {typeof subnet.routeTableCount === 'number' && (
-                        <span className="text-slate-300">{subnet.routeTableCount} {subnet.routeTableCount === 1 ? 'route' : 'routes'}</span>
-                      )}
-                      {subnet.routeTableIsMain && (
-                        <span className="ml-1 px-1 py-px text-[8px] uppercase tracking-wider rounded bg-slate-700 text-slate-300 border border-slate-600">main</span>
-                      )}
                     </div>
                   )}
                 </div>
@@ -2728,6 +2700,48 @@ export function UnifiedArchitectureDiagram({
               <div className="text-xs text-slate-500 italic p-4 text-center">No subnets on this path</div>
             )}
           </div>
+
+          {/* ROUTE TABLES — Phase 1 user feedback: route table is
+              crucial (it's what makes a subnet public/private) and
+              should be a separated service in the flow, not buried
+              inside the subnet card. Renders one chip per subnet
+              that has a route_table_id, surfacing the rtb-id +
+              route count + main-flag. The card carries data-rtb-id
+              so future flow routing can zigzag through it. */}
+          {(architecture.subnets ?? []).some(s => s.routeTableId) && (
+            <div className="flex flex-col gap-3 min-w-[160px]">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <ArrowRight className="w-4 h-4 text-slate-300" />
+                Route Tables ({(architecture.subnets ?? []).filter(s => s.routeTableId).length})
+              </div>
+              {(architecture.subnets ?? [])
+                .filter(s => s.routeTableId)
+                .map(s => (
+                  <div
+                    key={`rtb:${s.id}`}
+                    data-rtb-id={s.routeTableId!}
+                    className="rounded-lg border border-slate-700/80 bg-slate-800/60 p-2.5"
+                    title={`Effective route table for ${s.shortName}: ${s.routeTableId}${typeof s.routeTableCount === 'number' ? ` · ${s.routeTableCount} routes` : ''}${s.routeTableIsMain ? ' · main' : ''}`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="text-xs font-semibold text-slate-200 truncate font-mono">
+                        {s.routeTableId}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                      {typeof s.routeTableCount === 'number' && (
+                        <span className="text-slate-300">{s.routeTableCount} {s.routeTableCount === 1 ? 'route' : 'routes'}</span>
+                      )}
+                      {s.routeTableIsMain && (
+                        <span className="px-1 py-px text-[8px] uppercase tracking-wider rounded bg-slate-700 text-slate-300 border border-slate-600">main</span>
+                      )}
+                      <span className="ml-auto text-slate-500">for {s.shortName}</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
 
           {/* SECURITY GROUPS */}
           <div className="flex flex-col gap-3 min-w-[180px]">
@@ -2779,49 +2793,49 @@ export function UnifiedArchitectureDiagram({
             </>
           )}
 
-          {/* INSTANCE PROFILES — dedicated column so the canvas count
-              for IAM Roles isn't inflated by binding objects. Renders
-              ONLY when there's actually an Instance Profile on the
-              path (skipped silently otherwise so the layout doesn't
-              widen with an empty column).
-              2026-05-24 split: previously both arrays rendered in
-              "IAM Roles" with a combined count — partners reading
-              "IAM ROLES (2)" on a chain with one role + one binding
-              read it as "two roles", which it isn't. */}
-          {(architecture.instanceProfiles?.length ?? 0) > 0 && (
-            <div className="flex flex-col gap-3 items-center">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-amber-300" />
-                Instance Profiles ({architecture.instanceProfiles?.length ?? 0})
-              </div>
-              {(architecture.instanceProfiles ?? []).map((ip) => (
-                // data-ip-id (new) + data-role-id (back-compat for the
-                // previous querySelector code paths). InstanceProfile
-                // is the AWS binding object between EC2 and IAMRole;
-                // ConnectionLinesSVG now routes flows through it as a
-                // dedicated checkpoint when flow.instanceProfileId is
-                // set so the polyline reads EC2 → SG → NACL → IP →
-                // Role → S3 instead of jumping straight from NACL to
-                // Role and leaving the IP card orphan.
-                <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id}>
-                  <IAMRoleNode
-                    role={ip}
-                    isHighlighted={isNodeHighlighted(ip.id)}
-                    onHover={setHoveredId}
-                    onClick={() => onSelectService(ip, 'instance_profile')}
-                    forceInstanceProfile={true}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* IAM ROLES — actual IAM roles only, counted honestly. */}
+          {/* IDENTITY — consolidates InstanceProfile + IAMRole into
+              one lane (Phase 1 user feedback 2026-05-25). Previously
+              IPs and Roles rendered in separate columns; the canvas
+              grid put them on opposite ends of the chain, so an
+              operator looking at "INSTANCE PROFILES (1)" next to
+              the NACL column reasonably asked "is the IP attached
+              to the NACL?". AWS semantics: IP and Role are both
+              identity-plane and AWS BINDS them — IP wraps Role.
+              Rendering both card stacks inside one column with the
+              IP above the Role visually conveys the bind. The IP
+              counts and Role counts are still surfaced separately
+              in the header so the chain's hop count stays honest. */}
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Key className="w-4 h-4 text-pink-400" />
-              IAM Roles ({architecture.iamRoles.length})
+              Identity
+              {(architecture.instanceProfiles?.length ?? 0) > 0 && (
+                <span className="text-amber-300/80">
+                  IP {architecture.instanceProfiles?.length ?? 0}
+                </span>
+              )}
+              <span className="text-pink-300/80">
+                Roles {architecture.iamRoles.length}
+              </span>
             </div>
+            {/* Instance Profiles (rendered ABOVE roles to mirror the AWS
+                attachment shape: EC2 → IP → Role). Each card carries
+                data-ip-id so ConnectionLinesSVG routes the polyline
+                through it as a flow checkpoint between NACL and Role. */}
+            {(architecture.instanceProfiles ?? []).map((ip) => (
+              <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id}>
+                <IAMRoleNode
+                  role={ip}
+                  isHighlighted={isNodeHighlighted(ip.id)}
+                  onHover={setHoveredId}
+                  onClick={() => onSelectService(ip, 'instance_profile')}
+                  forceInstanceProfile={true}
+                />
+              </div>
+            ))}
+            {/* IAM Roles — the actual permission carriers. Rendered
+                BELOW their binding IP so the visual order reads
+                top-to-bottom as the AWS attachment chain. */}
             {architecture.iamRoles.map((role) => {
               // ARN-pattern auto-detect remains as a fallback for cases
               // where a proper :instance-profile/ id snuck into the
@@ -2840,9 +2854,12 @@ export function UnifiedArchitectureDiagram({
                 </div>
               );
             })}
-            {architecture.iamRoles.length === 0 && (
-              <div className="text-xs text-slate-500 italic p-4 text-center">No Roles</div>
-            )}
+            {architecture.iamRoles.length === 0 &&
+              (architecture.instanceProfiles?.length ?? 0) === 0 && (
+                <div className="text-xs text-slate-500 italic p-4 text-center">
+                  No identity on this path
+                </div>
+              )}
           </div>
 
           {/* API CALLS — synthetic-multiplier lane (totalBytes / 1024,

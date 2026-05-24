@@ -1425,9 +1425,21 @@ function buildAttackerArchitecture(
     return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
   })
 
+  // ENTRY lane (Phase 2 — 2026-05-25): explicit attacker-entry nodes.
+  // For now we surface every principal (root / IAMUser / federated /
+  // CloudTrailPrincipal) — those are the identity-side entry points
+  // the operator most often asks about ("how did the attacker get in?").
+  // Network entry-points (Internet → IGW / ALB / APIGW) populate the
+  // EGRESS lane today; promoting them into ENTRY when they're inbound
+  // is a follow-up that needs ingress-vs-egress distinction in the
+  // graph-view payload. Back-compat: TFM also falls back to
+  // architecture.principals when entryPoints is empty.
+  const entryPoints = principals.slice()
+
   return {
     computeServices,
     principals,
+    entryPoints,
     resources,
     subnets,
     securityGroups,
