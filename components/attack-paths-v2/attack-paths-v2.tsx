@@ -39,6 +39,7 @@ import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewPanel } from "./attacker-view-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
+import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -71,14 +72,21 @@ export function AttackPathsV2() {
   // reified per v0.2 §3) — every line on the canvas comes from a real
   // Neo4j edge, no checkpoint inference. Default route still "path" to
   // avoid disrupting existing operators; phase view opted in via URL.
-  const viewMode: "path" | "exposure" | "attacker" | "phase" =
+  // 2026-05-24: added "attacker_v2" — the typed, edge-proven canvas
+  // (api/attack_canvas_view.py + components/attack-paths-v2/
+  // attacker-canvas-v2.tsx). Lives alongside V1 "attacker" for
+  // side-by-side comparison; V1 stays the default until V2 is
+  // proven correct + explicit deprecation sign-off.
+  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" =
     modeParam === "exposure"
       ? "exposure"
       : modeParam === "attacker"
         ? "attacker"
-        : modeParam === "phase"
-          ? "phase"
-          : "path"
+        : modeParam === "attacker_v2"
+          ? "attacker_v2"
+          : modeParam === "phase"
+            ? "phase"
+            : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -198,12 +206,12 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure" | "attacker" | "phase") => {
+  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase") => {
     // Switching to exposure or phase clears the path selection — both
     // aggregate ACROSS paths (phase shows every chain targeting the
-    // selected jewel). Switching to attacker REQUIRES a selected path
-    // — preserve it. Switching back to path-view preserves jewel +
-    // path selection.
+    // selected jewel). Switching to attacker / attacker_v2 REQUIRES a
+    // selected path — preserve it. Switching back to path-view
+    // preserves jewel + path selection.
     setUrl({
       mode: next,
       path: next === "exposure" || next === "phase" ? null : undefined,
@@ -343,6 +351,22 @@ export function AttackPathsV2() {
                   systemName={systemName}
                 />
               )
+            ) : viewMode === "attacker_v2" ? (
+              // V2 — typed, edge-proven canvas. Lives alongside V1
+              // for side-by-side comparison until V2 is proven
+              // correct + explicit deprecation sign-off.
+              !selectedPath ? (
+                <EmptyState
+                  title="Select a path for V2 canvas"
+                  subtitle="V2 renders the same path via the typed AttackCanvas DTO from POST /api/attack-chain/canvas — every node and edge backed by an explicit Neo4j relationship, no frontend inference."
+                  large
+                />
+              ) : (
+                <AttackerCanvasV2
+                  systemName={systemName}
+                  pathId={selectedPath.id}
+                />
+              )
             ) : viewMode === "phase" ? (
               // v0.3 — 9-lane attacker-phase view. Reads materialized
               // :AttackPath nodes (hop-reified per v0.2 §3) via the
@@ -401,8 +425,8 @@ function ModeToggle({
   jewelName,
   pathCount,
 }: {
-  mode: "path" | "exposure" | "attacker" | "phase"
-  onChange: (next: "path" | "exposure" | "attacker" | "phase") => void
+  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase"
+  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase") => void
   jewelName: string | null
   pathCount: number
 }) {
@@ -438,9 +462,20 @@ function ModeToggle({
               ? "bg-red-500/15 text-red-200"
               : "bg-slate-900 text-slate-400 hover:text-slate-200"
           }`}
-          title="Attacker view — live Neo4j graph for the path, with lateral pivot options per hop. No column-fill, no synthesized lanes — the graph as the attacker would explore it."
+          title="Attacker view (v1) — live Neo4j graph + lateral inference. Has known inference bugs being phased out as Attack Map v2 proves correct."
         >
           Attacker view
+        </button>
+        <button
+          onClick={() => onChange("attacker_v2")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
+            mode === "attacker_v2"
+              ? "bg-cyan-500/15 text-cyan-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Attack Map v2 — typed, edge-proven canvas. Every node and edge comes from an explicit Neo4j relationship; renderer does zero inference. Beta — compare side-by-side with v1."
+        >
+          Attack Map <span className="text-[8px] opacity-60">v2</span>
         </button>
         <button
           onClick={() => onChange("phase")}
@@ -461,7 +496,9 @@ function ModeToggle({
             ? `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`
             : mode === "attacker"
               ? `Live Neo4j graph + lateral moves per hop — the attacker's pivot tree`
-              : `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`}
+              : mode === "attacker_v2"
+                ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
+                : `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`}
       </div>
     </div>
   )
