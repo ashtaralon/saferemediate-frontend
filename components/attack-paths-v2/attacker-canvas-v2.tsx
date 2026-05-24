@@ -681,6 +681,13 @@ interface LineStyle {
   width: number
   dasharray?: string
   opacity: number
+  /** When true, the line gets a marching-dashes animation indicating
+   *  observed traffic flow (CloudTrail hits / VPC Flow Log bytes).
+   *  Off for config edges so static state stays visually distinct. */
+  animated?: boolean
+  /** Numeric label to show on the line (bytes or hit count, formatted).
+   *  Only rendered when the line is hovered or the source/target is. */
+  trafficLabel?: string
 }
 
 interface RenderedLine {
@@ -801,24 +808,87 @@ function CanvasEdgesSVG({
       height={size.height}
       style={{ zIndex: 1 }}
     >
+      {/* Glow filter for observed (animated) lines — adds the
+          "alive" look without needing CSS injection */}
+      <defs>
+        <filter id="canvas-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="2" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
       {lines.map((line) => {
         const isOnHovered =
           hoveredId !== null &&
           (hoveredId === line.edge.source_aws_id || hoveredId === line.edge.target_aws_id)
         const isDimmed = hoveredId !== null && !isOnHovered
+        const opacity = isDimmed ? 0.1 : isOnHovered ? 1.0 : line.style.opacity
+        const width = isOnHovered ? line.style.width + 1 : line.style.width
+
+        // Midpoint for label placement
+        const mx = (line.x1 + line.x2) / 2
+        const my = (line.y1 + line.y2) / 2
+
         return (
-          <line
-            key={line.edge.id}
-            x1={line.x1}
-            y1={line.y1}
-            x2={line.x2}
-            y2={line.y2}
-            stroke={line.style.stroke}
-            strokeWidth={isOnHovered ? line.style.width + 1 : line.style.width}
-            strokeDasharray={line.style.dasharray}
-            opacity={isDimmed ? 0.1 : isOnHovered ? 1.0 : line.style.opacity}
-            strokeLinecap="round"
-          />
+          <g key={line.edge.id}>
+            <line
+              x1={line.x1}
+              y1={line.y1}
+              x2={line.x2}
+              y2={line.y2}
+              stroke={line.style.stroke}
+              strokeWidth={width}
+              strokeDasharray={line.style.dasharray}
+              opacity={opacity}
+              strokeLinecap="round"
+              filter={line.style.animated ? "url(#canvas-glow)" : undefined}
+            >
+              {/* Marching-dashes flow animation. Negative offset =
+                  dashes move from source to target.
+                  Total dash unit (10+6=16) divided by dur gives
+                  speed = 16 / 0.9s ≈ 17.7 px/sec. Slow enough to
+                  read as "flowing data", fast enough to feel alive. */}
+              {line.style.animated && (
+                <animate
+                  attributeName="stroke-dashoffset"
+                  from="0"
+                  to="-16"
+                  dur="0.9s"
+                  repeatCount="indefinite"
+                />
+              )}
+            </line>
+            {/* Traffic label — bytes / hit count. Shows always when
+                hovering source/target, faded otherwise. Hidden when
+                no traffic data (e.g. config edges). */}
+            {line.style.trafficLabel && (
+              <g opacity={isOnHovered ? 1 : isDimmed ? 0 : 0.65}>
+                <rect
+                  x={mx - 30}
+                  y={my - 9}
+                  width="60"
+                  height="16"
+                  rx="3"
+                  fill="#0f172a"
+                  stroke={line.style.stroke}
+                  strokeWidth="1"
+                  opacity={isOnHovered ? 0.9 : 0.7}
+                />
+                <text
+                  x={mx}
+                  y={my + 2}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fontFamily="ui-monospace, monospace"
+                  fill={line.style.stroke}
+                >
+                  {line.style.trafficLabel}
+                </text>
+              </g>
+            )}
+          </g>
         )
       })}
     </svg>
@@ -840,14 +910,14 @@ function lineStyleForEdge(
   srcNode?: CanvasNode,
   dstNode?: CanvasNode,
 ): LineStyle {
-  // Remediation reach — dashed amber
+  // Remediation reach — dashed amber (static, not observed by definition)
   if (
     srcNode?.included_reason === "REMEDIATION_TARGET" ||
     dstNode?.included_reason === "REMEDIATION_TARGET"
   ) {
     return { stroke: "#f59e0b", width: 1.5, dasharray: "6,4", opacity: 0.7 }
   }
-  // Context/container — subtle gray
+  // Context/container — subtle gray, static
   if (
     edge.relationship === "IN_VPC" ||
     edge.relationship === "IN_SUBNET" ||
@@ -856,15 +926,40 @@ function lineStyleForEdge(
   ) {
     return { stroke: "#475569", width: 1, dasharray: "2,3", opacity: 0.4 }
   }
-  // Path/proof — solid; brighter when the edge carries observed
-  // traffic (CloudTrail hits / Flow Log bytes), dimmer for config.
+  // Path/proof — solid for config; animated flowing-dashes for OBSERVED.
+  // Observed means CloudTrail hits or VPC Flow Log bytes recorded
+  // against this edge. Animation is the strongest signal for "data
+  // is flowing along this chain right now" — what the demo story
+  // needs to make the attack path feel live, not static.
   const observed =
     edge.observed === true || (edge.hit_count != null && edge.hit_count > 0)
+  const trafficLabel =
+    edge.bytes != null && edge.bytes > 0
+      ? formatBytes(edge.bytes)
+      : edge.hit_count != null && edge.hit_count > 0
+        ? `${formatNumber(edge.hit_count)} hits`
+        : undefined
   return {
     stroke: observed ? "#60a5fa" : "#64748b",
-    width: observed ? 2 : 1.5,
-    opacity: observed ? 0.85 : 0.6,
+    width: observed ? 2.5 : 1.5,
+    opacity: observed ? 0.95 : 0.6,
+    dasharray: observed ? "10 6" : undefined,
+    animated: observed,
+    trafficLabel,
   }
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+function formatNumber(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1000000) return `${(n / 1000).toFixed(1)}K`
+  return `${(n / 1000000).toFixed(1)}M`
 }
 
 /** Minimal CSS.escape polyfill — Neo4j ids may contain `:` and `/`
