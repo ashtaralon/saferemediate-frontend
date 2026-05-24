@@ -26,6 +26,7 @@ import { useEffect, useMemo } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Loader2, AlertTriangle, RefreshCw } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { FreshnessBanner } from "@/components/freshness-banner"
 import { filterActivePaths, narrowActivePaths } from "@/lib/active-filters"
 import type { ActivePathList } from "@/lib/active-filters"
 import { CrownJewelListPanel } from "@/components/identity-attack-paths/crown-jewel-list-panel"
@@ -432,6 +433,11 @@ function ModeToggle({
 }) {
   return (
     <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
+      {/* Freshness pill — graph age from CollectorRun.finished_at.
+          Lives in the shared tab bar so every view tab inherits an
+          honest "Graph synced X min ago" signal. Replaces the
+          implicit "live" framing the tab subtitles use. */}
+      <FreshnessBanner variant="pill" />
       <div className="flex rounded-md border border-slate-700 overflow-hidden">
         <button
           onClick={() => onChange("path")}

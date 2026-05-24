@@ -18,6 +18,7 @@
 import { useMemo } from "react"
 import { Crown, AlertTriangle, Eye, RefreshCw } from "lucide-react"
 import dynamic from "next/dynamic"
+import { FreshnessBanner } from "@/components/freshness-banner"
 import type {
   SystemArchitecture,
   ServiceNode,
@@ -284,6 +285,10 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
         <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1.5">
           <Eye className="h-3 w-3 text-red-300" />
           ATTACKER VIEW · live attack surface
+          {/* Honest freshness pill — sources graph age from
+              CollectorRun.finished_at. Replaces the implicit "live"
+              claim with the actual seconds-since-last-write. */}
+          <FreshnessBanner variant="pill" className="ml-2" />
         </div>
         <div className="text-[11px] text-slate-400">{subtitle}</div>
       </div>
