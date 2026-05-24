@@ -132,6 +132,34 @@ export type CanvasRelationshipType =
   | "RUNTIME_CALLS"
 
 /**
+ * Where the canvas path came from. Today only one source exists;
+ * future producers may support user-defined paths, what-if
+ * simulations, etc. Adding a value is a coordinated schema change.
+ */
+export type PathSource = "iap_existing"
+
+/**
+ * How well the IAP-claimed path survives re-verification against
+ * Neo4j. Renderer behavior:
+ *   verified: render canvas normally
+ *   partial:  render the verified subset; surface warnings to operator
+ *   failed:   refuse to render; show error state with warnings list
+ */
+export type PathIntegrity = "verified" | "partial" | "failed"
+
+/**
+ * Producer-emitted warning codes. Closed enum — adding a value is a
+ * coordinated schema change. See Pydantic source for per-code
+ * semantics.
+ */
+export type WarningCode =
+  | "IAP_NODE_NOT_FOUND_IN_GRAPH"
+  | "IAP_NODE_TYPE_MISMATCH"
+  | "PATH_EDGE_NOT_FOUND_IN_GRAPH"
+  | "POLICY_DOCUMENT_PARSE_FAILED"
+  | "MULTI_NODE_FOR_INPUT_ID"
+
+/**
  * Composite proofs that need >1 Neo4j edge to be sound. Each kind
  * has documented semantics — see the Pydantic source for required
  * edges per kind.
@@ -221,6 +249,27 @@ export interface CanvasGroup {
 }
 
 /**
+ * A single producer-emitted warning, surfaced to the renderer for
+ * display + to operators for data-quality investigation. Severity
+ * drives renderer behavior:
+ *   block_render → renderer refuses to draw canvas; shows warning
+ *   hide_node    → renderer omits the affected node/edge, draws rest
+ *   info         → renderer logs to debug panel; canvas draws normally
+ */
+export interface CanvasWarning {
+  code: WarningCode
+  severity: "block_render" | "hide_node" | "info"
+  /** aws_id of the node the warning is about. null for non-node-scoped
+   *  warnings (e.g. global policy-parse failures). */
+  node_id: string | null
+  /** CanvasEdge id (proposed) for edge-scoped warnings. null otherwise. */
+  edge_id: string | null
+  /** Human-readable explanation with specific evidence (actual values
+   *  from Neo4j, NOT templated). */
+  message: string
+}
+
+/**
  * The complete typed payload that drives the Attacker View v2.
  * Renderer iterates each array and draws — no transformation,
  * no inference.
@@ -231,10 +280,22 @@ export interface AttackCanvas {
   path_id: string
   generated_at: string  // ISO 8601
 
+  /** Where the path nodes came from. Today always 'iap_existing'. */
+  path_source: PathSource
+  /** How well the IAP path survived re-verification against Neo4j.
+   *  Renderer consults this to decide whether to draw, draw-partial,
+   *  or refuse-and-show-warnings. */
+  path_integrity: PathIntegrity
+
   nodes: CanvasNode[]
   edges: CanvasEdge[]
   bindings: CanvasBinding[]
   groups: CanvasGroup[]
+
+  /** Producer-emitted warnings (missing nodes, type mismatches,
+   *  missing edges). Renderer uses each warning's severity to decide
+   *  block-render vs hide-node vs log-only. */
+  warnings: CanvasWarning[]
 
   /** Producer-side diagnostic context (timing, dropped-input nids,
    *  proof-query counts). For debug panel only. NEVER carries
