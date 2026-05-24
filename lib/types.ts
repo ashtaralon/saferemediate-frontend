@@ -945,3 +945,34 @@ export const ATTACK_LANES: AttackLaneConfig[] = [
     icon: "Eye",
   },
 ]
+
+// ─── Shared IAM Roles (discovery — step 1 of refactor) ─────────────
+// Wires to backend GET /api/iam/shared-roles. Read-only. Future
+// endpoints (split-plan, approve, execute, rollback) add types here.
+
+export interface SharedRole {
+  role_arn: string
+  role_name: string
+  consumer_count: number
+  consumer_kinds: Record<string, number>
+  system_tags: string[]
+  cross_system: boolean
+  // Plan store is step 2; until then these are always false / null.
+  has_active_plan: boolean
+  active_plan_id: string | null
+}
+
+export interface SharedRolesFilters {
+  min_principals: number
+  system_name: string | null
+  cross_system_only: boolean
+  include_stale: boolean
+  include_inactive: boolean
+}
+
+export interface SharedRolesResponse {
+  shared_roles: SharedRole[]
+  as_of: string
+  filters: SharedRolesFilters
+  count: number
+}

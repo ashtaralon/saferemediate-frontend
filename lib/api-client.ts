@@ -830,3 +830,32 @@ export async function triggerAttackChainsMaterialization(): Promise<{
     return { success: false, error: String(e?.message ?? e) }
   }
 }
+
+// ─── Shared IAM Roles (discovery — step 1) ─────────────────────────
+import type { SharedRolesResponse } from "./types"
+
+export interface FetchSharedRolesParams {
+  minPrincipals?: number
+  systemName?: string | null
+  crossSystemOnly?: boolean
+  includeStale?: boolean
+  includeInactive?: boolean
+}
+
+export async function fetchSharedRoles(
+  params: FetchSharedRolesParams = {}
+): Promise<SharedRolesResponse> {
+  const qs = new URLSearchParams()
+  if (params.minPrincipals !== undefined) qs.set("min_principals", String(params.minPrincipals))
+  if (params.systemName) qs.set("system_name", params.systemName)
+  if (params.crossSystemOnly) qs.set("cross_system_only", "true")
+  if (params.includeStale) qs.set("include_stale", "true")
+  if (params.includeInactive) qs.set("include_inactive", "true")
+  const url = `/api/proxy/iam/shared-roles${qs.toString() ? `?${qs}` : ""}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`shared-roles fetch ${res.status}: ${text.slice(0, 200)}`)
+  }
+  return await res.json()
+}
