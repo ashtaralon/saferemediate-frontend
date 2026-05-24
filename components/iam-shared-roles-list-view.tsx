@@ -1,14 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, RefreshCw, Users, Globe2, Layers } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { AlertTriangle, Loader2, RefreshCw, Users, Globe2, Layers } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { fetchSharedRoles } from "@/lib/api-client"
+import { fetchSharedRoles, postSplitPlan } from "@/lib/api-client"
 import type { SharedRole, SharedRolesResponse } from "@/lib/types"
 
 interface Filters {
@@ -266,8 +267,29 @@ function ResultsList({
 }
 
 function SharedRoleCard({ role }: { role: SharedRole }) {
+  const router = useRouter()
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const borderColor = role.cross_system ? "border-l-orange-600" : "border-l-blue-600"
   const kindEntries = Object.entries(role.consumer_kinds)
+
+  const openOrCreatePlan = useCallback(async () => {
+    if (role.has_active_plan && role.active_plan_id) {
+      router.push(`/iam/shared-roles/by-plan/${encodeURIComponent(role.active_plan_id)}`)
+      return
+    }
+    setCreating(true)
+    setError(null)
+    try {
+      // Self-attested identity until SSO. Same caveat as the backend
+      // ApprovePlanRequest model — recorded on the plan node verbatim.
+      const plan = await postSplitPlan(role.role_arn, "self@cyntro.io")
+      router.push(`/iam/shared-roles/by-plan/${encodeURIComponent(plan.plan_id)}`)
+    } catch (e: any) {
+      setError(String(e?.message ?? e))
+      setCreating(false)
+    }
+  }, [role, router])
 
   return (
     <Card className={`border-l-4 ${borderColor} hover:shadow-md transition-shadow`}>
@@ -300,16 +322,33 @@ function SharedRoleCard({ role }: { role: SharedRole }) {
           <SystemsStat tags={role.system_tags} crossSystem={role.cross_system} />
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground">
-          <span>
+        <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground gap-3 flex-wrap">
+          <span className="break-all">
             {role.has_active_plan
               ? `Active plan: ${role.active_plan_id}`
-              : "No active split plan — plan store ships in step 2"}
+              : "No active split plan"}
           </span>
-          <Button size="sm" variant="ghost" disabled title="Detail view ships in step 4">
-            View split plan →
+          <Button
+            size="sm"
+            variant={role.has_active_plan ? "outline" : "default"}
+            onClick={openOrCreatePlan}
+            disabled={creating}
+          >
+            {creating ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                Generating plan…
+              </>
+            ) : role.has_active_plan ? (
+              "View split plan →"
+            ) : (
+              "Generate split plan →"
+            )}
           </Button>
         </div>
+        {error && (
+          <p className="text-xs text-red-600 break-all">Failed: {error}</p>
+        )}
       </CardContent>
     </Card>
   )

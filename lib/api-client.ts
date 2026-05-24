@@ -859,3 +859,59 @@ export async function fetchSharedRoles(
   }
   return await res.json()
 }
+
+// ─── Split plan (step 2 + 5) ───────────────────────────────────────
+import type { SplitPlan, ApprovePlanResponse } from "./types"
+
+export async function postSplitPlan(
+  roleRef: string,
+  requestedBy: string
+): Promise<SplitPlan> {
+  // role_ref travels as a query param (Next.js can't put [...catchall]
+  // before a static segment, see proxy route header for the why).
+  const qs = new URLSearchParams({ role_ref: roleRef })
+  const res = await fetch(`/api/proxy/iam/shared-roles/split-plan?${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requested_by: requestedBy }),
+    cache: "no-store",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`split-plan POST ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSplitPlan(planId: string): Promise<SplitPlan> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/split-plans/${encodeURIComponent(planId)}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`split-plan GET ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function approveSplitPlan(
+  planId: string,
+  approvedBy: string,
+  note?: string
+): Promise<ApprovePlanResponse> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/split-plans/${encodeURIComponent(planId)}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved_by: approvedBy, note: note || undefined }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`approve ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}

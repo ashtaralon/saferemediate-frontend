@@ -976,3 +976,100 @@ export interface SharedRolesResponse {
   filters: SharedRolesFilters
   count: number
 }
+
+// ─── Split plan (step 2 + 5) ───────────────────────────────────────
+
+export type SplitPlanState =
+  | "PROPOSED"
+  | "APPROVED"
+  | "EXECUTING"
+  | "EXECUTED"
+  | "REJECTED"
+  | "EXPIRED"
+
+export type EvidenceState =
+  | "HIGH"
+  | "NONE"
+  | "CONFLICTED"
+  | "COMPLEX_POLICY"
+
+export interface ConsumerEvidence {
+  consumer_id: string
+  consumer_type: string | null
+  consumer_name: string | null
+  system_name: string | null
+  observed_actions: string[]
+  allowed_intersection: string[]
+  evidence_state: EvidenceState
+  blockers: string[]
+}
+
+export interface GroupingKey {
+  account_id: string | null
+  region: string | null
+  system_name: string | null
+  consumer_type: string | null
+  trust_policy_hash: string
+  permission_boundary: string | null
+  proposed_actions_hash: string
+  proposed_resource_arns_hash: string
+  conditions_hash: string
+}
+
+export interface SplitPlanGroup {
+  group_id: string
+  grouping_key: GroupingKey
+  consumers: ConsumerEvidence[]
+  proposed_role_name: string
+  proposed_policy_document: Record<string, unknown>
+  proposed_trust_policy: unknown
+  permission_boundary_arn: string | null
+}
+
+export interface SplitPlanServerMeta {
+  stored_plan_hash: string
+  created_at: string
+  expires_at: string
+}
+
+export interface SplitPlan {
+  plan_id: string
+  plan_hash: string
+  version: number
+  state: SplitPlanState
+  created_at: string
+  expires_at: string
+  requested_by: string
+  shared_role: {
+    role_arn: string
+    role_name: string
+    account_id: string | null
+    region: string
+  }
+  discovery_facts: {
+    consumer_count: number
+    consumer_kinds: Record<string, number>
+    system_tags: string[]
+    cross_system: boolean
+  }
+  eligible_groups: SplitPlanGroup[]
+  blocked_consumers: ConsumerEvidence[]
+  execution_modes_available: string[]
+  execution_modes_enabled: string[]
+  data_caveats: string[]
+  // Layered on by GET — absent on POST response
+  expired?: boolean
+  server_meta?: SplitPlanServerMeta
+}
+
+export interface ApprovePlanResponse {
+  plan_id: string
+  state: SplitPlanState
+  approval: {
+    event_id: string
+    approved_at: string
+    approved_by: string
+    plan_id: string
+    plan_hash_at_approval: string
+  }
+}
