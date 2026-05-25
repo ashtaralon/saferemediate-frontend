@@ -5639,7 +5639,20 @@ export default function TrafficFlowMap({
       </div>
 
       <div ref={mapContainerRef} className="flex-1 overflow-y-auto p-4 relative">
-        {architecture && (architecture.computeServices.length > 0 || architecture.resources.length > 0) ? (
+        {architecture && (
+          architecture.computeServices.length > 0 ||
+          architecture.resources.length > 0 ||
+          // EXFIL view (2026-05-25 user report) — the jewel-on-left
+          // case has its only card in entryPoints + accessors in
+          // iamRoles. The original guard only checked compute/resources,
+          // so an architecture with 5 accessors and 0 network egress
+          // fell through to the "No Active Traffic" empty state instead
+          // of rendering the identity plane. Widen the guard so any
+          // renderable lane keeps us on the diagram path.
+          (architecture.entryPoints?.length ?? 0) > 0 ||
+          architecture.iamRoles.length > 0 ||
+          (architecture.principals?.length ?? 0) > 0
+        ) ? (
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
