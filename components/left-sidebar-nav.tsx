@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2 } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users } from "lucide-react"
 
 interface LeftSidebarNavProps {
   activeItem?: string
@@ -53,6 +53,10 @@ export function LeftSidebarNav({
     // would show a broken page to a CISO.
     // { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
     { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
+    // New shared-roles refactor — coexists with the legacy "Shared Resource"
+    // entry above. Both stay until the legacy /api/remediation/execute-per-resource
+    // path is frozen (design memo step 9).
+    { id: "shared-roles", label: "Shared Roles", icon: Users, href: "/iam/shared-roles" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },
     { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
@@ -150,7 +154,7 @@ export function LeftSidebarNav({
           // activeSection didn't update. Now using an explicit set of
           // dedicated-route ids so additions in either direction are
           // unambiguous.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2"])
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "shared-roles"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button
