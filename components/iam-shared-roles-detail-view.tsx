@@ -5,20 +5,22 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   Circle,
   Clock,
   Loader2,
   ShieldAlert,
   ShieldCheck,
-  ShieldOff,
   Trash2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -518,27 +520,6 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
   const thresholdDays =
     awaiting.find((c) => c.quarantine_threshold_days)?.quarantine_threshold_days ?? 90
 
-  // Per-candidate link target: prefer the per-system Inventory → Orphan
-  // view when all quarantine candidates share a single system; fall back
-  // to the account-wide /orphan-resources rollup when they span systems
-  // or are untagged. The systems route honors ?systemName= today
-  // (added 2026-05-25); the tab pre-selection is a follow-up — operator
-  // lands on Overview and clicks Inventory → Orphan manually.
-  const sharedSystem = (() => {
-    const tags = quarantineCandidates
-      .map((c) => c.system_name)
-      .filter((s): s is string => Boolean(s))
-    if (tags.length === 0) return null
-    const unique = Array.from(new Set(tags))
-    return unique.length === 1 ? unique[0] : null
-  })()
-  const orphanLink = sharedSystem
-    ? `/systems?systemName=${encodeURIComponent(sharedSystem)}`
-    : "/orphan-resources"
-  const orphanLinkLabel = sharedSystem
-    ? `Open ${sharedSystem} → Inventory → Orphan →`
-    : "Open Orphan Resources →"
-
   return (
     <div className="border rounded-md p-3 space-y-3 bg-amber-50/40 dark:bg-amber-950/10">
       <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -555,43 +536,10 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
 
       {/* Sub-bucket 1: Quarantine candidates */}
       {quarantineCandidates.length > 0 && (
-        <div className="border border-orange-300 dark:border-orange-700/50 rounded-md p-2.5 bg-orange-50/60 dark:bg-orange-950/20 space-y-2">
-          <div className="flex items-start justify-between gap-2 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
-                Quarantine candidates ({quarantineCandidates.length})
-              </div>
-              <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-0.5">
-                No activity in the last {thresholdDays} days — likely unused.
-              </div>
-            </div>
-            <Link
-              href={orphanLink}
-              className="inline-flex items-center text-[10px] font-medium text-orange-700 dark:text-orange-300 hover:underline shrink-0"
-            >
-              {orphanLinkLabel}
-            </Link>
-          </div>
-          <div className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
-            Each consumer below was flagged for one of two reasons:
-            either Cyntro observed activity that stopped &gt; {thresholdDays}{" "}
-            days ago, or there's been no observed activity AND the AWS
-            resource hasn't been modified in &gt; {thresholdDays} days.
-            Quarantine detaches the consumer safely with a backed-up
-            rollback window (lands in the system's Inventory → Orphan
-            tab). Delete is irreversible after the rollback window
-            closes.
-          </div>
-          <div className="space-y-1.5 pt-1">
-            {quarantineCandidates.map((c) => (
-              <QuarantineCandidateRow
-                key={c.consumer_id}
-                candidate={c}
-                thresholdDays={thresholdDays}
-              />
-            ))}
-          </div>
-        </div>
+        <QuarantineCandidatesSection
+          candidates={quarantineCandidates}
+          thresholdDays={thresholdDays}
+        />
       )}
 
       {/* Sub-bucket 2: Active observation pending */}
@@ -679,16 +627,281 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
   )
 }
 
-// Per-row component for a single Quarantine candidate. Owns the action
-// state machine so multiple candidates can be acted on independently
-// without inflating AwaitingCard.
+// Container for the Quarantine candidates sub-bucket. Owns the
+// selection state and bulk actions; each row still owns its own
+// per-row delete spinner / error / "Deleted" terminal state. When the
+// parent bulk-deletes a row, it marks the consumer_id in
+// `parentDeletedIds` and the row honors that as a forced terminal
+// state.
+function QuarantineCandidatesSection({
+  candidates,
+  thresholdDays,
+}: {
+  candidates: ConsumerEvidence[]
+  thresholdDays: number
+}) {
+  const router = useRouter()
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [parentDeletedIds, setParentDeletedIds] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; failed: number } | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+
+  const selectableCandidates = candidates.filter((c) => !parentDeletedIds.has(c.consumer_id))
+  const allSelected =
+    selectableCandidates.length > 0 &&
+    selectableCandidates.every((c) => selectedIds.has(c.consumer_id))
+  const someSelected = selectedIds.size > 0 && !allSelected
+
+  const toggleAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(selectableCandidates.map((c) => c.consumer_id)))
+    } else {
+      setSelectedIds(new Set())
+    }
+  }
+
+  const toggleOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const selectedCandidates = candidates.filter((c) => selectedIds.has(c.consumer_id))
+
+  const handleBulkMoveToOrphan = () => {
+    const systemNames = Array.from(
+      new Set(
+        selectedCandidates
+          .map((c) => c.system_name)
+          .filter((s): s is string => Boolean(s)),
+      ),
+    )
+    // One shared system -> deep-link to its Orphan tab. Otherwise fall
+    // back to the account-wide rollup (the per-system tab can only
+    // scope to one system at a time).
+    const href =
+      systemNames.length === 1
+        ? `/systems?systemName=${encodeURIComponent(systemNames[0])}&tab=orphan-services`
+        : "/orphan-resources"
+    router.push(href)
+  }
+
+  const handleBulkDelete = async () => {
+    setBulkBusy(true)
+    setBulkError(null)
+    setBulkProgress({ done: 0, total: selectedCandidates.length, failed: 0 })
+    const failures: string[] = []
+    for (let i = 0; i < selectedCandidates.length; i++) {
+      const c = selectedCandidates[i]
+      try {
+        const idleDays = c.last_observed_at
+          ? Math.max(
+              thresholdDays,
+              Math.floor(
+                (Date.now() - new Date(c.last_observed_at).getTime()) /
+                  (1000 * 60 * 60 * 24),
+              ),
+            )
+          : thresholdDays
+        const pre = await fetch("/api/proxy/quarantine/pre-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            resourceName: c.consumer_name || c.consumer_id,
+            resourceType: c.consumer_type || "IAMConsumer",
+            systemName: c.system_name,
+            idleDays,
+            connections: 0,
+            recentCloudTrailEvents: 0,
+            recentFlowLogHits: 0,
+          }),
+        })
+        if (!pre.ok) throw new Error(`pre-check ${pre.status}`)
+        const preData = await pre.json()
+        if (preData.error) throw new Error(preData.error)
+        const recordId = preData.recordId
+        if (!recordId) throw new Error("no recordId")
+        const del = await fetch("/api/proxy/quarantine/delete", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recordId, actor: "user", force: true }),
+        })
+        if (!del.ok) throw new Error(`delete ${del.status}`)
+        setParentDeletedIds((prev) => {
+          const next = new Set(prev)
+          next.add(c.consumer_id)
+          return next
+        })
+      } catch (e: any) {
+        failures.push(`${c.consumer_name || c.consumer_id}: ${e?.message ?? "unknown"}`)
+        setBulkProgress((p) =>
+          p ? { ...p, done: p.done + 1, failed: p.failed + 1 } : p,
+        )
+        continue
+      }
+      setBulkProgress((p) => (p ? { ...p, done: p.done + 1 } : p))
+    }
+    if (failures.length > 0) {
+      setBulkError(`${failures.length} of ${selectedCandidates.length} failed: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "…" : ""}`)
+    }
+    setBulkBusy(false)
+    setSelectedIds(new Set())
+    // Clear progress after a short beat so the success message lingers.
+    setTimeout(() => setBulkProgress(null), 1500)
+  }
+
+  return (
+    // Collapsible by default — the per-role plan often has 10+ idle
+    // consumers and we don't want to dominate the page until the
+    // operator opens it. The summary still carries the count so they
+    // can see the magnitude at a glance.
+    <details className="border border-orange-300 dark:border-orange-700/50 rounded-md bg-orange-50/60 dark:bg-orange-950/20 group">
+      <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden p-2.5 flex items-center gap-2">
+        <ChevronRight className="w-4 h-4 text-orange-700 dark:text-orange-300 transition-transform group-open:rotate-90 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
+            Quarantine candidates ({candidates.length})
+          </div>
+          <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-0.5">
+            No activity in the last {thresholdDays} days — likely unused.
+          </div>
+        </div>
+      </summary>
+      <div className="px-2.5 pb-2.5 space-y-2">
+      <div className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+        Each consumer below was flagged for one of two reasons:
+        either Cyntro observed activity that stopped &gt; {thresholdDays}{" "}
+        days ago, or there's been no observed activity AND the AWS
+        resource hasn't been modified in &gt; {thresholdDays} days.
+        Select rows (or "Select all") to act in bulk. "Move to Orphan"
+        opens the system's Inventory → Orphan tab so you can review
+        the safety score and quarantine the resources there
+        (quarantine is reversible). Delete is irreversible after the
+        rollback window closes.
+      </div>
+
+      {/* Select-all + bulk action bar */}
+      <div className="flex items-center justify-between gap-2 flex-wrap border-t border-orange-300/50 dark:border-orange-700/30 pt-2">
+        <label className="flex items-center gap-2 text-[11px] font-medium text-zinc-800 dark:text-zinc-200 cursor-pointer">
+          <Checkbox
+            checked={allSelected ? true : someSelected ? "indeterminate" : false}
+            onCheckedChange={(v) => toggleAll(v === true)}
+            disabled={bulkBusy || selectableCandidates.length === 0}
+            aria-label="Select all quarantine candidates"
+          />
+          {selectedIds.size > 0
+            ? `${selectedIds.size} selected`
+            : `Select all (${selectableCandidates.length})`}
+        </label>
+
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleBulkMoveToOrphan}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+            >
+              <ArrowRight className="w-3 h-3" />
+              Move {selectedIds.size} to Orphan
+            </button>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={bulkBusy}
+                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded border border-red-300 dark:border-red-700/50 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
+                >
+                  {bulkBusy ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3 h-3" />
+                  )}
+                  Delete {selectedIds.size}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Delete {selectedIds.size}{" "}
+                    {selectedIds.size === 1 ? "consumer" : "consumers"}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Cyntro backs up each resource's configuration to a
+                    quarantine record before the delete, so each one can
+                    be restored from its rollback window. After the
+                    window closes, the AWS resources are removed
+                    permanently. Each delete runs sequentially so a
+                    failure on one row does not block the rest.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleBulkDelete}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    Delete {selectedIds.size}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              disabled={bulkBusy}
+              className="inline-flex items-center text-[10px] font-medium px-2 py-1 rounded text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+
+      {bulkProgress && (
+        <div className="text-[10px] text-zinc-700 dark:text-zinc-300">
+          {bulkBusy
+            ? `Deleting ${bulkProgress.done + 1} of ${bulkProgress.total}…`
+            : `Done: ${bulkProgress.done - bulkProgress.failed} deleted, ${bulkProgress.failed} failed.`}
+        </div>
+      )}
+      {bulkError && (
+        <div className="text-[10px] text-red-700 dark:text-red-300 leading-snug">
+          {bulkError}
+        </div>
+      )}
+
+      <div className="space-y-1.5 pt-1">
+        {candidates.map((c) => (
+          <QuarantineCandidateRow
+            key={c.consumer_id}
+            candidate={c}
+            thresholdDays={thresholdDays}
+            selected={selectedIds.has(c.consumer_id)}
+            onToggleSelected={(checked) => toggleOne(c.consumer_id, checked)}
+            parentDeleted={parentDeletedIds.has(c.consumer_id)}
+            disableActions={bulkBusy}
+          />
+        ))}
+      </div>
+      </div>
+    </details>
+  )
+}
+
+// Per-row component for a single Quarantine candidate. Owns the
+// delete state machine so multiple candidates can be acted on
+// independently without inflating AwaitingCard.
 //
 // Two actions:
-//   - Quarantine: chains pre-check -> start-monitor -> execute via
-//     /api/proxy/quarantine/*. Reversible via Restore from the Orphan
-//     tab. On success, deep-links to /systems?systemName=X&tab=
-//     orphan-services so the operator sees the resource land in its
-//     new home.
+//   - Move to Orphan: pure navigation to the system's Inventory ->
+//     Orphan tab. The actual Quarantine decision happens there, with
+//     the safety score + recommendation panel in view. The orphan-
+//     services list is already server-derived from idle metrics, so a
+//     quarantine candidate visible here is also surfaced there.
 //   - Delete: chains pre-check -> delete with an AlertDialog confirm.
 //     Destructive — config is backed up to the quarantine record but
 //     the AWS resource itself is removed after the rollback window
@@ -696,14 +909,25 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
 function QuarantineCandidateRow({
   candidate,
   thresholdDays,
+  selected,
+  onToggleSelected,
+  parentDeleted,
+  disableActions,
 }: {
   candidate: ConsumerEvidence
   thresholdDays: number
+  selected: boolean
+  onToggleSelected: (checked: boolean) => void
+  parentDeleted: boolean
+  disableActions: boolean
 }) {
-  type RowState = "idle" | "quarantining" | "deleting" | "quarantined" | "deleted"
+  type RowState = "idle" | "deleting" | "deleted"
   const [state, setState] = useState<RowState>("idle")
   const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
+  // Parent bulk-delete forces the terminal state regardless of the
+  // row's own state machine (e.g. when the row was never clicked
+  // individually but was part of a bulk delete).
+  const effectiveState: RowState = parentDeleted ? "deleted" : state
 
   const idleDays = (() => {
     if (!candidate.last_observed_at) return thresholdDays
@@ -711,77 +935,38 @@ function QuarantineCandidateRow({
     return Math.max(thresholdDays, Math.floor(ms / (1000 * 60 * 60 * 24)))
   })()
 
-  const preCheckBody = {
-    resourceName: candidate.consumer_name || candidate.consumer_id,
-    resourceType: candidate.consumer_type || "IAMConsumer",
-    systemName: candidate.system_name,
-    idleDays,
-    connections: 0,
-    recentCloudTrailEvents: 0,
-    recentFlowLogHits: 0,
-  }
-
-  const runPreCheck = async (): Promise<string> => {
-    const res = await fetch("/api/proxy/quarantine/pre-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(preCheckBody),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      throw new Error(`Pre-check failed (${res.status})${body ? `: ${body}` : ""}`)
-    }
-    const data = await res.json()
-    if (data.error) throw new Error(data.error)
-    if (!data.recordId) throw new Error("Pre-check did not return a recordId")
-    return data.recordId as string
-  }
-
   const orphanHref = candidate.system_name
     ? `/systems?systemName=${encodeURIComponent(candidate.system_name)}&tab=orphan-services`
     : "/orphan-resources"
-
-  const handleQuarantine = async () => {
-    if (!candidate.system_name) {
-      setError("No system tag on this consumer — cannot route to its Orphan tab")
-      return
-    }
-    setState("quarantining")
-    setError(null)
-    try {
-      const recordId = await runPreCheck()
-      const mon = await fetch("/api/proxy/quarantine/start-monitor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId, actor: "user" }),
-      })
-      if (!mon.ok) throw new Error(`Start monitor failed (${mon.status})`)
-      const exec = await fetch("/api/proxy/quarantine/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId, actor: "user" }),
-      })
-      if (!exec.ok) throw new Error(`Execute failed (${exec.status})`)
-      setState("quarantined")
-      // Land the operator on the Orphan tab where the resource now
-      // lives. Small delay so the success state is visible for a beat
-      // before the route changes.
-      setTimeout(() => router.push(orphanHref), 500)
-    } catch (e: any) {
-      setState("idle")
-      setError(e?.message ?? "Unknown error")
-    }
-  }
 
   const handleDelete = async () => {
     setState("deleting")
     setError(null)
     try {
-      const recordId = await runPreCheck()
+      const pre = await fetch("/api/proxy/quarantine/pre-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resourceName: candidate.consumer_name || candidate.consumer_id,
+          resourceType: candidate.consumer_type || "IAMConsumer",
+          systemName: candidate.system_name,
+          idleDays,
+          connections: 0,
+          recentCloudTrailEvents: 0,
+          recentFlowLogHits: 0,
+        }),
+      })
+      if (!pre.ok) {
+        const body = await pre.text().catch(() => "")
+        throw new Error(`Pre-check failed (${pre.status})${body ? `: ${body}` : ""}`)
+      }
+      const preData = await pre.json()
+      if (preData.error) throw new Error(preData.error)
+      if (!preData.recordId) throw new Error("Pre-check did not return a recordId")
       const del = await fetch("/api/proxy/quarantine/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId, actor: "user", force: true }),
+        body: JSON.stringify({ recordId: preData.recordId, actor: "user", force: true }),
       })
       if (!del.ok) throw new Error(`Delete failed (${del.status})`)
       setState("deleted")
@@ -791,11 +976,17 @@ function QuarantineCandidateRow({
     }
   }
 
-  const busy = state === "quarantining" || state === "deleting"
-
   return (
     <div className="bg-white/60 dark:bg-zinc-950/40 border rounded p-2 text-xs">
-      <div className="flex items-start justify-between gap-2 flex-wrap">
+      <div className="flex items-start gap-2">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(v) => onToggleSelected(v === true)}
+          disabled={effectiveState === "deleted" || disableActions}
+          className="mt-0.5 shrink-0"
+          aria-label={`Select ${candidate.consumer_name || candidate.consumer_id}`}
+        />
+        <div className="flex items-start justify-between gap-2 flex-wrap flex-1 min-w-0">
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
             {candidate.consumer_name || candidate.consumer_id}
@@ -825,41 +1016,29 @@ function QuarantineCandidateRow({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {state === "quarantined" ? (
-            <Link
-              href={orphanHref}
-              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              <CheckCircle2 className="w-3 h-3" />
-              Quarantined — View →
-            </Link>
-          ) : state === "deleted" ? (
+          {effectiveState === "deleted" ? (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
               <Trash2 className="w-3 h-3" />
               Deleted
             </span>
           ) : (
             <>
-              <button
-                onClick={handleQuarantine}
-                disabled={busy}
-                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+              <Link
+                href={orphanHref}
+                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-orange-600 hover:bg-orange-700 text-white"
+                aria-disabled={effectiveState === "deleting" || disableActions}
               >
-                {state === "quarantining" ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <ShieldOff className="w-3 h-3" />
-                )}
-                Quarantine
-              </button>
+                <ArrowRight className="w-3 h-3" />
+                Move to Orphan
+              </Link>
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
-                    disabled={busy}
+                    disabled={effectiveState === "deleting" || disableActions}
                     className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded border border-red-300 dark:border-red-700/50 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
                   >
-                    {state === "deleting" ? (
+                    {effectiveState === "deleting" ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
                     ) : (
                       <Trash2 className="w-3 h-3" />
@@ -881,8 +1060,9 @@ function QuarantineCandidateRow({
                       quarantine record before the delete, so you can
                       restore from the rollback window. After the window
                       closes, the AWS resource is removed permanently.
-                      Prefer Quarantine if you're unsure — Quarantine
-                      itself is reversible at any time.
+                      Prefer "Move to Orphan" if you want to inspect the
+                      safety score and quarantine first — quarantine is
+                      reversible at any time.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -898,6 +1078,7 @@ function QuarantineCandidateRow({
               </AlertDialog>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>
