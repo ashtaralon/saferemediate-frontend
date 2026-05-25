@@ -46,6 +46,7 @@ import type {
   EgressGatewayNode,
   TrafficFlow,
 } from "@/components/dependency-map/traffic-flow-map"
+import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -630,6 +631,44 @@ function buildExfilArchitecture(
   const flows: TrafficFlow[] = []
   const seen = new Set<string>()
 
+  // Phase 3 (2026-05-25): explicit-edges contract for TrafficFlowMap.
+  // Each flow synthesized below gets a paired CanvasEdge with an
+  // explicit relationship type + plane classification. Renderer draws
+  // ONE plane-colored curved line per edge, no cross-plane bundling.
+  // Legacy flows[] stays for backward-compat header math (totalBytes,
+  // totalConnections) — the renderer short-circuits on edges presence.
+  const builtEdges: CanvasEdge[] = []
+  const edgeKeys = new Set<string>()
+  const pushEdge = (
+    source: string,
+    target: string,
+    relationship: string,
+    observed: boolean | null,
+    bytes: number | null,
+    hitCount: number | null,
+    port: number | null,
+    protocol: string | null,
+  ) => {
+    if (!source || !target) return
+    const rel = relationship.toUpperCase()
+    const id = `${source}|${rel}|${target}`
+    if (edgeKeys.has(id)) return
+    edgeKeys.add(id)
+    builtEdges.push({
+      id,
+      source_aws_id: source,
+      target_aws_id: target,
+      relationship: rel as CanvasRelationshipType,
+      observed,
+      hit_count: hitCount,
+      bytes,
+      first_seen: null,
+      last_seen: null,
+      port,
+      protocol,
+    })
+  }
+
   // Filter network egress to ONLY the selected path's (accessor, channel)
   // slice. When no path is selected (legacy fallthrough or paths[] empty)
   // we fall back to the full payload — the pre-per-path behavior.
@@ -698,6 +737,19 @@ function buildExfilArchitecture(
       connections: a.hit_count || 1,
       isActive: a.provenance === "observed",
     })
+    // Phase 3 paired edge: data plane (the read access is the data
+    // event itself). ACCESSES_RESOURCE → planeForString → "data" → warm
+    // orange line, animated only when observed=true AND bytes/hits>0.
+    pushEdge(
+      jewelId,
+      a.id,
+      "ACCESSES_RESOURCE",
+      a.provenance === "observed",
+      a.total_bytes ?? 0,
+      a.hit_count ?? 0,
+      null,
+      null,
+    )
   }
 
   // 3. WORKLOADS carrying the accessor roles → computeServices.
@@ -862,26 +914,34 @@ function buildExfilArchitecture(
       kind: kind,
       kindLabel: kindLabel[kind] || kind,
     })
-    // Flow: workload → gateway, routed through the workload's
-    // SG card so ConnectionLinesSVG zigzags through SG visually
-    // (per 2026-05-25 user feedback: "why no traffic through SG").
-    // The SG id we attach is the FIRST SG on this row's via_
-    // security_groups — picking deterministically so multi-SG
-    // workloads still produce a single visible flow line. If
-    // future flows need to fan out per SG we'd push one flow per
-    // SG instead.
+    // Flow: workload → gateway. Phase 3 (2026-05-25) note: the prior
+    // sgId checkpoint field was used so ConnectionLinesSVG would route
+    // the polyline through the SG card. With explicit-edges + curves
+    // the line bends naturally and we emit a SEPARATE network-plane
+    // edge (workload → SG, SECURED_BY) so the SG card is wired into
+    // the chain by its own real graph edge instead of a synthesized
+    // routing waypoint.
     if (e.via_workload?.id) {
-      const sgIdForFlow = e.via_security_groups?.[0]?.id
       flows.push({
         sourceId: e.via_workload.id,
         targetId: e.id,
-        sgId: sgIdForFlow,
         ports: [],
         protocol: "tcp",
         bytes: 0,
         connections: 0,
         isActive: false,
       })
+      // Workload → Gateway: network plane. Summary edge for the
+      // multi-hop network reach (workload → ENI → subnet → route
+      // table → gateway). Tagged ROUTES_VIA to match the dominant
+      // hop type and keep the line teal.
+      pushEdge(e.via_workload.id, e.id, "ROUTES_VIA", false, 0, 0, null, null)
+      // Workload → SG: explicit network-plane edge so the SG card
+      // doesn't sit orphan now that the sgId bundle is gone.
+      const sgIdForEdge = e.via_security_groups?.[0]?.id
+      if (sgIdForEdge) {
+        pushEdge(e.via_workload.id, sgIdForEdge, "SECURED_BY", false, 0, 0, null, null)
+      }
     }
   }
 
@@ -919,6 +979,14 @@ function buildExfilArchitecture(
     let destType: "internet" | "storage"
     let destProtocol: string
     let routeSourceIds: string[] // ids that flow INTO the destination
+    // Whether the destination card is backed by real graph data or
+    // is a conceptual placeholder. network_via_igw destinations come
+    // from real IGW/NAT/VPCE edges in egress_lanes.network[];
+    // serverless_direct / direct_api have no EXFILTRATED_TO edge yet
+    // (Phase D collector pending — see OBSERVED EXFIL callout). For
+    // those channels the chip is labeled "not tracked" so the
+    // operator doesn't read it as a confirmed exit point.
+    let destIsTracked = false
 
     if (selectedPath.channel === "network_via_igw") {
       destId = "internet"
@@ -926,21 +994,25 @@ function buildExfilArchitecture(
       destType = "internet"
       destProtocol = "internet"
       routeSourceIds = egressGateways.map((g) => g.id)
+      destIsTracked = true
     } else if (selectedPath.channel === "direct_api") {
       // No workload — role called the AWS control-plane API directly
-      // (root, AWSServiceRoleForResourceExplorer). Render a synthetic
-      // "AWS Public API" destination flowing from the ACCESSOR.
-      destId = "exfil-dest:aws-api"
-      destLabel = "AWS Public API"
+      // (root, AWSServiceRoleForResourceExplorer). No EXFILTRATED_TO
+      // edge confirms anything left the account; the chip is a
+      // conceptual placeholder framed honestly below.
+      destId = "exfil-dest:aws-control-plane"
+      destLabel = "AWS control plane"
       destType = "internet"
       destProtocol = "https"
       routeSourceIds = [selectedPath.accessor_id]
     } else {
       // serverless_direct / ec2_no_egress — data leaves through the
-      // AWS service plane (S3/DynamoDB public endpoint), NOT through
-      // the customer's IGW. Flow originates at the WORKLOAD card.
-      destId = `exfil-dest:${payload.jewel.type.toLowerCase()}-public`
-      destLabel = `${payload.jewel.type} Public Endpoint`
+      // AWS service plane (the same public API that read it), NOT
+      // through the customer's IGW. Same Phase-D-pending honesty
+      // applies — no EXFILTRATED_TO edge confirms where the data
+      // actually went after the jewel was read.
+      destId = `exfil-dest:${payload.jewel.type.toLowerCase()}-service-plane`
+      destLabel = "AWS service plane"
       destType = "storage"
       destProtocol = "https"
       routeSourceIds = computeServices
@@ -949,21 +1021,37 @@ function buildExfilArchitecture(
     }
 
     const routeCount = Math.max(1, routeSourceIds.length)
-    const headlineSuffix =
-      observedRouteCount > 0
+    // headlineSuffix + arrow indicator: tracked destinations show real
+    // route + observed counts. Untracked (conceptual) destinations
+    // surface the honest "not tracked" framing instead of fabricating
+    // "1 route capable" — that text reads as "we counted 1 route to
+    // S3" when in fact we never observed the exit at all.
+    const headlineSuffix = destIsTracked
+      ? observedRouteCount > 0
         ? `${routeCount} route${routeCount === 1 ? "" : "s"} · ${observedRouteCount} observed`
         : `${routeCount} route${routeCount === 1 ? "" : "s"} capable`
+      : "exit point not tracked (EXFILTRATED_TO collector — Phase D)"
     const richLabel = `${destLabel} — ${headlineSuffix}`
 
     resources.push({
       id: destId,
       name: richLabel,
-      shortName:
-        shortName(destLabel, 18) +
-        (observedRouteCount > 0 ? `  ${observedRouteCount}/${routeCount}` : `  ${routeCount}↗`),
+      shortName: destIsTracked
+        ? shortName(destLabel, 18) +
+          (observedRouteCount > 0 ? `  ${observedRouteCount}/${routeCount}` : `  ${routeCount}↗`)
+        : shortName(destLabel, 22) + "  · not tracked",
       type: destType,
     } as ServiceNode)
 
+    // Phase 3: classify the destination edge by channel.
+    //   network_via_igw   → gateway → Internet  : ROUTES_VIA  (network plane)
+    //   direct_api        → role    → AWS API   : ACCESSES_RESOURCE (data plane)
+    //   serverless_direct → workload → S3 public: ACCESSES_RESOURCE (data plane)
+    //   ec2_no_egress     → workload → S3 public: ACCESSES_RESOURCE (data plane)
+    // The relationship picks plane via planeForString in the renderer,
+    // which drives line color + the strict animation gate.
+    const destRel: string =
+      selectedPath.channel === "network_via_igw" ? "ROUTES_VIA" : "ACCESSES_RESOURCE"
     for (const srcId of routeSourceIds) {
       flows.push({
         sourceId: srcId,
@@ -974,6 +1062,16 @@ function buildExfilArchitecture(
         connections: observedRouteCount,
         isActive: isObserved,
       })
+      pushEdge(
+        srcId,
+        destId,
+        destRel,
+        isObserved,
+        observedBytes,
+        observedRouteCount,
+        null,
+        destProtocol,
+      )
     }
   } else {
     // Fallback: original all-paths-merged behavior (only fires on the
@@ -1005,6 +1103,19 @@ function buildExfilArchitecture(
           connections: d.observed_route_count,
           isActive: isObserved,
         })
+        // Phase 3 fallback (no selectedPath): network egress row →
+        // destination is always a network-plane edge (gateway → Internet
+        // / ExternalAccount / ExternalRegion).
+        pushEdge(
+          e.id,
+          d.id,
+          "ROUTES_VIA",
+          isObserved,
+          d.observed_bytes_24h,
+          d.observed_route_count,
+          null,
+          d.kind === "internet" ? "internet" : "tcp",
+        )
       }
     }
   }
@@ -1039,6 +1150,10 @@ function buildExfilArchitecture(
     vpcEndpoints: [],
     egressGateways,
     flows,
+    // Phase 3 (2026-05-25): explicit edges drive rendering — one
+    // plane-colored curved line per edge. Legacy flows[] stays for
+    // header math (totalBytes / totalConnections / metricsBasis).
+    edges: builtEdges,
     totalBytes,
     totalConnections,
     totalGaps: 0,
