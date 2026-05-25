@@ -72,9 +72,23 @@ interface ExfilNetworkEgressItem {
   kind: string
   id: string
   name: string
+  service_name?: string | null
+  endpoint_type?: string | null
   via_workload: { id: string; name: string; type: string }
-  via_subnet: { id: string; name: string; public: boolean | null }
+  via_subnet: {
+    id: string
+    name: string
+    public: boolean | null
+    route_table?: { id: string; name: string; route_count?: number | null; is_main?: boolean | null } | null
+  }
   via_vpc: { id: string; name: string }
+  via_security_groups?: Array<{
+    id: string
+    name: string
+    inbound_rule_count?: number | null
+    outbound_rule_count?: number | null
+    has_public_ingress?: boolean | null
+  }>
   provenance: "capable" | "observed"
 }
 
@@ -358,6 +372,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   const resources: ServiceNode[] = []
   const iamRoles: SecurityCheckpoint[] = []
   const subnets: SubnetNode[] = []
+  const securityGroups: SecurityCheckpoint[] = []
   const egressGateways: EgressGatewayNode[] = []
   const entryPoints: ServiceNode[] = []
   const flows: TrafficFlow[] = []
@@ -438,11 +453,12 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     })
   }
 
-  // 3b. SUBNETS → unique via_subnet entries. Without this lane the
-  //     canvas shows SUBNETS (0) even when the backend payload
-  //     clearly carries subnet metadata on every egress row
-  //     (user-reported 2026-05-25). Three-state public/private
-  //     posture preserved.
+  // 3b. SUBNETS → unique via_subnet entries (+ RouteTable chip).
+  //     The backend now carries via_subnet.route_table metadata when
+  //     the subnet's route_table_id property resolves to a RouteTable
+  //     node (Neo4j operator-traced 2026-05-25: 3 RouteTable nodes
+  //     exist, joined by property not edge, hence the property-based
+  //     extraction).
   const subnetSeen = new Set<string>()
   for (const e of payload.egress_lanes.network) {
     const s = e.via_subnet
@@ -455,7 +471,39 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
       isPublic: s.public,
       vpcId: e.via_vpc?.id ?? undefined,
       connectedComputeIds: [],
-    })
+      routeTableId: s.route_table?.id,
+      routeTableCount: s.route_table?.route_count ?? undefined,
+      routeTableIsMain: s.route_table?.is_main ?? undefined,
+    } as SubnetNode)
+  }
+
+  // 3c. SECURITY GROUPS → unique via_security_groups across all
+  //     egress rows. The backend now extracts SGs via canonical
+  //     SECURED_BY edge + ENI fallback. Neo4j operator-traced 2026-
+  //     05-25 confirmed every workload on this jewel's chain HAS an
+  //     SG (saferemediate-test-app-sg, alon-demo-app-sg, default,
+  //     cyntro-lambda-sg-pilot). The previous canvas's "SECURITY
+  //     GROUPS (0)" was a frontend hardcode bug, not a graph gap.
+  const sgSeen = new Set<string>()
+  for (const e of payload.egress_lanes.network) {
+    for (const sg of e.via_security_groups || []) {
+      if (!sg?.id || sgSeen.has(sg.id)) continue
+      sgSeen.add(sg.id)
+      const inb = Number(sg.inbound_rule_count ?? 0) || 0
+      const outb = Number(sg.outbound_rule_count ?? 0) || 0
+      const total = inb + outb
+      securityGroups.push({
+        id: sg.id,
+        type: "security_group",
+        name: sg.name,
+        shortName: shortName(sg.name, 24),
+        usedCount: 0,
+        totalCount: total,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      })
+    }
   }
 
   // 4. EGRESS GATEWAYS — IGW / NAT / VPCE / TGW only. The backend
@@ -566,7 +614,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     principals: [], // empty — the entry card IS the jewel itself
     resources,
     subnets,
-    securityGroups: [],
+    securityGroups,
     nacls: [],
     iamRoles,
     instanceProfiles: [],

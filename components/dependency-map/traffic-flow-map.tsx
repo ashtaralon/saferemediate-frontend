@@ -2812,26 +2812,32 @@ export function UnifiedArchitectureDiagram({
             )}
           </div>
 
-          {/* NACLS */}
-          <div className="flex flex-col gap-3 min-w-[140px]">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Lock className="w-4 h-4 text-cyan-400" />
-              NACLs ({architecture.nacls.length})
-            </div>
-            {architecture.nacls.map(nacl => (
-              <div key={nacl.id} data-nacl-id={nacl.id}>
-                <NACLNode
-                  nacl={nacl}
-                  isHighlighted={isNodeHighlighted(nacl.id)}
-                  onHover={setHoveredId}
-                  onClick={() => onSelectService(nacl, 'nacl')}
-                />
+          {/* NACLS — only render lane when at least one NACL is on
+              the path. "No NACLs" placeholder was always-on noise
+              (most paths have zero NACLs because NACLs are typically
+              pass-through). Per 2026-05-25 user feedback: "If I don't
+              have X, don't present it — I need to understand what we
+              have, not what we don't." Other lanes that legitimately
+              empty (SGs, IGW) still render their placeholders because
+              their absence is itself a meaningful security signal. */}
+          {architecture.nacls.length > 0 && (
+            <div className="flex flex-col gap-3 min-w-[140px]">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-cyan-400" />
+                NACLs ({architecture.nacls.length})
               </div>
-            ))}
-            {architecture.nacls.length === 0 && (
-              <div className="text-xs text-slate-500 italic p-4 text-center">No NACLs</div>
-            )}
-          </div>
+              {architecture.nacls.map(nacl => (
+                <div key={nacl.id} data-nacl-id={nacl.id}>
+                  <NACLNode
+                    nacl={nacl}
+                    isHighlighted={isNodeHighlighted(nacl.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(nacl, 'nacl')}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
             </>
           )}
 
