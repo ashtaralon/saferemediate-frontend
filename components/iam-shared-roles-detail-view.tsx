@@ -122,15 +122,15 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
   }
 
   return (
-    <div className="p-6 space-y-5 max-w-5xl">
+    <div className="p-6 space-y-5 max-w-6xl">
       <BackLink />
       <PlanHero plan={plan} />
-      <WhatWeHave plan={plan} />
+      <BlastRadiusHero plan={plan} />
+      <BeforeAfterCanvas plan={plan} />
       <WhyItMatters plan={plan} />
       <WhatCyntroWillDo />
       <WhereThisStands plan={plan} />
       <ApprovalAction plan={plan} onApproved={reload} />
-      <ConsumersAndGroups plan={plan} />
       <EngineeringDetails plan={plan} />
     </div>
   )
@@ -167,6 +167,349 @@ function PlanHero({ plan }: { plan: SplitPlan }) {
         {plan.shared_role.role_arn}
       </p>
     </header>
+  )
+}
+
+// ─── Section: BlastRadiusHero — executive headline number ──────────
+
+function BlastRadiusHero({ plan }: { plan: SplitPlan }) {
+  const brs = plan.blast_radius_summary
+  if (!brs) {
+    // Backend ships without this block — UI degrades gracefully.
+    return null
+  }
+  const avg = brs.after.summary.average_reduction_pct_for_grouped
+  const ratio = brs.after.summary.ratio_ready_label
+  const awaiting = brs.after.summary.consumers_awaiting_evidence
+  const conflicted = brs.after.summary.consumers_with_conflicting_evidence
+  const hasReady = brs.after.summary.consumers_ready_to_split > 0
+
+  return (
+    <Card className="border-l-4 border-l-emerald-600">
+      <CardContent className="py-5 flex items-center justify-between gap-6 flex-wrap">
+        <div className="flex items-baseline gap-4">
+          <div className="text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+            {hasReady ? `${Math.round(avg)}%` : "—"}
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+              Blast-radius reduction
+            </span>
+            <span className="text-xs text-zinc-700 dark:text-zinc-400">
+              per Lambda when split
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-col text-sm text-right">
+          <span className="text-zinc-900 dark:text-zinc-100 font-medium">
+            <strong className="tabular-nums">{ratio}</strong> ready to split
+          </span>
+          <span className="text-xs text-zinc-700 dark:text-zinc-400">
+            {awaiting > 0 && <>Awaiting evidence: <strong>{awaiting}</strong></>}
+            {awaiting > 0 && conflicted > 0 && " · "}
+            {conflicted > 0 && <>Conflicting: <strong>{conflicted}</strong></>}
+            {awaiting === 0 && conflicted === 0 && <>All consumers eligible</>}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Section: BeforeAfterCanvas — the visual split ─────────────────
+
+function BeforeAfterCanvas({ plan }: { plan: SplitPlan }) {
+  const allowedActions = plan.shared_role.allowed_actions ?? []
+  const allowedCount =
+    plan.shared_role.allowed_actions_count ?? allowedActions.length
+  const consumerCount = plan.discovery_facts.consumer_count
+  const systemTags = plan.discovery_facts.system_tags
+  const systemLine =
+    systemTags.length === 0
+      ? "untagged"
+      : systemTags.length === 1
+      ? systemTags[0]
+      : systemTags.join(" + ")
+
+  const eligible = plan.eligible_groups
+  const blocked = plan.blocked_consumers
+  const awaiting = blocked.filter((c) => c.evidence_state === "NONE")
+  const conflicted = blocked.filter(
+    (c) => c.evidence_state === "CONFLICTED"
+  )
+  const complex = blocked.filter(
+    (c) => c.evidence_state === "COMPLEX_POLICY"
+  )
+  const brsGroups = plan.blast_radius_summary?.after.groups ?? []
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ─── BEFORE column ─── */}
+      <Card className="border-l-4 border-l-zinc-400 dark:border-l-zinc-600 h-full">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400 font-semibold">
+            Before — current state
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+              One shared role
+            </div>
+            <div className="font-semibold mt-0.5 break-all">
+              {plan.shared_role.role_name}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+              Grants <strong>{allowedCount}</strong> permission
+              {allowedCount === 1 ? "" : "s"}
+            </div>
+            <ul className="mt-1 space-y-0.5 text-xs font-mono leading-snug">
+              {(allowedActions.slice(0, 14) as string[]).map((p) => (
+                <li key={p} className="break-all">
+                  • {p}
+                </li>
+              ))}
+              {allowedActions.length > 14 && (
+                <li className="text-zinc-600 dark:text-zinc-400 italic">
+                  + {allowedActions.length - 14} more
+                </li>
+              )}
+            </ul>
+          </div>
+          <div className="pt-2 border-t">
+            <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+              Attached to
+            </div>
+            <div className="text-base mt-0.5">
+              <strong className="tabular-nums">{consumerCount}</strong> consumer
+              {consumerCount === 1 ? "" : "s"}
+              <span className="text-zinc-700 dark:text-zinc-400">
+                {" "}
+                in {systemLine}
+              </span>
+            </div>
+            <div className="text-xs text-zinc-700 dark:text-zinc-400 mt-1">
+              Every consumer inherits all {allowedCount} permission
+              {allowedCount === 1 ? "" : "s"} — including ones it never uses.
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ─── AFTER column ─── */}
+      <div className="space-y-4">
+        <Card className="border-l-4 border-l-emerald-600 h-full">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400 font-semibold">
+              After — Cyntro's proposal
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {eligible.length > 0 ? (
+              <div className="space-y-3">
+                {eligible.map((g, idx) => (
+                  <ProposedGroupCard
+                    key={g.group_id}
+                    group={g}
+                    brsGroup={brsGroups[idx]}
+                    roleAllowedCount={allowedCount}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-700 dark:text-zinc-400 py-2">
+                No groups proposed yet — waiting for observed activity.
+              </div>
+            )}
+
+            {awaiting.length > 0 && (
+              <AwaitingCard awaiting={awaiting} />
+            )}
+            {conflicted.length > 0 && (
+              <ConflictingCard conflicted={conflicted} />
+            )}
+            {complex.length > 0 && (
+              <ComplexPolicyCard items={complex} />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function ProposedGroupCard({
+  group,
+  brsGroup,
+  roleAllowedCount,
+}: {
+  group: SplitPlanGroup
+  brsGroup?: { tailored_permission_count: number; reduction_pct_per_consumer: number; consumer_count: number }
+  roleAllowedCount: number
+}) {
+  const statement = group.proposed_policy_document?.Statement as
+    | Array<{ Action?: string | string[] }>
+    | undefined
+  const actionsRaw = statement?.[0]?.Action
+  const tailored: string[] = Array.isArray(actionsRaw)
+    ? actionsRaw
+    : actionsRaw
+    ? [actionsRaw]
+    : []
+  const reductionPct = brsGroup?.reduction_pct_per_consumer
+  return (
+    <div className="border rounded-md p-3 space-y-2 bg-emerald-50/40 dark:bg-emerald-950/10">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            Group ({group.consumers.length} consumer
+            {group.consumers.length === 1 ? "" : "s"})
+          </div>
+          <div className="text-sm font-medium mt-0.5 flex flex-wrap gap-1">
+            {group.consumers.map((c) => (
+              <Badge
+                key={c.consumer_id}
+                variant="outline"
+                className="text-[11px] font-mono"
+              >
+                {c.consumer_name || c.consumer_id}
+              </Badge>
+            ))}
+          </div>
+        </div>
+        {reductionPct !== undefined && (
+          <Badge
+            variant="outline"
+            className="bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-700/50 shrink-0 tabular-nums"
+          >
+            {roleAllowedCount} → {tailored.length} ({Math.round(reductionPct)}% ↓)
+          </Badge>
+        )}
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+          Tailored permissions
+        </div>
+        <ul className="mt-1 space-y-0.5 text-xs font-mono leading-snug">
+          {tailored.map((p) => (
+            <li key={p} className="break-all">
+              • {p}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="pt-2 border-t text-xs text-zinc-700 dark:text-zinc-400">
+        Proposed new role:{" "}
+        <span className="font-mono break-all text-zinc-900 dark:text-zinc-100">
+          {group.proposed_role_name}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
+  return (
+    <details className="border rounded-md p-3 space-y-2 bg-amber-50/40 dark:bg-amber-950/10">
+      <summary className="cursor-pointer flex items-start justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            Awaiting evidence
+          </div>
+          <div className="text-sm font-medium mt-0.5">
+            {awaiting.length} consumer{awaiting.length === 1 ? "" : "s"} with no
+            observed activity yet
+          </div>
+        </div>
+        <Badge
+          variant="outline"
+          className="bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-700/50 shrink-0"
+        >
+          stay on shared role
+        </Badge>
+      </summary>
+      <div className="text-xs text-zinc-700 dark:text-zinc-400 pt-2">
+        These consumers stay on the shared role until Cyntro observes API
+        calls from them. Once activity arrives, they'll be grouped automatically.
+      </div>
+      <div className="flex flex-wrap gap-1 pt-1">
+        {awaiting.map((c) => (
+          <Badge
+            key={c.consumer_id}
+            variant="outline"
+            className="text-[11px] font-mono"
+          >
+            {c.consumer_name || c.consumer_id}
+          </Badge>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function ConflictingCard({ conflicted }: { conflicted: ConsumerEvidence[] }) {
+  return (
+    <div className="border rounded-md p-3 space-y-2 bg-orange-50/40 dark:bg-orange-950/10 border-orange-300 dark:border-orange-700/50">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
+            Conflicting evidence
+          </div>
+          <div className="text-sm font-medium mt-0.5">
+            {conflicted.length} consumer
+            {conflicted.length === 1 ? "" : "s"} performed actions outside this
+            role's policy
+          </div>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        {conflicted.map((c) => (
+          <div key={c.consumer_id} className="text-xs">
+            <span className="font-mono font-medium">
+              {c.consumer_name || c.consumer_id}
+            </span>
+            : observed{" "}
+            <span className="font-mono">
+              {c.observed_actions.join(", ")}
+            </span>
+            {c.observed_actions.length === 0 && (
+              <span className="text-zinc-600 dark:text-zinc-400">no actions</span>
+            )}
+            <div className="text-zinc-700 dark:text-zinc-400 mt-0.5">
+              Likely used a different role for these calls — needs investigation
+              before splitting.
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ComplexPolicyCard({ items }: { items: ConsumerEvidence[] }) {
+  return (
+    <div className="border rounded-md p-3 space-y-2 bg-purple-50/40 dark:bg-purple-950/10">
+      <div className="text-xs uppercase tracking-wide text-purple-700 dark:text-purple-300 font-semibold">
+        Complex policy ({items.length})
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {items.map((c) => (
+          <Badge
+            key={c.consumer_id}
+            variant="outline"
+            className="text-[11px] font-mono"
+          >
+            {c.consumer_name || c.consumer_id}
+          </Badge>
+        ))}
+      </div>
+      <div className="text-xs text-zinc-700 dark:text-zinc-400">
+        The role's policy uses conditions / deny rules the proposer can't
+        safely simplify yet.
+      </div>
+    </div>
   )
 }
 

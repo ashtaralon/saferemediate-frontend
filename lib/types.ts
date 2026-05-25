@@ -1032,6 +1032,31 @@ export interface SplitPlanServerMeta {
   expires_at: string
 }
 
+export interface BlastRadiusSummary {
+  before: {
+    role_permission_count: number
+    consumer_count: number
+    per_consumer_blast: number
+  }
+  after: {
+    groups: Array<{
+      group_id: string
+      consumer_count: number
+      tailored_permission_count: number
+      reduction_pct_per_consumer: number
+    }>
+    summary: {
+      total_consumer_count: number
+      consumers_ready_to_split: number
+      consumers_awaiting_evidence: number
+      consumers_with_conflicting_evidence: number
+      consumers_complex_policy: number
+      average_reduction_pct_for_grouped: number
+      ratio_ready_label: string
+    }
+  }
+}
+
 export interface SplitPlan {
   plan_id: string
   plan_hash: string
@@ -1045,6 +1070,10 @@ export interface SplitPlan {
     role_name: string
     account_id: string | null
     region: string
+    // Added 2026-05-25 — exposed by backend so detail view can render
+    // the BEFORE state without a second query.
+    allowed_actions?: string[]
+    allowed_actions_count?: number
   }
   discovery_facts: {
     consumer_count: number
@@ -1057,6 +1086,8 @@ export interface SplitPlan {
   execution_modes_available: string[]
   execution_modes_enabled: string[]
   data_caveats: string[]
+  // Executive blast-radius KPI per design memo §3.2. Added 2026-05-25.
+  blast_radius_summary?: BlastRadiusSummary
   // Layered on by GET — absent on POST response
   expired?: boolean
   server_meta?: SplitPlanServerMeta
