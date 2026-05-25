@@ -66,6 +66,29 @@ export interface SecurityCheckpoint {
   rules?: SGRule[];
   vpcId?: string;
   subnetId?: string;
+  /** SG-only: collector's authoritative "this SG accepts 0.0.0.0/0
+   *  inbound traffic" flag. Read from has_public_ingress on the
+   *  SecurityGroup node. Drives a red "PUBLIC" badge on the chip
+   *  WITHOUT needing the full rules[] array (which is expensive to
+   *  pass on lateral neighbors). When `rules[]` IS available, the
+   *  existing rules-based path counts public rules directly; this
+   *  flag is the fallback so lateral SGs still surface the badge. */
+  hasPublicIngress?: boolean;
+  /** NACL-only: collector's authoritative "default NACL — 0.0.0.0/0
+   *  ALLOW ALL on both inbound and outbound by AWS default" flag.
+   *  Read from is_default on the NetworkACL node. */
+  isDefault?: boolean;
+  /** NACL-only: collector's authoritative "has at least one
+   *  high-risk rule" flag. Read from has_high_risk. */
+  hasHighRisk?: boolean;
+  /** NACL-only: collector's authoritative "at least one inbound
+   *  rule allows 0.0.0.0/0" flag. Read from
+   *  has_public_inbound_allow. */
+  hasPublicInboundAllow?: boolean;
+  /** NACL-only: number of subnets this NACL is ASSOCIATED_WITH.
+   *  Distinct count (label-set duplicates de-duped). Drives the
+   *  "M subnets" pill on the chip. */
+  subnetCount?: number;
 }
 
 export interface TrafficFlow {
@@ -230,6 +253,19 @@ export interface SystemArchitecture {
    * nodes for the EGRESS lane. Filtered to gateways attached to a VPC
    * that contains at least one compute on the current path. */
   egressGateways: EgressGatewayNode[];
+  /** EXFIL view (2026-05-25): named EGRESS GATE lane that sits
+   *  between IDENTITY and RESOURCES per the 5-stage exfil model
+   *  (CJ → Reader → Handler → Gate → Destination). Unlike
+   *  `egressGateways` which is filtered to real AWS gateway resources
+   *  (IGW/NAT/etc), this lane includes VIRTUAL gates that have no
+   *  AWS resource backing them — the "AWS service plane" for serverless
+   *  paths, "S3 CRR rule" for replication paths, "Snapshot share + KMS
+   *  grant" for share paths. The lane only renders when populated, so
+   *  attacker / per-path / system-map views (which don't set it) keep
+   *  their existing layout. Each gate carries a `gateStrength` for the
+   *  color of its border (strong=emerald, weak_observable=blue,
+   *  weak_unobservable=amber). */
+  exfilGate?: ExfilGateNode[];
   flows: TrafficFlow[];
   /** EXPLICIT EDGES (2026-05-25) — when set, ConnectionLinesSVG draws
    *  one SVG line per entry, 1:1 with the data. Each edge carries its
@@ -692,7 +728,11 @@ export function SecurityGroupPanel({
   const publicRules = sg.rules?.filter(r => r.isPublic) || [];
   const usedRules = sg.rules?.filter(r => r.status === 'used') || [];
   const unusedRules = sg.rules?.filter(r => r.status === 'unused') || [];
-  const hasPublicAccess = publicRules.length > 0;
+  // 2026-05-25 user feedback: hasPublicIngress flag on the SG node is
+  // authoritative even when rules[] is empty (lateral SGs only carry
+  // counts + flags, not raw rules). Fall back to the flag so e.g. a
+  // DB SG with public ingress still surfaces the red badge.
+  const hasPublicAccess = publicRules.length > 0 || sg.hasPublicIngress === true;
 
   return (
     <div
@@ -727,8 +767,11 @@ export function SecurityGroupPanel({
               <span className="text-emerald-400">↑{outboundRules.length} out</span>
             )}
             {hasPublicAccess && (
-              <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[9px] font-semibold">
-                {publicRules.length} PUBLIC
+              <span
+                className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[9px] font-semibold"
+                title="Security Group accepts inbound traffic from 0.0.0.0/0 — verified by has_public_ingress on the SecurityGroup node"
+              >
+                {publicRules.length > 0 ? `${publicRules.length} PUBLIC` : "PUBLIC"}
               </span>
             )}
           </div>
@@ -835,14 +878,32 @@ export function NACLNode({
   // show was meaningless on chains where the NACL had only allow rules
   // (gapCount=0 by design); the operator's real question is "what does
   // this NACL apply to" — which is rule count + subnet attachment.
-  const subnetCount = (nacl as any).subnetCount ?? 0;
+  const subnetCount = nacl.subnetCount ?? 0;
+  // 2026-05-25 user feedback: surface the collector's authoritative
+  // risk flags on the chip. is_default + has_public_inbound_allow on
+  // an NACL is the AWS-default "0.0.0.0/0 ALLOW ALL on both directions"
+  // posture — high-signal for the operator. has_high_risk wraps both.
+  const isDefault = nacl.isDefault === true;
+  const hasPublicInbound = nacl.hasPublicInboundAllow === true;
+  const hasHighRisk = nacl.hasHighRisk === true;
+  // Red ring when there's a public+default NACL — that's the
+  // "no filtering" wide-open posture. Amber ring for has_high_risk
+  // alone (high-risk rule on a non-default NACL). Otherwise the
+  // existing amber-ring on gapCount stays.
+  const ringClass = (isDefault && hasPublicInbound)
+    ? "ring-2 ring-red-400/60"
+    : hasHighRisk
+      ? "ring-2 ring-amber-400/60"
+      : hasGap
+        ? "ring-2 ring-amber-400/50"
+        : "";
 
   return (
     <div
       className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
         ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
-        ${hasGap ? 'ring-2 ring-amber-400/50' : ''}`}
+        ${ringClass}`}
       onMouseEnter={() => onHover(nacl.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
@@ -879,6 +940,31 @@ export function NACLNode({
           {subnetCount > 0 && (
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
               {subnetCount} {subnetCount === 1 ? 'subnet' : 'subnets'}
+            </span>
+          )}
+          {/* "DEFAULT · NO FILTERING" — AWS default NACL has
+              0.0.0.0/0 ALLOW ALL on both inbound and outbound. The
+              chip needs to scream this so the operator doesn't have
+              to click in to discover the path's NACL gate isn't a
+              gate at all. Read from is_default + has_public_inbound_allow
+              on the NetworkACL node. */}
+          {isDefault && hasPublicInbound && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/25 text-red-300 font-semibold uppercase tracking-wider"
+              title="Default NACL — 0.0.0.0/0 ALLOW ALL on inbound + outbound by AWS default. No filtering applied. Verified by is_default + has_public_inbound_allow on the NetworkACL node."
+            >
+              Default · No filtering
+            </span>
+          )}
+          {/* High-risk catch-all when NOT a default-public NACL but
+              the collector still flagged a high-risk rule (e.g. a
+              wide-open custom rule on a non-default NACL). */}
+          {hasHighRisk && !(isDefault && hasPublicInbound) && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 font-semibold uppercase tracking-wider"
+              title="NACL has a high-risk rule. Verified by has_high_risk on the NetworkACL node."
+            >
+              High risk
             </span>
           )}
         </div>

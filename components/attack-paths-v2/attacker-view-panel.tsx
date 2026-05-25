@@ -680,6 +680,15 @@ function buildAttackerArchitecture(
     if (totalCount === 0) totalCount = inboundArr + outboundArr
     const gapCount = Number(p.unused_rules_count ?? 0) || 0
     const usedCount = totalCount > 0 ? Math.max(0, totalCount - gapCount) : 0
+    // Surface the collector's authoritative "this SG accepts inbound
+    // 0.0.0.0/0" flag. The renderer uses it to badge SGs that are
+    // public when rules[] isn't passed (lateral SGs carry counters +
+    // flags but not the raw rule array). 2026-05-25 user feedback:
+    // a DB SG with public_ingress was rendering plain because the
+    // chip only inspected rules[].isPublic — and lateral chips have
+    // no rules[]. Reading the flag bridges that gap.
+    const hasPublicIngress =
+      p.has_public_ingress === true || p.has_public_inbound === true
     securityGroups.push({
       id,
       type: "security_group",
@@ -690,6 +699,7 @@ function buildAttackerArchitecture(
       gapCount,
       connectedSources: [],
       connectedTargets: [],
+      hasPublicIngress,
     })
   }
   // NACL populates totalCount from rule counters on the graph node.
@@ -747,7 +757,18 @@ function buildAttackerArchitecture(
     // blast surface; the previous "0 affected" label was always 0 on
     // NACLs with only allow rules.
     const subnetCount = Number(p.subnet_count ?? 0) || 0
-    const naclEntry: SecurityCheckpoint & { subnetCount?: number } = {
+    // 2026-05-25 user feedback: surface the NACL's risk flags so the
+    // chip can render "Default · No filtering" (AWS default NACL is
+    // 0.0.0.0/0 ALLOW ALL on both directions) and "High risk" badges.
+    // Reads from the collector-written booleans on the NetworkACL
+    // node. With these populated on lateral NACLs (via the graph-view
+    // security-critical enrichment pass, commit 80fd29e on backend),
+    // a default-public NACL no longer renders as a plain "2 rules"
+    // chip — it screams "Default · No filtering" in red.
+    const isDefault = p.is_default === true
+    const hasHighRisk = p.has_high_risk === true
+    const hasPublicInboundAllow = p.has_public_inbound_allow === true
+    const naclEntry: SecurityCheckpoint = {
       id,
       type: "nacl",
       name: display,
@@ -757,6 +778,9 @@ function buildAttackerArchitecture(
       gapCount,
       connectedSources: [],
       connectedTargets: [],
+      isDefault,
+      hasHighRisk,
+      hasPublicInboundAllow,
     }
     if (subnetCount > 0) {
       naclEntry.subnetCount = subnetCount
