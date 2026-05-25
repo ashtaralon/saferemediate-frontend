@@ -44,6 +44,7 @@ import type {
   SubnetNode,
   SecurityCheckpoint,
   EgressGatewayNode,
+  ExfilGateNode,
   TrafficFlow,
 } from "@/components/dependency-map/traffic-flow-map"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
@@ -729,6 +730,13 @@ function buildExfilArchitecture(
   const subnets: SubnetNode[] = []
   const securityGroups: SecurityCheckpoint[] = []
   const egressGateways: EgressGatewayNode[] = []
+  // EXFIL view: the named EGRESS GATE lane (between IDENTITY and
+  // RESOURCES). Populated below per the selected path's channel — IGW/
+  // NAT paths get a typed gate card mirroring the real gateway; service-
+  // plane paths get a virtual AWSServicePlane gate with WEAK·UNOBSERVABLE
+  // strength. Renders ONLY in EXFIL view because TFM treats this lane as
+  // optional (attacker / system-map views don't set it).
+  const exfilGate: ExfilGateNode[] = []
   const entryPoints: ServiceNode[] = []
   const flows: TrafficFlow[] = []
   const seen = new Set<string>()
@@ -820,7 +828,11 @@ function buildExfilArchitecture(
       id: a.id,
       type: "iam_role",
       name: a.name,
-      shortName: shortName(a.name),
+      // maxLen=30 so role names don't collapse the middle (same fix as
+      // workload truncation — meaningful hyphen-separated tokens stay
+      // visible). Default 22 was producing names that don't match the
+      // graph (e.g. "cyntro-dem…h-processor" — 2026-05-25 user report).
+      shortName: shortName(a.name, 30),
       usedCount: a.used_actions_count ?? 0,
       totalCount: a.allowed_actions_count ?? 0,
       gapCount: a.unused_actions_count ?? 0,
@@ -868,7 +880,12 @@ function buildExfilArchitecture(
     allWorkloads.push({
       id: w.id,
       name: w.name,
-      shortName: shortName(w.name),
+      // maxLen=30 so meaningful hyphen-separated tokens stay visible.
+      // Default 22 was mangling "cyntro-demo-batch-processor" into
+      // "cyntro-dem…h-processor" — dropping the disambiguating "batch"
+      // token and producing a name that doesn't appear in the graph
+      // (user report 2026-05-25).
+      shortName: shortName(w.name, 30),
       type: w.type.toLowerCase().includes("lambda") ? "lambda" : "compute",
       instanceId: w.id.startsWith("i-") ? w.id : w.id.slice(-12),
     })
@@ -1059,12 +1076,20 @@ function buildExfilArchitecture(
     // yet; storage is the closest visual until Phase C lands.
     return "storage"
   }
-  // 5a. Path-aware destination synthesis. Each exfil channel implies
-  //     a SEMANTICALLY DIFFERENT destination — the Internet card only
-  //     makes sense for network_via_igw. For serverless_direct /
-  //     ec2_no_egress / direct_api we synthesize a destination that
-  //     matches the channel's true exit semantics (AWS service public
-  //     endpoint, AWS control-plane API).
+  // 5a. Path-aware GATE + DESTINATION synthesis (2026-05-25 design memo).
+  //     The 5-stage exfil model is CJ → Reader → Handler → GATE → Destination.
+  //     Pre-refactor, the GATE column was missing and "AWS service plane ·
+  //     not tracked" sat in the destination slot for serverless paths —
+  //     hiding the entire point of the view. Now:
+  //
+  //       * Every selected path emits ONE virtual or real ExfilGateNode
+  //         into `exfilGate` (the EGRESS GATE lane between IDENTITY and
+  //         RESOURCES). Border color is driven by GateStrength.
+  //       * `resources` contains the actual destination — what's BEHIND
+  //         the gate (Internet / Public AWS partition / Cross-account /
+  //         External endpoint). No more "· not tracked" suffix in the
+  //         destination card. "Not tracked" is communicated via gate
+  //         strength (weak_unobservable amber) and the right-panel story.
   if (selectedPath) {
     const observedRouteCount = payload.destinations.reduce(
       (s, d) => s + (d.observed_route_count || 0),
@@ -1081,16 +1106,32 @@ function buildExfilArchitecture(
     let destType: "internet" | "storage"
     let destProtocol: string
     let routeSourceIds: string[] // ids that flow INTO the destination
-    // Whether the destination card is backed by real graph data or
-    // is a conceptual placeholder. network_via_igw destinations come
-    // from real IGW/NAT/VPCE edges in egress_lanes.network[];
-    // serverless_direct / direct_api have no EXFILTRATED_TO edge yet
-    // (Phase D collector pending — see OBSERVED EXFIL callout). For
-    // those channels the chip is labeled "not tracked" so the
-    // operator doesn't read it as a confirmed exit point.
     let destIsTracked = false
 
+    // ── Gate synthesis ────────────────────────────────────────────
+    // One virtual gate per path, sitting between IDENTITY and the
+    // destination. Backend ships ExfilPathArchetypeFields with a
+    // typed gate_strength in Phase B; until then we derive strength
+    // from the channel + archetype catalog.
+    const gateId = `exfil-gate:${selectedPath.path_id}`
+    let gateKind: ExfilGateNode["kind"]
+    let gateKindLabel: string
+    let gateName: string
+    let gateStrength: ExfilGateNode["gateStrength"]
+    let gateHint: string
+
     if (selectedPath.channel === "network_via_igw") {
+      // Real IGW/NAT — name the dominant real gateway on this path
+      // for the gate card. The egressGateways[] lane is still populated
+      // (existing 2026-05-25 layout decision) so this is a SECOND
+      // named view of the same gate, in the design-correct spot
+      // (between IDENTITY and RESOURCES).
+      const realGw = egressGateways[0]
+      gateKind = (realGw?.kind === "NATGateway" ? "NATGateway" : "InternetGateway")
+      gateKindLabel = realGw?.kindLabel ?? "IGW"
+      gateName = realGw?.name ?? "Internet Gateway"
+      gateStrength = "weak_observable"
+      gateHint = "VPC Flow Logs · SG egress is the final gate"
       destId = "internet"
       destLabel = "Internet"
       destType = "internet"
@@ -1098,41 +1139,64 @@ function buildExfilArchitecture(
       routeSourceIds = egressGateways.map((g) => g.id)
       destIsTracked = true
     } else if (selectedPath.channel === "direct_api") {
-      // No workload — role called the AWS control-plane API directly
-      // (root, AWSServiceRoleForResourceExplorer). No EXFILTRATED_TO
-      // edge confirms anything left the account; the chip is a
-      // conceptual placeholder framed honestly below.
-      destId = "exfil-dest:aws-control-plane"
-      destLabel = "AWS control plane"
+      // Principal (root, service-linked role) hits AWS control plane
+      // directly. No compute, no VPC. The GATE is the AWS service plane
+      // (specifically, the control-plane API). Destination = AWS partition.
+      gateKind = "AWSServicePlane"
+      gateKindLabel = "AWS Control Plane"
+      gateName = "Public AWS API endpoint"
+      gateStrength = "weak_unobservable"
+      gateHint = "IAM is the only gate — no VPC, no SG"
+      destId = `exfil-dest:aws-partition:${selectedPath.path_id}`
+      destLabel = "AWS partition"
       destType = "internet"
       destProtocol = "https"
       routeSourceIds = [selectedPath.accessor_id]
     } else {
-      // serverless_direct / ec2_no_egress — data leaves through the
-      // AWS service plane (the same public API that read it), NOT
-      // through the customer's IGW. Same Phase-D-pending honesty
-      // applies — no EXFILTRATED_TO edge confirms where the data
-      // actually went after the jewel was read.
-      destId = `exfil-dest:${payload.jewel.type.toLowerCase()}-service-plane`
-      destLabel = "AWS service plane"
-      destType = "storage"
+      // serverless_direct / ec2_no_egress — bytes leave through the AWS
+      // public API endpoint (the same surface the read traversed).
+      // GATE = AWS Service Plane (weak·unobservable, no inline DLP).
+      // DESTINATION = AWS partition (bytes stay inside AWS, no further
+      // controls). The "· not tracked" framing is GONE from the
+      // destination card; honesty about Phase-D-pending observability
+      // is now carried by the weak_unobservable amber gate-strength
+      // and the right-panel trust story.
+      gateKind = "AWSServicePlane"
+      gateKindLabel = "AWS Service Plane"
+      gateName = `Public ${payload.jewel.type} endpoint`
+      gateStrength = "weak_unobservable"
+      gateHint = "No VPC · IAM is the only gate"
+      destId = `exfil-dest:aws-partition:${selectedPath.path_id}`
+      destLabel = "AWS partition"
+      destType = "internet"
       destProtocol = "https"
       routeSourceIds = computeServices
         .filter((c) => !c.id.startsWith("__exfil_more__"))
         .map((c) => c.id)
     }
 
+    // Push the gate card into the new EGRESS GATE lane.
+    exfilGate.push({
+      id: gateId,
+      kind: gateKind,
+      kindLabel: gateKindLabel,
+      name: gateName,
+      shortName: shortName(gateName, 22),
+      gateStrength,
+      hint: gateHint,
+    })
+
     const routeCount = Math.max(1, routeSourceIds.length)
-    // headlineSuffix + arrow indicator: tracked destinations show real
-    // route + observed counts. Untracked (conceptual) destinations
-    // surface the honest "not tracked" framing instead of fabricating
-    // "1 route capable" — that text reads as "we counted 1 route to
-    // S3" when in fact we never observed the exit at all.
+    // Destination headline: tracked destinations get the real route +
+    // observed counts. Conceptual destinations (no EXFILTRATED_TO edge
+    // yet) keep a clean label — the gate's weak_unobservable strength
+    // carries the "not tracked" signal, the destination card stays
+    // free of "· not tracked" string noise.
     const headlineSuffix = destIsTracked
       ? observedRouteCount > 0
         ? `${routeCount} route${routeCount === 1 ? "" : "s"} · ${observedRouteCount} observed`
         : `${routeCount} route${routeCount === 1 ? "" : "s"} capable`
-      : "exit point not tracked (EXFILTRATED_TO collector — Phase D)"
+      : "no further controls"
     const richLabel = `${destLabel} — ${headlineSuffix}`
 
     resources.push({
@@ -1141,7 +1205,7 @@ function buildExfilArchitecture(
       shortName: destIsTracked
         ? shortName(destLabel, 18) +
           (observedRouteCount > 0 ? `  ${observedRouteCount}/${routeCount}` : `  ${routeCount}↗`)
-        : shortName(destLabel, 22) + "  · not tracked",
+        : shortName(destLabel, 22),
       type: destType,
     } as ServiceNode)
 
@@ -1241,6 +1305,10 @@ function buildExfilArchitecture(
   return {
     computeServices,
     entryPoints,
+    // EXFIL view's named EGRESS GATE lane (between IDENTITY and
+    // RESOURCES). Empty for non-EXFIL consumers — TFM treats this
+    // field as optional so attacker / system-map views are unaffected.
+    exfilGate,
     // ENTRY lane header: in EXFIL the jewel IS the data source, not
     // an attacker entry point. Override "Entry" → "Source" so the
     // header reads correctly. Other views inherit the "Entry" default.

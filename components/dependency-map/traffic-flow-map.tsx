@@ -160,6 +160,34 @@ export interface EgressGatewayNode {
   kindLabel: string;     // "IGW" | "NAT GW" | "Egress-only IGW" | "Transit GW"
 }
 
+// EXFIL view: items in the named EGRESS GATE lane (between IDENTITY and
+// RESOURCES). Includes virtual gates (AWS service plane, S3 CRR rule,
+// snapshot share, log subscription) that have no AWS resource backing
+// them — these are the gates the design called out as "must be named,
+// not hidden behind 'service plane · not tracked' in the destination".
+// Border color is driven by gateStrength so the operator can scan-
+// distinguish controllable gates (emerald) from unobservable ones
+// (amber). The `hint` string is a one-line description of what control
+// the gate is enforced by (e.g. "IAM policy + VPC Endpoint policy").
+export interface ExfilGateNode {
+  id: string;
+  kind:
+    | 'AWSServicePlane'
+    | 'VPCEndpoint'
+    | 'NATGateway'
+    | 'InternetGateway'
+    | 'CRRRule'
+    | 'SnapshotShare'
+    | 'SNSTopic'
+    | 'CWLogsSubscription';
+  kindLabel: string;     // "Service plane" | "VPC Endpoint" | etc.
+  name: string;
+  shortName: string;
+  gateStrength: 'strong' | 'weak_observable' | 'weak_unobservable';
+  /** One-liner — what control the gate is enforced by, if any. */
+  hint?: string;
+}
+
 // Subnet posture for the SUBNETS column on the Path Flow Map.
 // `isPublic` semantics:
 //   true  → effective route table has a route to an IGW (per AWS canonical
@@ -3596,6 +3624,75 @@ export function UnifiedArchitectureDiagram({
               );
             })}
           </div>
+          )}
+
+          {/* EGRESS GATE — EXFIL view's 5-stage model: CJ → Reader →
+              Handler → GATE → Destination. Sits between IDENTITY and
+              RESOURCES so the operator reads "data leaves through this
+              named gate to that destination" instead of the prior cop-
+              out where "AWS service plane · not tracked" occupied the
+              destination slot and there was no gate at all. Virtual
+              gates (Service Plane, CRR Rule, Snapshot Share, etc.)
+              render here just like real gateways — gateStrength drives
+              the border color (emerald=strong, blue=weak-observable,
+              amber=weak-unobservable). Lane only renders when populated
+              (exfilGate is optional on SystemArchitecture) so attacker
+              / per-path / system-map views keep their layout unchanged. */}
+          {(architecture.exfilGate?.length ?? 0) > 0 && (
+            <div className="flex flex-col gap-3 items-center">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <ShieldOff className="w-4 h-4 text-amber-400" />
+                Egress Gate ({architecture.exfilGate!.length})
+              </div>
+              {architecture.exfilGate!.map(gate => {
+                // Border color from gate strength — strong=emerald,
+                // weak_observable=blue, weak_unobservable=amber.
+                const strengthBorder =
+                  gate.gateStrength === 'strong'
+                    ? 'border-emerald-500/50 bg-emerald-500/5'
+                    : gate.gateStrength === 'weak_observable'
+                    ? 'border-blue-500/50 bg-blue-500/5'
+                    : 'border-amber-500/50 bg-amber-500/5';
+                const strengthIconColor =
+                  gate.gateStrength === 'strong'
+                    ? 'text-emerald-300'
+                    : gate.gateStrength === 'weak_observable'
+                    ? 'text-blue-300'
+                    : 'text-amber-300';
+                const strengthLabel =
+                  gate.gateStrength === 'strong'
+                    ? 'STRONG'
+                    : gate.gateStrength === 'weak_observable'
+                    ? 'WEAK · OBSERVABLE'
+                    : 'WEAK · UNOBSERVABLE';
+                return (
+                  <div
+                    key={gate.id}
+                    data-exfil-gate-id={gate.id}
+                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[170px] ${strengthBorder}`}
+                    title={`${gate.kindLabel} · ${gate.name}${gate.hint ? ` — ${gate.hint}` : ''}`}
+                    onMouseEnter={() => setHoveredId(gate.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <ShieldOff className={`w-4 h-4 ${strengthIconColor}`} />
+                      <span className="text-sm font-semibold text-white">{gate.kindLabel}</span>
+                    </div>
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[160px] ${strengthIconColor}`}>
+                      {gate.shortName}
+                    </div>
+                    <div className={`mt-1.5 text-center text-[8px] font-bold uppercase tracking-wider ${strengthIconColor}`}>
+                      {strengthLabel}
+                    </div>
+                    {gate.hint && (
+                      <div className="mt-1 text-[9px] text-center text-slate-300/80 leading-tight">
+                        {gate.hint}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {/* RESOURCES */}
