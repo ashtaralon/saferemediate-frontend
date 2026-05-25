@@ -672,7 +672,68 @@ function QuarantineCandidatesSection({
 
   const selectedCandidates = candidates.filter((c) => selectedIds.has(c.consumer_id))
 
-  const handleBulkMoveToOrphan = () => {
+  // Bulk Move to Orphan: chain pre-check + start-monitor + execute
+  // per selected candidate so each one is actually written into the
+  // quarantine list. Without this the navigation lands on the Orphan
+  // tab but no rows appear — the user reported this as "they don't
+  // move to the orphan!". Failures don't block the rest; the
+  // navigation happens once the loop is done.
+  const handleBulkMoveToOrphan = async () => {
+    if (selectedCandidates.length === 0) return
+    setBulkBusy(true)
+    setBulkError(null)
+    setBulkProgress({ done: 0, total: selectedCandidates.length, failed: 0 })
+    const failures: string[] = []
+    for (let i = 0; i < selectedCandidates.length; i++) {
+      const c = selectedCandidates[i]
+      try {
+        const idleDays = c.last_observed_at
+          ? Math.max(
+              thresholdDays,
+              Math.floor(
+                (Date.now() - new Date(c.last_observed_at).getTime()) /
+                  (1000 * 60 * 60 * 24),
+              ),
+            )
+          : thresholdDays
+        const pre = await fetch("/api/proxy/quarantine/pre-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            resourceName: c.consumer_name || c.consumer_id,
+            resourceType: c.consumer_type || "IAMConsumer",
+            systemName: c.system_name,
+            idleDays,
+            connections: 0,
+            recentCloudTrailEvents: 0,
+            recentFlowLogHits: 0,
+          }),
+        })
+        if (!pre.ok) throw new Error(`pre-check ${pre.status}`)
+        const preData = await pre.json()
+        if (preData.error) throw new Error(preData.error)
+        if (!preData.recordId) throw new Error("no recordId")
+        // Pre-check alone creates the record (PRE_CHECK phase). The
+        // operator drives MONITOR / QUARANTINE from the Orphan tab.
+      } catch (e: any) {
+        failures.push(`${c.consumer_name || c.consumer_id}: ${e?.message ?? "unknown"}`)
+        setBulkProgress((p) =>
+          p ? { ...p, done: p.done + 1, failed: p.failed + 1 } : p,
+        )
+        continue
+      }
+      setBulkProgress((p) => (p ? { ...p, done: p.done + 1 } : p))
+    }
+    setBulkBusy(false)
+    if (failures.length > 0 && failures.length === selectedCandidates.length) {
+      // All failed — surface the error, don't navigate.
+      setBulkError(`All ${failures.length} failed: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "…" : ""}`)
+      return
+    }
+    if (failures.length > 0) {
+      setBulkError(`${failures.length} of ${selectedCandidates.length} failed: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "…" : ""}`)
+    }
+    // Group by system_name to pick the navigation target.
     const systemNames = Array.from(
       new Set(
         selectedCandidates
@@ -680,29 +741,13 @@ function QuarantineCandidatesSection({
           .filter((s): s is string => Boolean(s)),
       ),
     )
-    // One shared system -> deep-link to its Orphan tab. Otherwise fall
-    // back to the account-wide rollup (the per-system tab can only
-    // scope to one system at a time).
     const href =
       systemNames.length === 1
         ? `/systems?systemName=${encodeURIComponent(systemNames[0])}&tab=orphan-services`
         : "/orphan-resources"
-    // router.push is the soft-nav path. Belt-and-suspenders: fall back
-    // to a hard navigation via setTimeout if for any reason the soft
-    // nav is silently dropped (Next router not ready, stale closure,
-    // hydration mismatch). The hard nav is harmless if soft nav
-    // already happened — assign() to the same URL is a no-op.
-    try {
-      router.push(href)
-    } catch {
-      window.location.assign(href)
-      return
-    }
-    setTimeout(() => {
-      if (window.location.pathname + window.location.search !== href) {
-        window.location.assign(href)
-      }
-    }, 200)
+    // Hard nav so the operator definitely sees the page change and
+    // the Orphan tab fetches fresh quarantine records.
+    window.location.assign(href)
   }
 
   const handleBulkDelete = async () => {
@@ -936,9 +981,10 @@ function QuarantineCandidateRow({
   parentDeleted: boolean
   disableActions: boolean
 }) {
-  type RowState = "idle" | "deleting" | "deleted"
+  type RowState = "idle" | "moving" | "deleting" | "moved" | "deleted"
   const [state, setState] = useState<RowState>("idle")
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
   // Parent bulk-delete forces the terminal state regardless of the
   // row's own state machine (e.g. when the row was never clicked
   // individually but was part of a bulk delete).
@@ -953,6 +999,47 @@ function QuarantineCandidateRow({
   const orphanHref = candidate.system_name
     ? `/systems?systemName=${encodeURIComponent(candidate.system_name)}&tab=orphan-services`
     : "/orphan-resources"
+
+  // "Move to Orphan" creates a quarantine record (in PRE_CHECK phase)
+  // and navigates the operator to the system's Orphan tab where the
+  // row now surfaces. We deliberately stop at pre-check — moving
+  // straight to start-monitor / execute returns 400 from the backend
+  // (the state machine requires operator-driven progression). The
+  // operator finishes the quarantine from the Orphan tab where the
+  // safety score + phase buttons live.
+  //
+  // Before 2026-05-25 this was a passive <Link> — clicking did
+  // nothing visible because the consumer was never written into the
+  // quarantine list, and the Orphan tab had no row for it.
+  const handleMoveToOrphan = async () => {
+    setState("moving")
+    setError(null)
+    try {
+      const pre = await fetch("/api/proxy/quarantine/pre-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resourceName: candidate.consumer_name || candidate.consumer_id,
+          resourceType: candidate.consumer_type || "IAMConsumer",
+          systemName: candidate.system_name,
+          idleDays,
+          connections: 0,
+          recentCloudTrailEvents: 0,
+          recentFlowLogHits: 0,
+        }),
+      })
+      if (!pre.ok) throw new Error(`Pre-check failed (${pre.status})`)
+      const preData = await pre.json()
+      if (preData.error) throw new Error(preData.error)
+      if (!preData.recordId) throw new Error("Pre-check did not return a recordId")
+      setState("moved")
+      // Hard nav so the user definitely sees the page change.
+      window.location.assign(orphanHref)
+    } catch (e: any) {
+      setState("idle")
+      setError(e?.message ?? "Unknown error")
+    }
+  }
 
   const handleDelete = async () => {
     setState("deleting")
@@ -1036,16 +1123,25 @@ function QuarantineCandidateRow({
               <Trash2 className="w-3 h-3" />
               Deleted
             </span>
+          ) : effectiveState === "moved" ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-emerald-600 text-white">
+              <CheckCircle2 className="w-3 h-3" />
+              Moved
+            </span>
           ) : (
             <>
-              <Link
-                href={orphanHref}
-                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-orange-600 hover:bg-orange-700 text-white"
-                aria-disabled={effectiveState === "deleting" || disableActions}
+              <button
+                onClick={handleMoveToOrphan}
+                disabled={effectiveState !== "idle" || disableActions}
+                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
               >
-                <ArrowRight className="w-3 h-3" />
+                {effectiveState === "moving" ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-3 h-3" />
+                )}
                 Move to Orphan
-              </Link>
+              </button>
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>

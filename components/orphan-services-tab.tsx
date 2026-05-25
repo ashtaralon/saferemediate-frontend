@@ -413,8 +413,56 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     }
   }
 
+  // Quarantine records that came from outside the orphan-services
+  // pipeline (e.g. operator clicked "Move to Orphan" on the IAM
+  // shared-roles view). They have a real quarantine record but no
+  // matching row in `orphans[]`, so without synthesis they'd be
+  // invisible here — which is exactly the "they don't move to the
+  // orphan" bug the operator reported. Synthesize an OrphanResource-
+  // shaped placeholder so the existing rendering picks them up.
+  const orphansFromQuarantine = useMemo<OrphanResource[]>(() => {
+    if (quarantineRecords.length === 0) return []
+    const knownNames = new Set(orphans.map((o) => o.name))
+    const seenNames = new Set<string>()
+    return quarantineRecords
+      .filter((r) => !["DELETED", "RESTORED"].includes(r.phase))
+      .filter((r) => !knownNames.has(r.resourceName))
+      .filter((r) => {
+        // Same name can have multiple records — keep the newest only.
+        if (seenNames.has(r.resourceName)) return false
+        seenNames.add(r.resourceName)
+        return true
+      })
+      .map<OrphanResource>((r) => ({
+        id: `qrec-${r.id}`,
+        name: r.resourceName,
+        type: r.resourceType || "IAMConsumer",
+        region: "—",
+        status: "quarantined",
+        lastSeen: r.createdAt || "",
+        lastUsedBy: null,
+        idleDays: 0,
+        attachedResources: 0,
+        riskLevel: "HIGH",
+        confidence: "HIGH",
+        recommendation: "DECOMMISSION",
+        recommendationReason:
+          "Quarantined from the IAM shared-roles view — backed up; restore or delete from here.",
+        estimatedMonthlyCost: 0,
+        isSeasonal: false,
+        seasonalPattern: null,
+        nextExpectedRun: null,
+        properties: {},
+        securityRiskScore: 0,
+        securityFactors: [],
+        isInternetFacing: false,
+        hasEncryption: null,
+        totalPermissions: 0,
+      }))
+  }, [quarantineRecords, orphans])
+
   const filteredOrphans = useMemo(() => {
-    return orphans.filter((o) => {
+    return [...orphans, ...orphansFromQuarantine].filter((o) => {
       if (dismissedIds.has(o.id)) return false
       if (riskFilter !== "ALL" && o.riskLevel !== riskFilter) return false
       if (typeFilter !== "ALL") {
@@ -428,7 +476,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       }
       return true
     })
-  }, [orphans, dismissedIds, riskFilter, typeFilter, searchQuery])
+  }, [orphans, orphansFromQuarantine, dismissedIds, riskFilter, typeFilter, searchQuery])
 
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
