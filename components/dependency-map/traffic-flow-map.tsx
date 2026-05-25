@@ -3211,6 +3211,67 @@ export function UnifiedArchitectureDiagram({
             </>
           )}
 
+          {/* EGRESS GATEWAYS — chip item 10. Renders explicit
+              InternetGateway / NATGateway / EgressOnlyIGW / TransitGW
+              nodes when the path's VPCs have them. Previously this was
+              implicit (Subnet "Public" amber badge meant "route table →
+              IGW") which left operators guessing WHICH IGW or how many.
+              The label-keyed extraction lives in buildArchitecture and
+              filterArchitectureToPath. Empty array → lane hidden so the
+              grid doesn't grow a dead column for IGW-less paths.
+
+              2026-05-25 column-order swap: this lane used to sit AFTER
+              IDENTITY (between Identity and Resources). That layout
+              put IGW physically between the Role card and the S3
+              card, so the Role → S3 data-plane Bezier curve naturally
+              passed THROUGH the IGW card region — operators read the
+              arc as a serial "Role → IGW → S3" chain even though no
+              such edge exists in the graph (only Role → S3 and
+              EC2 → IGW are real). Moving EGRESS to BEFORE Identity
+              puts Identity adjacent to Resources, so Role → S3 is a
+              short hop with no card between them; EC2 → IGW
+              terminates the network plane on the left of Identity.
+              The two planes converge at the S3 bucket from different
+              sides instead of overlapping. */}
+          {architecture.egressGateways.length > 0 && (
+            <div className="flex flex-col gap-3 items-center">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Globe className="w-4 h-4 text-amber-400" />
+                Egress Gateways ({architecture.egressGateways.length})
+              </div>
+              {architecture.egressGateways.map(gw => {
+                const palette =
+                  gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
+                  gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
+                  gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
+                  'bg-violet-500/10 border-violet-500/40';
+                const iconColor =
+                  gw.kind === 'InternetGateway' ? 'text-amber-300' :
+                  gw.kind === 'NATGateway' ? 'text-sky-300' :
+                  gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-300' :
+                  'text-violet-300';
+                return (
+                  <div
+                    key={gw.id}
+                    data-gateway-id={gw.id}
+                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette}`}
+                    title={`${gw.kindLabel} · ${gw.name}${gw.vpcId ? ` · ${gw.vpcId}` : ''}`}
+                    onMouseEnter={() => setHoveredId(gw.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <Globe className={`w-4 h-4 ${iconColor}`} />
+                      <span className="text-sm font-semibold text-white">{gw.kindLabel}</span>
+                    </div>
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
+                      {gw.shortName}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* IDENTITY — consolidates InstanceProfile + IAMRole into
               one lane (Phase 1 user feedback 2026-05-25). Previously
               IPs and Roles rendered in separate columns; the canvas
@@ -3449,53 +3510,6 @@ export function UnifiedArchitectureDiagram({
               );
             })}
           </div>
-          )}
-
-          {/* EGRESS GATEWAYS — chip item 10. Renders explicit
-              InternetGateway / NATGateway / EgressOnlyIGW / TransitGW
-              nodes when the path's VPCs have them. Previously this was
-              implicit (Subnet "Public" amber badge meant "route table →
-              IGW") which left operators guessing WHICH IGW or how many.
-              The label-keyed extraction lives in buildArchitecture and
-              filterArchitectureToPath. Empty array → lane hidden so the
-              grid doesn't grow a dead column for IGW-less paths. */}
-          {architecture.egressGateways.length > 0 && (
-            <div className="flex flex-col gap-3 items-center">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Globe className="w-4 h-4 text-amber-400" />
-                Egress Gateways ({architecture.egressGateways.length})
-              </div>
-              {architecture.egressGateways.map(gw => {
-                const palette =
-                  gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
-                  gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
-                  gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
-                  'bg-violet-500/10 border-violet-500/40';
-                const iconColor =
-                  gw.kind === 'InternetGateway' ? 'text-amber-300' :
-                  gw.kind === 'NATGateway' ? 'text-sky-300' :
-                  gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-300' :
-                  'text-violet-300';
-                return (
-                  <div
-                    key={gw.id}
-                    data-gateway-id={gw.id}
-                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette}`}
-                    title={`${gw.kindLabel} · ${gw.name}${gw.vpcId ? ` · ${gw.vpcId}` : ''}`}
-                    onMouseEnter={() => setHoveredId(gw.id)}
-                    onMouseLeave={() => setHoveredId(null)}
-                  >
-                    <div className="flex items-center justify-center gap-2 mb-1">
-                      <Globe className={`w-4 h-4 ${iconColor}`} />
-                      <span className="text-sm font-semibold text-white">{gw.kindLabel}</span>
-                    </div>
-                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
-                      {gw.shortName}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           )}
 
           {/* RESOURCES */}
