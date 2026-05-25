@@ -93,11 +93,15 @@ export function FreshnessBanner({
       try {
         const res = await fetch("/api/proxy/freshness", { cache: "no-store" })
         const json = (await res.json()) as FreshnessPayload
-        if (!cancelled) setData(json)
+        // 2026-05-25: only overwrite the last good value when the
+        // response is OK. A 502 / proxy_timeout / backend error
+        // payload (ok=false, graph_age_seconds=null) used to wipe
+        // the banner to "Graph unknown" even though we had a fresh
+        // good value from the previous tick. Keep showing the last
+        // known age; the operator can still trust what they see.
+        if (!cancelled && json && json.ok) setData(json)
       } catch {
-        // Silent — banner just shows last good value or "unknown"
-        // until the next tick. Failure to render the banner shouldn't
-        // alarm the operator about data they can still see.
+        // Network-layer failure — same posture, keep last good value.
       }
     }
     tick()

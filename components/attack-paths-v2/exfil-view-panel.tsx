@@ -41,6 +41,7 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 import type {
   SystemArchitecture,
   ServiceNode,
+  SubnetNode,
   SecurityCheckpoint,
   EgressGatewayNode,
   TrafficFlow,
@@ -345,10 +346,18 @@ function NotWiredStrip({
  * `total_bytes` so TFM renders an animated red line at the right
  * intensity.
  */
+// COMPUTE lane cap — collapse heavy serverless fans (e.g. the 14
+// CyntroLambdaTier1-pilot Lambdas) into top-N + "+N more" so the
+// canvas stays one-screen. Per-user feedback 2026-05-25: 16
+// individual Lambda names dominate the EXFIL view and the operator
+// can't read the narrative through the stack.
+const EXFIL_COMPUTE_VISIBLE_CAP = 5
+
 function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   const computeServices: ServiceNode[] = []
   const resources: ServiceNode[] = []
   const iamRoles: SecurityCheckpoint[] = []
+  const subnets: SubnetNode[] = []
   const egressGateways: EgressGatewayNode[] = []
   const entryPoints: ServiceNode[] = []
   const flows: TrafficFlow[] = []
@@ -399,16 +408,53 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   // 3. WORKLOADS carrying the accessor roles → computeServices.
   //    Sourced from the network-egress payload's via_workload chip
   //    (every egress row carries its source workload). De-duped by id.
+  //    Heavy serverless fans (CyntroLambdaTier1-pilot has 14 Lambdas)
+  //    overflow the canvas; cap at EXFIL_COMPUTE_VISIBLE_CAP and emit
+  //    a synthetic "+N more" placeholder so the count stays honest.
+  const allWorkloads: ServiceNode[] = []
   for (const e of payload.egress_lanes.network) {
     const w = e.via_workload
     if (!w?.id || seen.has(w.id)) continue
     seen.add(w.id)
-    computeServices.push({
+    allWorkloads.push({
       id: w.id,
       name: w.name,
       shortName: shortName(w.name),
       type: w.type.toLowerCase().includes("lambda") ? "lambda" : "compute",
       instanceId: w.id.startsWith("i-") ? w.id : w.id.slice(-12),
+    })
+  }
+  if (allWorkloads.length <= EXFIL_COMPUTE_VISIBLE_CAP) {
+    computeServices.push(...allWorkloads)
+  } else {
+    computeServices.push(...allWorkloads.slice(0, EXFIL_COMPUTE_VISIBLE_CAP))
+    const hiddenCount = allWorkloads.length - EXFIL_COMPUTE_VISIBLE_CAP
+    computeServices.push({
+      id: `__exfil_more__:${allWorkloads.length}`,
+      name: `+${hiddenCount} more workload${hiddenCount === 1 ? "" : "s"}`,
+      shortName: `+${hiddenCount} more`,
+      type: "compute",
+      instanceId: `${hiddenCount} hidden`,
+    })
+  }
+
+  // 3b. SUBNETS → unique via_subnet entries. Without this lane the
+  //     canvas shows SUBNETS (0) even when the backend payload
+  //     clearly carries subnet metadata on every egress row
+  //     (user-reported 2026-05-25). Three-state public/private
+  //     posture preserved.
+  const subnetSeen = new Set<string>()
+  for (const e of payload.egress_lanes.network) {
+    const s = e.via_subnet
+    if (!s?.id || subnetSeen.has(s.id)) continue
+    subnetSeen.add(s.id)
+    subnets.push({
+      id: s.id,
+      name: s.name,
+      shortName: shortName(s.name, 26),
+      isPublic: s.public,
+      vpcId: e.via_vpc?.id ?? undefined,
+      connectedComputeIds: [],
     })
   }
 
@@ -508,7 +554,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     entryPoints,
     principals: [], // empty — the entry card IS the jewel itself
     resources,
-    subnets: [],
+    subnets,
     securityGroups: [],
     nacls: [],
     iamRoles,

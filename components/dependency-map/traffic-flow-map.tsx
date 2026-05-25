@@ -2058,6 +2058,17 @@ export function ConnectionLinesSVG({
         if (!targetEl) {
           targetEl = container.querySelector(`[data-gateway-id="${flow.targetId}"]`);
         }
+        // 2026-05-25: also accept IAM role + InstanceProfile cards as
+        // flow targets. The EXFIL view synthesizes jewel → accessor
+        // flows where the accessor is an IAMRole; without this
+        // fallback ConnectionLinesSVG returned early on those flows
+        // and the operator saw the jewel + accessors disconnected.
+        if (!targetEl) {
+          targetEl = container.querySelector(`[data-role-id="${flow.targetId}"]`);
+        }
+        if (!targetEl) {
+          targetEl = container.querySelector(`[data-ip-id="${flow.targetId}"]`);
+        }
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
         // IP card carries both data-ip-id (preferred, new) and data-role-id
