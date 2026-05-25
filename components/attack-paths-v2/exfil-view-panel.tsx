@@ -1043,35 +1043,47 @@ function buildExfilArchitecture(
       type: destType,
     } as ServiceNode)
 
-    // Phase 3: classify the destination edge by channel.
-    //   network_via_igw   → gateway → Internet  : ROUTES_VIA  (network plane)
-    //   direct_api        → role    → AWS API   : ACCESSES_RESOURCE (data plane)
-    //   serverless_direct → workload → S3 public: ACCESSES_RESOURCE (data plane)
-    //   ec2_no_egress     → workload → S3 public: ACCESSES_RESOURCE (data plane)
-    // The relationship picks plane via planeForString in the renderer,
-    // which drives line color + the strict animation gate.
-    const destRel: string =
-      selectedPath.channel === "network_via_igw" ? "ROUTES_VIA" : "ACCESSES_RESOURCE"
-    for (const srcId of routeSourceIds) {
-      flows.push({
-        sourceId: srcId,
-        targetId: destId,
-        ports: [],
-        protocol: destProtocol,
-        bytes: observedBytes,
-        connections: observedRouteCount,
-        isActive: isObserved,
-      })
-      pushEdge(
-        srcId,
-        destId,
-        destRel,
-        isObserved,
-        observedBytes,
-        observedRouteCount,
-        null,
-        destProtocol,
-      )
+    // Phase 3: classify the destination edge by channel + decide
+    // whether to draw a line at all.
+    //   network_via_igw   → gateway → Internet  : ROUTES_VIA (real
+    //     edge derived from VPC Flow Logs equivalence, drawn solid).
+    //   direct_api        → role    → AWS API   : NO LINE (no real
+    //     edge in graph; the chip already says "not tracked" — a
+    //     synthesized line would imply observed flow).
+    //   serverless_direct → workload → S3 public: NO LINE (same).
+    //   ec2_no_egress     → workload → S3 public: NO LINE (same).
+    //
+    // When the destination is a conceptual placeholder (destIsTracked
+    // === false), we render the chip but do NOT draw a connecting
+    // line. Operator complaint 2026-05-25 — "did we query Neo4j
+    // before generating the flow map?" — flagged that the diagonal
+    // line from compute to the "AWS service plane" chip looked like
+    // a real observed flow when there's no such edge in the graph.
+    // The visible disconnection is the honest signal.
+    if (destIsTracked) {
+      const destRel: string =
+        selectedPath.channel === "network_via_igw" ? "ROUTES_VIA" : "ACCESSES_RESOURCE"
+      for (const srcId of routeSourceIds) {
+        flows.push({
+          sourceId: srcId,
+          targetId: destId,
+          ports: [],
+          protocol: destProtocol,
+          bytes: observedBytes,
+          connections: observedRouteCount,
+          isActive: isObserved,
+        })
+        pushEdge(
+          srcId,
+          destId,
+          destRel,
+          isObserved,
+          observedBytes,
+          observedRouteCount,
+          null,
+          destProtocol,
+        )
+      }
     }
   } else {
     // Fallback: original all-paths-merged behavior (only fires on the
