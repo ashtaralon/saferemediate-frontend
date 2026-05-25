@@ -193,6 +193,18 @@ export interface SystemArchitecture {
    *  jewel itself (the data origin), not an attacker. Optional for
    *  back-compat. */
   entryLaneLabel?: string;
+  /** What data the totalBytes / totalConnections counters were derived
+   *  from. Drives label honesty in the inner canvas header:
+   *    "vpc_flow_logs" (default) → "Traffic" + "Connections" (real
+   *      TCP/UDP bytes + connection count from VPC Flow Logs).
+   *    "cloudtrail"              → "Bytes" hidden (CloudTrail
+   *      doesn't carry payload size; rendering "0 B Traffic"
+   *      reads as "we saw no traffic" instead of the truth: "this
+   *      data source can't tell us bytes"). Connection label
+   *      becomes "API calls" (the counter is hit_count, not a
+   *      TCP connection count).
+   *  Optional; back-compat default is "vpc_flow_logs". */
+  metricsBasis?: "vpc_flow_logs" | "cloudtrail";
   resources: ServiceNode[];
   subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
@@ -2792,14 +2804,27 @@ export function UnifiedArchitectureDiagram({
               gating was misleading visual noise. */}
         </div>
         <div className="flex items-center gap-4 text-sm">
-          <div className="text-center px-3">
-            <div className="text-emerald-400 font-bold">{formatBytes(architecture.totalBytes)}</div>
-            <div className="text-[10px] text-slate-500">Traffic</div>
-          </div>
-          <div className="text-center px-3 border-l border-slate-700">
-            <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
-            <div className="text-[10px] text-slate-500">Connections</div>
-          </div>
+          {architecture.metricsBasis === "cloudtrail" ? (
+            // CloudTrail data: bytes panel hidden (data source can't
+            // observe payload size — rendering "0 B Traffic" lies by
+            // implying "we saw no traffic"). Connections label is
+            // "API calls" since the counter is CloudTrail hit_count.
+            <div className="text-center px-3">
+              <div className="text-blue-400 font-bold">{architecture.totalConnections.toLocaleString()}</div>
+              <div className="text-[10px] text-slate-500">API calls</div>
+            </div>
+          ) : (
+            <>
+              <div className="text-center px-3">
+                <div className="text-emerald-400 font-bold">{formatBytes(architecture.totalBytes)}</div>
+                <div className="text-[10px] text-slate-500">Traffic</div>
+              </div>
+              <div className="text-center px-3 border-l border-slate-700">
+                <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
+                <div className="text-[10px] text-slate-500">Connections</div>
+              </div>
+            </>
+          )}
           {architecture.totalGaps > 0 && !observedMode && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/20 rounded-lg border-l border-slate-700">
               <AlertTriangle className="w-4 h-4 text-amber-400" />

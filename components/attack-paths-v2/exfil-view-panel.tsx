@@ -1020,6 +1020,14 @@ function buildExfilArchitecture(
     // an attacker entry point. Override "Entry" → "Source" so the
     // header reads correctly. Other views inherit the "Entry" default.
     entryLaneLabel: "Source",
+    // Metrics basis: EXFIL flows are sourced from CloudTrail (the
+    // 789k "connections" the user saw is hit_count from
+    // ACCESSES_RESOURCE / READS_FROM / WRITES_TO edges, not TCP
+    // connection count; total_bytes is always 0 because CloudTrail
+    // doesn't carry payload size). Tagging "cloudtrail" makes the
+    // inner-card header drop the misleading "0 B Traffic" panel and
+    // relabel "Connections" → "API calls".
+    metricsBasis: "cloudtrail",
     principals: [], // empty — the entry card IS the jewel itself
     resources,
     subnets,
