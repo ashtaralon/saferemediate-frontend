@@ -936,9 +936,18 @@ export function IAMRoleNode({
             </div>
           </>
         ) : (
-          <div className="text-[10px] text-slate-500 mt-1">
-            Analyzing...
-          </div>
+          // 2026-05-25 user feedback: "Analyzing..." was a misleading
+          // placeholder — it fired whenever totalCount=0, which covers
+          // principals (root has no allowed_actions_count) and AWS-
+          // managed service-linked roles (their perms aren't ingested
+          // into Neo4j). The operator read it as "something's loading"
+          // when in reality nothing more will arrive for that node.
+          //
+          // Honest empty state: render nothing — the role's name +
+          // optional Profile badge already convey the full info we
+          // have. The TFM card's height adjusts cleanly without the
+          // placeholder line.
+          null
         )}
       </div>
 
@@ -2044,9 +2053,21 @@ export function ConnectionLinesSVG({
         // synthesized flow's sourceId IS the role id; without this
         // fallback the line-drawing returned early and the operator saw
         // the IAM/API/Resource columns visually disconnected.
+        //
+        // 2026-05-25: also accept egress gateways as flow sources for
+        // the EXFIL view (gateway → Internet destination flows). The
+        // target-side gateway fallback already existed; mirror it on
+        // the source side so the destination card isn't left orphaned
+        // when the gateway is the upstream end of a synthesized flow.
         let sourceEl = container.querySelector(`[data-compute-id="${flow.sourceId}"]`);
         if (!sourceEl) {
           sourceEl = container.querySelector(`[data-role-id="${flow.sourceId}"]`);
+        }
+        if (!sourceEl) {
+          sourceEl = container.querySelector(`[data-gateway-id="${flow.sourceId}"]`);
+        }
+        if (!sourceEl) {
+          sourceEl = container.querySelector(`[data-entry-id="${flow.sourceId}"]`);
         }
         // Target lookup — primary is data-resource-id (the lane that holds
         // the crown-jewel / S3 / RDS cards). 2026-05-24 extension:

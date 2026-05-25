@@ -524,10 +524,21 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     if (seen.has(d.id)) continue
     seen.add(d.id)
     const isObserved = d.observed_route_count > 0
+    // Promote the destination card with the answer-line operators
+    // come for: "N routes capable · M observed". Without this the
+    // destination card just says "Internet" and the operator has to
+    // infer the meaning from neighboring lanes.
+    const capable = d.capable_route_count
+    const observed = d.observed_route_count
+    const headlineSuffix =
+      observed > 0
+        ? `${capable} routes · ${observed} observed`
+        : `${capable} route${capable === 1 ? "" : "s"} capable`
+    const richLabel = `${d.label} — ${headlineSuffix}`
     resources.push({
       id: d.id,
-      name: d.label,
-      shortName: shortName(d.label, 28),
+      name: richLabel,
+      shortName: shortName(d.label, 18) + (observed > 0 ? `  ${observed}/${capable}` : `  ${capable}↗`),
       type: destTypeFor(d.kind),
     } as ServiceNode)
     // Flow: each egress → destination. Observed (red) when any
