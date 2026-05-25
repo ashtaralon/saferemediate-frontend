@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 import { approveSplitPlan, fetchSplitPlan } from "@/lib/api-client"
 import type {
   ConsumerEvidence,
@@ -156,9 +157,16 @@ function PlanHero({ plan }: { plan: SplitPlan }) {
   return (
     <header className="space-y-2">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <h1 className="text-3xl font-bold tracking-tight">
-          {plan.shared_role.role_name}
-        </h1>
+        <div className="flex items-start gap-3 min-w-0">
+          <BackToDashboard
+            href="/iam/shared-roles"
+            ariaLabel="Back to shared roles"
+            className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-1 shrink-0"
+          />
+          <h1 className="text-3xl font-bold tracking-tight min-w-0 break-words">
+            {plan.shared_role.role_name}
+          </h1>
+        </div>
         <Badge variant="outline" className={`${STATE_COLORS[plan.state]} text-sm shrink-0`}>
           {plan.state}
         </Badge>

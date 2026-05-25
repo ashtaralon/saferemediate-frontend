@@ -16,6 +16,7 @@ import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-rem
 import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-remediation-modal'
 import type { BlastRadiusScore } from '@/lib/types'
 import { CoveragePill } from '@/components/brss/coverage-pill'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -1561,16 +1562,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       {/* Compact Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            GAP between allowed and actual permissions
-            {data?.fromCache && (
-              <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
-              </span>
-            )}
-          </p>
+        <div className="flex items-center gap-3">
+          <BackToDashboard />
+          <div>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              GAP between allowed and actual permissions
+              {data?.fromCache && (
+                <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { WorkloadCard } from "./workload-card"
 import { WorkloadDrillDown } from "./workload-drill-down"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 import {
   type PostureSummaryResponse,
   type PostureWorkloadsResponse,
@@ -81,7 +82,13 @@ export function PostureDashboard() {
   if (!summary || !summary.ready) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-10 text-zinc-200">
-        <h1 className="text-3xl font-semibold">Posture</h1>
+        <div className="flex items-center gap-3 mb-1">
+          <BackToDashboard
+            className="p-2 -ml-2 rounded-lg hover:bg-zinc-800 transition-colors"
+            iconClassName="w-5 h-5 text-zinc-300"
+          />
+          <h1 className="text-3xl font-semibold">Posture</h1>
+        </div>
         <p className="mt-2 text-[13px] text-zinc-400">
           Per-workload exposure verdict from observed reachability over 365 days.
         </p>
@@ -101,16 +108,22 @@ export function PostureDashboard() {
   return (
     <div className="mx-auto max-w-7xl px-6 py-8 text-zinc-100">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Posture</h1>
-          <p className="mt-1 text-[13px] text-zinc-400">
-            Per-workload exposure verdict from observed reachability over 365 days.
-            {workloadsResp.isStale && workloadsResp.cachedAt && (
-              <span className="ml-2 text-amber-300">
-                · cached {describeAge(new Date(workloadsResp.cachedAt).toISOString())}
-              </span>
-            )}
-          </p>
+        <div className="flex items-start gap-3">
+          <BackToDashboard
+            className="p-2 -ml-2 rounded-lg hover:bg-zinc-800 transition-colors mt-1.5 shrink-0"
+            iconClassName="w-5 h-5 text-zinc-300"
+          />
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Posture</h1>
+            <p className="mt-1 text-[13px] text-zinc-400">
+              Per-workload exposure verdict from observed reachability over 365 days.
+              {workloadsResp.isStale && workloadsResp.cachedAt && (
+                <span className="ml-2 text-amber-300">
+                  · cached {describeAge(new Date(workloadsResp.cachedAt).toISOString())}
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         <div className="text-right text-[11px] uppercase tracking-[0.16em] text-zinc-500">
           Snapshot {describeAge(summary.synced_at)}

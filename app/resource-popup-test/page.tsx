@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { UniversalTemplateRenderer } from '@/components/universal-template';
 import { useResourcePopup } from '@/hooks/useResourcePopup';
+import { BackToDashboard } from '@/components/back-to-dashboard';
 
 /**
  * Test page for the Universal Template Renderer
@@ -50,6 +51,12 @@ export default function ResourcePopupTestPage() {
 
       {/* Search Bar */}
       <div className="relative z-10 p-4 border-b border-gray-800">
+        <div className="max-w-2xl mx-auto mb-3">
+          <BackToDashboard
+            className="p-2 -ml-2 rounded-lg hover:bg-gray-800 transition-colors"
+            iconClassName="w-5 h-5 text-gray-300"
+          />
+        </div>
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto flex gap-2">
           <input
             type="text"

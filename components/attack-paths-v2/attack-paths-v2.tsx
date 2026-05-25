@@ -35,6 +35,7 @@ import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 import { PathListGrouped } from "./path-list-grouped"
 import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -290,12 +291,20 @@ export function AttackPathsV2() {
         className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-slate-800 bg-slate-950 overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-slate-800/60">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">
-            CYNTRO · ATTACK PATHS V2
-          </div>
-          <div className="text-sm font-semibold text-white mt-0.5">{systemName}</div>
-          <div className="text-[11px] text-slate-400 mt-0.5">
-            {allPaths.length} paths · {jewels.length} crown jewels
+          <div className="flex items-start gap-2">
+            <BackToDashboard
+              className="p-1.5 -ml-1.5 rounded-md hover:bg-slate-800 transition-colors shrink-0"
+              iconClassName="w-4 h-4 text-slate-300"
+            />
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                CYNTRO · ATTACK PATHS V2
+              </div>
+              <div className="text-sm font-semibold text-white mt-0.5">{systemName}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                {allPaths.length} paths · {jewels.length} crown jewels
+              </div>
+            </div>
           </div>
         </div>
         <CrownJewelListPanel

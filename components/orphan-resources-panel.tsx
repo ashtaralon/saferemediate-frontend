@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from "react"
 import { AlertTriangle, Database, Globe, Key, Lock, RefreshCw, Server, Shield, Pause, Trash2 } from "lucide-react"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 import {
   buildOverrideStateForOpen,
   INITIAL_SHARED_OVERRIDE_STATE,
@@ -408,16 +409,22 @@ export function OrphanResourcesPanel() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="max-w-7xl mx-auto p-8">
         <header className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <AlertTriangle className="w-6 h-6 text-amber-300" />
-              Orphan Resources
-            </h1>
-            <p className="text-slate-400 text-sm mt-1 max-w-3xl">
-              Account-wide view of resources with no observed use. Every destructive action against
-              these (quarantine or delete) routes through the override-lineage flow with a pre-deletion
-              snapshot + an OverrideEvent audit record per Decision Contract §7.
-            </p>
+          <div className="flex items-start gap-3">
+            <BackToDashboard
+              className="p-2 -ml-2 rounded-lg hover:bg-slate-800 transition-colors mt-1 shrink-0"
+              iconClassName="w-5 h-5 text-slate-300"
+            />
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <AlertTriangle className="w-6 h-6 text-amber-300" />
+                Orphan Resources
+              </h1>
+              <p className="text-slate-400 text-sm mt-1 max-w-3xl">
+                Account-wide view of resources with no observed use. Every destructive action against
+                these (quarantine or delete) routes through the override-lineage flow with a pre-deletion
+                snapshot + an OverrideEvent audit record per Decision Contract §7.
+              </p>
+            </div>
           </div>
           <button
             onClick={loadAll}

@@ -5,6 +5,7 @@ import AWSTopologyMapLive from '@/components/aws-topology-map-live'
 import { ResourceImpactPanel } from '@/components/resource-impact-panel'
 import { SystemGuard } from '@/components/system-guard'
 import { useSystem } from '@/lib/system-context'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // Predefined simulation scenarios for demo
 const DEMO_SCENARIOS = [
@@ -147,11 +148,14 @@ export default function ArchitecturePage() {
       {/* Header */}
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mb-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">AWS Architecture Graph</h1>
-            <p className="text-slate-600 mt-1">
-              Real-time topology from Neo4j • Live resource discovery
-            </p>
+          <div className="flex items-center gap-3">
+            <BackToDashboard />
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">AWS Architecture Graph</h1>
+              <p className="text-slate-600 mt-1">
+                Real-time topology from Neo4j • Live resource discovery
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
