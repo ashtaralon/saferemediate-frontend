@@ -77,7 +77,7 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] text-muted-foreground">
+      <div className="flex items-center justify-center min-h-[400px] text-zinc-700 dark:text-zinc-400">
         <Loader2 className="h-5 w-5 animate-spin mr-2" />
         <span className="text-sm">Loading plan…</span>
       </div>
@@ -93,7 +93,7 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
             <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
             <div className="flex-1 space-y-2">
               <p className="text-sm font-medium">Could not load plan</p>
-              <p className="text-xs text-muted-foreground break-all">
+              <p className="text-xs text-zinc-700 dark:text-zinc-400 break-all">
                 {error || "Empty response"}
               </p>
               <Button size="sm" variant="outline" onClick={reload}>
@@ -124,7 +124,7 @@ function BackLink() {
   return (
     <Link
       href="/iam/shared-roles"
-      className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+      className="inline-flex items-center text-sm text-zinc-700 dark:text-zinc-400 hover:text-foreground"
     >
       <ChevronLeft className="h-4 w-4 mr-1" />
       Back to shared roles
@@ -146,7 +146,7 @@ function PlanHeader({
           <h1 className="text-2xl font-semibold tracking-tight">
             {plan.shared_role.role_name}
           </h1>
-          <p className="text-xs font-mono text-muted-foreground break-all mt-1">
+          <p className="text-xs font-mono text-zinc-700 dark:text-zinc-400 break-all mt-1">
             {plan.shared_role.role_arn}
           </p>
         </div>
@@ -154,7 +154,7 @@ function PlanHeader({
           {plan.state}
         </Badge>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs text-muted-foreground">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs text-zinc-700 dark:text-zinc-400">
         <MetaLine label="Plan ID">{plan.plan_id}</MetaLine>
         <MetaLine label="Plan hash">{plan.plan_hash.slice(0, 16)}…</MetaLine>
         <MetaLine label="Created">{formatTime(plan.created_at)}</MetaLine>
@@ -202,7 +202,7 @@ function ApprovalPanel({
   if (plan.state !== "PROPOSED") {
     return (
       <Card className="border-l-4 border-l-zinc-300">
-        <CardContent className="py-3 text-sm text-muted-foreground">
+        <CardContent className="py-3 text-sm text-zinc-700 dark:text-zinc-400">
           Approval not available in state <span className="font-mono">{plan.state}</span>.
         </CardContent>
       </Card>
@@ -212,7 +212,7 @@ function ApprovalPanel({
   if (plan.expired) {
     return (
       <Card className="border-l-4 border-l-zinc-400">
-        <CardContent className="py-3 text-sm text-muted-foreground">
+        <CardContent className="py-3 text-sm text-zinc-700 dark:text-zinc-400">
           Plan has expired — re-generate to approve.
         </CardContent>
       </Card>
@@ -251,7 +251,7 @@ function ApprovalPanel({
             disabled={submitting}
             className="h-9 px-3 text-sm rounded-md border bg-background"
           />
-          <div className="text-xs text-muted-foreground self-center">
+          <div className="text-xs text-zinc-700 dark:text-zinc-400 self-center">
             Self-attested until SSO. Recorded on the audit node.
           </div>
         </div>
@@ -275,7 +275,7 @@ function ApprovalPanel({
             )}
             {submitting ? "Approving…" : "Approve plan"}
           </Button>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[11px] text-zinc-700 dark:text-zinc-400">
             Approval is required before execution. Execution is not yet enabled in this build.
           </span>
         </div>
@@ -289,7 +289,7 @@ function DiscoveryFactsPanel({ plan }: { plan: SplitPlan }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-zinc-700 dark:text-zinc-400">
           Discovery
         </CardTitle>
       </CardHeader>
@@ -299,7 +299,7 @@ function DiscoveryFactsPanel({ plan }: { plan: SplitPlan }) {
         </Stat>
         <Stat icon={<Globe2 className="h-3.5 w-3.5" />} label="Systems">
           {facts.system_tags.length === 0 ? (
-            <span className="text-muted-foreground text-base">untagged</span>
+            <span className="text-zinc-700 dark:text-zinc-400 text-base">untagged</span>
           ) : (
             <div className="flex flex-wrap gap-1 mt-1">
               {facts.system_tags.map((t) => (
@@ -351,7 +351,7 @@ function Stat({
 }) {
   return (
     <div>
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-700 dark:text-zinc-400">
         {icon}
         {label}
       </div>
@@ -368,7 +368,7 @@ function DataCaveatsPanel({ caveats }: { caveats: string[] }) {
         <Clock className="h-4 w-4 text-amber-600" />
         <CardTitle className="text-sm font-medium">Data caveats</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 text-sm text-muted-foreground">
+      <CardContent className="space-y-2 text-sm text-zinc-700 dark:text-zinc-400">
         {caveats.map((c, i) => (
           <p key={i}>{c}</p>
         ))}
@@ -381,13 +381,13 @@ function EligibleGroupsPanel({ groups }: { groups: SplitPlanGroup[] }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-zinc-700 dark:text-zinc-400">
           Eligible groups ({groups.length})
         </CardTitle>
       </CardHeader>
       <CardContent>
         {groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">
+          <p className="text-sm text-zinc-700 dark:text-zinc-400 py-2">
             No eligible groups in this plan. Every consumer is blocked — see below for reason codes.
           </p>
         ) : (
@@ -409,7 +409,7 @@ function EligibleGroupCard({ group }: { group: SplitPlanGroup }) {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="text-sm font-semibold">{group.proposed_role_name}</div>
-            <div className="text-[11px] font-mono text-muted-foreground mt-0.5">
+            <div className="text-[11px] font-mono text-zinc-700 dark:text-zinc-400 mt-0.5">
               {group.group_id}
             </div>
           </div>
@@ -427,7 +427,7 @@ function EligibleGroupCard({ group }: { group: SplitPlanGroup }) {
           </div>
         </div>
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+          <div className="text-[11px] uppercase tracking-wide text-zinc-700 dark:text-zinc-400 mb-1">
             Consumers ({group.consumers.length})
           </div>
           <div className="flex flex-wrap gap-1">
@@ -439,7 +439,7 @@ function EligibleGroupCard({ group }: { group: SplitPlanGroup }) {
           </div>
         </div>
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          <summary className="cursor-pointer text-zinc-700 dark:text-zinc-400 hover:text-foreground">
             Proposed policy document
           </summary>
           <pre className="mt-2 p-2 rounded-md bg-muted text-[11px] overflow-x-auto">
@@ -455,13 +455,13 @@ function BlockedConsumersPanel({ blocked }: { blocked: ConsumerEvidence[] }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-zinc-700 dark:text-zinc-400">
           Blocked consumers ({blocked.length})
         </CardTitle>
       </CardHeader>
       <CardContent>
         {blocked.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">
+          <p className="text-sm text-zinc-700 dark:text-zinc-400 py-2">
             No blocked consumers — all eligible.
           </p>
         ) : (
@@ -482,7 +482,7 @@ function BlockedConsumerRow({ consumer }: { consumer: ConsumerEvidence }) {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
           <div className="font-medium">{consumer.consumer_name || consumer.consumer_id}</div>
-          <div className="text-[11px] font-mono text-muted-foreground break-all">
+          <div className="text-[11px] font-mono text-zinc-700 dark:text-zinc-400 break-all">
             {consumer.consumer_id}
           </div>
         </div>
@@ -506,7 +506,7 @@ function BlockedConsumerRow({ consumer }: { consumer: ConsumerEvidence }) {
         </div>
       </div>
       {consumer.blockers.length > 0 && (
-        <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+        <ul className="text-xs text-zinc-700 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
           {consumer.blockers.map((b, i) => (
             <li key={i} className="break-words">{b}</li>
           ))}
@@ -514,7 +514,7 @@ function BlockedConsumerRow({ consumer }: { consumer: ConsumerEvidence }) {
       )}
       {consumer.observed_actions.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          <summary className="cursor-pointer text-zinc-700 dark:text-zinc-400 hover:text-foreground">
             Observed actions ({consumer.observed_actions.length})
           </summary>
           <div className="mt-1 flex flex-wrap gap-1">
@@ -533,7 +533,7 @@ function BlockedConsumerRow({ consumer }: { consumer: ConsumerEvidence }) {
 function RawPanel({ plan }: { plan: SplitPlan }) {
   return (
     <details className="text-xs">
-      <summary className="cursor-pointer text-muted-foreground hover:text-foreground p-2">
+      <summary className="cursor-pointer text-zinc-700 dark:text-zinc-400 hover:text-foreground p-2">
         Raw plan JSON
       </summary>
       <pre className="mt-2 p-3 rounded-md bg-muted text-[10px] overflow-x-auto leading-relaxed">

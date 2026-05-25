@@ -75,12 +75,12 @@ export default function IAMSharedRolesListView() {
         <div className="flex items-baseline justify-between gap-4">
           <h1 className="text-2xl font-semibold tracking-tight">Shared IAM Roles</h1>
           {data?.as_of && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-zinc-700 dark:text-zinc-400">
               as of {new Date(data.as_of).toLocaleString()}
             </span>
           )}
         </div>
-        <p className="text-sm text-muted-foreground max-w-2xl">
+        <p className="text-sm text-zinc-700 dark:text-zinc-400 max-w-2xl">
           IAM roles attached to multiple principals. Each principal inherits the
           union of the role's permissions — including the parts only used by other
           principals. Cross-system sharing widens the blast radius further.
@@ -112,7 +112,7 @@ function FilterBar({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-zinc-700 dark:text-zinc-400">
           Filters
         </CardTitle>
       </CardHeader>
@@ -173,7 +173,7 @@ function FilterBar({
         </div>
 
         <div className="md:col-span-5 flex flex-wrap gap-x-6 gap-y-2 pt-2 border-t">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-400 cursor-pointer">
             <Checkbox
               checked={filters.includeStale}
               onCheckedChange={(v) =>
@@ -182,7 +182,7 @@ function FilterBar({
             />
             <span>Include stale attachment edges</span>
           </label>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-400 cursor-pointer">
             <Checkbox
               checked={filters.includeInactive}
               onCheckedChange={(v) =>
@@ -199,7 +199,7 @@ function FilterBar({
 
 function LoadingState() {
   return (
-    <div className="flex items-center justify-center min-h-[200px] text-muted-foreground">
+    <div className="flex items-center justify-center min-h-[200px] text-zinc-700 dark:text-zinc-400">
       <RefreshCw className="h-5 w-5 animate-spin mr-2" />
       <span className="text-sm">Loading shared roles…</span>
     </div>
@@ -213,7 +213,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
         <div className="flex-1 space-y-2">
           <p className="text-sm font-medium">Discovery query failed</p>
-          <p className="text-xs text-muted-foreground break-all">{message}</p>
+          <p className="text-xs text-zinc-700 dark:text-zinc-400 break-all">{message}</p>
           <Button size="sm" variant="outline" onClick={onRetry}>
             Retry
           </Button>
@@ -235,7 +235,7 @@ function ResultsList({
       <Card>
         <CardContent className="py-10 text-center space-y-2">
           <p className="text-sm font-medium">No shared roles match these filters.</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-zinc-700 dark:text-zinc-400">
             Live query against Aura — nothing was found with{" "}
             <span className="font-mono">min_principals ≥ {filters.minPrincipals}</span>
             {filters.systemName && (
@@ -255,7 +255,7 @@ function ResultsList({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-zinc-700 dark:text-zinc-400">
         {data.count} role{data.count === 1 ? "" : "s"} attached to{" "}
         ≥{filters.minPrincipals} principal{filters.minPrincipals === 1 ? "" : "s"}
       </p>
@@ -297,7 +297,7 @@ function SharedRoleCard({ role }: { role: SharedRole }) {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold truncate">{role.role_name}</h3>
-            <p className="text-[11px] font-mono text-muted-foreground break-all">
+            <p className="text-[11px] font-mono text-zinc-700 dark:text-zinc-400 break-all">
               {role.role_arn}
             </p>
           </div>
@@ -322,7 +322,7 @@ function SharedRoleCard({ role }: { role: SharedRole }) {
           <SystemsStat tags={role.system_tags} crossSystem={role.cross_system} />
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground gap-3 flex-wrap">
+        <div className="flex items-center justify-between pt-2 border-t text-xs text-zinc-700 dark:text-zinc-400 gap-3 flex-wrap">
           <span className="break-all">
             {role.has_active_plan
               ? `Active plan: ${role.active_plan_id}`
@@ -365,7 +365,7 @@ function Stat({
 }) {
   return (
     <div>
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-700 dark:text-zinc-400">
         {icon}
         {label}
       </div>
@@ -377,13 +377,13 @@ function Stat({
 function KindsStat({ kindEntries }: { kindEntries: [string, number][] }) {
   return (
     <div>
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-700 dark:text-zinc-400">
         <Layers className="h-3.5 w-3.5" />
         Principal kinds
       </div>
       <div className="flex flex-wrap gap-1.5 mt-1">
         {kindEntries.length === 0 ? (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-xs text-zinc-700 dark:text-zinc-400">—</span>
         ) : (
           kindEntries.map(([kind, count]) => (
             <Badge key={kind} variant="secondary" className="text-[11px]">
@@ -405,13 +405,13 @@ function SystemsStat({
 }) {
   return (
     <div>
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-700 dark:text-zinc-400">
         <Globe2 className="h-3.5 w-3.5" />
         Systems
       </div>
       <div className="flex flex-wrap gap-1.5 mt-1">
         {tags.length === 0 ? (
-          <span className="text-xs text-muted-foreground">untagged</span>
+          <span className="text-xs text-zinc-700 dark:text-zinc-400">untagged</span>
         ) : (
           tags.map((t) => (
             <Badge
