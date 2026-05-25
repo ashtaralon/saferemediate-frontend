@@ -39,6 +39,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import * as React from "react"
+import dynamic from "next/dynamic"
 import {
   Crown,
   Key,
@@ -56,6 +57,15 @@ import {
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import { buildExfilArchitecture } from "./exfil-view-panel"
+
+// Lazy-load TrafficFlowMap so the heavy dynamic-map renderer is fetched
+// only when this view is mounted. Mirrors the load pattern used by the
+// legacy ExfilViewPanel (which also dynamic()'d it for SSR safety).
+const TrafficFlowMap = dynamic(
+  () => import("@/components/dependency-map/traffic-flow-map"),
+  { ssr: false },
+)
 
 // ---------------------------------------------------------------------------
 // 9 EXFIL lanes — mirror of ATTACK_LANES but data-egress-oriented
@@ -769,6 +779,22 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
         ) : null}
       </div>
 
+      {/* Dynamic flow map — embedded TrafficFlowMap scoped to the selected
+          exfil chain. Mirrors attacker-view-v3.tsx's ChainFlowMapSection
+          (line 510) which gives operators a SPATIAL view of the same chain
+          they just saw in the categorical lane grid. The architecture is
+          built by buildExfilArchitecture() from the legacy exfil-view-panel
+          — same egress-oriented SystemArchitecture (jewel on left, exfil
+          gates on right, observed flows animated red) the operator was
+          already familiar with. */}
+      {projected && systemName ? (
+        <ChainFlowMapSection
+          payload={data}
+          selectedPath={projected.path}
+          systemName={systemName}
+        />
+      ) : null}
+
       {projected ? (
         <BusinessSentencePanel projected={projected} />
       ) : null}
@@ -1250,6 +1276,73 @@ function ConnectionLayer({
         />
       ))}
     </svg>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic flow map — embeds TrafficFlowMap with an EXFIL-oriented
+// architectureOverride. Mirrors attacker-view-v3.tsx's ChainFlowMapSection
+// (the structural twin: header → 520px TrafficFlowMap container, scoped
+// to the selected chain). buildExfilArchitecture builds the egress-
+// oriented SystemArchitecture (jewel on left, exfil gates on right,
+// observed flows animated red) — same builder the legacy ExfilViewPanel
+// used; exported now for cross-component reuse.
+// ---------------------------------------------------------------------------
+
+function ChainFlowMapSection({
+  payload,
+  selectedPath,
+  systemName,
+}: {
+  payload: ExfilPayload
+  selectedPath: ExfilPath
+  systemName: string
+}) {
+  const architecture = useMemo(
+    () => buildExfilArchitecture(payload as any, selectedPath as any),
+    [payload, selectedPath],
+  )
+  return (
+    <div className="border-t border-slate-700/60 bg-slate-950/60">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+            Flow Map · This Chain's Egress
+          </div>
+          <div className="text-xs text-slate-300 mt-0.5">
+            {payload.jewel.name}{" "}
+            <span className="text-slate-500">→</span>{" "}
+            {selectedPath.accessor_name}{" "}
+            <span className="text-slate-500">→</span>{" "}
+            {selectedPath.channel_label}{" "}
+            <span className="text-slate-500">
+              · {selectedPath.workload_count} workload
+              {selectedPath.workload_count === 1 ? "" : "s"} ·{" "}
+              {selectedPath.gateway_count} gateway
+              {selectedPath.gateway_count === 1 ? "" : "s"} ·{" "}
+              {selectedPath.jewel_hits.toLocaleString()} reads
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 pb-4">
+        <div
+          className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
+          style={{ height: "520px" }}
+        >
+          <TrafficFlowMap
+            systemName={systemName}
+            architectureOverride={architecture}
+            observedMode={true}
+            titleOverride=""
+            innerTitleOverride={`Exfil path: ${selectedPath.channel_label}`}
+            innerSubtitleOverride={`${selectedPath.accessor_name} → ${payload.jewel.name}`}
+            pathBadgeOverride={`Exfil → ${payload.jewel.name}`}
+            defaultShowVPCBoundaries={true}
+          />
+        </div>
+      </div>
+    </div>
   )
 }
 

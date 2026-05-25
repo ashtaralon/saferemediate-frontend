@@ -720,7 +720,10 @@ function NotWiredStrip({
 // can't read the narrative through the stack.
 const EXFIL_COMPUTE_VISIBLE_CAP = 5
 
-function buildExfilArchitecture(
+// EXPORTED so exfil-view-v3.tsx can embed a TrafficFlowMap below its
+// 9-lane grid (mirrors how attacker-view-v3.tsx's ChainFlowMapSection
+// re-uses TrafficFlowMap with a path-scoped architecture).
+export function buildExfilArchitecture(
   payload: ExfilPayload,
   selectedPath: ExfilPath | null,
 ): SystemArchitecture {
