@@ -397,8 +397,8 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   }
 
   // 3. WORKLOADS carrying the accessor roles → computeServices.
-  //    Sourced from the network-egress payload's via_workload chip.
-  //    Multiple egress entries may share a workload — de-dupe.
+  //    Sourced from the network-egress payload's via_workload chip
+  //    (every egress row carries its source workload). De-duped by id.
   for (const e of payload.egress_lanes.network) {
     const w = e.via_workload
     if (!w?.id || seen.has(w.id)) continue
@@ -412,10 +412,23 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     })
   }
 
-  // 4. EGRESS GATEWAYS — IGW / NAT / etc. Same lane the Attacker
-  //    View uses on the exit side; we just populate it from
-  //    payload.egress_lanes.network directly.
+  // 4. EGRESS GATEWAYS — IGW / NAT / VPCE / TGW only. The backend
+  //    also emits `WorkloadOnly` placeholder entries in the same
+  //    network[] array when a workload has no resolved gateway
+  //    (serverless Lambda, missing route-table edges). Those carry
+  //    the COMPUTE info we've already added to computeServices
+  //    above — they must NOT be pushed into egressGateways or
+  //    they'd leak as fake gateway cards (2026-05-25 user report:
+  //    "EGRESS GATEWAYS (15)" when only 6 real gateways exist).
+  const EGRESS_KINDS = new Set([
+    "InternetGateway",
+    "NATGateway",
+    "EgressOnlyInternetGateway",
+    "TransitGateway",
+    "VPCEndpoint",
+  ])
   for (const e of payload.egress_lanes.network) {
+    if (!EGRESS_KINDS.has(e.kind)) continue
     if (seen.has(e.id)) continue
     seen.add(e.id)
     const kind = (e.kind as EgressGatewayNode["kind"]) || "InternetGateway"
@@ -424,6 +437,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
       NATGateway: "NAT GW",
       EgressOnlyInternetGateway: "Egress-only IGW",
       TransitGateway: "Transit GW",
+      VPCEndpoint: "VPC Endpoint",
     }
     egressGateways.push({
       id: e.id,
@@ -433,7 +447,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
       kind: kind,
       kindLabel: kindLabel[kind] || kind,
     })
-    // Flow: workload → IGW. Configured (gray) line — observed-byte
+    // Flow: workload → gateway. Configured (gray) line — observed-byte
     // attribution per egress route lands with Phase D.
     if (e.via_workload?.id) {
       flows.push({
@@ -450,8 +464,16 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
 
   // 5. DESTINATIONS → resources lane (rightmost). These are the
   //    final exit points (Internet today; ExternalAccount /
-  //    ExternalRegion when Phase C lands). Render as crown-jewel-
-  //    styled "data destination" cards.
+  //    ExternalRegion when Phase C lands). Render with type-
+  //    matched icons via TFM's NodeType taxonomy ("internet"
+  //    rather than "storage" so the operator doesn't see an S3
+  //    bucket icon on the Internet card — 2026-05-25 user report).
+  const destTypeFor = (kind: string): "internet" | "storage" => {
+    if (kind === "internet") return "internet"
+    // external_account / external_region don't have dedicated icons
+    // yet; storage is the closest visual until Phase C lands.
+    return "storage"
+  }
   for (const d of payload.destinations) {
     if (seen.has(d.id)) continue
     seen.add(d.id)
@@ -460,8 +482,8 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
       id: d.id,
       name: d.label,
       shortName: shortName(d.label, 28),
-      type: "storage", // TFM resource lane visual; "destination" isn't a TFM type
-    })
+      type: destTypeFor(d.kind),
+    } as ServiceNode)
     // Flow: each egress → destination. Observed (red) when any
     // observed routes exist for the destination; else configured.
     for (const e of payload.egress_lanes.network) {

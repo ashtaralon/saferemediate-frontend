@@ -2611,10 +2611,20 @@ export function UnifiedArchitectureDiagram({
               once; the three column sections fall back to their
               normal layout when ANY of subnets/SGs/NACLs is non-empty
               (i.e. the path genuinely passes through network
-              controls). */}
+              controls).
+
+              2026-05-25: also suppress the banner when egressGateways
+              is non-empty. The EXFIL view leaves subnets/SGs/NACLs
+              empty by design (it focuses on identity → exit-point,
+              not workload-side controls), but has IGW/NAT/VPCE cards
+              in egressGateways. The "IAM is the only gate" narrative
+              is specifically about direct-API-call paths with no
+              network involvement at all — surfacing it on an EXFIL
+              path that clearly has IGWs/VPCEs reads as a bug. */}
           {(architecture.subnets?.length ?? 0) === 0 &&
           architecture.securityGroups.length === 0 &&
-          architecture.nacls.length === 0 ? (
+          architecture.nacls.length === 0 &&
+          architecture.egressGateways.length === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center">
