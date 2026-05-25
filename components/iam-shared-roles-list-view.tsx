@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, Loader2, RefreshCw, Users, Globe2, Layers } from "lucide-react"
+import {
+  AlertTriangle,
+  Globe2,
+  KeyRound,
+  Layers,
+  Loader2,
+  RefreshCw,
+  Users,
+} from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -311,8 +319,19 @@ function SharedRoleCard({ role }: { role: SharedRole }) {
       <CardContent className="py-4 space-y-3">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold truncate">{role.role_name}</h3>
-            <p className="text-[11px] font-mono text-zinc-700 dark:text-zinc-400 break-all">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge
+                variant="outline"
+                className="text-[11px] font-medium bg-zinc-100 text-zinc-800 border-zinc-300 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700 shrink-0"
+              >
+                <KeyRound className="h-3 w-3 mr-1" />
+                IAM Role
+              </Badge>
+              <h3 className="text-base font-semibold truncate">
+                {role.role_name}
+              </h3>
+            </div>
+            <p className="text-[11px] font-mono text-zinc-700 dark:text-zinc-400 break-all mt-1">
               {role.role_arn}
             </p>
           </div>

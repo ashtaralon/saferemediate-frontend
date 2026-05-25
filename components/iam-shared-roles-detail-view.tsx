@@ -359,24 +359,20 @@ function ProposedGroupCard({
     ? [actionsRaw]
     : []
   const reductionPct = brsGroup?.reduction_pct_per_consumer
+  const consumerCount = group.consumers.length
+  const firstKind = group.consumers[0]?.consumer_type ?? "Principal"
+  const kindLabel = friendlyKind(firstKind, consumerCount)
   return (
     <div className="border rounded-md p-3 space-y-2 bg-emerald-50/40 dark:bg-emerald-950/10">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0 flex-1">
-          <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-            Group ({group.consumers.length} consumer
-            {group.consumers.length === 1 ? "" : "s"})
+          <div className="text-xs uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">
+            {consumerCount} {kindLabel}
           </div>
-          <div className="text-sm font-medium mt-0.5 flex flex-wrap gap-1">
-            {group.consumers.map((c) => (
-              <Badge
-                key={c.consumer_id}
-                variant="outline"
-                className="text-[11px] font-mono"
-              >
-                {c.consumer_name || c.consumer_id}
-              </Badge>
-            ))}
+          <div className="text-base font-bold mt-1 text-zinc-900 dark:text-zinc-100 break-all leading-snug">
+            {group.consumers
+              .map((c) => c.consumer_name || c.consumer_id)
+              .join(", ")}
           </div>
         </div>
         {reductionPct !== undefined && (
@@ -451,38 +447,99 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
 
 function ConflictingCard({ conflicted }: { conflicted: ConsumerEvidence[] }) {
   return (
-    <div className="border rounded-md p-3 space-y-2 bg-orange-50/40 dark:bg-orange-950/10 border-orange-300 dark:border-orange-700/50">
+    <div className="border rounded-md p-3 space-y-3 bg-orange-50/40 dark:bg-orange-950/10 border-orange-300 dark:border-orange-700/50">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0 flex-1">
           <div className="text-xs uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
-            Conflicting evidence
+            Conflicting evidence ({conflicted.length})
           </div>
-          <div className="text-sm font-medium mt-0.5">
-            {conflicted.length} consumer
-            {conflicted.length === 1 ? "" : "s"} performed actions outside this
-            role's policy
+          <div className="text-sm font-semibold mt-1 text-zinc-900 dark:text-zinc-100">
+            What we observed doesn't match what this role allows.
+          </div>
+          <div className="text-xs text-zinc-700 dark:text-zinc-300 mt-1 leading-relaxed">
+            Cyntro saw{" "}
+            {conflicted.length === 1 ? "this consumer make" : "these consumers make"}{" "}
+            AWS API calls that this role's policy does <strong>not</strong> grant
+            permission for. Cyntro will not propose a scoped role until the
+            mismatch is resolved.
           </div>
         </div>
       </div>
-      <div className="space-y-1.5">
-        {conflicted.map((c) => (
-          <div key={c.consumer_id} className="text-xs">
-            <span className="font-mono font-medium">
-              {c.consumer_name || c.consumer_id}
-            </span>
-            : observed{" "}
-            <span className="font-mono">
-              {c.observed_actions.join(", ")}
-            </span>
-            {c.observed_actions.length === 0 && (
-              <span className="text-zinc-600 dark:text-zinc-400">no actions</span>
-            )}
-            <div className="text-zinc-700 dark:text-zinc-400 mt-0.5">
-              Likely used a different role for these calls — needs investigation
-              before splitting.
+
+      {/* Per-consumer specifics */}
+      <div className="space-y-2">
+        {conflicted.map((c) => {
+          const kindLabel = friendlyKind(
+            c.consumer_type || "Principal",
+            1
+          )
+          return (
+            <div
+              key={c.consumer_id}
+              className="border rounded-md p-2 bg-white/60 dark:bg-zinc-950/40 text-xs"
+            >
+              <div className="text-[10px] uppercase tracking-wide text-zinc-600 dark:text-zinc-400 font-semibold">
+                {kindLabel}
+              </div>
+              <div className="font-mono font-semibold mt-0.5 break-all text-zinc-900 dark:text-zinc-100">
+                {c.consumer_name || c.consumer_id}
+              </div>
+              {c.observed_actions.length > 0 ? (
+                <div className="mt-1">
+                  <span className="text-zinc-700 dark:text-zinc-300">
+                    Observed actions not in this role's policy:
+                  </span>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {c.observed_actions.map((a) => (
+                      <Badge
+                        key={a}
+                        variant="outline"
+                        className="text-[10px] font-mono bg-orange-100 text-orange-900 border-orange-300 dark:bg-orange-950/40 dark:text-orange-200 dark:border-orange-700/50"
+                      >
+                        {a}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-zinc-600 dark:text-zinc-400 mt-1">
+                  No specific actions captured.
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
+      </div>
+
+      {/* Explanation: what this means, why it happens */}
+      <div className="bg-white/50 dark:bg-zinc-950/30 border border-orange-200 dark:border-orange-800/40 rounded-md p-2.5 space-y-2 text-xs">
+        <div className="text-[10px] uppercase tracking-wide text-zinc-600 dark:text-zinc-400 font-semibold">
+          Why this can happen
+        </div>
+        <ol className="space-y-1.5 text-zinc-700 dark:text-zinc-300 list-decimal list-inside leading-relaxed">
+          <li>
+            <strong>The consumer also assumes another IAM role</strong> for some
+            operations, and the graph hasn't separated per-role attribution yet.
+            Most common cause today.
+          </li>
+          <li>
+            <strong>The role's policy is incomplete</strong> in Cyntro's graph —
+            AWS may grant the action, but our pre-computed `allowed_actions`
+            list is missing it.
+          </li>
+          <li>
+            <strong>Per-principal attribution is partial</strong> — observed
+            activity from a different principal got attributed here by an STS
+            session-name collision.
+          </li>
+        </ol>
+      </div>
+
+      <div className="text-[11px] text-zinc-700 dark:text-zinc-300 leading-relaxed">
+        <strong>Recommended:</strong> manually review the consumer's recent
+        activity in CloudTrail (or your CSPM) to confirm which role actually
+        serves it. Once the right role is identified, Cyntro can propose a
+        scoped split for the correct role.
       </div>
     </div>
   )
