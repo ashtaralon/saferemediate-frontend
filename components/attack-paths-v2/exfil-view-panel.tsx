@@ -648,15 +648,25 @@ function buildExfilArchitecture(
     ? payload.accessors.filter((a) => a.id === selectedPath.accessor_id)
     : payload.accessors
 
-  // 1. SOURCE — the jewel renders as the ENTRY card. Using
+  // 1. SOURCE — the jewel renders as the leftmost card. Using
   //    `entryPoints` (the lane Phase 2 added) keeps it leftmost
   //    without polluting compute/principals.
+  //
+  //    Chip type derived from the real jewel.type (S3Bucket →
+  //    "storage", DynamoDBTable → "dynamodb", etc.) so the badge on
+  //    the chip honestly reflects what the resource IS — not
+  //    "PRINCIPAL" as it used to (a leftover from the per-path
+  //    attacker view where entry-points really ARE principals).
+  //    The lane header is also overridden to "Source" via
+  //    architecture.entryLaneLabel below; "Entry" reads as attacker
+  //    entry-point in every other view but in EXFIL the jewel IS
+  //    the data source, not an attacker.
   const jewelId = payload.jewel.id
   entryPoints.push({
     id: jewelId,
     name: payload.jewel.name,
     shortName: shortName(payload.jewel.name),
-    type: "principal", // TFM renders entryPoints via ServiceNodeBox; principal is the closest visual.
+    type: jewelToNodeType(payload.jewel.type),
     instanceId: jewelId.slice(-12),
   })
 
@@ -1006,6 +1016,10 @@ function buildExfilArchitecture(
   return {
     computeServices,
     entryPoints,
+    // ENTRY lane header: in EXFIL the jewel IS the data source, not
+    // an attacker entry point. Override "Entry" → "Source" so the
+    // header reads correctly. Other views inherit the "Entry" default.
+    entryLaneLabel: "Source",
     principals: [], // empty — the entry card IS the jewel itself
     resources,
     subnets,
@@ -1046,4 +1060,39 @@ function shortName(name: string, maxLen = 22): string {
   if (name.length <= maxLen) return name
   const half = Math.floor((maxLen - 1) / 2)
   return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
+}
+
+// Map AWS jewel types to the closest NodeType from TFM's TYPE_CONFIG.
+// TFM uses the NodeType to pick chip icon + color + visible badge text
+// ("S3", "DynamoDB", "RDS", "Lambda", "EC2"). Returning "principal"
+// for a jewel — the previous behavior — rendered the S3 bucket as a
+// cyan "PRINCIPAL" chip, which is a flat lie about what the resource
+// IS. Mapping by jewel.type keeps the badge honest.
+function jewelToNodeType(awsType: string | undefined | null):
+  | "storage" | "dynamodb" | "database" | "lambda" | "compute" {
+  switch (awsType) {
+    case "S3Bucket":
+      return "storage"
+    case "DynamoDBTable":
+      return "dynamodb"
+    case "RDSInstance":
+    case "RDSCluster":
+    case "RDSDatabase":
+      return "database"
+    case "LambdaFunction":
+      return "lambda"
+    case "EC2Instance":
+      return "compute"
+    case "KMSKey":
+      // No KMS chip in TYPE_CONFIG; storage is the least-wrong fallback
+      // (KMS-protected data is often colocated with S3/RDS jewels).
+      // Honest cost: KMS shows as a green "S3" badge — file an
+      // additive NodeType + TYPE_CONFIG entry to make it right.
+      return "storage"
+    default:
+      // Unknown jewel type → default to "storage". Surfaces faster
+      // than throwing; jewel.type is in the response so the operator
+      // can still read the truth in the chip subtitle.
+      return "storage"
+  }
 }
