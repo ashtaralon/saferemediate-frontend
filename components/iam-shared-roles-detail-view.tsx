@@ -687,7 +687,22 @@ function QuarantineCandidatesSection({
       systemNames.length === 1
         ? `/systems?systemName=${encodeURIComponent(systemNames[0])}&tab=orphan-services`
         : "/orphan-resources"
-    router.push(href)
+    // router.push is the soft-nav path. Belt-and-suspenders: fall back
+    // to a hard navigation via setTimeout if for any reason the soft
+    // nav is silently dropped (Next router not ready, stale closure,
+    // hydration mismatch). The hard nav is harmless if soft nav
+    // already happened — assign() to the same URL is a no-op.
+    try {
+      router.push(href)
+    } catch {
+      window.location.assign(href)
+      return
+    }
+    setTimeout(() => {
+      if (window.location.pathname + window.location.search !== href) {
+        window.location.assign(href)
+      }
+    }, 200)
   }
 
   const handleBulkDelete = async () => {
