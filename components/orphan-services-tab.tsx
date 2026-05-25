@@ -240,6 +240,38 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null) // record ID or orphan ID being acted on
   const [activityModal, setActivityModal] = useState<{ recordId: string; activity: any[]; loading: boolean } | null>(null)
 
+  // Just-moved highlight: ids handed off via sessionStorage from the IAM
+  // shared-roles "Move to Orphan" button. We pop the storage on mount,
+  // render the rows with a yellow ring, and clear after 6 seconds so
+  // the operator gets unmistakable feedback that the action landed
+  // (the prior implementation was invisible — operator clicked, page
+  // navigated, but the row blended in with the existing orphan list).
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("cyntro:just-moved-orphan-ids")
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+          setHighlightIds(new Set(parsed as string[]))
+        }
+        sessionStorage.removeItem("cyntro:just-moved-orphan-ids")
+      }
+    } catch {
+      // sessionStorage may be unavailable / parse failed — silently
+      // skip; the rows still appear (filter-bypass fix below) but
+      // without the visual highlight.
+    }
+  }, [])
+
+  // Fade the highlight after 6 seconds so it doesn't persist.
+  useEffect(() => {
+    if (highlightIds.size === 0) return
+    const t = setTimeout(() => setHighlightIds(new Set()), 6000)
+    return () => clearTimeout(t)
+  }, [highlightIds])
+
   useEffect(() => {
     fetchOrphanServices()
     fetchQuarantineRecords()
@@ -461,6 +493,17 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       }))
   }, [quarantineRecords, orphans])
 
+  // Set of synth-row ids (rows that came from a quarantine pre-check
+  // initiated by the operator, e.g. via IAM "Move to Orphan"). These
+  // bypass the riskFilter / typeFilter / searchQuery — when an operator
+  // explicitly clicks "Move", they MUST see the row land here. Filtering
+  // it out behind a typeFilter the operator forgot they set is the
+  // "Navigates but row not there" bug (2026-05-26).
+  const synthIds = useMemo(
+    () => new Set(orphansFromQuarantine.map((o) => o.id)),
+    [orphansFromQuarantine],
+  )
+
   const filteredOrphans = useMemo(() => {
     // Synth rows (from IAM "Move to Orphan") render FIRST so the
     // operator sees their just-clicked Lambda at the top, not buried
@@ -468,6 +511,9 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     // also makes them visually distinct.
     return [...orphansFromQuarantine, ...orphans].filter((o) => {
       if (dismissedIds.has(o.id)) return false
+      // Synth rows from explicit operator action bypass filters.
+      // dismiss is the only way to hide them — that's an explicit action too.
+      if (synthIds.has(o.id)) return true
       if (riskFilter !== "ALL" && o.riskLevel !== riskFilter) return false
       if (typeFilter !== "ALL") {
         const typeUpper = o.type.toUpperCase()
@@ -480,7 +526,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       }
       return true
     })
-  }, [orphans, orphansFromQuarantine, dismissedIds, riskFilter, typeFilter, searchQuery])
+  }, [orphans, orphansFromQuarantine, synthIds, dismissedIds, riskFilter, typeFilter, searchQuery])
 
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
@@ -678,9 +724,25 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                   const isExpanded = expandedCards.has(orphan.id)
                   const qRecord = getQuarantineStatus(orphan.name)
                   const qPhase = qRecord ? PHASE_CONFIG[qRecord.phase] : null
+                  // Just-moved highlight (PG-1, 2026-05-26): ring +
+                  // amber background fades after 6s, plus auto-scroll
+                  // into view so the operator can't miss it.
+                  const isJustMoved = highlightIds.has(orphan.id)
 
                   return (
-                    <div key={orphan.id} className="hover:bg-gray-50/50 transition-colors">
+                    <div
+                      key={orphan.id}
+                      ref={(el) => {
+                        if (isJustMoved && el) {
+                          el.scrollIntoView({ behavior: "smooth", block: "center" })
+                        }
+                      }}
+                      className={`hover:bg-gray-50/50 transition-colors ${
+                        isJustMoved
+                          ? "ring-2 ring-amber-500 ring-offset-2 bg-amber-50/60 dark:bg-amber-950/30 rounded-lg"
+                          : ""
+                      }`}
+                    >
                       {/* Card Header */}
                       <div
                         className="flex items-center gap-4 p-4 cursor-pointer"

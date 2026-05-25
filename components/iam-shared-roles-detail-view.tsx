@@ -744,6 +744,7 @@ function QuarantineCandidatesSection({
     setBulkError(null)
     setBulkProgress({ done: 0, total: selectedCandidates.length, failed: 0 })
     const failures: string[] = []
+    const movedRecordIds: string[] = []
     for (let i = 0; i < selectedCandidates.length; i++) {
       const c = selectedCandidates[i]
       try {
@@ -773,6 +774,7 @@ function QuarantineCandidatesSection({
         const preData = await pre.json()
         if (preData.error) throw new Error(preData.error)
         if (!preData.recordId) throw new Error("no recordId")
+        movedRecordIds.push(preData.recordId)
         // Pre-check alone creates the record (PRE_CHECK phase). The
         // operator drives MONITOR / QUARANTINE from the Orphan tab.
       } catch (e: any) {
@@ -805,6 +807,17 @@ function QuarantineCandidatesSection({
       systemNames.length === 1
         ? `/systems?systemName=${encodeURIComponent(systemNames[0])}&tab=orphan-services`
         : "/orphan-resources"
+    // Hand the synth-row ids off to OrphanServicesTab so it can
+    // highlight + scroll to the just-moved rows. Format must match
+    // the synth-row id in orphan-services-tab.tsx (`qrec-${id}`).
+    try {
+      sessionStorage.setItem(
+        "cyntro:just-moved-orphan-ids",
+        JSON.stringify(movedRecordIds.map((rid) => `qrec-${rid}`)),
+      )
+    } catch {
+      // sessionStorage unavailable; navigation still works.
+    }
     // Hard nav so the operator definitely sees the page change and
     // the Orphan tab fetches fresh quarantine records.
     window.location.assign(href)
@@ -1093,6 +1106,17 @@ function QuarantineCandidateRow({
       if (preData.error) throw new Error(preData.error)
       if (!preData.recordId) throw new Error("Pre-check did not return a recordId")
       setState("moved")
+      // Hand the synth-row id off to OrphanServicesTab so it can
+      // highlight + scroll to the just-moved row. Format must match
+      // the synth-row id in orphan-services-tab.tsx (`qrec-${id}`).
+      try {
+        sessionStorage.setItem(
+          "cyntro:just-moved-orphan-ids",
+          JSON.stringify([`qrec-${preData.recordId}`]),
+        )
+      } catch {
+        // sessionStorage may be unavailable; navigation still works.
+      }
       // Hard nav so the user definitely sees the page change.
       window.location.assign(orphanHref)
     } catch (e: any) {
