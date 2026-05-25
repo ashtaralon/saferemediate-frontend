@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,11 +12,24 @@ import {
   Loader2,
   ShieldAlert,
   ShieldCheck,
+  ShieldOff,
+  Trash2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { approveSplitPlan, fetchSplitPlan } from "@/lib/api-client"
 import type {
@@ -553,7 +567,7 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
             </div>
             <Link
               href={orphanLink}
-              className="inline-flex items-center text-xs font-medium px-2.5 py-1.5 rounded-md bg-orange-600 hover:bg-orange-700 text-white shrink-0"
+              className="inline-flex items-center text-[10px] font-medium text-orange-700 dark:text-orange-300 hover:underline shrink-0"
             >
               {orphanLinkLabel}
             </Link>
@@ -563,43 +577,18 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
             either Cyntro observed activity that stopped &gt; {thresholdDays}{" "}
             days ago, or there's been no observed activity AND the AWS
             resource hasn't been modified in &gt; {thresholdDays} days.
-            Per-consumer line shows which signal triggered the flag.
-            Quarantine via the Orphan Resources flow detaches the role
-            safely (with rollback) — the shared-role split for active
-            consumers can then proceed without dead weight widening the
-            policy.
+            Quarantine detaches the consumer safely with a backed-up
+            rollback window (lands in the system's Inventory → Orphan
+            tab). Delete is irreversible after the rollback window
+            closes.
           </div>
           <div className="space-y-1.5 pt-1">
             {quarantineCandidates.map((c) => (
-              <div
+              <QuarantineCandidateRow
                 key={c.consumer_id}
-                className="bg-white/60 dark:bg-zinc-950/40 border rounded p-2 text-xs"
-              >
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
-                      {c.consumer_name || c.consumer_id}
-                    </div>
-                    <div className="text-[10px] text-zinc-700 dark:text-zinc-400 mt-0.5">
-                      {c.last_observed_at ? (
-                        <>
-                          Idle since: {formatTime(c.last_observed_at)} (no
-                          AWS API calls observed since)
-                        </>
-                      ) : c.consumer_last_modified ? (
-                        <>
-                          Never observed · Last modified in AWS:{" "}
-                          {formatTime(c.consumer_last_modified)}
-                        </>
-                      ) : (
-                        // Backend wouldn't normally flag a consumer with
-                        // both fields null — defensive fallback only.
-                        <>Flagged for quarantine — see Engineering details</>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                candidate={c}
+                thresholdDays={thresholdDays}
+              />
             ))}
           </div>
         </div>
@@ -686,6 +675,231 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
           </div>
         </details>
       )}
+    </div>
+  )
+}
+
+// Per-row component for a single Quarantine candidate. Owns the action
+// state machine so multiple candidates can be acted on independently
+// without inflating AwaitingCard.
+//
+// Two actions:
+//   - Quarantine: chains pre-check -> start-monitor -> execute via
+//     /api/proxy/quarantine/*. Reversible via Restore from the Orphan
+//     tab. On success, deep-links to /systems?systemName=X&tab=
+//     orphan-services so the operator sees the resource land in its
+//     new home.
+//   - Delete: chains pre-check -> delete with an AlertDialog confirm.
+//     Destructive — config is backed up to the quarantine record but
+//     the AWS resource itself is removed after the rollback window
+//     closes server-side.
+function QuarantineCandidateRow({
+  candidate,
+  thresholdDays,
+}: {
+  candidate: ConsumerEvidence
+  thresholdDays: number
+}) {
+  type RowState = "idle" | "quarantining" | "deleting" | "quarantined" | "deleted"
+  const [state, setState] = useState<RowState>("idle")
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+
+  const idleDays = (() => {
+    if (!candidate.last_observed_at) return thresholdDays
+    const ms = Date.now() - new Date(candidate.last_observed_at).getTime()
+    return Math.max(thresholdDays, Math.floor(ms / (1000 * 60 * 60 * 24)))
+  })()
+
+  const preCheckBody = {
+    resourceName: candidate.consumer_name || candidate.consumer_id,
+    resourceType: candidate.consumer_type || "IAMConsumer",
+    systemName: candidate.system_name,
+    idleDays,
+    connections: 0,
+    recentCloudTrailEvents: 0,
+    recentFlowLogHits: 0,
+  }
+
+  const runPreCheck = async (): Promise<string> => {
+    const res = await fetch("/api/proxy/quarantine/pre-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preCheckBody),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      throw new Error(`Pre-check failed (${res.status})${body ? `: ${body}` : ""}`)
+    }
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    if (!data.recordId) throw new Error("Pre-check did not return a recordId")
+    return data.recordId as string
+  }
+
+  const orphanHref = candidate.system_name
+    ? `/systems?systemName=${encodeURIComponent(candidate.system_name)}&tab=orphan-services`
+    : "/orphan-resources"
+
+  const handleQuarantine = async () => {
+    if (!candidate.system_name) {
+      setError("No system tag on this consumer — cannot route to its Orphan tab")
+      return
+    }
+    setState("quarantining")
+    setError(null)
+    try {
+      const recordId = await runPreCheck()
+      const mon = await fetch("/api/proxy/quarantine/start-monitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId, actor: "user" }),
+      })
+      if (!mon.ok) throw new Error(`Start monitor failed (${mon.status})`)
+      const exec = await fetch("/api/proxy/quarantine/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId, actor: "user" }),
+      })
+      if (!exec.ok) throw new Error(`Execute failed (${exec.status})`)
+      setState("quarantined")
+      // Land the operator on the Orphan tab where the resource now
+      // lives. Small delay so the success state is visible for a beat
+      // before the route changes.
+      setTimeout(() => router.push(orphanHref), 500)
+    } catch (e: any) {
+      setState("idle")
+      setError(e?.message ?? "Unknown error")
+    }
+  }
+
+  const handleDelete = async () => {
+    setState("deleting")
+    setError(null)
+    try {
+      const recordId = await runPreCheck()
+      const del = await fetch("/api/proxy/quarantine/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId, actor: "user", force: true }),
+      })
+      if (!del.ok) throw new Error(`Delete failed (${del.status})`)
+      setState("deleted")
+    } catch (e: any) {
+      setState("idle")
+      setError(e?.message ?? "Unknown error")
+    }
+  }
+
+  const busy = state === "quarantining" || state === "deleting"
+
+  return (
+    <div className="bg-white/60 dark:bg-zinc-950/40 border rounded p-2 text-xs">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
+            {candidate.consumer_name || candidate.consumer_id}
+          </div>
+          <div className="text-[10px] text-zinc-700 dark:text-zinc-400 mt-0.5">
+            {candidate.last_observed_at ? (
+              <>
+                Idle since: {formatTime(candidate.last_observed_at)} (no
+                AWS API calls observed since)
+              </>
+            ) : candidate.consumer_last_modified ? (
+              <>
+                Never observed · Last modified in AWS:{" "}
+                {formatTime(candidate.consumer_last_modified)}
+              </>
+            ) : (
+              // Backend wouldn't normally flag a consumer with
+              // both fields null — defensive fallback only.
+              <>Flagged for quarantine — see Engineering details</>
+            )}
+          </div>
+          {error ? (
+            <div className="text-[10px] text-red-700 dark:text-red-300 mt-1 leading-snug">
+              {error}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {state === "quarantined" ? (
+            <Link
+              href={orphanHref}
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <CheckCircle2 className="w-3 h-3" />
+              Quarantined — View →
+            </Link>
+          ) : state === "deleted" ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+              <Trash2 className="w-3 h-3" />
+              Deleted
+            </span>
+          ) : (
+            <>
+              <button
+                onClick={handleQuarantine}
+                disabled={busy}
+                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+              >
+                {state === "quarantining" ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <ShieldOff className="w-3 h-3" />
+                )}
+                Quarantine
+              </button>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    disabled={busy}
+                    className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded border border-red-300 dark:border-red-700/50 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
+                  >
+                    {state === "deleting" ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3 h-3" />
+                    )}
+                    Delete
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete{" "}
+                      <span className="font-mono">
+                        {candidate.consumer_name || candidate.consumer_id}
+                      </span>
+                      ?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Cyntro backs up the resource's configuration to its
+                      quarantine record before the delete, so you can
+                      restore from the rollback window. After the window
+                      closes, the AWS resource is removed permanently.
+                      Prefer Quarantine if you're unsure — Quarantine
+                      itself is reversible at any time.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDelete}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
