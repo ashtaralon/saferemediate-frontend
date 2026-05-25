@@ -1002,6 +1002,11 @@ export interface ConsumerEvidence {
   allowed_intersection: string[]
   evidence_state: EvidenceState
   blockers: string[]
+  // Quarantine signals (added 2026-05-25). Older plans may lack these.
+  last_observed_at?: string | null
+  consumer_last_modified?: string | null
+  is_quarantine_candidate?: boolean
+  quarantine_threshold_days?: number
 }
 
 export interface GroupingKey {
@@ -1053,6 +1058,9 @@ export interface BlastRadiusSummary {
       consumers_complex_policy: number
       average_reduction_pct_for_grouped: number
       ratio_ready_label: string
+      // Added 2026-05-25
+      quarantine_candidates?: number
+      quarantine_threshold_days?: number
     }
   }
 }

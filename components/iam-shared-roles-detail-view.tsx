@@ -407,41 +407,125 @@ function ProposedGroupCard({
 }
 
 function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
+  // Split into two sub-buckets:
+  //   - Quarantine candidates: backend already decided via threshold
+  //     (last_observed_at > N days OR null + last_modified > N days)
+  //   - Active observation pending: too new to call quarantine yet
+  // Old plans without is_quarantine_candidate field default to "active
+  // observation pending" — honest degradation.
+  const quarantineCandidates = awaiting.filter((c) => c.is_quarantine_candidate)
+  const observationPending = awaiting.filter((c) => !c.is_quarantine_candidate)
+  const thresholdDays =
+    awaiting.find((c) => c.quarantine_threshold_days)?.quarantine_threshold_days ?? 90
+
   return (
-    <details className="border rounded-md p-3 space-y-2 bg-amber-50/40 dark:bg-amber-950/10">
-      <summary className="cursor-pointer flex items-start justify-between gap-2 flex-wrap">
+    <div className="border rounded-md p-3 space-y-3 bg-amber-50/40 dark:bg-amber-950/10">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0 flex-1">
-          <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-            Awaiting evidence
+          <div className="text-xs uppercase tracking-wide text-zinc-700 dark:text-zinc-400 font-semibold">
+            Awaiting evidence ({awaiting.length})
           </div>
-          <div className="text-sm font-medium mt-0.5">
-            {awaiting.length} consumer{awaiting.length === 1 ? "" : "s"} with no
-            observed activity yet
+          <div className="text-sm text-zinc-700 dark:text-zinc-300 mt-0.5 leading-relaxed">
+            These consumers stay on the shared role until Cyntro observes
+            their AWS API calls.
           </div>
         </div>
-        <Badge
-          variant="outline"
-          className="bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-700/50 shrink-0"
-        >
-          stay on shared role
-        </Badge>
-      </summary>
-      <div className="text-xs text-zinc-700 dark:text-zinc-400 pt-2">
-        These consumers stay on the shared role until Cyntro observes API
-        calls from them. Once activity arrives, they'll be grouped automatically.
       </div>
-      <div className="flex flex-wrap gap-1 pt-1">
-        {awaiting.map((c) => (
-          <Badge
-            key={c.consumer_id}
-            variant="outline"
-            className="text-[11px] font-mono"
-          >
-            {c.consumer_name || c.consumer_id}
-          </Badge>
-        ))}
-      </div>
-    </details>
+
+      {/* Active observation pending — recent enough that absence of
+          evidence isn't suspicious yet */}
+      {observationPending.length > 0 && (
+        <details className="border rounded-md p-2.5 bg-white/60 dark:bg-zinc-950/40">
+          <summary className="cursor-pointer flex items-start justify-between gap-2 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-300 font-semibold">
+                Active observation pending ({observationPending.length})
+              </div>
+              <div className="text-xs text-zinc-700 dark:text-zinc-300 mt-0.5">
+                Recently deployed or modified — Cyntro is still watching for
+                activity.
+              </div>
+            </div>
+            <Badge
+              variant="outline"
+              className="bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-700/50 shrink-0 text-[10px]"
+            >
+              stay on shared role
+            </Badge>
+          </summary>
+          <div className="flex flex-wrap gap-1 pt-2">
+            {observationPending.map((c) => (
+              <Badge
+                key={c.consumer_id}
+                variant="outline"
+                className="text-[11px] font-mono"
+              >
+                {c.consumer_name || c.consumer_id}
+              </Badge>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* Quarantine candidates — idle for > threshold_days OR
+          unknown age + last_modified > threshold_days */}
+      {quarantineCandidates.length > 0 && (
+        <div className="border border-orange-300 dark:border-orange-700/50 rounded-md p-2.5 bg-orange-50/60 dark:bg-orange-950/20 space-y-2">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
+                Quarantine candidates ({quarantineCandidates.length})
+              </div>
+              <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-0.5">
+                Idle for &gt; {thresholdDays} days — likely unused.
+              </div>
+            </div>
+            <Link
+              href="/orphan-resources"
+              className="inline-flex items-center text-xs font-medium px-2.5 py-1.5 rounded-md bg-orange-600 hover:bg-orange-700 text-white shrink-0"
+            >
+              Manage in Orphan Resources →
+            </Link>
+          </div>
+          <div className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+            No observed activity, and the most recent code-modification
+            timestamp from AWS is &gt; {thresholdDays} days ago. Quarantine
+            them via the Orphan Resources flow to remove the attached role
+            safely (with rollback) — the shared-role split for the active
+            consumers can then proceed without these dragging the policy
+            wider than needed.
+          </div>
+          <div className="space-y-1.5 pt-1">
+            {quarantineCandidates.map((c) => (
+              <div
+                key={c.consumer_id}
+                className="bg-white/60 dark:bg-zinc-950/40 border rounded p-2 text-xs"
+              >
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
+                      {c.consumer_name || c.consumer_id}
+                    </div>
+                    <div className="text-[10px] text-zinc-700 dark:text-zinc-400 mt-0.5">
+                      {c.last_observed_at ? (
+                        <>Last observed: {formatTime(c.last_observed_at)}</>
+                      ) : c.consumer_last_modified ? (
+                        <>
+                          Never observed · Last modified in AWS:{" "}
+                          {formatTime(c.consumer_last_modified)}
+                        </>
+                      ) : (
+                        <>Never observed · Age unknown</>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
