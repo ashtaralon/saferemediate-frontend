@@ -40,6 +40,7 @@ import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewPanel } from "./attacker-view-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
+import { ExfilViewPanel } from "./exfil-view-panel"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
@@ -78,7 +79,12 @@ export function AttackPathsV2() {
   // attacker-canvas-v2.tsx). Lives alongside V1 "attacker" for
   // side-by-side comparison; V1 stays the default until V2 is
   // proven correct + explicit deprecation sign-off.
-  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" =
+  // 2026-05-25: added "exfil" — the EXFIL view (PRD same date) that
+  // BFS-forwards from the crown jewel to surface every door the
+  // data can leave through. Distinct mental model from the
+  // attacker/per-path/exposure tabs (which BFS backwards toward
+  // entry points). See components/attack-paths-v2/exfil-view-panel.tsx.
+  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" =
     modeParam === "exposure"
       ? "exposure"
       : modeParam === "attacker"
@@ -87,7 +93,9 @@ export function AttackPathsV2() {
           ? "attacker_v2"
           : modeParam === "phase"
             ? "phase"
-            : "path"
+            : modeParam === "exfil"
+              ? "exfil"
+              : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -207,7 +215,7 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase") => {
+  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => {
     // Switching to exposure or phase clears the path selection — both
     // aggregate ACROSS paths (phase shows every chain targeting the
     // selected jewel). Switching to attacker / attacker_v2 REQUIRES a
@@ -387,6 +395,26 @@ export function AttackPathsV2() {
                   systemName={systemName}
                 />
               )
+            ) : viewMode === "exfil" ? (
+              // EXFIL view — Phase A 2026-05-25 PRD. BFS-forward from
+              // the crown jewel to surface the data's escape routes.
+              // Five-column canvas: SOURCE → ACCESSORS → EGRESS PLANES
+              // → EXTERNAL GATES → DESTINATIONS. Phase A only fills the
+              // NETWORK egress sub-lane + Internet destination from
+              // existing data; IDENTITY and DATA-PROPAGATION sub-lanes
+              // render NotWiredCards with the collector backlog inline.
+              !selectedJewelId ? (
+                <EmptyState
+                  title="Select a crown jewel for exfil view"
+                  subtitle="Exfil view answers 'where does the data go from this jewel?' — every door the data can leave through, plus which ones are actively exfiltrating right now."
+                  large
+                />
+              ) : (
+                <ExfilViewPanel
+                  systemName={systemName}
+                  jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                />
+              )
             ) : !selectedPath ? (
               <EmptyState
                 title="Select a path"
@@ -426,8 +454,8 @@ function ModeToggle({
   jewelName,
   pathCount,
 }: {
-  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase"
-  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase") => void
+  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil"
+  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => void
   jewelName: string | null
   pathCount: number
 }) {
@@ -485,7 +513,7 @@ function ModeToggle({
         </button>
         <button
           onClick={() => onChange("phase")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
             mode === "phase"
               ? "bg-emerald-500/15 text-emerald-200"
               : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -493,6 +521,22 @@ function ModeToggle({
           title="Phase view (v0.3) — 9-lane attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge."
         >
           Phase view <span className="text-[8px] opacity-60">v0.3</span>
+        </button>
+        {/* EXFIL — Phase A 2026-05-25 PRD. The other tabs answer
+            'how does the attacker reach this jewel?'. This one
+            answers 'where does the data go from here?'. BFS
+            direction inverts: jewel becomes SOURCE on the left,
+            external destinations become SINKS on the right. */}
+        <button
+          onClick={() => onChange("exfil")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            mode === "exfil"
+              ? "bg-amber-500/15 text-amber-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Exfil view (Phase A) — BFS-forwards from the crown jewel: every door the data can leave through, with capable (amber) vs observed (red) color-coding. Identity-egress + data-propagation lanes are honest not-wired empty states until Phase B/C collectors land."
+        >
+          Exfil <span className="text-[8px] opacity-60">Phase A</span>
         </button>
       </div>
       <div className="text-[10px] text-slate-500 italic min-w-0 truncate">
@@ -504,7 +548,9 @@ function ModeToggle({
               ? `Live Neo4j graph + lateral moves per hop — the attacker's pivot tree`
               : mode === "attacker_v2"
                 ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
-                : `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`}
+                : mode === "phase"
+                  ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
+                  : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
       </div>
     </div>
   )
