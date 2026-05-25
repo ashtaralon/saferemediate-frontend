@@ -98,6 +98,24 @@ interface ExfilNetworkEgressItem {
   provenance: "capable" | "observed"
 }
 
+// Evidence-backed VPC posture for a path's workload(s). Resolved on the
+// backend by traversing RUNS_IN_VPC / IN_SUBNET / SECURED_BY edges. The
+// `evidence` string is the citation surfaced to the operator so the UI
+// never claims "no network controls" from absence of data again.
+// null = no workload to query (direct_api paths) OR workload not found
+// in graph; UI renders an honest "not queried" state instead of the
+// old fabricated "public AWS API endpoint" banner.
+export interface WorkloadNetwork {
+  is_vpc_attached: boolean
+  vpc_id: string | null
+  vpc_name: string | null
+  subnets: Array<{ id: string; name: string | null; is_public: boolean | null }>
+  security_groups: Array<{ id: string; name: string | null }>
+  evidence: string
+  workload_count_queried: number
+  workload_count_in_sample: number
+}
+
 interface ExfilPath {
   path_id: string
   accessor_id: string
@@ -111,6 +129,7 @@ interface ExfilPath {
   workload_sample: Array<{ id: string; name: string; type: string }>
   gateway_count: number
   gateway_sample: Array<{ id: string; name: string; kind: string }>
+  workload_network: WorkloadNetwork | null
 }
 
 interface ExfilLaneNotWired {
@@ -757,6 +776,47 @@ function buildExfilArchitecture(
     }
   }
 
+  // 3d. Backfill subnets + SGs from path.workload_network when the
+  //     networkRows scan didn't find them. This covers serverless_direct
+  //     channels (Lambda → S3 with no IGW/NAT) — networkRows for those
+  //     paths only carry WorkloadOnly placeholders without subnet/SG
+  //     edges, but the workload itself may still be VPC-attached with
+  //     real subnets + SGs in the graph. workload_network is the
+  //     authoritative per-workload signal (resolved by direct
+  //     RUNS_IN_VPC / IN_SUBNET / SECURED_BY edges on the workload),
+  //     so use it as a backfill source rather than as the primary read
+  //     (networkRows still wins when present because it also gives us
+  //     vpcId + route-table chip + per-edge SG rule counts).
+  if (selectedPath?.workload_network?.is_vpc_attached) {
+    for (const s of selectedPath.workload_network.subnets) {
+      if (!s.id || subnetSeen.has(s.id)) continue
+      subnetSeen.add(s.id)
+      subnets.push({
+        id: s.id,
+        name: s.name ?? s.id,
+        shortName: shortName(s.name ?? s.id, 26),
+        isPublic: s.is_public ?? undefined,
+        vpcId: selectedPath.workload_network.vpc_id ?? undefined,
+        connectedComputeIds: [],
+      } as SubnetNode)
+    }
+    for (const sg of selectedPath.workload_network.security_groups) {
+      if (!sg.id || sgSeen.has(sg.id)) continue
+      sgSeen.add(sg.id)
+      securityGroups.push({
+        id: sg.id,
+        type: "security_group",
+        name: sg.name ?? sg.id,
+        shortName: shortName(sg.name ?? sg.id, 24),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      })
+    }
+  }
+
   // 4. EGRESS GATEWAYS — IGW / NAT / VPCE / TGW only. The backend
   //    also emits `WorkloadOnly` placeholder entries in the same
   //    network[] array when a workload has no resolved gateway
@@ -961,6 +1021,23 @@ function buildExfilArchitecture(
     totalConnections,
     totalGaps: 0,
     vpcGroups: [],
+    // EXFIL signal: pass the selected path's workload VPC posture
+    // through so TFM's "No Network Controls" banner can be evidence-
+    // backed (real Cypher result) instead of inferred from empty
+    // arrays. `selectedPath` may be null on first render — that maps
+    // to undefined, which TFM treats as "didn't query" (no banner).
+    workloadNetwork: selectedPath?.workload_network
+      ? {
+          is_vpc_attached: selectedPath.workload_network.is_vpc_attached,
+          vpc_id: selectedPath.workload_network.vpc_id,
+          vpc_name: selectedPath.workload_network.vpc_name,
+          evidence: selectedPath.workload_network.evidence,
+          workload_count_queried:
+            selectedPath.workload_network.workload_count_queried,
+          workload_count_in_sample:
+            selectedPath.workload_network.workload_count_in_sample,
+        }
+      : null,
   }
 }
 
