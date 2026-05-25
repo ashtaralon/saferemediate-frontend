@@ -407,16 +407,54 @@ function ProposedGroupCard({
 }
 
 function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
-  // Split into two sub-buckets:
-  //   - Quarantine candidates: backend already decided via threshold
-  //     (last_observed_at > N days OR null + last_modified > N days)
-  //   - Active observation pending: too new to call quarantine yet
-  // Old plans without is_quarantine_candidate field default to "active
-  // observation pending" — honest degradation.
+  // Three honest sub-buckets per audit (feedback_test_both_sides_of_a_partition):
+  //
+  //   1. Quarantine candidates — backend flagged is_quarantine_candidate=true
+  //      (idle > threshold OR null + last_modified > threshold).
+  //
+  //   2. Active observation pending — has REAL timestamps proving recent
+  //      modification, but no observed activity yet. Stay on shared role,
+  //      keep watching.
+  //
+  //   3. Age unknown — stub nodes with no timestamps at all (project_label_
+  //      set_duplicates_endemic.md pattern). We can't honestly say
+  //      "recently deployed" OR "idle long enough to quarantine" — we
+  //      just don't know.
+  //
+  // Old plans without is_quarantine_candidate / last_modified fall back
+  // into "Age unknown" gracefully — that's the honest bucket for
+  // missing data.
+  const hasAnyTimestamp = (c: ConsumerEvidence) =>
+    Boolean(c.last_observed_at || c.consumer_last_modified)
+
   const quarantineCandidates = awaiting.filter((c) => c.is_quarantine_candidate)
-  const observationPending = awaiting.filter((c) => !c.is_quarantine_candidate)
+  const remainingAfterQ = awaiting.filter((c) => !c.is_quarantine_candidate)
+  const observationPending = remainingAfterQ.filter(hasAnyTimestamp)
+  const ageUnknown = remainingAfterQ.filter((c) => !hasAnyTimestamp(c))
+
   const thresholdDays =
     awaiting.find((c) => c.quarantine_threshold_days)?.quarantine_threshold_days ?? 90
+
+  // Per-candidate link target: prefer the per-system Inventory → Orphan
+  // view when all quarantine candidates share a single system; fall back
+  // to the account-wide /orphan-resources rollup when they span systems
+  // or are untagged. The systems route honors ?systemName= today
+  // (added 2026-05-25); the tab pre-selection is a follow-up — operator
+  // lands on Overview and clicks Inventory → Orphan manually.
+  const sharedSystem = (() => {
+    const tags = quarantineCandidates
+      .map((c) => c.system_name)
+      .filter((s): s is string => Boolean(s))
+    if (tags.length === 0) return null
+    const unique = Array.from(new Set(tags))
+    return unique.length === 1 ? unique[0] : null
+  })()
+  const orphanLink = sharedSystem
+    ? `/systems?systemName=${encodeURIComponent(sharedSystem)}`
+    : "/orphan-resources"
+  const orphanLinkLabel = sharedSystem
+    ? `Open ${sharedSystem} → Inventory → Orphan →`
+    : "Open Orphan Resources →"
 
   return (
     <div className="border rounded-md p-3 space-y-3 bg-amber-50/40 dark:bg-amber-950/10">
@@ -432,8 +470,73 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
         </div>
       </div>
 
-      {/* Active observation pending — recent enough that absence of
-          evidence isn't suspicious yet */}
+      {/* Sub-bucket 1: Quarantine candidates */}
+      {quarantineCandidates.length > 0 && (
+        <div className="border border-orange-300 dark:border-orange-700/50 rounded-md p-2.5 bg-orange-50/60 dark:bg-orange-950/20 space-y-2">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
+                Quarantine candidates ({quarantineCandidates.length})
+              </div>
+              <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-0.5">
+                No activity in the last {thresholdDays} days — likely unused.
+              </div>
+            </div>
+            <Link
+              href={orphanLink}
+              className="inline-flex items-center text-xs font-medium px-2.5 py-1.5 rounded-md bg-orange-600 hover:bg-orange-700 text-white shrink-0"
+            >
+              {orphanLinkLabel}
+            </Link>
+          </div>
+          <div className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+            Each consumer below was flagged for one of two reasons:
+            either Cyntro observed activity that stopped &gt; {thresholdDays}{" "}
+            days ago, or there's been no observed activity AND the AWS
+            resource hasn't been modified in &gt; {thresholdDays} days.
+            Per-consumer line shows which signal triggered the flag.
+            Quarantine via the Orphan Resources flow detaches the role
+            safely (with rollback) — the shared-role split for active
+            consumers can then proceed without dead weight widening the
+            policy.
+          </div>
+          <div className="space-y-1.5 pt-1">
+            {quarantineCandidates.map((c) => (
+              <div
+                key={c.consumer_id}
+                className="bg-white/60 dark:bg-zinc-950/40 border rounded p-2 text-xs"
+              >
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
+                      {c.consumer_name || c.consumer_id}
+                    </div>
+                    <div className="text-[10px] text-zinc-700 dark:text-zinc-400 mt-0.5">
+                      {c.last_observed_at ? (
+                        <>
+                          Idle since: {formatTime(c.last_observed_at)} (no
+                          AWS API calls observed since)
+                        </>
+                      ) : c.consumer_last_modified ? (
+                        <>
+                          Never observed · Last modified in AWS:{" "}
+                          {formatTime(c.consumer_last_modified)}
+                        </>
+                      ) : (
+                        // Backend wouldn't normally flag a consumer with
+                        // both fields null — defensive fallback only.
+                        <>Flagged for quarantine — see Engineering details</>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sub-bucket 2: Active observation pending */}
       {observationPending.length > 0 && (
         <details className="border rounded-md p-2.5 bg-white/60 dark:bg-zinc-950/40">
           <summary className="cursor-pointer flex items-start justify-between gap-2 flex-wrap">
@@ -453,8 +556,56 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
               stay on shared role
             </Badge>
           </summary>
-          <div className="flex flex-wrap gap-1 pt-2">
+          <div className="space-y-1.5 pt-2">
             {observationPending.map((c) => (
+              <div
+                key={c.consumer_id}
+                className="border rounded p-2 text-xs bg-white/40 dark:bg-zinc-950/20"
+              >
+                <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
+                  {c.consumer_name || c.consumer_id}
+                </div>
+                <div className="text-[10px] text-zinc-700 dark:text-zinc-400 mt-0.5">
+                  {c.last_observed_at ? (
+                    <>Last observed: {formatTime(c.last_observed_at)}</>
+                  ) : c.consumer_last_modified ? (
+                    <>
+                      No observed activity yet · Last modified in AWS:{" "}
+                      {formatTime(c.consumer_last_modified)}
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* Sub-bucket 3: Age unknown — stub nodes with all-null timestamps.
+          We don't know whether these are recently deployed or long-idle —
+          can't honestly bucket them either way. Surface that gap. */}
+      {ageUnknown.length > 0 && (
+        <details className="border rounded-md p-2.5 bg-zinc-50/60 dark:bg-zinc-950/30 border-zinc-300 dark:border-zinc-700">
+          <summary className="cursor-pointer flex items-start justify-between gap-2 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-wide text-zinc-700 dark:text-zinc-300 font-semibold">
+                Age unknown ({ageUnknown.length})
+              </div>
+              <div className="text-xs text-zinc-700 dark:text-zinc-300 mt-0.5">
+                Cyntro's graph has no modification timestamp for these
+                consumers — we can't tell if they're recent or long-idle.
+                Re-run resource reconciliation to populate metadata.
+              </div>
+            </div>
+            <Badge
+              variant="outline"
+              className="bg-zinc-100 text-zinc-800 border-zinc-300 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700 shrink-0 text-[10px]"
+            >
+              need reconciliation
+            </Badge>
+          </summary>
+          <div className="flex flex-wrap gap-1 pt-2">
+            {ageUnknown.map((c) => (
               <Badge
                 key={c.consumer_id}
                 variant="outline"
@@ -465,65 +616,6 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
             ))}
           </div>
         </details>
-      )}
-
-      {/* Quarantine candidates — idle for > threshold_days OR
-          unknown age + last_modified > threshold_days */}
-      {quarantineCandidates.length > 0 && (
-        <div className="border border-orange-300 dark:border-orange-700/50 rounded-md p-2.5 bg-orange-50/60 dark:bg-orange-950/20 space-y-2">
-          <div className="flex items-start justify-between gap-2 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
-                Quarantine candidates ({quarantineCandidates.length})
-              </div>
-              <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-0.5">
-                Idle for &gt; {thresholdDays} days — likely unused.
-              </div>
-            </div>
-            <Link
-              href="/orphan-resources"
-              className="inline-flex items-center text-xs font-medium px-2.5 py-1.5 rounded-md bg-orange-600 hover:bg-orange-700 text-white shrink-0"
-            >
-              Manage in Orphan Resources →
-            </Link>
-          </div>
-          <div className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
-            No observed activity, and the most recent code-modification
-            timestamp from AWS is &gt; {thresholdDays} days ago. Quarantine
-            them via the Orphan Resources flow to remove the attached role
-            safely (with rollback) — the shared-role split for the active
-            consumers can then proceed without these dragging the policy
-            wider than needed.
-          </div>
-          <div className="space-y-1.5 pt-1">
-            {quarantineCandidates.map((c) => (
-              <div
-                key={c.consumer_id}
-                className="bg-white/60 dark:bg-zinc-950/40 border rounded p-2 text-xs"
-              >
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 break-all">
-                      {c.consumer_name || c.consumer_id}
-                    </div>
-                    <div className="text-[10px] text-zinc-700 dark:text-zinc-400 mt-0.5">
-                      {c.last_observed_at ? (
-                        <>Last observed: {formatTime(c.last_observed_at)}</>
-                      ) : c.consumer_last_modified ? (
-                        <>
-                          Never observed · Last modified in AWS:{" "}
-                          {formatTime(c.consumer_last_modified)}
-                        </>
-                      ) : (
-                        <>Never observed · Age unknown</>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
     </div>
   )
@@ -729,11 +821,18 @@ function WhyItMatters({ plan }: { plan: SplitPlan }) {
             crosses team boundaries. This is the highest-severity sharing
             pattern.
           </p>
-        ) : (
+        ) : systems.length === 1 ? (
           <p className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
-            All consumers belong to the same system
-            {systems.length === 1 ? ` (${systems[0]})` : ""}. The blast radius
-            is contained within one team.
+            All consumers belong to the same system ({systems[0]}). The blast
+            radius is contained within one team.
+          </p>
+        ) : (
+          // systems.length === 0 — consumers aren't tagged with any system
+          // yet. NOT the same as "same system" — we genuinely don't know
+          // the blast radius scope until the auto-tagger runs.
+          <p className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
+            Cyntro hasn't tagged these consumers to a system yet — the blast
+            radius scope is unknown until the auto-tagger completes.
           </p>
         )}
       </CardContent>
