@@ -541,12 +541,20 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
       kind: kind,
       kindLabel: kindLabel[kind] || kind,
     })
-    // Flow: workload → gateway. Configured (gray) line — observed-byte
-    // attribution per egress route lands with Phase D.
+    // Flow: workload → gateway, routed through the workload's
+    // SG card so ConnectionLinesSVG zigzags through SG visually
+    // (per 2026-05-25 user feedback: "why no traffic through SG").
+    // The SG id we attach is the FIRST SG on this row's via_
+    // security_groups — picking deterministically so multi-SG
+    // workloads still produce a single visible flow line. If
+    // future flows need to fan out per SG we'd push one flow per
+    // SG instead.
     if (e.via_workload?.id) {
+      const sgIdForFlow = e.via_security_groups?.[0]?.id
       flows.push({
         sourceId: e.via_workload.id,
         targetId: e.id,
+        sgId: sgIdForFlow,
         ports: [],
         protocol: "tcp",
         bytes: 0,
