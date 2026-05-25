@@ -182,7 +182,36 @@ function BlastRadiusHero({ plan }: { plan: SplitPlan }) {
   const ratio = brs.after.summary.ratio_ready_label
   const awaiting = brs.after.summary.consumers_awaiting_evidence
   const conflicted = brs.after.summary.consumers_with_conflicting_evidence
+  // Audit fix #2: must include complex_policy in the "all eligible"
+  // check, otherwise the hero claims "All consumers eligible" when
+  // some are blocked by complex-policy reasons.
+  const complexPolicy = brs.after.summary.consumers_complex_policy ?? 0
   const hasReady = brs.after.summary.consumers_ready_to_split > 0
+  const allBlockerCounts = awaiting + conflicted + complexPolicy
+
+  // Build the "blocked breakdown" line from whatever non-zero categories
+  // exist. Honest for any combination — including unknown future
+  // categories the summary may add (those won't surface in the breakdown
+  // but won't trigger the false "All eligible" message either).
+  const blockerParts: React.ReactNode[] = []
+  if (awaiting > 0)
+    blockerParts.push(
+      <span key="awaiting">
+        Awaiting evidence: <strong>{awaiting}</strong>
+      </span>,
+    )
+  if (conflicted > 0)
+    blockerParts.push(
+      <span key="conflicting">
+        Conflicting: <strong>{conflicted}</strong>
+      </span>,
+    )
+  if (complexPolicy > 0)
+    blockerParts.push(
+      <span key="complex">
+        Complex policy: <strong>{complexPolicy}</strong>
+      </span>,
+    )
 
   return (
     <Card className="border-l-4 border-l-emerald-600">
@@ -205,10 +234,16 @@ function BlastRadiusHero({ plan }: { plan: SplitPlan }) {
             <strong className="tabular-nums">{ratio}</strong> ready to split
           </span>
           <span className="text-xs text-zinc-700 dark:text-zinc-400">
-            {awaiting > 0 && <>Awaiting evidence: <strong>{awaiting}</strong></>}
-            {awaiting > 0 && conflicted > 0 && " · "}
-            {conflicted > 0 && <>Conflicting: <strong>{conflicted}</strong></>}
-            {awaiting === 0 && conflicted === 0 && <>All consumers eligible</>}
+            {allBlockerCounts === 0 ? (
+              <>All consumers eligible</>
+            ) : (
+              blockerParts.map((part, i) => (
+                <span key={i}>
+                  {part}
+                  {i < blockerParts.length - 1 && " · "}
+                </span>
+              ))
+            )}
           </span>
         </div>
       </CardContent>
@@ -240,7 +275,14 @@ function BeforeAfterCanvas({ plan }: { plan: SplitPlan }) {
   const complex = blocked.filter(
     (c) => c.evidence_state === "COMPLEX_POLICY"
   )
-  const brsGroups = plan.blast_radius_summary?.after.groups ?? []
+  // Audit fix #6: pair groups with their reduction badge by group_id,
+  // not by array index. Backend returns both lists in iteration order
+  // today, but the UI shouldn't rely on that invariant — if either
+  // list is ever filtered or reordered upstream, every badge would
+  // attach to the wrong group silently.
+  const brsGroupById = new Map(
+    (plan.blast_radius_summary?.after.groups ?? []).map((g) => [g.group_id, g]),
+  )
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -291,8 +333,9 @@ function BeforeAfterCanvas({ plan }: { plan: SplitPlan }) {
               </span>
             </div>
             <div className="text-xs text-zinc-700 dark:text-zinc-400 mt-1">
-              Every consumer inherits all {allowedCount} permission
-              {allowedCount === 1 ? "" : "s"} — including ones it never uses.
+              Every consumer inherits the same {allowedCount} permission
+              {allowedCount === 1 ? "" : "s"} — there's no per-consumer
+              scoping today.
             </div>
           </div>
         </CardContent>
@@ -309,11 +352,11 @@ function BeforeAfterCanvas({ plan }: { plan: SplitPlan }) {
           <CardContent className="space-y-3">
             {eligible.length > 0 ? (
               <div className="space-y-3">
-                {eligible.map((g, idx) => (
+                {eligible.map((g) => (
                   <ProposedGroupCard
                     key={g.group_id}
                     group={g}
-                    brsGroup={brsGroups[idx]}
+                    brsGroup={brsGroupById.get(g.group_id)}
                     roleAllowedCount={allowedCount}
                   />
                 ))}
@@ -360,8 +403,26 @@ function ProposedGroupCard({
     : []
   const reductionPct = brsGroup?.reduction_pct_per_consumer
   const consumerCount = group.consumers.length
-  const firstKind = group.consumers[0]?.consumer_type ?? "Principal"
-  const kindLabel = friendlyKind(firstKind, consumerCount)
+  // Audit fix #5: don't assume the first consumer's kind applies to the
+  // whole group. Backend's grouping_key includes consumer_type today so
+  // groups should be homogeneous, but the UI shouldn't blindly trust
+  // that — if the invariant ever changes, mislabeling silently is the
+  // exact "false ≠ the simple case I had in mind" failure mode.
+  const distinctKinds = Array.from(
+    new Set(
+      group.consumers
+        .map((c) => c.consumer_type)
+        .filter((k): k is string => Boolean(k)),
+    ),
+  )
+  const kindLabel =
+    distinctKinds.length === 0
+      ? friendlyKind("Principal", consumerCount)
+      : distinctKinds.length === 1
+        ? friendlyKind(distinctKinds[0], consumerCount)
+        : `principals (${distinctKinds
+            .map((k) => friendlyKind(k, 1, true))
+            .join(" + ")})`
   return (
     <div className="border rounded-md p-3 space-y-2 bg-emerald-50/40 dark:bg-emerald-950/10">
       <div className="flex items-start justify-between gap-2 flex-wrap">

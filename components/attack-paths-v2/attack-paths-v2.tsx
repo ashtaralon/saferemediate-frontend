@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
-import { Loader2, AlertTriangle, RefreshCw } from "lucide-react"
+import { Loader2, AlertTriangle, RefreshCw, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import { filterActivePaths, narrowActivePaths } from "@/lib/active-filters"
@@ -63,7 +63,12 @@ export function AttackPathsV2() {
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   const expandMode = searchParams?.get("expand") ?? null
-  const isPathExpanded = expandMode === "path" && !!selectedPathId
+  // Canvas-expand toggle: hides columns 1+2 so the right-column view
+  // (any mode) gets the full screen. Was originally gated to per-path
+  // mode only; now available across every view via the toggle in the
+  // shared ModeToggle bar. URL param name kept ("expand=path") for
+  // bookmark back-compat.
+  const isPathExpanded = expandMode === "path"
   // Slice 5 + 9: three-lens toggle.
   //   path     — per-path forensic view (legacy default)
   //   exposure — all-doors aggregate per jewel
@@ -340,6 +345,8 @@ export function AttackPathsV2() {
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
               pathCount={jewelPaths.length}
+              isExpanded={isPathExpanded}
+              onToggleExpand={handleToggleExpand}
             />
             {viewMode === "exposure" ? (
               <JewelExposurePanel
@@ -453,11 +460,15 @@ function ModeToggle({
   onChange,
   jewelName,
   pathCount,
+  isExpanded,
+  onToggleExpand,
 }: {
   mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil"
   onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => void
   jewelName: string | null
   pathCount: number
+  isExpanded: boolean
+  onToggleExpand: () => void
 }) {
   return (
     <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
@@ -539,7 +550,7 @@ function ModeToggle({
           Exfil <span className="text-[8px] opacity-60">Phase A</span>
         </button>
       </div>
-      <div className="text-[10px] text-slate-500 italic min-w-0 truncate">
+      <div className="text-[10px] text-slate-500 italic min-w-0 truncate flex-1">
         {mode === "path"
           ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"}`
           : mode === "exposure"
@@ -552,6 +563,24 @@ function ModeToggle({
                   ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
                   : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
       </div>
+      <button
+        onClick={onToggleExpand}
+        title={isExpanded ? "Collapse — restore jewels + paths columns" : "Expand canvas — hide jewels + paths columns"}
+        aria-label={isExpanded ? "Collapse canvas" : "Expand canvas"}
+        className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 hover:bg-slate-800/60 transition-colors"
+      >
+        {isExpanded ? (
+          <>
+            <Minimize2 className="h-3 w-3 text-slate-300" />
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-300">Collapse</span>
+          </>
+        ) : (
+          <>
+            <Maximize2 className="h-3 w-3 text-slate-300" />
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-300">Expand</span>
+          </>
+        )}
+      </button>
     </div>
   )
 }

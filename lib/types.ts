@@ -953,6 +953,12 @@ export const ATTACK_LANES: AttackLaneConfig[] = [
 export interface SharedRole {
   role_arn: string
   role_name: string
+  // Resource type drives the UI's class-of-resource pill. Today
+  // discovery only returns IAMRole; extends to SecurityGroup /
+  // S3Bucket / RDS / etc. when shared-resource discovery broadens
+  // beyond IAM (design memo §6). Optional: pre-2026-05-25 plans
+  // don't carry it; UI falls back to "IAMRole".
+  resource_type?: string
   consumer_count: number
   consumer_kinds: Record<string, number>
   system_tags: string[]

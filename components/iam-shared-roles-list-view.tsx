@@ -4,13 +4,18 @@ import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
+  ArrowLeft,
+  Database,
   Globe2,
   KeyRound,
   Layers,
   Loader2,
+  Network,
   RefreshCw,
+  Server,
   Users,
 } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,6 +24,25 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { fetchSharedRoles, postSplitPlan } from "@/lib/api-client"
 import type { SharedRole, SharedRolesResponse } from "@/lib/types"
+
+// Resource-type → pill icon + label.
+// Audit fix #8: the pill on each card was hardcoded "IAM Role" with a
+// KeyRound icon. As soon as shared-resource discovery broadens to
+// SecurityGroup / S3Bucket / RDS / etc., the hardcoded label would
+// silently lie for non-IAM rows. Drive both icon and label from
+// `role.resource_type` instead; fall back to IAMRole for old plans
+// that don't carry the field yet.
+const RESOURCE_PILLS: Record<string, { label: string; icon: LucideIcon }> = {
+  IAMRole: { label: "IAM Role", icon: KeyRound },
+  SecurityGroup: { label: "Security Group", icon: Network },
+  S3Bucket: { label: "S3 Bucket", icon: Database },
+  RDSCluster: { label: "RDS Cluster", icon: Database },
+  EC2Instance: { label: "EC2 Instance", icon: Server },
+}
+
+function resolveResourcePill(resourceType: string | undefined) {
+  return RESOURCE_PILLS[resourceType ?? "IAMRole"] ?? RESOURCE_PILLS.IAMRole
+}
 
 interface Filters {
   minPrincipals: number
@@ -37,6 +61,7 @@ const DEFAULT_FILTERS: Filters = {
 }
 
 export default function IAMSharedRolesListView() {
+  const router = useRouter()
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [data, setData] = useState<SharedRolesResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,8 +105,18 @@ export default function IAMSharedRolesListView() {
   return (
     <div className="space-y-6 p-6">
       <header className="space-y-2">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight">Shared IAM Roles</h1>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/")}
+              className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              aria-label="Back to dashboard"
+            >
+              <ArrowLeft className="w-5 h-5 text-zinc-700 dark:text-zinc-300" />
+            </button>
+            <h1 className="text-2xl font-semibold tracking-tight">Shared IAM Roles</h1>
+          </div>
           {data?.as_of && (
             <span className="text-xs text-zinc-700 dark:text-zinc-400">
               as of {new Date(data.as_of).toLocaleString()}
@@ -320,13 +355,19 @@ function SharedRoleCard({ role }: { role: SharedRole }) {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge
-                variant="outline"
-                className="text-[11px] font-medium bg-zinc-100 text-zinc-800 border-zinc-300 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700 shrink-0"
-              >
-                <KeyRound className="h-3 w-3 mr-1" />
-                IAM Role
-              </Badge>
+              {(() => {
+                const pill = resolveResourcePill(role.resource_type)
+                const Icon = pill.icon
+                return (
+                  <Badge
+                    variant="outline"
+                    className="text-[11px] font-medium bg-zinc-100 text-zinc-800 border-zinc-300 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700 shrink-0"
+                  >
+                    <Icon className="h-3 w-3 mr-1" />
+                    {pill.label}
+                  </Badge>
+                )
+              })()}
               <h3 className="text-base font-semibold truncate">
                 {role.role_name}
               </h3>
