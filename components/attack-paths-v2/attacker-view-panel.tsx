@@ -658,7 +658,12 @@ function buildAttackerArchitecture(
   // gapCount uses unused_rules_count when present (rules with no
   // observed traffic match) — that's the "configured-but-unused"
   // signal the operator can act on.
-  const addAsSG = (id: string, name: string | null, props?: Record<string, any> | null) => {
+  const addAsSG = (
+    id: string,
+    name: string | null,
+    props?: Record<string, any> | null,
+    onPath?: boolean,
+  ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "sg")
     if (seenByCanonical.has(canon)) return
@@ -700,6 +705,10 @@ function buildAttackerArchitecture(
       connectedSources: [],
       connectedTargets: [],
       hasPublicIngress,
+      // onPath defaults to undefined (back-compat for callers that
+      // don't supply the signal — chip falls back to "treat as on-
+      // path"). Explicit false dims the chip + adds the LATERAL badge.
+      ...(onPath === false ? { onPath: false } : onPath === true ? { onPath: true } : {}),
     })
   }
   // NACL populates totalCount from rule counters on the graph node.
@@ -713,7 +722,12 @@ function buildAttackerArchitecture(
   // gapCount uses inbound_deny_count + outbound_deny_count when
   // present — explicit denies are the high-signal rules an operator
   // should know about.
-  const addAsNACL = (id: string, name: string | null, props?: Record<string, any> | null) => {
+  const addAsNACL = (
+    id: string,
+    name: string | null,
+    props?: Record<string, any> | null,
+    onPath?: boolean,
+  ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "nacl")
     if (seenByCanonical.has(canon)) return
@@ -784,6 +798,11 @@ function buildAttackerArchitecture(
     }
     if (subnetCount > 0) {
       naclEntry.subnetCount = subnetCount
+    }
+    // onPath: explicit boolean only when caller supplied it (so chips
+    // without the signal stay full-brightness as back-compat).
+    if (onPath === true || onPath === false) {
+      naclEntry.onPath = onPath
     }
     nacls.push(naclEntry)
   }
@@ -943,6 +962,53 @@ function buildAttackerArchitecture(
     })
   }
 
+  // On-path SG / NACL detection.
+  //
+  // A SecurityGroup is "on-path" if the path's compute is SECURED_BY
+  // it (real graph edge from a path node). A NACL is "on-path" if a
+  // path subnet ASSOCIATED_WITH it. Lateral SGs/NACLs are in the
+  // same VPC but lack that direct edge — they're pivot surface, not
+  // gates on this chain.
+  //
+  // Pre-pass over laterals_by_node before the lane-population loop:
+  // any SG that appears as a neighbor under a SECURED_BY (or alias)
+  // edge from ANY path node id gets marked on-path. Same for NACLs
+  // with ASSOCIATED_WITH / HAS_NACL. Everything else stays undefined
+  // and the chip falls back to "treat as on-path" — the SG/NACL
+  // helpers below pass the explicit boolean only when the pre-pass
+  // saw a real edge, so callers without the signal aren't penalized.
+  //
+  // 2026-05-26 user feedback: "why is there no traffic through
+  // default / three-tier-lambda-sg?" — those are lateral SGs that
+  // got pulled into the lane via VPC-membership enrichment (commit
+  // 80fd29e) but have no SECURED_BY edge to the path's EC2.
+  // Treating all 5 SGs as visually equal made the operator hunt
+  // for the actual gate; dimming the 4 lateral ones surfaces the
+  // one true gate at a glance.
+  const SG_ATTACH_EDGES = new Set([
+    "SECURED_BY",
+    "HAS_SECURITY_GROUP",
+    "USES_SECURITY_GROUP",
+  ])
+  const NACL_ATTACH_EDGES = new Set([
+    "ASSOCIATED_WITH",
+    "HAS_NACL",
+  ])
+  const onPathSgIds = new Set<string>()
+  const onPathNaclIds = new Set<string>()
+  for (const [, edges] of Object.entries(graph.laterals_by_node)) {
+    for (const e of edges) {
+      const neighborId = e.neighbor_id
+      if (!neighborId) continue
+      const t = (e.type || "").toUpperCase()
+      if (SG_ATTACH_EDGES.has(t)) {
+        onPathSgIds.add(neighborId)
+      } else if (NACL_ATTACH_EDGES.has(t)) {
+        onPathNaclIds.add(neighborId)
+      }
+    }
+  }
+
   // First pass — add every path node to its canonical lane.
   // SG / NACL / IAMPolicy helpers now receive key_properties so
   // totalCount / gapCount / rule arrays come from real graph data
@@ -956,8 +1022,8 @@ function buildAttackerArchitecture(
     else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name, props)
     else if (bucket === "instance_profile") addAsInstanceProfile(node.id, node.name)
     else if (bucket === "iam_policy") addAsPolicy(node.id, node.name, props)
-    else if (bucket === "sg") addAsSG(node.id, node.name, props)
-    else if (bucket === "nacl") addAsNACL(node.id, node.name, props)
+    else if (bucket === "sg") addAsSG(node.id, node.name, props, onPathSgIds.has(node.id))
+    else if (bucket === "nacl") addAsNACL(node.id, node.name, props, onPathNaclIds.has(node.id))
     else if (bucket === "principal") addAsPrincipal(node.id, node.name)
     else if (bucket === "vpc") addAsVPC(node.id, node.name)
     else if (bucket === "egress_gateway") {
@@ -1141,7 +1207,11 @@ function buildAttackerArchitecture(
       }
       if (neighborBucket === "nacl") {
         if (pathNodeBucket === "subnet") {
-          addAsNACL(neighborId, e.neighbor_name)
+          // Lateral fallback. Typically no-ops because the on-path
+          // NACL is added via the graph.nodes loop above (seen.has
+          // short-circuits the helper). Passing onPath here in case
+          // the lateral fallback is the only path that fires.
+          addAsNACL(neighborId, e.neighbor_name, null, onPathNaclIds.has(neighborId))
         }
         continue
       }

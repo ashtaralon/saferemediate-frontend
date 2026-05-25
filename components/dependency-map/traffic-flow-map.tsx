@@ -89,6 +89,16 @@ export interface SecurityCheckpoint {
    *  Distinct count (label-set duplicates de-duped). Drives the
    *  "M subnets" pill on the chip. */
   subnetCount?: number;
+  /** SG / NACL — true when this checkpoint sits ON the current path
+   *  (has a real attachment edge to a path node: SECURED_BY for SG,
+   *  ASSOCIATED_WITH / HAS_NACL for NACL). False when the checkpoint
+   *  is lateral surface (same VPC, but no direct attachment to the
+   *  path's workloads). Drives a visual dim + "LATERAL" badge so the
+   *  operator reads at a glance which SG/NACL is the gate on this
+   *  chain vs which are pivot opportunities. Undefined falls back
+   *  to "treat as on-path" (back-compat for callers that don't yet
+   *  surface this signal). */
+  onPath?: boolean;
 }
 
 export interface TrafficFlow {
@@ -761,16 +771,27 @@ export function SecurityGroupPanel({
   // counts + flags, not raw rules). Fall back to the flag so e.g. a
   // DB SG with public ingress still surfaces the red badge.
   const hasPublicAccess = publicRules.length > 0 || sg.hasPublicIngress === true;
+  // 2026-05-26 user feedback: when an SG isn't on the current path
+  // (lateral surface — in the same VPC but no SECURED_BY edge to the
+  // path's compute), dim the chip and show a "LATERAL" badge so the
+  // operator reads at a glance which SG is the gate vs which are
+  // pivot opportunities. onPath===undefined treats as on-path
+  // (back-compat for callers that don't supply the signal yet).
+  const isLateral = sg.onPath === false;
 
   return (
     <div
       className={`relative rounded-xl border-2 transition-all duration-200 overflow-hidden
         ${isHighlighted ? 'bg-orange-500/20 border-orange-500/50 shadow-lg shadow-orange-500/20' : 'bg-slate-800/50 border-slate-700'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}
-        ${hasPublicAccess ? 'ring-2 ring-red-400/30' : ''}`}
+        ${hasPublicAccess ? 'ring-2 ring-red-400/30' : ''}
+        ${isLateral ? 'opacity-50' : ''}`}
       onMouseEnter={() => onHover(sg.id)}
       onMouseLeave={() => onHover(null)}
       onDoubleClick={onDetails}
+      title={isLateral
+        ? "Lateral SG — in the same VPC as the path's compute but no SECURED_BY edge from the path's workload. Pivot surface, not a gate on this chain."
+        : undefined}
     >
       {/* Header */}
       <div
@@ -800,6 +821,14 @@ export function SecurityGroupPanel({
                 title="Security Group accepts inbound traffic from 0.0.0.0/0 — verified by has_public_ingress on the SecurityGroup node"
               >
                 {publicRules.length > 0 ? `${publicRules.length} PUBLIC` : "PUBLIC"}
+              </span>
+            )}
+            {isLateral && (
+              <span
+                className="px-1.5 py-0.5 bg-slate-700/60 text-slate-400 rounded text-[9px] font-semibold uppercase tracking-wider"
+                title="Lateral SG — not attached to the path's workload. Pivot surface only."
+              >
+                Lateral
               </span>
             )}
           </div>
@@ -914,6 +943,11 @@ export function NACLNode({
   const isDefault = nacl.isDefault === true;
   const hasPublicInbound = nacl.hasPublicInboundAllow === true;
   const hasHighRisk = nacl.hasHighRisk === true;
+  // On-path vs lateral. Same treatment as SG: NACLs without an
+  // ASSOCIATED_WITH / HAS_NACL edge to a path-node subnet render
+  // dimmed + "LATERAL" badged. onPath===undefined treats as
+  // on-path (back-compat).
+  const isLateral = nacl.onPath === false;
   // Red ring when there's a public+default NACL — that's the
   // "no filtering" wide-open posture. Amber ring for has_high_risk
   // alone (high-risk rule on a non-default NACL). Otherwise the
@@ -931,10 +965,14 @@ export function NACLNode({
       className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
         ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
-        ${ringClass}`}
+        ${ringClass}
+        ${isLateral ? 'opacity-50' : ''}`}
       onMouseEnter={() => onHover(nacl.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
+      title={isLateral
+        ? "Lateral NACL — in the same VPC as the path's subnets but no ASSOCIATED_WITH edge to the path. Pivot surface only."
+        : undefined}
     >
       <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
         <Lock className="w-5 h-5 text-cyan-400" />
@@ -993,6 +1031,14 @@ export function NACLNode({
               title="NACL has a high-risk rule. Verified by has_high_risk on the NetworkACL node."
             >
               High risk
+            </span>
+          )}
+          {isLateral && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 font-semibold uppercase tracking-wider"
+              title="Lateral NACL — not associated with the path's subnet. Pivot surface only."
+            >
+              Lateral
             </span>
           )}
         </div>
