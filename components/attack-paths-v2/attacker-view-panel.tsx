@@ -32,6 +32,7 @@ import type {
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
+import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 
 // Heavy renderer — lazy-load so the v2 page doesn't pull the full
 // dep-map bundle until the operator switches to attacker view.
@@ -1047,60 +1048,24 @@ function buildAttackerArchitecture(
   // 1,579,582 connections bug).
   const flowKeys = new Set<string>()
 
-  // ─── Path-level checkpoint identifiers ───────────────────────────
+  // 2026-05-25 (Phase 2 — explicit-edges refactor): the previous
+  // `pathCheckpoints` object (getter-backed sgId/naclId/instanceProfileId/
+  // roleId/egressGatewayId) was the source of the cross-plane drawing
+  // bug — every synthesized flow routed its polyline through this
+  // single bundle, which mixed identity-plane (Role, InstanceProfile)
+  // checkpoints with network-plane (SG, NACL, IGW) checkpoints, then
+  // drew them as a single continuous SVG path implying a serial
+  // dependency. That implication was false — identity-plane and
+  // network-plane are parallel pre-conditions, not steps.
   //
-  // TFM's ConnectionLinesSVG routes each flow line THROUGH whichever
-  // checkpoints the flow carries: sgId → naclId → roleId → vpceId.
-  // Without setting these, the role→S3 flow draws as a straight
-  // diagonal from IAM ROLES lane to RESOURCES lane, skipping the SG
-  // and NACL visually — even though the operator KNOWS the path
-  // traverses them.
+  // The new rendering contract (TrafficFlowMap `architecture.edges`)
+  // takes one line per real graph edge, tagged with its plane, and
+  // colors / animates by plane. We build the edges array below from
+  // path.edges + graph.laterals_by_node directly. Routing through
+  // bundled checkpoints is no longer needed.
   //
-  // For the Attacker view, wire every synthesized flow with the
-  // path's specific gates so the line zigzags through SG → NACL →
-  // IAMRole on its way to the crown jewel. That's the visual the
-  // user wants: every service in the chain connected by an actual
-  // routed line.
-  //
-  // We pick the FIRST item per lane (paths typically have one of
-  // each). Future enhancement: multi-checkpoint routing when paths
-  // genuinely fan out (rare).
-  // Getter-backed checkpoint object — IDs are resolved at READ time so
-  // the lateral loop (which both populates `egressGateways` and
-  // synthesizes flows that consume `pathCheckpoints.egressGatewayId`)
-  // sees the current state of each lane array. A snapshot-style object
-  // captured the IDs before the lateral loop added the IGW, leaving
-  // `egressGatewayId === undefined` on every flow and producing the
-  // orphan IGW the 2026-05-23 audit caught.
-  const pathCheckpoints = {
-    get sgId() { return securityGroups[0]?.id },
-    get naclId() { return nacls[0]?.id },
-    // InstanceProfile — the AWS binding between EC2 and IAMRole. TFM
-    // now treats this as a dedicated flow checkpoint (added with
-    // `instanceProfileId` on TrafficFlow) so the polyline reads
-    // EC2 → SG → NACL → IP → Role → S3. Without this, the IP lane
-    // card rendered but no line connected it (orphan card; user
-    // report 2026-05-24 on SafeRemediate-Test-App-2 → cyntro-demo-
-    // prod-data). Getter so the lateral loop's IP-add is visible
-    // when the flow synthesis below runs.
-    get instanceProfileId() { return instanceProfiles[0]?.id },
-    // iamRoles[] is now policy-free (policies live in iamPolicies[] post
-    // 2026-05-22 split), so no need for the 📜-prefix filter.
-    get roleId() { return iamRoles[0]?.id },
-    // Egress gateway — IGW / NAT / EgressOnlyIGW / TGW. Routes the
-    // line through the EGRESS GATEWAYS lane chip so it stops floating
-    // as an orphan box (2026-05-23 audit finding). Picked from the
-    // path's lateral neighbors; the getter ensures we read the IGW
-    // that the lateral loop adds DURING iteration. Multi-egress paths
-    // are rare — single-checkpoint pick is honest until we
-    // materialize hops.
-    get egressGatewayId() { return egressGateways[0]?.id },
-    // eniId / policyId aren't TFM flow fields today; lane cards
-    // render but no connecting line. Fix for these orphan-card
-    // edges lands with the materialized-hop renderer (v0.2 §3)
-    // which iterates AttackPath.hops instead of inferring
-    // checkpoints from a flat node list.
-  }
+  // See feedback_test_both_sides_of_a_partition.md for the failure
+  // mode that this fixes.
 
   // Branch A flows are deferred — synthesized AFTER the lateral loop
   // completes so that lateral-added checkpoints (IGW, etc.) populated
@@ -1219,13 +1184,14 @@ function buildAttackerArchitecture(
     flows.push({
       sourceId,
       targetId,
-      // Route THROUGH path checkpoints so the line zigzags visually
-      // instead of going straight from source to target.
-      sgId: pathCheckpoints.sgId,
-      naclId: pathCheckpoints.naclId,
-      instanceProfileId: pathCheckpoints.instanceProfileId,
-      roleId: pathCheckpoints.roleId,
-      egressGatewayId: pathCheckpoints.egressGatewayId,
+      // 2026-05-25 (Phase 2 explicit-edges refactor): checkpoint-bundle
+      // fields (sgId/naclId/instanceProfileId/roleId/egressGatewayId)
+      // are intentionally NOT populated. The renderer now consumes
+      // `architecture.edges[]` (built below) and draws one line per
+      // graph edge tagged with its plane. Routing one synthesized flow
+      // through both Role (identity) AND IGW (network) on one polyline
+      // was the cross-plane drawing bug the audit caught. Flow stays
+      // for backward-compat header math (totalBytes / totalConnections).
       ports: e.port ? [String(e.port)] : [],
       protocol: e.protocol || (e.type.includes("S3") ? "s3" : "tcp"),
       bytes,
@@ -1272,12 +1238,8 @@ function buildAttackerArchitecture(
     flows.push({
       sourceId: edge.source,
       targetId: edge.target,
-      // Route through path checkpoints (same as Branch A above).
-      sgId: pathCheckpoints.sgId,
-      naclId: pathCheckpoints.naclId,
-      instanceProfileId: pathCheckpoints.instanceProfileId,
-      roleId: pathCheckpoints.roleId,
-      egressGatewayId: pathCheckpoints.egressGatewayId,
+      // 2026-05-25: checkpoint fields removed — see Branch A note.
+      // Rendering now driven by `architecture.edges[]` (built below).
       ports: edge.port ? [String(edge.port)] : [],
       protocol: edge.protocol || (t.includes("S3") ? "s3" : "tcp"),
       bytes,
@@ -1310,16 +1272,16 @@ function buildAttackerArchitecture(
       flows.push({
         sourceId: source.id,
         targetId: resource.id,
-        sgId: pathCheckpoints.sgId,
-        naclId: pathCheckpoints.naclId,
-        roleId: pathCheckpoints.roleId,
-        egressGatewayId: pathCheckpoints.egressGatewayId,
+        // 2026-05-25: checkpoint fields removed. Chain-completion is
+        // now expressed via the real graph edges in `architecture.edges[]`
+        // (the path's HAS_INSTANCE_PROFILE → USES_ROLE → HAS_POLICY →
+        // ACCESSES_RESOURCE sequence). If no such graph edge exists,
+        // no line is drawn — invented "configured chain" lines were
+        // the source of the cross-plane visual bug.
         ports: [],
         protocol: "configured",
         bytes: 0,
         connections: 0,
-        // false = gray static line, no animation. Honest about
-        // "this is the configured chain, not observed traffic."
         isActive: false,
       })
     }
@@ -1436,6 +1398,109 @@ function buildAttackerArchitecture(
   // architecture.principals when entryPoints is empty.
   const entryPoints = principals.slice()
 
+  // ─── Explicit edges (Phase 2 — 2026-05-25) ────────────────────────
+  //
+  // Build a 1:1 CanvasEdge[] from the real graph relationships that
+  // TrafficFlowMap will draw as one line per edge, tagged with its
+  // plane. Two sources:
+  //
+  //   1. `path.edges` — IAP-traced edges (the chain itself). All edge
+  //      types are included; the renderer will filter / color by
+  //      plane via planeForString. We keep config edges (USES_ROLE,
+  //      HAS_INSTANCE_PROFILE, IN_SUBNET, ASSOCIATED_WITH, ROUTES_VIA,
+  //      etc.) because they ARE the topology — without them the cards
+  //      sit disconnected. Pre-refactor these were continued past in
+  //      the flow-synthesis loop, which is why operators saw an
+  //      EC2 with no lines to its SG/Subnet/Role unless we faked them.
+  //
+  //   2. `graph.laterals_by_node` — neighbor edges off path nodes,
+  //      both on_path observed-traffic edges (data plane) and config
+  //      edges to the lateral attachment cards (NACL, SG, IP, IGW).
+  //
+  // Both endpoints MUST be in `seen` (a card was actually rendered
+  // for them). Edges to nodes the layout chose not to render are
+  // dropped — counted but never invented. Dedupe by canonical key.
+  const edgeKeys = new Set<string>()
+  const builtEdges: CanvasEdge[] = []
+
+  const pushCanvasEdge = (
+    source: string,
+    target: string,
+    rawType: string,
+    observed: boolean | null,
+    bytes: number | null,
+    hitCount: number | null,
+    port: number | null,
+    protocol: string | null,
+    firstSeen: string | null,
+    lastSeen: string | null,
+  ) => {
+    if (!source || !target) return
+    if (!seen.has(source) || !seen.has(target)) return
+    const rel = (rawType || "").toUpperCase()
+    if (!rel) return
+    const id = `${source}|${rel}|${target}`
+    if (edgeKeys.has(id)) return
+    edgeKeys.add(id)
+    builtEdges.push({
+      id,
+      source_aws_id: source,
+      target_aws_id: target,
+      // Cast through string — CanvasRelationshipType is a closed enum,
+      // but the IAP / graph-view producers emit raw Neo4j relationship
+      // strings. planeForString handles unknowns conservatively
+      // ("network"); the cast is safe because the renderer never
+      // narrows on this field, only reads it for hover labels.
+      relationship: rel as CanvasRelationshipType,
+      observed,
+      hit_count: hitCount,
+      bytes,
+      first_seen: firstSeen,
+      last_seen: lastSeen,
+      port,
+      protocol,
+    })
+  }
+
+  // (1) From the IAP path's edges — the chain backbone.
+  for (const e of path.edges ?? []) {
+    pushCanvasEdge(
+      e.source,
+      e.target,
+      e.type,
+      e.is_observed ?? null,
+      e.traffic_bytes ?? null,
+      e.hit_count ?? null,
+      e.port ?? null,
+      e.protocol ?? null,
+      null,
+      null,
+    )
+  }
+
+  // (2) From laterals — both on_path observed edges AND lateral
+  //     attachments to the cards we rendered (NACL, SG, IP, IGW, Role).
+  for (const [pathNodeId, neighbors] of Object.entries(graph.laterals_by_node)) {
+    for (const e of neighbors) {
+      const neighborId = e.neighbor_id
+      if (!neighborId) continue
+      const source = e.direction === "out" ? pathNodeId : neighborId
+      const target = e.direction === "out" ? neighborId : pathNodeId
+      pushCanvasEdge(
+        source,
+        target,
+        e.type,
+        e.observed,
+        e.bytes,
+        e.hit_count,
+        e.port,
+        e.protocol,
+        e.first_seen,
+        e.last_seen,
+      )
+    }
+  }
+
   return {
     computeServices,
     principals,
@@ -1456,6 +1521,11 @@ function buildAttackerArchitecture(
     vpcEndpoints: [],
     egressGateways,
     flows,
+    // 2026-05-25 (Phase 2 explicit-edges refactor): real graph edges
+    // populate `edges`. ConnectionLinesSVG branches on this — when
+    // non-empty it draws ONE line per CanvasEdge tagged with plane.
+    // Cross-plane zigzag synthesis is eliminated.
+    edges: builtEdges,
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
     totalGaps: 0,

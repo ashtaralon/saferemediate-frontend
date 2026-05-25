@@ -132,6 +132,127 @@ export type CanvasRelationshipType =
   | "RUNTIME_CALLS"
 
 /**
+ * Which conceptual plane an edge belongs to. Cyntro analyzes posture
+ * across two orthogonal planes (plus a data lane for observed traffic
+ * BETWEEN resources):
+ *
+ *   identity — IAM grants. Does Principal X have permission to call
+ *              API Y on resource Z? Independent of network reachability.
+ *   network  — packet/connection routing. Can host X reach host/endpoint
+ *              Y? Independent of who's authorized.
+ *   data     — observed access events that bind the two: an actual
+ *              CloudTrail call, S3 object read, or VPC Flow record where
+ *              identity-plane authorization AND network-plane reach both
+ *              held at observation time.
+ *
+ * Renderers MUST NOT route a single SVG polyline through checkpoints
+ * from more than one plane — that visually implies a serial dependency
+ * that the data does not say. Use the plane to color edges and to
+ * decide which segments animate (only `data` plane edges should
+ * animate when observed).
+ *
+ * Added 2026-05-25 after the audit caught attacker-view-panel routing
+ * one EC2→S3 flow through both Role (identity) and IGW (network) on a
+ * single line. See feedback_test_both_sides_of_a_partition.md.
+ */
+export type EdgePlane = "identity" | "network" | "data"
+
+/**
+ * Maps a Neo4j relationship type to its conceptual plane. Closed
+ * mapping — adding a new relationship to CanvasRelationshipType
+ * requires adding it here too (TypeScript exhaustiveness check will
+ * fire if you forget).
+ */
+export function planeFor(relationship: CanvasRelationshipType): EdgePlane {
+  switch (relationship) {
+    // Identity plane — IAM permission/binding edges
+    case "USES_ROLE":
+    case "ASSUMES_ROLE":
+    case "ASSUMES_ROLE_ACTUAL":
+    case "HAS_INSTANCE_PROFILE":
+    case "HAS_POLICY":
+      return "identity"
+    // Network plane — VPC topology + reachability edges
+    case "SECURED_BY":
+    case "HAS_NETWORK_INTERFACE":
+    case "IN_SUBNET":
+    case "IN_VPC":
+    case "RUNS_IN_VPC":
+    case "ASSOCIATED_WITH":
+    case "ROUTES_VIA":
+    case "BELONGS_TO":
+    case "ACTUAL_TRAFFIC":
+      return "network"
+    // Data plane — observed API calls + object access (binds identity + network)
+    case "ACCESSES_RESOURCE":
+    case "ACTUAL_API_CALL":
+    case "ACTUAL_S3_ACCESS":
+    case "READS_FROM":
+    case "WRITES_TO":
+    case "RUNTIME_CALLS":
+      return "data"
+  }
+}
+
+/**
+ * String-keyed planeFor, for callers that have a raw `string`
+ * relationship type (e.g. `PathEdgeDetail.type` from the IAP
+ * response, where the type is `string` not the narrowed enum). Falls
+ * back to "network" for unknown types — most config relationships
+ * the IAP surfaces fall into this bucket — but the fallback is
+ * intentionally conservative: it MUST NOT default to "identity" or
+ * "data" because misclassifying a config edge as identity would
+ * resurrect the cross-plane drawing bug.
+ */
+export function planeForString(relationship: string): EdgePlane {
+  const r = relationship.toUpperCase()
+  // Identity
+  if (
+    r === "USES_ROLE" ||
+    r === "ASSUMES_ROLE" ||
+    r === "ASSUMES_ROLE_ACTUAL" ||
+    r === "HAS_INSTANCE_PROFILE" ||
+    r === "HAS_POLICY"
+  )
+    return "identity"
+  // Data (observed access events)
+  if (
+    r === "ACCESSES_RESOURCE" ||
+    r === "ACTUAL_API_CALL" ||
+    r === "ACTUAL_S3_ACCESS" ||
+    r === "READS_FROM" ||
+    r === "WRITES_TO" ||
+    r === "RUNTIME_CALLS"
+  )
+    return "data"
+  // Network (everything else is network/containment)
+  return "network"
+}
+
+/**
+ * Plane palette — matches the editorial-style design language. Three
+ * distinct hues so operators read "identity" vs "network" vs "data"
+ * without needing the legend. Avoid red — that's reserved for attack
+ * paths in AnimatedTrafficLine.
+ *
+ * Tuned for OKLCH dark surface (#0f172a / slate-900 family). The
+ * lightness is intentionally low (~55-65%) so the lines read as
+ * structural rather than alarmist.
+ */
+export const PLANE_COLOR: Record<EdgePlane, string> = {
+  identity: "#a78bfa", // violet-400 — muted purple
+  network: "#2dd4bf", // teal-400
+  data: "#fb923c", // orange-400 — warm
+}
+
+/** Slightly brighter glow companion to PLANE_COLOR for active particles. */
+export const PLANE_GLOW: Record<EdgePlane, string> = {
+  identity: "#c4b5fd", // violet-300
+  network: "#5eead4", // teal-300
+  data: "#fdba74", // orange-300
+}
+
+/**
  * Where the canvas path came from. Today only one source exists;
  * future producers may support user-defined paths, what-if
  * simulations, etc. Adding a value is a coordinated schema change.

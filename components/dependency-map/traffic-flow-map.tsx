@@ -10,6 +10,13 @@ import { HeatmapControls } from './heatmap-controls';
 import { TimelineSlider } from './timeline-slider';
 import { VPCBoundaries } from './vpc-boundaries';
 import { ExportControls } from './export-controls';
+import {
+  type CanvasEdge,
+  type EdgePlane,
+  planeForString,
+  PLANE_COLOR,
+  PLANE_GLOW,
+} from '@/lib/types/attack-canvas';
 
 // ============================================
 // TYPES
@@ -204,10 +211,38 @@ export interface SystemArchitecture {
    * that contains at least one compute on the current path. */
   egressGateways: EgressGatewayNode[];
   flows: TrafficFlow[];
+  /** EXPLICIT EDGES (2026-05-25) — when set, ConnectionLinesSVG draws
+   *  one SVG line per entry, 1:1 with the data. Each edge carries its
+   *  conceptual plane (identity / network / data) so colors stay
+   *  honest and a single observed call can't be drawn as if it
+   *  serially traversed Role AND IGW on one line. When `edges` is
+   *  populated, the legacy `flows[]` synthesis is bypassed entirely
+   *  — callers that have been migrated provide edges and leave flows
+   *  empty (or for compat). The legacy path remains for unmigrated
+   *  callers (System Map, exfil-view, attacker-view-v3, etc.). */
+  edges?: CanvasEdge[];
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
   vpcGroups?: Array<{ vpcId: string; vpcName: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
+  /** EXFIL view authoritative VPC posture for the selected path's
+   *  workload(s). Resolved on the backend by direct RUNS_IN_VPC /
+   *  IN_SUBNET / SECURED_BY traversal. Drives the evidence-backed
+   *  "No Network Controls" banner — previously the banner fired from
+   *  "all 4 arrays empty" which was ambiguous between "verified non-
+   *  VPC workload" and "this view didn't query network data."
+   *  When present, the banner becomes:
+   *    is_vpc_attached === false → real finding, evidence-cited
+   *    is_vpc_attached === true  → suppressed, render real subnets/SGs
+   *  When undefined/null → no banner (we didn't query). */
+  workloadNetwork?: {
+    is_vpc_attached: boolean;
+    vpc_id: string | null;
+    vpc_name: string | null;
+    evidence: string;
+    workload_count_queried: number;
+    workload_count_in_sample: number;
+  } | null;
 }
 
 // Attack Path types
@@ -1807,6 +1842,9 @@ function AnimatedTrafficLine({
   heatmapMode = false,
   heatmapRatio = 0,
   ghosted = false,
+  planeColor,
+  planeGlow,
+  edgeData,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -1818,6 +1856,16 @@ function AnimatedTrafficLine({
   heatmapMode?: boolean;
   heatmapRatio?: number;
   ghosted?: boolean;
+  /** When set (explicit-edges mode), overrides the default
+   *  "active=blue / default=slate" color so identity edges read purple,
+   *  network edges read teal, and data edges read warm orange. Attack-
+   *  path red still wins (operators need to spot live attacks first).
+   *  Heatmap still wins too. */
+  planeColor?: string;
+  planeGlow?: string;
+  /** Backing edge in explicit-edges mode. Used for the hover label so
+   *  operators see relationship type + port/protocol in the tooltip. */
+  edgeData?: CanvasEdge;
 }) {
   const pathId = useMemo(() => `path-${Math.random().toString(36).substr(2, 9)}`, []);
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -1843,12 +1891,25 @@ function AnimatedTrafficLine({
     return '#ef4444'; // red - critical risk
   };
 
-  // Colors based on state - attack paths use red, heatmap overrides normal colors
+  // Colors based on state - attack paths use red, heatmap overrides normal colors.
+  // Plane color (when set) overrides the default "active=blue / default=slate"
+  // — it's only consulted in explicit-edges mode (Phase 1 refactor). Attack
+  // path red + heatmap still win; operators need attack signals to read first.
+  const planeLine = planeColor; // may be undefined
+  const planeP = planeGlow ?? planeColor;
   const lineColor = heatmapMode && !isAttackPath
     ? getHeatmapColor(heatmapRatio)
-    : isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : isActive ? '#3b82f6' : '#475569';
-  const particleColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#3b82f6';
-  const glowColor = isAttackPath ? '#f87171' : isHighlighted ? '#34d399' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#60a5fa';
+    : isAttackPath ? '#ef4444'
+      : isHighlighted ? '#10b981'
+      : planeLine ?? (isActive ? '#3b82f6' : '#475569');
+  const particleColor = isAttackPath ? '#ef4444'
+    : isHighlighted ? '#10b981'
+    : heatmapMode ? getHeatmapColor(heatmapRatio)
+    : planeP ?? '#3b82f6';
+  const glowColor = isAttackPath ? '#f87171'
+    : isHighlighted ? '#34d399'
+    : heatmapMode ? getHeatmapColor(heatmapRatio)
+    : planeP ?? '#60a5fa';
 
   // Heatmap stroke width - thicker = higher risk
   const heatmapStrokeWidth = heatmapMode && !isAttackPath ? 2 + (heatmapRatio * 8) : undefined;
@@ -1943,28 +2004,52 @@ function AnimatedTrafficLine({
         </>
       )}
 
-      {/* Port/Protocol label */}
-      {isHighlighted && flowData && flowData.ports.length > 0 && (
-        <g>
-          <rect
-            x={(x1 + x2) / 2 - 35}
-            y={(y1 + y2) / 2 - 14}
-            width="70"
-            height="28"
-            rx="6"
-            fill="#0f172a"
-            stroke={particleColor}
-            strokeWidth="2"
-          />
-          <text
-            x={(x1 + x2) / 2}
-            y={(y1 + y2) / 2 + 5}
-            textAnchor="middle"
-            className="text-[11px] fill-white font-mono font-bold"
-          >
-            {flowData.ports[0] || 'TCP'}
-          </text>
-        </g>
+      {/* Hover label.
+       *  Legacy flow mode: shows the first port (or "TCP").
+       *  Explicit-edges mode: shows the relationship type (e.g.
+       *  "ACTUAL_S3_ACCESS"), or port if it's a network-plane edge with
+       *  a port populated. The relationship type is the most honest
+       *  signal an operator wants when hovering — it tells them WHICH
+       *  graph edge this is, not just an inferred protocol.
+       */}
+      {isHighlighted && (flowData || edgeData) && (
+        (() => {
+          let label = 'TCP';
+          if (edgeData) {
+            // Prefer port for network-plane edges, relationship for the rest
+            if (edgeData.port != null) label = String(edgeData.port);
+            else label = edgeData.relationship;
+          } else if (flowData && flowData.ports.length > 0) {
+            label = flowData.ports[0] || 'TCP';
+          }
+          // Width scales with label length so long relationship strings
+          // ("HAS_INSTANCE_PROFILE") don't overflow the pill.
+          const padX = 8;
+          const charW = 7;
+          const w = Math.max(60, label.length * charW + padX * 2);
+          return (
+            <g>
+              <rect
+                x={(x1 + x2) / 2 - w / 2}
+                y={(y1 + y2) / 2 - 14}
+                width={w}
+                height="28"
+                rx="6"
+                fill="#0f172a"
+                stroke={particleColor}
+                strokeWidth="2"
+              />
+              <text
+                x={(x1 + x2) / 2}
+                y={(y1 + y2) / 2 + 5}
+                textAnchor="middle"
+                className="text-[11px] fill-white font-mono font-bold"
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })()
       )}
 
       {/* Arrow at end */}
@@ -2007,17 +2092,39 @@ export function ConnectionLinesSVG({
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
-    flow: TrafficFlow;
+    /** Legacy flow-synthesized line. Present when this segment came from
+     *  the `architecture.flows[]` zigzag path. Mutually exclusive with
+     *  `edge` — exactly one of the two is set per line. */
+    flow?: TrafficFlow;
+    /** Explicit-edges line. Present when this segment came from
+     *  `architecture.edges[]` (Phase 1 contract). Carries the original
+     *  CanvasEdge so the renderer can color by plane and label with the
+     *  relationship type on hover. */
+    edge?: CanvasEdge;
+    /** Plane classification (only set in explicit-edges mode). Drives
+     *  line color in AnimatedTrafficLine. */
+    plane?: EdgePlane;
+    /** Endpoint ids for the original edge (so isHighlighted can match
+     *  the hoveredId against source/target without re-deriving from
+     *  flow.sourceId / edge.source_aws_id). */
+    sourceId: string;
+    targetId: string;
     isHighlighted: boolean;
     isActive: boolean;
     trafficIntensity: 'low' | 'medium' | 'high';
     isAttackPath: boolean;
   }>>([]);
 
-  // Calculate traffic intensity thresholds
+  // Calculate traffic intensity thresholds. In explicit-edges mode,
+  // intensity is driven by per-edge bytes/hit_count (only data-plane
+  // edges carry these); legacy flow mode keeps the prior behavior.
   const maxBytes = useMemo(() => {
+    if (architecture.edges && architecture.edges.length > 0) {
+      const all = architecture.edges.map(e => (e.bytes ?? 0));
+      return Math.max(...all, 1);
+    }
     return Math.max(...architecture.flows.map(f => f.bytes), 1);
-  }, [architecture.flows]);
+  }, [architecture.flows, architecture.edges]);
 
   const getTrafficIntensity = useCallback((bytes: number): 'low' | 'medium' | 'high' => {
     const ratio = bytes / maxBytes;
@@ -2045,6 +2152,120 @@ export function ConnectionLinesSVG({
 
       const newLines: typeof lines = [];
 
+      // ─── EXPLICIT-EDGES MODE ─────────────────────────────────────────
+      // Phase 1 (2026-05-25): when the caller provides `architecture.edges`,
+      // bypass the legacy flow-synthesis zigzag entirely. Each edge becomes
+      // ONE line (1:1 with the data), colored by its conceptual plane so a
+      // single observed call can't be drawn through both Role and IGW on
+      // the same polyline. The fabrication-class bug this fixes is
+      // attacker-view-panel.tsx routing every flow through pathCheckpoints,
+      // which bundled identity + network checkpoints onto one SVG path.
+      // See feedback_test_both_sides_of_a_partition.md.
+      if (architecture.edges && architecture.edges.length > 0) {
+        // Generic node lookup — try every data-*-id selector the lane
+        // renderers attach. Order doesn't matter for correctness; densest
+        // selectors first shortens the hot path.
+        const findCardForId = (awsId: string): Element | null => {
+          if (!container) return null;
+          const selectors = [
+            'data-compute-id',
+            'data-resource-id',
+            'data-role-id',
+            'data-ip-id',
+            'data-sg-id',
+            'data-nacl-id',
+            'data-gateway-id',
+            'data-vpce-id',
+            'data-api-id',
+            'data-subnet-id',
+            'data-entry-id',
+            'data-canvas-node-id',
+          ];
+          for (const attr of selectors) {
+            const el = container.querySelector(`[${attr}="${CSS.escape(awsId)}"]`);
+            if (el) return el;
+          }
+          return null;
+        };
+
+        // Track endpoint-not-rendered drops for the debug log — keeps
+        // the canvas honest by surfacing edges that point at nodes the
+        // layout chose not to render. Counted, not invented.
+        let droppedEndpoints = 0;
+
+        for (const edge of architecture.edges) {
+          const sourceEl = findCardForId(edge.source_aws_id);
+          const targetEl = findCardForId(edge.target_aws_id);
+          if (!sourceEl || !targetEl) {
+            droppedEndpoints++;
+            continue;
+          }
+          const sourcePos = getNodeCenter(sourceEl, 'right');
+          const targetPos = getNodeCenter(targetEl, 'left');
+          if (!sourcePos || !targetPos) {
+            droppedEndpoints++;
+            continue;
+          }
+
+          const plane = planeForString(edge.relationship);
+          const isHighlighted =
+            hoveredId === edge.source_aws_id || hoveredId === edge.target_aws_id;
+          // Animation gate: ONLY data-plane edges animate, AND only when
+          // they carry actual observation (observed=true and bytes>0 or
+          // hit_count>0). Identity- and network-plane edges never
+          // animate — config relationships don't carry packets and
+          // animating them was the visual misread that made operators
+          // think Role/IGW lines were "live traffic".
+          const isActive =
+            plane === 'data' &&
+            edge.observed === true &&
+            ((edge.bytes ?? 0) > 0 || (edge.hit_count ?? 0) > 0);
+          const trafficIntensity = getTrafficIntensity(edge.bytes ?? 0);
+          const isAttackPath =
+            attackPathEdges.has(`${edge.source_aws_id}->${edge.target_aws_id}`) ||
+            attackPathEdges.has(`${edge.target_aws_id}->${edge.source_aws_id}`);
+
+          newLines.push({
+            x1: sourcePos.x,
+            y1: sourcePos.y,
+            x2: targetPos.x,
+            y2: targetPos.y,
+            edge,
+            plane,
+            sourceId: edge.source_aws_id,
+            targetId: edge.target_aws_id,
+            isHighlighted,
+            isActive,
+            trafficIntensity,
+            isAttackPath,
+          });
+        }
+
+        // Plane-breakdown log — operators can correlate "I see N purple
+        // lines / M teal / K orange" against the data via the console.
+        const byPlane = newLines.reduce(
+          (acc, ln) => {
+            const p = ln.plane ?? 'unknown';
+            acc[p] = (acc[p] ?? 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>
+        );
+        console.log(
+          `[ConnectionLinesSVG] explicit-edges: ${newLines.length} lines drawn, ${droppedEndpoints} dropped. Breakdown:`,
+          byPlane
+        );
+        setLines(newLines);
+        return; // Skip legacy flow synthesis entirely.
+      }
+
+      // ─── LEGACY FLOW MODE (synthesized zigzag) ───────────────────────
+      // Fallback path for callers that haven't been migrated to the
+      // explicit-edges contract (System Map, exfil-view, attacker-view-v3,
+      // path-analysis-panel, identity-attack-paths). They still pass
+      // architecture.flows with sgId/naclId/.../egressGatewayId, and we
+      // route a polyline through those checkpoints in order. This block
+      // will be removed once all callers migrate.
       architecture.flows.forEach(flow => {
         // Source resolution: prefer compute, fall back to IAM role for
         // IAM-only paths (no workload code ran — e.g. AWS service roles
@@ -2196,22 +2417,28 @@ export function ConnectionLinesSVG({
           if (posL && posR) checkpoints.push({ el: igwEl, posL, posR });
         }
 
+        // Endpoint ids attached to every segment of this flow so the
+        // new line state shape (which requires sourceId/targetId) is
+        // satisfied for legacy callers too.
+        const flowSourceId = flow.sourceId;
+        const flowTargetId = flow.targetId;
+
         // Draw lines through all checkpoints
         if (checkpoints.length > 0) {
           // Source to first checkpoint
-          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: checkpoints[0].posL.x, y2: checkpoints[0].posL.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: checkpoints[0].posL.x, y2: checkpoints[0].posL.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
 
           // Between checkpoints
           for (let i = 0; i < checkpoints.length - 1; i++) {
-            newLines.push({ x1: checkpoints[i].posR.x, y1: checkpoints[i].posR.y, x2: checkpoints[i + 1].posL.x, y2: checkpoints[i + 1].posL.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+            newLines.push({ x1: checkpoints[i].posR.x, y1: checkpoints[i].posR.y, x2: checkpoints[i + 1].posL.x, y2: checkpoints[i + 1].posL.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
           }
 
           // Last checkpoint to target
           const lastCheckpoint = checkpoints[checkpoints.length - 1];
-          newLines.push({ x1: lastCheckpoint.posR.x, y1: lastCheckpoint.posR.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+          newLines.push({ x1: lastCheckpoint.posR.x, y1: lastCheckpoint.posR.y, x2: targetPos.x, y2: targetPos.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
         } else {
           // Direct line if no checkpoints
-          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: targetPos.x, y2: targetPos.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
         }
       });
 
@@ -2261,30 +2488,41 @@ export function ConnectionLinesSVG({
         })
         .map((line, i) => {
           const isGhosted = ghostedNodeIds.size > 0 && (
-            ghostedNodeIds.has(line.flow.sourceId) || ghostedNodeIds.has(line.flow.targetId)
+            ghostedNodeIds.has(line.sourceId) || ghostedNodeIds.has(line.targetId)
           );
-          // Risk-based heatmap ratio: calculate risk score per flow
+          // Risk-based heatmap ratio. In explicit-edges mode the flow
+          // bundle isn't available, so heatmap falls back to a lighter
+          // attack-path-only scoring — heatmap remains a feature of the
+          // System Map / legacy flow callers; explicit-edges mode prefers
+          // honest plane colors over a synthetic risk gradient.
           let riskRatio = 0;
           if (heatmapMode) {
             let riskScore = 0;
-            // Attack path = critical risk
             if (line.isAttackPath) riskScore += 0.4;
-            // SG with public rules = high risk
-            const sg = line.flow.sgId ? architecture.securityGroups.find(s => s.id === line.flow.sgId) : null;
-            if (sg?.rules?.some(r => r.isPublic)) riskScore += 0.3;
-            // SG with gaps (unused/unobserved rules) = medium risk
-            if (sg && sg.gapCount > 0) riskScore += 0.2;
-            // No NACL protection = additional risk
-            if (!line.flow.naclId) riskScore += 0.1;
-            // No IAM role = additional risk
-            if (!line.flow.roleId) riskScore += 0.1;
-            // High traffic amplifies risk (small factor)
-            riskScore += (line.flow.bytes / maxBytes) * 0.1;
+            if (line.flow) {
+              const sg = line.flow.sgId ? architecture.securityGroups.find(s => s.id === line.flow!.sgId) : null;
+              if (sg?.rules?.some(r => r.isPublic)) riskScore += 0.3;
+              if (sg && sg.gapCount > 0) riskScore += 0.2;
+              if (!line.flow.naclId) riskScore += 0.1;
+              if (!line.flow.roleId) riskScore += 0.1;
+              riskScore += (line.flow.bytes / maxBytes) * 0.1;
+            } else if (line.edge) {
+              // Edge-mode heatmap: only data-plane edges contribute traffic
+              // weight; identity/network edges add a flat 0.1 if not on the
+              // attack path (no SG/NACL bundle to read).
+              const b = line.edge.bytes ?? 0;
+              riskScore += (b / maxBytes) * 0.1;
+            }
             riskRatio = Math.min(1, riskScore);
           }
+          // Plane-driven color in explicit-edges mode. Undefined for legacy
+          // flow lines — AnimatedTrafficLine falls back to its prior
+          // active/default color resolution.
+          const planeColor = line.plane ? PLANE_COLOR[line.plane] : undefined;
+          const planeGlow = line.plane ? PLANE_GLOW[line.plane] : undefined;
           return (
             <AnimatedTrafficLine
-              key={`line-${i}-${line.flow.sourceId}-${line.flow.targetId}`}
+              key={`line-${i}-${line.sourceId}-${line.targetId}`}
               x1={line.x1}
               y1={line.y1}
               x2={line.x2}
@@ -2293,6 +2531,9 @@ export function ConnectionLinesSVG({
               isHighlighted={line.isHighlighted}
               isAttackPath={line.isAttackPath}
               flowData={line.flow}
+              edgeData={line.edge}
+              planeColor={planeColor}
+              planeGlow={planeGlow}
               animate={heatmapMode ? false : animate}
               trafficIntensity={line.trafficIntensity}
               heatmapMode={heatmapMode}
@@ -2653,29 +2894,52 @@ export function UnifiedArchitectureDiagram({
               is specifically about direct-API-call paths with no
               network involvement at all — surfacing it on an EXFIL
               path that clearly has IGWs/VPCEs reads as a bug. */}
-          {(architecture.subnets?.length ?? 0) === 0 &&
-          architecture.securityGroups.length === 0 &&
-          architecture.nacls.length === 0 &&
-          architecture.egressGateways.length === 0 ? (
+          {/* Banner gating, rewritten 2026-05-25 — see SystemArchitecture.
+              workloadNetwork docstring above. Operator complaint that
+              triggered the rewrite: this banner used to fire from
+              absence-of-data on every "Serverless · Direct" EXFIL path,
+              with no way to distinguish "verified non-VPC Lambda" from
+              "we never queried." Now:
+                - workloadNetwork.is_vpc_attached === false → evidence-
+                  cited "Non-VPC Workload" banner (real finding).
+                - workloadNetwork.is_vpc_attached === true → no banner
+                  (real subnets/SGs render from real edges).
+                - workloadNetwork absent → legacy empty-array fallback. */}
+          {(() => {
+            const wn = architecture.workloadNetwork
+            if (wn) return !wn.is_vpc_attached
+            return (
+              (architecture.subnets?.length ?? 0) === 0 &&
+              architecture.securityGroups.length === 0 &&
+              architecture.nacls.length === 0 &&
+              architecture.egressGateways.length === 0
+            )
+          })() ? (
             <div className="flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center">
                   <ShieldOff className="w-6 h-6 text-amber-400" />
                 </div>
                 <div className="text-amber-400 text-lg font-bold uppercase tracking-wider">
-                  No Network Controls
+                  {architecture.workloadNetwork ? "Non-VPC Workload" : "No Network Controls"}
                 </div>
               </div>
               <div className="text-slate-200 text-base font-medium text-center mb-2">
                 IAM is the only gate on this path.
               </div>
               <div className="text-slate-400 text-sm text-center max-w-md leading-relaxed">
-                This workload reaches its target via the public AWS API
-                endpoint — no VPC, no subnet, no Security Group, no
-                NACL is involved. Network defenses do not apply.
-                Compromising the IAM role on the right grants the role's
-                full permissions on the resources below.
+                {architecture.workloadNetwork
+                  ? "This workload is not VPC-attached. It reaches AWS services via the public API endpoint, so VPC, subnet, Security Group and NACL defenses do not apply. Compromising the IAM role grants its full permissions on the resources below."
+                  : "This workload reaches its target via the public AWS API endpoint — no VPC, no subnet, no Security Group, no NACL is involved. Network defenses do not apply. Compromising the IAM role on the right grants the role's full permissions on the resources below."}
               </div>
+              {architecture.workloadNetwork && (
+                <div className="mt-3 text-amber-300/80 text-[11px] text-center max-w-md font-mono">
+                  Evidence: {architecture.workloadNetwork.evidence}
+                  {architecture.workloadNetwork.workload_count_in_sample > 1 && (
+                    <> · {architecture.workloadNetwork.workload_count_queried}/{architecture.workloadNetwork.workload_count_in_sample} workloads queried</>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <>
