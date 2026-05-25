@@ -255,10 +255,25 @@ function ResultsList({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-zinc-700 dark:text-zinc-400">
-        {data.count} role{data.count === 1 ? "" : "s"} attached to{" "}
-        ≥{filters.minPrincipals} principal{filters.minPrincipals === 1 ? "" : "s"}
-      </p>
+      <div className="flex items-baseline justify-between gap-4 flex-wrap">
+        <p className="text-xs text-zinc-700 dark:text-zinc-400">
+          {data.count} role{data.count === 1 ? "" : "s"} attached to{" "}
+          ≥{filters.minPrincipals} principal{filters.minPrincipals === 1 ? "" : "s"}
+        </p>
+        <div className="flex items-center gap-4 text-xs text-zinc-700 dark:text-zinc-400">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm bg-blue-600" aria-hidden />
+            Same-system sharing
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm bg-orange-600" aria-hidden />
+            Cross-system sharing
+            <span className="text-orange-700 dark:text-orange-300 font-medium">
+              (highest severity)
+            </span>
+          </span>
+        </div>
+      </div>
       {data.shared_roles.map((role) => (
         <SharedRoleCard key={role.role_arn} role={role} />
       ))}
