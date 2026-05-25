@@ -32,9 +32,9 @@
  * collector backlog explicitly.
  */
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
-import { Crown, AlertTriangle, ArrowRight, RefreshCw } from "lucide-react"
+import { Crown, AlertTriangle, ArrowRight, RefreshCw, Route } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
@@ -72,6 +72,12 @@ interface ExfilNetworkEgressItem {
   kind: string
   id: string
   name: string
+  // Backend tags every row with the accessor + channel that produced
+  // it so the frontend can partition the canvas per exfil path
+  // (2026-05-25 per-path PRD revision).
+  channel?: string
+  accessor_id?: string
+  accessor_name?: string
   service_name?: string | null
   endpoint_type?: string | null
   via_workload: { id: string; name: string; type: string }
@@ -90,6 +96,21 @@ interface ExfilNetworkEgressItem {
     has_public_ingress?: boolean | null
   }>
   provenance: "capable" | "observed"
+}
+
+interface ExfilPath {
+  path_id: string
+  accessor_id: string
+  accessor_name: string
+  accessor_type: string
+  accessor_provenance: "capable" | "observed"
+  channel: string
+  channel_label: string
+  jewel_hits: number
+  workload_count: number
+  workload_sample: Array<{ id: string; name: string; type: string }>
+  gateway_count: number
+  gateway_sample: Array<{ id: string; name: string; kind: string }>
 }
 
 interface ExfilLaneNotWired {
@@ -115,6 +136,7 @@ interface ExfilPayload {
   system_name?: string
   jewel: { id: string; name: string; type: string; classification: string | null }
   accessors: ExfilAccessor[]
+  paths?: ExfilPath[]
   egress_lanes: {
     network: ExfilNetworkEgressItem[]
     identity: ExfilLaneNotWired
@@ -166,13 +188,67 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
     },
   )
 
+  // ── Per-path selector (2026-05-25 user-driven reshape) ─────────
+  // Each EXFIL use-case (network_via_igw / serverless_direct / etc.)
+  // renders as ITS OWN canvas instead of being mashed into one.
+  // selectedPathId is URL-synced via ?exfil_path=<id> so an operator
+  // can deep-link to "show me the Lambda-direct path for role X".
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null)
+
+  // On first mount, read ?exfil_path= from the URL so a deep-link wins
+  // over the default highest-traffic pick.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const p = new URLSearchParams(window.location.search).get("exfil_path")
+      if (p) setSelectedPathId(p)
+    } catch {
+      // ignore (SSR / sandboxed env)
+    }
+  }, [])
+
+  // When new payload arrives, snap to default selection if current id is
+  // invalid for this dataset (jewel switched, or first load).
+  useEffect(() => {
+    if (!data?.paths || data.paths.length === 0) {
+      setSelectedPathId(null)
+      return
+    }
+    const valid = data.paths.some((p) => p.path_id === selectedPathId)
+    if (!valid) {
+      // paths[] is already sorted highest-traffic first by the backend.
+      setSelectedPathId(data.paths[0]?.path_id ?? null)
+    }
+  }, [data, selectedPathId])
+
+  // Mirror selection into the URL so refresh / back-button preserve it.
+  // Skip the initial null → don't pollute the URL with a no-op.
+  useEffect(() => {
+    if (typeof window === "undefined" || !selectedPathId) return
+    try {
+      const url = new URL(window.location.href)
+      if (url.searchParams.get("exfil_path") === selectedPathId) return
+      url.searchParams.set("exfil_path", selectedPathId)
+      window.history.replaceState(null, "", url.toString())
+    } catch {
+      // ignore
+    }
+  }, [selectedPathId])
+
+  const selectedPath = useMemo<ExfilPath | null>(() => {
+    if (!data?.paths || !selectedPathId) return null
+    return data.paths.find((p) => p.path_id === selectedPathId) ?? null
+  }, [data, selectedPathId])
+
   // Build the SystemArchitecture for TFM from the EXFIL payload. Same
   // pattern as buildAttackerArchitecture in attacker-view-panel.tsx,
-  // just inverted.
+  // just inverted. When a specific path is selected, filter the payload
+  // down to that (accessor, channel) slice so the canvas tells one
+  // coherent story instead of overlaying 7.
   const architecture = useMemo<SystemArchitecture | null>(() => {
     if (!data || !data.ok) return null
-    return buildExfilArchitecture(data)
-  }, [data])
+    return buildExfilArchitecture(data, selectedPath)
+  }, [data, selectedPath])
 
   if (!enabled) {
     return (
@@ -228,26 +304,54 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
 
   const capableCount = data.accessors.filter((a) => a.provenance === "capable").length
   const observedCount = data.accessors.filter((a) => a.provenance === "observed").length
-  const subtitle = `${data.accessors.length} accessor${data.accessors.length === 1 ? "" : "s"} (${capableCount} capable · ${observedCount} observed) → ${data.egress_lanes.network.length} network egress → ${data.destinations.length} destination${data.destinations.length === 1 ? "" : "s"}`
+  const paths = data.paths ?? []
+  const pathCountLine =
+    paths.length > 0
+      ? `${paths.length} exfil path${paths.length === 1 ? "" : "s"} — pick one to inspect`
+      : ""
+  const subtitle =
+    pathCountLine ||
+    `${data.accessors.length} accessor${data.accessors.length === 1 ? "" : "s"} (${capableCount} capable · ${observedCount} observed) → ${data.egress_lanes.network.length} network egress → ${data.destinations.length} destination${data.destinations.length === 1 ? "" : "s"}`
 
   if (!architecture) return null
+
+  // Inner subtitle reflects the SELECTED path so the operator sees
+  // the same answer twice (pill + canvas) — defends against the
+  // "which path am I looking at?" wrong-view trap (cf. iam-permission-
+  // analysis-modal.tsx wrong-view memory).
+  const innerSubtitle = selectedPath
+    ? `${selectedPath.channel_label} via ${selectedPath.accessor_name} — ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} jewel hit${selectedPath.jewel_hits === 1 ? "" : "s"}`
+    : data.observed_exfil.available
+      ? "Data exit paths — capable (amber) vs observed (red)"
+      : "Capable data-exit paths — observed-exfil layer pending Phase D collector"
 
   return (
     <div className="flex flex-col h-full">
       <Header jewel={jewel} subtitle={subtitle} />
+      {paths.length > 0 && (
+        <PathSelector
+          paths={paths}
+          selectedPathId={selectedPathId}
+          onSelect={setSelectedPathId}
+        />
+      )}
       <div className="flex-1 min-h-0">
         <TrafficFlowMap
           systemName={systemName}
           architectureOverride={architecture}
           observedMode={true}
           titleOverride=""
-          innerTitleOverride="Exfiltration Surface"
-          innerSubtitleOverride={
-            data.observed_exfil.available
-              ? "Data exit paths — capable (amber) vs observed (red)"
-              : "Capable data-exit paths — observed-exfil layer pending Phase D collector"
+          innerTitleOverride={
+            selectedPath
+              ? `Exfil path: ${selectedPath.channel_label}`
+              : "Exfiltration Surface"
           }
-          pathBadgeOverride={`Exfil → ${data.jewel.name}`}
+          innerSubtitleOverride={innerSubtitle}
+          pathBadgeOverride={
+            selectedPath
+              ? `${selectedPath.accessor_name} → ${data.jewel.name}`
+              : `Exfil → ${data.jewel.name}`
+          }
           defaultShowVPCBoundaries={true}
         />
       </div>
@@ -313,6 +417,83 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
   )
 }
 
+// ─── Path selector pills ───────────────────────────────────────────
+// One pill per (accessor, channel). Operator clicks to filter the
+// canvas to that single use-case. Highest-traffic path renders first
+// (backend sorts paths[] by jewel_hits DESC).
+
+function PathSelector({
+  paths,
+  selectedPathId,
+  onSelect,
+}: {
+  paths: ExfilPath[]
+  selectedPathId: string | null
+  onSelect: (id: string) => void
+}) {
+  // Tone per channel so the operator can scan-distinguish at a glance.
+  const toneFor = (channel: string, selected: boolean): string => {
+    const base = {
+      network_via_igw: selected
+        ? "border-amber-400/80 bg-amber-500/20 text-amber-100"
+        : "border-amber-500/30 bg-amber-500/[0.04] text-amber-200/80 hover:bg-amber-500/10",
+      serverless_direct: selected
+        ? "border-violet-400/80 bg-violet-500/20 text-violet-100"
+        : "border-violet-500/30 bg-violet-500/[0.04] text-violet-200/80 hover:bg-violet-500/10",
+      ec2_no_egress: selected
+        ? "border-slate-400/80 bg-slate-500/25 text-slate-100"
+        : "border-slate-500/30 bg-slate-500/[0.04] text-slate-300/80 hover:bg-slate-500/10",
+      direct_api: selected
+        ? "border-rose-400/80 bg-rose-500/20 text-rose-100"
+        : "border-rose-500/30 bg-rose-500/[0.04] text-rose-200/80 hover:bg-rose-500/10",
+    } as Record<string, string>
+    return base[channel] || (selected
+      ? "border-slate-400/80 bg-slate-500/25 text-slate-100"
+      : "border-slate-500/30 bg-slate-500/[0.04] text-slate-300/80 hover:bg-slate-500/10")
+  }
+
+  return (
+    <div className="px-6 py-2.5 border-b border-slate-800/60 bg-slate-950/95 flex items-start gap-3">
+      <div className="flex items-center gap-1.5 pt-1 shrink-0">
+        <Route className="h-3 w-3 text-slate-500" />
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+          Exfil paths
+        </span>
+      </div>
+      <div className="flex-1 flex flex-wrap gap-1.5">
+        {paths.map((p) => {
+          const selected = p.path_id === selectedPathId
+          const tone = toneFor(p.channel, selected)
+          const observed = p.accessor_provenance === "observed"
+          return (
+            <button
+              key={p.path_id}
+              type="button"
+              onClick={() => onSelect(p.path_id)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition-colors ${tone}`}
+              title={`${p.channel_label} via ${p.accessor_name} — ${p.workload_count} workload${p.workload_count === 1 ? "" : "s"}, ${p.gateway_count} gateway${p.gateway_count === 1 ? "" : "s"}, ${p.jewel_hits.toLocaleString()} jewel hit${p.jewel_hits === 1 ? "" : "s"}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${observed ? "bg-red-400" : "bg-amber-400/80"}`} />
+              <span className="font-mono truncate max-w-[180px]">{p.accessor_name}</span>
+              <span className="opacity-70">·</span>
+              <span>{p.channel_label}</span>
+              <span className="opacity-70">·</span>
+              <span className="tabular-nums">{compactNumber(p.jewel_hits)}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function compactNumber(n: number): string {
+  if (!isFinite(n) || n < 1) return "0"
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`
+  return String(Math.round(n))
+}
+
 function NotWiredStrip({
   title,
   tone,
@@ -367,7 +548,10 @@ function NotWiredStrip({
 // can't read the narrative through the stack.
 const EXFIL_COMPUTE_VISIBLE_CAP = 5
 
-function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
+function buildExfilArchitecture(
+  payload: ExfilPayload,
+  selectedPath: ExfilPath | null,
+): SystemArchitecture {
   const computeServices: ServiceNode[] = []
   const resources: ServiceNode[] = []
   const iamRoles: SecurityCheckpoint[] = []
@@ -377,6 +561,24 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   const entryPoints: ServiceNode[] = []
   const flows: TrafficFlow[] = []
   const seen = new Set<string>()
+
+  // Filter network egress to ONLY the selected path's (accessor, channel)
+  // slice. When no path is selected (legacy fallthrough or paths[] empty)
+  // we fall back to the full payload — the pre-per-path behavior.
+  const networkRows = selectedPath
+    ? payload.egress_lanes.network.filter(
+        (e) =>
+          e.accessor_id === selectedPath.accessor_id &&
+          (e.channel ?? "") === selectedPath.channel,
+      )
+    : payload.egress_lanes.network
+
+  // Accessor filter: when a path is selected, show ONLY its accessor.
+  // direct_api paths produce no networkRows but still need their
+  // accessor card rendered so the canvas isn't empty.
+  const accessorsForPath = selectedPath
+    ? payload.accessors.filter((a) => a.id === selectedPath.accessor_id)
+    : payload.accessors
 
   // 1. SOURCE — the jewel renders as the ENTRY card. Using
   //    `entryPoints` (the lane Phase 2 added) keeps it leftmost
@@ -392,7 +594,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
 
   // 2. ACCESSORS → iamRoles lane. Carry usedCount/totalCount so
   //    TFM's IAMRoleNode renders the gap ring + provenance badge.
-  for (const a of payload.accessors) {
+  for (const a of accessorsForPath) {
     if (seen.has(a.id)) continue
     seen.add(a.id)
     iamRoles.push({
@@ -427,7 +629,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   //    overflow the canvas; cap at EXFIL_COMPUTE_VISIBLE_CAP and emit
   //    a synthetic "+N more" placeholder so the count stays honest.
   const allWorkloads: ServiceNode[] = []
-  for (const e of payload.egress_lanes.network) {
+  for (const e of networkRows) {
     const w = e.via_workload
     if (!w?.id || seen.has(w.id)) continue
     seen.add(w.id)
@@ -460,7 +662,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   //     exist, joined by property not edge, hence the property-based
   //     extraction).
   const subnetSeen = new Set<string>()
-  for (const e of payload.egress_lanes.network) {
+  for (const e of networkRows) {
     const s = e.via_subnet
     if (!s?.id || subnetSeen.has(s.id)) continue
     subnetSeen.add(s.id)
@@ -485,7 +687,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
   //     cyntro-lambda-sg-pilot). The previous canvas's "SECURITY
   //     GROUPS (0)" was a frontend hardcode bug, not a graph gap.
   const sgSeen = new Set<string>()
-  for (const e of payload.egress_lanes.network) {
+  for (const e of networkRows) {
     for (const sg of e.via_security_groups || []) {
       if (!sg?.id || sgSeen.has(sg.id)) continue
       sgSeen.add(sg.id)
@@ -521,7 +723,7 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     "TransitGateway",
     "VPCEndpoint",
   ])
-  for (const e of payload.egress_lanes.network) {
+  for (const e of networkRows) {
     if (!EGRESS_KINDS.has(e.kind)) continue
     if (seen.has(e.id)) continue
     seen.add(e.id)
@@ -576,39 +778,115 @@ function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
     // yet; storage is the closest visual until Phase C lands.
     return "storage"
   }
-  for (const d of payload.destinations) {
-    if (seen.has(d.id)) continue
-    seen.add(d.id)
-    const isObserved = d.observed_route_count > 0
-    // Promote the destination card with the answer-line operators
-    // come for: "N routes capable · M observed". Without this the
-    // destination card just says "Internet" and the operator has to
-    // infer the meaning from neighboring lanes.
-    const capable = d.capable_route_count
-    const observed = d.observed_route_count
+  // 5a. Path-aware destination synthesis. Each exfil channel implies
+  //     a SEMANTICALLY DIFFERENT destination — the Internet card only
+  //     makes sense for network_via_igw. For serverless_direct /
+  //     ec2_no_egress / direct_api we synthesize a destination that
+  //     matches the channel's true exit semantics (AWS service public
+  //     endpoint, AWS control-plane API).
+  if (selectedPath) {
+    const observedRouteCount = payload.destinations.reduce(
+      (s, d) => s + (d.observed_route_count || 0),
+      0,
+    )
+    const observedBytes = payload.destinations.reduce(
+      (s, d) => s + (d.observed_bytes_24h || 0),
+      0,
+    )
+    const isObserved = observedRouteCount > 0
+
+    let destId: string
+    let destLabel: string
+    let destType: "internet" | "storage"
+    let destProtocol: string
+    let routeSourceIds: string[] // ids that flow INTO the destination
+
+    if (selectedPath.channel === "network_via_igw") {
+      destId = "internet"
+      destLabel = "Internet"
+      destType = "internet"
+      destProtocol = "internet"
+      routeSourceIds = egressGateways.map((g) => g.id)
+    } else if (selectedPath.channel === "direct_api") {
+      // No workload — role called the AWS control-plane API directly
+      // (root, AWSServiceRoleForResourceExplorer). Render a synthetic
+      // "AWS Public API" destination flowing from the ACCESSOR.
+      destId = "exfil-dest:aws-api"
+      destLabel = "AWS Public API"
+      destType = "internet"
+      destProtocol = "https"
+      routeSourceIds = [selectedPath.accessor_id]
+    } else {
+      // serverless_direct / ec2_no_egress — data leaves through the
+      // AWS service plane (S3/DynamoDB public endpoint), NOT through
+      // the customer's IGW. Flow originates at the WORKLOAD card.
+      destId = `exfil-dest:${payload.jewel.type.toLowerCase()}-public`
+      destLabel = `${payload.jewel.type} Public Endpoint`
+      destType = "storage"
+      destProtocol = "https"
+      routeSourceIds = computeServices
+        .filter((c) => !c.id.startsWith("__exfil_more__"))
+        .map((c) => c.id)
+    }
+
+    const routeCount = Math.max(1, routeSourceIds.length)
     const headlineSuffix =
-      observed > 0
-        ? `${capable} routes · ${observed} observed`
-        : `${capable} route${capable === 1 ? "" : "s"} capable`
-    const richLabel = `${d.label} — ${headlineSuffix}`
+      observedRouteCount > 0
+        ? `${routeCount} route${routeCount === 1 ? "" : "s"} · ${observedRouteCount} observed`
+        : `${routeCount} route${routeCount === 1 ? "" : "s"} capable`
+    const richLabel = `${destLabel} — ${headlineSuffix}`
+
     resources.push({
-      id: d.id,
+      id: destId,
       name: richLabel,
-      shortName: shortName(d.label, 18) + (observed > 0 ? `  ${observed}/${capable}` : `  ${capable}↗`),
-      type: destTypeFor(d.kind),
+      shortName:
+        shortName(destLabel, 18) +
+        (observedRouteCount > 0 ? `  ${observedRouteCount}/${routeCount}` : `  ${routeCount}↗`),
+      type: destType,
     } as ServiceNode)
-    // Flow: each egress → destination. Observed (red) when any
-    // observed routes exist for the destination; else configured.
-    for (const e of payload.egress_lanes.network) {
+
+    for (const srcId of routeSourceIds) {
       flows.push({
-        sourceId: e.id,
-        targetId: d.id,
+        sourceId: srcId,
+        targetId: destId,
         ports: [],
-        protocol: d.kind === "internet" ? "internet" : "tcp",
-        bytes: d.observed_bytes_24h,
-        connections: d.observed_route_count,
+        protocol: destProtocol,
+        bytes: observedBytes,
+        connections: observedRouteCount,
         isActive: isObserved,
       })
+    }
+  } else {
+    // Fallback: original all-paths-merged behavior (only fires on the
+    // initial frame before defaultPathId is set).
+    for (const d of payload.destinations) {
+      if (seen.has(d.id)) continue
+      seen.add(d.id)
+      const isObserved = d.observed_route_count > 0
+      const capable = d.capable_route_count
+      const observed = d.observed_route_count
+      const headlineSuffix =
+        observed > 0
+          ? `${capable} routes · ${observed} observed`
+          : `${capable} route${capable === 1 ? "" : "s"} capable`
+      const richLabel = `${d.label} — ${headlineSuffix}`
+      resources.push({
+        id: d.id,
+        name: richLabel,
+        shortName: shortName(d.label, 18) + (observed > 0 ? `  ${observed}/${capable}` : `  ${capable}↗`),
+        type: destTypeFor(d.kind),
+      } as ServiceNode)
+      for (const e of networkRows) {
+        flows.push({
+          sourceId: e.id,
+          targetId: d.id,
+          ports: [],
+          protocol: d.kind === "internet" ? "internet" : "tcp",
+          bytes: d.observed_bytes_24h,
+          connections: d.observed_route_count,
+          isActive: isObserved,
+        })
+      }
     }
   }
 
