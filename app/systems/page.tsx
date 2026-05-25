@@ -4,7 +4,7 @@ import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { SystemsView } from "@/components/systems-view"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
-import { ErrorBoundary } from "@/components/error-boundary"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 
 function SystemsPageInner() {
   // /systems supports two modes:
