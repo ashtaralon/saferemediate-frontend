@@ -50,14 +50,21 @@ function findNodeElements(
 ): HTMLElement[] {
   const elements: HTMLElement[] = [];
   for (const nodeId of nodeIds) {
+    // VPC-scoped selectors only. Identity selectors (data-role-id /
+    // data-ip-id) are deliberately omitted — IAMRoles / InstanceProfiles
+    // are IAM-service-global and lay out to the right of RESOURCES, so
+    // including them would stretch the dashed box across the canvas
+    // and visually engulf S3 (the 2026-05-24 "VPC box wraps S3" bug).
+    // data-gateway-id is also out — IGWs ATTACH to a VPC but render in
+    // the EGRESS row; anchoring them collapses the box vertically
+    // through the resources row. The IGW sits AT the boundary visually
+    // by design.
     const selectors = [
       `[data-node-id="${nodeId}"]`,
       `[data-compute-id="${nodeId}"]`,
+      `[data-subnet-id="${nodeId}"]`,
       `[data-sg-id="${nodeId}"]`,
       `[data-nacl-id="${nodeId}"]`,
-      `[data-ip-id="${nodeId}"]`,
-      `[data-role-id="${nodeId}"]`,
-      `[data-gateway-id="${nodeId}"]`,
     ];
     for (const selector of selectors) {
       const el = container.querySelector<HTMLElement>(selector);
@@ -117,14 +124,19 @@ function computeBoundingBox(
 // API call chips ([data-api-id]) are also outside the VPC trust
 // boundary — they represent the AWS service endpoint the workload
 // invokes. Excluded for the same reason.
+//
+// 2026-05-25: also REMOVED data-role-id, data-ip-id, data-gateway-id
+// from the fallback. Roles + InstanceProfiles are IAM-service-global
+// (not VPC-scoped) and stretched the box to the right past S3.
+// IGW/NAT attach to a VPC but lay out in the EGRESS row next to
+// RESOURCES; anchoring them collapses the box vertically through
+// resources. The IGW visually sits AT the boundary today, by design.
 function findAllArchitectureNodes(container: HTMLElement): HTMLElement[] {
   const selectors = [
     '[data-compute-id]',
+    '[data-subnet-id]',
     '[data-sg-id]',
     '[data-nacl-id]',
-    '[data-role-id]',
-    '[data-ip-id]',
-    '[data-gateway-id]',
   ];
   const elements: HTMLElement[] = [];
   for (const sel of selectors) {

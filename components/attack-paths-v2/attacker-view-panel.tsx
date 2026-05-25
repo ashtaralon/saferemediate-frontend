@@ -1291,15 +1291,39 @@ function buildAttackerArchitecture(
   //
   // TFM's VPCBoundaries draws bounding boxes from this payload (gated
   // by the "VPC" toggle in the header). For each VPC node on the path
-  // we group: its subnets (matched via subnet.vpcId) and the compute
-  // nodes attached to each subnet. Computes whose vpcId isn't known
-  // (principals, free-floating workloads) are skipped.
+  // we group: its subnets (matched via subnet.vpcId) and a per-subnet
+  // anchor set used to compute the bounding box.
   //
-  // Build a subnet → compute-ids index from the architecture as it
-  // stands today. Subnets carry connectedComputeIds=[]; we haven't
-  // populated them in the per-path builder, so derive from path edges
-  // (IN_SUBNET) as a best-effort. Falls back to "this subnet has no
-  // computes" if the path didn't carry that edge.
+  // What MUST be in the anchor set (genuinely VPC-scoped — these are
+  // the 6 in-VPC node types from the architecture writeup):
+  //   - Compute (EC2 / Lambda living in the subnet)
+  //   - Subnet card itself
+  //   - Security Groups (VPC-scoped)
+  //   - NACLs (subnet-scoped, so VPC-scoped)
+  //   - (ENI + RouteTable are folded into compute / subnet cards as
+  //     chips, not separate cards — anchoring the parents covers them)
+  //
+  // What's INTENTIONALLY excluded (and was the source of the prior
+  // "VPC box engulfs S3" bug):
+  //   - IAMRoles (IAM service, GLOBAL)
+  //   - InstanceProfiles (IAM service, GLOBAL)
+  //   - IAMPolicies (IAM service, GLOBAL)
+  //   - Resources (S3/DynamoDB/KMS — global services; in-VPC RDS would
+  //     anchor via IN_SUBNET on the rare path that has it)
+  //   - EgressGateways (IGW/NAT — they ATTACH to a VPC but the canvas
+  //     lays them out in row 2 next to RESOURCES; if anchored, the
+  //     box stretches down and engulfs S3 geometrically. The IGW
+  //     visually sits AT the boundary today, which is correct.)
+  //
+  // 2026-05-25 rewrite: previously the per-subnet anchor was ONLY
+  // computes when IN_SUBNET edges existed (fallback added SG+NACL but
+  // only fired when IN_SUBNET was empty). On paths WITH IN_SUBNET
+  // edges — i.e. most paths — SGs and NACLs were missing from the
+  // anchor, the bounding box was undersized, and operators saw the
+  // SG / NACL cards visually OUTSIDE the dashed VPC box even though
+  // they're VPC-scoped. The user's audit writeup specifically called
+  // this out as "VPC boundary not drawn at all" (effectively: drawn
+  // too small to register as the obvious container).
   const subnetToComputes = new Map<string, string[]>()
   for (const edge of path.edges ?? []) {
     const t = (edge.type || "").toUpperCase()
@@ -1311,48 +1335,16 @@ function buildAttackerArchitecture(
     if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
     subnetToComputes.get(subnetId)!.push(computeId)
   }
-  // Fallback — when the path doesn't surface IN_SUBNET edges (e.g.
-  // CloudTrail-only paths whose serializer drops topology edges), give
-  // each subnet a set of TRULY VPC-SCOPED ids so VPCBoundaries can
-  // compute a bounding box that wraps the network region.
-  //
-  // 2026-05-24 user report: the dashed VPC boundary visually wrapped
-  // the S3 RESOURCES card. Root cause: this fallback used to include
-  // IAM Roles AND InstanceProfiles in the anchor set. Those are GLOBAL
-  // IAM objects — not VPC-scoped — but they got rendered in lanes
-  // positioned visually to the RIGHT of the RESOURCES lane. Bounding-
-  // box math then stretched the boundary past S3 to reach the IP card,
-  // making S3 fall inside geometrically.
-  //
-  // What stays in the anchor set (genuinely VPC-scoped):
-  //   - Compute (EC2/Lambda in subnet)
-  //   - Security Groups (VPC-scoped)
-  //   - NACLs (subnet-scoped, so VPC-scoped)
-  //   - Egress Gateways (IGW/NAT — attached to VPC)
-  //
-  // What's removed (not VPC-scoped OR layout-wise misleading):
-  //   - IAMRoles (IAM service, global)
-  //   - InstanceProfiles (IAM service, global)
-  //   - Resources (S3/DynamoDB/KMS — most are global; the few that ARE
-  //     in-VPC like RDS render in their own subnet anyway, the boundary
-  //     can pick them up via IN_SUBNET when that edge surfaces)
-  //   - EgressGateways: although IGW/NAT attach AT the VPC perimeter,
-  //     the canvas lays them out in ROW 2 (same row as RESOURCES). A
-  //     boundary that includes IGW stretches DOWN into row 2 and
-  //     engulfs the RESOURCES lane (S3) geometrically, which reads as
-  //     "S3 is in the VPC" — wrong. Leaving IGW outside the dashed box
-  //     is the lesser evil: it sits at the VPC edge visually, and the
-  //     flow line still routes through it.
-  if (subnetToComputes.size === 0 && subnets.length > 0) {
-    const networkScopedIds = [
-      ...computeServices.map((c) => c.id),
-      ...securityGroups.map((sg) => sg.id),
-      ...nacls.map((n) => n.id),
-    ]
-    for (const s of subnets) {
-      subnetToComputes.set(s.id, networkScopedIds)
-    }
-  }
+
+  // Architecture-wide set of network-scoped card ids — SGs + NACLs.
+  // These get added to EVERY subnet's anchor so the outer VPC box
+  // wraps them regardless of which subnet's bbox they sit closest to.
+  // Duplicates across subnets are harmless (VPCBoundaries dedupes
+  // implicitly via the element-set bounding-box math).
+  const networkAnchorIds = [
+    ...securityGroups.map((sg) => sg.id),
+    ...nacls.map((n) => n.id),
+  ]
 
   // 2026-05-24: REVERTED — the synthetic Internet node (added briefly
   // in commit 5ea36fe) was a category error. AWS IAM "Principal" means
@@ -1382,7 +1374,18 @@ function buildAttackerArchitecture(
         // boundary-coloring decision only — the SubnetNode card itself
         // still renders the honest three-state Unknown chip.
         isPublic: s.isPublic === true,
-        nodeIds: subnetToComputes.get(s.id) ?? [],
+        // Anchor set per subnet (2026-05-25 fix):
+        //   1. computes in this subnet (via IN_SUBNET edges, if any)
+        //   2. the subnet's own card (data-subnet-id anchor — locks the
+        //      inner subnet-box bounds to the actual card position)
+        //   3. all architecture-wide network anchors (SGs + NACLs) — see
+        //      networkAnchorIds above. Without these the outer VPC box
+        //      was undersized and the SG/NACL cards rendered outside it.
+        nodeIds: [
+          ...(subnetToComputes.get(s.id) ?? []),
+          s.id,
+          ...networkAnchorIds,
+        ],
       }))
     return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
   })
