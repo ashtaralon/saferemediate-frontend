@@ -28,7 +28,6 @@ import {
   Clock,
   Calendar,
   XCircle,
-  BellOff,
   Filter,
   ShieldAlert,
   ShieldCheck,
@@ -780,23 +779,32 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             </div>
 
                             {/* Quarantine Actions — Phase-Aware */}
+                            {/* Entry state surfaces just two options
+                                (Quarantine | Delete). Both open the
+                                pre-check safety modal where the
+                                operator confirms with the safety
+                                score visible. The modal carries the
+                                final Quarantine + Delete Now buttons
+                                so the choice can be re-pivoted there
+                                without backing out. */}
                             <div className="flex items-center gap-2 pt-1">
                               {!qRecord ? (
                                 <>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); runPreCheck(orphan) }}
                                     disabled={actionLoading === orphan.id}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                                   >
-                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldAlert className="w-3 h-3" />}
-                                    Start Quarantine
+                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
+                                    Quarantine
                                   </button>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                                    onClick={(e) => { e.stopPropagation(); runPreCheck(orphan) }}
+                                    disabled={actionLoading === orphan.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#ef4444] text-[#ef4444] rounded-lg hover:bg-[#ef444410] transition-colors disabled:opacity-50"
                                   >
-                                    <BellOff className="w-3 h-3" />
-                                    Dismiss
+                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    Delete
                                   </button>
                                 </>
                               ) : qRecord.phase === "PRE_CHECK" || qRecord.phase === "MONITOR" ? (
