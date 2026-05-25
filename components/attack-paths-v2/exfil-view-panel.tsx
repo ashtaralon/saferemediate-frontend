@@ -47,6 +47,18 @@ import type {
   TrafficFlow,
 } from "@/components/dependency-map/traffic-flow-map"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import {
+  ARCHETYPE_CATALOG,
+  ARCHETYPE_ORDER,
+  channelToArchetypeFallback,
+  type ArchetypePresence,
+  type ExfilArchetype,
+  type ExfilPathArchetypeFields,
+} from "@/lib/types/exfil-archetypes"
+import {
+  ExfilArchetypeDetailCard,
+  ExfilArchetypeGrid,
+} from "@/components/attack-paths-v2/exfil-archetype-catalog"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -117,7 +129,11 @@ export interface WorkloadNetwork {
   workload_count_in_sample: number
 }
 
-interface ExfilPath {
+// Local ExfilPath shape — mirrors backend api/exfil_paths.py response.
+// Optional ExfilPathArchetypeFields are merged in via intersection so
+// the renderer can read backend-classified archetype fields once Phase B
+// ships, while staying compatible with today's channel-only responses.
+interface ExfilPath extends ExfilPathArchetypeFields {
   path_id: string
   accessor_id: string
   accessor_name: string
@@ -260,6 +276,49 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
     return data.paths.find((p) => p.path_id === selectedPathId) ?? null
   }, [data, selectedPathId])
 
+  // Derive archetype for the selected path. Backend will ship
+  // path.archetype as a typed field (Phase B). Until then, fall back
+  // to channelToArchetypeFallback() to convert the 4-channel enum into
+  // the 8-archetype taxonomy. Marked transitional in the types file.
+  const selectedArchetype = useMemo<ExfilArchetype | null>(() => {
+    if (!selectedPath) return null
+    return (
+      selectedPath.archetype ??
+      channelToArchetypeFallback(selectedPath.channel) ??
+      null
+    )
+  }, [selectedPath])
+
+  // Roll up paths[] into a per-archetype presence map for the grid.
+  // Counts instances + tracks whether any of them are observed (vs
+  // capable-only). archetypes the backend never emits stay absent
+  // from this map — the grid renders them via ARCHETYPE_CATALOG with
+  // a "Not collected yet" or "Eligible · no instances" state.
+  const archetypesPresent = useMemo<Partial<Record<ExfilArchetype, ArchetypePresence>>>(() => {
+    const map: Partial<Record<ExfilArchetype, ArchetypePresence>> = {}
+    for (const p of data?.paths ?? []) {
+      const a =
+        p.archetype ?? channelToArchetypeFallback(p.channel)
+      if (!a) continue
+      const cur = map[a] ?? { instance_count: 0, any_observed: false }
+      cur.instance_count += 1
+      if (p.accessor_provenance === "observed") cur.any_observed = true
+      map[a] = cur
+    }
+    return map
+  }, [data?.paths])
+
+  // Click a grid card → switch the canvas to the first path of that
+  // archetype. Skip if no instances (the card is non-interactive in
+  // that state already, but defensive).
+  const handleArchetypeSelect = (archetype: ExfilArchetype) => {
+    const first = data?.paths?.find(
+      (p) =>
+        (p.archetype ?? channelToArchetypeFallback(p.channel)) === archetype,
+    )
+    if (first) setSelectedPathId(first.path_id)
+  }
+
   // Build the SystemArchitecture for TFM from the EXFIL payload. Same
   // pattern as buildAttackerArchitecture in attacker-view-panel.tsx,
   // just inverted. When a specific path is selected, filter the payload
@@ -325,9 +384,17 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
   const capableCount = data.accessors.filter((a) => a.provenance === "capable").length
   const observedCount = data.accessors.filter((a) => a.provenance === "observed").length
   const paths = data.paths ?? []
+  // Archetype tally for header subtitle. Active = collector exists +
+  // we have instances. Not-collected-yet = roadmapped but no graph
+  // edges today. Eligible-but-absent = active collector, zero instances
+  // (rolls into the silent middle — not shown in the header).
+  const archetypesPresentCount = Object.keys(archetypesPresent).length
+  const archetypesNotCollectedCount = ARCHETYPE_ORDER.filter(
+    (a) => ARCHETYPE_CATALOG[a].collectorStatus === "not_collected_yet",
+  ).length
   const pathCountLine =
     paths.length > 0
-      ? `${paths.length} exfil path${paths.length === 1 ? "" : "s"} — pick one to inspect`
+      ? `${paths.length} exfil path${paths.length === 1 ? "" : "s"} — ${archetypesPresentCount} archetype${archetypesPresentCount === 1 ? "" : "s"} present · ${archetypesNotCollectedCount} not collected`
       : ""
   const subtitle =
     pathCountLine ||
@@ -382,6 +449,41 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
           defaultShowVPCBoundaries={true}
         />
       </div>
+
+      {/* Archetype layer — sits BETWEEN the canvas and the not-wired
+          strips. Two surfaces:
+            - Detail card (left): trust story + closure action for the
+              currently-selected archetype. Replaces the prior free-form
+              "NON-VPC WORKLOAD" callout with a typed read so copy stays
+              consistent across paths + releases (design memo 2026-05-25).
+            - Archetype grid (right when detail visible, else full-width):
+              master list of all 8 archetypes with active / capable /
+              observed / not-collected state. Operator can't assume the
+              currently-selected path is the only exit door. */}
+      {selectedArchetype ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 border-t border-slate-800/60 bg-slate-950/95">
+          <div className="px-6 py-3 md:col-span-1 md:border-r md:border-slate-800/60">
+            <ExfilArchetypeDetailCard
+              archetype={selectedArchetype}
+              gateStrength={selectedPath?.gate_strength}
+              perInstanceClosure={selectedPath?.closure_action?.copy}
+            />
+          </div>
+          <div className="md:col-span-2">
+            <ExfilArchetypeGrid
+              present={archetypesPresent}
+              selectedArchetype={selectedArchetype}
+              onSelect={handleArchetypeSelect}
+            />
+          </div>
+        </div>
+      ) : (
+        <ExfilArchetypeGrid
+          present={archetypesPresent}
+          selectedArchetype={null}
+          onSelect={handleArchetypeSelect}
+        />
+      )}
 
       {/* Phase A honest footer — surfaces the not-wired sub-lanes
           inline so the operator sees which exfil surfaces are
