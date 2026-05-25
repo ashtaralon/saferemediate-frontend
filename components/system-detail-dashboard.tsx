@@ -555,6 +555,10 @@ interface SystemDetailDashboardProps {
   // "Show the path" CTA) can deep-link into other sections without
   // imperative router calls.
   onNavigateToSection?: (section: string) => void
+  // Optional leaf tab id to pre-select on mount. Used by URL deep-links
+  // (e.g. /systems?systemName=X&tab=orphan-services from the IAM
+  // Quarantine-candidates flow).
+  initialTab?: string
 }
 
 interface CriticalIssue {
@@ -631,8 +635,8 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection }: SystemDetailDashboardProps) {
-  const [activeTab, setActiveTab] = useState("overview")
+export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab }: SystemDetailDashboardProps) {
+  const [activeTab, setActiveTab] = useState(initialTab ?? "overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // chunk #2a: cross-tab navigation + deep-link. The Attack Path
