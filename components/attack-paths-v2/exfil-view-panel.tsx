@@ -3,39 +3,55 @@
 /**
  * EXFIL View Panel — Phase A.
  *
- * The "where does the data go?" view. Complement of the Attacker
- * View (which answers "how does the attacker reach the jewel?").
- * BFS direction inverts: jewel is the SOURCE on the LEFT, exit
- * points are SINKS on the RIGHT.
+ * Renders the "where does the data go?" map by re-using the
+ * TrafficFlowMap renderer (same component, same visual language,
+ * same animated flow lines) that powers the Attacker View. The
+ * BFS direction is inverted — jewel on the LEFT, exit points on
+ * the RIGHT — but the visual contract is identical so operators
+ * don't context-switch when they flip tabs.
  *
- * Five-column layout per PRD:
+ * Lane mapping into TFM's existing vocabulary:
  *
- *   SOURCE → ACCESSORS → EGRESS PLANES → EXTERNAL GATES → DESTINATIONS
+ *   entryPoints  ←  the crown jewel itself (SOURCE — leftmost lane)
+ *   iamRoles     ←  accessors (capable + observed)
+ *   computeServices ← workloads that carry the accessor roles
+ *   subnets/SG/NACLs ← network containment of those workloads
+ *   egressGateways  ← IGW / NAT / etc. on the exit side
+ *   resources    ←  destinations (Internet card; future: External
+ *                   Account, External Region)
  *
- * EGRESS PLANES is three grouped sub-lanes:
- *   - NETWORK            (Phase A — populated)
- *   - IDENTITY           (Phase B — not-wired card)
- *   - DATA PROPAGATION   (Phase C — not-wired card)
+ * Color contract — the canonical Allowed-vs-Actual frame applied
+ * to the exit side: capable → amber outline, observed → red fill.
+ * TFM's existing "observed traffic = red animated line" matches
+ * this contract for free; we just feed it real `bytes` / `hit_count`
+ * on the flows we synthesize when CloudTrail confirms exfil.
  *
- * Color contract (the canonical Allowed-vs-Actual frame applied to
- * the exit side):
- *   capable  → amber outline   (allowed, no observation yet)
- *   observed → red fill        (CloudTrail-confirmed exfil)
- *
- * Render strategy: hand-rolled 5-column grid in this component, NOT
- * via TrafficFlowMap. TFM is sized for the REACH view (8-9 lanes,
- * polyline routing through SG/NACL/IGW); the EXFIL view has
- * different semantics and rendering it on TFM would force the
- * wrong shape.
+ * NotWired sub-lanes (IDENTITY EGRESS / DATA PROPAGATION) render
+ * as a strip BELOW the map until Phase B/C collectors land — they
+ * carry the not_wired_reason copy inline so the operator sees the
+ * collector backlog explicitly.
  */
 
 import { useMemo } from "react"
-import { Crown, AlertTriangle, ArrowRight, RefreshCw, Globe, Key, Database, Server, Shield } from "lucide-react"
+import dynamic from "next/dynamic"
+import { Crown, AlertTriangle, ArrowRight, RefreshCw } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import type {
+  SystemArchitecture,
+  ServiceNode,
+  SecurityCheckpoint,
+  EgressGatewayNode,
+  TrafficFlow,
+} from "@/components/dependency-map/traffic-flow-map"
 
-// ─── Types ─────────────────────────────────────────────────────────
+const TrafficFlowMap = dynamic(
+  () => import("@/components/dependency-map/traffic-flow-map"),
+  { ssr: false },
+)
+
+// ─── Types (mirror backend api/exfil_paths.py response shape) ─────
 
 interface ExfilAccessor {
   id: string
@@ -91,10 +107,6 @@ interface ExfilPayload {
   }
   destinations: ExfilDestination[]
   observed_exfil: { available: boolean; not_wired_reason: string }
-  freshness: {
-    graph_last_synced_at_iso: string | null
-    computed_at_iso: string
-  }
   phase: string
   phase_note: string
 }
@@ -138,6 +150,14 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
       initialDelayMs: 1000,
     },
   )
+
+  // Build the SystemArchitecture for TFM from the EXFIL payload. Same
+  // pattern as buildAttackerArchitecture in attacker-view-panel.tsx,
+  // just inverted.
+  const architecture = useMemo<SystemArchitecture | null>(() => {
+    if (!data || !data.ok) return null
+    return buildExfilArchitecture(data)
+  }, [data])
 
   if (!enabled) {
     return (
@@ -193,95 +213,61 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
 
   const capableCount = data.accessors.filter((a) => a.provenance === "capable").length
   const observedCount = data.accessors.filter((a) => a.provenance === "observed").length
-  const destInternet = data.destinations.find((d) => d.kind === "internet")
-  const subtitle = `${data.accessors.length} accessor${data.accessors.length === 1 ? "" : "s"} · ${data.egress_lanes.network.length} network egress route${data.egress_lanes.network.length === 1 ? "" : "s"} · ${data.destinations.length} destination${data.destinations.length === 1 ? "" : "s"}`
+  const subtitle = `${data.accessors.length} accessor${data.accessors.length === 1 ? "" : "s"} (${capableCount} capable · ${observedCount} observed) → ${data.egress_lanes.network.length} network egress → ${data.destinations.length} destination${data.destinations.length === 1 ? "" : "s"}`
+
+  if (!architecture) return null
 
   return (
     <div className="flex flex-col h-full">
       <Header jewel={jewel} subtitle={subtitle} />
+      <div className="flex-1 min-h-0">
+        <TrafficFlowMap
+          systemName={systemName}
+          architectureOverride={architecture}
+          observedMode={true}
+          titleOverride=""
+          innerTitleOverride="Exfiltration Surface"
+          innerSubtitleOverride={
+            data.observed_exfil.available
+              ? "Data exit paths — capable (amber) vs observed (red)"
+              : "Capable data-exit paths — observed-exfil layer pending Phase D collector"
+          }
+          pathBadgeOverride={`Exfil → ${data.jewel.name}`}
+          defaultShowVPCBoundaries={true}
+        />
+      </div>
 
-      {/* Five-column EXFIL grid. Each section is its own scroll-stable
-          column so a heavy ACCESSORS list doesn't shift the EGRESS or
-          DESTINATIONS columns. */}
-      <div className="flex-1 overflow-auto p-6 bg-slate-950">
-        <div className="grid grid-cols-[minmax(180px,220px)_minmax(220px,1fr)_minmax(420px,2fr)_minmax(140px,180px)_minmax(220px,1fr)] gap-4">
-          {/* ─── Col 1: SOURCE (the crown jewel) ─── */}
-          <Column title="SOURCE" icon={<Crown className="w-3.5 h-3.5 text-amber-400" />}>
-            <SourceCard jewel={data.jewel} />
-          </Column>
-
-          {/* ─── Col 2: ACCESSORS ─── */}
-          <Column
-            title={`ACCESSORS (${data.accessors.length})`}
-            icon={<Key className="w-3.5 h-3.5 text-pink-400" />}
-            subtitle={
-              data.accessors.length > 0
-                ? `${capableCount} capable · ${observedCount} observed`
-                : undefined
-            }
-          >
-            {data.accessors.length === 0 ? (
-              <Empty label="No roles or principals can reach this jewel." />
-            ) : (
-              data.accessors.map((a) => <AccessorCard key={a.id} accessor={a} />)
-            )}
-          </Column>
-
-          {/* ─── Col 3: EGRESS PLANES (3 sub-lanes) ─── */}
-          <Column title="EGRESS PLANES" icon={<ArrowRight className="w-3.5 h-3.5 text-slate-300" />}>
-            <div className="grid grid-cols-3 gap-3">
-              <SubLane title="NETWORK" tone="cyan">
-                {data.egress_lanes.network.length === 0 ? (
-                  <Empty label="No network egress route discovered." />
-                ) : (
-                  data.egress_lanes.network.map((e, i) => (
-                    <NetworkEgressCard key={`${e.kind}:${e.id}:${i}`} item={e} />
-                  ))
-                )}
-              </SubLane>
-              <SubLane title="IDENTITY" tone="violet">
-                <NotWired reason={data.egress_lanes.identity.not_wired_reason} />
-              </SubLane>
-              <SubLane title="DATA PROP" tone="emerald">
-                <NotWired reason={data.egress_lanes.data_propagation.not_wired_reason} />
-              </SubLane>
-            </div>
-          </Column>
-
-          {/* ─── Col 4: EXTERNAL GATES (the conceptual hop between
-                  egress and the destination world) ─── */}
-          <Column title="EXTERNAL GATES" icon={<Shield className="w-3.5 h-3.5 text-orange-300" />}>
-            <ExternalGatesSummary
-              networkEgress={data.egress_lanes.network}
-              destinations={data.destinations}
-            />
-          </Column>
-
-          {/* ─── Col 5: DESTINATIONS ─── */}
-          <Column
-            title={`DESTINATIONS (${data.destinations.length})`}
-            icon={<Globe className="w-3.5 h-3.5 text-amber-400" />}
-          >
-            {data.destinations.length === 0 ? (
-              <Empty label="No exfil destination resolved from current data." />
-            ) : (
-              data.destinations.map((d) => <DestinationCard key={d.id} dest={d} />)
-            )}
-          </Column>
-        </div>
-
-        {/* Phase A honest footer — calls out which lanes are
-            not-wired and why so the operator isn't surprised. */}
-        <div className="mt-6 rounded-md border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-400">
-          <span className="font-semibold text-slate-300">Phase {data.phase}: </span>
-          {data.phase_note}
-        </div>
+      {/* Phase A honest footer — surfaces the not-wired sub-lanes
+          inline so the operator sees which exfil surfaces are
+          collector-pending. Lives BELOW the map (not inside TFM)
+          because TFM's lane vocabulary doesn't have native slots
+          for "cross-account identity egress" or "data propagation
+          replication". Promoted into TFM proper when the relevant
+          collectors land. */}
+      <div className="px-6 py-3 border-t border-slate-800/60 bg-slate-950/95 flex flex-wrap items-stretch gap-3">
+        <NotWiredStrip
+          title="IDENTITY EGRESS"
+          tone="violet"
+          reason={data.egress_lanes.identity.not_wired_reason}
+        />
+        <NotWiredStrip
+          title="DATA PROPAGATION"
+          tone="emerald"
+          reason={data.egress_lanes.data_propagation.not_wired_reason}
+        />
+        {!data.observed_exfil.available && (
+          <NotWiredStrip
+            title="OBSERVED EXFIL"
+            tone="rose"
+            reason={data.observed_exfil.not_wired_reason}
+          />
+        )}
       </div>
     </div>
   )
 }
 
-// ─── Header ──────────────────────────────────────────────────────────
+// ─── Header (mirrors AttackerViewPanel.Header) ───────────────────
 
 function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle: string }) {
   return (
@@ -312,259 +298,213 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
   )
 }
 
-// ─── Layout primitives ───────────────────────────────────────────────
-
-function Column({
-  title,
-  icon,
-  subtitle,
-  children,
-}: {
-  title: string
-  icon?: React.ReactNode
-  subtitle?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-3 min-w-0">
-      <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-2">
-        {icon}
-        {title}
-      </div>
-      {subtitle && <div className="text-[10px] text-slate-500 -mt-2 mb-1">{subtitle}</div>}
-      {children}
-    </div>
-  )
-}
-
-function SubLane({
+function NotWiredStrip({
   title,
   tone,
-  children,
+  reason,
 }: {
   title: string
-  tone: "cyan" | "violet" | "emerald"
-  children: React.ReactNode
+  tone: "violet" | "emerald" | "rose"
+  reason: string
 }) {
-  const toneClass = {
-    cyan: "text-cyan-300 border-cyan-500/30 bg-cyan-500/5",
-    violet: "text-violet-300 border-violet-500/30 bg-violet-500/5",
-    emerald: "text-emerald-300 border-emerald-500/30 bg-emerald-500/5",
+  const toneCls = {
+    violet: "border-violet-500/40 bg-violet-500/5 text-violet-200",
+    emerald: "border-emerald-500/40 bg-emerald-500/5 text-emerald-200",
+    rose: "border-rose-500/40 bg-rose-500/5 text-rose-200",
   }[tone]
   return (
-    <div className={`flex flex-col gap-2 rounded-lg border ${toneClass} p-2 min-w-0`}>
-      <div className={`text-[10px] font-bold uppercase tracking-wider`}>{title}</div>
-      {children}
-    </div>
-  )
-}
-
-function Empty({ label }: { label: string }) {
-  return <div className="text-[11px] text-slate-500 italic p-2">{label}</div>
-}
-
-function NotWired({ reason }: { reason: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-slate-700/80 bg-slate-800/30 p-2.5">
-      <div className="inline-flex items-center gap-1.5 rounded-md bg-slate-700/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-        Backend not wired
-      </div>
-      <div className="text-[10px] text-slate-400 leading-snug">{reason}</div>
-    </div>
-  )
-}
-
-// ─── Cards ───────────────────────────────────────────────────────────
-
-function SourceCard({ jewel }: { jewel: ExfilPayload["jewel"] }) {
-  return (
-    <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/5 p-3">
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <Crown className="w-3.5 h-3.5 text-amber-400" />
-        <span className="text-[10px] uppercase tracking-wider text-amber-300 font-bold">
-          {jewel.type}
-        </span>
-      </div>
-      <div className="text-xs font-mono text-slate-100 break-all" title={jewel.name}>
-        {jewel.name}
-      </div>
-      {jewel.classification && (
-        <div className="mt-1.5 inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/15 text-amber-200 border border-amber-500/30">
-          {jewel.classification}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AccessorCard({ accessor }: { accessor: ExfilAccessor }) {
-  const isObserved = accessor.provenance === "observed"
-  const toneCls = isObserved
-    ? "border-red-500/60 bg-red-500/10"
-    : "border-amber-500/40 bg-amber-500/5"
-  const provenanceCls = isObserved
-    ? "bg-red-600 text-white"
-    : "bg-amber-500/20 text-amber-200 border border-amber-500/40"
-  return (
-    <div className={`rounded-lg border-2 ${toneCls} p-2.5 transition-colors`} title={accessor.id}>
+    <div
+      className={`flex-1 min-w-[260px] rounded-lg border border-dashed ${toneCls} p-2.5`}
+      title={reason}
+    >
       <div className="flex items-center gap-1.5 mb-1">
-        <Key className="w-3 h-3 text-pink-400 shrink-0" />
-        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-          {accessor.type}
-        </span>
-        <span className={`ml-auto px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded ${provenanceCls}`}>
-          {accessor.provenance}
+        <span className="text-[9px] font-bold uppercase tracking-wider opacity-70">{title}</span>
+        <span className="ml-auto inline-flex items-center gap-1 rounded bg-slate-700/60 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-slate-300">
+          backend not wired
         </span>
       </div>
-      <div className="text-xs font-semibold text-slate-100 truncate" title={accessor.name}>
-        {accessor.name}
-      </div>
-      {(accessor.allowed_actions_count != null || accessor.used_actions_count != null) && (
-        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-400">
-          {accessor.allowed_actions_count != null && (
-            <span>
-              <span className="text-slate-200">{accessor.allowed_actions_count}</span> allowed
-            </span>
-          )}
-          {accessor.used_actions_count != null && (
-            <>
-              <span className="text-slate-600">·</span>
-              <span>
-                <span className="text-slate-200">{accessor.used_actions_count}</span> used
-              </span>
-            </>
-          )}
-        </div>
-      )}
-      {isObserved && accessor.hit_count > 0 && (
-        <div className="mt-1 text-[10px] text-red-300">
-          {accessor.hit_count.toLocaleString()} hits observed
-        </div>
-      )}
+      <div className="text-[10px] leading-snug opacity-80">{reason}</div>
     </div>
   )
 }
 
-function NetworkEgressCard({ item }: { item: ExfilNetworkEgressItem }) {
-  const kindPalette =
-    item.kind === "InternetGateway"
-      ? "border-amber-500/40 bg-amber-500/10"
-      : item.kind === "NATGateway"
-        ? "border-sky-500/40 bg-sky-500/10"
-        : "border-slate-600 bg-slate-800/40"
-  const kindLabel =
-    item.kind === "InternetGateway"
-      ? "IGW"
-      : item.kind === "NATGateway"
-        ? "NAT"
-        : item.kind === "EgressOnlyInternetGateway"
-          ? "Egress IGW"
-          : item.kind === "TransitGateway"
-            ? "TGW"
-            : item.kind
-  return (
-    <div className={`rounded-md border ${kindPalette} p-2`} title={`${item.kind} ${item.id} via ${item.via_workload.name}`}>
-      <div className="flex items-center gap-1.5 mb-1">
-        <Globe className="w-3 h-3 text-amber-300" />
-        <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">
-          {kindLabel}
-        </span>
-      </div>
-      <div className="text-[10px] font-mono text-slate-200 truncate" title={item.name}>
-        {item.name}
-      </div>
-      <div className="mt-1 text-[9px] text-slate-500 truncate">
-        via {item.via_workload.name}
-        {item.via_subnet.public === true ? " · public subnet" : ""}
-      </div>
-    </div>
-  )
-}
+// ─── Architecture builder ───────────────────────────────────────────
 
-function ExternalGatesSummary({
-  networkEgress,
-  destinations,
-}: {
-  networkEgress: ExfilNetworkEgressItem[]
-  destinations: ExfilDestination[]
-}) {
-  // Phase A only really has one external gate: the Internet, reached
-  // via IGW/NAT. We render a single card summarizing the count and
-  // type breakdown. Future phases (cross-account, cross-region) add
-  // sibling cards here.
-  const igwCount = networkEgress.filter((e) => e.kind === "InternetGateway").length
-  const natCount = networkEgress.filter((e) => e.kind === "NATGateway").length
-  const reachableInternet = igwCount + natCount > 0
-  if (!reachableInternet && destinations.length === 0) {
-    return <Empty label="No external gate reachable from existing edges." />
+/**
+ * Transform the EXFIL payload into a SystemArchitecture that
+ * TrafficFlowMap can render. Inverted vs the attacker-view builder:
+ *
+ *   - Jewel becomes the ENTRY lane (SOURCE — leftmost).
+ *   - Accessors land in iamRoles + instanceProfiles (when typed).
+ *   - Workloads carrying those accessors land in computeServices.
+ *   - Network egress destinations land in egressGateways + resources.
+ *
+ * Flow synthesis goes LEFT → RIGHT same as the attacker view, but
+ * the source is the jewel and the targets are external gates /
+ * destinations. Observed flows carry real bytes from the accessor's
+ * `total_bytes` so TFM renders an animated red line at the right
+ * intensity.
+ */
+function buildExfilArchitecture(payload: ExfilPayload): SystemArchitecture {
+  const computeServices: ServiceNode[] = []
+  const resources: ServiceNode[] = []
+  const iamRoles: SecurityCheckpoint[] = []
+  const egressGateways: EgressGatewayNode[] = []
+  const entryPoints: ServiceNode[] = []
+  const flows: TrafficFlow[] = []
+  const seen = new Set<string>()
+
+  // 1. SOURCE — the jewel renders as the ENTRY card. Using
+  //    `entryPoints` (the lane Phase 2 added) keeps it leftmost
+  //    without polluting compute/principals.
+  const jewelId = payload.jewel.id
+  entryPoints.push({
+    id: jewelId,
+    name: payload.jewel.name,
+    shortName: shortName(payload.jewel.name),
+    type: "principal", // TFM renders entryPoints via ServiceNodeBox; principal is the closest visual.
+    instanceId: jewelId.slice(-12),
+  })
+
+  // 2. ACCESSORS → iamRoles lane. Carry usedCount/totalCount so
+  //    TFM's IAMRoleNode renders the gap ring + provenance badge.
+  for (const a of payload.accessors) {
+    if (seen.has(a.id)) continue
+    seen.add(a.id)
+    iamRoles.push({
+      id: a.id,
+      type: "iam_role",
+      name: a.name,
+      shortName: shortName(a.name),
+      usedCount: a.used_actions_count ?? 0,
+      totalCount: a.allowed_actions_count ?? 0,
+      gapCount: a.unused_actions_count ?? 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })
+    // Flow: jewel → accessor (the read edge, inverted into "data
+    // leaves jewel via this accessor"). Observed accessors get a
+    // red animated line driven by their CloudTrail hit_count.
+    flows.push({
+      sourceId: jewelId,
+      targetId: a.id,
+      ports: [],
+      protocol: "iam",
+      bytes: a.total_bytes,
+      connections: a.hit_count || 1,
+      isActive: a.provenance === "observed",
+    })
   }
-  return (
-    <div className="rounded-lg border border-orange-500/40 bg-orange-500/5 p-2.5">
-      <div className="flex items-center gap-1.5 mb-1">
-        <Shield className="w-3.5 h-3.5 text-orange-300" />
-        <span className="text-[10px] uppercase tracking-wider text-orange-200 font-bold">
-          public boundary
-        </span>
-      </div>
-      <div className="text-xs font-semibold text-slate-100">VPC → Internet</div>
-      <div className="mt-1 text-[10px] text-slate-400">
-        {igwCount} IGW · {natCount} NAT
-      </div>
-      <div className="mt-2 text-[10px] text-slate-500">
-        Cross-account + cross-region gates land with Phase C collectors.
-      </div>
-    </div>
-  )
-}
 
-function DestinationCard({ dest }: { dest: ExfilDestination }) {
-  const isObserved = dest.observed_route_count > 0
-  const toneCls = isObserved
-    ? "border-red-500/60 bg-red-500/10"
-    : "border-amber-500/40 bg-amber-500/5"
-  return (
-    <div className={`rounded-lg border-2 ${toneCls} p-3`} title={dest.label}>
-      <div className="flex items-center gap-1.5 mb-1">
-        {dest.kind === "internet" ? (
-          <Globe className="w-3.5 h-3.5 text-amber-300" />
-        ) : dest.kind === "external_account" ? (
-          <Database className="w-3.5 h-3.5 text-violet-300" />
-        ) : (
-          <Server className="w-3.5 h-3.5 text-emerald-300" />
-        )}
-        <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">
-          {dest.kind.replace("_", " ")}
-        </span>
-      </div>
-      <div className="text-sm font-bold text-slate-100">{dest.label}</div>
-      <div className="mt-2 flex flex-col gap-1 text-[11px]">
-        <div className="flex items-center justify-between">
-          <span className="text-amber-300">Capable routes</span>
-          <span className="font-semibold text-amber-200">{dest.capable_route_count}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-red-300">Observed routes</span>
-          <span className="font-semibold text-red-200">{dest.observed_route_count}</span>
-        </div>
-        {dest.observed_bytes_24h > 0 && (
-          <div className="flex items-center justify-between">
-            <span className="text-red-300">Bytes / 24h</span>
-            <span className="font-semibold text-red-200">{formatBytes(dest.observed_bytes_24h)}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function formatBytes(n: number): string {
-  if (n <= 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
+  // 3. WORKLOADS carrying the accessor roles → computeServices.
+  //    Sourced from the network-egress payload's via_workload chip.
+  //    Multiple egress entries may share a workload — de-dupe.
+  for (const e of payload.egress_lanes.network) {
+    const w = e.via_workload
+    if (!w?.id || seen.has(w.id)) continue
+    seen.add(w.id)
+    computeServices.push({
+      id: w.id,
+      name: w.name,
+      shortName: shortName(w.name),
+      type: w.type.toLowerCase().includes("lambda") ? "lambda" : "compute",
+      instanceId: w.id.startsWith("i-") ? w.id : w.id.slice(-12),
+    })
   }
-  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+
+  // 4. EGRESS GATEWAYS — IGW / NAT / etc. Same lane the Attacker
+  //    View uses on the exit side; we just populate it from
+  //    payload.egress_lanes.network directly.
+  for (const e of payload.egress_lanes.network) {
+    if (seen.has(e.id)) continue
+    seen.add(e.id)
+    const kind = (e.kind as EgressGatewayNode["kind"]) || "InternetGateway"
+    const kindLabel: Record<string, string> = {
+      InternetGateway: "IGW",
+      NATGateway: "NAT GW",
+      EgressOnlyInternetGateway: "Egress-only IGW",
+      TransitGateway: "Transit GW",
+    }
+    egressGateways.push({
+      id: e.id,
+      name: e.name,
+      shortName: shortName(e.name),
+      vpcId: e.via_vpc?.id ?? null,
+      kind: kind,
+      kindLabel: kindLabel[kind] || kind,
+    })
+    // Flow: workload → IGW. Configured (gray) line — observed-byte
+    // attribution per egress route lands with Phase D.
+    if (e.via_workload?.id) {
+      flows.push({
+        sourceId: e.via_workload.id,
+        targetId: e.id,
+        ports: [],
+        protocol: "tcp",
+        bytes: 0,
+        connections: 0,
+        isActive: false,
+      })
+    }
+  }
+
+  // 5. DESTINATIONS → resources lane (rightmost). These are the
+  //    final exit points (Internet today; ExternalAccount /
+  //    ExternalRegion when Phase C lands). Render as crown-jewel-
+  //    styled "data destination" cards.
+  for (const d of payload.destinations) {
+    if (seen.has(d.id)) continue
+    seen.add(d.id)
+    const isObserved = d.observed_route_count > 0
+    resources.push({
+      id: d.id,
+      name: d.label,
+      shortName: shortName(d.label, 28),
+      type: "storage", // TFM resource lane visual; "destination" isn't a TFM type
+    })
+    // Flow: each egress → destination. Observed (red) when any
+    // observed routes exist for the destination; else configured.
+    for (const e of payload.egress_lanes.network) {
+      flows.push({
+        sourceId: e.id,
+        targetId: d.id,
+        ports: [],
+        protocol: d.kind === "internet" ? "internet" : "tcp",
+        bytes: d.observed_bytes_24h,
+        connections: d.observed_route_count,
+        isActive: isObserved,
+      })
+    }
+  }
+
+  // Aggregate totals — TFM renders these in the inner header.
+  const totalBytes = flows.reduce((s, f) => s + (f.bytes || 0), 0)
+  const totalConnections = flows.reduce((s, f) => s + (f.connections || 0), 0)
+
+  return {
+    computeServices,
+    entryPoints,
+    principals: [], // empty — the entry card IS the jewel itself
+    resources,
+    subnets: [],
+    securityGroups: [],
+    nacls: [],
+    iamRoles,
+    instanceProfiles: [],
+    iamPolicies: [],
+    vpcEndpoints: [],
+    egressGateways,
+    flows,
+    totalBytes,
+    totalConnections,
+    totalGaps: 0,
+    vpcGroups: [],
+  }
+}
+
+function shortName(name: string, maxLen = 22): string {
+  if (!name) return ""
+  if (name.length <= maxLen) return name
+  const half = Math.floor((maxLen - 1) / 2)
+  return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
 }
