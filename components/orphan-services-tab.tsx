@@ -462,7 +462,11 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   }, [quarantineRecords, orphans])
 
   const filteredOrphans = useMemo(() => {
-    return [...orphans, ...orphansFromQuarantine].filter((o) => {
+    // Synth rows (from IAM "Move to Orphan") render FIRST so the
+    // operator sees their just-clicked Lambda at the top, not buried
+    // under the orphan-services pipeline output. The Pre-Check badge
+    // also makes them visually distinct.
+    return [...orphansFromQuarantine, ...orphans].filter((o) => {
       if (dismissedIds.has(o.id)) return false
       if (riskFilter !== "ALL" && o.riskLevel !== riskFilter) return false
       if (typeFilter !== "ALL") {
