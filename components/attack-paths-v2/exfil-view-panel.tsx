@@ -32,9 +32,9 @@
  * collector backlog explicitly.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
-import { Crown, AlertTriangle, ArrowRight, RefreshCw, Route } from "lucide-react"
+import { Crown, AlertTriangle, ArrowRight, ChevronDown, RefreshCw, Route } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
@@ -325,16 +325,22 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
       ? "Data exit paths — capable (amber) vs observed (red)"
       : "Capable data-exit paths — observed-exfil layer pending Phase D collector"
 
+  // PathSelector lives INSIDE the TFM toolbar (via headerSlot) so it
+  // stays visible when the user maximizes TFM. Previously it sat outside
+  // TFM as part of the outer panel chrome, which fullscreen hid (user
+  // report 2026-05-25 "are u kidding me??" with TFM-maximized screenshot).
+  const pathSelectorNode =
+    paths.length > 0 ? (
+      <PathSelector
+        paths={paths}
+        selectedPathId={selectedPathId}
+        onSelect={setSelectedPathId}
+      />
+    ) : null
+
   return (
     <div className="flex flex-col h-full">
       <Header jewel={jewel} subtitle={subtitle} />
-      {paths.length > 0 && (
-        <PathSelector
-          paths={paths}
-          selectedPathId={selectedPathId}
-          onSelect={setSelectedPathId}
-        />
-      )}
       <div className="flex-1 min-h-0">
         <TrafficFlowMap
           systemName={systemName}
@@ -352,6 +358,7 @@ export function ExfilViewPanel({ systemName, jewel }: ExfilViewPanelProps) {
               ? `${selectedPath.accessor_name} → ${data.jewel.name}`
               : `Exfil → ${data.jewel.name}`
           }
+          headerSlot={pathSelectorNode}
           defaultShowVPCBoundaries={true}
         />
       </div>
@@ -417,10 +424,10 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
   )
 }
 
-// ─── Path selector pills ───────────────────────────────────────────
-// One pill per (accessor, channel). Operator clicks to filter the
-// canvas to that single use-case. Highest-traffic path renders first
-// (backend sorts paths[] by jewel_hits DESC).
+// ─── Path selector ─────────────────────────────────────────────────
+// Compact dropdown rendered INLINE in TFM's top toolbar (via headerSlot).
+// Inline so it stays visible in TFM's full-screen mode where outer panel
+// chrome is hidden. Dropdown so 7+ paths fit a single toolbar row.
 
 function PathSelector({
   paths,
@@ -431,58 +438,100 @@ function PathSelector({
   selectedPathId: string | null
   onSelect: (id: string) => void
 }) {
-  // Tone per channel so the operator can scan-distinguish at a glance.
-  const toneFor = (channel: string, selected: boolean): string => {
-    const base = {
-      network_via_igw: selected
-        ? "border-amber-400/80 bg-amber-500/20 text-amber-100"
-        : "border-amber-500/30 bg-amber-500/[0.04] text-amber-200/80 hover:bg-amber-500/10",
-      serverless_direct: selected
-        ? "border-violet-400/80 bg-violet-500/20 text-violet-100"
-        : "border-violet-500/30 bg-violet-500/[0.04] text-violet-200/80 hover:bg-violet-500/10",
-      ec2_no_egress: selected
-        ? "border-slate-400/80 bg-slate-500/25 text-slate-100"
-        : "border-slate-500/30 bg-slate-500/[0.04] text-slate-300/80 hover:bg-slate-500/10",
-      direct_api: selected
-        ? "border-rose-400/80 bg-rose-500/20 text-rose-100"
-        : "border-rose-500/30 bg-rose-500/[0.04] text-rose-200/80 hover:bg-rose-500/10",
-    } as Record<string, string>
-    return base[channel] || (selected
-      ? "border-slate-400/80 bg-slate-500/25 text-slate-100"
-      : "border-slate-500/30 bg-slate-500/[0.04] text-slate-300/80 hover:bg-slate-500/10")
-  }
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  // Close on outside click — standard dropdown pattern.
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!containerRef.current) return
+      if (!containerRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [open])
+
+  // Tone per channel — used on both the trigger dot AND each row dot
+  // so the operator can scan-distinguish channels at a glance.
+  const dotFor = (channel: string): string =>
+    ({
+      network_via_igw:   "bg-amber-400",
+      serverless_direct: "bg-violet-400",
+      ec2_no_egress:     "bg-slate-300",
+      direct_api:        "bg-rose-400",
+    } as Record<string, string>)[channel] || "bg-slate-300"
+
+  const selected = paths.find((p) => p.path_id === selectedPathId) ?? paths[0]
+  if (!selected) return null
 
   return (
-    <div className="px-6 py-2.5 border-b border-slate-800/60 bg-slate-950/95 flex items-start gap-3">
-      <div className="flex items-center gap-1.5 pt-1 shrink-0">
-        <Route className="h-3 w-3 text-slate-500" />
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-          Exfil paths
+    <div ref={containerRef} className="relative">
+      {/* Trigger button — compact, fits in TFM toolbar row. */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/60 hover:bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-100"
+        title="Switch exfil path"
+      >
+        <Route className="h-3 w-3 text-slate-400" />
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+          Path {paths.indexOf(selected) + 1}/{paths.length}
         </span>
-      </div>
-      <div className="flex-1 flex flex-wrap gap-1.5">
-        {paths.map((p) => {
-          const selected = p.path_id === selectedPathId
-          const tone = toneFor(p.channel, selected)
-          const observed = p.accessor_provenance === "observed"
-          return (
-            <button
-              key={p.path_id}
-              type="button"
-              onClick={() => onSelect(p.path_id)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition-colors ${tone}`}
-              title={`${p.channel_label} via ${p.accessor_name} — ${p.workload_count} workload${p.workload_count === 1 ? "" : "s"}, ${p.gateway_count} gateway${p.gateway_count === 1 ? "" : "s"}, ${p.jewel_hits.toLocaleString()} jewel hit${p.jewel_hits === 1 ? "" : "s"}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${observed ? "bg-red-400" : "bg-amber-400/80"}`} />
-              <span className="font-mono truncate max-w-[180px]">{p.accessor_name}</span>
-              <span className="opacity-70">·</span>
-              <span>{p.channel_label}</span>
-              <span className="opacity-70">·</span>
-              <span className="tabular-nums">{compactNumber(p.jewel_hits)}</span>
-            </button>
-          )
-        })}
-      </div>
+        <span className={`h-1.5 w-1.5 rounded-full ${dotFor(selected.channel)}`} />
+        <span className="truncate max-w-[200px]">
+          {selected.channel_label}
+        </span>
+        <ChevronDown className={`h-3 w-3 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Dropdown — shows all paths with full context so the operator
+          can compare jewel_hits / workload_count side-by-side. */}
+      {open && (
+        <div className="absolute top-full left-0 mt-1.5 z-50 w-[420px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 ring-1 ring-black/40">
+          <div className="px-3 py-2 border-b border-slate-800 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+            {paths.length} exfil path{paths.length === 1 ? "" : "s"} — pick one to inspect
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto py-1">
+            {paths.map((p, idx) => {
+              const isSelected = p.path_id === selectedPathId
+              const observed = p.accessor_provenance === "observed"
+              return (
+                <button
+                  key={p.path_id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(p.path_id)
+                    setOpen(false)
+                  }}
+                  className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors ${
+                    isSelected
+                      ? "bg-slate-800/80"
+                      : "hover:bg-slate-800/50"
+                  }`}
+                >
+                  <span className="text-[9px] font-mono text-slate-500 w-4 shrink-0">{idx + 1}</span>
+                  <span className={`h-2 w-2 rounded-full shrink-0 ${dotFor(p.channel)}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-slate-200 truncate">{p.accessor_name}</span>
+                      <span className={`text-[8px] uppercase tracking-wider font-bold ${observed ? "text-red-300" : "text-amber-300"}`}>
+                        {observed ? "observed" : "capable"}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      {p.channel_label} · {p.workload_count} workload{p.workload_count === 1 ? "" : "s"} · {p.gateway_count} gateway{p.gateway_count === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <span className="text-[10px] tabular-nums font-mono text-slate-400 shrink-0">
+                    {compactNumber(p.jewel_hits)}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

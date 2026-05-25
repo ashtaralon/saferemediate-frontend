@@ -3818,6 +3818,7 @@ export default function TrafficFlowMap({
   innerSubtitleOverride,
   observedMode = false,
   defaultShowVPCBoundaries = false,
+  headerSlot,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -3826,6 +3827,13 @@ export default function TrafficFlowMap({
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
   exfilByWorkloadId?: Record<string, NodeExfilSummary>;
+  // Optional ReactNode rendered inline in the TFM top toolbar, right
+  // after the title + pathBadge. Used by the EXFIL view to inject its
+  // per-path selector pills so they stay visible when TFM is in
+  // full-screen mode (where the outer panel chrome is hidden).
+  // 2026-05-25: shipped after the selector strip ended up unreachable
+  // in fullscreen.
+  headerSlot?: React.ReactNode;
   // When provided, this fully-formed SystemArchitecture is used in place
   // of the dependency-map fetch. The dep-map fetch is still kicked off
   // for stale-cache warming, but the override wins the render. This is
@@ -5525,6 +5533,11 @@ export default function TrafficFlowMap({
               </span>
             </div>
           )}
+          {/* Optional inline slot for parent-supplied chrome (EXFIL
+              path selector pills). Renders in the same row as the
+              title + path badge so it stays visible in TFM's
+              full-screen mode where the outer panel header is hidden. */}
+          {headerSlot}
 
           {/* Resource drill-down filter banner — set when the operator
               clicked a leaf (S3 prefix / RDS table) in the sidebar. */}
