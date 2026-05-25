@@ -646,8 +646,68 @@ function QuarantineCandidatesSection({
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; failed: number } | null>(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
+  // Names of consumers that already have an active quarantine record
+  // (any phase except DELETED / RESTORED). Once a candidate has been
+  // "moved" via the Orphan flow it lives in the Orphan tab and should
+  // disappear from this list on the next mount — otherwise the
+  // operator sees the same row in both places.
+  const [movedNames, setMovedNames] = useState<Set<string>>(new Set())
 
-  const selectableCandidates = candidates.filter((c) => !parentDeletedIds.has(c.consumer_id))
+  useEffect(() => {
+    const systemNames = Array.from(
+      new Set(
+        candidates
+          .map((c) => c.system_name)
+          .filter((s): s is string => Boolean(s)),
+      ),
+    )
+    if (systemNames.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const collected = new Set<string>()
+      for (const sys of systemNames) {
+        try {
+          const res = await fetch(
+            `/api/proxy/quarantine/list/${encodeURIComponent(sys)}`,
+          )
+          if (!res.ok) continue
+          const data = await res.json()
+          const records: Array<{ resourceName: string; phase: string }> =
+            data?.records ?? []
+          for (const r of records) {
+            if (!["DELETED", "RESTORED"].includes(r.phase) && r.resourceName) {
+              collected.add(r.resourceName)
+            }
+          }
+        } catch {
+          // Best-effort — if the list endpoint is down, fall back to
+          // showing all candidates rather than blocking the page.
+        }
+      }
+      if (!cancelled) setMovedNames(collected)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [candidates])
+
+  // Two layers of removal:
+  //   - parentDeletedIds: bulk-delete acted on this row in-session
+  //   - movedNames: previously moved-to-orphan (server-confirmed)
+  const visibleCandidates = candidates.filter((c) => {
+    if (parentDeletedIds.has(c.consumer_id)) return false
+    const name = c.consumer_name || c.consumer_id
+    if (movedNames.has(name)) return false
+    return true
+  })
+
+  const selectableCandidates = visibleCandidates
+
+  // Hide the entire section when every candidate has already been
+  // moved or deleted in-session. Avoids a confusing empty box.
+  if (visibleCandidates.length === 0) {
+    return null
+  }
   const allSelected =
     selectableCandidates.length > 0 &&
     selectableCandidates.every((c) => selectedIds.has(c.consumer_id))
@@ -824,7 +884,7 @@ function QuarantineCandidatesSection({
         <ChevronRight className="w-4 h-4 text-orange-700 dark:text-orange-300 transition-transform group-open:rotate-90 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-300 font-semibold">
-            Quarantine candidates ({candidates.length})
+            Quarantine candidates ({visibleCandidates.length})
           </div>
           <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-0.5">
             No activity in the last {thresholdDays} days — likely unused.
@@ -935,7 +995,7 @@ function QuarantineCandidatesSection({
       )}
 
       <div className="space-y-1.5 pt-1">
-        {candidates.map((c) => (
+        {visibleCandidates.map((c) => (
           <QuarantineCandidateRow
             key={c.consumer_id}
             candidate={c}
