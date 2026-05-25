@@ -185,6 +185,14 @@ export interface SystemArchitecture {
    *  entry-point (e.g. internal lateral movement) don't grow a dead
    *  column. Cards carry `data-entry-id` for ConnectionLinesSVG. */
   entryPoints?: ServiceNode[];
+  /** Override the ENTRY lane header text. Defaults to "Entry" which
+   *  reads correctly for the per-path / attacker views (where the
+   *  lane represents the attacker's entry point — Internet / IGW /
+   *  IAMUser / federated principal). The EXFIL view passes "Source"
+   *  because in that direction-inverted view the lane card IS the
+   *  jewel itself (the data origin), not an attacker. Optional for
+   *  back-compat. */
+  entryLaneLabel?: string;
   resources: ServiceNode[];
   subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
@@ -1870,6 +1878,70 @@ function AnimatedTrafficLine({
   const pathId = useMemo(() => `path-${Math.random().toString(36).substr(2, 9)}`, []);
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 
+  // ─── Curved path geometry (explicit-edges mode only) ───────────────
+  //
+  // Lane-based layout means a direct edge between non-adjacent lanes
+  // (e.g. Subnet → NACL crossing Route Tables + SG columns) bisects
+  // unrelated cards visually. Curving the line gracefully arches it
+  // away from the straight path so it bends OVER the intermediate
+  // cards instead of through them. Legacy flow mode keeps straight
+  // segments (those are already short checkpoint-to-checkpoint hops).
+  //
+  // Curve: cubic Bezier with control points offset along the line
+  // perpendicular by an archAmount proportional to line length.
+  // For long lines (EC2 → IGW across the canvas) the arch is bigger,
+  // bending the line clearly out of the way; for short edges
+  // (EC2 → Subnet adjacent column) the curve is barely perceptible.
+  //
+  // Plane gives the arch its DIRECTION:
+  //   identity  → arch upward (negative perpendicular Y)
+  //   network   → arch downward (positive perpendicular Y)
+  //   data      → arch downward, larger amount (more pronounced for
+  //               observed traffic so the eye tracks them as the
+  //               event lines rather than config plumbing)
+  // This stacks parallel edges from one source/target pair instead of
+  // collapsing them onto the same straight line.
+  const useCurve = !!edgeData;
+  const plane: EdgePlane | undefined = (() => {
+    if (!edgeData) return undefined;
+    // Re-derive plane from relationship — passed-in planeColor reflects
+    // the same logic, but we need the discrete plane label for arch
+    // direction. Cheap; could also be threaded through as a prop later.
+    const r = edgeData.relationship.toUpperCase();
+    if (r === 'USES_ROLE' || r === 'ASSUMES_ROLE' || r === 'ASSUMES_ROLE_ACTUAL' ||
+        r === 'HAS_INSTANCE_PROFILE' || r === 'HAS_POLICY') return 'identity';
+    if (r === 'ACCESSES_RESOURCE' || r === 'ACTUAL_API_CALL' || r === 'ACTUAL_S3_ACCESS' ||
+        r === 'READS_FROM' || r === 'WRITES_TO' || r === 'RUNTIME_CALLS') return 'data';
+    return 'network';
+  })();
+  const archDir = plane === 'identity' ? -1 : 1; // -1 = up, +1 = down
+  const archMultiplier = plane === 'data' ? 0.18 : 0.12;
+  // For very short edges (adjacent-column hops) the arch is tiny — don't
+  // distort what's already a clean line.
+  const archAmount = useCurve ? Math.min(45, length * archMultiplier) : 0;
+
+  // Cubic Bezier control points. Perpendicular vector = (-dy, dx)/len,
+  // then scaled by archDir * archAmount and added to the 1/3 and 2/3
+  // points along the source→target line.
+  const dxBz = x2 - x1;
+  const dyBz = y2 - y1;
+  const lenBz = Math.max(1, length);
+  const perpX = (-dyBz / lenBz) * archDir * archAmount;
+  const perpY = (dxBz / lenBz) * archDir * archAmount;
+  const cx1 = x1 + dxBz * 0.3 + perpX;
+  const cy1 = y1 + dyBz * 0.3 + perpY;
+  const cx2 = x1 + dxBz * 0.7 + perpX;
+  const cy2 = y1 + dyBz * 0.7 + perpY;
+  const pathD = useCurve
+    ? `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
+    : `M ${x1} ${y1} L ${x2} ${y2}`;
+  // Arrow rotation = tangent at the endpoint. For straight lines that's
+  // (y2-y1, x2-x1). For cubic Bezier at t=1 the tangent is along
+  // (P3 - P2) = (x2-cx2, y2-cy2).
+  const arrowDx = useCurve ? x2 - cx2 : x2 - x1;
+  const arrowDy = useCurve ? y2 - cy2 : y2 - y1;
+  const arrowAngleDeg = (Math.atan2(arrowDy, arrowDx) * 180) / Math.PI;
+
   // Speed based on intensity - faster = more traffic (slower base for better visibility)
   // Attack paths animate faster (2x speed) to draw attention
   const baseDuration = Math.max(3, length / 80);
@@ -1925,10 +1997,12 @@ function AnimatedTrafficLine({
 
   return (
     <g>
-      {/* Glow effect for active lines and attack paths */}
+      {/* Glow effect for active lines and attack paths.
+       *  Uses pathD so curves get glowed along their actual shape. */}
       {(isActive || isAttackPath) && (
-        <line
-          x1={x1} y1={y1} x2={x2} y2={y2}
+        <path
+          d={pathD}
+          fill="none"
           stroke={glowColor}
           strokeWidth={isAttackPath ? 14 : isHighlighted ? 12 : 6}
           opacity={isAttackPath ? 0.5 : isHighlighted ? 0.4 : 0.2}
@@ -1942,12 +2016,15 @@ function AnimatedTrafficLine({
               repeatCount="indefinite"
             />
           )}
-        </line>
+        </path>
       )}
 
-      {/* Main line - dashed for attack paths */}
-      <line
-        x1={x1} y1={y1} x2={x2} y2={y2}
+      {/* Main line — straight in legacy flow mode, Bezier curve in
+       *  explicit-edges mode so lines bend around unrelated cards
+       *  rather than bisecting them. Dashed for attack paths. */}
+      <path
+        d={pathD}
+        fill="none"
         stroke={lineColor}
         strokeWidth={heatmapStrokeWidth ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)}
         strokeLinecap="round"
@@ -1958,10 +2035,11 @@ function AnimatedTrafficLine({
       {/* Animated particles - always show when animate is true */}
       {animate && (
         <>
-          {/* Define the path for animation */}
+          {/* Define the path for animation — same shape as the visible
+           *  line so the particles follow the curve. */}
           <path
             id={pathId}
-            d={`M ${x1} ${y1} L ${x2} ${y2}`}
+            d={pathD}
             fill="none"
             stroke="transparent"
           />
@@ -2052,11 +2130,14 @@ function AnimatedTrafficLine({
         })()
       )}
 
-      {/* Arrow at end */}
+      {/* Arrow at end — rotation follows the curve tangent at (x2,y2)
+       *  in explicit-edges mode (so the arrow points along the curve's
+       *  end direction, not along the straight source→target chord)
+       *  and matches the straight chord in legacy flow mode. */}
       <polygon
         points={`${x2},${y2} ${x2 - 12},${y2 - 6} ${x2 - 12},${y2 + 6}`}
         fill={lineColor}
-        transform={`rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI}, ${x2}, ${y2})`}
+        transform={`rotate(${arrowAngleDeg}, ${x2}, ${y2})`}
       />
     </g>
   );
@@ -2806,7 +2887,7 @@ export function UnifiedArchitectureDiagram({
               <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <Target className="w-4 h-4 text-cyan-300" />
-                  Entry ({entries.length})
+                  {architecture.entryLaneLabel ?? "Entry"} ({entries.length})
                 </div>
                 {entries.map((node) => {
                   const isInAttackPath = attackPathNodeIds.has(node.id);
