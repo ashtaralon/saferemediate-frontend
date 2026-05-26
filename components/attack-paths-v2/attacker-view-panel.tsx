@@ -155,6 +155,68 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
     return buildAttackerArchitecture(data, path)
   }, [data, path])
 
+  // ── Lateral attackers (Phase 1.7 — 2026-05-26) ────────────────────
+  //
+  // "Show me ANY path to the crown jewel" was the original CISO ask.
+  // The current canvas shows ONE chain (the path the user selected
+  // from the IAP list). But the CJ may have multiple distinct
+  // principals with observed ACCESSES_RESOURCE hits — Lambdas,
+  // service-roles, anonymous principals — that don't share an EC2
+  // origin and so don't appear in the same chain. Without surfacing
+  // them, the operator scrolling the Attacker View thinks they see
+  // the full picture and they don't.
+  //
+  // Collection rule: any neighbor of the CJ via incoming
+  // ACCESSES_RESOURCE with hit_count > 0, that ISN'T already a node
+  // on the current rendered chain. Hit-count threshold filters out
+  // historical / zero-traffic edges.
+  const lateralAttackers = useMemo(() => {
+    if (!data) return [] as Array<{
+      id: string
+      name: string
+      type: string
+      hits: number
+      firstSeen: string | null
+      lastSeen: string | null
+    }>
+    const cjIds = new Set(
+      (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
+    )
+    const pathIds = new Set((path.nodes ?? []).map((n) => n.id))
+    const attackers: Array<{
+      id: string
+      name: string
+      type: string
+      hits: number
+      firstSeen: string | null
+      lastSeen: string | null
+    }> = []
+    const seenAttacker = new Set<string>()
+    for (const cjId of cjIds) {
+      const laterals = data.laterals_by_node?.[cjId] ?? []
+      for (const e of laterals) {
+        if (e.type !== "ACCESSES_RESOURCE") continue
+        if (e.direction !== "in") continue
+        const nid = e.neighbor_id || ""
+        if (!nid) continue
+        if (pathIds.has(nid)) continue
+        if (seenAttacker.has(nid)) continue
+        const hits = e.hit_count ?? 0
+        if (hits <= 0) continue
+        seenAttacker.add(nid)
+        attackers.push({
+          id: nid,
+          name: e.neighbor_name || nid,
+          type: e.neighbor_type || "Unknown",
+          hits,
+          firstSeen: e.first_seen ?? null,
+          lastSeen: e.last_seen ?? null,
+        })
+      }
+    }
+    return attackers.sort((a, b) => b.hits - a.hits)
+  }, [data, path])
+
   // 2026-05-26 (Phase 1.3): single source of truth for the chain's
   // observed-traffic stats. Previously this useMemo iterated a
   // different edge set than `buildAttackerArchitecture` did, producing
@@ -270,6 +332,116 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
           // hop. Operator can still toggle it off via the header.
           defaultShowVPCBoundaries={true}
         />
+      </div>
+      {lateralAttackers.length > 0 ? (
+        <LateralAttackersPanel
+          attackers={lateralAttackers}
+          jewelName={jewel?.name ?? "this jewel"}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+// ── Lateral attackers panel ──────────────────────────────────────────
+//
+// Renders below the canvas when the CJ has incoming ACCESSES_RESOURCE
+// hits from principals NOT on the current chain. Answers the CISO's
+// "show me any path to the crown jewel" — the canvas above shows ONE
+// chain; this panel surfaces the others as evidence-grounded rows.
+//
+// Copy discipline (feedback_signal_language): no "Suspicious" or
+// alert language. We say "Other principals observed accessing …"
+// because that is exactly what the graph evidence is.
+
+interface LateralAttacker {
+  id: string
+  name: string
+  type: string
+  hits: number
+  firstSeen: string | null
+  lastSeen: string | null
+}
+
+function LateralAttackersPanel({
+  attackers,
+  jewelName,
+}: {
+  attackers: LateralAttacker[]
+  jewelName: string
+}) {
+  const formatNumber = (n: number): string => {
+    if (n < 1000) return String(n)
+    if (n < 1000000) return `${(n / 1000).toFixed(1)}K`
+    return `${(n / 1000000).toFixed(1)}M`
+  }
+  const formatRelative = (iso: string | null): string => {
+    if (!iso) return "—"
+    try {
+      const d = new Date(iso)
+      if (isNaN(d.getTime())) return "—"
+      return d.toISOString().slice(0, 10)
+    } catch {
+      return "—"
+    }
+  }
+  return (
+    <div className="border-t border-slate-800/60 bg-slate-950/70">
+      <div className="px-6 py-3 flex items-baseline justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-amber-300/90 flex items-center gap-1.5">
+            <AlertTriangle className="h-3 w-3" />
+            Other ways in · {attackers.length} principal
+            {attackers.length === 1 ? "" : "s"} observed
+          </div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            Principals with observed <span className="font-mono">ACCESSES_RESOURCE</span> to
+            {" "}<span className="text-amber-200/90 font-mono">{jewelName}</span> that aren't
+            on this chain. Sorted by hit count.
+          </div>
+        </div>
+      </div>
+      <div className="px-6 pb-4">
+        <div className="rounded-md border border-slate-800/80 overflow-hidden">
+          <table className="w-full text-[11px]">
+            <thead className="bg-slate-900/70">
+              <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="px-3 py-2 font-semibold">Principal</th>
+                <th className="px-3 py-2 font-semibold">Type</th>
+                <th className="px-3 py-2 font-semibold text-right">Hits</th>
+                <th className="px-3 py-2 font-semibold">First seen</th>
+                <th className="px-3 py-2 font-semibold">Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attackers.map((a) => (
+                <tr
+                  key={a.id}
+                  className="border-t border-slate-800/60 text-slate-200 hover:bg-slate-900/40"
+                >
+                  <td
+                    className="px-3 py-2 font-mono text-slate-200 truncate max-w-[420px]"
+                    title={a.id}
+                  >
+                    {a.name}
+                  </td>
+                  <td className="px-3 py-2 text-slate-400">{a.type}</td>
+                  <td className="px-3 py-2 text-right font-mono text-amber-200/90">
+                    {formatNumber(a.hits)}
+                  </td>
+                  <td className="px-3 py-2 text-slate-400">{formatRelative(a.firstSeen)}</td>
+                  <td className="px-3 py-2 text-slate-400">{formatRelative(a.lastSeen)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="text-[10px] text-slate-500 mt-2 italic">
+          Each row is one principal with at least one observed CloudTrail
+          API call against this jewel. Rendered from Neo4j
+          {" "}<span className="font-mono">ACCESSES_RESOURCE</span> edges, max-merged per
+          {" "}<span className="font-mono">(principal, resource)</span>.
+        </div>
       </div>
     </div>
   )
@@ -594,15 +766,24 @@ function buildAttackerArchitecture(
     const display = friendlyName(name, id)
     const p = props || {}
     const totalCount = Number(p.allowed_actions_count ?? 0) || 0
-    const usedCount = Number(p.used_actions_count ?? 0) || 0
+    // 2026-05-26 audit fix: trust LIVE evidence over collector scalars.
+    // The `used_actions_count` field on cyntro-demo-ec2-s3-role lies
+    // (=0) while the role has USES_PERMISSION → s3:GetObject + s3:PutObject
+    // and 789K observed ACCESSES_RESOURCE hits. Phase 0 backend stamps
+    // `used_actions_count_likely_stale=true` when the scalar is 0 but
+    // real hits > 0. Prefer the live count in that case.
+    //
+    // live_uses_permission_edge_count = COUNT of distinct USES_PERMISSION
+    // edges off the role — i.e., distinct actions observed in use.
+    // That IS the operator-meaningful "used actions" number.
+    const scalarUsed = Number(p.used_actions_count ?? 0) || 0
+    const stale = p.used_actions_count_likely_stale === true
+    const liveUsed = Number(p.live_uses_permission_edge_count ?? 0) || 0
+    const usedCount = stale && liveUsed > 0 ? liveUsed : scalarUsed
     // Math invariant: gap = max(0, allowed − used). DO NOT trust the
     // collector's `unused_actions_count` field — at least one writer
-    // emits values that don't match (allowed=7, used=1 → unused=7
-    // instead of 6 on cyntro-demo-ec2-s3-role as of 2026-05-24). A
-    // partner doing the 5-second mental check on "1/7 · 7 unused"
-    // would spot the inconsistency immediately, so we recompute here
-    // and ignore the broken scalar. The collector should be fixed
-    // separately; the UI must not propagate the bug.
+    // emits values that don't match. Recompute from the (now honest)
+    // usedCount.
     const gapCount = Math.max(0, totalCount - usedCount)
     iamRoles.push({
       id,
@@ -614,7 +795,11 @@ function buildAttackerArchitecture(
       gapCount,
       connectedSources: [],
       connectedTargets: [],
-    })
+      // Surface staleness so the renderer can show a small chip
+      // ("⚡ live evidence" or similar) — the data is here even if the
+      // current visual treatment doesn't show it yet.
+      ...(stale && liveUsed > 0 ? { usageFromLiveEvidence: true } : {}),
+    } as any)
   }
   // InstanceProfile — AWS's binding object that wires an EC2 instance
   // to an IAM role. Semantically distinct from a role; previously
