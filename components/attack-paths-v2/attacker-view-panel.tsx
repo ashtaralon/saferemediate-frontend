@@ -1856,6 +1856,7 @@ function buildAttackerArchitecture(
   const SKIP_REL_TYPES = new Set([
     "IN_VPC",
     "RUNS_IN_VPC",
+    "BELONGS_TO",         // VPC↔{SG, NACL} container — VPC boundary box renders this
     "BELONGS_TO_SYSTEM",
     "USES_SECURITY_GROUP", // legacy alias for SECURED_BY
   ])
