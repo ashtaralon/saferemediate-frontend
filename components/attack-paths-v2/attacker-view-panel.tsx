@@ -1833,6 +1833,43 @@ function buildAttackerArchitecture(
   const edgeKeys = new Set<string>()
   const builtEdges: CanvasEdge[] = []
 
+  // ── Edge visual-noise filter (2026-05-26, Fix #3) ─────────────────
+  //
+  // Phase 2 wired ALL graph edges 1:1 to the canvas. Faithful but
+  // visually noisy: 30 edges → 30 SVG bezier curves → curves crossing
+  // unrelated lane cards. User-audit caught the "Role → IGW → S3"
+  // misread, which was a curve from a different edge passing through
+  // the IGW card geometrically.
+  //
+  // The fix is to drop edge types that are either:
+  //   a) container/context edges already represented by other visuals
+  //      (IN_VPC, RUNS_IN_VPC — the dashed VPC boundary IS this hop)
+  //   b) shortcut aliases of a canonical edge that we already draw
+  //      (USES_SECURITY_GROUP is a legacy alias for SECURED_BY;
+  //      compute→role via USES_ROLE / ASSUMES_ROLE / ASSUMES_ROLE_ACTUAL
+  //      duplicates the canonical compute→IP→role chain)
+  //
+  // The data is preserved in the Neo4j graph; we just don't draw a
+  // visible line for these. Chain backbone (HAS_INSTANCE_PROFILE,
+  // USES_ROLE on IP, ACCESSES_RESOURCE, SECURED_BY, IN_SUBNET,
+  // ASSOCIATED_WITH, ROUTES_VIA) stays untouched.
+  const SKIP_REL_TYPES = new Set([
+    "IN_VPC",
+    "RUNS_IN_VPC",
+    "BELONGS_TO_SYSTEM",
+    "USES_SECURITY_GROUP", // legacy alias for SECURED_BY
+  ])
+  // For compute→role direct edges, only skip if the FULL IP chain is
+  // also present (compute→IP exists AND IP→role exists). When the
+  // chain is missing, the direct edge is the only thing tying the
+  // compute to the role and we must keep it.
+  const hasComputeToIpEdge = (path.edges ?? []).some(
+    (e) => (e.type || "").toUpperCase() === "HAS_INSTANCE_PROFILE",
+  )
+  const computeRoleShortcutSkip = hasComputeToIpEdge
+    ? new Set(["USES_ROLE", "ASSUMES_ROLE", "ASSUMES_ROLE_ACTUAL"])
+    : new Set<string>()
+
   const pushCanvasEdge = (
     source: string,
     target: string,
@@ -1849,6 +1886,15 @@ function buildAttackerArchitecture(
     if (!seen.has(source) || !seen.has(target)) return
     const rel = (rawType || "").toUpperCase()
     if (!rel) return
+    if (SKIP_REL_TYPES.has(rel)) return
+    // Compute→role shortcut filter — only when the canonical IP chain
+    // is present. Check by id pattern: compute ids don't start with
+    // `arn:`; role ids do.
+    if (computeRoleShortcutSkip.has(rel)) {
+      const looksLikeCompute = !source.startsWith("arn:")
+      const looksLikeRole = target.includes(":role/")
+      if (looksLikeCompute && looksLikeRole) return
+    }
     const id = `${source}|${rel}|${target}`
     if (edgeKeys.has(id)) return
     edgeKeys.add(id)
