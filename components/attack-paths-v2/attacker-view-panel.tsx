@@ -1741,39 +1741,61 @@ function buildAttackerArchitecture(
     return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
   })
 
-  // ── Collapse role↔IP binding twins (Phase 1.1 — 2026-05-26) ─────
+  // ── Mark role↔IP binding twins (Phase 1.1, revised 2026-05-26) ──
   //
-  // Backend (graph-view) now marks `:role/X` ↔ `:instance-profile/X`
-  // pairs with `key_properties.binding_twin_id` pointing at the other.
-  // When BOTH twin nodes are on the path, they render as two cards
-  // with the same human name in adjacent lanes (IAM ROLES + INSTANCE
-  // PROFILES) — the audit's "the role appears twice" bug.
-  //
-  // Resolution: keep the IAM Role card (it carries the policy info,
-  // allowed/used counts, the live_observed_* fields). Drop the
-  // InstanceProfile card. The role's authority over the chain is
-  // unchanged — AWS's binding-object metadata isn't operator-actionable
-  // at this zoom level.
-  //
-  // Stamp `bindingTwinIp: true` on the role's checkpoint so the renderer
-  // can show a small "+ Instance Profile" hint chip (added in a
-  // follow-up; the data is here today).
-  const ipTwinsToCollapse = new Set<string>()
+  // Backend marks pairs via `key_properties.binding_twin_id`. We stamp
+  // a `bindingTwinIp` flag on the role's checkpoint so the renderer
+  // can show a hint chip, BUT we KEEP both cards in the architecture
+  // arrays so the sidebar counts (IAM ROLES (1) · INSTANCE PROFILES (1))
+  // reflect what's actually in the graph. The previous "collapse-and-
+  // drop-the-IP" behavior produced INSTANCE PROFILES (0) which was a
+  // lie about the graph state — the hop exists, just folded visually.
+  // User audit caught the count regression and the fix is to keep the
+  // count honest.
   for (const role of iamRoles) {
     const roleNode = graph.nodes.find((n) => n.id === role.id)
     const twinId = (roleNode?.key_properties as Record<string, any> | undefined)?.binding_twin_id
     if (typeof twinId === "string" && twinId && seen.has(twinId)) {
-      // Confirm the twin is actually in our IP list (defensive — the
-      // backend marker is symmetric, but layout choices could differ).
       if (instanceProfiles.some((ip) => ip.id === twinId)) {
-        ipTwinsToCollapse.add(twinId)
         ;(role as any).bindingTwinIp = true
       }
     }
   }
-  const collapsedInstanceProfiles = instanceProfiles.filter(
-    (ip) => !ipTwinsToCollapse.has(ip.id),
-  )
+
+  // ── Chain-scope live-evidence per role (Phase 1.8 — 2026-05-26) ──
+  //
+  // Backend's _enrich_live_usage sums per-resource MAX hit_count across
+  // ALL resources the role has accessed (975,913 = 789,820 prod-data +
+  // 186,093 analytics). Honest as a "this role HAS been used" signal,
+  // but misleading on a chain-scoped view: the operator reads the
+  // "976K hits" chip on a role card sitting next to ONE jewel and
+  // assumes that's hits to THAT jewel. It isn't.
+  //
+  // Filter to outgoing ACCESSES_RESOURCE edges that target the chain's
+  // CJ(s). Now the chip shows the chain-scoped number — 789,820 in this
+  // case — matching what the operator expects from the chain context.
+  for (const role of iamRoles as any[]) {
+    const roleLaterals = graph.laterals_by_node?.[role.id] ?? []
+    let cjHits = 0
+    for (const e of roleLaterals) {
+      if (e.type !== "ACCESSES_RESOURCE") continue
+      if (e.direction !== "out") continue
+      const nid = e.neighbor_id || ""
+      if (!nid || !crownJewelIds.has(nid)) continue
+      const h = e.hit_count ?? 0
+      if (h > cjHits) cjHits = h
+    }
+    if (cjHits > 0) {
+      role.liveObservedTotalHits = cjHits
+      role.liveObservedResourceCount = 1
+    } else if (role.liveObservedTotalHits) {
+      // Role had cross-resource live activity but NOT to this chain's
+      // jewel. Drop the chip on this view — showing cross-resource
+      // totals here is exactly the audit's complaint.
+      delete role.liveObservedTotalHits
+      delete role.liveObservedResourceCount
+    }
+  }
 
   // ENTRY lane (Phase 2 — 2026-05-25): explicit attacker-entry nodes.
   // For now we surface every principal (root / IAMUser / federated /
@@ -1905,12 +1927,14 @@ function buildAttackerArchitecture(
     // back-compat — consumers that don't know about them just ignore
     // the new lanes.
     //
-    // 2026-05-26 (Phase 1.1): collapsedInstanceProfiles drops the
-    // role-twin IP card when both are on the path. The role keeps
-    // bindingTwinIp:true so the renderer can hint that the role acts
-    // as the instance profile too — eliminating the "same name twice"
-    // confusion the audit flagged.
-    instanceProfiles: collapsedInstanceProfiles,
+    // 2026-05-26 (Phase 1.1, revised): the IP card stays in the
+    // architecture so the sidebar count is honest about the graph
+    // ("INSTANCE PROFILES (1)" reflects the real HAS_INSTANCE_PROFILE
+    // hop). The role's checkpoint carries bindingTwinIp:true so the
+    // renderer can disambiguate the visual without dropping the count.
+    // The earlier "collapse-and-drop" approach lied about the graph
+    // state — user audit caught it.
+    instanceProfiles,
     iamPolicies,
     vpcEndpoints: [],
     egressGateways,
