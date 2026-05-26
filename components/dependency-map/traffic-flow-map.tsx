@@ -105,12 +105,25 @@ export interface SecurityCheckpoint {
    *  liveObservedResourceCount is the count of distinct resources hit.
    *  When > 0 the role HAS been used in the observation window,
    *  regardless of what the scalar used_actions_count claims. Backend
-   *  emits these via _enrich_live_usage when the collector's
-   *  USES_PERMISSION writer fails to materialize action-level edges.
-   *  Drives the amber "live-evidence" chip on the role card that
-   *  surfaces the "0/7 perms" ↔ "975K hits" data contradiction. */
+   *  emits these via _enrich_live_usage. Drives the amber "live-
+   *  evidence" chip on the role card that surfaces the
+   *  "0/7 perms" ↔ "975K hits" data contradiction. */
   liveObservedTotalHits?: number;
   liveObservedResourceCount?: number;
+  /** IAM Role — true when the collector-written scalar
+   *  used_actions_count > 0 BUT zero corresponding :USED_ACTION edges
+   *  exist (the inverse of the original "stale" condition). The
+   *  scalar claims usage that the action-level edges don't back. The
+   *  frontend renders a small "scalar=N · 0 edges" chip so operators
+   *  see ingestion drift instead of a silent mismatch. */
+  usageScalarEdgesDisagree?: boolean;
+  /** IAM Role — sum of `count` properties across :USED_ACTION edges.
+   *  Distinct from liveObservedTotalHits (which counts
+   *  ACCESSES_RESOURCE hits). Distinct from the usedCount itself
+   *  (which counts distinct edges). This is the event-volume
+   *  metric — "the role used 3 distinct actions across 1,247
+   *  CloudTrail events". Optional render below the main chip. */
+  liveUsedActionEventCount?: number;
 }
 
 export interface TrafficFlow {
@@ -1205,6 +1218,38 @@ export function IAMRoleNode({
                         ? `${(role.liveObservedTotalHits / 1_000).toFixed(0)}K`
                         : String(role.liveObservedTotalHits)}{" "}
                     hits · {role.liveObservedResourceCount ?? 0} res
+                  </span>
+                )}
+              {/* Data-quality chip — 2026-05-26 (revised plan after
+                  reviewer pushback on strict-vs-fallback). The
+                  collector-written scalar `used_actions_count` and the
+                  canonical :USED_ACTION edges disagree when the scalar
+                  was written by iam_usage_sync/behavioral_sync but
+                  cloudtrail_silver hasn't yet materialized the
+                  action-level edges. Rather than silently fall back
+                  (which masks the ingestion drift) we render the
+                  scalar's claim visibly so the operator KNOWS the
+                  graph is incomplete here. */}
+              {role.usageScalarEdgesDisagree && (
+                <span
+                  className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/70 text-slate-300 border border-slate-500/50 font-semibold"
+                  title={`Data quality: scalar used_actions_count=${role.usedCount} but no :USED_ACTION edges exist in the graph. The action-level evidence is missing — silver-layer ingestion may not have run for this role. Check cloudtrail_silver.py / iam_usage_sync.py.`}
+                >
+                  ⚠ scalar · no edges
+                </span>
+              )}
+              {typeof role.liveUsedActionEventCount === "number" &&
+                role.liveUsedActionEventCount > 0 && (
+                  <span
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                    title={`Event-volume: ${role.liveUsedActionEventCount.toLocaleString()} :USED_ACTION events across ${role.usedCount} distinct actions. Source: silver-layer USED_ACTION edges, sum of .count property.`}
+                  >
+                    {role.liveUsedActionEventCount >= 1_000_000
+                      ? `${(role.liveUsedActionEventCount / 1_000_000).toFixed(1)}M`
+                      : role.liveUsedActionEventCount >= 1_000
+                        ? `${(role.liveUsedActionEventCount / 1_000).toFixed(0)}K`
+                        : String(role.liveUsedActionEventCount)}{" "}
+                    events
                   </span>
                 )}
             </div>

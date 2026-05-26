@@ -817,7 +817,17 @@ function buildAttackerArchitecture(
     // That IS the operator-meaningful "used actions" number.
     const scalarUsed = Number(p.used_actions_count ?? 0) || 0
     const stale = p.used_actions_count_likely_stale === true
-    const liveUsed = Number(p.live_uses_permission_edge_count ?? 0) || 0
+    // Canonical edge is :USED_ACTION (per cloudtrail_silver.py gold
+    // output). The backend now reads from that edge type — the
+    // previous USES_PERMISSION read was a wrong-relationship-name bug
+    // caught in the 2026-05-26 audit. Old live_uses_permission_edge_count
+    // is read as a fallback for stale Vercel deploys; new code prefers
+    // live_used_action_count.
+    const liveUsed = Number(
+      p.live_used_action_count ??
+        p.live_uses_permission_edge_count ??
+        0,
+    ) || 0
     const usedCount = stale && liveUsed > 0 ? liveUsed : scalarUsed
     // Math invariant: gap = max(0, allowed − used). DO NOT trust the
     // collector's `unused_actions_count` field — at least one writer
@@ -825,16 +835,16 @@ function buildAttackerArchitecture(
     // usedCount.
     const gapCount = Math.max(0, totalCount - usedCount)
     // 2026-05-26 (Phase 1.7-followup): pipe the live observed-activity
-    // evidence through to the role card. cyntro-demo-ec2-s3-role has
-    // scalar used_actions_count=0 AND live_uses_permission_edge_count=0
-    // (collector failed to materialize USES_PERMISSION edges) AND
-    // ALSO 975K observed ACCESSES_RESOURCE hits across 2 resources.
-    // The honest math says "0/7 perms" but the operator MUST see the
-    // 975K hits to know the role isn't dormant — otherwise the card
-    // reads as "this role is unused" when 790K calls hit the jewel
-    // last month. Render side surfaces it as an amber chip.
+    // evidence through to the role card. Backend now reads :USED_ACTION
+    // edges (canonical per cloudtrail_silver.py gold-output schema) and
+    // emits live_used_action_count + live_used_action_event_count.
+    // ACCESSES_RESOURCE evidence remains as a secondary signal via
+    // live_observed_total_hits.
     const liveHits = Number(p.live_observed_total_hits ?? 0) || 0
     const liveResources = Number(p.live_observed_resource_count ?? 0) || 0
+    const liveEventCount = Number(p.live_used_action_event_count ?? 0) || 0
+    const scalarEdgesDisagree =
+      p.used_actions_count_scalar_edges_disagree === true
     iamRoles.push({
       id,
       type: "iam_role",
@@ -851,6 +861,10 @@ function buildAttackerArchitecture(
             liveObservedResourceCount: liveResources,
           }
         : {}),
+      ...(liveEventCount > 0
+        ? { liveUsedActionEventCount: liveEventCount }
+        : {}),
+      ...(scalarEdgesDisagree ? { usageScalarEdgesDisagree: true } : {}),
     })
   }
   // InstanceProfile — AWS's binding object that wires an EC2 instance
