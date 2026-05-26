@@ -33,6 +33,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { BackToDashboard } from "@/components/back-to-dashboard"
+import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { approveSplitPlan, fetchSplitPlan } from "@/lib/api-client"
 import type {
   ConsumerEvidence,
@@ -148,6 +149,7 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
       <WhatCyntroWillDo />
       <WhereThisStands plan={plan} />
       <ApprovalAction plan={plan} onApproved={reload} />
+      <ExecutionHistory planId={plan.plan_id} planState={plan.state} />
       <EngineeringDetails plan={plan} />
     </div>
   )
