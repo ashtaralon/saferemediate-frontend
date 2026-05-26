@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
+import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
 import { approveSplitPlan, fetchSplitPlan } from "@/lib/api-client"
 import type {
   ConsumerEvidence,
@@ -148,6 +149,7 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
       <WhyItMatters plan={plan} />
       <WhatCyntroWillDo />
       <WhereThisStands plan={plan} />
+      <GateReadinessPanel planId={plan.plan_id} planState={plan.state} mode="CREATE_ONLY" />
       <ApprovalAction plan={plan} onApproved={reload} />
       <ExecutionHistory planId={plan.plan_id} planState={plan.state} />
       <EngineeringDetails plan={plan} />
