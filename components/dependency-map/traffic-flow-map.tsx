@@ -99,6 +99,18 @@ export interface SecurityCheckpoint {
    *  to "treat as on-path" (back-compat for callers that don't yet
    *  surface this signal). */
   onPath?: boolean;
+  /** IAM Role — observed-activity evidence from CloudTrail
+   *  ACCESSES_RESOURCE edges. liveObservedTotalHits is the
+   *  per-resource max-then-sum count of distinct API calls.
+   *  liveObservedResourceCount is the count of distinct resources hit.
+   *  When > 0 the role HAS been used in the observation window,
+   *  regardless of what the scalar used_actions_count claims. Backend
+   *  emits these via _enrich_live_usage when the collector's
+   *  USES_PERMISSION writer fails to materialize action-level edges.
+   *  Drives the amber "live-evidence" chip on the role card that
+   *  surfaces the "0/7 perms" ↔ "975K hits" data contradiction. */
+  liveObservedTotalHits?: number;
+  liveObservedResourceCount?: number;
 }
 
 export interface TrafficFlow {
@@ -1154,7 +1166,7 @@ export function IAMRoleNode({
               </span>
               <span className="text-[9px] text-slate-500">perms</span>
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               {hasGap ? (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-400">
                   {role.gapCount} unused
@@ -1169,6 +1181,32 @@ export function IAMRoleNode({
                   {blastRadius} linked
                 </span>
               )}
+              {/* Live-evidence chip — 2026-05-26 audit follow-up.
+                  When CloudTrail shows real ACCESSES_RESOURCE hits
+                  from this role but the scalar used_actions_count
+                  says 0, the "0/7 perms · 7 unused" card reads as
+                  "role is dormant" — which is the opposite of the
+                  truth. This chip surfaces the contradiction so the
+                  CISO sees the live evidence next to the static
+                  counters. Numbers come from Phase-0 backend
+                  enrichment (live_observed_total_hits +
+                  live_observed_resource_count), per-resource
+                  max-then-sum (not the inflated naive sum). */}
+              {typeof role.liveObservedTotalHits === "number" &&
+                role.liveObservedTotalHits > 0 && (
+                  <span
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-500/40 font-semibold"
+                    title={`Live evidence: ${role.liveObservedTotalHits.toLocaleString()} observed CloudTrail hits across ${role.liveObservedResourceCount ?? 0} resource(s). Independent of the collector-written used_actions_count scalar.`}
+                  >
+                    ⚡{" "}
+                    {role.liveObservedTotalHits >= 1_000_000
+                      ? `${(role.liveObservedTotalHits / 1_000_000).toFixed(1)}M`
+                      : role.liveObservedTotalHits >= 1_000
+                        ? `${(role.liveObservedTotalHits / 1_000).toFixed(0)}K`
+                        : String(role.liveObservedTotalHits)}{" "}
+                    hits · {role.liveObservedResourceCount ?? 0} res
+                  </span>
+                )}
             </div>
           </>
         ) : (

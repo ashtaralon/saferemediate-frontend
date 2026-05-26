@@ -785,6 +785,17 @@ function buildAttackerArchitecture(
     // emits values that don't match. Recompute from the (now honest)
     // usedCount.
     const gapCount = Math.max(0, totalCount - usedCount)
+    // 2026-05-26 (Phase 1.7-followup): pipe the live observed-activity
+    // evidence through to the role card. cyntro-demo-ec2-s3-role has
+    // scalar used_actions_count=0 AND live_uses_permission_edge_count=0
+    // (collector failed to materialize USES_PERMISSION edges) AND
+    // ALSO 975K observed ACCESSES_RESOURCE hits across 2 resources.
+    // The honest math says "0/7 perms" but the operator MUST see the
+    // 975K hits to know the role isn't dormant — otherwise the card
+    // reads as "this role is unused" when 790K calls hit the jewel
+    // last month. Render side surfaces it as an amber chip.
+    const liveHits = Number(p.live_observed_total_hits ?? 0) || 0
+    const liveResources = Number(p.live_observed_resource_count ?? 0) || 0
     iamRoles.push({
       id,
       type: "iam_role",
@@ -795,11 +806,13 @@ function buildAttackerArchitecture(
       gapCount,
       connectedSources: [],
       connectedTargets: [],
-      // Surface staleness so the renderer can show a small chip
-      // ("⚡ live evidence" or similar) — the data is here even if the
-      // current visual treatment doesn't show it yet.
-      ...(stale && liveUsed > 0 ? { usageFromLiveEvidence: true } : {}),
-    } as any)
+      ...(liveHits > 0
+        ? {
+            liveObservedTotalHits: liveHits,
+            liveObservedResourceCount: liveResources,
+          }
+        : {}),
+    })
   }
   // InstanceProfile — AWS's binding object that wires an EC2 instance
   // to an IAM role. Semantically distinct from a role; previously
