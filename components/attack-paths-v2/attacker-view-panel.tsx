@@ -103,7 +103,17 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
       system_name: systemName,
       node_ids: nodeIds,
       path_edges: pathEdges,
-      lateral_cap_per_node: 30,
+      // 2026-05-26: bumped from 30 → 200. The cap is applied per node
+      // INSIDE the Cypher `collect[0..$cap]` slice, BEFORE dedup. So a
+      // CJ with N principals × M duplicate edges per principal (e.g.
+      // cyntro-demo-prod-data has 4 principals × 2–11 dup edges = 22
+      // raw rows) eats headroom against the cap and silently drops
+      // real lateral attackers. CyntroLambdaTier1-pilot (492 hits)
+      // and part of alon-demo-ec2-role's edge list both fell off at
+      // 30. 200 is generous enough that a realistic CJ never bumps
+      // it, and tight enough that a pathologically-connected node
+      // doesn't blow up the payload.
+      lateral_cap_per_node: 200,
     })
   }, [path.id, path.nodes, path.edges, systemName])
 
