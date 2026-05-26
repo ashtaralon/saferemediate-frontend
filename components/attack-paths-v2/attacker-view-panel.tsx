@@ -202,17 +202,36 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
       lastSeen: string | null
     }> = []
     const seenAttacker = new Set<string>()
+    // Aggregate edges with no resolved neighbor_id (CloudTrail
+    // Principal stubs without a recognised role ARN) into a single
+    // "anonymous principal" row so the operator sees the real hit
+    // count instead of those events being silently dropped. The
+    // backend keeps these edges as long as they carry hits/bytes;
+    // the frontend collapses them here.
+    let anonHits = 0
+    let anonFirstSeen: string | null = null
+    let anonLastSeen: string | null = null
     for (const cjId of cjIds) {
       const laterals = data.laterals_by_node?.[cjId] ?? []
       for (const e of laterals) {
         if (e.type !== "ACCESSES_RESOURCE") continue
         if (e.direction !== "in") continue
-        const nid = e.neighbor_id || ""
-        if (!nid) continue
-        if (pathIds.has(nid)) continue
-        if (seenAttacker.has(nid)) continue
         const hits = e.hit_count ?? 0
         if (hits <= 0) continue
+        const nid = e.neighbor_id || ""
+        if (!nid) {
+          // Anonymous CloudTrail principal — aggregate.
+          anonHits = Math.max(anonHits, hits)
+          if (e.first_seen && (!anonFirstSeen || e.first_seen < anonFirstSeen)) {
+            anonFirstSeen = e.first_seen
+          }
+          if (e.last_seen && (!anonLastSeen || e.last_seen > anonLastSeen)) {
+            anonLastSeen = e.last_seen
+          }
+          continue
+        }
+        if (pathIds.has(nid)) continue
+        if (seenAttacker.has(nid)) continue
         seenAttacker.add(nid)
         attackers.push({
           id: nid,
@@ -223,6 +242,16 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
           lastSeen: e.last_seen ?? null,
         })
       }
+    }
+    if (anonHits > 0) {
+      attackers.push({
+        id: "anonymous-principal",
+        name: "(anonymous principal)",
+        type: "Principal",
+        hits: anonHits,
+        firstSeen: anonFirstSeen,
+        lastSeen: anonLastSeen,
+      })
     }
     return attackers.sort((a, b) => b.hits - a.hits)
   }, [data, path])
