@@ -1118,3 +1118,69 @@ export interface ApprovePlanResponse {
     plan_hash_at_approval: string
   }
 }
+
+// ─── Shared Security Groups (SG-1 to SG-6 backend live; UI starts here) ─
+
+export interface SharedSGVerdict {
+  discovery_candidate: boolean
+  proposal_allowed: boolean
+  create_only_allowed: boolean
+  staged_allowed: boolean
+  blocked_reasons: Array<{
+    code: string
+    phase_blocked: "proposal" | "create_only" | "staged"
+    message: string
+    severity: "hard" | "soft"
+  }>
+}
+
+export interface SharedSGConsumerBreakdown {
+  lambda: number
+  ec2: number
+  rds: number
+  load_balancer: number
+  network_interface: number
+}
+
+export interface SharedSGRuleSummary {
+  inbound: number
+  outbound: number
+  unused: number
+  high_risk: number
+  has_public_ingress: boolean
+}
+
+export interface SharedSGTopology {
+  systems: string[]
+  vpcs: string[]
+  self_ref_ingress: boolean
+  self_ref_egress: boolean
+  external_in_ref_ids: string[]
+  external_out_ref_ids: string[]
+}
+
+export interface SharedSGFreshness {
+  ingress_hash: string | null
+  egress_hash: string | null
+  last_synced: string | null
+}
+
+export interface SharedSG {
+  sg_id: string
+  sg_name: string
+  vpc_id: string | null
+  owner_id: string | null
+  consumer_count: number
+  consumer_breakdown: SharedSGConsumerBreakdown
+  rule_summary: SharedSGRuleSummary
+  topology: SharedSGTopology
+  freshness: SharedSGFreshness
+  verdict: SharedSGVerdict
+}
+
+export interface SharedSGsResponse {
+  shared_sgs: SharedSG[]
+  evidence_completeness: "ok" | "degraded"
+  sg0_pending_items: string[]
+  discovered_at: string
+}

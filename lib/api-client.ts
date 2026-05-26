@@ -915,3 +915,27 @@ export async function approveSplitPlan(
   }
   return await res.json()
 }
+
+// ─── Shared Security Groups (SG-9 frontend — discovery only for v1) ──
+
+import type { SharedSGsResponse } from "./types"
+
+export interface FetchSharedSGsParams {
+  minConsumers?: number
+  includeInactive?: boolean
+}
+
+export async function fetchSharedSGs(
+  params: FetchSharedSGsParams = {}
+): Promise<SharedSGsResponse> {
+  const qs = new URLSearchParams()
+  if (params.minConsumers !== undefined) qs.set("min_consumers", String(params.minConsumers))
+  if (params.includeInactive) qs.set("include_inactive", "true")
+  const url = `/api/proxy/sg/shared-sgs${qs.toString() ? `?${qs}` : ""}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`shared-sgs fetch ${res.status}: ${text.slice(0, 200)}`)
+  }
+  return await res.json()
+}
