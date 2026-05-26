@@ -155,39 +155,29 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
     return buildAttackerArchitecture(data, path)
   }, [data, path])
 
-  // Header summary — path-only build (Slice 9.4) so lateral counts are
-  // no longer the headline. We count the OBSERVED flows the canvas is
-  // about to draw (path edges + lateral edges that connect two path
-  // nodes with observed bytes/hits). That's the operator-meaningful
-  // signal — "you'll see N animated flows on the chain."
+  // 2026-05-26 (Phase 1.3): single source of truth for the chain's
+  // observed-traffic stats. Previously this useMemo iterated a
+  // different edge set than `buildAttackerArchitecture` did, producing
+  // the audit's "header says 771 KB on the wire / canvas mini-header
+  // says 0 B Traffic" contradiction. Now we derive both numbers off
+  // architecture.flows[] (the exact set the canvas renders) so the
+  // two headers cannot disagree.
   const flowSummary = useMemo(() => {
-    if (!data) return { observedFlows: 0, totalBytes: 0, totalHits: 0 }
+    if (!architecture) return { observedFlows: 0, totalBytes: 0, totalHits: 0 }
     let observedFlows = 0
     let totalBytes = 0
     let totalHits = 0
-    const pathIds = new Set(data.nodes.map((n) => n.id))
-    for (const edges of Object.values(data.laterals_by_node)) {
-      for (const e of edges) {
-        if (e.on_path) continue
-        if (!pathIds.has(e.neighbor_id)) continue
-        const hits = e.hit_count ?? 0
-        const bytes = e.bytes ?? 0
-        if (hits === 0 && bytes === 0 && !e.observed) continue
-        observedFlows++
-        totalBytes += bytes
-        totalHits += hits
-      }
-    }
-    // Also count path.edges observed flows
-    for (const e of path.edges ?? []) {
-      if (e.is_observed && (e.traffic_bytes ?? 0) > 0) {
-        observedFlows++
-        totalBytes += e.traffic_bytes ?? 0
-        totalHits += e.hit_count ?? 0
-      }
+    for (const f of architecture.flows ?? []) {
+      // isActive = backend or path edge marked observed, or has
+      // hits/bytes. Same predicate the canvas uses to animate the line.
+      if (!f.isActive) continue
+      observedFlows++
+      totalBytes += f.bytes || 0
+      totalHits += f.connections || 0
     }
     return { observedFlows, totalBytes, totalHits }
-  }, [data, path])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [architecture])
 
   if (loading) {
     const retryLabel =
@@ -245,10 +235,18 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
   // Slice 9.4. Operator sees the chain length + observed-flow count +
   // total observed bytes. No lateral-pivot count in the header
   // anymore (move to Exposure view for the full fan-out).
+  //
+  // 2026-05-26 terminology fix: previously "${node_count} hops" but
+  // node_count is the count of NODES the graph-view returned (path
+  // + security-critical enriched neighbors). A "hop" is an edge in
+  // the chain — what we want is `path.edges.length`. Saying "16 hops"
+  // when the chain has ~6 hops overstates blast radius to the CISO.
+  const nodeCount = data.node_count
+  const hopCount = (path.edges ?? []).length
   const subtitle =
     flowSummary.observedFlows === 0
-      ? `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · no observed traffic on this path`
-      : `${data.node_count} hop${data.node_count === 1 ? "" : "s"} · ${
+      ? `${nodeCount} node${nodeCount === 1 ? "" : "s"} · ${hopCount} hop${hopCount === 1 ? "" : "s"} · no observed traffic on this path`
+      : `${nodeCount} node${nodeCount === 1 ? "" : "s"} · ${hopCount} hop${hopCount === 1 ? "" : "s"} · ${
           flowSummary.observedFlows
         } observed flow${flowSummary.observedFlows === 1 ? "" : "s"} · ${formatBytesShort(
           flowSummary.totalBytes,
@@ -299,8 +297,14 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
             <Crown className="h-3 w-3 text-amber-400" />
             <span className="text-[10px] uppercase tracking-wider text-slate-500">target</span>
           </div>
+          {/* Crown jewel name. 2026-05-26: widened from max-w-[260px]
+              so the full bucket name fits — S3 bucket names can be up
+              to 63 chars, and the old truncation hid the prod-data
+              identifier behind an ellipsis. CISO scanning the header
+              must be able to see WHICH bucket is under attack without
+              hovering for a tooltip. */}
           <div
-            className="text-xs font-mono text-amber-200/90 truncate max-w-[260px]"
+            className="text-xs font-mono text-amber-200/90 break-all max-w-[520px]"
             title={jewel.name}
           >
             {jewel.name}
@@ -1259,6 +1263,22 @@ function buildAttackerArchitecture(
         }
         continue
       }
+      if (neighborBucket === "vpc") {
+        // Phase 1.2 (2026-05-26): synthesize the VPC entry from
+        // lateral edges so VPCBoundaries always has a named boundary
+        // to render. The VPC node is rarely included in the path's
+        // node_ids by upstream IAP (the chain is workload→subnet→
+        // role→jewel, no VPC hop). Without this branch, vpcsById is
+        // empty and the dashed boundary doesn't render — the operator
+        // sees the path floating in the canvas with no container
+        // context. IN_VPC / RUNS_IN_VPC laterals on Compute/Subnet
+        // carry neighbor_name (e.g. "Payment-Production-VPC"), which
+        // is exactly what we need for the label.
+        if (pathNodeBucket === "compute" || pathNodeBucket === "subnet") {
+          addAsVPC(neighborId, e.neighbor_name)
+        }
+        continue
+      }
       // Otherwise: lateral pivot (sibling role / other bucket / etc).
       // Skip — Exposure view handles the full fan-out.
     }
@@ -1484,6 +1504,40 @@ function buildAttackerArchitecture(
     return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
   })
 
+  // ── Collapse role↔IP binding twins (Phase 1.1 — 2026-05-26) ─────
+  //
+  // Backend (graph-view) now marks `:role/X` ↔ `:instance-profile/X`
+  // pairs with `key_properties.binding_twin_id` pointing at the other.
+  // When BOTH twin nodes are on the path, they render as two cards
+  // with the same human name in adjacent lanes (IAM ROLES + INSTANCE
+  // PROFILES) — the audit's "the role appears twice" bug.
+  //
+  // Resolution: keep the IAM Role card (it carries the policy info,
+  // allowed/used counts, the live_observed_* fields). Drop the
+  // InstanceProfile card. The role's authority over the chain is
+  // unchanged — AWS's binding-object metadata isn't operator-actionable
+  // at this zoom level.
+  //
+  // Stamp `bindingTwinIp: true` on the role's checkpoint so the renderer
+  // can show a small "+ Instance Profile" hint chip (added in a
+  // follow-up; the data is here today).
+  const ipTwinsToCollapse = new Set<string>()
+  for (const role of iamRoles) {
+    const roleNode = graph.nodes.find((n) => n.id === role.id)
+    const twinId = (roleNode?.key_properties as Record<string, any> | undefined)?.binding_twin_id
+    if (typeof twinId === "string" && twinId && seen.has(twinId)) {
+      // Confirm the twin is actually in our IP list (defensive — the
+      // backend marker is symmetric, but layout choices could differ).
+      if (instanceProfiles.some((ip) => ip.id === twinId)) {
+        ipTwinsToCollapse.add(twinId)
+        ;(role as any).bindingTwinIp = true
+      }
+    }
+  }
+  const collapsedInstanceProfiles = instanceProfiles.filter(
+    (ip) => !ipTwinsToCollapse.has(ip.id),
+  )
+
   // ENTRY lane (Phase 2 — 2026-05-25): explicit attacker-entry nodes.
   // For now we surface every principal (root / IAMUser / federated /
   // CloudTrailPrincipal) — those are the identity-side entry points
@@ -1613,7 +1667,13 @@ function buildAttackerArchitecture(
     // (3)"). Both new arrays are optional on SystemArchitecture for
     // back-compat — consumers that don't know about them just ignore
     // the new lanes.
-    instanceProfiles,
+    //
+    // 2026-05-26 (Phase 1.1): collapsedInstanceProfiles drops the
+    // role-twin IP card when both are on the path. The role keeps
+    // bindingTwinIp:true so the renderer can hint that the role acts
+    // as the instance profile too — eliminating the "same name twice"
+    // confusion the audit flagged.
+    instanceProfiles: collapsedInstanceProfiles,
     iamPolicies,
     vpcEndpoints: [],
     egressGateways,

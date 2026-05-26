@@ -948,17 +948,24 @@ export function NACLNode({
   // dimmed + "LATERAL" badged. onPath===undefined treats as
   // on-path (back-compat).
   const isLateral = nacl.onPath === false;
-  // Red ring when there's a public+default NACL — that's the
-  // "no filtering" wide-open posture. Amber ring for has_high_risk
-  // alone (high-risk rule on a non-default NACL). Otherwise the
-  // existing amber-ring on gapCount stays.
-  const ringClass = (isDefault && hasPublicInbound)
-    ? "ring-2 ring-red-400/60"
-    : hasHighRisk
-      ? "ring-2 ring-amber-400/60"
-      : hasGap
-        ? "ring-2 ring-amber-400/50"
-        : "";
+  // 2026-05-26 (Phase 1.6): distinguish VPC-WIDE default NACL from
+  // chain-specific high-risk. A default NACL applied to >1 subnet is
+  // AWS's catchall — every subnet has it whether attacked or not.
+  // Red ring + red badge makes it look like a chain-specific finding;
+  // it isn't. Reserve red for genuine chain-specific gaps (high-risk
+  // rule on a non-default NACL, or non-default NACL with public allow).
+  // Default-public NACLs covering multiple subnets get the slate/blue
+  // "VPC-WIDE" treatment — context, not alert.
+  const isVpcWideDefault = isDefault && hasPublicInbound && (nacl.subnetCount ?? 0) > 1;
+  const ringClass = isVpcWideDefault
+    ? "ring-2 ring-slate-400/40"
+    : (isDefault && hasPublicInbound)
+      ? "ring-2 ring-red-400/60"
+      : hasHighRisk
+        ? "ring-2 ring-amber-400/60"
+        : hasGap
+          ? "ring-2 ring-amber-400/50"
+          : "";
 
   return (
     <div
@@ -1008,16 +1015,30 @@ export function NACLNode({
               {subnetCount} {subnetCount === 1 ? 'subnet' : 'subnets'}
             </span>
           )}
-          {/* "DEFAULT · NO FILTERING" — AWS default NACL has
-              0.0.0.0/0 ALLOW ALL on both inbound and outbound. The
-              chip needs to scream this so the operator doesn't have
-              to click in to discover the path's NACL gate isn't a
-              gate at all. Read from is_default + has_public_inbound_allow
-              on the NetworkACL node. */}
-          {isDefault && hasPublicInbound && (
+          {/* Default NACL handling. AWS default NACL has 0.0.0.0/0
+              ALLOW ALL on both inbound and outbound. Two visual cases:
+              (a) when it applies to >1 subnet — it's VPC-WIDE context,
+                  not a chain-specific finding. Slate "VPC-WIDE
+                  DEFAULT" chip + slate ring. Operator reads it as
+                  "context: every subnet in this VPC has this NACL".
+              (b) when it applies to 1 subnet (rare; e.g. NACL pinned
+                  to a single isolated subnet) — chain-specific gap.
+                  Red "DEFAULT · NO FILTERING" chip + red ring.
+              The audit's "DEFAULT · NO FILTERING in red on the path"
+              was case (a) being rendered as case (b). Fixed via
+              isVpcWideDefault gate. */}
+          {isVpcWideDefault && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-slate-600/40 text-slate-200 border border-slate-400/40 font-semibold uppercase tracking-wider"
+              title={`AWS-default NACL applied to all ${nacl.subnetCount} subnets in this VPC. Context, not a chain-specific finding. Every workload in this VPC sees the same NACL.`}
+            >
+              VPC-wide default
+            </span>
+          )}
+          {isDefault && hasPublicInbound && !isVpcWideDefault && (
             <span
               className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/25 text-red-300 font-semibold uppercase tracking-wider"
-              title="Default NACL — 0.0.0.0/0 ALLOW ALL on inbound + outbound by AWS default. No filtering applied. Verified by is_default + has_public_inbound_allow on the NetworkACL node."
+              title="Default NACL with 0.0.0.0/0 ALLOW ALL on inbound + outbound. Pinned to this chain's subnet — no filtering applied."
             >
               Default · No filtering
             </span>
