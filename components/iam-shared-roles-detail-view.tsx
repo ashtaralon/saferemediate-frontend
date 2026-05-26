@@ -33,6 +33,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { BackToDashboard } from "@/components/back-to-dashboard"
+import { ExecuteActions } from "@/components/iam-shared-roles-execute-actions"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
 import { approveSplitPlan, fetchSplitPlan } from "@/lib/api-client"
@@ -151,6 +152,12 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
       <WhereThisStands plan={plan} />
       <GateReadinessPanel planId={plan.plan_id} planState={plan.state} mode="CREATE_ONLY" />
       <ApprovalAction plan={plan} onApproved={reload} />
+      <ExecuteActions
+        planId={plan.plan_id}
+        planState={plan.state}
+        planExpired={plan.expired ?? false}
+        onReload={reload}
+      />
       <ExecutionHistory planId={plan.plan_id} planState={plan.state} />
       <EngineeringDetails plan={plan} />
     </div>
@@ -1659,15 +1666,17 @@ function ApprovalAction({
 
   const eligibleCount = plan.eligible_groups.length
 
-  // Terminal states first.
+  // Terminal states first. APPROVED state is rendered as a simple
+  // banner — actual execute/rollback actions live in the
+  // <ExecuteActions> section directly below this one.
   if (plan.state === "APPROVED") {
     return (
       <Card className="border-l-4 border-l-emerald-600">
         <CardContent className="py-3 flex items-center gap-2 text-sm">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           <span>
-            This plan has been approved. Execution (creating the new roles in
-            AWS) ships in a future step.
+            Approved. Use the Execute / Rollback actions below to run
+            CREATE_ONLY or STAGED_LAMBDA_GROUP against AWS.
           </span>
         </CardContent>
       </Card>
