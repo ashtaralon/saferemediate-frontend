@@ -939,3 +939,145 @@ export async function fetchSharedSGs(
   }
   return await res.json()
 }
+
+export interface SGSplitPlanMintedResponse {
+  plan_id: string
+  plan_hash: string
+  state: string
+  created_at: string
+  expires_at: string
+  plan_body: any
+}
+
+export async function postSGSplitPlan(
+  sgRef: string,
+  requestedBy: string
+): Promise<SGSplitPlanMintedResponse> {
+  const qs = new URLSearchParams({ sg_ref: sgRef })
+  const res = await fetch(`/api/proxy/sg/shared-sgs/split-plan?${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requested_by: requestedBy }),
+    cache: "no-store",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg split-plan POST ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGSplitPlan(planId: string): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg split-plan GET ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function approveSGSplitPlan(
+  planId: string, approvedBy: string, note?: string
+): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved_by: approvedBy, note: note || undefined }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg approve ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function executeSGSplitPlan(
+  planId: string, mode: "CREATE_ONLY", requestedBy: string, force = false
+): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/execute`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, requested_by: requestedBy, force }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg execute ${res.status}: ${text.slice(0, 500)}`)
+  }
+  return await res.json()
+}
+
+export async function rollbackSGSplitPlan(
+  planId: string, rolledBackBy: string, force = false
+): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/rollback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rolled_back_by: rolledBackBy,
+        mode: "CREATE_ONLY",
+        force,
+      }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg rollback ${res.status}: ${text.slice(0, 500)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGPlanHistory(planId: string): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/history`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg history ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGGateReadiness(
+  planId: string, mode = "CREATE_ONLY"
+): Promise<any> {
+  const qs = new URLSearchParams({ mode })
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/gate-readiness?${qs}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg gate-readiness ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGStagePreview(
+  planId: string, groupId: string
+): Promise<any> {
+  const qs = new URLSearchParams({ group_id: groupId })
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/stage-preview?${qs}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg stage-preview ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}

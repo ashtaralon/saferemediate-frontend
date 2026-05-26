@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { fetchSharedSGs } from "@/lib/api-client"
+import { fetchSharedSGs, postSGSplitPlan } from "@/lib/api-client"
 import type { SharedSG, SharedSGsResponse } from "@/lib/types"
 
 // Mirror of components/iam-shared-roles-list-view.tsx for shared
@@ -195,8 +195,23 @@ export default function SGSharedSGsListView() {
 
 
 function SharedSGCard({ sg }: { sg: SharedSG }) {
+  const router = useRouter()
   const { verdict, consumer_breakdown: bd, rule_summary: rs, topology } = sg
   const isDefault = (sg.sg_name || "").toLowerCase() === "default"
+  const [minting, setMinting] = useState(false)
+  const [mintError, setMintError] = useState<string | null>(null)
+
+  const handleMint = async () => {
+    setMinting(true)
+    setMintError(null)
+    try {
+      const result = await postSGSplitPlan(sg.sg_id, "alon")
+      router.push(`/sg/shared-sgs/by-plan/${encodeURIComponent(result.plan_id)}`)
+    } catch (e: any) {
+      setMintError(String(e?.message ?? e))
+      setMinting(false)
+    }
+  }
 
   return (
     <Card className="flex flex-col">
@@ -378,6 +393,36 @@ function SharedSGCard({ sg }: { sg: SharedSG }) {
                 </li>
               )}
             </ul>
+          )}
+        </div>
+
+        {/* Mint plan CTA — only when proposal is allowed */}
+        <div className="pt-3 mt-auto border-t border-zinc-100 dark:border-zinc-800">
+          <Button
+            variant={verdict.proposal_allowed ? "default" : "outline"}
+            size="sm"
+            className="w-full"
+            onClick={handleMint}
+            disabled={minting || !verdict.proposal_allowed}
+            title={
+              verdict.proposal_allowed
+                ? "Mint a split plan for this SG"
+                : "Proposal not allowed — see blockers above"
+            }
+          >
+            {minting ? (
+              <>
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                Minting…
+              </>
+            ) : (
+              "Mint split plan"
+            )}
+          </Button>
+          {mintError && (
+            <div className="mt-2 text-[10px] text-red-700 dark:text-red-300 break-all">
+              {mintError}
+            </div>
           )}
         </div>
       </CardContent>
