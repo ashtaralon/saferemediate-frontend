@@ -17,6 +17,7 @@ import { PathKillerMap } from "./path-killer-map"
 // Resources grouping the operator already knows. Per CISO ask "use the
 // system map under the Topology tab".
 import TrafficFlowMap from "@/components/dependency-map/traffic-flow-map"
+import { AtlasInlineSection } from "@/components/attack-paths-v2/atlas-inline-section"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
 import { PathExfilSummary } from "./path-exfil-summary"
@@ -1275,6 +1276,23 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     systemPosture={data?.system_posture ?? null}
                   />
                 )
+              )}
+
+              {/* ATLAS — Phase 3.2.3 (2026-05-27). Inline catalog-driven
+                  chain search for the currently-selected path. Sits in
+                  the empty space below the canvas (visible in BOTH the
+                  maximized and non-maximized layouts) so the operator
+                  always sees what the v0.1 primitive catalog says about
+                  this path. Auto-derives foothold (EC2/Lambda) + target
+                  (jewel) from the path itself — no inputs. */}
+              {currentPath && (
+                <AtlasInlineSection
+                  systemName={systemName}
+                  path={currentPath as any}
+                  jewel={
+                    (filteredJewels.find((j) => j.id === selectedJewelId) ?? null) as any
+                  }
+                />
               )}
 
               {/* Remediation plan — full width, below the graph. Hidden
