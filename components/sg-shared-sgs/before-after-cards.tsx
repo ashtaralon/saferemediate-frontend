@@ -50,6 +50,7 @@ export function BeforeAfterCards({
   sgInfo,
   before,
   groups,
+  systemNames,
   avgBlastAfter,
   reductionPct,
   membershipExternalIn,
@@ -64,6 +65,9 @@ export function BeforeAfterCards({
   }
   before: SharedSGBeforeSummary | null
   groups: Group[]
+  /** Actual system tag names — shown in the "spanning N systems"
+   *  copy so the operator sees which apps share this SG. */
+  systemNames: string[]
   avgBlastAfter: number | null
   reductionPct: number | null
   membershipExternalIn: MembershipFinding[]
@@ -86,6 +90,7 @@ export function BeforeAfterCards({
       <BeforeCard
         sgInfo={sgInfo}
         before={before}
+        systemNames={systemNames}
         inbound={sourceInbound}
         outbound={sourceOutbound}
       />
@@ -103,14 +108,35 @@ export function BeforeAfterCards({
   )
 }
 
+// Friendly labels for the consumer-kind breakdown. Cyntro's internal
+// names ("LambdaFunction", "NetworkInterface") are jargon to an
+// operator — replace with the AWS-doc terms ("Lambda", "ENI") so the
+// line reads naturally: "1 Lambda · 1 LoadBalancer · 9 ENIs".
+const KIND_LABEL: Record<string, { singular: string; plural: string }> = {
+  LambdaFunction:   { singular: "Lambda",       plural: "Lambdas" },
+  LoadBalancer:     { singular: "LoadBalancer", plural: "LoadBalancers" },
+  NetworkInterface: { singular: "ENI",          plural: "ENIs" },
+  EC2Instance:      { singular: "EC2",          plural: "EC2s" },
+  DBInstance:       { singular: "RDS",          plural: "RDS instances" },
+  Service:          { singular: "EC2",          plural: "EC2s" }, // legacy stub label
+}
+
+function kindLabel(kind: string, count: number): string {
+  const m = KIND_LABEL[kind]
+  if (!m) return `${count} ${kind}`
+  return `${count} ${count === 1 ? m.singular : m.plural}`
+}
+
 function BeforeCard({
   sgInfo,
   before,
+  systemNames,
   inbound,
   outbound,
 }: {
   sgInfo: { sg_id?: string; sg_name?: string; vpc_id?: string | null }
   before: SharedSGBeforeSummary | null
+  systemNames: string[]
   inbound: SGRule[]
   outbound: SGRule[]
 }) {
@@ -138,28 +164,39 @@ function BeforeCard({
           </div>
         </div>
 
-        <div className="space-y-1 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+        <div className="space-y-1.5 border-t border-zinc-200 dark:border-zinc-800 pt-3">
           <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
-            Attachment
+            Currently attached to
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-2xl font-semibold tabular-nums">
               {before?.consumer_count ?? "—"}
             </span>
             <span className="text-sm text-zinc-700 dark:text-zinc-200">
-              consumers across{" "}
-              <b className="tabular-nums">{before?.system_count ?? "—"}</b>{" "}
-              system{before?.system_count === 1 ? "" : "s"}
+              AWS resource{before?.consumer_count === 1 ? "" : "s"}
             </span>
           </div>
           {before && (
-            <div className="text-[12px] text-zinc-600 dark:text-zinc-300">
+            <div className="text-[13px] text-foreground">
               {Object.entries(before.consumer_kinds)
                 .sort(([, a], [, b]) => b - a)
-                .map(([k, n]) => `${k} ${n}`)
+                .map(([k, n]) => kindLabel(k, n))
                 .join(" · ")}
             </div>
           )}
+          <div className="text-[12px] text-zinc-700 dark:text-zinc-200 pt-1">
+            These resources serve{" "}
+            <b className="tabular-nums">{before?.system_count ?? "—"}</b>{" "}
+            application{before?.system_count === 1 ? "" : "s"}
+            {systemNames.length > 0 && (
+              <>
+                {": "}
+                <span className="font-mono text-[11px] text-foreground">
+                  {systemNames.join(", ")}
+                </span>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-zinc-200 dark:border-zinc-800 pt-3">

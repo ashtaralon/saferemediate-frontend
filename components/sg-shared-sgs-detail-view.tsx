@@ -238,6 +238,7 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
             sgInfo={sgInfo}
             before={beforeSummary}
             groups={groups}
+            systemNames={plan.discovery_facts?.system_tags || []}
             avgBlastAfter={avgBlastAfter}
             reductionPct={reductionPct}
             membershipExternalIn={membership.external_inbound_refs || []}
