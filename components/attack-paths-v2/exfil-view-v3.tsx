@@ -39,6 +39,7 @@ import { ArrowRight, ChevronDown, Crown, Route, AlertTriangle, RefreshCw, Loader
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import { postSplitPlan } from "@/lib/api-client"
+import { RoleDetailPanel } from "./exfil-role-detail-panel"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type {
   SystemArchitecture,
@@ -361,6 +362,10 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
   // setState propagated. Now we read URL inline on every (re)validate
   // so the URL value wins as long as it matches a real path_id.
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null)
+  // Role detail panel state — 2026-05-27. Click a role chip on the
+  // canvas → its SecurityCheckpoint is stashed here → RoleDetailPanel
+  // renders as an overlay slide-in. Null when nothing selected.
+  const [detailRole, setDetailRole] = useState<SecurityCheckpoint | null>(null)
 
   useEffect(() => {
     if (!data?.paths || data.paths.length === 0) {
@@ -498,7 +503,7 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
         atlasSummary={data.atlas_summary}
         keystones={data.keystones ?? []}
       />
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         <TrafficFlowMap
           systemName={systemName}
           architectureOverride={architecture}
@@ -517,7 +522,27 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
           }
           headerSlot={pathSelectorNode}
           defaultShowVPCBoundaries={true}
+          // Role chip click opens the side panel — Alon feedback
+          // 2026-05-27 "i cant understand nothing." Chip stays
+          // compact (summary line only); panel carries the 5 sections
+          // as tabs.
+          onRoleClick={(role) => setDetailRole(role)}
         />
+        {detailRole && (
+          <RoleDetailPanel
+            roleId={detailRole.id}
+            roleName={detailRole.name}
+            usedCount={detailRole.usedCount}
+            totalCount={detailRole.totalCount}
+            gapCount={detailRole.gapCount}
+            alsoReaches={detailRole.alsoReaches ?? []}
+            sharedWith={detailRole.sharedWith ?? []}
+            assumedBy={detailRole.assumedBy ?? []}
+            policiesAttached={detailRole.policiesAttached ?? []}
+            actionsUsed={detailRole.actionsUsed ?? []}
+            onClose={() => setDetailRole(null)}
+          />
+        )}
       </div>
     </div>
   )

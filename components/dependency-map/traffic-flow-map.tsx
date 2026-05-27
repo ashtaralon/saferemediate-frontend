@@ -1379,6 +1379,72 @@ function LateralFanOut({
 
 
 // ============================================
+// ROLE COMPACT SUMMARY — 2026-05-27
+// Single-line summary line at the bottom of the role chip. Tells the
+// operator at a glance "this role has X lateral reach, Y sessions,
+// Z policies, N actions observed" and prompts them to click for the
+// full breakdown in the side panel. Replaces the prior 5-section
+// stacked fan-out that Alon flagged as overwhelming.
+// ============================================
+function RoleCompactSummary({ role }: { role: SecurityCheckpoint }) {
+  const lateralCount =
+    (role.alsoReaches?.length ?? 0) + (role.sharedWith?.length ?? 0)
+  const sessionsCount = role.assumedBy?.length ?? 0
+  const policiesCount = role.policiesAttached?.length ?? 0
+  const actionsCount = role.actionsUsed?.length ?? 0
+
+  const facts: Array<{ count: number; label: string; tone: string }> = []
+  if (lateralCount > 0)
+    facts.push({
+      count: lateralCount,
+      label: lateralCount === 1 ? "lateral reach" : "lateral reaches",
+      tone: "text-fuchsia-300/90",
+    })
+  if (sessionsCount > 0)
+    facts.push({
+      count: sessionsCount,
+      label: sessionsCount === 1 ? "session" : "sessions",
+      tone: "text-cyan-300/90",
+    })
+  if (policiesCount > 0)
+    facts.push({
+      count: policiesCount,
+      label: policiesCount === 1 ? "policy" : "policies",
+      tone: "text-rose-300/90",
+    })
+  if (actionsCount > 0)
+    facts.push({
+      count: actionsCount,
+      label: actionsCount === 1 ? "action" : "actions",
+      tone: "text-lime-300/90",
+    })
+
+  if (facts.length === 0) return null
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-700/60 flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap text-[10px]">
+        {facts.map((f, i) => (
+          <span key={f.label} className="flex items-center gap-1">
+            <span className={`font-bold tabular-nums ${f.tone}`}>
+              {f.count}
+            </span>
+            <span className="text-slate-400">{f.label}</span>
+            {i < facts.length - 1 && (
+              <span className="text-slate-700 ml-1">·</span>
+            )}
+          </span>
+        ))}
+      </div>
+      <span className="text-[9px] uppercase tracking-wider font-bold text-violet-300 ml-auto px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/30">
+        Click for details →
+      </span>
+    </div>
+  )
+}
+
+
+// ============================================
 // IAM ROLE NODE
 // ============================================
 export function IAMRoleNode({
@@ -1543,24 +1609,19 @@ export function IAMRoleNode({
                 radius pass — real graph edges, no synthesis. Hidden
                 when both lists are empty so the chip stays compact
                 on roles with no lateral surface. */}
+            {/* COMPACT SUMMARY — 2026-05-27, Alon feedback "i cant
+                understand nothing." The stacked 5-section fan-out
+                was too dense to read at a glance. Replaced with a
+                one-line summary chip + "Details" CTA. Detail panel
+                slides in from the right via the EXFIL view (the
+                shared TFM stays generic; EXFIL view subscribes to
+                role-chip clicks). */}
             {((role.alsoReaches?.length ?? 0) > 0 ||
               (role.sharedWith?.length ?? 0) > 0 ||
               (role.assumedBy?.length ?? 0) > 0 ||
               (role.policiesAttached?.length ?? 0) > 0 ||
               (role.actionsUsed?.length ?? 0) > 0) && (
-              // LATERAL + STACK-COMPONENTS fan-out — Alon feedback
-              // 2026-05-27. The canvas-itself iteration. Each section
-              // is its own scannable row group. Jewels and workloads
-              // are clickable; principals / policies / actions are
-              // tooltip-only for now (no specific drill destination
-              // yet).
-              <LateralFanOut
-                alsoReaches={role.alsoReaches ?? []}
-                sharedWith={role.sharedWith ?? []}
-                assumedBy={role.assumedBy ?? []}
-                policiesAttached={role.policiesAttached ?? []}
-                actionsUsed={role.actionsUsed ?? []}
-              />
+              <RoleCompactSummary role={role} />
             )}
           </>
         ) : (
@@ -3231,6 +3292,7 @@ export function UnifiedArchitectureDiagram({
   innerTitleOverride,
   innerSubtitleOverride,
   observedMode = false,
+  onRoleClick,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -3258,6 +3320,10 @@ export function UnifiedArchitectureDiagram({
   // When true, suppress the "(simulated)" tag and the Gaps badge —
   // caller is feeding real observed telemetry.
   observedMode?: boolean;
+  // 2026-05-27 — forwarded from TrafficFlowMap. When set, role chip
+  // clicks fire this instead of the existing service-selection
+  // modal. Lets the EXFIL view render its own role detail panel.
+  onRoleClick?: (role: SecurityCheckpoint) => void;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -3901,7 +3967,18 @@ export function UnifiedArchitectureDiagram({
                     role={role}
                     isHighlighted={isNodeHighlighted(role.id)}
                     onHover={setHoveredId}
-                    onClick={() => onSelectService(role, isIP ? 'instance_profile' : 'iam_role')}
+                    onClick={() => {
+                      // EXFIL view subscribes via onRoleClick to open
+                      // the RoleDetailPanel slide-in. When the prop
+                      // isn't set (Attacker view, System Map, etc.)
+                      // we fall through to the existing generic
+                      // service-selection behavior.
+                      if (onRoleClick && !isIP) {
+                        onRoleClick(role);
+                      } else {
+                        onSelectService(role, isIP ? 'instance_profile' : 'iam_role');
+                      }
+                    }}
                   />
                 </div>
               );
@@ -4845,6 +4922,7 @@ export default function TrafficFlowMap({
   observedMode = false,
   defaultShowVPCBoundaries = false,
   headerSlot,
+  onRoleClick,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -4886,6 +4964,13 @@ export default function TrafficFlowMap({
   // without requiring an extra click — the VPC is genuinely part of
   // the chain (EC2 → SG → VPC → Subnet → Role), not a layered overlay.
   defaultShowVPCBoundaries?: boolean;
+  // Optional click hook on the IAM role chip. When provided, the EXFIL
+  // view subscribes so clicking a role opens the RoleDetailPanel
+  // (slides in from the right) instead of the existing generic
+  // service-selection modal. Lets the canvas chip stay COMPACT —
+  // the 5 stack-component sections live in the panel, not stacked on
+  // the chip itself. 2026-05-27, Alon "i cant understand nothing".
+  onRoleClick?: (role: SecurityCheckpoint) => void;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -6752,6 +6837,7 @@ export default function TrafficFlowMap({
             innerTitleOverride={innerTitleOverride}
             innerSubtitleOverride={innerSubtitleOverride}
             observedMode={observedMode}
+            onRoleClick={onRoleClick}
             onSelectService={(service, type) => {
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the
