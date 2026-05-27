@@ -1178,6 +1178,58 @@ export interface SharedSG {
   verdict: SharedSGVerdict
 }
 
+// SG-9d: UI-convenience projections returned alongside the existing
+// shared_sg / discovery_facts / blast_radius_summary blocks. Backend
+// computes these so the detail-view doesn't have to re-derive them
+// (or hard-code the v1/v2 capability matrix client-side).
+
+export interface SharedSGBeforeSummary {
+  consumer_count: number
+  system_count: number
+  consumer_kinds: Record<string, number>
+  rules: {
+    inbound: number
+    outbound: number
+    /** Surfaced muted in the UI with a Phase-2 chip. v1 does NOT
+     *  narrow rules — these counts do not become deletions today. */
+    unused_phase2: number
+    /** Same: Phase-2 chip, not actionable in v1. */
+    high_risk_phase2: number
+    public_ingress: boolean
+  }
+  /** N-1 framing: compromise of any one consumer exposes this many
+   *  others sharing the identity. The BEFORE card opens with this. */
+  blast_radius_if_any_compromised: number
+}
+
+export type SwapMechanism =
+  | "atomic_set_replace"
+  | "parallel_attach_then_detach"
+  | "unknown"
+
+export interface SwapPlanPerKind {
+  mechanism: SwapMechanism
+  aws_api: string | null
+  downtime_seconds: number | null
+  /** False = SG-7b pending. UI disables the per-consumer Execute
+   *  button and renders a "Coming in SG-7b" chip. */
+  supported_in_v1: boolean
+  rollback: "snapshot_restore"
+  human_summary: string
+  consumer_count: number
+}
+
+export interface SharedSGSwapPlan {
+  phase_1: {
+    label: "CREATE_ONLY"
+    steps: string[]
+    consumer_impact: "none" | "per_consumer"
+    downtime_seconds: number
+    supported_in_v1: boolean
+  }
+  phase_2_per_consumer_kind: Record<string, SwapPlanPerKind>
+}
+
 export interface SharedSGsResponse {
   shared_sgs: SharedSG[]
   evidence_completeness: "ok" | "degraded"
