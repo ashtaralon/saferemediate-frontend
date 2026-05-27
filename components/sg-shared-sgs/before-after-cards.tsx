@@ -369,10 +369,8 @@ function ScopedSGCard({
             Cloned 1:1 from source SG · no permission delta on the consumer
           </div>
 
-          {consumers.length > 0 && consumers.length <= 6 && (
-            <div className="text-[11px] text-zinc-600 dark:text-zinc-300 font-mono">
-              Consumers: {consumers.map((c) => c.consumer_name || c.consumer_id).join(", ")}
-            </div>
+          {consumers.length > 0 && (
+            <ConsumersList consumers={consumers} consumerType={consumerType} />
           )}
 
           {membership && (membership.externalIn.length > 0 || membership.externalOut.length > 0 || membership.selfRefs.length > 0) && (
@@ -385,6 +383,59 @@ function ScopedSGCard({
 
           <StagedPreviewBlock planId={planId} groupId={group.group_id} />
         </div>
+      )}
+    </div>
+  )
+}
+
+function ConsumersList({
+  consumers,
+  consumerType,
+}: {
+  consumers: any[]
+  consumerType: string
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const collapseAt = 6
+  const visible = showAll ? consumers : consumers.slice(0, collapseAt)
+  const kindLabel = KIND_LABEL[consumerType]?.plural || consumerType
+
+  return (
+    <div className="rounded-md border border-emerald-200/60 dark:border-emerald-900/40 overflow-hidden">
+      <div className="px-3 py-1.5 bg-emerald-50/40 dark:bg-emerald-950/20 border-b border-emerald-200/60 dark:border-emerald-900/40 flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wider font-medium text-emerald-800 dark:text-emerald-200">
+          Will attach to these {kindLabel}
+          <span className="text-foreground tabular-nums ml-1">({consumers.length})</span>
+        </span>
+      </div>
+      <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+        {visible.map((c, i) => (
+          <li key={c.consumer_id || c.consumer_arn || i} className="px-3 py-1.5 grid grid-cols-[1fr_auto] gap-3 items-baseline">
+            <div className="min-w-0">
+              <div className="text-[12px] text-foreground truncate">
+                {c.consumer_name || c.consumer_id || c.consumer_arn || "—"}
+              </div>
+              {c.consumer_name && c.consumer_id && c.consumer_name !== c.consumer_id && (
+                <div className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 truncate">
+                  {c.consumer_id}
+                </div>
+              )}
+            </div>
+            {c.system_name && (
+              <div className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 shrink-0">
+                {c.system_name}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {!showAll && consumers.length > collapseAt && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="w-full py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors border-t border-emerald-200/60 dark:border-emerald-900/40"
+        >
+          Show all {consumers.length} {kindLabel.toLowerCase()}
+        </button>
       )}
     </div>
   )
