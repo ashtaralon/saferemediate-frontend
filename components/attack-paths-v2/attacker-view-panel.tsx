@@ -33,6 +33,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import { AtlasInlineSection } from "./atlas-inline-section"
 
 // Heavy renderer — lazy-load so the v2 page doesn't pull the full
 // dep-map bundle until the operator switches to attacker view.
@@ -372,6 +373,13 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
           defaultShowVPCBoundaries={true}
         />
       </div>
+      {/* ATLAS chains inline — Phase 3.2.1 (2026-05-27). Auto-derives
+          foothold + target from the selected path and renders
+          deterministic catalog-driven chains compactly below the canvas.
+          Renders nothing if the path doesn't have an entry-tier node or
+          jewel id, so it never adds visual noise to a path it can't
+          analyze. */}
+      <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
       {lateralAttackers.length > 0 ? (
         <LateralAttackersPanel
           attackers={lateralAttackers}

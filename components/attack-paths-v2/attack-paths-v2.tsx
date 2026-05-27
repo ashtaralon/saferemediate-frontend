@@ -42,7 +42,6 @@ import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewPanel } from "./attacker-view-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
 import { ExfilViewV3 } from "./exfil-view-v3"
-import { AtlasPanel } from "./atlas-panel"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
@@ -91,7 +90,7 @@ export function AttackPathsV2() {
   // data can leave through. Distinct mental model from the
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-panel.tsx.
-  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "atlas" =
+  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" =
     modeParam === "exposure"
       ? "exposure"
       : modeParam === "attacker"
@@ -102,9 +101,7 @@ export function AttackPathsV2() {
             ? "phase"
             : modeParam === "exfil"
               ? "exfil"
-              : modeParam === "atlas"
-                ? "atlas"
-                : "path"
+              : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -224,7 +221,7 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "atlas") => {
+  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => {
     // Switching to exposure or phase clears the path selection — both
     // aggregate ACROSS paths (phase shows every chain targeting the
     // selected jewel). Switching to attacker / attacker_v2 REQUIRES a
@@ -414,22 +411,6 @@ export function AttackPathsV2() {
                   systemName={systemName}
                 />
               )
-            ) : viewMode === "atlas" ? (
-              // ATLAS — Phase 3.2 (2026-05-27). Deterministic catalog-
-              // driven chain search. Doesn't require a selected path —
-              // works directly against the selected jewel as target.
-              // The engine + every chain returned has been replay-
-              // validated through the policy evaluator (api/atlas/*).
-              <AtlasPanel
-                systemName={systemName}
-                selectedJewelId={selectedJewelId}
-                selectedJewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
-                defaultStartWorkload={
-                  // Auto-fill with the entry-tier node of the selected
-                  // path if present — otherwise the operator types it.
-                  selectedPath?.nodes?.find((n) => n.tier === "entry")?.id
-                }
-              />
             ) : viewMode === "exfil" ? (
               // EXFIL view — Phase A 2026-05-25 PRD. BFS-forward from
               // the crown jewel to surface the data's escape routes.
@@ -491,8 +472,8 @@ function ModeToggle({
   isExpanded,
   onToggleExpand,
 }: {
-  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "atlas"
-  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "atlas") => void
+  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil"
+  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -561,23 +542,12 @@ function ModeToggle({
         >
           Phase view <span className="text-[8px] opacity-60">v0.3</span>
         </button>
-        {/* ATLAS — Phase 3.2 2026-05-27. Deterministic catalog-driven
-            chain search (api/atlas/*). Distinct from the graph-traversal
-            tabs: chains here are produced by a versioned primitive
-            catalog and replay-validated through the policy evaluator
-            before being shown. Operator can narrow with time horizon
-            and explicit attacker assumptions. */}
-        <button
-          onClick={() => onChange("atlas")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "atlas"
-              ? "bg-emerald-500/15 text-emerald-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="ATLAS (v0.1) — deterministic chain search over the v_2026_05_01 primitive catalog. Every chain returned has been replay-validated. Operator-configurable time horizon and attacker assumptions."
-        >
-          ATLAS <span className="text-[8px] opacity-60">v0.1</span>
-        </button>
+        {/* ATLAS is now an inline section at the bottom of the
+            Attacker View canvas (atlas-inline-section.tsx, wired in
+            attacker-view-panel.tsx) — derives foothold + target from
+            the selected path, no search UI needed. The standalone tab
+            was removed 2026-05-27 per the "in front of us in a very
+            clear way" feedback. */}
         {/* EXFIL — Phase A 2026-05-25 PRD. The other tabs answer
             'how does the attacker reach this jewel?'. This one
             answers 'where does the data go from here?'. BFS
@@ -606,9 +576,7 @@ function ModeToggle({
                 ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
                 : mode === "phase"
                   ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
-                  : mode === "atlas"
-                    ? `Deterministic chain search · catalog v_2026_05_01 · every chain replay-validated`
-                    : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
+                  : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
       </div>
       <button
         onClick={onToggleExpand}
