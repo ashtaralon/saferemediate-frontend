@@ -91,6 +91,10 @@ export interface AtlasChainStep {
   primitives_used: string[]
   blocking_controls: string[]
   feasibility_score: number
+  // Layer B (2026-05-27) — union of state_delta adds across every
+  // step of the chain. Used downstream by keystone aggregation; the
+  // pill itself does not render this list.
+  traversed_node_ids?: string[]
 }
 export interface AtlasChainSummary {
   chain_count: number
@@ -100,6 +104,39 @@ export interface AtlasChainSummary {
   engine_version: string
   elapsed_ms: number
   coverage_warnings: Array<{ code: string; message: string }>
+}
+
+// Layer B (2026-05-27) — top-level ATLAS rollup attached to the
+// EXFIL payload when include_atlas=true. Drives the "ATLAS · N
+// chains across M paths" header pill AND the empty-state copy when
+// no chains are returned (surfaces coverage_warnings instead of a
+// fabricated "safe" message).
+export interface AtlasSummary {
+  enabled: boolean
+  total_chains: number
+  total_dead_ends: number
+  pairs_called: number
+  pairs_succeeded: number
+  pairs_failed: number
+  coverage_warnings: Array<{ code: string; message: string }>
+  catalog_version: string | null
+  engine_version: string | null
+}
+
+// Layer B (2026-05-27) — a "keystone" is a graph node that appears
+// in many ATLAS-validated chains for this crown jewel. Killing one
+// keystone drops N chains at once. Backend filters out the jewel
+// itself (trivial 100% match, no actionable remediation), and
+// drops synthetic IDs that don't back to a real graph node.
+export interface ExfilKeystone {
+  node_id: string
+  node_name: string
+  node_labels: string[]
+  system_name: string | null
+  chain_count_killed: number
+  chain_count_total: number
+  pct_killed: number
+  sample_chain_ids: string[]
 }
 
 interface ExfilAccessor {
@@ -203,6 +240,12 @@ interface ExfilPayload {
     data_propagation: { items: unknown[]; not_wired: true; not_wired_reason: string }
   }
   destinations: ExfilDestination[]
+  // Layer B (2026-05-27) — both fields are non-null only when the
+  // request set include_atlas=true. Empty keystones[] is a real
+  // signal (ATLAS ran but found no shared-node concentration);
+  // null atlas_summary means ATLAS was skipped entirely.
+  atlas_summary?: AtlasSummary | null
+  keystones?: ExfilKeystone[]
   observed_exfil: { available: boolean; not_wired_reason: string }
   phase: string
   phase_note: string
@@ -402,6 +445,10 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
   return (
     <div className="flex flex-col h-full">
       <Header jewel={jewel} subtitle={subtitle} />
+      <KeystoneStrip
+        atlasSummary={data.atlas_summary}
+        keystones={data.keystones ?? []}
+      />
       <div className="flex-1 min-h-0">
         <TrafficFlowMap
           systemName={systemName}
@@ -457,6 +504,117 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
             {jewel.name}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Keystone strip ──────────────────────────────────────────────
+// Layer B (2026-05-27). Horizontal chip strip beneath the Header
+// showing the top N keystone nodes — graph nodes whose removal would
+// drop the most ATLAS-validated chains. Each chip = (label, name,
+// "kills X/Y" badge with hue keyed off pct_killed).
+//
+// Render contract — three honest states:
+//   atlas_summary missing   → omit strip entirely (include_atlas=false)
+//   atlas_summary present, total_chains=0
+//                           → render "ATLAS · 0 chains" empty-state
+//                              with coverage_warnings codes if any
+//   atlas_summary present + total_chains>0 + keystones non-empty
+//                           → render chips
+//
+// Cap visible chips at 5 — past that the strip wraps + signal degrades.
+function KeystoneStrip({
+  atlasSummary,
+  keystones,
+}: {
+  atlasSummary: AtlasSummary | null | undefined
+  keystones: ExfilKeystone[]
+}) {
+  if (!atlasSummary || !atlasSummary.enabled) return null
+
+  // Empty-state — ATLAS ran but found nothing. Honestly surface why
+  // (coverage warnings or catalog gap) instead of hiding the strip.
+  if (atlasSummary.total_chains === 0) {
+    const warnings = atlasSummary.coverage_warnings
+    const catalog = atlasSummary.catalog_version ?? "unknown"
+    return (
+      <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-900/40 flex items-center gap-3 text-[10px] text-slate-400">
+        <span className="text-[9px] uppercase tracking-wider font-bold text-slate-500">
+          Keystones
+        </span>
+        <span className="text-slate-500">·</span>
+        <span title={`ATLAS catalog ${catalog} returned 0 chains for the queried pairs`}>
+          ATLAS · 0 chains validated against catalog{" "}
+          <span className="font-mono text-slate-300">{catalog}</span>
+        </span>
+        {warnings.length > 0 && (
+          <span
+            className="text-amber-300/80"
+            title={warnings.map((w) => `${w.code}: ${w.message}`).join("\n")}
+          >
+            · {warnings.length} coverage note{warnings.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // Real chips — top 5 keystones. Hue scales with pct_killed:
+  //   ≥0.75 → red (must-fix; kills most chains)
+  //   ≥0.40 → amber
+  //   <0.40 → slate (low-leverage)
+  const visible = keystones.slice(0, 5)
+  const toneFor = (pct: number) =>
+    pct >= 0.75
+      ? "bg-red-500/10 text-red-200 border-red-500/40"
+      : pct >= 0.4
+        ? "bg-amber-500/10 text-amber-200 border-amber-500/40"
+        : "bg-slate-800/60 text-slate-300 border-slate-700/60"
+
+  const labelFor = (k: ExfilKeystone): string => {
+    // Pick the first non-structural label (Service/Resource/Node
+    // already filtered server-side). Falls through to "Node" if
+    // the array is empty — defensive, shouldn't happen in practice.
+    return k.node_labels[0] ?? "Node"
+  }
+
+  return (
+    <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-900/40 flex items-center gap-2 text-[10px] overflow-x-auto">
+      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-500 shrink-0">
+        Keystones
+      </span>
+      <span className="text-slate-500 shrink-0">·</span>
+      <span
+        className="text-[9px] uppercase tracking-wider font-semibold text-slate-400 shrink-0"
+        title={`Kill any of these to drop the listed share of ${atlasSummary.total_chains} ATLAS-validated chain${atlasSummary.total_chains === 1 ? "" : "s"}`}
+      >
+        Top {visible.length} of {keystones.length}
+      </span>
+      {visible.map((k) => {
+        const pctTxt = Math.round(k.pct_killed * 100)
+        return (
+          <span
+            key={k.node_id}
+            className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 shrink-0 ${toneFor(k.pct_killed)}`}
+            title={`${labelFor(k)} ${k.node_name} appears in ${k.chain_count_killed} of ${k.chain_count_total} ATLAS chains for this jewel. Sample chain IDs: ${k.sample_chain_ids.join(", ")}`}
+          >
+            <span className="text-[8px] uppercase tracking-wider font-bold opacity-80">
+              {labelFor(k)}
+            </span>
+            <span className="text-[10px] font-mono truncate max-w-[180px]">
+              {k.node_name}
+            </span>
+            <span className="text-[9px] font-bold tabular-nums opacity-90">
+              kills {k.chain_count_killed}/{k.chain_count_total} · {pctTxt}%
+            </span>
+          </span>
+        )
+      })}
+      {keystones.length > visible.length && (
+        <span className="text-[9px] text-slate-500 shrink-0">
+          +{keystones.length - visible.length} more
+        </span>
       )}
     </div>
   )
