@@ -242,6 +242,56 @@ export interface StackComponentsPayload {
   instance_profiles: StackComponentsInstanceProfile[]
 }
 
+// Neo4j-grounded remediation prescriptions — populated by the
+// backend's _attach_remediation (api/exfil_paths.py). Every field
+// here is either a Cypher row result or an honest null/empty.
+export interface RemediationIAM {
+  allowed_actions: string[]
+  used_actions: string[]
+  unused_actions: string[]
+  observed_not_in_allowed: string[]
+  destructive_unused: string[]
+  used_cached_was_stale: boolean
+}
+export interface RemediationSGRule {
+  direction: string
+  protocol: string
+  from_port: number
+  to_port: number
+  source: string
+  source_type: string
+  description: string
+  is_public: boolean
+  is_high_risk: boolean
+  port_name: string | null
+}
+export interface RemediationSGGroup {
+  sg_id: string
+  sg_name: string
+  outbound_rules: RemediationSGRule[]
+  inbound_rules: RemediationSGRule[]
+  public_egress_rules: RemediationSGRule[]
+  has_public_ingress: boolean
+}
+export interface RemediationSG {
+  applies: boolean
+  sgs_collected: boolean
+  groups: RemediationSGGroup[]
+}
+export interface RemediationDataAccess {
+  bucket_policy_collected: boolean
+  has_source_vpc_condition: boolean | null
+  public_access_block: boolean | null
+  versioning: string | null
+  kms_encrypted: boolean | null
+  access_logging_enabled: boolean | null
+}
+export interface RemediationPayload {
+  iam: RemediationIAM
+  sg: RemediationSG
+  data_access: RemediationDataAccess
+}
+
 interface ExfilPath {
   path_id: string
   accessor_id: string
@@ -264,6 +314,10 @@ interface ExfilPath {
   // arrays when the role has no observed sessions / no policy
   // attachments / etc. Missing field would be a backend bug.
   stack_components?: StackComponentsPayload
+  // Neo4j-grounded remediation prescriptions — Alon 2026-05-27 "stop,
+  // why u dont fetch data from neo4j? why templates?" — replaces the
+  // earlier templated panel. Every list inside is a Cypher row diff.
+  remediation?: RemediationPayload
 }
 
 interface ExfilDestination {
@@ -673,76 +727,12 @@ function DamageRemediationPanel({
     tone: payload.destinations.length >= 2 ? "red" : payload.destinations.length === 1 ? "amber" : "slate",
   })
 
-  // ──── REMEDIATION ────
-  const iamRemediation: Array<{ action: string; rationale: string }> = []
-  if (unused > 0) {
-    iamRemediation.push({
-      action: `Remove ${unused} unused IAM permission${unused === 1 ? "" : "s"} from ${selectedPath.accessor_name}`,
-      rationale:
-        used > 0
-          ? `Only ${used} of ${allowed} permissions are exercised by observed traffic. The other ${unused} are pure attack surface.`
-          : `Observed traffic uses 0 of ${allowed} permissions on this path — every grant is over-permissive evidence.`,
-    })
-  }
-  if (lateralJewels > 0) {
-    iamRemediation.push({
-      action: `Split ${selectedPath.accessor_name} into per-jewel roles`,
-      rationale: `This role reaches ${lateralJewels + 1} jewels in total. A per-jewel split eliminates cross-jewel lateral via this role.`,
-    })
-  }
-  if (sharedWorkloads > 0) {
-    iamRemediation.push({
-      action: `Detach ${selectedPath.accessor_name} from the ${sharedWorkloads} other workload${sharedWorkloads === 1 ? "" : "s"} and issue per-workload scoped roles`,
-      rationale: `Sharing one role across ${sharedWorkloads + 1} workloads means any one compromise inherits the others' permissions.`,
-    })
-  }
-  if (iamRemediation.length === 0) {
-    iamRemediation.push({
-      action: "No IAM tightening recommended — role is already narrowly scoped to observed use",
-      rationale: "0 unused permissions · 0 lateral jewels · 0 shared workloads",
-    })
-  }
-
-  const sgRemediation: Array<{ action: string; rationale: string }> = []
-  if (isNonVpc) {
-    sgRemediation.push({
-      action: "No SG/NACL controls apply on this path",
-      rationale:
-        "Workload reaches AWS services via the public API endpoint (Service Plane). VPC-side hardening doesn't gate this exfil — IAM is the only gate.",
-    })
-  } else if (sgList.length === 0) {
-    sgRemediation.push({
-      action: "Workload SGs not collected — run /api/admin/run-consumer-edges",
-      rationale: "Cyntro can't recommend SG tightening without the SG → workload binding edges.",
-    })
-  } else {
-    sgRemediation.push({
-      action: `Tighten egress on ${sgList.length} security group${sgList.length === 1 ? "" : "s"} attached to this workload`,
-      rationale: `Restrict outbound rules to only the destinations Cyntro has actually observed traffic to. Currently the workload could egress anywhere the SG allows.`,
-    })
-    if (hasPublicSubnet) {
-      sgRemediation.push({
-        action: "Move workload to a private subnet OR add an S3 VPC endpoint",
-        rationale: `Workload sits in a public subnet with direct Internet egress. A VPC endpoint forces S3 traffic onto the AWS backbone and adds endpoint policy as an extra gate.`,
-      })
-    }
-  }
-
-  const dataRemediation: Array<{ action: string; rationale: string }> = []
-  dataRemediation.push({
-    action: `Add aws:SourceVpc / aws:SourceVpce condition to ${payload.jewel.name}'s bucket policy`,
-    rationale: `Without a SourceVpc/Vpce restriction, the bucket can be read from anywhere with valid IAM creds. Adding the condition narrows access to traffic that physically passes through the VPC endpoint.`,
-  })
-  dataRemediation.push({
-    action: `Enable S3 server-side access logging on ${payload.jewel.name}`,
-    rationale: `Today observed-exfil signal (the EXFILTRATED_TO edge) is not wired — Phase D collector pending. Bucket access logs are the bridge until that lands.`,
-  })
-  if (lateralJewels > 0) {
-    dataRemediation.push({
-      action: `Audit the bucket policies on ${lateralJewels} other jewel${lateralJewels === 1 ? "" : "s"} ${selectedPath.accessor_name} reaches`,
-      rationale: `Same role, same lateral surface — the other jewels likely have the same missing condition.`,
-    })
-  }
+  // ──── REMEDIATION — Neo4j-grounded ──────────────────────────────
+  // No templates. Every claim below ties to a Cypher row from the
+  // backend's _compute_remediation. When data isn't collected we
+  // render an honest "not collected" state instead of inventing
+  // a recommendation.
+  const rem = selectedPath.remediation
 
   // ──── DESTINATIONS ────
   const destinationRows = payload.destinations.map((d) => ({
@@ -799,31 +789,33 @@ function DamageRemediationPanel({
         </div>
       </section>
 
-      {/* REMEDIATION */}
+      {/* REMEDIATION — Neo4j-grounded. Every section reads its data
+          from selectedPath.remediation. When the field is absent,
+          we render an explicit "remediation enrichment not computed"
+          state — no faking. */}
       <section>
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="h-4 w-4 text-emerald-400" />
           <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-200">
             How to reduce the damage
           </h3>
+          <span className="text-[10px] text-emerald-300/60">
+            · all claims tied to Neo4j rows
+          </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <RemediationColumn
-            title="IAM role permissions"
-            color="rose"
-            items={iamRemediation}
-          />
-          <RemediationColumn
-            title="Security groups / network"
-            color="cyan"
-            items={sgRemediation}
-          />
-          <RemediationColumn
-            title="Data-access permissions"
-            color="emerald"
-            items={dataRemediation}
-          />
-        </div>
+        {!rem ? (
+          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+            Remediation enrichment not yet computed for this path. Refresh
+            the page; if this persists, the backend's _attach_remediation
+            failed for this accessor (check Render logs).
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <RemediationIAMCol rem={rem.iam} roleName={selectedPath.accessor_name} />
+            <RemediationSGCol rem={rem.sg} />
+            <RemediationDataCol rem={rem.data_access} jewelName={payload.jewel.name} />
+          </div>
+        )}
       </section>
 
       {/* DESTINATIONS — every domain / external endpoint data leaves to */}
@@ -883,6 +875,343 @@ function DamageRemediationPanel({
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+// ── IAM remediation column — Neo4j-grounded ─────────────────────
+// Renders specific action names from r.allowed_actions diffed against
+// observed ACTUAL_API_CALL edges. Surfaces destructive actions (Delete
+// / Terminate / Remove verbs) as red.
+function RemediationIAMCol({
+  rem,
+  roleName,
+}: {
+  rem: RemediationIAM
+  roleName: string
+}) {
+  const unused = rem.unused_actions ?? []
+  const used = rem.used_actions ?? []
+  const destructive = new Set(rem.destructive_unused ?? [])
+  const observedNotInAllowed = rem.observed_not_in_allowed ?? []
+
+  return (
+    <div className="rounded border border-rose-500/30 bg-slate-900/40 p-3 space-y-3">
+      <h4 className="text-[10px] uppercase tracking-wider font-bold text-rose-300">
+        IAM role permissions
+      </h4>
+      {unused.length === 0 ? (
+        <div className="text-[12px] text-emerald-300/90">
+          ✓ All {rem.allowed_actions?.length ?? 0} allowed actions are exercised
+          by observed traffic. No unused-permission gap on this path.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-[12px] text-slate-200 font-semibold leading-snug">
+            Remove {unused.length} unused permission
+            {unused.length === 1 ? "" : "s"} from{" "}
+            <span className="font-mono text-rose-200">{roleName}</span>
+          </div>
+          <div className="text-[11px] text-slate-400 leading-snug">
+            Allowed but never observed on{" "}
+            <span className="text-slate-300">ACTUAL_API_CALL</span> edges:
+          </div>
+          <ul className="space-y-1">
+            {unused.map((a) => (
+              <li
+                key={a}
+                className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
+                  destructive.has(a)
+                    ? "border-red-500/50 bg-red-500/10 text-red-200"
+                    : "border-slate-700 bg-slate-800/40 text-slate-300"
+                }`}
+                title={
+                  destructive.has(a)
+                    ? "Destructive action — removing this eliminates the worst-case write/delete blast"
+                    : "Unused — observed CloudTrail shows no use"
+                }
+              >
+                {destructive.has(a) && (
+                  <span className="text-[9px] uppercase tracking-wider font-bold mr-1.5 text-red-300">
+                    destructive
+                  </span>
+                )}
+                {a}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {used.length > 0 && (
+        <div className="space-y-1 pt-2 border-t border-slate-800">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-300/80">
+            Keep ({used.length})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {used.map((a) => (
+              <span
+                key={a}
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/5 text-emerald-200"
+              >
+                {a}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {observedNotInAllowed.length > 0 && (
+        <div className="space-y-1 pt-2 border-t border-slate-800">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-300/80">
+            Discrepancy — observed but not in allowed_actions
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {observedNotInAllowed.map((a) => (
+              <span
+                key={a}
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-200"
+                title="Action observed via ACTUAL_API_CALL but not in this role's allowed_actions — either wildcard match (s3:Get* covering s3:Head*) or per-principal attribution gap"
+              >
+                {a}
+              </span>
+            ))}
+          </div>
+          <div className="text-[10px] text-amber-300/70">
+            Likely wildcard expansion (s3:Get* covering s3:Head*) or
+            per-principal attribution gap.
+          </div>
+        </div>
+      )}
+      {rem.used_cached_was_stale && (
+        <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800">
+          Note: cached <span className="font-mono">used_actions_count</span> on
+          the IAMRole node was stale. Live diff against ACTUAL_API_CALL is the
+          authoritative number.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SG remediation column — Neo4j-grounded ──────────────────────
+function RemediationSGCol({ rem }: { rem: RemediationSG }) {
+  return (
+    <div className="rounded border border-cyan-500/30 bg-slate-900/40 p-3 space-y-2">
+      <h4 className="text-[10px] uppercase tracking-wider font-bold text-cyan-300">
+        Security groups / network
+      </h4>
+      {!rem.applies ? (
+        <div className="text-[12px] text-slate-300 leading-snug">
+          <span className="font-semibold">Not applicable on this path.</span>
+          <div className="text-[11px] text-slate-400 mt-1">
+            Workload is not VPC-attached — reaches AWS services via the public
+            API endpoint (Service Plane). SG / NACL / subnet controls don't
+            gate this exfil. IAM is the only gate.
+          </div>
+        </div>
+      ) : !rem.sgs_collected ? (
+        <div className="text-[12px] text-amber-200 leading-snug">
+          <span className="font-semibold">SG rules not collected.</span>
+          <div className="text-[11px] text-amber-300/70 mt-1">
+            Workload is VPC-attached but no SG rule data is in Neo4j. Run{" "}
+            <span className="font-mono">/api/admin/run-consumer-edges</span>
+            then refresh.
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {rem.groups.map((g) => (
+            <div key={g.sg_id} className="space-y-1.5">
+              <div className="text-[11px] font-mono text-slate-100">
+                {g.sg_name}
+                <span className="text-[10px] text-slate-500 ml-1.5">
+                  · {g.outbound_rules.length} outbound rule
+                  {g.outbound_rules.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {g.public_egress_rules.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-red-300 font-semibold">
+                    {g.public_egress_rules.length} PUBLIC egress rule
+                    {g.public_egress_rules.length === 1 ? "" : "s"} — remove or
+                    scope:
+                  </div>
+                  <ul className="space-y-0.5">
+                    {g.public_egress_rules.map((r, i) => (
+                      <li
+                        key={i}
+                        className="text-[11px] font-mono text-red-200 px-1.5 py-0.5 rounded border border-red-500/40 bg-red-500/10"
+                      >
+                        {r.protocol === "all" || r.from_port === -1
+                          ? `ALL TRAFFIC → ${r.source}`
+                          : `${r.protocol} ${r.from_port}${
+                              r.from_port !== r.to_port ? `-${r.to_port}` : ""
+                            } → ${r.source}`}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="text-[10px] text-red-300/70">
+                    Replace with a VPC endpoint and/or scoped egress to the
+                    specific AWS service prefix.
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-emerald-300/80">
+                  No 0.0.0.0/0 egress rules on this SG — already scoped.
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Data-access remediation column — Neo4j-grounded ─────────────
+function RemediationDataCol({
+  rem,
+  jewelName,
+}: {
+  rem: RemediationDataAccess
+  jewelName: string
+}) {
+  // Each row is one bucket-side posture signal. Tone = red when it's
+  // a vulnerability the operator should close, emerald when it's
+  // already in place, slate when the collector hasn't populated the
+  // field (honest "we don't know" vs. faking a recommendation).
+  type Row = {
+    label: string
+    state: "good" | "bad" | "unknown"
+    detail: string
+  }
+  const rows: Row[] = []
+
+  // 1. Source-VPC condition
+  if (!rem.bucket_policy_collected) {
+    rows.push({
+      label: "aws:SourceVpc / SourceVpce condition",
+      state: "unknown",
+      detail:
+        "Bucket policy not collected — cannot check whether the condition is in place. Run the S3 collector with bucket-policy enabled to evaluate.",
+    })
+  } else if (rem.has_source_vpc_condition === true) {
+    rows.push({
+      label: "aws:SourceVpc / SourceVpce condition",
+      state: "good",
+      detail:
+        "Bucket policy already restricts access to traffic from the VPC endpoint. No action.",
+    })
+  } else {
+    rows.push({
+      label: "aws:SourceVpc / SourceVpce condition",
+      state: "bad",
+      detail:
+        "Bucket policy has no SourceVpc/Vpce restriction. Add the condition so the bucket can only be read by callers traversing the VPC endpoint.",
+    })
+  }
+
+  // 2. Public access block
+  if (rem.public_access_block === null) {
+    rows.push({
+      label: "Public Access Block",
+      state: "unknown",
+      detail: "PAB state not collected — re-run the S3 collector to capture.",
+    })
+  } else if (rem.public_access_block) {
+    rows.push({
+      label: "Public Access Block",
+      state: "good",
+      detail: "PAB enabled — bucket cannot be made public via policy or ACL.",
+    })
+  } else {
+    rows.push({
+      label: "Public Access Block",
+      state: "bad",
+      detail: `Enable PAB on ${jewelName} so a misconfigured policy can't make the bucket public.`,
+    })
+  }
+
+  // 3. Versioning
+  if (rem.versioning === null) {
+    rows.push({
+      label: "Versioning",
+      state: "unknown",
+      detail: "Versioning state not collected.",
+    })
+  } else if (String(rem.versioning).toLowerCase() === "enabled") {
+    rows.push({
+      label: "Versioning",
+      state: "good",
+      detail: "Versioning enabled — deletes are recoverable.",
+    })
+  } else {
+    rows.push({
+      label: "Versioning",
+      state: "bad",
+      detail: `Versioning is ${rem.versioning}. Enable so s3:DeleteObject (which the role currently allows) doesn't make data irrecoverable.`,
+    })
+  }
+
+  // 4. KMS encryption
+  rows.push({
+    label: "KMS encryption",
+    state: rem.kms_encrypted === true ? "good" : rem.kms_encrypted === false ? "bad" : "unknown",
+    detail:
+      rem.kms_encrypted === true
+        ? "Bucket encrypted with a KMS key — exfil is gated on KMS access as well as IAM."
+        : rem.kms_encrypted === false
+          ? "No KMS encryption — only IAM gates exfil. Consider a customer-managed KMS key for an extra control plane."
+          : "Encryption state not collected.",
+  })
+
+  // 5. Access logging
+  if (rem.access_logging_enabled === null) {
+    rows.push({
+      label: "Access logging",
+      state: "unknown",
+      detail: "Access-logging state not collected.",
+    })
+  } else if (rem.access_logging_enabled) {
+    rows.push({
+      label: "Access logging",
+      state: "good",
+      detail:
+        "S3 server-side access logging is on — egress events have a forensic trail.",
+    })
+  } else {
+    rows.push({
+      label: "Access logging",
+      state: "bad",
+      detail: `Enable S3 server-side access logging on ${jewelName} — bridges the gap until EXFILTRATED_TO collector (Phase D) is wired.`,
+    })
+  }
+
+  return (
+    <div className="rounded border border-emerald-500/30 bg-slate-900/40 p-3 space-y-2.5">
+      <h4 className="text-[10px] uppercase tracking-wider font-bold text-emerald-300">
+        Data-access permissions
+      </h4>
+      {rows.map((r, i) => {
+        const tone =
+          r.state === "good"
+            ? "text-emerald-300/90"
+            : r.state === "bad"
+              ? "text-red-200"
+              : "text-slate-400"
+        const stateLabel =
+          r.state === "good" ? "✓" : r.state === "bad" ? "✗" : "—"
+        return (
+          <div key={i} className="space-y-0.5">
+            <div className={`text-[12px] font-semibold ${tone}`}>
+              <span className="mr-1.5">{stateLabel}</span>
+              {r.label}
+            </div>
+            <div className="text-[11px] text-slate-400 leading-snug pl-4">
+              {r.detail}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
