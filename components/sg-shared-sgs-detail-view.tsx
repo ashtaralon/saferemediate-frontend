@@ -32,6 +32,7 @@ import { HeroStrip } from "./sg-shared-sgs/hero-strip"
 import { BeforeAfterCards } from "./sg-shared-sgs/before-after-cards"
 import { SwapPlanTab } from "./sg-shared-sgs/swap-plan-tab"
 import { KVRow } from "./sg-shared-sgs/kv-row"
+import { StagedEnableToggle } from "./sg-shared-sgs/staged-enable-toggle"
 
 // SG-9d redesigned detail view. Parent stays lean (orchestration +
 // data fetching + action panel). Each tab is its own sub-component.
@@ -223,6 +224,18 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
         onExecute={handleExecute}
         onRollback={handleRollback}
       />
+
+      {/* SG-9h: per-SG STAGED enable toggle. Replaces the legacy
+          SHARED_SGS_STAGED_ALLOWLIST env var with an operator-visible
+          opt-in stored on the SG node. Shown for any plan that has a
+          shared_sg.sg_id (every plan, in practice). */}
+      {sgInfo.sg_id && (
+        <StagedEnableToggle
+          sgId={sgInfo.sg_id}
+          actor={actor}
+          onChange={reload}
+        />
+      )}
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList>

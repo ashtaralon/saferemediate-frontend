@@ -1082,6 +1082,72 @@ export async function fetchSGStagePreview(
   return await res.json()
 }
 
+
+// ─── SG-9h: per-SG STAGED enable / disable / read ────────────────────
+
+
+export interface SGStagedState {
+  sg_id: string
+  enabled: boolean
+  enabled_by?: string | null
+  enabled_at?: string | null
+  enabled_note?: string | null
+  disabled_by?: string | null
+  disabled_at?: string | null
+  disabled_note?: string | null
+}
+
+export async function fetchSGStagedState(sgId: string): Promise<SGStagedState> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/${encodeURIComponent(sgId)}/staged-state`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg staged-state ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function enableSGStaged(
+  sgId: string, enabledBy: string, note: string = "",
+): Promise<SGStagedState> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/${encodeURIComponent(sgId)}/enable-staged`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled_by: enabledBy, note }),
+      cache: "no-store",
+    },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg enable-staged ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function disableSGStaged(
+  sgId: string, disabledBy: string, note: string = "",
+): Promise<SGStagedState> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/${encodeURIComponent(sgId)}/disable-staged`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disabled_by: disabledBy, note }),
+      cache: "no-store",
+    },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg disable-staged ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+
 // ─── Layer D — split-plan simulate (Phase 2/3) ──────────────────────
 // Two-step polling pattern. postSimulate returns 202 + sim_id; UI
 // polls fetchSimulationRun every ~1.5s until status terminal.
