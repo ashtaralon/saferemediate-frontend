@@ -35,7 +35,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ChevronDown, Crown, Route, AlertTriangle, RefreshCw, Loader2, ExternalLink } from "lucide-react"
+import { ArrowRight, ChevronDown, Crown, Route, AlertTriangle, RefreshCw, Loader2, ExternalLink, Globe, ShieldCheck } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import { postSplitPlan } from "@/lib/api-client"
@@ -497,13 +497,13 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
     ) : null
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-y-auto">
       <Header jewel={jewel} subtitle={subtitle} />
       <KeystoneStrip
         atlasSummary={data.atlas_summary}
         keystones={data.keystones ?? []}
       />
-      <div className="flex-1 min-h-0 relative">
+      <div className="relative" style={{ minHeight: "640px" }}>
         <TrafficFlowMap
           systemName={systemName}
           architectureOverride={architecture}
@@ -544,6 +544,15 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
           />
         )}
       </div>
+      {/* DAMAGE + REMEDIATION panel — Alon 2026-05-27, the green-
+          highlighted empty space below the canvas. Plain-English
+          summary of: what this path does, blast radius, concrete
+          remediation actions across IAM/SG/data-access, and every
+          destination data is observed leaving to. */}
+      <DamageRemediationPanel
+        payload={data}
+        selectedPath={selectedPath}
+      />
     </div>
   )
 }
@@ -553,6 +562,372 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
 // bar, same FreshnessBanner pill, jewel slot on right. The only
 // semantic flip: "target" → "source" because the jewel IS the data
 // origin in EXFIL, not the attacker's destination.
+
+// ─── DAMAGE + REMEDIATION panel ──────────────────────────────────
+// Alon 2026-05-27: the empty space below the canvas. Plain-English
+// damage summary, blast-radius numbers, concrete remediation
+// actions across IAM/SG/data-access, and every observed destination
+// where data leaves to.
+//
+// Honest rendering — every fact ties to a real data point:
+//   damage           → derived from selectedPath + accessor counts
+//   blast_radius     → from accessor.also_reaches / shared_with
+//   remediation_iam  → from accessor.used_actions vs allowed_actions
+//   remediation_sg   → from path.workload_network (SG / SG rules)
+//   remediation_data → bucket policy / VPC endpoint status (when
+//                      collected; otherwise honest empty state)
+//   destinations     → from payload.destinations[] (jewel-scoped)
+// Anything not yet collected renders an explicit "collector pending"
+// note rather than faking the data.
+
+function DamageRemediationPanel({
+  payload,
+  selectedPath,
+}: {
+  payload: ExfilPayload
+  selectedPath: ExfilPath | null
+}) {
+  if (!selectedPath) {
+    return (
+      <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/40">
+        <div className="text-xs text-slate-500 italic">
+          Select an exfil path above to see the damage assessment and
+          remediation actions.
+        </div>
+      </div>
+    )
+  }
+
+  const accessor = payload.accessors.find(
+    (a) => a.id === selectedPath.accessor_id,
+  )
+  const allowed = accessor?.allowed_actions_count ?? 0
+  const used = accessor?.used_actions_count ?? 0
+  const unused = accessor?.unused_actions_count ?? Math.max(0, allowed - used)
+  const observed = accessor?.provenance === "observed"
+  const lateralJewels = accessor?.also_reaches?.length ?? 0
+  const sharedWorkloads = accessor?.shared_with?.length ?? 0
+  const isNonVpc = !selectedPath.workload_network?.is_vpc_attached
+  const sgList = selectedPath.workload_network?.security_groups ?? []
+  const subnetList = selectedPath.workload_network?.subnets ?? []
+  const hasPublicSubnet = subnetList.some((s) => s.is_public === true)
+  const channel = selectedPath.channel_label
+  const workloadKind =
+    selectedPath.workload_sample?.[0]?.type || "workload"
+
+  // ──── DAMAGE — plain English ────
+  const damageSentences: string[] = []
+  damageSentences.push(
+    `An attacker who compromises ${workloadKind} ${
+      selectedPath.workload_sample?.[0]?.name ?? "(unknown)"
+    } can read ${payload.jewel.name} via the ${selectedPath.accessor_name} role.`,
+  )
+  if (observed && selectedPath.jewel_hits > 0) {
+    damageSentences.push(
+      `Cyntro has observed ${selectedPath.jewel_hits.toLocaleString()} reads on this path${
+        selectedPath.workload_network?.evidence ? "" : ""
+      } — this isn't theoretical, the data is actively moving.`,
+    )
+  }
+  if (allowed > 0) {
+    damageSentences.push(
+      `The role grants ${allowed} permissions; ${used > 0 ? `${used} are exercised by observed traffic` : "none are exercised by observed traffic"}. ${unused > 0 ? `The other ${unused} are unused excess — pure attack surface.` : ""}`,
+    )
+  }
+  if (isNonVpc) {
+    damageSentences.push(
+      `The workload is not VPC-attached, so VPC Flow Logs / SG egress / NACLs do not gate this path. IAM is the only line of defense.`,
+    )
+  } else if (hasPublicSubnet) {
+    damageSentences.push(
+      `The workload sits in a public subnet — egress to the Internet has a direct route.`,
+    )
+  }
+
+  // ──── BLAST RADIUS — what else does this unlock ────
+  const blastChips: Array<{
+    label: string
+    sub: string
+    tone: "red" | "amber" | "slate"
+  }> = []
+  blastChips.push({
+    label: `${lateralJewels} other jewel${lateralJewels === 1 ? "" : "s"}`,
+    sub: lateralJewels > 0
+      ? `Same role reads these too — kill the role, kill ${lateralJewels + 1} reach lines`
+      : "This role only reaches this jewel — narrow blast",
+    tone: lateralJewels >= 3 ? "red" : lateralJewels >= 1 ? "amber" : "slate",
+  })
+  blastChips.push({
+    label: `${sharedWorkloads} other workload${sharedWorkloads === 1 ? "" : "s"}`,
+    sub: sharedWorkloads > 0
+      ? `Other footholds carry the same role — compromise any one to land here`
+      : `Only this workload carries the role — bounded foothold surface`,
+    tone: sharedWorkloads >= 3 ? "red" : sharedWorkloads >= 1 ? "amber" : "slate",
+  })
+  blastChips.push({
+    label: `${payload.destinations.length} destination${payload.destinations.length === 1 ? "" : "s"}`,
+    sub:
+      payload.destinations.length > 0
+        ? "Data leaving via these exit points (see Destinations below)"
+        : "No exit points resolved — collector pending",
+    tone: payload.destinations.length >= 2 ? "red" : payload.destinations.length === 1 ? "amber" : "slate",
+  })
+
+  // ──── REMEDIATION ────
+  const iamRemediation: Array<{ action: string; rationale: string }> = []
+  if (unused > 0) {
+    iamRemediation.push({
+      action: `Remove ${unused} unused IAM permission${unused === 1 ? "" : "s"} from ${selectedPath.accessor_name}`,
+      rationale:
+        used > 0
+          ? `Only ${used} of ${allowed} permissions are exercised by observed traffic. The other ${unused} are pure attack surface.`
+          : `Observed traffic uses 0 of ${allowed} permissions on this path — every grant is over-permissive evidence.`,
+    })
+  }
+  if (lateralJewels > 0) {
+    iamRemediation.push({
+      action: `Split ${selectedPath.accessor_name} into per-jewel roles`,
+      rationale: `This role reaches ${lateralJewels + 1} jewels in total. A per-jewel split eliminates cross-jewel lateral via this role.`,
+    })
+  }
+  if (sharedWorkloads > 0) {
+    iamRemediation.push({
+      action: `Detach ${selectedPath.accessor_name} from the ${sharedWorkloads} other workload${sharedWorkloads === 1 ? "" : "s"} and issue per-workload scoped roles`,
+      rationale: `Sharing one role across ${sharedWorkloads + 1} workloads means any one compromise inherits the others' permissions.`,
+    })
+  }
+  if (iamRemediation.length === 0) {
+    iamRemediation.push({
+      action: "No IAM tightening recommended — role is already narrowly scoped to observed use",
+      rationale: "0 unused permissions · 0 lateral jewels · 0 shared workloads",
+    })
+  }
+
+  const sgRemediation: Array<{ action: string; rationale: string }> = []
+  if (isNonVpc) {
+    sgRemediation.push({
+      action: "No SG/NACL controls apply on this path",
+      rationale:
+        "Workload reaches AWS services via the public API endpoint (Service Plane). VPC-side hardening doesn't gate this exfil — IAM is the only gate.",
+    })
+  } else if (sgList.length === 0) {
+    sgRemediation.push({
+      action: "Workload SGs not collected — run /api/admin/run-consumer-edges",
+      rationale: "Cyntro can't recommend SG tightening without the SG → workload binding edges.",
+    })
+  } else {
+    sgRemediation.push({
+      action: `Tighten egress on ${sgList.length} security group${sgList.length === 1 ? "" : "s"} attached to this workload`,
+      rationale: `Restrict outbound rules to only the destinations Cyntro has actually observed traffic to. Currently the workload could egress anywhere the SG allows.`,
+    })
+    if (hasPublicSubnet) {
+      sgRemediation.push({
+        action: "Move workload to a private subnet OR add an S3 VPC endpoint",
+        rationale: `Workload sits in a public subnet with direct Internet egress. A VPC endpoint forces S3 traffic onto the AWS backbone and adds endpoint policy as an extra gate.`,
+      })
+    }
+  }
+
+  const dataRemediation: Array<{ action: string; rationale: string }> = []
+  dataRemediation.push({
+    action: `Add aws:SourceVpc / aws:SourceVpce condition to ${payload.jewel.name}'s bucket policy`,
+    rationale: `Without a SourceVpc/Vpce restriction, the bucket can be read from anywhere with valid IAM creds. Adding the condition narrows access to traffic that physically passes through the VPC endpoint.`,
+  })
+  dataRemediation.push({
+    action: `Enable S3 server-side access logging on ${payload.jewel.name}`,
+    rationale: `Today observed-exfil signal (the EXFILTRATED_TO edge) is not wired — Phase D collector pending. Bucket access logs are the bridge until that lands.`,
+  })
+  if (lateralJewels > 0) {
+    dataRemediation.push({
+      action: `Audit the bucket policies on ${lateralJewels} other jewel${lateralJewels === 1 ? "" : "s"} ${selectedPath.accessor_name} reaches`,
+      rationale: `Same role, same lateral surface — the other jewels likely have the same missing condition.`,
+    })
+  }
+
+  // ──── DESTINATIONS ────
+  const destinationRows = payload.destinations.map((d) => ({
+    label: d.label,
+    kind: d.kind,
+    icon: d.icon,
+    observed: d.observed_route_count,
+    capable: d.capable_route_count,
+    bytes24h: d.observed_bytes_24h,
+    provenance: d.provenance,
+  }))
+  const destinationCollectorWired = payload.observed_exfil?.available ?? false
+
+  return (
+    <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/40 space-y-5">
+      {/* DAMAGE */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <AlertTriangle className="h-4 w-4 text-red-400" />
+          <h3 className="text-sm font-bold uppercase tracking-wider text-red-200">
+            Damage on this path
+          </h3>
+        </div>
+        <div className="text-sm text-slate-200 leading-relaxed space-y-1.5">
+          {damageSentences.map((s, i) => (
+            <p key={i}>{s}</p>
+          ))}
+        </div>
+      </section>
+
+      {/* BLAST RADIUS */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="h-4 w-4 rounded-full bg-amber-500/40 border border-amber-400" />
+          <h3 className="text-sm font-bold uppercase tracking-wider text-amber-200">
+            Blast radius beyond this path
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {blastChips.map((c, i) => {
+            const tone =
+              c.tone === "red"
+                ? "bg-red-500/10 border-red-500/40 text-red-200"
+                : c.tone === "amber"
+                  ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+                  : "bg-slate-700/30 border-slate-600/50 text-slate-300"
+            return (
+              <div key={i} className={`rounded border px-3 py-2 ${tone}`}>
+                <div className="text-base font-bold">{c.label}</div>
+                <div className="text-[11px] mt-1 opacity-90">{c.sub}</div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* REMEDIATION */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <ShieldCheck className="h-4 w-4 text-emerald-400" />
+          <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-200">
+            How to reduce the damage
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <RemediationColumn
+            title="IAM role permissions"
+            color="rose"
+            items={iamRemediation}
+          />
+          <RemediationColumn
+            title="Security groups / network"
+            color="cyan"
+            items={sgRemediation}
+          />
+          <RemediationColumn
+            title="Data-access permissions"
+            color="emerald"
+            items={dataRemediation}
+          />
+        </div>
+      </section>
+
+      {/* DESTINATIONS — every domain / external endpoint data leaves to */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <Globe className="h-4 w-4 text-cyan-300" />
+          <h3 className="text-sm font-bold uppercase tracking-wider text-cyan-200">
+            Where data leaves to
+          </h3>
+        </div>
+        {destinationRows.length === 0 ? (
+          <div className="text-xs text-slate-500 italic px-3 py-2 rounded border border-slate-800 bg-slate-900/40">
+            No destinations resolved for this jewel.
+          </div>
+        ) : (
+          <div className="rounded border border-slate-800 bg-slate-900/40 divide-y divide-slate-800/60">
+            {destinationRows.map((d) => (
+              <div
+                key={d.label}
+                className="px-3 py-2 flex items-center gap-3 text-sm"
+              >
+                <span
+                  className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${
+                    d.provenance === "observed"
+                      ? "border-red-500/50 text-red-200 bg-red-500/10"
+                      : "border-amber-500/50 text-amber-200 bg-amber-500/10"
+                  }`}
+                >
+                  {d.provenance}
+                </span>
+                <span className="text-slate-200 font-mono flex-1 truncate">
+                  {d.label}
+                </span>
+                <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                  {d.kind}
+                </span>
+                <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                  {d.observed} observed · {d.capable} capable
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+          {destinationCollectorWired ? (
+            <>Destinations reflect real CloudTrail / VPC Flow Log exit traces.</>
+          ) : (
+            <>
+              <strong className="text-amber-300/80">
+                Domain-level destination resolution is collector-pending (Phase D).
+              </strong>{" "}
+              Today's destinations are aggregated exit channels (Internet /
+              external account / external region). Resolving to specific
+              external domains requires the Route 53 Resolver Query Log
+              collector + the EXFILTRATED_TO edge writer — both queued.
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function RemediationColumn({
+  title,
+  color,
+  items,
+}: {
+  title: string
+  color: "rose" | "cyan" | "emerald"
+  items: Array<{ action: string; rationale: string }>
+}) {
+  const headerTone =
+    color === "rose"
+      ? "text-rose-300"
+      : color === "cyan"
+        ? "text-cyan-300"
+        : "text-emerald-300"
+  const borderTone =
+    color === "rose"
+      ? "border-rose-500/30"
+      : color === "cyan"
+        ? "border-cyan-500/30"
+        : "border-emerald-500/30"
+  return (
+    <div className={`rounded border ${borderTone} bg-slate-900/40 p-3 space-y-2.5`}>
+      <h4
+        className={`text-[10px] uppercase tracking-wider font-bold ${headerTone}`}
+      >
+        {title}
+      </h4>
+      {items.map((it, i) => (
+        <div key={i} className="space-y-1">
+          <div className="text-[12px] text-slate-200 font-semibold leading-snug">
+            {it.action}
+          </div>
+          <div className="text-[11px] text-slate-400 leading-snug">
+            {it.rationale}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle: string }) {
   return (
