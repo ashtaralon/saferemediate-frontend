@@ -388,6 +388,21 @@ function ScopedSGCard({
   )
 }
 
+// Owner-kind → friendly inline label for ENI rows. Backend's
+// _infer_eni_owner returns owner_kind ∈ {EC2, LoadBalancer, Lambda,
+// VPCEndpoint, NATGateway, EICEndpoint, TransitGateway, RDS, Other}.
+const OWNER_KIND_LABEL: Record<string, string> = {
+  EC2: "EC2",
+  LoadBalancer: "ALB/NLB",
+  Lambda: "Lambda",
+  VPCEndpoint: "VPC Endpoint",
+  NATGateway: "NAT",
+  EICEndpoint: "EICE",
+  TransitGateway: "TGW",
+  RDS: "RDS",
+  Other: "Service-managed",
+}
+
 function ConsumersList({
   consumers,
   consumerType,
@@ -399,6 +414,7 @@ function ConsumersList({
   const collapseAt = 6
   const visible = showAll ? consumers : consumers.slice(0, collapseAt)
   const kindLabel = KIND_LABEL[consumerType]?.plural || consumerType
+  const isENI = consumerType === "NetworkInterface"
 
   return (
     <div className="rounded-md border border-emerald-200/60 dark:border-emerald-900/40 overflow-hidden">
@@ -410,15 +426,36 @@ function ConsumersList({
       </div>
       <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
         {visible.map((c, i) => (
-          <li key={c.consumer_id || c.consumer_arn || i} className="px-3 py-1.5 grid grid-cols-[1fr_auto] gap-3 items-baseline">
+          <li
+            key={c.consumer_id || c.consumer_arn || i}
+            className="px-3 py-1.5 grid grid-cols-[1fr_auto] gap-3 items-baseline"
+          >
             <div className="min-w-0">
-              <div className="text-[12px] text-foreground truncate">
-                {c.consumer_name || c.consumer_id || c.consumer_arn || "—"}
-              </div>
-              {c.consumer_name && c.consumer_id && c.consumer_name !== c.consumer_id && (
-                <div className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 truncate">
-                  {c.consumer_id}
-                </div>
+              {isENI && c.owner_label ? (
+                // ENI row: lead with the owner label (LB name / EC2
+                // id / etc.) since "eni-..." alone is opaque.
+                <>
+                  <div className="text-[12px] text-foreground truncate flex items-center gap-1.5">
+                    <span>{c.owner_label}</span>
+                    <span className="inline-flex items-center px-1 py-0 rounded-sm bg-zinc-100 dark:bg-zinc-800 text-[9px] uppercase tracking-wider text-zinc-700 dark:text-zinc-200">
+                      {OWNER_KIND_LABEL[c.owner_kind] || c.owner_kind}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 truncate">
+                    via {c.consumer_id || c.consumer_arn}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[12px] text-foreground truncate">
+                    {c.consumer_name || c.consumer_id || c.consumer_arn || "—"}
+                  </div>
+                  {c.consumer_name && c.consumer_id && c.consumer_name !== c.consumer_id && (
+                    <div className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 truncate">
+                      {c.consumer_id}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             {c.system_name && (
