@@ -89,7 +89,8 @@ export function AttackPathsV2() {
   // BFS-forwards from the crown jewel to surface every door the
   // data can leave through. Distinct mental model from the
   // attacker/per-path/exposure tabs (which BFS backwards toward
-  // entry points). See components/attack-paths-v2/exfil-view-panel.tsx.
+  // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
+  // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
   const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" =
     modeParam === "exposure"
       ? "exposure"
