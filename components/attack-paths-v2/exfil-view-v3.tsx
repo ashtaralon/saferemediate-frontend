@@ -59,6 +59,25 @@ const TrafficFlowMap = dynamic(
 
 // ─── Backend response types — mirror api/exfil_paths.py shape ─────
 
+// Blast-radius lateral surfaces — populated by the backend's
+// _attach_accessor_blast_radius pass (api/exfil_paths.py). Both lists
+// answer the question "what ELSE does this role unlock?" — the
+// operational signal Alon called "our killer solution":
+//   also_reaches: same accessor → other jewels (cross-bucket lateral)
+//   shared_with:  other workloads → same role (cross-workload lateral)
+export interface BlastRadiusJewel {
+  id: string
+  name: string
+  type: string
+  hits: number
+}
+export interface BlastRadiusConsumer {
+  id: string
+  name: string
+  type: string
+  system_name: string | null
+}
+
 interface ExfilAccessor {
   id: string
   name: string
@@ -71,6 +90,8 @@ interface ExfilAccessor {
   hit_count: number
   total_bytes: number
   last_seen: string | null
+  also_reaches?: BlastRadiusJewel[]
+  shared_with?: BlastRadiusConsumer[]
 }
 
 interface ExfilNetworkEgressItem {
@@ -645,6 +666,12 @@ function buildExfilArchitecture(
       gapCount: a.unused_actions_count ?? 0,
       connectedSources: [],
       connectedTargets: [],
+      // Blast-radius lateral surfaces (2026-05-27 "killer solution"
+      // framing). Backend's _attach_accessor_blast_radius pass
+      // populates these; chip in TFM renders badges so the operator
+      // sees the cross-bucket + cross-workload reach at a glance.
+      alsoReaches: a.also_reaches ?? [],
+      sharedWith: a.shared_with ?? [],
     })
     // Jewel → accessor (the read edge inverted into "data leaves jewel
     // via this accessor"). Animated red line when observed.

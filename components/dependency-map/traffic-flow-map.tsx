@@ -124,6 +124,18 @@ export interface SecurityCheckpoint {
    *  metric — "the role used 3 distinct actions across 1,247
    *  CloudTrail events". Optional render below the main chip. */
   liveUsedActionEventCount?: number;
+  /** IAM Role — BLAST RADIUS lateral surfaces (2026-05-27, Alon's
+   *  "killer solution" framing). Both lists answer "what ELSE does
+   *  this role unlock?" — surfaced as badges on the role chip in
+   *  the EXFIL canvas so the operator sees in one glance:
+   *    1. ALSO REACHES — same role → other crown jewels
+   *       (cross-bucket lateral)
+   *    2. SHARED WITH  — other workloads → same role
+   *       (cross-workload lateral)
+   *  Sorted hottest-jewel-first / most-recently-used-workload-first
+   *  by the backend (_attach_accessor_blast_radius). */
+  alsoReaches?: Array<{ id: string; name: string; type: string; hits: number }>;
+  sharedWith?: Array<{ id: string; name: string; type: string; system_name: string | null }>;
 }
 
 export interface TrafficFlow {
@@ -1253,6 +1265,73 @@ export function IAMRoleNode({
                   </span>
                 )}
             </div>
+            {/* BLAST RADIUS strip — 2026-05-27 (Alon: "this is our
+                killer solution!!"). The chip above shows ONE chain's
+                read. These badges surface what ELSE the same role
+                unlocks: other crown jewels (ALSO REACHES) + other
+                workloads carrying the same key (SHARED WITH). Both
+                lists come from the backend's _attach_accessor_blast_
+                radius pass — real graph edges, no synthesis. Hidden
+                when both lists are empty so the chip stays compact
+                on roles with no lateral surface. */}
+            {((role.alsoReaches?.length ?? 0) > 0 || (role.sharedWith?.length ?? 0) > 0) && (
+              <div className="flex flex-col gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
+                {(role.alsoReaches?.length ?? 0) > 0 && (
+                  <div
+                    className="flex items-center gap-1 flex-wrap"
+                    title={`Same role also reaches: ${(role.alsoReaches ?? []).map(j => j.name).join(", ")}`}
+                  >
+                    <span className="text-[8px] uppercase tracking-wider text-slate-500 font-semibold">
+                      Also reaches
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300 font-mono">
+                      +{role.alsoReaches?.length ?? 0}{" "}
+                      {(role.alsoReaches?.length ?? 0) === 1 ? "jewel" : "jewels"}
+                    </span>
+                    {(role.alsoReaches ?? []).slice(0, 1).map(j => (
+                      <span
+                        key={j.id}
+                        className="text-[9px] text-slate-300 font-mono truncate max-w-[140px]"
+                      >
+                        {j.name}
+                        {j.hits > 0 && (
+                          <span className="text-fuchsia-300/70 ml-1">
+                            · {j.hits >= 1000 ? `${(j.hits / 1000).toFixed(0)}K` : String(j.hits)}
+                          </span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {(role.sharedWith?.length ?? 0) > 0 && (
+                  <div
+                    className="flex items-center gap-1 flex-wrap"
+                    title={`Same role also held by: ${(role.sharedWith ?? []).map(c => `${c.type}: ${c.name}`).join(", ")}`}
+                  >
+                    <span className="text-[8px] uppercase tracking-wider text-slate-500 font-semibold">
+                      Shared with
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">
+                      +{role.sharedWith?.length ?? 0}{" "}
+                      {(role.sharedWith?.length ?? 0) === 1 ? "workload" : "workloads"}
+                    </span>
+                    {(role.sharedWith ?? []).slice(0, 1).map(c => (
+                      <span
+                        key={c.id}
+                        className="text-[9px] text-slate-300 font-mono truncate max-w-[140px]"
+                      >
+                        {c.type === "EC2Instance" ? "EC2" :
+                         c.type === "LambdaFunction" ? "λ" :
+                         c.type === "IAMUser" ? "User" :
+                         c.type === "ECSTask" || c.type === "ECSService" ? "ECS" :
+                         c.type}
+                        : {c.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         ) : (
           // 2026-05-25 user feedback: "Analyzing..." was a misleading
