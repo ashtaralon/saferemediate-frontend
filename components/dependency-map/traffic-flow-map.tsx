@@ -329,6 +329,12 @@ export interface SystemArchitecture {
    * nodes for the EGRESS lane. Filtered to gateways attached to a VPC
    * that contains at least one compute on the current path. */
   egressGateways: EgressGatewayNode[];
+  /** Optional API CALLS lane data — 2026-05-27. Surfaces the
+   *  per-action breakdown of ACTUAL_API_CALL edges for the selected
+   *  path's role. Populated by EXFIL view from stack_components.
+   *  api_calls; absent on other consumers (sidebar falls back to
+   *  regex-filtering resources). */
+  apiCalls?: ServiceNode[];
   /** EXFIL view (2026-05-25): named EGRESS GATE lane that sits
    *  between IDENTITY and RESOURCES per the 5-stage exfil model
    *  (CJ → Reader → Handler → Gate → Destination). Unlike

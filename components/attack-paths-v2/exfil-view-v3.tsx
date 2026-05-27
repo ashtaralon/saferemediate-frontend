@@ -1478,6 +1478,17 @@ function buildExfilArchitecture(
         connectedTargets: [],
       }),
     ),
+    // API CALLS — surface the observed iam_action breakdown for the
+    // selected path's role. Each entry is one distinct action with
+    // its hit count appended to the display name so the sidebar row
+    // reads e.g. "s3:GetObject — 1.2K calls". Sorted desc on backend.
+    apiCalls: (selectedPath?.stack_components?.api_calls ?? []).map((a) => ({
+      id: `api-call:${a.action}`,
+      name: `${a.action} — ${compactNumber(a.calls)} call${a.calls === 1 ? "" : "s"}`,
+      shortName:
+        a.action.length > 24 ? `${a.action.slice(0, 22)}…` : a.action,
+      type: "api_call" as const,
+    })),
     vpcEndpoints: [],
     egressGateways,
     flows,

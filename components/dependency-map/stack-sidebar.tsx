@@ -85,6 +85,13 @@ interface Architecture {
    *  keep working (they just won't show the new lanes). */
   instanceProfiles?: IamRole[];
   iamPolicies?: IamRole[];
+  /** Optional dedicated API CALLS lane data — 2026-05-27. When the
+   *  consumer (e.g. EXFIL view) populates this, the sidebar uses it
+   *  AS-IS instead of regex-filtering api_call rows out of resources.
+   *  Each entry is one observed iam_action with a hit count baked
+   *  into the displayed name. Falls back to the legacy regex filter
+   *  when absent (back-compat with System Map / Topology). */
+  apiCalls?: Resource[];
   flows: Flow[];
   totalBytes: number;
   totalConnections: number;
@@ -338,7 +345,14 @@ export function StackSidebar({
         /database|rds|dynamodb/i.test(r.type),
       ),
       storage: filterResources((r) => /storage|s3/i.test(r.type)),
-      apiCalls: filterResources((r) => /api_call|lambda/i.test(r.type)),
+      // API CALLS — 2026-05-27: prefer the dedicated apiCalls field
+      // when the consumer populates it (EXFIL view fills it from
+      // stack_components.api_calls). Falls back to the legacy regex
+      // filter from resources for System Map / Topology consumers
+      // that haven't been migrated yet.
+      apiCalls: architecture.apiCalls
+        ? architecture.apiCalls.filter((r) => matchesSearch(r.name, r.shortName))
+        : filterResources((r) => /api_call|lambda/i.test(r.type)),
     };
   }, [architecture, searchQuery]);
 
