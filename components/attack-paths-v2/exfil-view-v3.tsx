@@ -78,6 +78,30 @@ export interface BlastRadiusConsumer {
   system_name: string | null
 }
 
+// ATLAS multi-hop chain enrichment — Layer A of the killer-solution
+// stack (2026-05-27). Populated by api/exfil_paths.py's
+// _attach_atlas_enrichment when include_atlas=true. Each path's
+// (workload, jewel) pair gets one ATLAS engine call; the slim
+// summary below is what reaches the UI. Null when the engine failed
+// or timed out for this pair — rendered as "ATLAS unavailable", NEVER
+// as "no chains" (that would fabricate a clean posture from an error).
+export interface AtlasChainStep {
+  chain_id: string
+  step_count: number
+  primitives_used: string[]
+  blocking_controls: string[]
+  feasibility_score: number
+}
+export interface AtlasChainSummary {
+  chain_count: number
+  dead_end_count: number
+  chains: AtlasChainStep[]
+  catalog_version: string
+  engine_version: string
+  elapsed_ms: number
+  coverage_warnings: Array<{ code: string; message: string }>
+}
+
 interface ExfilAccessor {
   id: string
   name: string
@@ -149,6 +173,10 @@ interface ExfilPath {
   gateway_count: number
   gateway_sample: Array<{ id: string; name: string; kind: string }>
   workload_network: WorkloadNetworkPayload | null
+  // ATLAS chain enrichment — present when backend computed it, null
+  // when the call failed/timed out, undefined when include_atlas=false.
+  // Three states are intentionally distinct — see AtlasPill below.
+  atlas?: AtlasChainSummary | null
 }
 
 interface ExfilDestination {
@@ -199,6 +227,13 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
         include_capable: true,
         include_observed: true,
         max_destinations: 50,
+        // ATLAS multi-hop chain enrichment — Layer A (2026-05-27).
+        // Default ON so the killer-solution chain count is visible on
+        // first render. Backend dedupes by workload + caps at 4 parallel
+        // calls (ThreadPoolExecutor, 30s timeout). Graceful null on
+        // failure — never a fabricated "0 chains" from an error.
+        include_atlas: true,
+        atlas_max_hops: 6,
       }),
     [systemName, jewel?.id],
   )
@@ -481,6 +516,7 @@ function PathSelector({
         </span>
         <span className={`h-1.5 w-1.5 rounded-full ${dotFor(selected.channel)}`} />
         <span className="truncate max-w-[200px]">{selected.channel_label}</span>
+        <AtlasPill atlas={selected.atlas} compact />
         <ChevronDown
           className={`h-3 w-3 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
         />
@@ -521,6 +557,7 @@ function PathSelector({
                       >
                         {observed ? "observed" : "capable"}
                       </span>
+                      <AtlasPill atlas={p.atlas} compact />
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">
                       {p.channel_label} · {p.workload_count} workload
@@ -546,6 +583,65 @@ function compactNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`
   return String(Math.round(n))
+}
+
+// ─── ATLAS pill ──────────────────────────────────────────────────
+// Small chain-count badge rendered on each path row and inline in the
+// selected-path subtitle. Three honest states:
+//   undefined → backend didn't compute (include_atlas was false)
+//                — pill is omitted entirely (no fabricated "0")
+//   null      → backend tried but failed/timed out
+//                — pill says "ATLAS · unavailable" in slate-dim
+//   summary   → real engine output
+//                — pill says "ATLAS · N chains" with hue derived from
+//                  chain_count (emerald for ≥1, slate for 0; the 0
+//                  state is a real signal: catalog/coverage gap)
+//
+// Patent-sensitive note: the pill is a display-only projection of
+// AtlasChainSummary; it does not re-implement ATLAS logic.
+function AtlasPill({
+  atlas,
+  compact = false,
+}: {
+  atlas: AtlasChainSummary | null | undefined
+  compact?: boolean
+}) {
+  if (atlas === undefined) return null
+  if (atlas === null) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded ${
+          compact ? "px-1.5 py-[1px] text-[8px]" : "px-1.5 py-0.5 text-[9px]"
+        } font-bold uppercase tracking-wider bg-slate-800/60 text-slate-500 border border-slate-700/60`}
+        title="ATLAS engine call failed or timed out for this path"
+      >
+        ATLAS · unavailable
+      </span>
+    )
+  }
+  const hasChains = atlas.chain_count > 0
+  const toneClass = hasChains
+    ? "bg-emerald-500/10 text-emerald-200 border-emerald-500/30"
+    : "bg-slate-800/60 text-slate-400 border-slate-700/60"
+  const label = hasChains
+    ? `ATLAS · ${atlas.chain_count} chain${atlas.chain_count === 1 ? "" : "s"}`
+    : `ATLAS · 0 chains`
+  const titleSuffix = atlas.dead_end_count
+    ? ` · ${atlas.dead_end_count} dead-end${atlas.dead_end_count === 1 ? "" : "s"}`
+    : ""
+  const titleText = hasChains
+    ? `${atlas.chain_count} multi-hop chain${atlas.chain_count === 1 ? "" : "s"} validated by ATLAS (${atlas.catalog_version})${titleSuffix} — ${atlas.elapsed_ms}ms`
+    : `ATLAS engine ran but found 0 chains for this (workload→jewel) pair against catalog ${atlas.catalog_version}. ${atlas.coverage_warnings.length ? `Coverage notes: ${atlas.coverage_warnings.map((w) => w.code).join(", ")}.` : "May reflect catalog/assumption coverage gap, not absence of risk."}`
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded border ${
+        compact ? "px-1.5 py-[1px] text-[8px]" : "px-1.5 py-0.5 text-[9px]"
+      } font-bold uppercase tracking-wider ${toneClass}`}
+      title={titleText}
+    >
+      {label}
+    </span>
+  )
 }
 
 // ─── Architecture builder ────────────────────────────────────────
