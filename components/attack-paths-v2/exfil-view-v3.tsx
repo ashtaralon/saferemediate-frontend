@@ -252,6 +252,15 @@ export interface RemediationIAM {
   observed_not_in_allowed: string[]
   destructive_unused: string[]
   used_cached_was_stale: boolean
+  // Honesty gate — true when the role HAS policies (via edges or
+  // property names) but allowed_actions list is empty. Means
+  // lp_collector hasn't expanded the policies; cannot diff.
+  allowed_not_collected?: boolean
+  policy_edge_count?: number
+  attached_policy_names_count?: number
+  inline_policy_names_count?: number
+  // Authoritative observed footprint when allowed_not_collected
+  observed_actions?: string[]
 }
 export interface RemediationSGRule {
   direction: string
@@ -894,6 +903,70 @@ function RemediationIAMCol({
   const used = rem.used_actions ?? []
   const destructive = new Set(rem.destructive_unused ?? [])
   const observedNotInAllowed = rem.observed_not_in_allowed ?? []
+  const allowedNotCollected = rem.allowed_not_collected === true
+  const policyEdges = rem.policy_edge_count ?? 0
+  const observedActions = rem.observed_actions ?? []
+
+  // HONESTY GATE — when allowed_actions list isn't expanded but
+  // policies ARE attached, we cannot compute the diff. Render that
+  // state explicitly rather than claiming "no gap" or labeling
+  // every observed action as a "discrepancy."
+  if (allowedNotCollected) {
+    return (
+      <div className="rounded border border-amber-500/40 bg-slate-900/40 p-3 space-y-3">
+        <h4 className="text-[10px] uppercase tracking-wider font-bold text-rose-300">
+          IAM role permissions
+        </h4>
+        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+          <div className="text-[12px] font-semibold text-amber-200">
+            Cannot compute unused-permission gap on this role yet.
+          </div>
+          <div className="text-[11px] text-amber-300/80 mt-1 leading-snug">
+            <span className="font-mono">{roleName}</span> has{" "}
+            {policyEdges > 0 ? `${policyEdges} IAMPolicy node${policyEdges === 1 ? "" : "s"} attached` : "policies referenced by name"}{" "}
+            in the graph, but{" "}
+            <span className="font-mono">r.allowed_actions</span> is empty —
+            the lp_collector hasn't expanded the policies into a flat action
+            list for this role. Without that baseline, Cyntro can't honestly
+            recommend which permissions to remove.
+          </div>
+          <div className="text-[11px] text-amber-300/80 mt-1 leading-snug">
+            Run <span className="font-mono">/api/admin/lp-collect-role?role_arn={"<arn>"}</span>{" "}
+            (or the next scheduled lp_collector cycle) to populate the baseline.
+          </div>
+        </div>
+        {observedActions.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-300">
+              Observed footprint ({observedActions.length} action{observedActions.length === 1 ? "" : "s"})
+            </div>
+            <div className="text-[11px] text-slate-400 leading-snug">
+              Distinct IAM actions observed via ACTUAL_API_CALL edges in the
+              graph. This is what the role is actually being used for — the
+              minimum scope a future tight policy would need to keep.
+            </div>
+            <div className="flex flex-wrap gap-1 pt-1">
+              {observedActions.map((a) => (
+                <span
+                  key={a}
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                    a.startsWith("s3:Delete") ||
+                    a.startsWith("kms:") ||
+                    a.startsWith("ec2:Delete")
+                      ? "border-amber-500/50 bg-amber-500/10 text-amber-200"
+                      : "border-slate-700 bg-slate-800/40 text-slate-300"
+                  }`}
+                  title={a}
+                >
+                  {a}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="rounded border border-rose-500/30 bg-slate-900/40 p-3 space-y-3">
