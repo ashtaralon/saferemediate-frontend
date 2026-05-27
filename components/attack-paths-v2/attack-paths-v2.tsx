@@ -41,7 +41,10 @@ import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewPanel } from "./attacker-view-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
-import { ExfilViewV4 } from "./exfil-view-v4"
+// v4 was a wrong-direction experiment (cloned Phase View v0.3's 9-lane
+// grid, but Alon meant PER-PATH VIEW's TrafficFlowMap — same renderer
+// v3 already uses). Reverted 2026-05-27. v4 file kept parked for ref.
+import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
@@ -429,7 +432,7 @@ export function AttackPathsV2() {
                   large
                 />
               ) : (
-                <ExfilViewV4
+                <ExfilViewV3
                   systemName={systemName}
                   jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
                 />
