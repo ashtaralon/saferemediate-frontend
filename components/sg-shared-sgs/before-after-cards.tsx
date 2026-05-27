@@ -56,8 +56,8 @@ export function BeforeAfterCards({
         />
       </div>
 
-      <div className="flex items-start gap-2 text-[12px] text-muted-foreground px-1">
-        <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-2 text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-200 px-1">
+        <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-zinc-500" />
         <span>
           <b className="text-foreground">Phase 1 (this plan)</b> decouples consumers onto separate SGs.
           Rules are cloned 1:1 from the source SG — no rule changes, no permission removal.
@@ -84,7 +84,7 @@ function BeforeCard({
               Before · Today
             </span>
           </div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             1 shared SG
           </span>
         </div>
@@ -93,7 +93,7 @@ function BeforeCard({
           <div className="font-mono text-[12px] break-all text-foreground">
             {sgInfo.sg_id || "—"}
           </div>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm text-zinc-700 dark:text-zinc-200">
             {sgInfo.sg_name || "—"}
           </div>
         </div>
@@ -101,29 +101,29 @@ function BeforeCard({
         <KVRow label="VPC" value={sgInfo.vpc_id || "—"} mono />
 
         <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
-          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Attachment
           </div>
           <div className="text-lg font-semibold tabular-nums">
             {before?.consumer_count ?? "—"} consumers
           </div>
-          <div className="text-xs text-muted-foreground">
-            across {before?.system_count ?? "—"} system{before?.system_count === 1 ? "" : "s"}
+          <div className="text-sm text-zinc-700 dark:text-zinc-200">
+            across <b className="tabular-nums">{before?.system_count ?? "—"}</b> system{before?.system_count === 1 ? "" : "s"}
           </div>
         </div>
 
         <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1.5">
-          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Rules
           </div>
           <div className="flex items-baseline gap-4">
             <span className="text-sm">
               <b className="tabular-nums">{before?.rules.inbound ?? "—"}</b>{" "}
-              <span className="text-muted-foreground text-xs">inbound</span>
+              <span className="text-zinc-600 dark:text-zinc-300 text-xs">inbound</span>
             </span>
             <span className="text-sm">
               <b className="tabular-nums">{before?.rules.outbound ?? "—"}</b>{" "}
-              <span className="text-muted-foreground text-xs">outbound</span>
+              <span className="text-zinc-600 dark:text-zinc-300 text-xs">outbound</span>
             </span>
           </div>
           {before && (
@@ -140,7 +140,7 @@ function BeforeCard({
                   label="high-risk"
                 />
               )}
-              <li className="flex items-center gap-1.5 text-muted-foreground">
+              <li className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-200">
                 <span className="text-zinc-400">•</span>
                 Public ingress:{" "}
                 <span
@@ -157,8 +157,8 @@ function BeforeCard({
           )}
         </div>
 
-        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-0.5">
-          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Lateral exposure
           </div>
           <div className="text-sm">
@@ -176,9 +176,9 @@ function BeforeCard({
 
 function Phase2Line({ count, label }: { count: number; label: string }) {
   return (
-    <li className="flex items-center gap-1.5 text-muted-foreground">
+    <li className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-200">
       <span className="text-zinc-400">•</span>
-      <span className="tabular-nums">{count}</span>
+      <span className="tabular-nums font-medium">{count}</span>
       <span>{label}</span>
       <span className="inline-flex items-center px-1.5 py-0 rounded-sm bg-slate-100 dark:bg-slate-800 text-[9px] uppercase tracking-wider text-slate-600 dark:text-slate-300">
         phase 2
@@ -206,7 +206,7 @@ function AfterCard({
           <span className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-medium">
             After · Proposed
           </span>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             {afterGroups.length} scoped SG{afterGroups.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -227,9 +227,9 @@ function AfterCard({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate">
                     <span className="font-medium">{g.system_name || "—"}</span>
-                    <span className="text-muted-foreground"> · {g.consumer_type || "—"}</span>
+                    <span className="text-zinc-600 dark:text-zinc-300"> · {g.consumer_type || "—"}</span>
                   </div>
-                  <div className="text-[10px] text-muted-foreground tabular-nums">
+                  <div className="text-[11px] text-zinc-700 dark:text-zinc-200 tabular-nums">
                     {g.consumer_count} consumer{g.consumer_count === 1 ? "" : "s"}
                     {" · "}
                     {g.inbound_count} in / {g.outbound_count} out
@@ -240,8 +240,8 @@ function AfterCard({
           </div>
         )}
 
-        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-0.5">
-          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Lateral exposure
           </div>
           <div className="text-sm">
@@ -250,14 +250,14 @@ function AfterCard({
               {avgBlastAfter != null ? avgBlastAfter.toFixed(1) : "—"} others
             </b>
             {reductionPct != null && (
-              <span className="text-muted-foreground">
-                {" "}↘ {reductionPct.toFixed(0)}% reduction
+              <span className="text-zinc-700 dark:text-zinc-200">
+                {" "}↘ <b className="tabular-nums">{reductionPct.toFixed(0)}%</b> reduction
               </span>
             )}
           </div>
         </div>
 
-        <div className="pt-1 text-[11px] text-muted-foreground">
+        <div className="pt-1 text-[12px] text-zinc-700 dark:text-zinc-200">
           Each new SG is attached only to its system&apos;s consumers.
         </div>
       </CardContent>
