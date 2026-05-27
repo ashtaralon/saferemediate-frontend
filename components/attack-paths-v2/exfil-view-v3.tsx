@@ -204,29 +204,41 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
 
   // Per-path selection — each (accessor, channel) chain renders as its
   // own canvas. URL-synced so deep-links survive reload / back-button.
+  //
+  // 2026-05-26: unified URL-read + validation into a single effect to
+  // kill the race that broke deep-link round-trip — previously the
+  // mount effect set state from URL, but a parallel validation effect
+  // fired with `selectedPathId === null` on the first render after
+  // data arrived and reset to paths[0] before the mount effect's
+  // setState propagated. Now we read URL inline on every (re)validate
+  // so the URL value wins as long as it matches a real path_id.
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    try {
-      const p = new URLSearchParams(window.location.search).get("exfil_path")
-      if (p) setSelectedPathId(p)
-    } catch {
-      // ignore (SSR / sandboxed env)
-    }
-  }, [])
 
   useEffect(() => {
     if (!data?.paths || data.paths.length === 0) {
       setSelectedPathId(null)
       return
     }
-    const valid = data.paths.some((p) => p.path_id === selectedPathId)
-    if (!valid) {
-      // Backend pre-sorts paths[] highest-traffic first; pick [0] as
-      // the default lens if URL didn't carry one.
-      setSelectedPathId(data.paths[0]?.path_id ?? null)
+    // Keep current selection if still valid.
+    if (selectedPathId && data.paths.some((p) => p.path_id === selectedPathId)) {
+      return
     }
+    // Try URL value first — wins over the default-pick if it matches
+    // a real path. This makes deep-links survive reload.
+    let urlPath: string | null = null
+    if (typeof window !== "undefined") {
+      try {
+        urlPath = new URLSearchParams(window.location.search).get("exfil_path")
+      } catch {
+        // ignore (SSR / sandboxed env)
+      }
+    }
+    if (urlPath && data.paths.some((p) => p.path_id === urlPath)) {
+      setSelectedPathId(urlPath)
+      return
+    }
+    // Backend pre-sorts paths[] highest-traffic first; fall back to [0].
+    setSelectedPathId(data.paths[0]?.path_id ?? null)
   }, [data, selectedPathId])
 
   useEffect(() => {
