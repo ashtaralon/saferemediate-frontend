@@ -476,12 +476,13 @@ export function ExfilViewV4({ systemName, jewel }: ExfilViewV4Props) {
         />
       )}
 
-      {/* THE 5-LANE FLOW — the actual map */}
-      <div className="flex-1 overflow-auto px-6 py-4">
+      {/* THE 5-LANE FLOW — the actual map. Matches attacker view's
+          `overflow-auto p-4` outer container. */}
+      <div className="overflow-auto p-4">
         {projected ? (
           <FiveLaneFlow projected={projected} />
         ) : (
-          <div className="text-sm text-slate-500 italic">
+          <div className="text-sm text-slate-500 italic px-2">
             No exfil path resolved for this jewel.
           </div>
         )}
@@ -499,32 +500,26 @@ function ViewShell({
   jewel: CrownJewelSummary | null
   children: React.ReactNode
 }) {
+  // Byte-equivalent to attacker-view-v3's outer + header
+  // (lines 445-481). Background, divider, eyebrow, headline.
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10 flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1.5">
+    <div className="flex flex-col h-full overflow-y-auto bg-[#0f172a] text-slate-100">
+      <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <ArrowUpRight className="h-3 w-3 text-amber-300" />
-            EXFIL VIEW · where the data leaves
+            EXFIL VIEW · v0.1 · 5-Lane Egress Map
             <FreshnessBanner variant="pill" className="ml-2" />
           </div>
-        </div>
-        {jewel && (
-          <div className="text-right shrink-0">
-            <div className="flex items-center gap-1.5 justify-end mb-0.5">
-              <Crown className="h-3 w-3 text-amber-400" />
-              <span className="text-[10px] uppercase tracking-wider text-slate-500">
-                source
+          <div className="text-sm font-semibold text-slate-100 mt-0.5">
+            {jewel?.name ?? "(no jewel)"}{" "}
+            {jewel?.type && (
+              <span className="text-xs text-slate-400 font-normal">
+                ({jewel.type})
               </span>
-            </div>
-            <div
-              className="text-xs font-mono text-amber-200/90 break-all max-w-[520px]"
-              title={jewel.name}
-            >
-              {jewel.name}
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
       {children}
     </div>
@@ -564,55 +559,48 @@ function NarrativeBar({
       : capableCount > 0
         ? "Capable exfil"
         : "No reach"
+  // Same shape as attacker-view-v3's ChainSummaryBar (lines 649-700) —
+  // 10px uppercase eyebrow with stats inline.
   return (
-    <div className="px-6 py-3 border-b border-slate-800 bg-slate-900/40">
-      <div className="flex items-center gap-3 flex-wrap">
+    <div className="px-4 py-2 border-b border-slate-700/40">
+      <div className="flex items-center gap-2 mb-1 text-[10px] text-slate-400 uppercase tracking-wider flex-wrap">
+        <span>{pathCount} paths</span>
         <span
-          className={`px-2.5 py-1 rounded border text-[10px] uppercase tracking-wider font-bold ${verdictTone}`}
+          className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${verdictTone}`}
         >
           {verdictLabel}
         </span>
-        <span className="text-sm text-slate-200">
-          {observedCount > 0 ? (
-            <>
-              Data{" "}
-              <strong className="text-red-300">does leave</strong> this
-              jewel via{" "}
-              <strong>{observedCount}</strong> observed reader
-              {observedCount === 1 ? "" : "s"}
-            </>
-          ) : (
-            <>
-              No observed exfil yet — <strong>{capableCount}</strong>{" "}
-              capable reader{capableCount === 1 ? "" : "s"} could
-            </>
-          )}{" "}
-          across <strong>{pathCount}</strong> path
-          {pathCount === 1 ? "" : "s"} to{" "}
-          <strong>{destCount}</strong> destination
-          {destCount === 1 ? "" : "s"}.
+        <span>
+          <strong className="text-slate-200">{observedCount}</strong> observed
+        </span>
+        <span>·</span>
+        <span>
+          <strong className="text-slate-200">{capableCount}</strong> capable
+        </span>
+        <span>·</span>
+        <span>
+          <strong className="text-slate-200">{destCount}</strong> destination
+          {destCount === 1 ? "" : "s"}
         </span>
       </div>
-      <div className="text-[11px] text-slate-500 mt-1.5">
+      <div className="text-xs text-slate-300">
         {accessorName ? (
           <>
-            Currently inspecting:{" "}
-            <span className="font-mono text-slate-300">{accessorName}</span>
-            {channelLabel && (
-              <>
-                {" "}
-                via <span className="text-slate-300">{channelLabel}</span>
-              </>
-            )}
-            {" — "}data flows left to right; green=observed, gray=capable, dashed=configured-only.
+            <span className="font-mono text-slate-200">{accessorName}</span>{" "}
+            <span className="text-slate-500">via</span>{" "}
+            <span className="text-slate-200">{channelLabel}</span>{" "}
+            <span className="text-slate-500">
+              — data flows left → right; green=observed, gray=capable, dashed=configured-only.
+            </span>
           </>
         ) : (
-          "Pick a path below to render its full exfil chain."
+          <span className="text-slate-500">
+            Pick a path to render its exfil chain.
+          </span>
         )}
         {!observedAvailable && (
-          <span className="ml-2 text-amber-300/70">
-            · EXFILTRATED_TO collector pending — observed-exfil layer not yet
-            wired (Phase D)
+          <span className="ml-2 text-amber-300/70 text-[11px]">
+            · EXFILTRATED_TO collector pending (Phase D)
           </span>
         )}
       </div>
@@ -631,101 +619,47 @@ function PathSelector({
   selectedPathId: string | null
   onSelect: (id: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  // Mirror attacker-view-v3's selector — inline buttons, no dropdown.
+  // Operator scans all paths at once instead of clicking to expand.
+  if (paths.length === 0) return null
 
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!containerRef.current) return
-      if (!containerRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", onDoc)
-    return () => document.removeEventListener("mousedown", onDoc)
-  }, [open])
-
-  const dotFor = (channel: string): string => {
-    if (channel === "network_via_igw") return "bg-amber-400"
-    if (channel === "serverless_direct") return "bg-violet-400"
-    if (channel === "ec2_no_egress") return "bg-slate-300"
-    if (channel === "direct_api") return "bg-rose-400"
-    return "bg-slate-300"
-  }
-
-  const selected = paths.find((p) => p.path_id === selectedPathId) ?? paths[0]
-  if (!selected) return null
+  const toneFor = (observed: boolean) =>
+    observed
+      ? "bg-red-900/30 border-red-500/50 text-red-200"
+      : "bg-amber-900/20 border-amber-500/40 text-amber-200"
 
   return (
-    <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-900/30">
-      <div ref={containerRef} className="relative inline-block">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/60 hover:bg-slate-800 px-3 py-1 text-xs font-medium text-slate-100"
-          title="Switch exfil path"
-        >
-          <Route className="h-3 w-3 text-slate-400" />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Path {paths.indexOf(selected) + 1}/{paths.length}
-          </span>
-          <span className={`h-1.5 w-1.5 rounded-full ${dotFor(selected.channel)}`} />
-          <span className="truncate max-w-[260px]">
-            {selected.accessor_name} · {selected.channel_label}
-          </span>
-          <ChevronDown
-            className={`h-3 w-3 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-          />
-        </button>
-        {open && (
-          <div className="absolute top-full left-0 mt-1.5 z-50 w-[440px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-700 bg-slate-900 shadow-2xl ring-1 ring-black/40">
-            <div className="px-3 py-2 border-b border-slate-800 text-[9px] font-bold uppercase tracking-wider text-slate-500">
-              {paths.length} path{paths.length === 1 ? "" : "s"} — pick one to inspect
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto py-1">
-              {paths.map((p, idx) => {
-                const isSel = p.path_id === selectedPathId
-                const observed = p.accessor_provenance === "observed"
-                return (
-                  <button
-                    key={p.path_id}
-                    type="button"
-                    onClick={() => {
-                      onSelect(p.path_id)
-                      setOpen(false)
-                    }}
-                    className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors ${
-                      isSel ? "bg-slate-800/80" : "hover:bg-slate-800/50"
-                    }`}
-                  >
-                    <span className="text-[9px] font-mono text-slate-500 w-4 shrink-0">
-                      {idx + 1}
-                    </span>
-                    <span className={`h-2 w-2 rounded-full shrink-0 ${dotFor(p.channel)}`} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-mono text-slate-200 truncate">
-                          {p.accessor_name}
-                        </span>
-                        <span
-                          className={`text-[8px] uppercase tracking-wider font-bold ${
-                            observed ? "text-red-300" : "text-amber-300"
-                          }`}
-                        >
-                          {observed ? "observed" : "capable"}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        {p.channel_label} · {p.workload_count} workload
-                        {p.workload_count === 1 ? "" : "s"} · {p.gateway_count}{" "}
-                        gateway{p.gateway_count === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
+    <div className="px-4 py-2 border-b border-slate-700/40">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider text-slate-400 mr-1">
+          Paths
+        </span>
+        {paths.map((p, idx) => {
+          const isSel = p.path_id === selectedPathId
+          const observed = p.accessor_provenance === "observed"
+          return (
+            <button
+              key={p.path_id}
+              type="button"
+              onClick={() => onSelect(p.path_id)}
+              className={`px-2 py-1 rounded border text-[10px] font-mono transition-colors ${toneFor(
+                observed,
+              )} ${
+                isSel
+                  ? "ring-2 ring-slate-100/30 ring-offset-1 ring-offset-slate-900"
+                  : "opacity-70 hover:opacity-100"
+              }`}
+              title={`${p.accessor_name} via ${p.channel_label} · ${p.workload_count} workload${p.workload_count === 1 ? "" : "s"} · ${p.gateway_count} gateway${p.gateway_count === 1 ? "" : "s"}`}
+            >
+              <span className="text-[8px] uppercase tracking-wider opacity-70 mr-1">
+                #{idx + 1}
+              </span>
+              <span className="truncate">
+                {shortName(p.accessor_name, 18)} · {p.channel_label}
+              </span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -772,27 +706,30 @@ function FiveLaneFlow({ projected }: { projected: ProjectedExfil }) {
     }
   }, [projected])
 
+  // ATTACKER-VIEW-V3 CLONE — same grid + lane header + lane body
+  // shape as attacker-view-v3.tsx lines 789-858. Only differences:
+  // 5 columns instead of 9 (the EXFIL stage count), and the lane
+  // accents/labels reflect EXFIL semantics. Every CSS class below
+  // is copied verbatim from the attacker view file.
   return (
     <div ref={containerRef} className="relative">
-      {/* Lane headers — icon + label + operator question */}
-      <div className="grid grid-cols-5 gap-3 mb-3">
+      {/* Lane headers — verbatim from attacker-view-v3 lines 791-813 */}
+      <div className="grid grid-cols-5 gap-2 mb-2">
         {EXFIL_LANES.map((lane) => {
           const Icon = lane.icon
           const count = projected.nodesByLane[lane.id].length
           return (
             <div key={lane.id} className="text-center">
               <div className="flex items-center justify-center gap-1.5 mb-1">
-                <Icon className="w-4 h-4" style={{ color: lane.accent }} />
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-200">
+                <Icon className="w-3.5 h-3.5" style={{ color: lane.accent }} />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">
                   {lane.label}
                 </span>
-                {count > 0 && (
-                  <span className="text-[10px] text-slate-500">
-                    ({count})
-                  </span>
-                )}
+                {count > 0 ? (
+                  <span className="text-[10px] text-slate-400">({count})</span>
+                ) : null}
               </div>
-              <div className="text-[10px] text-slate-500 italic leading-tight">
+              <div className="text-[9px] text-slate-500 italic px-1 leading-tight">
                 {lane.question}
               </div>
             </div>
@@ -800,15 +737,15 @@ function FiveLaneFlow({ projected }: { projected: ProjectedExfil }) {
         })}
       </div>
 
-      {/* Lane bodies */}
-      <div className="grid grid-cols-5 gap-3 relative">
+      {/* Lane bodies — verbatim from attacker-view-v3 lines 815-848 */}
+      <div className="grid grid-cols-5 gap-2 relative">
         {EXFIL_LANES.map((lane) => {
           const nodes = projected.nodesByLane[lane.id]
           return (
             <div
               key={lane.id}
-              className="min-h-[260px] bg-slate-900/40 border border-slate-800 rounded p-2 space-y-2"
-              style={{ borderLeftColor: lane.accent, borderLeftWidth: 3 }}
+              className="min-h-[300px] bg-slate-900/40 border border-slate-800 rounded p-1.5 space-y-1.5"
+              style={{ borderLeftColor: lane.accent, borderLeftWidth: 2 }}
             >
               {nodes.length === 0 ? (
                 <div className="text-[10px] text-slate-500 italic px-2 py-3 text-center">
@@ -829,49 +766,29 @@ function FiveLaneFlow({ projected }: { projected: ProjectedExfil }) {
           )
         })}
 
-        {/* SVG flow lines — drawn last so they overlay */}
-        <FlowLines
+        {/* SVG connection layer — verbatim from attacker-view-v3
+            ConnectionLayer (lines 1117-1202), with marching-dash
+            animation added ONLY for observed edges (the dynamic
+            element the user asked for). */}
+        <ConnectionLayer
           hops={projected.hops}
           positions={nodePositions}
         />
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-500">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-0.5 bg-red-400 rounded" />
-          <span className="text-slate-300">Observed traffic (animated)</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span
-            className="inline-block w-3 h-0.5 rounded"
-            style={{
-              borderTop: "2px dashed #94a3b8",
-              borderRadius: 0,
-            }}
-          />
-          <span className="text-slate-300">Capable / configured only</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span
-            className="inline-block w-2 h-2 rounded-full"
-            style={{ background: "#10b981" }}
-          />
-          <span className="text-slate-300">Evidence: observed</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span
-            className="inline-block w-2 h-2 rounded-full"
-            style={{ background: "#94a3b8" }}
-          />
-          <span className="text-slate-300">Evidence: capable</span>
-        </span>
       </div>
     </div>
   )
 }
 
 // ─── Node card ───────────────────────────────────────────────────
+
+// ATTACKER-VIEW-V3 CLONE — verbatim from lines 865-931. Crown jewel
+// uses the same emerald-tinted treatment as attacker view's `data`
+// lane. The chip classes (CHIP_RED/AMBER/GREEN/SLATE) and the
+// posture-chip logic match the attacker-view-v3 patterns exactly.
+const CHIP_GREEN = "bg-emerald-900/30 border-emerald-500/50 text-emerald-200"
+const CHIP_SLATE = "bg-slate-700/60 border-slate-600 text-slate-300"
+const CHIP_AMBER = "bg-amber-900/30 border-amber-500/50 text-amber-200"
+const CHIP_CYAN = "bg-cyan-900/30 border-cyan-500/50 text-cyan-200"
 
 function NodeCard({
   node,
@@ -880,15 +797,54 @@ function NodeCard({
   node: LaneNode
   setRef: (el: HTMLDivElement | null) => void
 }) {
-  const shortLabel = shortName(node.name, 22)
-  const isJewel = node.isCrownJewel
+  const isCrownJewel = node.isCrownJewel
+  const shortLabel =
+    node.name.length > 22
+      ? node.name.slice(0, 10) + "…" + node.name.slice(-10)
+      : node.name
+
+  // Build posture chips — same shape as attacker-view-v3's
+  // buildNodeChips, scoped to the data we have for EXFIL nodes.
+  const chips: Array<{ label: string; tone: string; tooltip?: string }> = []
+  if (node.meta?.used !== undefined && node.meta?.allowed !== undefined) {
+    const excess = node.meta.allowed - node.meta.used
+    const tone =
+      excess === 0
+        ? CHIP_GREEN
+        : excess <= 2
+          ? CHIP_AMBER
+          : CHIP_SLATE
+    chips.push({
+      label: `${node.meta.used}/${node.meta.allowed} used`,
+      tone,
+      tooltip:
+        excess === 0
+          ? "All allowed actions are observed in use"
+          : `${excess} action${excess === 1 ? "" : "s"} allowed but never used — gap`,
+    })
+  }
+  if (node.meta?.hits !== undefined && node.meta.hits > 0) {
+    chips.push({
+      label: `${compactNum(node.meta.hits)} hits`,
+      tone: CHIP_GREEN,
+      tooltip: "Observed access hit count",
+    })
+  }
+  if (node.meta?.synthetic) {
+    chips.push({
+      label: "service plane",
+      tone: CHIP_CYAN,
+      tooltip: "AWS public API endpoint — IAM is the only gate",
+    })
+  }
+
   return (
     <div
       ref={setRef}
-      className={`relative px-2.5 py-2 rounded text-[11px] border transition-colors ${
-        isJewel
-          ? "bg-amber-900/30 border-amber-500/60"
-          : "bg-slate-800/80 border-slate-700 hover:border-slate-600"
+      className={`relative px-2 py-1.5 rounded text-[10px] border ${
+        isCrownJewel
+          ? "bg-emerald-900/40 border-emerald-500/60"
+          : "bg-slate-800/80 border-slate-700"
       }`}
       title={`${node.type}: ${node.name}`}
     >
@@ -897,35 +853,26 @@ function NodeCard({
           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
           style={{ background: evidenceDot(node.evidence) }}
         />
-        <span className="text-slate-100 truncate flex-1 font-mono">
+        <span className="text-slate-200 truncate flex-1 font-mono">
           {shortLabel}
         </span>
       </div>
-      <div className="text-[9px] text-slate-500 mt-0.5 truncate uppercase tracking-wider">
+      <div className="text-[9px] text-slate-500 mt-0.5 truncate">
         {node.type}
       </div>
-      {/* Compact stats — one row of evidence chips */}
-      {(node.meta?.used !== undefined ||
-        (node.meta?.hits !== undefined && node.meta.hits > 0) ||
-        node.meta?.synthetic) && (
+      {chips.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1">
-          {node.meta?.used !== undefined && node.meta.allowed !== undefined && (
-            <span className="px-1.5 py-0.5 rounded text-[9px] border bg-slate-700/60 border-slate-600 text-slate-300">
-              {node.meta.used}/{node.meta.allowed} actions used
+          {chips.map((c) => (
+            <span
+              key={c.label}
+              className={`px-1.5 py-0.5 rounded text-[9px] border ${c.tone}`}
+              title={c.tooltip || c.label}
+            >
+              {c.label}
             </span>
-          )}
-          {node.meta?.hits !== undefined && node.meta.hits > 0 && (
-            <span className="px-1.5 py-0.5 rounded text-[9px] border bg-emerald-900/30 border-emerald-500/40 text-emerald-200">
-              {compactNum(node.meta.hits)} hits
-            </span>
-          )}
-          {node.meta?.synthetic && (
-            <span className="px-1.5 py-0.5 rounded text-[9px] border bg-cyan-900/30 border-cyan-500/40 text-cyan-200">
-              service plane
-            </span>
-          )}
+          ))}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -937,9 +884,12 @@ function compactNum(n: number): string {
   return String(Math.round(n))
 }
 
-// ─── Flow lines (SVG with marching dashes on observed) ───────────
-
-function FlowLines({
+// ATTACKER-VIEW-V3 CLONE — ConnectionLayer verbatim from lines
+// 1117-1202. The ONE addition: marching-dashes animation applied
+// only to observed edges (the "dynamic" element the user asked for;
+// attacker-view-v3 itself has static lines). Removing the animation
+// gives byte-identical attacker-view rendering.
+function ConnectionLayer({
   hops,
   positions,
 }: {
@@ -947,51 +897,6 @@ function FlowLines({
   positions: Map<string, { x: number; y: number; w: number; h: number }>
 }) {
   if (positions.size === 0) return null
-
-  // For each hop, compute endpoints anchored to the right edge of
-  // source and left edge of target — gives a clean left-to-right flow.
-  const lines = hops
-    .map((hop, i) => {
-      const a = positions.get(hop.source_id)
-      const b = positions.get(hop.target_id)
-      if (!a || !b) return null
-      const x1 = a.x + a.w
-      const y1 = a.y + a.h / 2
-      const x2 = b.x
-      const y2 = b.y + b.h / 2
-      // Smooth horizontal curve between the two endpoints
-      const dx = Math.max(40, (x2 - x1) / 2)
-      const c1x = x1 + dx
-      const c1y = y1
-      const c2x = x2 - dx
-      const c2y = y2
-      const d = `M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`
-      const observed = hop.evidence === "observed"
-      const stroke = observed ? "#f87171" : "#94a3b8"
-      // Marching dashes — animated on observed; static dashes on
-      // capable/config so the difference reads at a glance.
-      const dasharray = observed ? "8 6" : "4 4"
-      return (
-        <g key={`hop-${i}`}>
-          <path
-            d={d}
-            stroke={stroke}
-            strokeWidth={observed ? 2 : 1.5}
-            fill="none"
-            strokeDasharray={dasharray}
-            opacity={observed ? 0.95 : 0.65}
-            style={
-              observed
-                ? {
-                    animation: `exfil-march 0.9s linear infinite`,
-                  }
-                : undefined
-            }
-          />
-        </g>
-      )
-    })
-    .filter(Boolean)
 
   return (
     <svg
@@ -1005,6 +910,11 @@ function FlowLines({
         }
       `}</style>
       <defs>
+        {/* Arrowhead markers verbatim from attacker-view-v3 ConnectionLayer
+            (lines 1149-1169). Two variants: observed (green) and
+            config (slate). We add an additional "observed-red" variant
+            for EXFIL because the "data leaving" framing reads more
+            urgently in red than green. */}
         <marker
           id="exfil-arrow-observed"
           markerWidth="6"
@@ -1013,10 +923,10 @@ function FlowLines({
           refY="3"
           orient="auto"
         >
-          <path d="M0,0 L6,3 L0,6 Z" fill="#f87171" />
+          <path d="M0,0 L6,3 L0,6 Z" fill="#10b981" />
         </marker>
         <marker
-          id="exfil-arrow-capable"
+          id="exfil-arrow-config"
           markerWidth="6"
           markerHeight="6"
           refX="6"
@@ -1026,7 +936,53 @@ function FlowLines({
           <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
         </marker>
       </defs>
-      {lines}
+      {hops.map((hop, i) => {
+        const a = positions.get(hop.source_id)
+        const b = positions.get(hop.target_id)
+        if (!a || !b) return null
+        // Anchor lines to the right edge of source + left edge of target
+        // (same anchor pattern as attacker-view, but attacker-view uses
+        // center-to-center — both work since cards are roughly aligned
+        // by lane row).
+        const x1 = a.x + a.w
+        const y1 = a.y + a.h / 2
+        const x2 = b.x
+        const y2 = b.y + b.h / 2
+        const observed = hop.evidence === "observed"
+        // Same stroke values as attacker-view-v3 lines 1175-1183
+        const stroke = observed
+          ? "#10b981"
+          : hop.evidence === "config" || hop.evidence === "capable"
+            ? "#94a3b8"
+            : "#f59e0b"
+        const dash = observed ? "none" : "4 3"
+        const marker = observed
+          ? "url(#exfil-arrow-observed)"
+          : "url(#exfil-arrow-config)"
+        return (
+          <g key={`${i}`}>
+            <line
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke={stroke}
+              strokeWidth={1.4}
+              strokeDasharray={dash}
+              opacity={0.6}
+              markerEnd={marker}
+              style={
+                observed
+                  ? {
+                      strokeDasharray: "6 6",
+                      animation: "exfil-march 0.9s linear infinite",
+                    }
+                  : undefined
+              }
+            />
+          </g>
+        )
+      })}
     </svg>
   )
 }
