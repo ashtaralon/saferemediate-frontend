@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
@@ -1110,6 +1111,123 @@ export function NACLNode({
 }
 
 // ============================================
+// LATERAL FAN-OUT — visible lateral surface for an IAM role
+// Alon feedback 2026-05-27: previous chips were invisible. Each row
+// is now a first-class clickable target. Jewel rows navigate to that
+// jewel's EXFIL view. Workload rows surface the full name (drill-in
+// deferred — clicking a workload would show its specific path within
+// the same view, which requires a per-workload path index that's not
+// wired yet).
+// ============================================
+function LateralFanOut({
+  alsoReaches,
+  sharedWith,
+}: {
+  alsoReaches: Array<{ id: string; name: string; type: string; hits: number }>;
+  sharedWith: Array<{ id: string; name: string; type: string; system_name: string | null }>;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Best-effort system inference: EXFIL view URL has ?system=...
+  // When absent (other consumers of the chip), navigation falls back
+  // to a system-less route which renders the jewel selector first.
+  const systemName = searchParams?.get("system") ?? null;
+
+  const onJewelClick = useCallback(
+    (jewelId: string) => {
+      const params = new URLSearchParams();
+      if (systemName) params.set("system", systemName);
+      params.set("jewel", jewelId);
+      params.set("view", "exfil");
+      router.push(`/attack-paths-v2?${params.toString()}`);
+    },
+    [router, systemName],
+  );
+
+  const workloadIcon = (t: string) =>
+    t === "EC2Instance" ? "EC2" :
+    t === "LambdaFunction" ? "λ" :
+    t === "IAMUser" ? "User" :
+    t === "ECSTask" || t === "ECSService" ? "ECS" :
+    t;
+
+  return (
+    <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-700/60">
+      {alsoReaches.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-fuchsia-300">
+              Also reaches
+            </span>
+            <span className="text-[10px] text-fuchsia-300/80">
+              {alsoReaches.length} {alsoReaches.length === 1 ? "jewel" : "jewels"} — click to inspect
+            </span>
+          </div>
+          {alsoReaches.map((j) => (
+            <button
+              key={j.id}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onJewelClick(j.id);
+              }}
+              className="group flex items-center gap-1.5 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 hover:border-fuchsia-400/60 px-2 py-1 text-left transition-colors cursor-pointer"
+              title={`Switch to EXFIL view for ${j.name}`}
+            >
+              <span className="text-fuchsia-300 font-bold text-[10px]">→</span>
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {j.name}
+              </span>
+              {j.hits > 0 && (
+                <span className="text-[9px] text-fuchsia-300/90 font-mono tabular-nums shrink-0">
+                  {j.hits >= 1000 ? `${(j.hits / 1000).toFixed(0)}K` : String(j.hits)} hits
+                </span>
+              )}
+              <span className="text-[8px] uppercase tracking-wider text-fuchsia-300/60 group-hover:text-fuchsia-300 shrink-0 font-semibold">
+                Inspect
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {sharedWith.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-amber-300">
+              Shared with
+            </span>
+            <span className="text-[10px] text-amber-300/80">
+              {sharedWith.length} other{" "}
+              {sharedWith.length === 1 ? "workload" : "workloads"} — same role, alt foothold
+            </span>
+          </div>
+          {sharedWith.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1"
+              title={`${c.type}: ${c.name}${c.system_name ? ` (system: ${c.system_name})` : ""}`}
+            >
+              <span className="text-[8px] uppercase tracking-wider text-amber-300 font-bold shrink-0">
+                {workloadIcon(c.type)}
+              </span>
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {c.name}
+              </span>
+              {c.system_name && (
+                <span className="text-[9px] text-amber-300/70 truncate max-w-[100px]">
+                  {c.system_name}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ============================================
 // IAM ROLE NODE
 // ============================================
 export function IAMRoleNode({
@@ -1275,62 +1393,15 @@ export function IAMRoleNode({
                 when both lists are empty so the chip stays compact
                 on roles with no lateral surface. */}
             {((role.alsoReaches?.length ?? 0) > 0 || (role.sharedWith?.length ?? 0) > 0) && (
-              <div className="flex flex-col gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
-                {(role.alsoReaches?.length ?? 0) > 0 && (
-                  <div
-                    className="flex items-center gap-1 flex-wrap"
-                    title={`Same role also reaches: ${(role.alsoReaches ?? []).map(j => j.name).join(", ")}`}
-                  >
-                    <span className="text-[8px] uppercase tracking-wider text-slate-500 font-semibold">
-                      Also reaches
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300 font-mono">
-                      +{role.alsoReaches?.length ?? 0}{" "}
-                      {(role.alsoReaches?.length ?? 0) === 1 ? "jewel" : "jewels"}
-                    </span>
-                    {(role.alsoReaches ?? []).slice(0, 1).map(j => (
-                      <span
-                        key={j.id}
-                        className="text-[9px] text-slate-300 font-mono truncate max-w-[140px]"
-                      >
-                        {j.name}
-                        {j.hits > 0 && (
-                          <span className="text-fuchsia-300/70 ml-1">
-                            · {j.hits >= 1000 ? `${(j.hits / 1000).toFixed(0)}K` : String(j.hits)}
-                          </span>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {(role.sharedWith?.length ?? 0) > 0 && (
-                  <div
-                    className="flex items-center gap-1 flex-wrap"
-                    title={`Same role also held by: ${(role.sharedWith ?? []).map(c => `${c.type}: ${c.name}`).join(", ")}`}
-                  >
-                    <span className="text-[8px] uppercase tracking-wider text-slate-500 font-semibold">
-                      Shared with
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">
-                      +{role.sharedWith?.length ?? 0}{" "}
-                      {(role.sharedWith?.length ?? 0) === 1 ? "workload" : "workloads"}
-                    </span>
-                    {(role.sharedWith ?? []).slice(0, 1).map(c => (
-                      <span
-                        key={c.id}
-                        className="text-[9px] text-slate-300 font-mono truncate max-w-[140px]"
-                      >
-                        {c.type === "EC2Instance" ? "EC2" :
-                         c.type === "LambdaFunction" ? "λ" :
-                         c.type === "IAMUser" ? "User" :
-                         c.type === "ECSTask" || c.type === "ECSService" ? "ECS" :
-                         c.type}
-                        : {c.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              // LATERAL FAN-OUT — Alon feedback 2026-05-27: previous
+              // compact chips were invisible. Loud, scannable, every
+              // row is its own click target. Jewel rows route to that
+              // jewel's EXFIL view; workload rows surface full-name
+              // tooltips for now (drill-in deferred).
+              <LateralFanOut
+                alsoReaches={role.alsoReaches ?? []}
+                sharedWith={role.sharedWith ?? []}
+              />
             )}
           </>
         ) : (
