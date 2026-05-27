@@ -390,6 +390,8 @@ export function AttackPathsV2() {
                 <AttackerCanvasV2
                   systemName={systemName}
                   pathId={selectedPath.id}
+                  path={selectedPath}
+                  jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
                 />
               )
             ) : viewMode === "phase" ? (

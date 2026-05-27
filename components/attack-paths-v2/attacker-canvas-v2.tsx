@@ -49,12 +49,22 @@ import { fetchAttackCanvas } from "@/lib/attack-canvas-client"
  *  Pydantic source. */
 const RENDERER_SCHEMA_VERSION = "1.0" as const
 
+import type {
+  IdentityAttackPath,
+  CrownJewelSummary,
+} from "@/components/identity-attack-paths/types"
+import { AtlasInlineSection } from "./atlas-inline-section"
+
 interface AttackerCanvasV2Props {
   systemName: string
   pathId: string
+  /** Optional — when supplied, an ATLAS inline section renders below the
+   *  canvas with deterministic catalog-driven chains for this path. */
+  path?: IdentityAttackPath | null
+  jewel?: CrownJewelSummary | null
 }
 
-export function AttackerCanvasV2({ systemName, pathId }: AttackerCanvasV2Props) {
+export function AttackerCanvasV2({ systemName, pathId, path, jewel }: AttackerCanvasV2Props) {
   const [canvas, setCanvas] = useState<AttackCanvas | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -94,7 +104,19 @@ export function AttackerCanvasV2({ systemName, pathId }: AttackerCanvasV2Props) 
     return <ContractErrorState received={canvas.schema_version} expected={RENDERER_SCHEMA_VERSION} />
   }
 
-  return <CanvasBody canvas={canvas} />
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
+        <CanvasBody canvas={canvas} />
+      </div>
+      {/* ATLAS — Phase 3.2.5 (2026-05-27). Inline catalog-driven chain
+          search for this path. Only renders when parent passes path +
+          jewel (typed AttackCanvas doesn't carry them natively). */}
+      {path && (
+        <AtlasInlineSection systemName={systemName} path={path} jewel={jewel ?? null} />
+      )}
+    </div>
+  )
 }
 
 // ─── Top-level states ───────────────────────────────────────────────
