@@ -188,17 +188,24 @@ function sensitivityPillClass(value: string): string {
 
 // Drillable = the row has children we can fetch (S3 bucket, RDS instance,
 // RDS database). DDB tables, S3 prefixes, RDS tables are leaves.
+// The architecture builder normalises type to the NodeType enum
+// ('storage' / 'database' / 'dynamodb'), with 'database' reserved for
+// RDS-class engines and 'dynamodb' explicitly separate. S3 buckets all
+// land in 'storage' (no DDB-in-storage edge case observed in prod), so
+// we can lean on the type label entirely — the id can be a bare RDS
+// instance name OR a full ARN depending on whether the architecture
+// builder hit the seed-list shortcut.
 function isDrillable(item: { id: string; type?: string }, groupKey: string): boolean {
   const t = (item.type || '').toLowerCase();
   if (groupKey === 'storage') {
-    // S3 buckets are drillable, individual prefixes are not (handled in
-    // children rendering).
-    return t === 's3bucket' || /s3/.test(t);
+    // All resources in this group are S3-class; only 'storage' marker
+    // is reliable. Excludes the pathological case where DDB types ever
+    // slip in here.
+    return t === 'storage';
   }
   if (groupKey === 'databases') {
-    // RDS instances drill down to databases → tables. DDB tables have no
-    // first-class children worth surfacing.
-    return t === 'rdsinstance' || /rds/.test(t);
+    // RDS = 'database'. DDB tables are leaves (no first-class children).
+    return t === 'database';
   }
   return false;
 }
