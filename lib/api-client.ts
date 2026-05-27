@@ -1081,3 +1081,41 @@ export async function fetchSGStagePreview(
   }
   return await res.json()
 }
+
+// ─── Layer D — split-plan simulate (Phase 2/3) ──────────────────────
+// Two-step polling pattern. postSimulate returns 202 + sim_id; UI
+// polls fetchSimulationRun every ~1.5s until status terminal.
+import type { SimulationManifest, SimulationRun } from "./types/atlas-simulate"
+
+export async function postSimulate(
+  planId: string,
+  requestedBy?: string,
+): Promise<SimulationManifest> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/split-plans/${encodeURIComponent(planId)}/simulate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested_by: requestedBy || "self@cyntro.io" }),
+      cache: "no-store",
+    },
+  )
+  // 202 is success here — passthrough proxy keeps the status code.
+  if (res.status !== 202 && !res.ok) {
+    const text = await res.text()
+    throw new Error(`simulate POST ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSimulationRun(simId: string): Promise<SimulationRun> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/simulate/${encodeURIComponent(simId)}`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`simulate GET ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}

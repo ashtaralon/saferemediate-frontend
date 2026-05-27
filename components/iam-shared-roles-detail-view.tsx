@@ -36,7 +36,12 @@ import { BackToDashboard } from "@/components/back-to-dashboard"
 import { ExecuteActions } from "@/components/iam-shared-roles-execute-actions"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
-import { approveSplitPlan, fetchSplitPlan } from "@/lib/api-client"
+import {
+  approveSplitPlan,
+  fetchSimulationRun,
+  fetchSplitPlan,
+  postSimulate,
+} from "@/lib/api-client"
 import type {
   ConsumerEvidence,
   EvidenceState,
@@ -44,6 +49,9 @@ import type {
   SplitPlanGroup,
   SplitPlanState,
 } from "@/lib/types"
+import type {
+  SimulationRun,
+} from "@/lib/types/atlas-simulate"
 
 interface Props {
   planId: string
@@ -146,6 +154,7 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
       <BackLink />
       <PlanHero plan={plan} />
       <BlastRadiusHero plan={plan} />
+      <ChainDeltaPanel planId={plan.plan_id} planState={plan.state} />
       <BeforeAfterCanvas plan={plan} />
       <WhyItMatters plan={plan} />
       <WhatCyntroWillDo />
@@ -283,6 +292,372 @@ function BlastRadiusHero({ plan }: { plan: SplitPlan }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+// ─── Section: ChainDeltaPanel — Layer D simulate (2026-05-27) ──────
+//
+// Lives between BlastRadiusHero (permission-reduction %) and
+// BeforeAfterCanvas (visual split). Lets the operator trigger a
+// counterfactual ATLAS run and see BEFORE/AFTER chain counts per
+// crown jewel the role currently reaches.
+//
+// Three render states:
+//   IDLE       → "Compute chain delta" CTA + brief explainer.
+//   RUNNING    → progress bar with "Evaluating N of M jewels".
+//   COMPLETED  → headline aggregate + per-jewel mini-cards + audit
+//                footer (catalog/counterfactual_id/sim_id).
+//   FAILED     → error message + Retry CTA.
+//
+// CTA is disabled unless the plan is PROPOSED — past that state the
+// counterfactual no longer reflects reality (executed plans have
+// already mutated AWS).
+
+function ChainDeltaPanel({
+  planId,
+  planState,
+}: {
+  planId: string
+  planState: SplitPlanState
+}) {
+  const [simId, setSimId] = useState<string | null>(null)
+  const [run, setRun] = useState<SimulationRun | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // pollTick increments each polling cycle to drive useEffect; clean
+  // way to schedule the next tick without nested setTimeout chains.
+  const [pollTick, setPollTick] = useState(0)
+
+  const enabled = planState === "PROPOSED"
+  const polling = run?.status === "RUNNING"
+
+  const startSimulate = useCallback(async () => {
+    if (!enabled) return
+    setStarting(true)
+    setError(null)
+    setRun(null)
+    setSimId(null)
+    try {
+      const manifest = await postSimulate(planId)
+      setSimId(manifest.sim_id)
+      // Seed an initial "RUNNING with zero progress" state so the UI
+      // flips immediately without waiting for the first poll.
+      setRun({
+        sim_id: manifest.sim_id,
+        plan_id: manifest.plan_id,
+        role_arn: manifest.role_arn,
+        system_name: null,
+        started_at: null,
+        completed_at: null,
+        status: "RUNNING",
+        catalog_version: manifest.catalog_version,
+        engine_version: manifest.engine_version,
+        counterfactual_id: manifest.counterfactual_id,
+        graph_snapshot_id: manifest.graph_snapshot_id,
+        foothold_id: manifest.foothold.foothold_id,
+        foothold_name: manifest.foothold.foothold_name,
+        jewels_total: manifest.jewels_total,
+        jewels_evaluated: 0,
+        before_chains_total: 0,
+        after_chains_total: 0,
+        pairs_failed: 0,
+        error_message: null,
+        results: [],
+        aggregate: {
+          before_chains_total: 0,
+          after_chains_total: 0,
+          jewels_with_zero_after: 0,
+          jewels_with_drop: 0,
+        },
+        progress: { evaluated: 0, total: manifest.jewels_total, failed: 0 },
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(msg)
+    } finally {
+      setStarting(false)
+    }
+  }, [enabled, planId])
+
+  // Polling loop. Re-runs whenever pollTick increments (we increment
+  // inside the effect's setTimeout). Cancellation is by status check
+  // — if status flipped terminal during the await, the next tick is
+  // not scheduled.
+  useEffect(() => {
+    if (!simId || !polling) return
+    let canceled = false
+    const handle = setTimeout(async () => {
+      try {
+        const next = await fetchSimulationRun(simId)
+        if (canceled) return
+        setRun(next)
+        if (next.status === "RUNNING") {
+          setPollTick((t) => t + 1)
+        }
+      } catch (e: unknown) {
+        if (canceled) return
+        const msg = e instanceof Error ? e.message : String(e)
+        // Don't terminate the loop on a single poll error — backend
+        // may be transiently busy. Surface the error inline and try
+        // again next tick.
+        setError(msg)
+        setPollTick((t) => t + 1)
+      }
+    }, 1500)
+    return () => {
+      canceled = true
+      clearTimeout(handle)
+    }
+  }, [simId, polling, pollTick])
+
+  return (
+    <Card
+      className={
+        "border-l-4 " +
+        (run?.status === "COMPLETED" && run.aggregate.jewels_with_drop > 0
+          ? "border-l-emerald-600"
+          : run?.status === "FAILED"
+            ? "border-l-red-600"
+            : "border-l-violet-600")
+      }
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400 font-semibold flex items-center gap-2">
+          ATLAS Chain delta
+          <span className="text-[10px] font-normal tracking-normal text-zinc-500">
+            · proven blast-radius reduction
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {/* IDLE state — explainer + CTA */}
+        {!run && !starting && (
+          <div className="space-y-2">
+            <p className="text-xs text-zinc-700 dark:text-zinc-400">
+              Run the ATLAS multi-hop chain planner against the proposed
+              split. For each crown jewel this role currently reaches, we
+              report BEFORE (today) and AFTER (with the split applied) chain
+              counts — replay-grade audit lineage included. Read-only, no
+              AWS mutation.
+            </p>
+            {!enabled && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Available only on PROPOSED plans — past that state the
+                counterfactual no longer reflects reality.
+              </p>
+            )}
+            <Button
+              size="sm"
+              disabled={!enabled || starting}
+              onClick={startSimulate}
+              className="mt-1"
+            >
+              {starting ? (
+                <>
+                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                  Starting…
+                </>
+              ) : (
+                "Compute chain delta"
+              )}
+            </Button>
+            {error && (
+              <p className="text-xs text-red-600 dark:text-red-300 break-all">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* RUNNING state — progress bar */}
+        {run && run.status === "RUNNING" && (
+          <ChainDeltaProgress run={run} />
+        )}
+
+        {/* FAILED state */}
+        {run && run.status === "FAILED" && (
+          <div className="space-y-2">
+            <p className="text-sm text-red-700 dark:text-red-300 break-all">
+              Simulate failed: {run.error_message || "unknown error"}
+            </p>
+            <Button size="sm" variant="outline" onClick={startSimulate}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {/* COMPLETED state */}
+        {run && run.status === "COMPLETED" && (
+          <ChainDeltaResults run={run} onRerun={startSimulate} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ChainDeltaProgress({ run }: { run: SimulationRun }) {
+  const pct =
+    run.progress.total > 0
+      ? Math.round((run.progress.evaluated / run.progress.total) * 100)
+      : 0
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-zinc-700 dark:text-zinc-400 flex items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Evaluating{" "}
+        <strong className="tabular-nums">{run.progress.evaluated}</strong> of{" "}
+        <strong className="tabular-nums">{run.progress.total}</strong> jewel
+        {run.progress.total === 1 ? "" : "s"} · foothold{" "}
+        <span className="font-mono text-[11px]">{run.foothold_name}</span>
+      </div>
+      <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+        <div
+          className="bg-violet-500 h-full rounded-full transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {run.progress.failed > 0 && (
+        <p className="text-[11px] text-amber-700 dark:text-amber-300">
+          {run.progress.failed} pair{run.progress.failed === 1 ? "" : "s"}{" "}
+          failed — those jewels will show as N/A
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ChainDeltaResults({
+  run,
+  onRerun,
+}: {
+  run: SimulationRun
+  onRerun: () => void
+}) {
+  const before = run.aggregate.before_chains_total
+  const after = run.aggregate.after_chains_total
+  const delta = before - after
+  const droppedTo = before > 0 ? Math.round((delta / before) * 100) : 0
+  const allClear =
+    run.aggregate.jewels_with_zero_after === run.jewels_total &&
+    run.jewels_total > 0
+  const noChange = delta === 0
+
+  return (
+    <div className="space-y-3">
+      {/* Headline — adaptive copy based on outcome */}
+      <div
+        className={
+          "rounded-md border px-3 py-2 " +
+          (allClear
+            ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700/50"
+            : delta > 0
+              ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700/50"
+              : "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700/50")
+        }
+      >
+        <div className="text-sm font-semibold">
+          {allClear ? (
+            <>Split eliminates all {before} ATLAS-validated chains across {run.jewels_total} jewel{run.jewels_total === 1 ? "" : "s"}.</>
+          ) : delta > 0 ? (
+            <>Split reduces {before} → {after} chains ({droppedTo}% drop) across {run.jewels_total} jewel{run.jewels_total === 1 ? "" : "s"}.</>
+          ) : noChange && before === 0 ? (
+            <>ATLAS validated 0 chains BEFORE the split — coverage gap. The split is structurally fine, but today's catalog cannot prove its effect on this role.</>
+          ) : (
+            <>Split keeps {after} chain{after === 1 ? "" : "s"} alive — same blast radius. Review the per-jewel breakdown below; the new role may grant actions that still enable the lateral.</>
+          )}
+        </div>
+        <div className="text-xs text-zinc-700 dark:text-zinc-400 mt-1">
+          Foothold:{" "}
+          <span className="font-mono">{run.foothold_name}</span> ·{" "}
+          {run.aggregate.jewels_with_drop} jewel
+          {run.aggregate.jewels_with_drop === 1 ? "" : "s"} with reduction ·{" "}
+          {run.aggregate.jewels_with_zero_after} of {run.jewels_total} reach 0 chains
+          {run.pairs_failed > 0 && (
+            <span className="text-amber-700 dark:text-amber-300">
+              {" "}
+              · {run.pairs_failed} pair{run.pairs_failed === 1 ? "" : "s"} failed
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Per-jewel mini-cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {run.results.map((r) => (
+          <JewelDeltaCard key={r.result_id} r={r} />
+        ))}
+      </div>
+
+      {/* Audit footer */}
+      <div className="text-[10px] text-zinc-500 dark:text-zinc-500 pt-2 border-t border-zinc-200 dark:border-zinc-800 break-all">
+        ATLAS{" "}
+        <span className="font-mono">{run.engine_version}</span> · catalog{" "}
+        <span className="font-mono">{run.catalog_version}</span> ·
+        counterfactual{" "}
+        <span className="font-mono" title={run.counterfactual_id ?? ""}>
+          {run.counterfactual_id?.slice(0, 18)}…
+        </span>{" "}
+        · sim{" "}
+        <span className="font-mono" title={run.sim_id}>
+          {run.sim_id}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onRerun}
+          className="ml-2 h-auto py-0.5 px-1.5 text-[10px]"
+        >
+          Re-run
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function JewelDeltaCard({ r }: { r: { jewel_id: string; jewel_name: string; jewel_type: string; before_chain_count: number | null; after_chain_count: number | null; before_failed: boolean; after_failed: boolean; before_sample_chain_ids: string[]; after_sample_chain_ids: string[] } }) {
+  const before = r.before_chain_count
+  const after = r.after_chain_count
+  const failed = r.before_failed || r.after_failed
+  const delta = before !== null && after !== null ? before - after : null
+  const tone = failed
+    ? "border-zinc-300 dark:border-zinc-700"
+    : delta !== null && delta > 0
+      ? "border-emerald-300 dark:border-emerald-700/50"
+      : before !== null && before > 0
+        ? "border-amber-300 dark:border-amber-700/50"
+        : "border-zinc-300 dark:border-zinc-700"
+  return (
+    <div className={"rounded-md border px-2.5 py-1.5 " + tone}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[8px] uppercase tracking-wider font-bold opacity-70">
+          {r.jewel_type}
+        </span>
+        <span className="text-[11px] font-mono truncate flex-1" title={r.jewel_id}>
+          {r.jewel_name}
+        </span>
+      </div>
+      <div className="text-[11px] mt-1 tabular-nums flex items-center gap-1.5">
+        {failed ? (
+          <span className="text-zinc-500">N/A · engine failed</span>
+        ) : (
+          <>
+            <span className="font-mono">{before ?? "—"}</span>
+            <ArrowRight className="h-3 w-3 opacity-60" />
+            <span className="font-mono font-semibold">{after ?? "—"}</span>
+            {delta !== null && delta > 0 && (
+              <span className="text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                −{delta}
+              </span>
+            )}
+            {delta === 0 && before !== null && before > 0 && (
+              <span className="text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                no change
+              </span>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 
