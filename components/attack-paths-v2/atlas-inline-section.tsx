@@ -79,10 +79,22 @@ function shortId(id: string | null | undefined): string {
 
 export function AtlasInlineSection({ systemName, path, jewel }: AtlasInlineSectionProps) {
   // Derive foothold + target from the path automatically.
-  const startNodeId = useMemo(
-    () => path.nodes?.find((n) => n.tier === "entry")?.id ?? null,
-    [path.nodes],
-  )
+  //
+  // 2026-05-27 fix: previously filtered by `tier === "entry"` which in
+  // the IAP schema means "network-control node" (SecurityGroup, VPC,
+  // Subnet) — NOT the workload foothold the catalog needs. EC2/Lambda
+  // nodes are actually tier === "identity". Derive by node TYPE instead:
+  // catalog v0.1 understands workload footholds = EC2Instance and
+  // LambdaFunction. AWSPrincipal-rooted paths (root-account access to
+  // S3 etc.) have no workload foothold and ATLAS v0.1 cannot analyze
+  // them — we render an explicit "not applicable" card so the section
+  // never silently disappears.
+  const startNodeId = useMemo(() => {
+    const workloadNode = path.nodes?.find(
+      (n) => n.type === "EC2Instance" || n.type === "LambdaFunction" || n.type === "Workload",
+    )
+    return workloadNode?.id ?? null
+  }, [path.nodes])
   const targetNodeId = useMemo(
     () => jewel?.id ?? path.crown_jewel_id ?? null,
     [jewel?.id, path.crown_jewel_id],
@@ -131,10 +143,22 @@ export function AtlasInlineSection({ systemName, path, jewel }: AtlasInlineSecti
     }
   }, [systemName, startNodeId, targetNodeId])
 
-  // Don't render anything if we can't derive a foothold or target — the
-  // path doesn't have what ATLAS needs and silently hiding beats a
-  // misleading "no chains" message.
-  if (!startNodeId || !targetNodeId) return null
+  // The section ALWAYS renders so the operator sees ATLAS exists, even
+  // when this particular path isn't analyzable (e.g. AWSPrincipal-rooted
+  // paths with no workload foothold — catalog v0.1 needs an EC2/Lambda
+  // start). Silent-null returns previously left the operator wondering
+  // whether the section was broken or just not relevant.
+  const headerSummary = loading
+    ? "loading…"
+    : response
+      ? `${response.chains.length} chain${response.chains.length === 1 ? "" : "s"} · ${response.elapsed_ms}ms · catalog ${response.catalog_version} · every chain replay-validated`
+      : error
+        ? "error"
+        : !startNodeId
+          ? "this path has no workload foothold — catalog v0.1 needs EC2 or Lambda"
+          : !targetNodeId
+            ? "no target identified for this path"
+            : "—"
 
   return (
     <section className="border-t border-slate-800 bg-slate-950/80 px-4 py-3">
@@ -148,16 +172,23 @@ export function AtlasInlineSection({ systemName, path, jewel }: AtlasInlineSecti
             v0.1
           </span>
         </div>
-        <div className="text-[10px] text-slate-500 italic">
-          {loading
-            ? "loading…"
-            : response
-              ? `${response.chains.length} chain${response.chains.length === 1 ? "" : "s"} · ${response.elapsed_ms}ms · catalog ${response.catalog_version} · every chain replay-validated`
-              : error
-                ? "error"
-                : "—"}
-        </div>
+        <div className="text-[10px] text-slate-500 italic">{headerSummary}</div>
       </header>
+
+      {/* Not-applicable state — explicit so the operator never wonders
+          if ATLAS broke. AWSPrincipal-rooted paths reach the jewel via
+          standing IAM access; the v0.1 catalog only analyzes workload-
+          foothold chains. */}
+      {(!startNodeId || !targetNodeId) && (
+        <div className="text-xs text-slate-400 py-2 flex items-start gap-2">
+          <Shield className="w-3.5 h-3.5 text-slate-500 mt-0.5 shrink-0" />
+          <span>
+            {!startNodeId
+              ? "ATLAS v0.1 analyzes attacker chains that start from a compromised workload (EC2 or Lambda). This path is identity-only — the principal already has standing access, no foothold capture needed."
+              : "Target identifier missing on this path."}
+          </span>
+        </div>
+      )}
 
       {loading && (
         <div className="flex items-center gap-2 text-xs text-slate-400 py-3">
