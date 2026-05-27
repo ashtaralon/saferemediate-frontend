@@ -206,6 +206,41 @@ interface WorkloadNetworkPayload {
   workload_count_in_sample: number
 }
 
+// Layer A v2 (2026-05-27) — stack-components enrichment. Fills the
+// empty PRINCIPALS / IAM POLICIES / INSTANCE PROFILES / API CALLS
+// sidebar lanes that previously read as "Cyntro found nothing."
+export interface StackComponentsPrincipal {
+  id: string
+  arn: string
+  session_name: string
+  calls: number
+  last_seen: string | null
+}
+export interface StackComponentsPolicy {
+  id: string
+  name: string
+  arn: string | null
+  attachment_type: string | null
+  is_aws_managed: boolean | null
+}
+export interface StackComponentsApiCall {
+  action: string
+  calls: number
+  last_seen: string | null
+}
+export interface StackComponentsInstanceProfile {
+  id: string
+  arn: string
+  name: string
+  attached_count: number
+}
+export interface StackComponentsPayload {
+  principals: StackComponentsPrincipal[]
+  iam_policies: StackComponentsPolicy[]
+  api_calls: StackComponentsApiCall[]
+  instance_profiles: StackComponentsInstanceProfile[]
+}
+
 interface ExfilPath {
   path_id: string
   accessor_id: string
@@ -224,6 +259,10 @@ interface ExfilPath {
   // when the call failed/timed out, undefined when include_atlas=false.
   // Three states are intentionally distinct — see AtlasPill below.
   atlas?: AtlasChainSummary | null
+  // Stack-components enrichment — populated for every path; empty
+  // arrays when the role has no observed sessions / no policy
+  // attachments / etc. Missing field would be a backend bug.
+  stack_components?: StackComponentsPayload
 }
 
 interface ExfilDestination {
@@ -1384,14 +1423,61 @@ function buildExfilArchitecture(
     // sub-card (CloudTrail doesn't carry payload size) and relabels
     // "Connections" → "API calls" (hit_count, not TCP).
     metricsBasis: "cloudtrail",
-    principals: [],
+    // ─── STACK-COMPONENTS LANES (2026-05-27) ─────────────────────────
+    // Populated from selectedPath.stack_components when present so the
+    // sidebar lanes carry real graph data instead of reading "0".
+    // Falls back to empty arrays when the field is absent (back-compat
+    // with older responses that didn't carry stack_components).
+    principals: (selectedPath?.stack_components?.principals ?? []).map(
+      (p) =>
+        ({
+          id: p.id,
+          name: p.session_name,
+          shortName: shortName(p.session_name, 26),
+          type: "principal",
+          instanceId:
+            p.session_name.length > 14
+              ? p.session_name.slice(-12)
+              : p.session_name,
+        }) as ServiceNode,
+    ),
     resources,
     subnets,
     securityGroups,
     nacls: [],
     iamRoles,
-    instanceProfiles: [],
-    iamPolicies: [],
+    // SecurityCheckpoint.type doesn't have dedicated 'instance_profile'
+    // / 'iam_policy' variants — the distinction is encoded by WHICH
+    // array the node lands in, not by the discriminator. Same
+    // convention used by attacker-view-panel.tsx's IP + policy
+    // population (see comments there). totalCount on IPs carries the
+    // attached_count so the chip surfaces "how many EC2s use this IP."
+    instanceProfiles: (
+      selectedPath?.stack_components?.instance_profiles ?? []
+    ).map((ip) => ({
+      id: ip.id,
+      type: "iam_role" as const,
+      name: ip.name,
+      shortName: shortName(ip.name, 26),
+      usedCount: 0,
+      totalCount: ip.attached_count,
+      gapCount: 0,
+      connectedSources: [],
+      connectedTargets: [],
+    })),
+    iamPolicies: (selectedPath?.stack_components?.iam_policies ?? []).map(
+      (pol) => ({
+        id: pol.id,
+        type: "iam_role" as const,
+        name: pol.name,
+        shortName: shortName(pol.name, 28),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      }),
+    ),
     vpcEndpoints: [],
     egressGateways,
     flows,
