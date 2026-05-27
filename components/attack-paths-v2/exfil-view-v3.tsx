@@ -1042,6 +1042,12 @@ function buildExfilArchitecture(
   for (const a of accessorsForPath) {
     if (seen.has(a.id)) continue
     seen.add(a.id)
+    // Stack-components only meaningful when this role IS the
+    // selected path's accessor — otherwise we'd be projecting
+    // another path's principals/policies/actions onto this role.
+    const isActiveAccessor =
+      selectedPath?.accessor_id === a.id
+    const sc = isActiveAccessor ? selectedPath?.stack_components : null
     iamRoles.push({
       id: a.id,
       type: "iam_role",
@@ -1058,6 +1064,26 @@ function buildExfilArchitecture(
       // sees the cross-bucket + cross-workload reach at a glance.
       alsoReaches: a.also_reaches ?? [],
       sharedWith: a.shared_with ?? [],
+      // Stack-components inlined on the canvas — Alon feedback
+      // 2026-05-27 "u change nothing - is the same". The sidebar
+      // wasn't visible in expanded-canvas mode; surface the same
+      // data on the role chip itself so the canvas carries the
+      // story.
+      assumedBy: (sc?.principals ?? []).map((p) => ({
+        id: p.id,
+        session_name: p.session_name,
+        calls: p.calls,
+        last_seen: p.last_seen,
+      })),
+      policiesAttached: (sc?.iam_policies ?? []).map((pol) => ({
+        name: pol.name,
+        attachment_type: pol.attachment_type,
+        is_aws_managed: pol.is_aws_managed,
+      })),
+      actionsUsed: (sc?.api_calls ?? []).map((act) => ({
+        action: act.action,
+        calls: act.calls,
+      })),
     })
     // Jewel → accessor (the read edge inverted into "data leaves jewel
     // via this accessor"). Animated red line when observed.

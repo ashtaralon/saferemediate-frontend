@@ -137,6 +137,24 @@ export interface SecurityCheckpoint {
    *  by the backend (_attach_accessor_blast_radius). */
   alsoReaches?: Array<{ id: string; name: string; type: string; hits: number }>;
   sharedWith?: Array<{ id: string; name: string; type: string; system_name: string | null }>;
+  // ── Stack-components surfacing on the role chip — 2026-05-27 ─────
+  // Inline ON THE CANVAS what previously hid in the collapsed sidebar
+  // for the EXFIL view. Alon: "u change nothing - is the same" when
+  // the canvas itself didn't get richer. Each field maps to one
+  // section under the existing LateralFanOut, colored to match the
+  // sidebar lane icon.
+  assumedBy?: Array<{
+    id: string
+    session_name: string
+    calls: number
+    last_seen: string | null
+  }>;
+  policiesAttached?: Array<{
+    name: string
+    attachment_type: string | null
+    is_aws_managed: boolean | null
+  }>;
+  actionsUsed?: Array<{ action: string; calls: number }>;
 }
 
 export interface TrafficFlow {
@@ -1128,9 +1146,24 @@ export function NACLNode({
 function LateralFanOut({
   alsoReaches,
   sharedWith,
+  assumedBy = [],
+  policiesAttached = [],
+  actionsUsed = [],
 }: {
   alsoReaches: Array<{ id: string; name: string; type: string; hits: number }>;
   sharedWith: Array<{ id: string; name: string; type: string; system_name: string | null }>;
+  assumedBy?: Array<{
+    id: string;
+    session_name: string;
+    calls: number;
+    last_seen: string | null;
+  }>;
+  policiesAttached?: Array<{
+    name: string;
+    attachment_type: string | null;
+    is_aws_managed: boolean | null;
+  }>;
+  actionsUsed?: Array<{ action: string; calls: number }>;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1226,6 +1259,118 @@ function LateralFanOut({
               )}
             </div>
           ))}
+        </div>
+      )}
+      {/* ASSUMED BY — observed sessions that called this role
+          (Principal nodes via ACTUAL_API_CALL). Cyan to match the
+          sidebar Principals lane. */}
+      {assumedBy.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-300">
+              Assumed by
+            </span>
+            <span className="text-[10px] text-cyan-300/80">
+              {assumedBy.length}{" "}
+              {assumedBy.length === 1 ? "session" : "sessions"} observed
+            </span>
+          </div>
+          {assumedBy.slice(0, 4).map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center gap-1.5 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1"
+              title={`Session ${s.session_name}${s.last_seen ? ` — last seen ${s.last_seen}` : ""}`}
+            >
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {s.session_name}
+              </span>
+              <span className="text-[9px] text-cyan-300/90 font-mono tabular-nums shrink-0">
+                {s.calls} call{s.calls === 1 ? "" : "s"}
+              </span>
+            </div>
+          ))}
+          {assumedBy.length > 4 && (
+            <span className="text-[9px] text-cyan-300/60 pl-1">
+              +{assumedBy.length - 4} more sessions
+            </span>
+          )}
+        </div>
+      )}
+      {/* POLICIES ATTACHED — managed + inline policies on this role.
+          Rose to match the sidebar IAM Policies lane. */}
+      {policiesAttached.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-rose-300">
+              Policies attached
+            </span>
+            <span className="text-[10px] text-rose-300/80">
+              {policiesAttached.length}{" "}
+              {policiesAttached.length === 1 ? "policy" : "policies"}
+            </span>
+          </div>
+          {policiesAttached.slice(0, 4).map((p, idx) => (
+            <div
+              key={`${p.name}:${idx}`}
+              className="flex items-center gap-1.5 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1"
+              title={`${p.name} (${p.attachment_type ?? "attached"})${p.is_aws_managed ? " · AWS-managed" : ""}`}
+            >
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {p.name}
+              </span>
+              {p.attachment_type && (
+                <span className="text-[8px] uppercase tracking-wider text-rose-300/80 shrink-0">
+                  {p.attachment_type === "HAS_INLINE_POLICY"
+                    ? "inline"
+                    : p.is_aws_managed
+                      ? "AWS-managed"
+                      : "attached"}
+                </span>
+              )}
+            </div>
+          ))}
+          {policiesAttached.length > 4 && (
+            <span className="text-[9px] text-rose-300/60 pl-1">
+              +{policiesAttached.length - 4} more policies
+            </span>
+          )}
+        </div>
+      )}
+      {/* ACTIONS USED — distinct iam_action observed on
+          ACTUAL_API_CALL edges. Lime to match the sidebar API Calls
+          lane. Capped at top 6 visible; the rest collapse. */}
+      {actionsUsed.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-lime-300">
+              Actions used
+            </span>
+            <span className="text-[10px] text-lime-300/80">
+              {actionsUsed.length}{" "}
+              {actionsUsed.length === 1 ? "distinct action" : "distinct actions"} observed
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {actionsUsed.slice(0, 6).map((a) => (
+              <div
+                key={a.action}
+                className="flex items-center gap-1 rounded border border-lime-500/30 bg-lime-500/10 px-1.5 py-0.5"
+                title={`${a.action} — ${a.calls} call${a.calls === 1 ? "" : "s"} observed`}
+              >
+                <span className="text-[10px] text-slate-200 font-mono">
+                  {a.action}
+                </span>
+                <span className="text-[9px] text-lime-300/80 font-mono tabular-nums">
+                  ·{a.calls}
+                </span>
+              </div>
+            ))}
+            {actionsUsed.length > 6 && (
+              <span className="text-[9px] text-lime-300/60 self-center">
+                +{actionsUsed.length - 6}
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1398,15 +1543,23 @@ export function IAMRoleNode({
                 radius pass — real graph edges, no synthesis. Hidden
                 when both lists are empty so the chip stays compact
                 on roles with no lateral surface. */}
-            {((role.alsoReaches?.length ?? 0) > 0 || (role.sharedWith?.length ?? 0) > 0) && (
-              // LATERAL FAN-OUT — Alon feedback 2026-05-27: previous
-              // compact chips were invisible. Loud, scannable, every
-              // row is its own click target. Jewel rows route to that
-              // jewel's EXFIL view; workload rows surface full-name
-              // tooltips for now (drill-in deferred).
+            {((role.alsoReaches?.length ?? 0) > 0 ||
+              (role.sharedWith?.length ?? 0) > 0 ||
+              (role.assumedBy?.length ?? 0) > 0 ||
+              (role.policiesAttached?.length ?? 0) > 0 ||
+              (role.actionsUsed?.length ?? 0) > 0) && (
+              // LATERAL + STACK-COMPONENTS fan-out — Alon feedback
+              // 2026-05-27. The canvas-itself iteration. Each section
+              // is its own scannable row group. Jewels and workloads
+              // are clickable; principals / policies / actions are
+              // tooltip-only for now (no specific drill destination
+              // yet).
               <LateralFanOut
                 alsoReaches={role.alsoReaches ?? []}
                 sharedWith={role.sharedWith ?? []}
+                assumedBy={role.assumedBy ?? []}
+                policiesAttached={role.policiesAttached ?? []}
+                actionsUsed={role.actionsUsed ?? []}
               />
             )}
           </>
