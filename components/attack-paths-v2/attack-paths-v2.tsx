@@ -41,7 +41,7 @@ import { PathAnalysisPanel } from "./path-analysis-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewPanel } from "./attacker-view-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
-import { ExfilViewV3 } from "./exfil-view-v3"
+import { ExfilViewV4 } from "./exfil-view-v4"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
@@ -429,7 +429,7 @@ export function AttackPathsV2() {
                   large
                 />
               ) : (
-                <ExfilViewV3
+                <ExfilViewV4
                   systemName={systemName}
                   jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
                 />
