@@ -32,11 +32,13 @@
  * lanes the graph can't fill today render empty rather than mocked.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
-import { ArrowRight, ChevronDown, Crown, Route, AlertTriangle, RefreshCw } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { ArrowRight, ChevronDown, Crown, Route, AlertTriangle, RefreshCw, Loader2, ExternalLink } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { FreshnessBanner } from "@/components/freshness-banner"
+import { postSplitPlan } from "@/lib/api-client"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type {
   SystemArchitecture,
@@ -128,6 +130,12 @@ export interface AtlasSummary {
 // keystone drops N chains at once. Backend filters out the jewel
 // itself (trivial 100% match, no actionable remediation), and
 // drops synthetic IDs that don't back to a real graph node.
+//
+// Layer C (2026-05-27) — node_arn + active_plan_id added for the
+// deep-link CTA. node_arn is non-null only for IAMRole nodes (the
+// only type with a shared-roles split-plan flow today).
+// active_plan_id is non-null when a plan already exists → CTA can
+// navigate in one click. Null → CTA POSTs to mint then navigates.
 export interface ExfilKeystone {
   node_id: string
   node_name: string
@@ -137,6 +145,8 @@ export interface ExfilKeystone {
   chain_count_total: number
   pct_killed: number
   sample_chain_ids: string[]
+  node_arn?: string | null
+  active_plan_id?: string | null
 }
 
 interface ExfilAccessor {
@@ -531,6 +541,46 @@ function KeystoneStrip({
   atlasSummary: AtlasSummary | null | undefined
   keystones: ExfilKeystone[]
 }) {
+  // Layer C (2026-05-27) — CTA wiring. Each IAMRole keystone chip is
+  // a button that opens the existing shared-roles split-plan view.
+  // If active_plan_id is already set (backend pre-fetched it), one
+  // click navigates. Otherwise we POST to mint the plan first, then
+  // navigate — same two-step pattern as the list-view CTA at
+  // components/iam-shared-roles-list-view.tsx:334-350. Non-IAMRole
+  // keystones stay as non-clickable spans for now (no shared-roles
+  // flow applies; future layer can add per-type CTAs).
+  const router = useRouter()
+  const [mintingId, setMintingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const openOrCreatePlan = useCallback(
+    async (k: ExfilKeystone) => {
+      if (!k.node_arn) return
+      // Active plan already exists — instant navigate.
+      if (k.active_plan_id) {
+        router.push(
+          `/iam/shared-roles/by-plan/${encodeURIComponent(k.active_plan_id)}`,
+        )
+        return
+      }
+      setMintingId(k.node_id)
+      setError(null)
+      try {
+        // Self-attested identity until SSO — same caveat the list-view
+        // CTA uses; recorded on the plan node verbatim by the backend.
+        const plan = await postSplitPlan(k.node_arn, "self@cyntro.io")
+        router.push(
+          `/iam/shared-roles/by-plan/${encodeURIComponent(plan.plan_id)}`,
+        )
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        setError(msg)
+        setMintingId(null)
+      }
+    },
+    [router],
+  )
+
   if (!atlasSummary || !atlasSummary.enabled) return null
 
   // Empty-state — ATLAS ran but found nothing. Honestly surface why
@@ -567,10 +617,10 @@ function KeystoneStrip({
   const visible = keystones.slice(0, 5)
   const toneFor = (pct: number) =>
     pct >= 0.75
-      ? "bg-red-500/10 text-red-200 border-red-500/40"
+      ? "bg-red-500/10 text-red-200 border-red-500/40 hover:bg-red-500/20"
       : pct >= 0.4
-        ? "bg-amber-500/10 text-amber-200 border-amber-500/40"
-        : "bg-slate-800/60 text-slate-300 border-slate-700/60"
+        ? "bg-amber-500/10 text-amber-200 border-amber-500/40 hover:bg-amber-500/20"
+        : "bg-slate-800/60 text-slate-300 border-slate-700/60 hover:bg-slate-800"
 
   const labelFor = (k: ExfilKeystone): string => {
     // Pick the first non-structural label (Service/Resource/Node
@@ -593,14 +643,17 @@ function KeystoneStrip({
       </span>
       {visible.map((k) => {
         const pctTxt = Math.round(k.pct_killed * 100)
-        return (
-          <span
-            key={k.node_id}
-            className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 shrink-0 ${toneFor(k.pct_killed)}`}
-            title={`${labelFor(k)} ${k.node_name} appears in ${k.chain_count_killed} of ${k.chain_count_total} ATLAS chains for this jewel. Sample chain IDs: ${k.sample_chain_ids.join(", ")}`}
-          >
+        const labelText = labelFor(k)
+        const isIamRole = labelText === "IAMRole" && !!k.node_arn
+        const isLoading = mintingId === k.node_id
+        const titleText = isIamRole
+          ? `Open shared-roles split plan for ${k.node_name} — ${k.active_plan_id ? "active plan exists, navigates immediately" : "no active plan yet, will mint then navigate"}. Kill this role and ${k.chain_count_killed} of ${k.chain_count_total} ATLAS chains drop. Sample chain IDs: ${k.sample_chain_ids.join(", ")}`
+          : `${labelText} ${k.node_name} appears in ${k.chain_count_killed} of ${k.chain_count_total} ATLAS chains. No deep-link CTA for this node type yet. Sample chain IDs: ${k.sample_chain_ids.join(", ")}`
+
+        const chipBody = (
+          <>
             <span className="text-[8px] uppercase tracking-wider font-bold opacity-80">
-              {labelFor(k)}
+              {labelText}
             </span>
             <span className="text-[10px] font-mono truncate max-w-[180px]">
               {k.node_name}
@@ -608,12 +661,52 @@ function KeystoneStrip({
             <span className="text-[9px] font-bold tabular-nums opacity-90">
               kills {k.chain_count_killed}/{k.chain_count_total} · {pctTxt}%
             </span>
+            {isIamRole &&
+              (isLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin opacity-80" />
+              ) : k.active_plan_id ? (
+                <ExternalLink className="h-3 w-3 opacity-80" />
+              ) : (
+                <ArrowRight className="h-3 w-3 opacity-80" />
+              ))}
+          </>
+        )
+
+        if (isIamRole) {
+          return (
+            <button
+              key={k.node_id}
+              type="button"
+              onClick={() => openOrCreatePlan(k)}
+              disabled={isLoading}
+              className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 shrink-0 transition-colors cursor-pointer ${toneFor(k.pct_killed)} ${isLoading ? "opacity-60" : ""}`}
+              title={titleText}
+            >
+              {chipBody}
+            </button>
+          )
+        }
+        return (
+          <span
+            key={k.node_id}
+            className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 shrink-0 ${toneFor(k.pct_killed)}`}
+            title={titleText}
+          >
+            {chipBody}
           </span>
         )
       })}
       {keystones.length > visible.length && (
         <span className="text-[9px] text-slate-500 shrink-0">
           +{keystones.length - visible.length} more
+        </span>
+      )}
+      {error && (
+        <span
+          className="text-[9px] text-red-300 shrink-0"
+          title={error}
+        >
+          · plan mint failed
         </span>
       )}
     </div>
