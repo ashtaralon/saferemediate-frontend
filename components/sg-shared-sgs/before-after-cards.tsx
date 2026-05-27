@@ -1,69 +1,104 @@
 "use client"
 
-import { ArrowRight, Info } from "lucide-react"
+import { useState } from "react"
+import { Info, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
-import { KVRow } from "./kv-row"
+import { Badge } from "@/components/ui/badge"
+import { RuleRow, type SGRule } from "./rule-row"
+import { StagedPreviewBlock } from "./staged-preview-block"
 import type { SharedSGBeforeSummary } from "@/lib/types"
 
-// SG-9d centerpiece. Two cards side-by-side: BEFORE (today's shared
-// SG) and AFTER (proposed scoped SGs). The left-border colors anchor
-// the operator's eye to the safety contract:
-//   BEFORE = amber (over-shared resource, needs attention — NOT
-//            "you screwed up". Red would be accusatory before any
-//            action has been taken).
-//   AFTER  = emerald (decoupled posture, lower blast radius).
-// Phase-1 footnote spans both cards so the "are you about to drop
-// rules I need?" panic dies at first read.
+// SG-9d centerpiece — STACKED (was side-by-side). Stacked because
+// rules need horizontal room: every inbound and outbound rule of the
+// source SG is rendered inline in the BEFORE card, and every cloned
+// rule of every proposed scoped SG is rendered inline in the AFTER
+// card. At half-width with rules visible the columns wrapped poorly.
+//
+// Left-border tones (semantic only):
+//   BEFORE = amber (over-shared resource, needs attention)
+//   AFTER  = emerald (decoupled posture, lower blast radius)
+//
+// The Phase-1 honesty note ("same rules cloned 1:1 — no narrowing in
+// this plan, Phase 2 narrows") sits in BOTH the AFTER card footer
+// AND on each scoped SG row, because Alon's natural question on
+// seeing identical rules is "wait, where's the narrowing?" — the
+// answer is "Phase 2."
 
-interface AfterGroupRow {
+interface Group {
   group_id: string
   proposed_group_name: string
-  system_name: string | null
-  consumer_type: string | null
-  consumer_count: number
-  inbound_count: number
-  outbound_count: number
+  grouping_key?: {
+    system_name?: string
+    consumer_type?: string
+    vpc_id?: string
+  }
+  proposed_vpc_id?: string
+  proposed_inbound_rules?: SGRule[]
+  proposed_outbound_rules?: SGRule[]
+  consumers?: any[]
+}
+
+interface MembershipFinding {
+  source_sg_id?: string
+  peer_sg_id?: string
+  port_range?: string
+  message?: string
 }
 
 export function BeforeAfterCards({
+  planId,
   sgInfo,
   before,
-  afterGroups,
+  groups,
   avgBlastAfter,
   reductionPct,
-  onJumpToGroup,
+  membershipExternalIn,
+  membershipExternalOut,
+  membershipSelfRefs,
 }: {
+  planId: string
   sgInfo: {
     sg_id?: string
     sg_name?: string
     vpc_id?: string | null
   }
   before: SharedSGBeforeSummary | null
-  afterGroups: AfterGroupRow[]
+  groups: Group[]
   avgBlastAfter: number | null
   reductionPct: number | null
-  onJumpToGroup: (groupId: string) => void
+  membershipExternalIn: MembershipFinding[]
+  membershipExternalOut: MembershipFinding[]
+  membershipSelfRefs: MembershipFinding[]
 }) {
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <BeforeCard sgInfo={sgInfo} before={before} />
-        <AfterCard
-          afterGroups={afterGroups}
-          avgBlastAfter={avgBlastAfter}
-          reductionPct={reductionPct}
-          onJumpToGroup={onJumpToGroup}
-        />
-      </div>
+  // v1 clones rules verbatim, so any group's proposed rules == source
+  // rules. Use the first group's rules as the source projection.
+  // (If 0 eligible groups, BEFORE card still renders without rules.)
+  const sourceInbound = groups[0]?.proposed_inbound_rules || []
+  const sourceOutbound = groups[0]?.proposed_outbound_rules || []
+  const hasMembershipFlag =
+    membershipExternalIn.length +
+      membershipExternalOut.length +
+      membershipSelfRefs.length >
+    0
 
-      <div className="flex items-start gap-2 text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-200 px-1">
-        <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-zinc-500" />
-        <span>
-          <b className="text-foreground">Phase 1 (this plan)</b> decouples consumers onto separate SGs.
-          Rules are cloned 1:1 from the source SG — no rule changes, no permission removal.
-          Rule narrowing arrives in Phase 2 once evidence completeness is HIGH.
-        </span>
-      </div>
+  return (
+    <div className="space-y-4">
+      <BeforeCard
+        sgInfo={sgInfo}
+        before={before}
+        inbound={sourceInbound}
+        outbound={sourceOutbound}
+      />
+      <AfterCard
+        planId={planId}
+        groups={groups}
+        avgBlastAfter={avgBlastAfter}
+        reductionPct={reductionPct}
+        hasMembershipFlag={hasMembershipFlag}
+        membershipExternalIn={membershipExternalIn}
+        membershipExternalOut={membershipExternalOut}
+        membershipSelfRefs={membershipSelfRefs}
+      />
     </div>
   )
 }
@@ -71,19 +106,21 @@ export function BeforeAfterCards({
 function BeforeCard({
   sgInfo,
   before,
+  inbound,
+  outbound,
 }: {
   sgInfo: { sg_id?: string; sg_name?: string; vpc_id?: string | null }
   before: SharedSGBeforeSummary | null
+  inbound: SGRule[]
+  outbound: SGRule[]
 }) {
   return (
     <Card className="border-l-4 border-l-amber-500 overflow-hidden">
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider text-amber-700 dark:text-amber-300 font-medium">
-              Before · Today
-            </span>
-          </div>
+          <span className="text-[11px] uppercase tracking-wider text-amber-700 dark:text-amber-300 font-medium">
+            Before · Today
+          </span>
           <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             1 shared SG
           </span>
@@ -96,68 +133,48 @@ function BeforeCard({
           <div className="text-sm text-zinc-700 dark:text-zinc-200">
             {sgInfo.sg_name || "—"}
           </div>
+          <div className="text-[11px] text-zinc-600 dark:text-zinc-300 font-mono">
+            VPC {sgInfo.vpc_id || "—"}
+          </div>
         </div>
 
-        <KVRow label="VPC" value={sgInfo.vpc_id || "—"} mono />
-
-        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
+        <div className="space-y-1 border-t border-zinc-200 dark:border-zinc-800 pt-3">
           <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Attachment
           </div>
-          <div className="text-lg font-semibold tabular-nums">
-            {before?.consumer_count ?? "—"} consumers
-          </div>
-          <div className="text-sm text-zinc-700 dark:text-zinc-200">
-            across <b className="tabular-nums">{before?.system_count ?? "—"}</b> system{before?.system_count === 1 ? "" : "s"}
-          </div>
-        </div>
-
-        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1.5">
-          <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
-            Rules
-          </div>
-          <div className="flex items-baseline gap-4">
-            <span className="text-sm">
-              <b className="tabular-nums">{before?.rules.inbound ?? "—"}</b>{" "}
-              <span className="text-zinc-600 dark:text-zinc-300 text-xs">inbound</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-semibold tabular-nums">
+              {before?.consumer_count ?? "—"}
             </span>
-            <span className="text-sm">
-              <b className="tabular-nums">{before?.rules.outbound ?? "—"}</b>{" "}
-              <span className="text-zinc-600 dark:text-zinc-300 text-xs">outbound</span>
+            <span className="text-sm text-zinc-700 dark:text-zinc-200">
+              consumers across{" "}
+              <b className="tabular-nums">{before?.system_count ?? "—"}</b>{" "}
+              system{before?.system_count === 1 ? "" : "s"}
             </span>
           </div>
           {before && (
-            <ul className="text-xs space-y-0.5 mt-1.5">
-              {before.rules.unused_phase2 > 0 && (
-                <Phase2Line
-                  count={before.rules.unused_phase2}
-                  label="marked unused"
-                />
-              )}
-              {before.rules.high_risk_phase2 > 0 && (
-                <Phase2Line
-                  count={before.rules.high_risk_phase2}
-                  label="high-risk"
-                />
-              )}
-              <li className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-200">
-                <span className="text-zinc-400">•</span>
-                Public ingress:{" "}
-                <span
-                  className={
-                    before.rules.public_ingress
-                      ? "text-amber-700 dark:text-amber-300 font-medium"
-                      : "text-foreground"
-                  }
-                >
-                  {before.rules.public_ingress ? "yes" : "no"}
-                </span>
-              </li>
-            </ul>
+            <div className="text-[12px] text-zinc-600 dark:text-zinc-300">
+              {Object.entries(before.consumer_kinds)
+                .sort(([, a], [, b]) => b - a)
+                .map(([k, n]) => `${k} ${n}`)
+                .join(" · ")}
+            </div>
           )}
         </div>
 
-        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+          <RuleColumn title="Inbound" rules={inbound} />
+          <RuleColumn title="Outbound" rules={outbound} />
+        </div>
+
+        {before && (before.rules.unused_phase2 > 0 || before.rules.high_risk_phase2 > 0) && (
+          <Phase2Note
+            unused={before.rules.unused_phase2}
+            highRisk={before.rules.high_risk_phase2}
+          />
+        )}
+
+        <div className="border-t border-zinc-200 dark:border-zinc-800 pt-3 space-y-1">
           <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Lateral exposure
           </div>
@@ -174,73 +191,60 @@ function BeforeCard({
   )
 }
 
-function Phase2Line({ count, label }: { count: number; label: string }) {
-  return (
-    <li className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-200">
-      <span className="text-zinc-400">•</span>
-      <span className="tabular-nums font-medium">{count}</span>
-      <span>{label}</span>
-      <span className="inline-flex items-center px-1.5 py-0 rounded-sm bg-slate-100 dark:bg-slate-800 text-[9px] uppercase tracking-wider text-slate-600 dark:text-slate-300">
-        phase 2
-      </span>
-    </li>
-  )
-}
-
 function AfterCard({
-  afterGroups,
+  planId,
+  groups,
   avgBlastAfter,
   reductionPct,
-  onJumpToGroup,
+  hasMembershipFlag,
+  membershipExternalIn,
+  membershipExternalOut,
+  membershipSelfRefs,
 }: {
-  afterGroups: AfterGroupRow[]
+  planId: string
+  groups: Group[]
   avgBlastAfter: number | null
   reductionPct: number | null
-  onJumpToGroup: (groupId: string) => void
+  hasMembershipFlag: boolean
+  membershipExternalIn: MembershipFinding[]
+  membershipExternalOut: MembershipFinding[]
+  membershipSelfRefs: MembershipFinding[]
 }) {
-  const hasGroups = afterGroups.length > 0
+  const hasGroups = groups.length > 0
   return (
     <Card className="border-l-4 border-l-emerald-500 overflow-hidden">
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-medium">
             After · Proposed
           </span>
           <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
-            {afterGroups.length} scoped SG{afterGroups.length === 1 ? "" : "s"}
+            {groups.length} scoped SG{groups.length === 1 ? "" : "s"}
           </span>
         </div>
 
         {!hasGroups ? (
-          <div className="text-sm text-muted-foreground py-4 text-center">
+          <div className="text-sm text-zinc-700 dark:text-zinc-200 py-4 text-center">
             No eligible groups. See <b>blocked consumers</b> in Overview tab.
           </div>
         ) : (
-          <div className="space-y-1.5">
-            {afterGroups.map((g) => (
-              <button
+          <div className="space-y-3">
+            {groups.map((g) => (
+              <ScopedSGCard
                 key={g.group_id}
-                onClick={() => onJumpToGroup(g.group_id)}
-                className="w-full text-left flex items-center gap-2 py-1.5 px-2 -mx-2 rounded hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20 transition-colors group"
-              >
-                <ArrowRight className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">
-                    <span className="font-medium">{g.system_name || "—"}</span>
-                    <span className="text-zinc-600 dark:text-zinc-300"> · {g.consumer_type || "—"}</span>
-                  </div>
-                  <div className="text-[11px] text-zinc-700 dark:text-zinc-200 tabular-nums">
-                    {g.consumer_count} consumer{g.consumer_count === 1 ? "" : "s"}
-                    {" · "}
-                    {g.inbound_count} in / {g.outbound_count} out
-                  </div>
-                </div>
-              </button>
+                group={g}
+                planId={planId}
+                membership={hasMembershipFlag ? {
+                  externalIn: membershipExternalIn,
+                  externalOut: membershipExternalOut,
+                  selfRefs: membershipSelfRefs,
+                } : null}
+              />
             ))}
           </div>
         )}
 
-        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
+        <div className="border-t border-zinc-200 dark:border-zinc-800 pt-3 space-y-1">
           <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-600 dark:text-zinc-300">
             Lateral exposure
           </div>
@@ -251,16 +255,195 @@ function AfterCard({
             </b>
             {reductionPct != null && (
               <span className="text-zinc-700 dark:text-zinc-200">
-                {" "}↘ <b className="tabular-nums">{reductionPct.toFixed(0)}%</b> reduction
+                {" "}↘ <b className="tabular-nums">{reductionPct.toFixed(0)}%</b> reduction per consumer
               </span>
             )}
           </div>
         </div>
 
-        <div className="pt-1 text-[12px] text-zinc-700 dark:text-zinc-200">
-          Each new SG is attached only to its system&apos;s consumers.
+        <div className="flex items-start gap-2 text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-200 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-zinc-500" />
+          <span>
+            <b className="text-foreground">Phase 1 (this plan)</b> attaches each scoped SG
+            only to its system&apos;s consumers — same rules as the source, no permission
+            removal. <b className="text-foreground">Phase 2</b> drops rules with no observed
+            traffic per system once evidence completeness is HIGH.
+          </span>
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function ScopedSGCard({
+  group,
+  planId,
+  membership,
+}: {
+  group: Group
+  planId: string
+  membership: {
+    externalIn: MembershipFinding[]
+    externalOut: MembershipFinding[]
+    selfRefs: MembershipFinding[]
+  } | null
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const inbound = group.proposed_inbound_rules || []
+  const outbound = group.proposed_outbound_rules || []
+  const consumers = group.consumers || []
+  const consumerType = group.grouping_key?.consumer_type || "—"
+  const systemName = group.grouping_key?.system_name || "—"
+
+  return (
+    <div className="rounded-md border border-emerald-200/60 dark:border-emerald-900/40 overflow-hidden">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 p-3 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="w-4 h-4 text-emerald-600 shrink-0" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-emerald-600 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm">
+            <b className="text-foreground">{systemName}</b>
+            <span className="text-zinc-700 dark:text-zinc-200"> · {consumerType}</span>
+            <span className="ml-2 text-[11px] text-zinc-600 dark:text-zinc-300 tabular-nums">
+              {consumers.length} consumer{consumers.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="font-mono text-[11px] text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
+            {group.proposed_group_name}
+          </div>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t border-emerald-200/60 dark:border-emerald-900/40">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3">
+            <RuleColumn title="Inbound" rules={inbound} />
+            <RuleColumn title="Outbound" rules={outbound} />
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-200">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            Cloned 1:1 from source SG · no permission delta on the consumer
+          </div>
+
+          {consumers.length > 0 && consumers.length <= 6 && (
+            <div className="text-[11px] text-zinc-600 dark:text-zinc-300 font-mono">
+              Consumers: {consumers.map((c) => c.consumer_name || c.consumer_id).join(", ")}
+            </div>
+          )}
+
+          {membership && (membership.externalIn.length > 0 || membership.externalOut.length > 0 || membership.selfRefs.length > 0) && (
+            <MembershipBanner
+              externalIn={membership.externalIn}
+              externalOut={membership.externalOut}
+              selfRefs={membership.selfRefs}
+            />
+          )}
+
+          <StagedPreviewBlock planId={planId} groupId={group.group_id} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RuleColumn({ title, rules }: { title: string; rules: SGRule[] }) {
+  return (
+    <div className="border border-zinc-200 dark:border-zinc-800 rounded-md overflow-hidden">
+      <div className="flex items-center justify-between px-2 py-1.5 bg-zinc-50 dark:bg-zinc-900/40 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="text-[11px] uppercase tracking-wider font-medium text-zinc-700 dark:text-zinc-200">
+          {title} <span className="tabular-nums text-foreground">({rules.length})</span>
+        </div>
+      </div>
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
+        {rules.length === 0 ? (
+          <div className="p-3 text-[11px] text-zinc-600 dark:text-zinc-300 text-center">
+            no {title.toLowerCase()} rules
+          </div>
+        ) : (
+          rules.map((r, i) => <RuleRow key={i} rule={r} />)
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Phase2Note({ unused, highRisk }: { unused: number; highRisk: number }) {
+  return (
+    <div className="rounded-md bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-2.5 text-[12px] text-zinc-700 dark:text-zinc-200 flex items-start gap-2">
+      <span className="inline-flex items-center px-1.5 py-0 rounded-sm bg-slate-200 dark:bg-slate-700 text-[9px] uppercase tracking-wider text-slate-700 dark:text-slate-200 font-medium shrink-0 mt-0.5">
+        phase 2
+      </span>
+      <span>
+        Of the rules above,{" "}
+        {unused > 0 && (
+          <>
+            <b className="tabular-nums">{unused}</b> have no observed traffic in the
+            last 30 days
+          </>
+        )}
+        {unused > 0 && highRisk > 0 && " and "}
+        {highRisk > 0 && (
+          <>
+            <b className="tabular-nums">{highRisk}</b> are high-risk
+            (broad CIDR or wildcard port)
+          </>
+        )}
+        . Phase 2 narrows them per system once evidence is HIGH; this plan
+        does not change any rules.
+      </span>
+    </div>
+  )
+}
+
+function MembershipBanner({
+  externalIn,
+  externalOut,
+  selfRefs,
+}: {
+  externalIn: MembershipFinding[]
+  externalOut: MembershipFinding[]
+  selfRefs: MembershipFinding[]
+}) {
+  return (
+    <div className="rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+        <span className="text-[11px] uppercase tracking-wider font-medium text-amber-800 dark:text-amber-200">
+          SG-5 membership findings
+        </span>
+        <Badge
+          variant="outline"
+          className="text-[9px] uppercase tracking-wider border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-200"
+        >
+          STAGED may be blocked
+        </Badge>
+      </div>
+      <ul className="text-[11px] space-y-0.5 text-amber-900 dark:text-amber-100">
+        {externalIn.length > 0 && (
+          <li>
+            <b>{externalIn.length}</b> external inbound SG-references —
+            another SG sends traffic to this one
+          </li>
+        )}
+        {externalOut.length > 0 && (
+          <li>
+            <b>{externalOut.length}</b> external outbound SG-references —
+            this SG references another by id
+          </li>
+        )}
+        {selfRefs.length > 0 && (
+          <li>
+            <b>{selfRefs.length}</b> self-references — rule names this SG itself
+          </li>
+        )}
+      </ul>
+    </div>
   )
 }

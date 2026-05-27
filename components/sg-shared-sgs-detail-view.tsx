@@ -30,7 +30,6 @@ import {
 } from "@/lib/api-client"
 import { HeroStrip } from "./sg-shared-sgs/hero-strip"
 import { BeforeAfterCards } from "./sg-shared-sgs/before-after-cards"
-import { RulesDiffTab } from "./sg-shared-sgs/rules-diff-tab"
 import { SwapPlanTab } from "./sg-shared-sgs/swap-plan-tab"
 import { KVRow } from "./sg-shared-sgs/kv-row"
 
@@ -58,7 +57,6 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
   const [busy, setBusy] = useState<"approve" | "execute" | "rollback" | null>(null)
   const [actionResult, setActionResult] = useState<string | null>(null)
   const [tab, setTab] = useState<string>("before-after")
-  const [jumpGroupId, setJumpGroupId] = useState<string | null>(null)
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
@@ -91,19 +89,6 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
   }, [planId, reloadKey])
 
   // ── derived props for sub-components ───────────────────────────
-  const afterGroups = useMemo(() => {
-    if (!plan?.eligible_groups) return []
-    return plan.eligible_groups.map((g: any) => ({
-      group_id: g.group_id,
-      proposed_group_name: g.proposed_group_name,
-      system_name: g.grouping_key?.system_name ?? null,
-      consumer_type: g.grouping_key?.consumer_type ?? null,
-      consumer_count: (g.consumers || []).length,
-      inbound_count: (g.proposed_inbound_rules || []).length,
-      outbound_count: (g.proposed_outbound_rules || []).length,
-    }))
-  }, [plan])
-
   const reductionPct = useMemo(() => {
     const v =
       plan?.blast_radius_summary?.after?.summary
@@ -169,11 +154,6 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
     } finally {
       setBusy(null)
     }
-  }
-
-  const handleJumpToGroup = (gid: string) => {
-    setTab("rules-diff")
-    setJumpGroupId(gid)
   }
 
   // ── render ─────────────────────────────────────────────────────
@@ -247,7 +227,6 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList>
           <TabsTrigger value="before-after">Before &amp; After</TabsTrigger>
-          <TabsTrigger value="rules-diff">Rules diff ({groups.length})</TabsTrigger>
           <TabsTrigger value="swap-plan">Swap plan</TabsTrigger>
           <TabsTrigger value="gates">Gates</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -255,12 +234,15 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
 
         <TabsContent value="before-after" className="space-y-4">
           <BeforeAfterCards
+            planId={planId}
             sgInfo={sgInfo}
             before={beforeSummary}
-            afterGroups={afterGroups}
+            groups={groups}
             avgBlastAfter={avgBlastAfter}
             reductionPct={reductionPct}
-            onJumpToGroup={handleJumpToGroup}
+            membershipExternalIn={membership.external_inbound_refs || []}
+            membershipExternalOut={membership.external_outbound_refs || []}
+            membershipSelfRefs={membership.self_refs || []}
           />
           {dataCaveats.length > 0 && (
             <Card>
@@ -270,7 +252,7 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
                   Data caveats
                 </div>
                 {dataCaveats.map((c, i) => (
-                  <div key={i} className="text-muted-foreground">• {c}</div>
+                  <div key={i} className="text-zinc-700 dark:text-zinc-200">• {c}</div>
                 ))}
               </CardContent>
             </Card>
@@ -278,18 +260,6 @@ export default function SGSharedSGsDetailView({ planId }: DetailViewProps) {
           {blockedConsumers.length > 0 && (
             <BlockedConsumersBlock blocked={blockedConsumers} />
           )}
-        </TabsContent>
-
-        <TabsContent value="rules-diff" className="space-y-3">
-          <RulesDiffTab
-            planId={planId}
-            sourceSGId={sgInfo.sg_id}
-            groups={groups}
-            membershipExternalIn={membership.external_inbound_refs || []}
-            membershipExternalOut={membership.external_outbound_refs || []}
-            membershipSelfRefs={membership.self_refs || []}
-            scrollToGroupId={jumpGroupId}
-          />
         </TabsContent>
 
         <TabsContent value="swap-plan" className="space-y-3">
