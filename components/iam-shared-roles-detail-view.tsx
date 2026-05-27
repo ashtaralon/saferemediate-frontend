@@ -537,31 +537,39 @@ function ChainDeltaResults({
   const after = run.aggregate.after_chains_total
   const delta = before - after
   const droppedTo = before > 0 ? Math.round((delta / before) * 100) : 0
+  // Coverage-gap MUST be checked before allClear — otherwise BEFORE=0
+  // AFTER=0 with jewels_with_zero_after === jewels_total satisfies
+  // allClear and produces the grammatically-broken "eliminates all 0
+  // chains" headline (caught in production on 2026-05-27).
+  const coverageGap = before === 0
   const allClear =
+    !coverageGap &&
     run.aggregate.jewels_with_zero_after === run.jewels_total &&
     run.jewels_total > 0
-  const noChange = delta === 0
 
   return (
     <div className="space-y-3">
-      {/* Headline — adaptive copy based on outcome */}
+      {/* Headline — adaptive copy. Branch ORDER matters: coverageGap
+          comes first because every other case implies before > 0. */}
       <div
         className={
           "rounded-md border px-3 py-2 " +
-          (allClear
-            ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700/50"
-            : delta > 0
+          (coverageGap
+            ? "bg-zinc-50 border-zinc-300 dark:bg-zinc-900/40 dark:border-zinc-700/50"
+            : allClear
               ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700/50"
-              : "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700/50")
+              : delta > 0
+                ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700/50"
+                : "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700/50")
         }
       >
         <div className="text-sm font-semibold">
-          {allClear ? (
+          {coverageGap ? (
+            <>ATLAS validated 0 chains BEFORE the split — coverage gap. The split is structurally fine, but today's catalog cannot prove its effect on this role + foothold.</>
+          ) : allClear ? (
             <>Split eliminates all {before} ATLAS-validated chains across {run.jewels_total} jewel{run.jewels_total === 1 ? "" : "s"}.</>
           ) : delta > 0 ? (
             <>Split reduces {before} → {after} chains ({droppedTo}% drop) across {run.jewels_total} jewel{run.jewels_total === 1 ? "" : "s"}.</>
-          ) : noChange && before === 0 ? (
-            <>ATLAS validated 0 chains BEFORE the split — coverage gap. The split is structurally fine, but today's catalog cannot prove its effect on this role.</>
           ) : (
             <>Split keeps {after} chain{after === 1 ? "" : "s"} alive — same blast radius. Review the per-jewel breakdown below; the new role may grant actions that still enable the lateral.</>
           )}
