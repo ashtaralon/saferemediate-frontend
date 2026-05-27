@@ -26,6 +26,7 @@ import { isPrincipalNodeType, PRINCIPAL_NODE_TYPES } from "@/components/identity
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
+import { AtlasInlineSection } from "./atlas-inline-section"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -515,6 +516,12 @@ export function PathAnalysisPanel({
               observedMode={true}
             />
           </div>
+          {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
+              chain search for this path. Sits in the empty space under
+              the Flow Map so the operator sees ATLAS without switching
+              tabs. Auto-derives foothold (EC2/Lambda) + target (jewel)
+              from the path itself — no inputs. */}
+          <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
         </div>
       </div>
 
