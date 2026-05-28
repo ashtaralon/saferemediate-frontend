@@ -3293,6 +3293,7 @@ export function UnifiedArchitectureDiagram({
   innerSubtitleOverride,
   observedMode = false,
   onRoleClick,
+  jewelEmphasis = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -3324,6 +3325,13 @@ export function UnifiedArchitectureDiagram({
   // clicks fire this instead of the existing service-selection
   // modal. Lets the EXFIL view render its own role detail panel.
   onRoleClick?: (role: SecurityCheckpoint) => void;
+  // 2026-05-28 — Phase 2 V1 slice 1. When true, resource nodes flagged
+  // as crown jewels render visibly heavier (scale + persistent
+  // emerald glow). Opt-in per consumer; ATTACKER VIEW turns it on.
+  // System Map, Per-Path View, Exfil View leave it off (default) so
+  // their visual stays unchanged. No layout change, no new lanes —
+  // pure visual weight emphasis on the existing jewel card.
+  jewelEmphasis?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -4241,8 +4249,25 @@ export function UnifiedArchitectureDiagram({
               const vuln = nodeVulnerabilities.get(node.id);
               const isInAttackPath = attackPathNodeIds.has(node.id);
               const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
+              // 2026-05-28 — emphasize crown jewels in attacker view.
+              // jewelEmphasis is opt-in per consumer (ATTACKER VIEW turns it
+              // on; System Map, Per-Path, Exfil leave it off so their
+              // visual is unchanged). When on AND this resource is a crown
+              // jewel, scale 1.15× and paint a persistent emerald glow.
+              // The scale is intentionally moderate — bigger than 1.2 makes
+              // the card overflow the resource lane on narrow viewports.
+              const emphasizeJewel = jewelEmphasis && !!node.isCrownJewel;
               return (
-                <div key={node.id} data-resource-id={node.id} className="relative">
+                <div
+                  key={node.id}
+                  data-resource-id={node.id}
+                  className={`relative transition-transform duration-200 ${
+                    emphasizeJewel ? 'scale-[1.15] z-20' : ''
+                  }`}
+                  style={emphasizeJewel ? {
+                    filter: 'drop-shadow(0 0 14px rgba(16, 185, 129, 0.55)) drop-shadow(0 0 28px rgba(16, 185, 129, 0.25))',
+                  } : undefined}
+                >
                   {/* Crown jewel indicator — set by applyPathFilter when this
                       resource is the path's target. Renders ABOVE the
                       legacy attack-path target chip when both apply. */}
@@ -4923,6 +4948,7 @@ export default function TrafficFlowMap({
   defaultShowVPCBoundaries = false,
   headerSlot,
   onRoleClick,
+  jewelEmphasis = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -4971,6 +4997,12 @@ export default function TrafficFlowMap({
   // the 5 stack-component sections live in the panel, not stacked on
   // the chip itself. 2026-05-27, Alon "i cant understand nothing".
   onRoleClick?: (role: SecurityCheckpoint) => void;
+  // 2026-05-28 — Phase 2 V1 slice 1. Forwarded to
+  // UnifiedArchitectureDiagram. When true, resource nodes flagged as
+  // crown jewels render visibly heavier (1.15x scale + persistent
+  // emerald glow). ATTACKER VIEW opts in; other consumers (System
+  // Map, Per-Path View, Exfil View) leave the default off.
+  jewelEmphasis?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -6838,6 +6870,7 @@ export default function TrafficFlowMap({
             innerSubtitleOverride={innerSubtitleOverride}
             observedMode={observedMode}
             onRoleClick={onRoleClick}
+            jewelEmphasis={jewelEmphasis}
             onSelectService={(service, type) => {
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the

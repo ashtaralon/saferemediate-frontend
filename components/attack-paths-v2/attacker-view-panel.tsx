@@ -394,6 +394,13 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
           // boundary by default so the path doesn't visually skip the
           // hop. Operator can still toggle it off via the header.
           defaultShowVPCBoundaries={true}
+          // 2026-05-28 — Phase 2 V1 slice 1. Crown jewel cards
+          // visually dominate (1.15x scale + persistent emerald
+          // glow) so the operator's eye lands on the attack target
+          // first, before scanning the lateral fan-out. Default off
+          // for non-attacker surfaces — System Map / Per-Path /
+          // Exfil keep their existing visual weighting.
+          jewelEmphasis={true}
         />
       </div>
       {/* ATLAS chains inline — Phase 3.2.1 (2026-05-27). Auto-derives
