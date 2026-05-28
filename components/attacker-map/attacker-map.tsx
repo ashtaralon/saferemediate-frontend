@@ -36,6 +36,111 @@ interface AttackerMapProps {
 // Click-through routes per node type — same engines as Least Privilege.
 type ModalKind = "iam" | "s3" | "sg" | null
 
+// ── Crown jewel dedup ────────────────────────────────────────────────
+//
+// Why this exists: the collector layer emits the same logical AWS
+// resource as multiple Neo4j nodes when different collectors disagree
+// on shape — e.g. `SafeRemediate-Checkpoints` appears as 5 distinct
+// nodes (CamelCase id, lowercase id, ARN id, id=null, mixed
+// [Resource]/[Service] label sets, mixed system_name tags). The
+// backend response carries those duplicates, the dropdown renders them
+// verbatim, and the operator sees the same jewel listed 2-3 times.
+//
+// This canonicalization mirrors the (name.lower(), type.lower()) merge
+// applied to nodes in all-paths-graph.tsx — single source of truth for
+// the FE-side dedup until the collectors are fixed upstream. See the
+// Neo4j data shape that motivated it: HANDOFF.md / session transcript.
+//
+// Picks the canonical id by preferring ARN-shaped ids (guaranteed
+// unique + correctly parsed), then longest id as a tiebreaker. Merges
+// path_count as a union (each variant's BFS slice is disjoint), takes
+// max priority/severity, OR-aggregates is_internet_exposed. Returns
+// an id-rewrite map so path-level filters can map merged-away variant
+// ids forward to the canonical id without losing path associations.
+
+const SEVERITY_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }
+
+function pickCanonicalJewelId(ids: string[]): string {
+  if (ids.length === 1) return ids[0]
+  const arnLike = ids.filter((i) => i.startsWith("arn:"))
+  const candidates = arnLike.length > 0 ? arnLike : ids
+  return [...candidates].sort((a, b) => b.length - a.length)[0]
+}
+
+interface JewelDedup {
+  jewels: CrownJewelSummary[]
+  // Map of any-variant-id → canonical-id. Used to map paths whose
+  // crown_jewel_id points at a merged-away variant.
+  idCanonical: Map<string, string>
+}
+
+function canonicalizeJewels(raw: CrownJewelSummary[]): JewelDedup {
+  // Drop null/empty-id entries — id=null nodes are a collector data
+  // quality bug. Without a real id the React <option key> prop fails
+  // and the select can't read back the selection.
+  const valid = raw.filter((j) => typeof j?.id === "string" && j.id.length > 0)
+
+  const groups = new Map<string, CrownJewelSummary[]>()
+  for (const j of valid) {
+    const key = `${(j.name || "").toLowerCase().trim()}|${(j.type || "").toLowerCase().trim()}`
+    const arr = groups.get(key) ?? []
+    arr.push(j)
+    groups.set(key, arr)
+  }
+
+  const merged: CrownJewelSummary[] = []
+  const idCanonical = new Map<string, string>()
+
+  for (const variants of groups.values()) {
+    if (variants.length === 1) {
+      const only = variants[0]
+      idCanonical.set(only.id, only.id)
+      merged.push(only)
+      continue
+    }
+    const canonicalId = pickCanonicalJewelId(variants.map((v) => v.id))
+    for (const v of variants) idCanonical.set(v.id, canonicalId)
+
+    const canonical = variants.find((v) => v.id === canonicalId) ?? variants[0]
+    const totalPaths = variants.reduce((s, v) => s + (v.path_count ?? 0), 0)
+    const maxPriority = Math.max(...variants.map((v) => v.priority_score ?? 0))
+    const maxRisk = Math.max(...variants.map((v) => v.highest_risk_score ?? 0))
+    const anyExposed = variants.some((v) => v.is_internet_exposed === true)
+    const sevWinner = variants.reduce<string>((maxSev, v) => {
+      const r = SEVERITY_RANK[v.severity] ?? 0
+      const m = SEVERITY_RANK[maxSev] ?? 0
+      return r > m ? v.severity : maxSev
+    }, "LOW")
+
+    // crown_jewel_source resolution: if any variant is in-system
+    // (no source or source === "default"), the jewel IS in-system —
+    // the "reachable_only" variant is the duplicate that the
+    // cross-system backend query happened to re-emit. Prefer the
+    // in-system semantics so the UI doesn't show a misleading
+    // cross-system glyph on something tagged here.
+    const anyInSystem = variants.some(
+      (v) => !((v as any).crown_jewel_source) || (v as any).crown_jewel_source === "default",
+    )
+    const sourceField: Record<string, string> = anyInSystem
+      ? {}
+      : { crown_jewel_source: "reachable_only" }
+
+    merged.push({
+      ...canonical,
+      id: canonicalId,
+      path_count: totalPaths,
+      priority_score: maxPriority,
+      highest_risk_score: maxRisk,
+      is_internet_exposed: anyExposed,
+      severity: sevWinner as CrownJewelSummary["severity"],
+      ...sourceField,
+    } as CrownJewelSummary)
+  }
+
+  merged.sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0))
+  return { jewels: merged, idCanonical }
+}
+
 function classifyForModal(node: PathNodeDetail): ModalKind {
   const t = (node.type || "").toLowerCase()
   if (t.includes("s3") || t.includes("bucket")) return "s3"
@@ -81,15 +186,38 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
     return (isTrustEnvelope(rawData) ? rawData.result : rawData) as IdentityAttackPathsResponse
   }, [rawData])
 
-  // Filter to paths for the selected jewel; if no jewel selected yet,
-  // auto-pick the first crown jewel returned. Backend already sorts
-  // crown_jewels by priority_score desc.
-  const jewels: CrownJewelSummary[] = data?.crown_jewels ?? []
-  const activeJewelId = selectedJewelId ?? jewels[0]?.id ?? null
+  // Canonicalize the crown-jewel list FIRST — collapse collector-side
+  // duplicates that would otherwise show e.g. "SafeRemediate-Checkpoints"
+  // twice in the dropdown (in-system tagged copy + cross-system reach
+  // copy of the same logical DynamoDB table). See canonicalizeJewels
+  // for the full rationale.
+  const { jewels, idCanonical } = useMemo(
+    () => canonicalizeJewels(data?.crown_jewels ?? []),
+    [data?.crown_jewels],
+  )
+
+  // activeJewelId resolves through the canonical map so a stale
+  // selectedJewelId (pointing at a merged-away variant) still tracks
+  // its surviving canonical entry instead of falling to null.
+  const activeJewelId = useMemo(() => {
+    if (selectedJewelId) {
+      return idCanonical.get(selectedJewelId) ?? selectedJewelId
+    }
+    return jewels[0]?.id ?? null
+  }, [selectedJewelId, idCanonical, jewels])
+
   const jewelPaths: IdentityAttackPath[] = useMemo(() => {
     if (!data || !activeJewelId) return []
-    return (data.paths ?? []).filter((p) => p.crown_jewel_id === activeJewelId)
-  }, [data, activeJewelId])
+    // Each path's crown_jewel_id may point at a merged-away variant
+    // (the backend doesn't dedup before emitting paths). Resolve
+    // through the canonical map so the path-to-jewel association
+    // survives the dedup. Falls back to direct match for paths whose
+    // crown_jewel_id isn't in the rewrite table (shouldn't happen but
+    // keeps the filter conservative).
+    return (data.paths ?? []).filter(
+      (p) => (idCanonical.get(p.crown_jewel_id) ?? p.crown_jewel_id) === activeJewelId,
+    )
+  }, [data, activeJewelId, idCanonical])
 
   const currentPath = jewelPaths[selectedPathIndex] ?? null
 
