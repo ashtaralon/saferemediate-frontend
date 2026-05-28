@@ -32,6 +32,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Allow the backend-url diagnostic endpoint so it can be curl'd from
+  // CI or local terminal to verify which backend a deploy is pointing at.
+  // Returns no secrets — just the resolved URL + VERCEL_ENV/NODE_ENV.
+  // The fail-loud guard in lib/server/backend-url.ts is the real safety net;
+  // this endpoint is the human-readable second opinion.
+  if (pathname === "/api/proxy/_meta") {
+    return NextResponse.next()
+  }
+
   // Allow static files and Next.js internals
   if (
     pathname.startsWith("/_next") ||
