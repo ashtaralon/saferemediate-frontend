@@ -44,6 +44,10 @@ export function LeftSidebarNav({
     // can toggle while the redesign is being reviewed. Drop the legacy
     // entry once v2 is approved as canonical.
     { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2?system=alon-prod" },
+    // Attacker Map is reachable from inside system detail: Risk → Attacker Map.
+    // The top-level sidebar entry was removed because the page routing in
+    // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
+    // the same time — see system-detail-dashboard.tsx tab integration.
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
     { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
     { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },

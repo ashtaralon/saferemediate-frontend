@@ -553,6 +553,10 @@ export interface CrownJewelSummary {
   is_internet_exposed: boolean
   data_classification: string | null
   priority_score: number
+  // "reachable_only" = jewel isn't tagged to this system but the system's
+  // IAM roles reach it via observed edges (shared-bucket-across-systems
+  // pattern). Absent/null for in-system jewels.
+  crown_jewel_source?: "reachable_only" | null
 }
 
 // Tier-1: system-level posture summary attached to the top of the
