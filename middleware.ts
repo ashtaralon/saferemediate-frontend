@@ -37,7 +37,10 @@ export function middleware(request: NextRequest) {
   // Returns no secrets — just the resolved URL + VERCEL_ENV/NODE_ENV.
   // The fail-loud guard in lib/server/backend-url.ts is the real safety net;
   // this endpoint is the human-readable second opinion.
-  if (pathname === "/api/proxy/_meta") {
+  //
+  // Path is /meta not /_meta: Next.js treats underscore-prefixed folders as
+  // private and excludes them from routing — the first attempt 404'd.
+  if (pathname === "/api/proxy/meta") {
     return NextResponse.next()
   }
 
