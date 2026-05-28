@@ -218,6 +218,25 @@ const SystemAttackPaths = dynamic(
   },
 )
 
+// New Attacker Map tab — Phase 1 canonical attacker view + Phase 2
+// all-paths fan-in DAG. Lives alongside the legacy "Attack Paths" tab
+// during transition; both consume the same /api/proxy/identity-
+// attack-paths/{system} endpoint. Dynamic import for the same reason
+// SystemAttackPaths uses it: reactflow + dagre bundle is non-trivial
+// and only needed when the operator drills into this view.
+const SystemAttackerMap = dynamic(
+  () =>
+    import("./attacker-map/attacker-map").then((m) => ({ default: m.AttackerMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+
 // Egress Visibility panel — per-workload outbound traffic + signals.
 // Dynamic import keeps the dashboard's initial bundle lean; this tab
 // is opt-in and operators won't pay for it until they click it.
@@ -1548,6 +1567,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         { id: "least-privilege", label: "Least Privilege" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
+        { id: "attacker-map", label: "Attacker Map" },
         { id: "crown-jewels", label: "Crown Jewels" },
         { id: "egress", label: "Traffic" },
       ],
@@ -2545,6 +2565,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "attack-paths" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "attacker-map" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <SystemAttackerMap key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 
