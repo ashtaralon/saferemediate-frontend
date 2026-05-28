@@ -707,6 +707,33 @@ function buildAttackerArchitecture(
   // Identity types are split (2026-05-22 fix). Previously all three
   // were mashed into iamRoles[] which made "IAM ROLES (3)" lie on
   // single-role paths and hid the EC2→InstanceProfile→Role chain.
+  // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states).
+  // Classify the underlying graph edge as "AWS-required" (locked,
+  // operator can't remove via remediation) vs. "operator-controllable"
+  // (the IAM permission / SG rule that drives this flow is scopable).
+  //
+  // Locked edges represent infrastructure plumbing — removing them
+  // isn't the right remediation lever. The renderer paints them
+  // static (no animation) so the operator's eye lands on edges with
+  // real remediation handles.
+  //
+  // Generic categorization by relationship type. NOT a service-
+  // specific list — every IAM/STS control-plane attachment belongs
+  // here regardless of resource type (per
+  // feedback_no_hardcoded_demo_service_names).
+  const isLockedEdgeType = (t: string | undefined | null): boolean => {
+    if (!t) return false
+    const T = t.toUpperCase()
+    return (
+      T === "HAS_INSTANCE_PROFILE" ||
+      T === "USES_ROLE" ||
+      T === "ASSUMES_ROLE" ||
+      T === "ASSUMES_ROLE_ACTUAL" ||
+      T === "USED_IDENTITY" ||
+      T === "HAS_POLICY"
+    )
+  }
+
   const iamRoles: SecurityCheckpoint[] = []
   const instanceProfiles: SecurityCheckpoint[] = []
   const iamPolicies: SecurityCheckpoint[] = []
@@ -1604,6 +1631,11 @@ function buildAttackerArchitecture(
       // hover detail panel. ISO timestamps from the live graph edge.
       firstSeen: (e as any).first_seen ?? null,
       lastSeen: (e as any).last_seen ?? null,
+      // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states).
+      // Flag AWS-required relationships as locked so the renderer
+      // can paint them as observed-static (slate, no animation)
+      // rather than observed-animated (which implies "removable").
+      isLocked: isLockedEdgeType(e.type),
     })
   }
 
@@ -1655,6 +1687,8 @@ function buildAttackerArchitecture(
       // 2026-05-28 — forensic provenance from the path edge.
       firstSeen: (edge as any).first_seen ?? null,
       lastSeen: (edge as any).last_seen ?? null,
+      // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states).
+      isLocked: isLockedEdgeType(edge.type),
     })
   }
 

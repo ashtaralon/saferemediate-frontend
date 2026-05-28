@@ -199,6 +199,16 @@ export interface TrafficFlow {
   // observed edge) leave them null.
   firstSeen?: string | null;
   lastSeen?: string | null;
+  // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states). When
+  // true, this flow represents an observed AWS-required relationship
+  // the operator CAN'T remove (e.g. HAS_INSTANCE_PROFILE,
+  // ASSUMES_ROLE). The renderer paints it solid green / static —
+  // distinct from observed + remediable (animated bright) and from
+  // config-derived (gray dotted). Gives the operator's eye a clear
+  // signal of what's actionable vs what's AWS plumbing.
+  // Optional — non-attacker consumers leave undefined and the
+  // 3-state encoding doesn't activate.
+  isLocked?: boolean;
 }
 
 // VPC endpoint chip for the "VPC ENDPOINTS" lane. Render-only — full
@@ -2661,6 +2671,17 @@ function AnimatedTrafficLine({
   // path red + heatmap still win; operators need attack signals to read first.
   const planeLine = planeColor; // may be undefined
   const planeP = planeGlow ?? planeColor;
+
+  // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states). When the
+  // consumer flagged this flow as locked (AWS-required relationship
+  // the operator can't remove — HAS_INSTANCE_PROFILE, ASSUMES_ROLE,
+  // USES_ROLE), render it as observed-but-static: lower-saturation
+  // slate-emerald, no particle animation, slightly thinner. Distinct
+  // from observed-remediable (animated bright) and from config-derived
+  // (gray dotted, already handled by ghosted/inactive branches).
+  // Cross-consumer safe: non-attacker callers leave flowData.isLocked
+  // undefined; the override is then no-op.
+  const isLockedFlow = !!flowData?.isLocked && isActive && !isAttackPath && !heatmapMode;
   const lineColor = heatmapMode && !isAttackPath
     ? getHeatmapColor(heatmapRatio)
     : isAttackPath ? '#ef4444'
@@ -2669,10 +2690,12 @@ function AnimatedTrafficLine({
   const particleColor = isAttackPath ? '#ef4444'
     : isHighlighted ? '#10b981'
     : heatmapMode ? getHeatmapColor(heatmapRatio)
+    : isLockedFlow ? '#64748b'  // slate-500 — observed but locked (AWS-required)
     : planeP ?? '#3b82f6';
   const glowColor = isAttackPath ? '#f87171'
     : isHighlighted ? '#34d399'
     : heatmapMode ? getHeatmapColor(heatmapRatio)
+    : isLockedFlow ? '#94a3b8'  // slate-400 — softer glow for locked
     : planeP ?? '#60a5fa';
 
   // Heatmap stroke width - thicker = higher risk
@@ -2690,8 +2713,10 @@ function AnimatedTrafficLine({
   return (
     <g>
       {/* Glow effect for active lines and attack paths.
-       *  Uses pathD so curves get glowed along their actual shape. */}
-      {(isActive || isAttackPath) && (
+       *  Uses pathD so curves get glowed along their actual shape.
+       *  Locked observed flows (Phase 2 V1 slice 3) skip the glow —
+       *  they read as static observed presence, not animated traffic. */}
+      {(isActive || isAttackPath) && !isLockedFlow && (
         <path
           d={pathD}
           fill="none"
@@ -2725,7 +2750,7 @@ function AnimatedTrafficLine({
       />
 
       {/* Animated particles - always show when animate is true */}
-      {animate && (
+      {animate && !isLockedFlow && (
         <>
           {/* Define the path for animation — same shape as the visible
            *  line so the particles follow the curve. */}
