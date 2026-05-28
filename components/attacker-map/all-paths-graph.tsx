@@ -69,6 +69,10 @@ interface FlowNodeData {
   subtitle?: string
   category: NodeCategory
   isCrownJewel: boolean
+  // True when the jewel for this view is reachable_only — surfaces a small
+  // arrow glyph on every jewel-tier node so the cross-system semantics
+  // stay visible no matter where the eye lands.
+  isCrossSystem: boolean
   pathCount: number
   isChokePoint: boolean
   isHighlighted: boolean
@@ -100,6 +104,16 @@ function FlowNode({ data }: NodeProps<FlowNodeData>) {
         <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: theme.text }}>
           {theme.label}
         </span>
+        {data.isCrownJewel && data.isCrossSystem ? (
+          <span
+            className="text-[10px] font-bold leading-none"
+            style={{ color: "#5eead4" }}
+            title="Reached by this system's roles · jewel tagged to another system"
+            aria-label="Cross-system jewel"
+          >
+            ↗
+          </span>
+        ) : null}
         {data.pathCount > 1 ? (
           <span
             className="ml-auto text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded"
@@ -202,6 +216,7 @@ function buildMergedGraph(
   paths: IdentityAttackPath[],
   hoveredNodeId: string | null,
   onClick: (node: PathNodeDetail) => void,
+  jewelSource: string | null,
 ): { nodes: Node[]; edges: Edge[]; nodePathIndex: Map<string, Set<number>> } {
   const nodeIndex = new Map<string, { node: PathNodeDetail; pathIndexes: Set<number> }>()
   const edgeIndex = new Map<string, { source: string; target: string; type: string; pathIndexes: Set<number>; isObserved: boolean }>()
@@ -286,6 +301,7 @@ function buildMergedGraph(
         subtitle: info.node.type,
         category: cat,
         isCrownJewel: cat === "data",
+        isCrossSystem: cat === "data" && jewelSource === "reachable_only",
         pathCount,
         isChokePoint: pathCount >= 2,
         isHighlighted: hoveredNodeId == null ? true : highlightNodes.has(id),
@@ -333,16 +349,19 @@ function buildMergedGraph(
 interface AllPathsGraphProps {
   paths: IdentityAttackPath[]
   onNodeClick: (node: PathNodeDetail) => void
+  // Forwarded from the active CrownJewelSummary so jewel-tier nodes can
+  // render a cross-system glyph when applicable. See attacker-map.tsx.
+  jewelSource?: string | null
 }
 
-function AllPathsGraphInner({ paths, onNodeClick }: AllPathsGraphProps) {
+function AllPathsGraphInner({ paths, onNodeClick, jewelSource }: AllPathsGraphProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
 
   const { nodes, edges, chokePointCount } = useMemo(() => {
-    const merged = buildMergedGraph(paths, hoveredNodeId, onNodeClick)
+    const merged = buildMergedGraph(paths, hoveredNodeId, onNodeClick, jewelSource ?? null)
     const chokes = [...merged.nodePathIndex.values()].filter((s) => s.size >= 2).length
     return { ...merged, chokePointCount: chokes }
-  }, [paths, hoveredNodeId, onNodeClick])
+  }, [paths, hoveredNodeId, onNodeClick, jewelSource])
 
   const handleMouseEnter = useCallback((_evt: any, node: Node) => setHoveredNodeId(node.id), [])
   const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [])

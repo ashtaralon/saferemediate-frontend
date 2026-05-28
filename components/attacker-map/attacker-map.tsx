@@ -259,6 +259,7 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
             >
               {jewels.map((j) => (
                 <option key={j.id} value={j.id}>
+                  {j.crown_jewel_source === "reachable_only" ? "↗ " : ""}
                   {j.name} · {j.type} · {j.path_count} path{j.path_count === 1 ? "" : "s"}
                 </option>
               ))}
@@ -266,6 +267,14 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
             {activeJewel ? (
               <div className="text-[10px] text-slate-500 mt-1">
                 priority {activeJewel.priority_score?.toFixed?.(0) ?? "—"} · severity {activeJewel.severity}
+                {activeJewel.crown_jewel_source === "reachable_only" ? (
+                  <>
+                    {" · "}
+                    <span className="text-emerald-400 font-medium">
+                      ↗ reached by this system's roles · jewel tagged to another system
+                    </span>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -302,7 +311,11 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
         {viewMode === "single" ? (
           <>
             {/* Flow canvas — Phase 1 single-path view */}
-            <AttackerFlowCanvas path={currentPath} onNodeClick={handleNodeClick} />
+            <AttackerFlowCanvas
+              path={currentPath}
+              onNodeClick={handleNodeClick}
+              jewelSource={activeJewel?.crown_jewel_source ?? null}
+            />
             <ThreePlaneRiskCard path={currentPath} />
             <SshFlagCallout path={currentPath} />
             <ThreePlaneQuarantineCard path={currentPath} />
@@ -321,7 +334,11 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
         ) : (
           <>
             {/* All-paths fan-in DAG — Phase 2 choke-point view */}
-            <AllPathsGraph paths={jewelPaths} onNodeClick={handleNodeClick} />
+            <AllPathsGraph
+              paths={jewelPaths}
+              onNodeClick={handleNodeClick}
+              jewelSource={activeJewel?.crown_jewel_source ?? null}
+            />
             <div
               className="flex justify-between items-center pt-3 text-[11px] text-slate-400"
               style={{ borderTop: "1px solid rgba(148, 163, 184, 0.15)" }}

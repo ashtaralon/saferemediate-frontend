@@ -107,9 +107,14 @@ function quarantineBadge(n: PathNodeDetail): string {
 interface AttackerFlowCanvasProps {
   path: IdentityAttackPath
   onNodeClick?: (node: PathNodeDetail) => void
+  // Carried from CrownJewelSummary on the active jewel. "reachable_only"
+  // means the jewel isn't tagged to the current system but is reachable
+  // via this system's roles — rendered with an arrow glyph on the jewel
+  // node so the operator sees the cross-system semantics at a glance.
+  jewelSource?: string | null
 }
 
-export function AttackerFlowCanvas({ path, onNodeClick }: AttackerFlowCanvasProps) {
+export function AttackerFlowCanvas({ path, onNodeClick, jewelSource }: AttackerFlowCanvasProps) {
   // Render nodes in BFS order as returned by the backend. The path is
   // already topologically sorted from entry to crown jewel — don't
   // resort or repack it on the client (that's where the "synthesis"
@@ -168,13 +173,27 @@ export function AttackerFlowCanvas({ path, onNodeClick }: AttackerFlowCanvasProp
                     {theme.label}
                   </div>
                   <div
-                    className="w-full rounded-md px-2 py-2 text-center transition-all hover:scale-105"
+                    className="w-full rounded-md px-2 py-2 text-center transition-all hover:scale-105 relative"
                     style={{
                       background: theme.tint,
                       border: `${isJewel ? 2 : 1}px solid ${theme.border}`,
                       minHeight: 48,
                     }}
                   >
+                    {isJewel && jewelSource === "reachable_only" ? (
+                      <div
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+                        style={{
+                          background: "rgba(20,184,166,0.95)",
+                          color: "#0f172a",
+                          border: "1px solid rgba(15,23,42,0.85)",
+                        }}
+                        title="Reached by this system's roles · jewel tagged to another system"
+                        aria-label="Cross-system jewel"
+                      >
+                        ↗
+                      </div>
+                    ) : null}
                     <div className="text-[11px] font-medium text-slate-100 truncate">{shortName(node)}</div>
                     <div className="text-[9px] text-slate-400 mt-0.5 truncate">{subtitle}</div>
                   </div>
