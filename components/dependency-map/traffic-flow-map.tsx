@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -190,6 +190,15 @@ export interface TrafficFlow {
   bytes: number;
   connections: number;
   isActive?: boolean;
+  // 2026-05-28 — Phase 2 V1 slice 2. Forensic provenance carried
+  // through from the underlying graph edge. Surfaces in the hover
+  // detail panel as a "Last seen … · First seen …" freshness pill,
+  // making Cyntro's temporal-intelligence patent claim visible on
+  // the canvas. Both fields are ISO 8601 strings (UTC) or null.
+  // Optional — flows synthesized to fill chain gaps (no underlying
+  // observed edge) leave them null.
+  firstSeen?: string | null;
+  lastSeen?: string | null;
 }
 
 // VPC endpoint chip for the "VPC ENDPOINTS" lane. Render-only — full
@@ -467,6 +476,43 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} B`;
+}
+
+// Relative-time formatter for forensic provenance display.
+// Used by the hover detail panel to render edge timestamps as
+// "3h ago" / "2d ago" / "May 8" depending on age. Real data only —
+// returns "—" for null/undefined/invalid input so the operator
+// sees the missing-data signal honestly rather than a "0s ago"
+// fabrication.
+//
+// 2026-05-28 — Phase 2 V1 slice 2 (temporal-intelligence
+// surfacing). No mock data, no synthesized fallback.
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  const deltaMs = Date.now() - t;
+  if (deltaMs < 0) return 'just now';
+  const sec = Math.floor(deltaMs / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  // Beyond 30 days: surface a calendar date so the operator sees
+  // the staleness clearly (no compressed "2mo ago" — Cyntro's
+  // freshness story is precise, not approximate).
+  try {
+    return new Date(t).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: deltaMs > 365 * 24 * 3600 * 1000 ? 'numeric' : undefined,
+    });
+  } catch {
+    return new Date(t).toISOString().slice(0, 10);
+  }
 }
 
 function shortName(name: string, maxLen = 18): string {
@@ -4349,6 +4395,39 @@ export function UnifiedArchitectureDiagram({
                         </span>
                       )}
                     </div>
+                    {/*
+                      2026-05-28 — Phase 2 V1 slice 2. Forensic provenance
+                      surfaced on hover: "Last seen 3h ago · First seen 2d
+                      ago". Renders only when at least one timestamp is
+                      present on the underlying graph edge (synthesized
+                      chain-completion flows leave both null). Makes the
+                      temporal-intelligence patent claim visible on the
+                      canvas without requiring an export or an admin click.
+                    */}
+                    {(flow.lastSeen || flow.firstSeen) && (
+                      <div
+                        className="mt-1.5 pt-1.5 border-t border-slate-700/60 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-slate-400"
+                        title={[
+                          flow.firstSeen ? `First seen ${flow.firstSeen}` : null,
+                          flow.lastSeen ? `Last seen ${flow.lastSeen}` : null,
+                        ].filter(Boolean).join('\n')}
+                      >
+                        {flow.lastSeen && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5 text-slate-500" />
+                            <span className="text-slate-300">last</span>
+                            <span className="font-mono text-emerald-300">{formatRelativeTime(flow.lastSeen)}</span>
+                          </span>
+                        )}
+                        {flow.lastSeen && flow.firstSeen && <span className="text-slate-600">·</span>}
+                        {flow.firstSeen && (
+                          <span className="flex items-center gap-1">
+                            <span className="text-slate-500">first</span>
+                            <span className="font-mono text-slate-300">{formatRelativeTime(flow.firstSeen)}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

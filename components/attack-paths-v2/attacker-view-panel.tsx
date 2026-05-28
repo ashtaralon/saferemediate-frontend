@@ -1600,6 +1600,10 @@ function buildAttackerArchitecture(
       bytes,
       connections: hits || 1,
       isActive: !!e.observed || hits > 0 || bytes > 0,
+      // 2026-05-28 — carry forensic provenance through to TFM's
+      // hover detail panel. ISO timestamps from the live graph edge.
+      firstSeen: (e as any).first_seen ?? null,
+      lastSeen: (e as any).last_seen ?? null,
     })
   }
 
@@ -1648,6 +1652,9 @@ function buildAttackerArchitecture(
       bytes,
       connections: edge.hit_count ?? 1,
       isActive: observed,
+      // 2026-05-28 — forensic provenance from the path edge.
+      firstSeen: (edge as any).first_seen ?? null,
+      lastSeen: (edge as any).last_seen ?? null,
     })
   }
 
