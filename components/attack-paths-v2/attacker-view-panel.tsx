@@ -194,15 +194,28 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
       (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
     )
     const pathIds = new Set((path.nodes ?? []).map((n) => n.id))
-    const attackers: Array<{
+    type AttackerRow = {
       id: string
       name: string
       type: string
       hits: number
       firstSeen: string | null
       lastSeen: string | null
-    }> = []
-    const seenAttacker = new Set<string>()
+    }
+    // Per-principal accumulator — aggregate across duplicate edges
+    // emitted by the collector (the graph carries multiple
+    // ACCESSES_RESOURCE edges per (principal, resource) pair when the
+    // CloudTrail/silver writer ran more than once or the node has
+    // dual labels). Verified 2026-05-28 on alon-prod /
+    // cyntro-demo-prod-data: e.g. alon-demo-ec2-role has 11 such
+    // edges with hits varying 3..6. Without aggregation we'd take
+    // whichever edge arrived first — a non-deterministic display.
+    //
+    // Policy: max(hits) + broadest seen window. Mirrors the anonymous-
+    // principal aggregation and matches the backend's per-resource
+    // MAX-then-SUM rule for the same root cause (see
+    // attack_chain_view.py `_enrich_live_role_usage`).
+    const namedAcc = new Map<string, AttackerRow>()
     // Aggregate edges with no resolved neighbor_id (CloudTrail
     // Principal stubs without a recognised role ARN) into a single
     // "anonymous principal" row so the operator sees the real hit
@@ -232,18 +245,28 @@ export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanel
           continue
         }
         if (pathIds.has(nid)) continue
-        if (seenAttacker.has(nid)) continue
-        seenAttacker.add(nid)
-        attackers.push({
-          id: nid,
-          name: e.neighbor_name || nid,
-          type: e.neighbor_type || "Unknown",
-          hits,
-          firstSeen: e.first_seen ?? null,
-          lastSeen: e.last_seen ?? null,
-        })
+        const prev = namedAcc.get(nid)
+        if (!prev) {
+          namedAcc.set(nid, {
+            id: nid,
+            name: e.neighbor_name || nid,
+            type: e.neighbor_type || "Unknown",
+            hits,
+            firstSeen: e.first_seen ?? null,
+            lastSeen: e.last_seen ?? null,
+          })
+        } else {
+          if (hits > prev.hits) prev.hits = hits
+          if (e.first_seen && (!prev.firstSeen || e.first_seen < prev.firstSeen)) {
+            prev.firstSeen = e.first_seen
+          }
+          if (e.last_seen && (!prev.lastSeen || e.last_seen > prev.lastSeen)) {
+            prev.lastSeen = e.last_seen
+          }
+        }
       }
     }
+    const attackers: AttackerRow[] = Array.from(namedAcc.values())
     if (anonHits > 0) {
       attackers.push({
         id: "anonymous-principal",
