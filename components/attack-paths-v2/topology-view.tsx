@@ -246,12 +246,13 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
             </div>
           )}
 
-          {/* AZ columns */}
-          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(vpc.azs.length, 1)}, minmax(0, 1fr))` }}>
-            {vpc.azs.map((az) => (
-              <AzColumn key={az.name} az={az} sgs={vpc.security_groups} onPathIds={onPathIds} hasPath={hasPath} />
-            ))}
-          </div>
+          {/* Tier-row layout: tiers (Web / App / DB) as horizontal
+              rows, AZs as columns. Mirrors the classic AWS reference
+              architecture. When the data doesn't follow the naming
+              convention (e.g. demo data where every subnet is public-
+              routed), tiers collapse and everything lands in a single
+              row — accurate to the data, no fake separation. */}
+          <TierRowsLayout vpc={vpc} onPathIds={onPathIds} hasPath={hasPath} />
 
           {/* NACLs footer — render as a row of chips with which subnets they apply to */}
           {vpc.nacls.length > 0 && (
@@ -279,17 +280,148 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
   )
 }
 
-function AzColumn({ az, sgs, onPathIds, hasPath }: { az: AZ; sgs: SG[]; onPathIds: Set<string>; hasPath: boolean }) {
+// Service-agnostic tier classification. Three signals, in order of
+// strength:
+//   1. Subnet name substring ("public" / "private-db" / "private-app")
+//   2. Workload type composition (RDS-only → DB; compute → App; ALB
+//      present → Web — once collectors emit LoadBalancer for this
+//      VPC)
+//   3. Fallback: is_public → Web tier (the AWS convention),
+//      otherwise → App tier
+//
+// New tiers are added by extending the order list + adding a case to
+// classifySubnetTier. No hardcoded service names appear here.
+type TierKey = "web" | "app" | "db" | "other"
+const TIER_ORDER: TierKey[] = ["web", "app", "db", "other"]
+const TIER_META: Record<TierKey, { label: string; accent: string; tint: string }> = {
+  web: { label: "Web Tier", accent: "text-emerald-300", tint: "border-emerald-600/30 bg-emerald-900/10" },
+  app: { label: "Application Tier", accent: "text-sky-300", tint: "border-sky-600/30 bg-sky-900/10" },
+  db: { label: "Database Tier", accent: "text-violet-300", tint: "border-violet-600/30 bg-violet-900/10" },
+  other: { label: "Other", accent: "text-slate-300", tint: "border-slate-600/30 bg-slate-900/10" },
+}
+
+function classifySubnetTier(s: Subnet): TierKey {
+  const name = (s.name || "").toLowerCase()
+  // Heuristic 1 — naming convention.
+  if (name.includes("private") && (name.includes("db") || name.includes("data"))) return "db"
+  if (name.includes("private") && (name.includes("app") || name.includes("application"))) return "app"
+  if (name.includes("public") || name.includes("web") || name.includes("dmz")) return "web"
+  if (name.includes("private")) return "app"
+  // Heuristic 2 — workload composition.
+  const types = new Set(s.workloads.map((w) => w.type))
+  if (types.size > 0 && [...types].every((t) => t.includes("rds") || t.includes("database"))) return "db"
+  // Heuristic 3 — public/private fallback.
+  if (s.is_public) return "web"
+  return s.workloads.length === 0 ? "other" : "app"
+}
+
+function TierRowsLayout({
+  vpc,
+  onPathIds,
+  hasPath,
+}: {
+  vpc: VPC
+  onPathIds: Set<string>
+  hasPath: boolean
+}) {
+  // Flatten subnets, attach az + tier, then bucket by tier.
+  const byTier = useMemo(() => {
+    const out: Record<TierKey, Array<{ subnet: Subnet; az: string }>> = {
+      web: [], app: [], db: [], other: [],
+    }
+    for (const az of vpc.azs) {
+      for (const s of az.subnets) {
+        const tier = classifySubnetTier(s)
+        out[tier].push({ subnet: s, az: az.name })
+      }
+    }
+    return out
+  }, [vpc.azs])
+
+  const azNames = useMemo(() => vpc.azs.map((a) => a.name), [vpc.azs])
+  const populatedTiers = TIER_ORDER.filter((t) => byTier[t].length > 0)
+
+  if (populatedTiers.length === 0) {
+    return <div className="text-[10px] text-slate-500 italic">No subnets to render.</div>
+  }
+
   return (
-    <div className="border border-dashed border-slate-600/60 rounded-md p-3 bg-slate-900/30">
-      <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-        AZ · {az.name}
-      </div>
-      <div className="flex flex-col gap-3">
-        {az.subnets.map((s) => (
-          <SubnetBox key={s.id} subnet={s} sgs={sgs} onPathIds={onPathIds} hasPath={hasPath} />
+    <div className="flex flex-col gap-3">
+      {/* AZ column headers — repeated across the top so columns align
+          with the tier rows below. The left "tier band" column
+          reserves space for the tier label. */}
+      <div
+        className="grid gap-2 items-center"
+        style={{
+          gridTemplateColumns: `100px repeat(${Math.max(azNames.length, 1)}, minmax(0, 1fr))`,
+        }}
+      >
+        <div /> {/* tier-band placeholder */}
+        {azNames.map((az) => (
+          <div key={az} className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 text-center">
+            AZ · {az}
+          </div>
         ))}
       </div>
+
+      {/* Tier rows. Each tier renders its own band on the left + a
+          grid of subnet cells indexed by AZ. */}
+      {populatedTiers.map((tier) => {
+        const meta = TIER_META[tier]
+        // Bucket this tier's subnets by AZ so we can render an empty
+        // cell where the customer has no subnet for an AZ in this tier
+        // (matches the reference architecture's gridded look).
+        const byAz = new Map<string, Subnet[]>()
+        for (const { subnet, az } of byTier[tier]) {
+          if (!byAz.has(az)) byAz.set(az, [])
+          byAz.get(az)!.push(subnet)
+        }
+        return (
+          <div
+            key={tier}
+            className={`border border-dashed ${meta.tint} rounded-md p-2`}
+          >
+            <div
+              className="grid gap-2 items-stretch"
+              style={{
+                gridTemplateColumns: `100px repeat(${Math.max(azNames.length, 1)}, minmax(0, 1fr))`,
+              }}
+            >
+              {/* Tier band — vertical label on the left, matches the
+                  AWS reference's "Web Tier" / "Application Tier" /
+                  "Database Tier" sidebar. */}
+              <div className="flex items-center justify-center">
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${meta.accent} writing-mode-vertical-rl`}
+                      style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
+                  {meta.label}
+                </span>
+              </div>
+              {azNames.map((az) => {
+                const cellSubnets = byAz.get(az) ?? []
+                return (
+                  <div key={az} className="flex flex-col gap-2">
+                    {cellSubnets.length === 0 ? (
+                      <div className="border border-dashed border-slate-700/40 rounded-md py-6 text-center text-[9px] text-slate-600 italic">
+                        no subnet
+                      </div>
+                    ) : (
+                      cellSubnets.map((s) => (
+                        <SubnetBox
+                          key={s.id}
+                          subnet={s}
+                          sgs={vpc.security_groups}
+                          onPathIds={onPathIds}
+                          hasPath={hasPath}
+                        />
+                      ))
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
