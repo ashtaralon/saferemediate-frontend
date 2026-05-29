@@ -114,6 +114,36 @@ export function AttackPathsV2() {
                 ? "topology"
                 : "path"
 
+  // 2026-05-30 — auto-redirect to the first available system when no
+  // ?system= param is in the URL. Operators landing on the page
+  // without a system reach a working state without us hardcoding a
+  // demo system name (the original "alon-prod" default). The redirect
+  // uses router.replace so back-navigation works correctly, and skips
+  // the network call entirely once a system is set.
+  useEffect(() => {
+    if (systemName) return
+    let aborted = false
+    ;(async () => {
+      try {
+        const r = await fetch("/api/proxy/systems/available", { cache: "no-store" })
+        if (!r.ok) return
+        const j = await r.json()
+        if (aborted) return
+        const first = (j?.systems ?? [])[0]?.name
+        if (first && typeof first === "string") {
+          const params = new URLSearchParams(searchParams?.toString() ?? "")
+          params.set("system", first)
+          router.replace(`${pathname}?${params.toString()}`)
+        }
+      } catch {
+        /* fall through to the no-system empty state */
+      }
+    })()
+    return () => {
+      aborted = true
+    }
+  }, [systemName, searchParams, router, pathname])
+
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
   // that took several iterations to get right.
@@ -263,26 +293,23 @@ export function AttackPathsV2() {
   }
 
   // ─── No-system-selected guard ──────────────────────────────────
-  // 2026-05-30: page used to default to "alon-prod" silently. Now if
-  // no ?system= param is present we honestly say so and point at the
-  // systems picker — operators on any customer tenant reach a working
-  // state without us pretending a demo system exists.
+  // 2026-05-30: page used to default to "alon-prod" silently. The
+  // useEffect above auto-redirects to the first available system when
+  // no ?system= param is present, so this branch normally renders for
+  // a single frame (the network round-trip). If the systems endpoint
+  // 0-rows or errors, the empty state stays — at that point no demo
+  // default would help anyway.
   if (!systemName) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-950">
-        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-8 max-w-md text-center">
-          <div className="text-sm font-semibold text-slate-200 mb-2">
-            No system selected
-          </div>
-          <p className="text-xs text-slate-400 mb-4">
-            Attack Paths v2 needs a system to render. Pick one from the
-            Systems dashboard.
-          </p>
+        <div className="flex flex-col items-center gap-3 text-slate-300">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-xs">Finding a system to display…</span>
           <a
             href="/?section=systems"
-            className="inline-block rounded-md border border-slate-600 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-200 hover:bg-slate-800"
+            className="text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300 underline mt-2"
           >
-            Browse systems
+            Or pick one manually
           </a>
         </div>
       </div>
