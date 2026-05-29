@@ -114,18 +114,32 @@ export function AttackPathsV2() {
                 ? "topology"
                 : "path"
 
-  // 2026-05-30 v2 — auto-redirect to the first available system when no
-  // ?system= param is in the URL. Operators landing on the page
-  // without a system reach a working state without us hardcoding a
-  // demo system name (the original "alon-prod" default). Tries
-  // multiple field-name variants since the backend response shape
-  // has changed historically (name / SystemName / system_name).
+  // 2026-05-30 v3 — auto-resolve which system to load when no ?system=
+  // param is in the URL. Precedence:
+  //   1. localStorage["cyntro:lastSystem"] — the system the operator
+  //      was on last time. Single biggest UX win — "click Attack Paths
+  //      v2 from the sidebar, land on the system you were just on".
+  //   2. First system in the systems API response.
+  //   3. Inline picker below (operator picks manually).
   //
-  // If the fetch fails or returns no systems, the inline picker
-  // below renders so the operator can pick manually — no dead-end
-  // spinner.
+  // localStorage is also WRITTEN by the side-effect below whenever
+  // systemName changes — so each successful visit updates the memory.
+  //
+  // Robust to backend field-name variants (name / SystemName /
+  // system_name — all three have shipped over time).
   const [availableSystems, setAvailableSystems] = useState<string[]>([])
   const [autoRedirectDone, setAutoRedirectDone] = useState(false)
+
+  // Write the current system to localStorage so the next visit
+  // resumes here.
+  useEffect(() => {
+    if (!systemName) return
+    try {
+      localStorage.setItem("cyntro:lastSystem", systemName)
+    } catch {
+      /* private mode / quota */
+    }
+  }, [systemName])
 
   useEffect(() => {
     if (systemName) return
@@ -148,10 +162,23 @@ export function AttackPathsV2() {
           )
           .filter(Boolean)
         setAvailableSystems(names)
-        const first = names[0]
-        if (first) {
+
+        // Pick the target system: last-used (if still in the list) →
+        // first available. localStorage-resume is the dominant UX
+        // expectation — operators don't want a different system every
+        // time they refresh.
+        let target: string | undefined
+        try {
+          const last = localStorage.getItem("cyntro:lastSystem")
+          if (last && names.includes(last)) target = last
+        } catch {
+          /* private mode */
+        }
+        if (!target) target = names[0]
+
+        if (target) {
           const params = new URLSearchParams(searchParams?.toString() ?? "")
-          params.set("system", first)
+          params.set("system", target)
           router.replace(`${pathname}?${params.toString()}`)
         } else {
           setAutoRedirectDone(true)
