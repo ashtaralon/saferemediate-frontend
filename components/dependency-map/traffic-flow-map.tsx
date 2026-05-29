@@ -4779,8 +4779,26 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       tgt.some((cid) => filteredComputeIds.has(cid) || filteredResourceIds.has(cid))
     );
   };
-  const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter(touchesPath);
-  const nacls: SecurityCheckpoint[] = arch.nacls.filter(touchesPath);
+  // Strict path-only filter (2026-05-29 — operator audit):
+  //   onPath === false ⇒ lateral surface (same VPC, no attach edge to
+  //   any path workload). Lateral chips were previously surfaced with
+  //   a dim + "LATERAL" badge as "pivot context", but the audit called
+  //   them out as noise — the Attack Surface view is meant to be the
+  //   modelled path, not "every SG / NACL in the VPC". Drop them here
+  //   in addition to the upstream filter in attacker-view-panel.tsx so
+  //   no future code path can resurrect them.
+  //
+  // Service-agnostic: gates only on the `onPath` flag (derived upstream
+  // from edge types — SECURED_BY / HAS_SECURITY_GROUP / etc — not from
+  // SG name patterns).
+  const isOnPathOrUnknown = (cp: SecurityCheckpoint): boolean =>
+    cp.onPath !== false;
+  const securityGroups: SecurityCheckpoint[] = arch.securityGroups
+    .filter(touchesPath)
+    .filter(isOnPathOrUnknown);
+  const nacls: SecurityCheckpoint[] = arch.nacls
+    .filter(touchesPath)
+    .filter(isOnPathOrUnknown);
   const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter(touchesPath);
 
   // Seed any path node that didn't survive the System Map's traffic-only
@@ -4853,21 +4871,27 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       // reference) so name match is the reliable bridge. Without this,
       // seeded SGs render with "0 rules" even when the real SG has
       // ingress/egress rules in Neo4j.
+      //
+      // Strict path-only gate (2026-05-29): if the matched arch SG was
+      // tagged onPath===false (lateral surface, no SECURED_BY edge to a
+      // path workload), skip it. Without this gate filter.pathNodes
+      // would resurrect lateral SGs that the upstream filter dropped.
       const archMatch = arch.securityGroups.find(
         (sg) => sg.id === pn.id || sg.name === pn.name,
       );
-      if (archMatch) {
+      if (archMatch && archMatch.onPath !== false) {
         securityGroups.push(archMatch);
-      } else {
+      } else if (!archMatch) {
         securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
       }
     } else if (bucket === 'nacl') {
+      // Same strict path-only gate for NACLs.
       const archMatch = arch.nacls.find(
         (n) => n.id === pn.id || n.name === pn.name,
       );
-      if (archMatch) {
+      if (archMatch && archMatch.onPath !== false) {
         nacls.push(archMatch);
-      } else {
+      } else if (!archMatch) {
         nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
       }
     } else if (bucket === 'iam_role') {
