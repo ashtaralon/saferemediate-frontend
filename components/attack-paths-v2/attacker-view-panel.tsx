@@ -1365,8 +1365,29 @@ function buildAttackerArchitecture(
     else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name, props)
     else if (bucket === "instance_profile") addAsInstanceProfile(node.id, node.name)
     else if (bucket === "iam_policy") addAsPolicy(node.id, node.name, props)
-    else if (bucket === "sg") addAsSG(node.id, node.name, props, onPathSgIds.has(node.id))
-    else if (bucket === "nacl") addAsNACL(node.id, node.name, props, onPathNaclIds.has(node.id))
+    else if (bucket === "sg") {
+      // Strict path-only filter (user audit 2026-05-29): only render
+      // SGs that have a SECURED_BY / HAS_SECURITY_GROUP / etc. attach
+      // edge from a path node. Lateral SGs (same VPC, no attachment)
+      // were previously rendered with a "Lateral" badge as "pivot
+      // context", but the operator audit called them out as noise:
+      // the Attack Surface view is meant to be the EC2 → bucket path,
+      // not "every SG in this VPC". Lateral fan-out has its own
+      // dedicated view; this stays strict.
+      //
+      // Service-agnostic — onPathSgIds is derived from edge types, not
+      // SG name patterns.
+      if (onPathSgIds.has(node.id)) {
+        addAsSG(node.id, node.name, props, true)
+      }
+    }
+    else if (bucket === "nacl") {
+      // Same strict path-only filter for NACLs — only render NACLs
+      // associated with the path's subnet, not every NACL in the VPC.
+      if (onPathNaclIds.has(node.id)) {
+        addAsNACL(node.id, node.name, props, true)
+      }
+    }
     else if (bucket === "principal") addAsPrincipal(node.id, node.name)
     else if (bucket === "vpc") addAsVPC(node.id, node.name)
     else if (bucket === "egress_gateway") {
