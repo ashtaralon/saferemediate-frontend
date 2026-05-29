@@ -764,6 +764,34 @@ function buildAttackerArchitecture(
     (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
   )
 
+  // Path target AWS service token — used downstream for the AWS
+  // most-specific-route filter on the EGRESS GATEWAYS lane. Derived from
+  // the crown jewel's graph type, mapped to the VPCE service_name suffix
+  // (e.g. S3Bucket → "s3", DynamoDBTable → "dynamodb"). The mapping is
+  // structural on substrings of the graph type — no hardcoded resource
+  // names. Returns null when the jewel is not a service-typed target
+  // (e.g. raw IP, identity); the filter then degrades to "no filter"
+  // and IGW/NAT remain visible because we can't prove they're off-path.
+  const pathTargetServiceToken: string | null = (() => {
+    for (const n of path.nodes ?? []) {
+      if (n.tier !== "crown_jewel") continue
+      const t = (n.type || "").toLowerCase()
+      if (t.includes("s3") || t.includes("bucket")) return "s3"
+      if (t.includes("dynamodb")) return "dynamodb"
+      if (t.includes("rds") || t.includes("aurora") || t.includes("database")) return "rds"
+      if (t.includes("kinesis")) return "kinesis"
+      if (t.includes("sqs")) return "sqs"
+      if (t.includes("sns")) return "sns"
+      if (t.includes("lambda")) return "lambda"
+      if (t.includes("secret")) return "secretsmanager"
+      if (t.includes("ssm") || t.includes("parameter")) return "ssm"
+      if (t.includes("kms")) return "kms"
+      if (t.includes("ecr")) return "ecr"
+      return null
+    }
+    return null
+  })()
+
   // Dedup key combines (lowercased friendly name, lane bucket) so that
   // a Role and an InstanceProfile sharing a name stay distinct, but
   // dual-label-graph duplicates of the same logical node collapse.
@@ -1982,6 +2010,57 @@ function buildAttackerArchitecture(
   // dropped — counted but never invented. Dedupe by canonical key.
   const edgeKeys = new Set<string>()
   const builtEdges: CanvasEdge[] = []
+
+  // ── AWS most-specific-route filter on EGRESS GATEWAYS (2026-05-29) ──
+  //
+  // The path's route table can carry multiple targets — typically:
+  //   pl-XXX (service prefix list) → VPCEndpoint  (specific route)
+  //   0.0.0.0/0                    → IGW          (default route)
+  //
+  // AWS picks the *most specific* route. For a path whose target is
+  // S3, this means traffic actually flows through the VPCE, NOT the
+  // IGW. The IGW is in the RT but not on this flow.
+  //
+  // Previously we rendered both. The operator audit (2026-05-29)
+  // called it out as misleading: the canvas was telling the operator
+  // that IGW was on the EC2 → S3 path when in fact the data plane
+  // routes via the VPCE.
+  //
+  // Logic, mirroring AWS:
+  //   - If a VPCE for the path target service exists in egressGateways,
+  //     it's the most-specific route → drop all other gateways
+  //     (IGW / NAT / Transit / VPCEs for OTHER services).
+  //   - If no service-matching VPCE exists, keep IGW/NAT/etc — they're
+  //     the default route, the real flow goes through one of them.
+  //
+  // Service-agnostic at the code level: the gate is
+  //   gateway.serviceHint === pathTargetServiceToken
+  // not a hardcoded "drop IGW for S3 paths". The mapping from jewel
+  // type → service token lives at pathTargetServiceToken above.
+  //
+  // The droppedEgressIds set is removed from `seen` below so that
+  // pushCanvasEdge skips any (subnet → IGW) ROUTES_VIA edges from the
+  // lateral loop — the IGW card and its edges both go.
+  const droppedEgressIds = new Set<string>()
+  if (pathTargetServiceToken) {
+    const hasMatchingVpce = egressGateways.some(
+      (g) => g.kind === "VPCEndpoint" && g.serviceHint === pathTargetServiceToken,
+    )
+    if (hasMatchingVpce) {
+      for (let i = egressGateways.length - 1; i >= 0; i--) {
+        const g = egressGateways[i]
+        const matches = g.kind === "VPCEndpoint" && g.serviceHint === pathTargetServiceToken
+        if (matches) continue
+        droppedEgressIds.add(g.id)
+        egressGateways.splice(i, 1)
+      }
+    }
+  }
+  // Remove the dropped gateway ids from `seen` so the edge build below
+  // skips any edges referencing them. Without this, ROUTES_VIA edges
+  // from subnet → dropped IGW would be pushed to builtEdges and the
+  // renderer would draw a line into empty space.
+  for (const id of droppedEgressIds) seen.delete(id)
 
   // ── Edge visual-noise filter (2026-05-26, Fix #3) ─────────────────
   //
