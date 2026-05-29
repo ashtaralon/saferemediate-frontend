@@ -1416,7 +1416,29 @@ function buildAttackerArchitecture(
         addAsNACL(node.id, node.name, props, true)
       }
     }
-    else if (bucket === "principal") addAsPrincipal(node.id, node.name)
+    else if (bucket === "principal") {
+      // Category-error guard (2026-05-30 audit): the backend's
+      // CloudTrailPrincipal nodes occasionally carry an EC2 instance
+      // id ("i-<hex>") as their .id or .name when the role-session
+      // name happens to be the instance id. An EC2 instance is NOT
+      // an IAM Principal — it's a workload that CARRIES an identity
+      // via an InstanceProfile. Surfacing it as PRINCIPAL is the
+      // same class of mistake we caught with `root` earlier.
+      //
+      // Re-route ec2-id-shaped principals to the compute lane. Same
+      // node still renders, just under the honest lane heading.
+      // Service-agnostic: the gate is on the AWS instance-id format
+      // (i-[a-f0-9]+), not on any specific resource name.
+      const ec2IdPattern = /^i-[a-f0-9]+$/i
+      const looksLikeEc2Id =
+        ec2IdPattern.test(node.id || "") ||
+        ec2IdPattern.test(node.name || "")
+      if (looksLikeEc2Id) {
+        addAsCompute(node.id, "EC2Instance", node.name)
+      } else {
+        addAsPrincipal(node.id, node.name)
+      }
+    }
     else if (bucket === "vpc") addAsVPC(node.id, node.name)
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
@@ -2026,17 +2048,35 @@ function buildAttackerArchitecture(
   // that IGW was on the EC2 → S3 path when in fact the data plane
   // routes via the VPCE.
   //
-  // Logic, mirroring AWS:
-  //   - If a VPCE for the path target service exists in egressGateways,
-  //     it's the most-specific route → drop all other gateways
-  //     (IGW / NAT / Transit / VPCEs for OTHER services).
-  //   - If no service-matching VPCE exists, keep IGW/NAT/etc — they're
-  //     the default route, the real flow goes through one of them.
+  // Logic, mirroring AWS (refined 2026-05-30 after operator audit on
+  // cyntro-demo-prod-data: lane was showing 3 SSM-family VPCEs + IGW
+  // for an EC2 → S3 path, when only the IGW is actually on the S3
+  // flow):
+  //
+  //   Rule A (always-on, regardless of matching-VPCE presence):
+  //     Drop VPCEs whose serviceHint is set AND doesn't match
+  //     pathTargetServiceToken. A VPCE configured for SSM Messages
+  //     can NEVER carry S3 traffic — it's a lateral surface of the
+  //     VPC, not a node on this path. Same conceptual class as the
+  //     lateral SGs we filtered earlier.
+  //
+  //   Rule B (only when a matching VPCE exists):
+  //     Drop IGW / NAT / Transit / Egress-only IGW. AWS resolves the
+  //     more-specific service-prefix-list route to the VPCE, so the
+  //     default route (0.0.0.0/0 → IGW) is bypassed.
+  //
+  //   Rule C (no matching VPCE):
+  //     IGW / NAT remain as the actual default route — they ARE the
+  //     real path. Only Rule A's mismatched VPCEs drop.
   //
   // Service-agnostic at the code level: the gate is
   //   gateway.serviceHint === pathTargetServiceToken
   // not a hardcoded "drop IGW for S3 paths". The mapping from jewel
   // type → service token lives at pathTargetServiceToken above.
+  //
+  // VPCEs whose serviceHint is null/undefined (collector didn't tag)
+  // stay — we can't prove they're off-path. Better to surface a
+  // possibly-on-path edge than silently drop a real one.
   //
   // The droppedEgressIds set is removed from `seen` below so that
   // pushCanvasEdge skips any (subnet → IGW) ROUTES_VIA edges from the
@@ -2046,14 +2086,21 @@ function buildAttackerArchitecture(
     const hasMatchingVpce = egressGateways.some(
       (g) => g.kind === "VPCEndpoint" && g.serviceHint === pathTargetServiceToken,
     )
-    if (hasMatchingVpce) {
-      for (let i = egressGateways.length - 1; i >= 0; i--) {
-        const g = egressGateways[i]
-        const matches = g.kind === "VPCEndpoint" && g.serviceHint === pathTargetServiceToken
-        if (matches) continue
+    for (let i = egressGateways.length - 1; i >= 0; i--) {
+      const g = egressGateways[i]
+      if (g.kind === "VPCEndpoint") {
+        // Rule A — drop mismatched VPCEs always.
+        if (g.serviceHint && g.serviceHint !== pathTargetServiceToken) {
+          droppedEgressIds.add(g.id)
+          egressGateways.splice(i, 1)
+        }
+      } else if (hasMatchingVpce) {
+        // Rule B — drop IGW/NAT/etc when a service-matching VPCE
+        // exists (most-specific-route wins).
         droppedEgressIds.add(g.id)
         egressGateways.splice(i, 1)
       }
+      // Rule C — non-VPCE gateway, no matching VPCE → keep.
     }
   }
   // Remove the dropped gateway ids from `seen` so the edge build below
