@@ -21,6 +21,7 @@
 import { useMemo } from "react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Cloud, Server, Database, Lock, Globe, Layers, Network, ShieldCheck } from "lucide-react"
+import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 
 interface Workload {
   id: string
@@ -68,6 +69,28 @@ interface TopologyResponse {
 
 interface TopologyViewProps {
   systemName: string | null
+  /**
+   * Optional path — when provided, the renderer dims off-path subnets,
+   * SGs, and workloads. The on-path set is derived from path.nodes ids
+   * + any node whose neighbor_id appears in path.edges. Service-
+   * agnostic at the code level: gating is by id membership, not by
+   * resource name patterns.
+   */
+  selectedPath?: IdentityAttackPath | null
+}
+
+/** Set of node ids that appear in the path's nodes or edges. */
+function deriveOnPathIds(path: IdentityAttackPath | null | undefined): Set<string> {
+  const out = new Set<string>()
+  if (!path) return out
+  for (const n of path.nodes ?? []) {
+    if (n.id) out.add(n.id)
+  }
+  for (const e of path.edges ?? []) {
+    if (e.source) out.add(e.source)
+    if (e.target) out.add(e.target)
+  }
+  return out
 }
 
 function shortName(s: string): string {
@@ -91,7 +114,7 @@ function workloadKind(t: string): string {
   return tt.toUpperCase()
 }
 
-export default function TopologyView({ systemName }: TopologyViewProps) {
+export default function TopologyView({ systemName, selectedPath }: TopologyViewProps) {
   const fetchUrl = systemName
     ? `/api/proxy/topology-aws/${encodeURIComponent(systemName)}`
     : null
@@ -100,6 +123,8 @@ export default function TopologyView({ systemName }: TopologyViewProps) {
   })
 
   const vpcs = data?.vpcs ?? []
+  const onPathIds = useMemo(() => deriveOnPathIds(selectedPath ?? null), [selectedPath])
+  const hasPath = onPathIds.size > 0
 
   if (loading && !data) {
     return (
@@ -130,17 +155,33 @@ export default function TopologyView({ systemName }: TopologyViewProps) {
         <span className="text-[10px] text-slate-500 italic">
           AWS-style containment · sourced from Neo4j as-is
         </span>
+        {hasPath && (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-300 ml-2 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">
+            Path overlay · {onPathIds.size} on-path nodes highlighted
+          </span>
+        )}
       </div>
 
       {vpcs.map((vpc) => (
-        <AwsCloudFrame key={vpc.id} vpc={vpc} />
+        <AwsCloudFrame key={vpc.id} vpc={vpc} onPathIds={onPathIds} hasPath={hasPath} />
       ))}
     </div>
   )
 }
 
-function AwsCloudFrame({ vpc }: { vpc: VPC }) {
-  const regionLabel = vpc.region || "region"
+function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<string>; hasPath: boolean }) {
+  // Infer region from any subnet's AZ when the VPC.region property is
+  // null (collector frequently doesn't tag it). AZs are like
+  // "eu-west-1a" → "eu-west-1".
+  const inferredRegion = useMemo(() => {
+    if (vpc.region) return vpc.region
+    for (const az of vpc.azs) {
+      const m = az.name.match(/^([a-z]+-[a-z]+-\d+)/)
+      if (m) return m[1]
+    }
+    return null
+  }, [vpc.region, vpc.azs])
+  const regionLabel = inferredRegion ?? "region unknown"
   return (
     // Outer: AWS Cloud frame — solid blue rule, AWS icon top-left.
     <div className="border-2 border-blue-600/40 rounded-md p-4 mb-6 bg-blue-950/10">
@@ -164,7 +205,7 @@ function AwsCloudFrame({ vpc }: { vpc: VPC }) {
             <div className="flex items-center gap-2">
               <Network className="h-4 w-4 text-emerald-400" />
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200">
-                VPC · {vpc.cidr ?? "cidr unknown"}
+                VPC{vpc.cidr ? ` · ${vpc.cidr}` : ""}
               </span>
               <span className="text-[9px] text-emerald-300/60">{shortName(vpc.id)}</span>
             </div>
@@ -208,7 +249,7 @@ function AwsCloudFrame({ vpc }: { vpc: VPC }) {
           {/* AZ columns */}
           <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(vpc.azs.length, 1)}, minmax(0, 1fr))` }}>
             {vpc.azs.map((az) => (
-              <AzColumn key={az.name} az={az} sgs={vpc.security_groups} />
+              <AzColumn key={az.name} az={az} sgs={vpc.security_groups} onPathIds={onPathIds} hasPath={hasPath} />
             ))}
           </div>
 
@@ -238,7 +279,7 @@ function AwsCloudFrame({ vpc }: { vpc: VPC }) {
   )
 }
 
-function AzColumn({ az, sgs }: { az: AZ; sgs: SG[] }) {
+function AzColumn({ az, sgs, onPathIds, hasPath }: { az: AZ; sgs: SG[]; onPathIds: Set<string>; hasPath: boolean }) {
   return (
     <div className="border border-dashed border-slate-600/60 rounded-md p-3 bg-slate-900/30">
       <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
@@ -246,19 +287,25 @@ function AzColumn({ az, sgs }: { az: AZ; sgs: SG[] }) {
       </div>
       <div className="flex flex-col gap-3">
         {az.subnets.map((s) => (
-          <SubnetBox key={s.id} subnet={s} sgs={sgs} />
+          <SubnetBox key={s.id} subnet={s} sgs={sgs} onPathIds={onPathIds} hasPath={hasPath} />
         ))}
       </div>
     </div>
   )
 }
 
-function SubnetBox({ subnet, sgs }: { subnet: Subnet; sgs: SG[] }) {
+function SubnetBox({ subnet, sgs, onPathIds, hasPath }: { subnet: Subnet; sgs: SG[]; onPathIds: Set<string>; hasPath: boolean }) {
   // Public subnet → light-green tint. Private → light-blue tint.
   const tint = subnet.is_public
     ? "border-emerald-600/40 bg-emerald-800/15"
     : "border-sky-600/40 bg-sky-800/10"
   const labelColor = subnet.is_public ? "text-emerald-300" : "text-sky-300"
+
+  // Path-overlay dim: when a path is selected, dim subnets whose id is
+  // not on the path AND whose workloads are all off-path. Service-
+  // agnostic — gated on id membership, not name.
+  const subnetOnPath = !hasPath || onPathIds.has(subnet.id) || subnet.workloads.some((w) => onPathIds.has(w.id))
+  const dimClass = hasPath && !subnetOnPath ? "opacity-30" : ""
 
   // Group workloads by SG so we can draw a dashed boundary around the
   // set that shares an SG (mirroring the AWS reference where SG is a
@@ -282,7 +329,7 @@ function SubnetBox({ subnet, sgs }: { subnet: Subnet; sgs: SG[] }) {
   }, [sgs])
 
   return (
-    <div className={`border rounded-md p-2.5 ${tint}`}>
+    <div className={`border rounded-md p-2.5 ${tint} ${dimClass} transition-opacity`}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <Lock className={`h-3 w-3 ${labelColor}`} />
@@ -295,6 +342,21 @@ function SubnetBox({ subnet, sgs }: { subnet: Subnet; sgs: SG[] }) {
           {shortName(subnet.id)}
         </span>
       </div>
+      {/* Route Table chip — the AWS-console default for any subnet
+          card is its associated route table id. Adding it here lets
+          the operator see "this subnet routes via rtb-XXX" without
+          opening a side panel. */}
+      {subnet.route_table_id && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <div
+            className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/15 px-1.5 py-0.5"
+            title={subnet.route_table_id}
+          >
+            <span className="text-[8px] font-bold uppercase text-amber-300">RT</span>
+            <span className="text-[8px] text-amber-200/80">{shortName(subnet.route_table_id)}</span>
+          </div>
+        </div>
+      )}
 
       {/* Workloads — group SG-shared workloads in a dashed SG boundary */}
       {groups.length === 0 ? (
@@ -304,7 +366,14 @@ function SubnetBox({ subnet, sgs }: { subnet: Subnet; sgs: SG[] }) {
       ) : (
         <div className="flex flex-col gap-2">
           {groups.map((g, i) => (
-            <SGBoundary key={i} sgIds={g.sgIds} workloads={g.workloads} sgById={sgById} />
+            <SGBoundary
+              key={i}
+              sgIds={g.sgIds}
+              workloads={g.workloads}
+              sgById={sgById}
+              onPathIds={onPathIds}
+              hasPath={hasPath}
+            />
           ))}
         </div>
       )}
@@ -316,15 +385,21 @@ function SGBoundary({
   sgIds,
   workloads,
   sgById,
+  onPathIds,
+  hasPath,
 }: {
   sgIds: string[]
   workloads: Workload[]
   sgById: Map<string, SG>
+  onPathIds: Set<string>
+  hasPath: boolean
 }) {
   const hasSg = sgIds.length > 0
+  const sgOnPath = sgIds.some((id) => onPathIds.has(id))
+  const sgDim = hasPath && hasSg && !sgOnPath ? "opacity-50" : ""
   return (
     <div
-      className={`rounded-md p-2 ${hasSg ? "border border-dashed border-rose-500/50 bg-rose-950/10" : ""}`}
+      className={`rounded-md p-2 ${hasSg ? "border border-dashed border-rose-500/50 bg-rose-950/10" : ""} ${sgDim} transition-opacity`}
     >
       {hasSg && (
         <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
@@ -351,19 +426,26 @@ function SGBoundary({
       )}
       <div className="flex flex-wrap gap-2">
         {workloads.map((w) => (
-          <WorkloadCard key={w.id} workload={w} />
+          <WorkloadCard key={w.id} workload={w} onPathIds={onPathIds} hasPath={hasPath} />
         ))}
       </div>
     </div>
   )
 }
 
-function WorkloadCard({ workload }: { workload: Workload }) {
+function WorkloadCard({ workload, onPathIds, hasPath }: { workload: Workload; onPathIds: Set<string>; hasPath: boolean }) {
   const Icon = workloadIcon(workload.type)
   const kind = workloadKind(workload.type)
+  const onPath = !hasPath || onPathIds.has(workload.id)
+  // On-path workloads get an amber ring; off-path get dimmed.
+  const ringClass = hasPath && onPath
+    ? "ring-2 ring-amber-400/70 shadow-[0_0_12px_rgba(251,191,36,0.4)]"
+    : hasPath
+      ? "opacity-40"
+      : ""
   return (
     <div
-      className="flex items-center gap-2 rounded-md border border-orange-500/40 bg-orange-900/15 px-2 py-1.5 min-w-0"
+      className={`flex items-center gap-2 rounded-md border border-orange-500/40 bg-orange-900/15 px-2 py-1.5 min-w-0 ${ringClass} transition-all`}
       title={workload.id}
     >
       <Icon className="h-3.5 w-3.5 text-orange-400 shrink-0" />

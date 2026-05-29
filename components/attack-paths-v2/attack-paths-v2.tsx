@@ -358,7 +358,7 @@ export function AttackPathsV2() {
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
             />
-            <TopologyView systemName={systemName} />
+            <TopologyView systemName={systemName} selectedPath={selectedPath ?? null} />
           </>
         ) : !selectedJewelId ? (
           <EmptyState
