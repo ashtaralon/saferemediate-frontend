@@ -89,15 +89,31 @@ function classifySource(nodes: PathNodeDetail[] | undefined): keyof typeof SOURC
     return "root"
   }
 
-  // External-account principal — an ARN that's not from this account
-  // landed on a workload here. Sprint 4 territory (cross-account); we
-  // detect by ARN prefix mismatch. Widened for the same reason as
-  // root detection above.
+  // External-account principal — an ARN that's not from the same
+  // account as the path's TARGET landed on a workload here. Sprint 4
+  // territory (cross-account).
+  //
+  // 2026-05-30: removed hardcoded "745783559495" reference account
+  // (was Cyntro's demo customer). The path's target node carries its
+  // own account id in the ARN; we derive the reference from there.
+  // On multi-tenant deploys this means cross-account detection just
+  // works without per-customer config — service-agnostic by
+  // construction.
   if (isPrincipalNodeType(first.type) && /^arn:aws:[^:]+:[^:]*:(\d+):/.test(first.id || "")) {
     const acct = (first.id.match(/^arn:aws:[^:]+:[^:]*:(\d+):/) || [])[1]
-    // Cyntro's primary account is 745783559495 today (per memory). If
-    // we ever multi-tenant, this needs to come from the system config.
-    if (acct && acct !== "745783559495") return "external_account"
+    // Reference account: walk the path looking for any ARN-bearing
+    // node and pull its account id. Skip the principal node itself.
+    // Falls back to "no detection" rather than guessing if the path
+    // has no ARN-bearing node.
+    let refAccount: string | null = null
+    for (let i = 1; i < nodes.length; i++) {
+      const m = (nodes[i].id || "").match(/^arn:aws:[^:]+:[^:]*:(\d+):/)
+      if (m) {
+        refAccount = m[1]
+        break
+      }
+    }
+    if (acct && refAccount && acct !== refAccount) return "external_account"
   }
 
   // The workload carrying the role is the operator-meaningful source.

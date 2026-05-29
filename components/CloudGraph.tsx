@@ -184,20 +184,14 @@ export default function CloudGraph({ systemName }: CloudGraphProps) {
     setLoading(false)
   }
 
-  const nodeDetails: Record<string, any> = {
-    'route53': { description: 'DNS routing for alon-prod.example.com', records: 12, healthChecks: 4 },
-    'waf': { description: 'Web Application Firewall', rules: 24, blocked: '1.2K/day' },
-    'cloudfront': { description: 'CDN Distribution', cacheHitRate: '94%', requests: '2.5M/day' },
-    'alb': { description: 'Application Load Balancer', targets: 4, healthy: 4 },
-    'web-1': { description: 'Web Server in AZ-1', cpu: '45%', memory: '62%', connections: 1250 },
-    'web-2': { description: 'Web Server in AZ-2', cpu: '38%', memory: '58%', connections: 980 },
-    'app-1': { description: 'App Server in AZ-1', cpu: '72%', memory: '81%', issues: ['High memory usage', 'Overly permissive IAM role'] },
-    'app-2': { description: 'App Server in AZ-2', cpu: '45%', memory: '55%' },
-    'aurora-1': { description: 'Aurora Primary (PostgreSQL)', connections: 2400, storage: '850 GB', iops: '15K' },
-    'aurora-2': { description: 'Aurora Replica', replicationLag: '< 1ms', storage: '850 GB' },
-    'iam': { description: 'Service IAM Roles', roles: 12, issues: ['3 over-privileged roles'] },
-    'cloudwatch': { description: 'Monitoring & Logs', metrics: 2300, alarms: 42 },
-  }
+  // 2026-05-30 — removed wholesale mock data block. The previous
+  // hardcoded `nodeDetails` table fabricated CPU %, connection counts,
+  // and a fake "alon-prod.example.com" DNS name. The conditional
+  // render below already guards on `nodeDetails[selectedNode]`, so an
+  // empty object correctly results in no fake details surfacing.
+  // (CloudGraph.tsx is not currently mounted by any live page; this
+  // hygiene fix is to keep the file honest if it gets revived.)
+  const nodeDetails: Record<string, any> = {}
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">

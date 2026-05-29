@@ -185,7 +185,7 @@ function FilterBar({
           </Label>
           <Input
             id="systemName"
-            placeholder="e.g. alon-prod"
+            placeholder="System name"
             value={filters.systemName}
             onChange={(e) => setFilters({ ...filters, systemName: e.target.value })}
             className="h-9"

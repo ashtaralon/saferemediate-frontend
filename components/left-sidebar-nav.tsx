@@ -43,7 +43,11 @@ export function LeftSidebarNav({
     // v2 redesign — coexists with the legacy section above. Operators
     // can toggle while the redesign is being reviewed. Drop the legacy
     // entry once v2 is approved as canonical.
-    { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2?system=alon-prod" },
+    // 2026-05-30 — removed hardcoded "?system=alon-prod" default. The
+    // page handles missing system param by showing the system picker;
+    // operators on any customer reach a working state without us
+    // pre-selecting a demo system that doesn't exist on their tenant.
+    { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2" },
     // Attacker Map is reachable from inside system detail: Risk → Attacker Map.
     // The top-level sidebar entry was removed because the page routing in
     // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at

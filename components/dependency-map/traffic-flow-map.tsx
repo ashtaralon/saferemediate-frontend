@@ -536,16 +536,25 @@ function formatRelativeTime(iso: string | null | undefined): string {
 }
 
 function shortName(name: string, maxLen = 18): string {
+  // 2026-05-30 — removed customer/demo prefix replacements
+  // (SafeRemediate-Test-, cyntro-demo-, hardcoded account 745783559495,
+  // hardcoded region eu-west-1). They only shortened the demo data and
+  // silently no-op'd for every other customer.
+  //
+  // Service-agnostic substitutions only:
+  //   1. Generic ARN prefix strip (matches any service + account +
+  //      region + resource type) — preserves the resource id tail.
+  //   2. Slash-path tail extraction (matches AWS ARN sub-paths like
+  //      `role/foo` → `foo`).
+  //   3. Length-based truncation as the final fallback.
   let short = name
-    .replace('SafeRemediate-Test-', '')
-    .replace('SafeRemediate-', '')
-    .replace('saferemediate-test-', '')
-    .replace('saferemediate-', '')
-    .replace('arn:aws:rds:eu-west-1:745783559495:db:', '')
-    .replace('arn:aws:s3:::', '')
-    .replace('arn:aws:', '')
-    .replace('cyntro-demo-', '')
-    .replace('-745783559495', '');
+    // arn:aws:<service>:<region>:<account>:<resource-type>/<resource-id>
+    // or                                  :<resource-type>:<resource-id>
+    .replace(/^arn:aws:[^:]+:[^:]*:[^:]*:[^:/]+[:/]/, '')
+    // arn:aws:s3:::<bucket-name>
+    .replace(/^arn:aws:s3:::/, '')
+    // arn:aws:<service>:<region>:<account>:<resource-id> (no type prefix)
+    .replace(/^arn:aws:[^:]+:[^:]*:[^:]*:/, '');
 
   if (short.includes('/')) short = short.split('/').pop() || short;
   if (short.length > maxLen) short = short.substring(0, maxLen) + '...';

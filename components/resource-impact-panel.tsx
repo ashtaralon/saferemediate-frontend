@@ -138,15 +138,11 @@ export function ResourceImpactPanel({ systemName }: ResourceImpactPanelProps) {
     setSgImpact(null)
     setShowPath(false)
     
-    const sgNameToId: Record<string, string> = {
-      'saferemediate-test-app-sg': 'sg-02a2ccfe185765527',
-      'saferemediate-test-alb-sg': 'sg-06a6f52b72976da16',
-      'saferemediate-test-db-sg': 'sg-0f8fadc0579ff6845',
-      'AlonTest': 'sg-001295b4de50b389d',
-      'default': 'sg-0212ab87005f59737',
-    }
-    
-    const sgId = resource.id.startsWith('sg-') ? resource.id : sgNameToId[resource.id] || resource.id
+    // 2026-05-30 — removed hardcoded customer-specific sgNameToId table
+    // (only matched the 5 SafeRemediate-Test demo SGs). The resource node
+    // carries its real id; if it's not an sg-XXX shape we pass through
+    // the raw id and let the backend resolve or error honestly.
+    const sgId = resource.id
     
     try {
       const res = await fetch(`/api/proxy/impact-analysis/sg-impact/${sgId}`)

@@ -64,7 +64,11 @@ export function AttackPathsV2() {
   // shared URL preserves the maximize state.
   // useSearchParams returns null on the server / before hydration; the
   // optional chain + ?? guard against that without a useEffect.
-  const systemName = searchParams?.get("system") ?? "alon-prod"
+  // 2026-05-30 — dropped hardcoded "alon-prod" default. The page now
+  // honestly degrades to an empty state when no system is selected
+  // (see EmptyState rendering below), and the system picker upstream
+  // is the entry point operators land on.
+  const systemName = searchParams?.get("system") ?? null
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   const expandMode = searchParams?.get("expand") ?? null
@@ -256,6 +260,33 @@ export function AttackPathsV2() {
 
   const handleSelectPath = (pathId: string) => {
     setUrl({ path: pathId })
+  }
+
+  // ─── No-system-selected guard ──────────────────────────────────
+  // 2026-05-30: page used to default to "alon-prod" silently. Now if
+  // no ?system= param is present we honestly say so and point at the
+  // systems picker — operators on any customer tenant reach a working
+  // state without us pretending a demo system exists.
+  if (!systemName) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-950">
+        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-8 max-w-md text-center">
+          <div className="text-sm font-semibold text-slate-200 mb-2">
+            No system selected
+          </div>
+          <p className="text-xs text-slate-400 mb-4">
+            Attack Paths v2 needs a system to render. Pick one from the
+            Systems dashboard.
+          </p>
+          <a
+            href="/?section=systems"
+            className="inline-block rounded-md border border-slate-600 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-200 hover:bg-slate-800"
+          >
+            Browse systems
+          </a>
+        </div>
+      </div>
+    )
   }
 
   // ─── Loading / error states ────────────────────────────────────

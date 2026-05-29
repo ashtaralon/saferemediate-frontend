@@ -206,7 +206,14 @@ export function OrphanResourcesPanel() {
   async function handleQuarantine(
     resourceType: PendingDelete["resourceType"],
     resourceId: string,
-    systemName: string = "alon-prod",
+    // 2026-05-30 — removed hardcoded "alon-prod" default. This page is
+    // account-wide; no system context is available here. The backend
+    // pre-check / execute endpoints resolve the resource's owning
+    // system from the resource id itself, so an undefined systemName
+    // is acceptable. (If the backend ever requires it, we'll surface a
+    // system picker before quarantining instead of silently shipping a
+    // demo system name.)
+    systemName?: string,
   ) {
     const key = rowKey(resourceType, resourceId)
     setRowStatus((p) => ({ ...p, [key]: { state: "running" } }))
