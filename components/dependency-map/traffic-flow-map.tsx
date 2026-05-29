@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -1519,6 +1519,7 @@ export function IAMRoleNode({
   onHover,
   onClick,
   forceInstanceProfile = false,
+  forceIAMPolicy = false,
 }: {
   role: SecurityCheckpoint;
   isHighlighted: boolean;
@@ -1529,6 +1530,11 @@ export function IAMRoleNode({
   // Roles lane where the id is the role's ARN, not :instance-profile/)
   // can flip this to force amber Layers/Profile-badge styling.
   forceInstanceProfile?: boolean;
+  // Same idea for IAMPolicy — when the caller passes a policy
+  // checkpoint into this Role-shaped component, the icon + badge
+  // colors switch to violet so the operator can scan-distinguish
+  // Role cards from Policy cards in the IDENTITY column.
+  forceIAMPolicy?: boolean;
 }) {
   const hasGap = role.gapCount > 0;
   const hasData = role.totalCount > 0;
@@ -1542,6 +1548,10 @@ export function IAMRoleNode({
     forceInstanceProfile ||
     role.id.includes(':instance-profile/') ||
     /instance.?profile/i.test(role.id);
+  // IAMPolicy detection — caller-driven only. We don't auto-detect from id
+  // because IAM policy ARNs can look like other IAM resources; the caller
+  // passing forceIAMPolicy is the authoritative signal.
+  const isIAMPolicy = forceIAMPolicy;
 
   // Determine status color based on usage
   const getStatusColor = () => {
@@ -1552,11 +1562,14 @@ export function IAMRoleNode({
   };
 
   const statusColor = getStatusColor();
-  const accentBgHover = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentBorderHi  = isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
-  const accentShadowHi  = isInstanceProfile ? 'shadow-amber-500/20' : 'shadow-pink-500/20';
-  const accentBgFallback = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentTextFallback = isInstanceProfile ? 'text-amber-300' : 'text-pink-400';
+  // Three-way palette: policy (violet) > profile (amber) > role (pink).
+  // Order matters: an IAMPolicy might match the InstanceProfile heuristic
+  // if a caller wrongly passes a policy id, but explicit force flags win.
+  const accentBgHover = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentBorderHi  = isIAMPolicy ? 'border-violet-500/50' : isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
+  const accentShadowHi  = isIAMPolicy ? 'shadow-violet-500/20' : isInstanceProfile ? 'shadow-amber-500/20' : 'shadow-pink-500/20';
+  const accentBgFallback = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentTextFallback = isIAMPolicy ? 'text-violet-300' : isInstanceProfile ? 'text-amber-300' : 'text-pink-400';
 
   return (
     <div
@@ -1569,7 +1582,9 @@ export function IAMRoleNode({
       onClick={onClick}
     >
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : accentBgFallback}`}>
-        {isInstanceProfile ? (
+        {isIAMPolicy ? (
+          <FileText className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
+        ) : isInstanceProfile ? (
           <Layers className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
         ) : (
           <Key className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
@@ -1581,6 +1596,11 @@ export function IAMRoleNode({
           {isInstanceProfile && (
             <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
               Profile
+            </span>
+          )}
+          {isIAMPolicy && (
+            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/40">
+              Policy
             </span>
           )}
         </div>
@@ -4024,6 +4044,11 @@ export function UnifiedArchitectureDiagram({
               <span className="text-pink-300/80">
                 Roles {architecture.iamRoles.length}
               </span>
+              {(architecture.iamPolicies?.length ?? 0) > 0 && (
+                <span className="text-violet-300/80">
+                  Policies {architecture.iamPolicies?.length ?? 0}
+                </span>
+              )}
             </div>
             {/* Instance Profiles (rendered ABOVE roles to mirror the AWS
                 attachment shape: EC2 → IP → Role). Each card carries
@@ -4072,8 +4097,32 @@ export function UnifiedArchitectureDiagram({
                 </div>
               );
             })}
+            {/* IAM Policies — the actual permission grant documents
+                attached to the path's role. Added 2026-05-29 after the
+                user's audit caught "2 Policies missing from canvas":
+                the policies were already in iamPolicies[] (via
+                addAsPolicy on path-node iteration + lateral
+                HAS_POLICY expansion) but never rendered as cards.
+                The sidebar showed "IAM POLICIES (N)" but the lane
+                stayed silent — a credibility gap. Rendering them
+                below the role in the same Identity column reflects
+                the AWS attachment chain (EC2 → IP → Role → Policy).
+                forceIAMPolicy gives them distinct styling so the
+                operator can scan-distinguish Role vs Policy. */}
+            {(architecture.iamPolicies ?? []).map((policy) => (
+              <div key={`policy:${policy.id}`} data-policy-id={policy.id}>
+                <IAMRoleNode
+                  role={policy}
+                  isHighlighted={isNodeHighlighted(policy.id)}
+                  onHover={setHoveredId}
+                  onClick={() => onSelectService(policy, 'iam_role')}
+                  forceIAMPolicy={true}
+                />
+              </div>
+            ))}
             {architecture.iamRoles.length === 0 &&
-              (architecture.instanceProfiles?.length ?? 0) === 0 && (
+              (architecture.instanceProfiles?.length ?? 0) === 0 &&
+              (architecture.iamPolicies?.length ?? 0) === 0 && (
                 <div className="text-xs text-slate-500 italic p-4 text-center">
                   No identity on this path
                 </div>
