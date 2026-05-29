@@ -46,6 +46,7 @@ import { AttackerViewV3 } from "./attacker-view-v3"
 // v3 already uses). Reverted 2026-05-27. v4 file kept parked for ref.
 import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
+import TopologyView from "./topology-view"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -94,7 +95,7 @@ export function AttackPathsV2() {
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" =
+  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology" =
     modeParam === "exposure"
       ? "exposure"
       : modeParam === "attacker"
@@ -105,7 +106,9 @@ export function AttackPathsV2() {
             ? "phase"
             : modeParam === "exfil"
               ? "exfil"
-              : "path"
+              : modeParam === "topology"
+                ? "topology"
+                : "path"
 
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
@@ -225,7 +228,7 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => {
+  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology") => {
     // Switching to exposure or phase clears the path selection — both
     // aggregate ACROSS paths (phase shows every chain targeting the
     // selected jewel). Switching to attacker / attacker_v2 REQUIRES a
@@ -342,7 +345,22 @@ export function AttackPathsV2() {
 
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main className="flex-1 overflow-y-auto bg-slate-950">
-        {!selectedJewelId ? (
+        {/* Topology view is system-level, not jewel-level — render it
+            even when no jewel is selected. The mode toggle still
+            renders so the user can switch back to a path view. */}
+        {viewMode === "topology" ? (
+          <>
+            <ModeToggle
+              mode={viewMode}
+              onChange={handleSetMode}
+              jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
+              pathCount={jewelPaths.length}
+              isExpanded={isPathExpanded}
+              onToggleExpand={handleToggleExpand}
+            />
+            <TopologyView systemName={systemName} />
+          </>
+        ) : !selectedJewelId ? (
           <EmptyState
             title="No jewel selected"
             subtitle="Select a crown jewel on the left to see attack paths or exposure analysis."
@@ -478,8 +496,8 @@ function ModeToggle({
   isExpanded,
   onToggleExpand,
 }: {
-  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil"
-  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil") => void
+  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology"
+  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -561,7 +579,7 @@ function ModeToggle({
             external destinations become SINKS on the right. */}
         <button
           onClick={() => onChange("exfil")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
             mode === "exfil"
               ? "bg-amber-500/15 text-amber-200"
               : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -569,6 +587,23 @@ function ModeToggle({
           title="Exfil view (Phase A) — BFS-forwards from the crown jewel: every door the data can leave through, with capable (amber) vs observed (red) color-coding. Identity-egress + data-propagation lanes are honest not-wired empty states until Phase B/C collectors land."
         >
           Exfil <span className="text-[8px] opacity-60">Phase A</span>
+        </button>
+        {/* Topology — AWS reference-architecture containment view.
+            Phase 1 (2026-05-29): VPC > AZ > Subnet > workloads, with
+            SGs as dashed boundaries. Distinct mental model from the
+            attack-path tabs — this shows the customer's architecture,
+            not the attacker's path. Powers customer-facing demos
+            ("here's your environment"). */}
+        <button
+          onClick={() => onChange("topology")}
+          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            mode === "topology"
+              ? "bg-teal-500/15 text-teal-200"
+              : "bg-slate-900 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Topology view (Phase 1) — AWS reference-architecture containment. VPC > AZ > Public/Private Subnet > workloads, with Security Groups as dashed boundaries. Powered by /api/topology-aws/{system}, every node sourced from Neo4j."
+        >
+          Topology <span className="text-[8px] opacity-60">v0.1</span>
         </button>
       </div>
       <div className="text-[10px] text-slate-500 italic min-w-0 truncate flex-1">
@@ -582,7 +617,9 @@ function ModeToggle({
                 ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
                 : mode === "phase"
                   ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
-                  : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
+                  : mode === "topology"
+                    ? `AWS-style containment view — VPC > AZ > Subnet > workloads, sourced from Neo4j`
+                    : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
       </div>
       <button
         onClick={onToggleExpand}
