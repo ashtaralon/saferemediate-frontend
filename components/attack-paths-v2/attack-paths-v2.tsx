@@ -47,6 +47,7 @@ import { AttackerViewV3 } from "./attacker-view-v3"
 import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
+import { AllCrownJewelsView } from "./all-crown-jewels-view"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -494,10 +495,15 @@ export function AttackPathsV2() {
             <TopologyView systemName={systemName} selectedPath={selectedPath ?? null} />
           </>
         ) : !selectedJewelId ? (
-          <EmptyState
-            title="No jewel selected"
-            subtitle="Select a crown jewel on the left to see attack paths or exposure analysis."
-            large
+          // 2026-05-30: aggregated view replaces the old "select a
+          // jewel" empty state. Shows every CJ + every path on the
+          // system at once so the operator gets the full attack-
+          // surface footprint at a glance. Click any CJ → drill in.
+          <AllCrownJewelsView
+            jewels={jewels}
+            paths={allPaths}
+            onSelectJewel={(jewelId) => setUrl({ jewel: jewelId })}
+            onSelectPath={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId })}
           />
         ) : (
           <>
