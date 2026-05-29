@@ -22,7 +22,7 @@
 // reduction_narrative, risk_reduction, and damage_capability per path;
 // Slice 1 surfaces these directly in the right column header.
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Loader2, AlertTriangle, RefreshCw, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
@@ -114,29 +114,50 @@ export function AttackPathsV2() {
                 ? "topology"
                 : "path"
 
-  // 2026-05-30 — auto-redirect to the first available system when no
+  // 2026-05-30 v2 — auto-redirect to the first available system when no
   // ?system= param is in the URL. Operators landing on the page
   // without a system reach a working state without us hardcoding a
-  // demo system name (the original "alon-prod" default). The redirect
-  // uses router.replace so back-navigation works correctly, and skips
-  // the network call entirely once a system is set.
+  // demo system name (the original "alon-prod" default). Tries
+  // multiple field-name variants since the backend response shape
+  // has changed historically (name / SystemName / system_name).
+  //
+  // If the fetch fails or returns no systems, the inline picker
+  // below renders so the operator can pick manually — no dead-end
+  // spinner.
+  const [availableSystems, setAvailableSystems] = useState<string[]>([])
+  const [autoRedirectDone, setAutoRedirectDone] = useState(false)
+
   useEffect(() => {
     if (systemName) return
     let aborted = false
     ;(async () => {
       try {
         const r = await fetch("/api/proxy/systems/available", { cache: "no-store" })
-        if (!r.ok) return
+        if (!r.ok) {
+          if (!aborted) setAutoRedirectDone(true)
+          return
+        }
         const j = await r.json()
         if (aborted) return
-        const first = (j?.systems ?? [])[0]?.name
-        if (first && typeof first === "string") {
+        const rawArr = Array.isArray(j?.systems) ? j.systems : []
+        const names: string[] = rawArr
+          .map((s: any): string =>
+            typeof s === "string"
+              ? s
+              : (s?.name as string) ?? (s?.SystemName as string) ?? (s?.system_name as string) ?? "",
+          )
+          .filter(Boolean)
+        setAvailableSystems(names)
+        const first = names[0]
+        if (first) {
           const params = new URLSearchParams(searchParams?.toString() ?? "")
           params.set("system", first)
           router.replace(`${pathname}?${params.toString()}`)
+        } else {
+          setAutoRedirectDone(true)
         }
       } catch {
-        /* fall through to the no-system empty state */
+        if (!aborted) setAutoRedirectDone(true)
       }
     })()
     return () => {
@@ -293,24 +314,51 @@ export function AttackPathsV2() {
   }
 
   // ─── No-system-selected guard ──────────────────────────────────
-  // 2026-05-30: page used to default to "alon-prod" silently. The
-  // useEffect above auto-redirects to the first available system when
-  // no ?system= param is present, so this branch normally renders for
-  // a single frame (the network round-trip). If the systems endpoint
-  // 0-rows or errors, the empty state stays — at that point no demo
-  // default would help anyway.
+  // 2026-05-30 v2: page used to default to "alon-prod" silently. The
+  // useEffect above auto-redirects to the first available system on
+  // mount; while that fetch is in flight (or if it fails / returns
+  // 0 systems) we render an inline picker so the operator can pick
+  // manually instead of staring at a spinner.
   if (!systemName) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-950">
-        <div className="flex flex-col items-center gap-3 text-slate-300">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          <span className="text-xs">Finding a system to display…</span>
-          <a
-            href="/?section=systems"
-            className="text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300 underline mt-2"
-          >
-            Or pick one manually
-          </a>
+      <div className="flex h-screen items-center justify-center bg-slate-950 p-6">
+        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-6 max-w-md w-full">
+          <div className="text-sm font-semibold text-slate-200 mb-1">
+            Select a system
+          </div>
+          <p className="text-xs text-slate-400 mb-4">
+            Attack Paths v2 needs a system to render.
+            {!autoRedirectDone && availableSystems.length === 0 && (
+              <> Loading available systems…</>
+            )}
+          </p>
+          {availableSystems.length > 0 && (
+            <div className="space-y-1.5">
+              {availableSystems.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams?.toString() ?? "")
+                    params.set("system", s)
+                    router.replace(`${pathname}?${params.toString()}`)
+                  }}
+                  className="w-full text-left rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 hover:border-slate-600 transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          {autoRedirectDone && availableSystems.length === 0 && (
+            <div className="text-xs text-slate-500">
+              No systems available. Run an AWS sync from the dashboard to
+              populate this list.{" "}
+              <a href="/?section=systems" className="underline hover:text-slate-300">
+                Open systems dashboard
+              </a>
+            </div>
+          )}
         </div>
       </div>
     )
