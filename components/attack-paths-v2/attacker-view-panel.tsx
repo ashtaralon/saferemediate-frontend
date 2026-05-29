@@ -676,15 +676,20 @@ function bucketForGraphType(
   if (t === "vpc") return "vpc"
   if (t === "cloudtrailprincipal" || t === "iamuser" || t === "humanidentity" || t === "awsprincipal" || t.includes("principal"))
     return "principal"
-  // Egress gateways — IGW, NAT, EgressOnlyIGW, TransitGateway. TFM
-  // already has an egressGateways lane (chip item 10); populating
-  // it from the attacker view's lateral neighbors surfaces the
-  // missing egress story the audit flagged ("data leaves the cloud").
+  // Egress gateways — IGW, NAT, EgressOnlyIGW, TransitGateway, VPCEndpoint.
+  // VPCEndpoint added 2026-05-29 (path-scoped): AWS most-specific-route
+  // routes service-specific traffic (e.g. S3 reads) via the gateway VPCE
+  // when one is attached to the path's RT. Surfacing it in the same
+  // EGRESS GATEWAYS lane as IGW gives the operator the honest answer for
+  // "where do bytes for THIS jewel actually go". The backend already
+  // filters VPCEs by service-match against the path target, so anything
+  // that reaches here is graph-grounded.
   if (
     t === "internetgateway" ||
     t === "natgateway" ||
     t === "egressonlyinternetgateway" ||
-    t === "transitgateway"
+    t === "transitgateway" ||
+    t === "vpcendpoint"
   )
     return "egress_gateway"
   // NetworkInterface — the ENI carries the SG attachment and IP. Right
@@ -1166,18 +1171,24 @@ function buildAttackerArchitecture(
   // Egress gateway (IGW / NAT / EgressOnlyIGW / TransitGateway) →
   // egressGateways lane. The TFM already renders this lane (chip
   // item 10 from the topology work); we just need to populate it.
-  const addAsEgressGateway = (id: string, name: string | null, gatewayType: string, vpcId: string | null) => {
+  const addAsEgressGateway = (
+    id: string,
+    name: string | null,
+    gatewayType: string,
+    vpcId: string | null,
+    serviceName?: string | null,
+  ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "egress_gateway")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
-    // Map graph node-type → EgressGatewayNode.kind. The TFM expects
-    // one of: InternetGateway | NATGateway | EgressOnlyInternetGateway
-    // | TransitGateway. Default to InternetGateway when the graph
-    // gives us an unexpected string (safer fallback — most laterals
-    // we'd surface here are IGWs anyway).
+    // Map graph node-type → EgressGatewayNode.kind. Includes VPCEndpoint
+    // (2026-05-29 — gateway VPCEs are egress gateways too, mirroring AWS
+    // most-specific-route behavior). When the graph gives us an
+    // unexpected string, default to InternetGateway — safer fallback
+    // since most laterals we'd surface here historically were IGWs.
     const t = (gatewayType || "").toLowerCase()
     const kind: EgressGatewayNode["kind"] =
       t === "natgateway"
@@ -1186,12 +1197,23 @@ function buildAttackerArchitecture(
           ? "EgressOnlyInternetGateway"
           : t === "transitgateway"
             ? "TransitGateway"
-            : "InternetGateway"
+            : t === "vpcendpoint"
+              ? "VPCEndpoint"
+              : "InternetGateway"
+    // For VPCEs, surface the service token ("s3", "dynamodb", etc.)
+    // as the chip label so the operator can distinguish "VPCE · s3"
+    // from "VPCE · dynamodb" when an account has multiple gateway
+    // endpoints. service_name format: 'com.amazonaws.<region>.<service>'.
+    const svcToken = (serviceName || "")
+      .toLowerCase()
+      .split(".")
+      .pop() || ""
     const kindLabel: Record<EgressGatewayNode["kind"], string> = {
       InternetGateway: "IGW",
       NATGateway: "NAT GW",
       EgressOnlyInternetGateway: "Egress-only IGW",
       TransitGateway: "Transit GW",
+      VPCEndpoint: svcToken ? `VPCE · ${svcToken}` : "VPCE",
     }
     egressGateways.push({
       id,
@@ -1200,6 +1222,7 @@ function buildAttackerArchitecture(
       vpcId,
       kind,
       kindLabel: kindLabel[kind],
+      serviceHint: kind === "VPCEndpoint" ? svcToken || undefined : undefined,
     })
   }
 
@@ -1348,7 +1371,11 @@ function buildAttackerArchitecture(
     else if (bucket === "vpc") addAsVPC(node.id, node.name)
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
-      addAsEgressGateway(node.id, node.name, node.type, vpcId)
+      // service_name is set for VPCEndpoint nodes
+      // ('com.amazonaws.<region>.<service>') by attack_chain_view.py's
+      // SEC_CRITICAL_LABELS enrichment pass; unused for IGW/NAT.
+      const serviceName = (props?.service_name as string | undefined) ?? null
+      addAsEgressGateway(node.id, node.name, node.type, vpcId, serviceName)
     } else if (bucket === "network_interface") {
       addAsNetworkInterface(node.id, node.name)
     } else if (bucket === "subnet") {
@@ -1538,8 +1565,17 @@ function buildAttackerArchitecture(
       if (neighborBucket === "egress_gateway") {
         if (pathNodeBucket === "subnet" || pathNodeBucket === "ignore") {
           // VPC nodes bucket as 'ignore' currently (no VPC lane in
-          // TFM). Subnet ROUTES_VIA → IGW is the canonical edge.
-          addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null)
+          // TFM). Subnet ROUTES_VIA → IGW or VPCE is the canonical edge.
+          // service_name comes through on the neighbor node when it's
+          // enriched server-side (the backend's SEC_CRITICAL_LABELS
+          // path puts VPCEndpoint properties on graph.nodes); the
+          // lateral edge itself doesn't carry it, so we look up the
+          // enriched node from graph.nodes and pull service_name there.
+          const enrichedNode = graph.nodes.find((n) => n.id === neighborId)
+          const svcName =
+            (enrichedNode?.key_properties as Record<string, any> | undefined)
+              ?.service_name ?? null
+          addAsEgressGateway(neighborId, e.neighbor_name, e.neighbor_type, null, svcName)
         }
         continue
       }

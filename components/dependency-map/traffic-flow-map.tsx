@@ -237,12 +237,22 @@ export interface VPCEndpointNode {
 // operator-facing short name shown beneath the icon ("IGW", "NAT GW",
 // "Egress-only IGW", "Transit GW").
 export interface EgressGatewayNode {
-  id: string;            // igw-xxxxxxxx / nat-xxxxxxxx / etc.
+  id: string;            // igw-xxxxxxxx / nat-xxxxxxxx / vpce-xxxxxxxx / etc.
   name: string;
   shortName: string;
   vpcId: string | null;
-  kind: 'InternetGateway' | 'NATGateway' | 'EgressOnlyInternetGateway' | 'TransitGateway';
-  kindLabel: string;     // "IGW" | "NAT GW" | "Egress-only IGW" | "Transit GW"
+  // VPCEndpoint added 2026-05-29: gateway VPCEs (S3, DynamoDB) are
+  // egress gateways too — AWS most-specific-route sends service-specific
+  // traffic through them instead of via IGW. Surfacing them in the same
+  // lane as IGW lets the operator see "S3 reads go via VPCE; everything
+  // else via IGW" at a glance. Path-scoped on the backend (only the VPCE
+  // whose service matches the path's target jewel surfaces).
+  kind: 'InternetGateway' | 'NATGateway' | 'EgressOnlyInternetGateway' | 'TransitGateway' | 'VPCEndpoint';
+  kindLabel: string;     // "IGW" | "NAT GW" | "Egress-only IGW" | "Transit GW" | "VPCE"
+  // Optional service hint (e.g. "s3", "dynamodb") for VPCEndpoint kinds.
+  // Lets the lane chip distinguish "VPCE · s3" vs "VPCE · dynamodb" when
+  // multiple gateway endpoints attach to the same RT.
+  serviceHint?: string;
 }
 
 // EXFIL view: items in the named EGRESS GATE lane (between IDENTITY and
