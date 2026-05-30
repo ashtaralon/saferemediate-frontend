@@ -545,7 +545,7 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
     : "No accessors or paths resolved for this jewel"
 
   const innerSubtitle = selectedPath
-    ? `${selectedPath.channel_label} via ${selectedPath.accessor_name} · ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"}`
+    ? `${selectedPath.channel_label} via ${friendlyAccessorName(selectedPath.accessor_name)} · ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"}`
     : data.observed_exfil.available
       ? "Data exit paths — capable (amber) vs observed (red)"
       : "Capable data-exit paths — observed-exfil layer pending"
@@ -580,7 +580,7 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
           innerSubtitleOverride={innerSubtitle}
           pathBadgeOverride={
             selectedPath
-              ? `${selectedPath.accessor_name} → ${data.jewel.name}`
+              ? `${friendlyAccessorName(selectedPath.accessor_name)} → ${data.jewel.name}`
               : `Exfil → ${data.jewel.name}`
           }
           headerSlot={pathSelectorNode}
@@ -683,7 +683,7 @@ function DamageRemediationPanel({
   damageSentences.push(
     `An attacker who compromises ${workloadKind} ${
       selectedPath.workload_sample?.[0]?.name ?? "(unknown)"
-    } can read ${payload.jewel.name} via the ${selectedPath.accessor_name} role.`,
+    } can read ${payload.jewel.name} via the ${friendlyAccessorName(selectedPath.accessor_name)} role.`,
   )
   if (observed && selectedPath.jewel_hits > 0) {
     damageSentences.push(
@@ -820,7 +820,7 @@ function DamageRemediationPanel({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <RemediationIAMCol rem={rem.iam} roleName={selectedPath.accessor_name} />
+            <RemediationIAMCol rem={rem.iam} roleName={friendlyAccessorName(selectedPath.accessor_name)} />
             <RemediationSGCol rem={rem.sg} />
             <RemediationDataCol rem={rem.data_access} jewelName={payload.jewel.name} />
           </div>
@@ -1642,7 +1642,7 @@ function PathSelector({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] font-mono text-slate-200 truncate">
-                        {p.accessor_name}
+                        {friendlyAccessorName(p.accessor_name)}
                       </span>
                       <span
                         className={`text-[8px] uppercase tracking-wider font-bold ${observed ? "text-red-300" : "text-amber-300"}`}
@@ -1844,11 +1844,12 @@ function buildExfilArchitecture(
   for (const a of accessorsForPath) {
     if (seen.has(a.id)) continue
     seen.add(a.id)
+    const friendlyName = friendlyAccessorName(a.name)
     iamRoles.push({
       id: a.id,
       type: "iam_role",
-      name: a.name,
-      shortName: shortName(a.name, 30),
+      name: friendlyName,
+      shortName: shortName(friendlyName, 30),
       usedCount: a.used_actions_count ?? 0,
       totalCount: a.allowed_actions_count ?? 0,
       gapCount: a.unused_actions_count ?? 0,
@@ -2326,6 +2327,21 @@ function shortName(name: string, maxLen = 22): string {
   if (name.length <= maxLen) return name
   const half = Math.floor((maxLen - 1) / 2)
   return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
+}
+
+// 2026-05-30 defense-in-depth: detect SHA-256-shaped accessor names
+// and substitute a friendly label. The collector occasionally writes
+// the raw hash into the Principal node's .name field when CloudTrail
+// can't resolve the caller's IAM identity (anonymous principal data
+// quality artifact). Backend exfil_paths.py already substitutes via
+// CASE WHEN in the SELECT; this is the same drop applied at the
+// render boundary in case a payload slips through (stale cache,
+// alternative endpoint, etc.).
+const _SHA256_RE = /^[a-f0-9]{64}$/i
+function friendlyAccessorName(name: string | null | undefined): string {
+  if (!name) return ""
+  if (_SHA256_RE.test(name)) return "Anonymous principal"
+  return name
 }
 
 // Map AWS jewel type → TFM NodeType so the SOURCE chip badge says
