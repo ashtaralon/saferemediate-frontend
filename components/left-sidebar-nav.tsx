@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map } from "lucide-react"
 
 interface LeftSidebarNavProps {
   activeItem?: string
@@ -69,6 +69,7 @@ export function LeftSidebarNav({
     // SG-1 through SG-6 backend live (discovery + plan + CREATE_ONLY + STAGED
     // preview); execute/rollback UI lands with SG-9b.
     { id: "shared-sgs", label: "Shared SGs", icon: Network, href: "/sg/shared-sgs" },
+    { id: "dependency-map", label: "Dependency Map", icon: Map, href: "/dependency-map?system=alon-prod" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },
     { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
@@ -224,7 +225,7 @@ export function LeftSidebarNav({
           // activeSection didn't update. Now using an explicit set of
           // dedicated-route ids so additions in either direction are
           // unambiguous.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "shared-roles", "shared-sgs"])
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "shared-roles", "shared-sgs", "dependency-map"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button
