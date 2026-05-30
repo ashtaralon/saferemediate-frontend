@@ -18,7 +18,7 @@
  * node is a real Neo4j resource.
  */
 
-import { useMemo } from "react"
+import { Fragment, useMemo } from "react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Cloud, Server, Database, Lock, Globe, Layers, Network, ShieldCheck } from "lucide-react"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
@@ -259,18 +259,18 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
           </div>
 
           {/* USER → IGW perimeter entry — matches AWS reference
-              architecture exactly: user icon, vertical arrow, IGW
-              chip centered above the VPC body. When no IGW exists
-              on the VPC, render an honest "private VPC (no IGW)"
-              state instead of hiding the perimeter. */}
-          <div className="flex flex-col items-center mb-4">
+              architecture exactly: user icon, flow arrow, IGW chip
+              centered above the VPC body. When no IGW exists on the
+              VPC, render an honest "private VPC (no IGW)" state
+              instead of hiding the perimeter. */}
+          <div className="flex flex-col items-center mb-2">
             <div className="flex flex-col items-center gap-0.5">
               <div className="text-xl leading-none">👤</div>
               <span className="text-[8px] uppercase tracking-wider text-slate-400">
                 User
               </span>
             </div>
-            <div className="h-3 w-px bg-slate-500/60" />
+            <FlowConnector height={14} />
             {vpc.internet_gateways.length > 0 ? (
               vpc.internet_gateways.map((g) => (
                 <div
@@ -291,6 +291,13 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
               <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-[9px] text-slate-400 italic">
                 Private VPC · no Internet Gateway
               </div>
+            )}
+            {/* Flow continuation: from IGW (or "private VPC" chip)
+                down into the tier grid. Renders only when a real
+                IGW exists, since the "private VPC" honest-empty
+                state shouldn't pretend egress is happening. */}
+            {vpc.internet_gateways.length > 0 && (
+              <FlowConnector height={18} />
             )}
           </div>
 
@@ -437,6 +444,70 @@ function loadBalancerKind(w: Workload): "ALB" | "NLB" | "ELB" {
   return "ELB"
 }
 
+// 2026-05-31 — Phase 3 of the topology structural pass. Flow arrows.
+//
+// Spine-first approach: the reference architecture's signature look
+// comes from vertical arrows establishing User → IGW → Web → App →
+// DB. We render those as tier connectors (vertical line + arrowhead
+// SVG) between consecutive top-level sections — no measurement, no
+// absolute positioning, just inline flex children.
+//
+// Inter-AZ splaying (ALB → EC2 in each AZ) is deliberately NOT in
+// this commit — it requires ALB target-group edges that aren't in
+// the topology response shape yet. Phase 3.5 wires those.
+function FlowConnector({
+  height = 16,
+  tone = "default",
+  showArrow = true,
+}: {
+  height?: number
+  tone?: "default" | "active" | "dim"
+  showArrow?: boolean
+}) {
+  const lineColor =
+    tone === "active"
+      ? "rgba(251,191,36,0.85)"   // amber-400 (path-overlay)
+      : tone === "dim"
+        ? "rgba(148,163,184,0.25)" // slate-400/25
+        : "rgba(148,163,184,0.55)" // slate-400/55
+  const arrowColor =
+    tone === "active"
+      ? "#fbbf24"
+      : tone === "dim"
+        ? "rgba(148,163,184,0.4)"
+        : "#94a3b8"
+  return (
+    <div className="flex flex-col items-center" style={{ marginTop: -2, marginBottom: -2 }}>
+      <div
+        style={{
+          height,
+          width: 1,
+          background: lineColor,
+        }}
+      />
+      {showArrow && (
+        <svg
+          width="10"
+          height="6"
+          viewBox="0 0 10 6"
+          fill="none"
+          style={{ marginTop: -1 }}
+          aria-hidden="true"
+        >
+          <path
+            d="M1 1 L5 5 L9 1"
+            stroke={arrowColor}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
+      )}
+    </div>
+  )
+}
+
 function TierRowsLayout({
   vpc,
   onPathIds,
@@ -489,8 +560,11 @@ function TierRowsLayout({
       </div>
 
       {/* Tier rows. Each tier renders its own band on the left + a
-          grid of subnet cells indexed by AZ. */}
-      {populatedTiers.map((tier) => {
+          grid of subnet cells indexed by AZ. Between consecutive
+          tiers a vertical FlowConnector establishes the
+          User→IGW→Web→App→DB top-down flow direction without
+          requiring per-resource target-group edges. */}
+      {populatedTiers.map((tier, tierIdx) => {
         const meta = TIER_META[tier]
         // Bucket this tier's subnets by AZ so we can render an empty
         // cell where the customer has no subnet for an AZ in this tier
@@ -522,9 +596,17 @@ function TierRowsLayout({
           }
         }
         const hoistedIds = new Set(albs.keys())
+        // Flow connector ABOVE this tier, except for the first one
+        // (the first tier sits right under the IGW header which
+        // already has its own outgoing connector).
         return (
+          <Fragment key={tier}>
+            {tierIdx > 0 && (
+              <div className="flex justify-center">
+                <FlowConnector height={14} />
+              </div>
+            )}
           <div
-            key={tier}
             className={`border border-dashed ${meta.tint} rounded-md p-2`}
           >
             {/* Hoisted load balancers — render above the AZ grid,
@@ -599,6 +681,7 @@ function TierRowsLayout({
               })}
             </div>
           </div>
+          </Fragment>
         )
       })}
     </div>
@@ -654,10 +737,10 @@ function LoadBalancerChip({
         </span>
       </div>
       <div className="text-[11px] font-mono text-purple-100">
-        {shortName(alb.name, 28)}
+        {shortName(alb.name)}
       </div>
       <div className="text-[8px] text-purple-300/60 font-mono">
-        {shortName(alb.id, 24)}
+        {shortName(alb.id)}
       </div>
       {alb.security_groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 justify-center mt-1 pt-1 border-t border-purple-500/30 w-full">
@@ -672,7 +755,7 @@ function LoadBalancerChip({
               >
                 <span className="text-[7px] font-bold uppercase text-rose-200">SG</span>
                 <span className="text-[7px] text-rose-300/80 font-mono">
-                  {shortName(sg?.name || sgId, 18)}
+                  {shortName(sg?.name || sgId)}
                 </span>
                 {sg?.has_public_ingress && (
                   <span className="text-[7px] font-bold uppercase text-amber-300 bg-amber-500/20 rounded px-0.5">
