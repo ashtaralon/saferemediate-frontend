@@ -49,6 +49,26 @@ interface IGW { id: string; name: string }
 interface VPCE { id: string; name: string; service: string | null }
 interface SG { id: string; name: string; has_public_ingress: boolean }
 interface NACL { id: string; name: string; subnet_ids: string[] }
+// 2026-05-31 — backend returns these but TS interface + renderer
+// were missing them, so the reference-architecture features
+// (NAT GW chip on web tier, RT chip with actual routes) couldn't
+// be drawn. Wiring through now.
+interface NATGateway {
+  id: string
+  name: string
+  subnet_id: string | null
+}
+interface RouteEntry {
+  cidr: string
+  target_id: string | null
+  target_kind: string  // "igw" | "nat" | "vpce" | "local" | "tgw" | ...
+}
+interface RouteTable {
+  id: string
+  name: string
+  main: boolean
+  routes: RouteEntry[]
+}
 
 interface VPC {
   id: string
@@ -57,6 +77,8 @@ interface VPC {
   region: string | null
   azs: AZ[]
   internet_gateways: IGW[]
+  nat_gateways: NATGateway[]
+  route_tables: RouteTable[]
   vpc_endpoints: VPCE[]
   security_groups: SG[]
   nacls: NACL[]
@@ -201,6 +223,7 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
 
         {/* VPC container — solid green rule */}
         <div className="border-2 border-emerald-500/40 rounded-md p-4 bg-emerald-900/5">
+          {/* VPC banner — name + CIDR on its own row, centered emphasis */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Network className="h-4 w-4 text-emerald-400" />
@@ -209,38 +232,93 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
               </span>
               <span className="text-[9px] text-emerald-300/60">{shortName(vpc.id)}</span>
             </div>
-            {/* IGW chip at the top of the VPC — classic AWS placement */}
-            {vpc.internet_gateways.length > 0 && (
-              <div className="flex items-center gap-2">
-                {vpc.internet_gateways.map((g) => (
+            {/* Service endpoints (VPCEs) chip cluster — sit at the
+                top-right of the VPC so they're visible without scrolling.
+                Per the AWS reference, VPCEs are alternative egress to
+                IGW for AWS services; they're a control-plane gate, not
+                a tier resource. */}
+            {vpc.vpc_endpoints.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] uppercase tracking-wider text-slate-500">
+                  Service endpoints
+                </span>
+                {vpc.vpc_endpoints.map((g) => (
                   <div
                     key={g.id}
-                    className="flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-900/20 px-2 py-1"
+                    className="flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-900/20 px-1.5 py-0.5"
                     title={g.id}
                   >
-                    <Globe className="h-3 w-3 text-violet-300" />
-                    <span className="text-[9px] font-bold uppercase text-violet-200">IGW</span>
-                    <span className="text-[8px] text-violet-300/70">{shortName(g.id)}</span>
+                    <Globe className="h-3 w-3 text-cyan-300" />
+                    <span className="text-[9px] font-bold uppercase text-cyan-200">
+                      VPCE {g.service ? `· ${g.service}` : ""}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* VPCEs row — below the IGW, AWS-style "service gateway" placement */}
-          {vpc.vpc_endpoints.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 mb-3 ml-1">
-              {vpc.vpc_endpoints.map((g) => (
+          {/* USER → IGW perimeter entry — matches AWS reference
+              architecture exactly: user icon, vertical arrow, IGW
+              chip centered above the VPC body. When no IGW exists
+              on the VPC, render an honest "private VPC (no IGW)"
+              state instead of hiding the perimeter. */}
+          <div className="flex flex-col items-center mb-4">
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="text-xl leading-none">👤</div>
+              <span className="text-[8px] uppercase tracking-wider text-slate-400">
+                User
+              </span>
+            </div>
+            <div className="h-3 w-px bg-slate-500/60" />
+            {vpc.internet_gateways.length > 0 ? (
+              vpc.internet_gateways.map((g) => (
                 <div
                   key={g.id}
-                  className="flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-900/20 px-2 py-1"
+                  className="flex flex-col items-center gap-0.5 rounded-md border border-violet-500/60 bg-violet-900/30 px-3 py-1.5"
                   title={g.id}
                 >
-                  <Globe className="h-3 w-3 text-cyan-300" />
-                  <span className="text-[9px] font-bold uppercase text-cyan-200">
-                    VPCE {g.service ? `· ${g.service}` : ""}
+                  <Globe className="h-4 w-4 text-violet-300" />
+                  <span className="text-[9px] font-bold uppercase text-violet-200">
+                    Internet Gateway
                   </span>
-                  <span className="text-[8px] text-cyan-300/70">{shortName(g.id)}</span>
+                  <span className="text-[8px] text-violet-300/70 font-mono">
+                    {shortName(g.id)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-[9px] text-slate-400 italic">
+                Private VPC · no Internet Gateway
+              </div>
+            )}
+          </div>
+
+          {/* NAT Gateways — typically sit on the public-subnet edge of
+              the Web Tier. Reference architecture renders them on the
+              far-left of the Web Tier band. We surface them in their
+              own row above the tier grid so the operator sees the
+              egress path; backend's `subnet_id` tells us which AZ each
+              NAT GW lives in (rendered in column-aligned position once
+              we have ALB inter-AZ rendering — for now, single row). */}
+          {vpc.nat_gateways.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="text-[8px] uppercase tracking-wider text-slate-500">
+                Egress
+              </span>
+              {vpc.nat_gateways.map((n) => (
+                <div
+                  key={n.id}
+                  className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-900/20 px-2 py-1"
+                  title={`${n.id}${n.subnet_id ? ` · in subnet ${n.subnet_id}` : ""}`}
+                >
+                  <Globe className="h-3 w-3 text-amber-300" />
+                  <span className="text-[9px] font-bold uppercase text-amber-200">
+                    NAT GW
+                  </span>
+                  <span className="text-[8px] text-amber-300/70 font-mono">
+                    {shortName(n.id)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -252,7 +330,12 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
               convention (e.g. demo data where every subnet is public-
               routed), tiers collapse and everything lands in a single
               row — accurate to the data, no fake separation. */}
-          <TierRowsLayout vpc={vpc} onPathIds={onPathIds} hasPath={hasPath} />
+          <TierRowsLayout
+            vpc={vpc}
+            onPathIds={onPathIds}
+            hasPath={hasPath}
+            routeTablesById={routeTablesById(vpc)}
+          />
 
           {/* NACLs footer — render as a row of chips with which subnets they apply to */}
           {vpc.nacls.length > 0 && (
@@ -315,14 +398,22 @@ function classifySubnetTier(s: Subnet): TierKey {
   return s.workloads.length === 0 ? "other" : "app"
 }
 
+function routeTablesById(vpc: VPC): Map<string, RouteTable> {
+  const m = new Map<string, RouteTable>()
+  for (const rt of vpc.route_tables ?? []) m.set(rt.id, rt)
+  return m
+}
+
 function TierRowsLayout({
   vpc,
   onPathIds,
   hasPath,
+  routeTablesById: rtById,
 }: {
   vpc: VPC
   onPathIds: Set<string>
   hasPath: boolean
+  routeTablesById: Map<string, RouteTable>
 }) {
   // Flatten subnets, attach az + tier, then bucket by tier.
   const byTier = useMemo(() => {
@@ -412,6 +503,9 @@ function TierRowsLayout({
                           sgs={vpc.security_groups}
                           onPathIds={onPathIds}
                           hasPath={hasPath}
+                          routeTable={
+                            s.route_table_id ? rtById.get(s.route_table_id) ?? null : null
+                          }
                         />
                       ))
                     )}
@@ -426,7 +520,19 @@ function TierRowsLayout({
   )
 }
 
-function SubnetBox({ subnet, sgs, onPathIds, hasPath }: { subnet: Subnet; sgs: SG[]; onPathIds: Set<string>; hasPath: boolean }) {
+function SubnetBox({
+  subnet,
+  sgs,
+  onPathIds,
+  hasPath,
+  routeTable,
+}: {
+  subnet: Subnet
+  sgs: SG[]
+  onPathIds: Set<string>
+  hasPath: boolean
+  routeTable: RouteTable | null
+}) {
   // Public subnet → light-green tint. Private → light-blue tint.
   const tint = subnet.is_public
     ? "border-emerald-600/40 bg-emerald-800/15"
@@ -474,19 +580,71 @@ function SubnetBox({ subnet, sgs, onPathIds, hasPath }: { subnet: Subnet; sgs: S
           {shortName(subnet.id)}
         </span>
       </div>
-      {/* Route Table chip — the AWS-console default for any subnet
-          card is its associated route table id. Adding it here lets
-          the operator see "this subnet routes via rtb-XXX" without
-          opening a side panel. */}
+      {/* Route Table chip + route entries — matches the AWS reference
+          where each subnet card shows its associated RT with the
+          actual route destinations underneath (e.g. "0.0.0.0/0 → IGW",
+          "local"). Backend returns route_tables[].routes already; we
+          render the first 3 entries inline so the operator can read
+          the egress posture without drilling. */}
       {subnet.route_table_id && (
-        <div className="mb-2 flex items-center gap-1.5">
-          <div
-            className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/15 px-1.5 py-0.5"
-            title={subnet.route_table_id}
-          >
-            <span className="text-[8px] font-bold uppercase text-amber-300">RT</span>
-            <span className="text-[8px] text-amber-200/80">{shortName(subnet.route_table_id)}</span>
+        <div className="mb-2">
+          <div className="flex items-center gap-1.5 mb-1">
+            <div
+              className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/15 px-1.5 py-0.5"
+              title={subnet.route_table_id}
+            >
+              <span className="text-[8px] font-bold uppercase text-amber-300">RT</span>
+              <span className="text-[8px] text-amber-200/80 font-mono">
+                {shortName(subnet.route_table_id)}
+              </span>
+              {routeTable?.main && (
+                <span className="text-[7px] font-bold uppercase text-amber-300/80 bg-amber-500/10 rounded px-1">
+                  main
+                </span>
+              )}
+            </div>
+            {routeTable && (
+              <span className="text-[8px] text-amber-300/60">
+                {routeTable.routes.length} route
+                {routeTable.routes.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
+          {routeTable && routeTable.routes.length > 0 && (
+            <div className="flex flex-wrap gap-1 pl-2">
+              {routeTable.routes.slice(0, 3).map((r, i) => {
+                // Target-kind tone — IGW/NAT visually distinct from
+                // local routes, so the operator clocks "internet-facing"
+                // at a glance.
+                const isInternet = r.target_kind === "igw" || r.target_kind === "nat"
+                const isLocal = r.target_kind === "local"
+                const tone = isInternet
+                  ? "border-violet-500/40 bg-violet-900/20 text-violet-200"
+                  : isLocal
+                    ? "border-slate-600/40 bg-slate-800/40 text-slate-300"
+                    : "border-cyan-500/40 bg-cyan-900/20 text-cyan-200"
+                return (
+                  <span
+                    key={`${r.cidr}-${i}`}
+                    className={`text-[8px] font-mono px-1 py-0.5 rounded border ${tone}`}
+                    title={r.target_id ? `${r.cidr} → ${r.target_kind} ${r.target_id}` : `${r.cidr} → ${r.target_kind}`}
+                  >
+                    {r.cidr} → {r.target_kind}
+                  </span>
+                )
+              })}
+              {routeTable.routes.length > 3 && (
+                <span className="text-[8px] text-amber-300/60">
+                  +{routeTable.routes.length - 3} more
+                </span>
+              )}
+            </div>
+          )}
+          {!routeTable && (
+            <div className="text-[8px] text-slate-500 italic pl-2">
+              Routes not collected for this table
+            </div>
+          )}
         </div>
       )}
 
