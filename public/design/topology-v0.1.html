@@ -681,6 +681,367 @@
   .legend .dot.jewel { box-shadow: 0 0 6px 2px rgba(245, 166, 35, 0.5); background: var(--aws-blue); }
   .legend .dot.clean { box-shadow: 0 0 0 2px var(--cy-teal); background: white; }
 
+  /* ── Detail panel (right-edge slide-in, non-modal) ──────────────── */
+  .topology-pane {
+    position: relative;
+  }
+  .detail-panel {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    bottom: 0;
+    width: 480px;
+    background: white;
+    border: 1px solid #D6DDE3;
+    border-radius: 6px 0 0 6px;
+    box-shadow: -8px 0 24px rgba(13, 27, 42, 0.08), -2px 0 6px rgba(13, 27, 42, 0.04);
+    z-index: 10;
+    overflow-y: auto;
+    overflow-x: hidden;
+    font-size: 12px;
+    max-height: calc(100% - 50px);
+  }
+  .detail-panel .panel-header {
+    background: var(--cy-navy);
+    color: white;
+    padding: 14px 18px 12px;
+    position: sticky; top: 0; z-index: 2;
+  }
+  .detail-panel .panel-header .close {
+    position: absolute; top: 12px; right: 14px;
+    background: transparent; border: none; color: #97A4B0;
+    font-size: 18px; cursor: pointer; line-height: 1;
+  }
+  .detail-panel .panel-header .close:hover { color: white; }
+  .detail-panel .panel-kicker {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--cy-teal);
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .detail-panel h2 {
+    font-family: Georgia, serif;
+    font-size: 18px;
+    font-weight: 500;
+    margin: 6px 0 4px;
+    line-height: 1.2;
+    color: white;
+  }
+  .detail-panel .panel-subhdr {
+    font-size: 10px; color: #97A4B0;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+  }
+  .detail-panel .risk-banner {
+    background: var(--cy-carmine);
+    color: white;
+    padding: 10px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    border-bottom: 2px solid rgba(255,255,255,0.15);
+  }
+  .detail-panel .risk-banner .num {
+    font-family: Georgia, serif; font-size: 22px; font-weight: 600;
+  }
+  .detail-panel .panel-tabs {
+    display: flex; gap: 0;
+    border-bottom: 1px solid #E0E5EA;
+    padding: 0 12px;
+    background: #FAFBFC;
+    position: sticky; top: 76px;
+    z-index: 1;
+  }
+  .detail-panel .panel-tabs button {
+    background: transparent; border: none;
+    padding: 8px 10px 10px;
+    font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--cy-slate);
+    cursor: pointer; font-weight: 600;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .detail-panel .panel-tabs button.active {
+    color: var(--cy-navy);
+    border-bottom-color: var(--cy-teal);
+  }
+  .detail-panel .panel-tabs .count {
+    background: #E0E5EA; color: var(--cy-slate);
+    border-radius: 8px; padding: 0 5px;
+    font-size: 9px; margin-left: 4px;
+  }
+  .detail-panel .panel-tabs .count.crit { background: var(--cy-carmine); color: white; }
+  .detail-panel .panel-tabs .count.amber { background: var(--cy-amber); color: var(--cy-navy); }
+  .detail-panel .section {
+    padding: 16px 18px 18px;
+    border-bottom: 1px solid #EEF1F4;
+  }
+  .detail-panel .section h3 {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--cy-slate);
+    margin: 0 0 10px;
+    font-weight: 700;
+  }
+  .detail-panel .kv {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 4px 12px;
+    font-size: 11px;
+    margin-bottom: 4px;
+    line-height: 1.5;
+  }
+  .detail-panel .kv .k {
+    color: var(--cy-slate);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+  }
+  .detail-panel .kv .v {
+    color: var(--cy-ink);
+    font-weight: 500;
+    word-break: break-word;
+  }
+  .detail-panel .kv .v.mono {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+  }
+  .detail-panel .kv .v .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; margin-left: 4px;
+  }
+  .detail-panel .kv .v .badge.latent  { background: rgba(224, 69, 69, 0.12); color: #8B1F1F; }
+  .detail-panel .kv .v .badge.clean   { background: rgba(0, 194, 168, 0.15); color: #006B5F; }
+  .detail-panel .kv .v .badge.warn    { background: rgba(245, 166, 35, 0.18); color: #8C5A04; }
+
+  .detail-panel .chain {
+    margin-top: 8px;
+    border-left: 3px solid var(--cy-carmine);
+    padding: 4px 0 4px 14px;
+    background: rgba(224, 69, 69, 0.04);
+    border-radius: 0 4px 4px 0;
+  }
+  .detail-panel .chain .hop {
+    font-size: 11px; line-height: 1.4;
+    color: var(--cy-ink);
+    padding: 6px 0;
+    position: relative;
+  }
+  .detail-panel .chain .hop:not(:last-child)::after {
+    content: "▼";
+    position: absolute;
+    left: -4px;
+    bottom: -4px;
+    font-size: 8px;
+    color: var(--cy-carmine);
+    background: rgba(252, 246, 246, 1);
+    padding: 0 2px;
+  }
+  .detail-panel .chain .hop .l1 { font-weight: 600; }
+  .detail-panel .chain .hop .l2 {
+    font-size: 10px; color: var(--cy-slate);
+    font-family: ui-monospace, monospace;
+  }
+  .detail-panel .chain .verdict {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed #E0C4C4;
+    font-size: 11px;
+    color: #8B1F1F;
+    font-weight: 600;
+  }
+
+  .detail-panel .data-stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px; margin-top: 8px;
+  }
+  .detail-panel .data-stats .stat {
+    background: #F4F6F8; padding: 8px 10px; border-radius: 4px;
+    border-left: 3px solid var(--cy-slate);
+  }
+  .detail-panel .data-stats .stat.warn { border-left-color: var(--cy-amber); }
+  .detail-panel .data-stats .stat.crit { border-left-color: var(--cy-carmine); }
+  .detail-panel .data-stats .stat .num {
+    font-family: Georgia, serif;
+    font-size: 22px;
+    color: var(--cy-navy);
+    font-weight: 600; line-height: 1;
+  }
+  .detail-panel .data-stats .stat .lbl {
+    font-size: 9px; color: var(--cy-slate);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin-top: 4px;
+  }
+
+  .detail-panel .sync-warn {
+    background: rgba(245, 166, 35, 0.1);
+    border: 1px solid rgba(245, 166, 35, 0.4);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: #8C5A04;
+    line-height: 1.4;
+  }
+  .detail-panel .sync-warn strong { color: var(--cy-ink); }
+
+  .detail-panel .action-list {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+  }
+  .detail-panel .action-list .act {
+    background: rgba(0, 194, 168, 0.08);
+    border: 1px solid rgba(0, 194, 168, 0.4);
+    color: #006B5F;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .detail-panel .dns-list .domain {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    padding: 5px 0;
+    border-bottom: 1px dotted #E0E5EA;
+    display: flex; justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+  .detail-panel .dns-list .domain:last-child { border-bottom: none; }
+  .detail-panel .dns-list .gap-tag {
+    background: rgba(245, 166, 35, 0.18); color: #8C5A04;
+    font-size: 9px; padding: 1px 5px; border-radius: 2px;
+    font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; font-family: -apple-system, sans-serif;
+    white-space: nowrap;
+  }
+
+  .detail-panel .timeline {
+    border-left: 2px solid #E0E5EA;
+    padding: 4px 0 4px 14px;
+    margin-left: 4px;
+  }
+  .detail-panel .timeline .event {
+    position: relative;
+    padding: 6px 0;
+  }
+  .detail-panel .timeline .event::before {
+    content: ""; position: absolute;
+    left: -19px; top: 11px;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--cy-teal);
+    border: 2px solid white;
+    box-shadow: 0 0 0 1px var(--cy-teal);
+  }
+  .detail-panel .timeline .event.drift::before { background: var(--cy-amber); box-shadow: 0 0 0 1px var(--cy-amber); }
+  .detail-panel .timeline .event .when {
+    font-size: 9px; color: var(--cy-slate);
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.04em;
+  }
+  .detail-panel .timeline .event .what {
+    font-size: 11px; color: var(--cy-ink);
+    font-weight: 500; line-height: 1.3;
+    margin-top: 2px;
+  }
+  .detail-panel .timeline .event .who {
+    font-size: 10px; color: var(--cy-slate);
+    font-family: ui-monospace, monospace;
+    margin-top: 1px;
+  }
+
+  .detail-panel .related-list {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .detail-panel .related-list .rel {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 10px;
+    background: #FAFBFC;
+    border: 1px solid #EEF1F4;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .detail-panel .related-list .rel:hover { background: #F0F4F7; }
+  .detail-panel .related-list .rel .left {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .detail-panel .related-list .rel .nm {
+    font-size: 11px; font-weight: 600; color: var(--cy-ink);
+  }
+  .detail-panel .related-list .rel .meta {
+    font-size: 9px; color: var(--cy-slate);
+    font-family: ui-monospace, monospace;
+  }
+  .detail-panel .related-list .rel .arrow {
+    font-size: 14px; color: var(--cy-slate);
+  }
+  .detail-panel .rel-tag {
+    display: inline-block;
+    background: var(--cy-navy); color: white;
+    font-size: 8px; padding: 1px 4px; border-radius: 2px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .detail-panel .rel-tag.warn { background: var(--cy-amber); color: var(--cy-navy); }
+  .detail-panel .rel-tag.jewel { background: var(--cy-amber); color: var(--cy-navy); }
+  .detail-panel .rel-tag.clean { background: var(--cy-teal); color: var(--cy-navy); }
+
+  .detail-panel .panel-footer {
+    background: #FAFBFC;
+    border-top: 1px solid #E0E5EA;
+    padding: 12px 16px 16px;
+    position: sticky;
+    bottom: 0;
+  }
+  .detail-panel .panel-footer .primary-cta {
+    background: var(--cy-teal); color: var(--cy-navy);
+    border: none;
+    padding: 10px 14px;
+    width: 100%;
+    border-radius: 3px;
+    font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 6px;
+  }
+  .detail-panel .panel-footer .secondary-cta {
+    background: white; color: var(--cy-navy);
+    border: 1px solid #D6DDE3;
+    padding: 8px 14px;
+    width: 100%;
+    border-radius: 3px;
+    font-size: 11px; letter-spacing: 0.04em;
+    cursor: pointer;
+    margin-bottom: 4px;
+    text-align: left;
+  }
+  .detail-panel .panel-footer .secondary-cta:hover { background: #F4F6F8; }
+
+  /* Highlighted spotlight in the diagram when panel is open */
+  .spotlight-cue {
+    position: absolute; top: 12px; right: 496px;
+    background: var(--cy-teal); color: var(--cy-navy);
+    padding: 6px 10px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    z-index: 11;
+    box-shadow: 0 2px 8px rgba(0, 194, 168, 0.4);
+    white-space: nowrap;
+  }
+  .spotlight-cue::after {
+    content: "→";
+    margin-left: 6px;
+    font-size: 12px;
+  }
+
   /* ── Footer note ────────────────────────────────────────────────── */
   .note {
     max-width: 1680px; margin: 8px auto 40px; padding: 0 24px;
@@ -720,7 +1081,8 @@
 <div class="stage">
 
   <!-- ═══════════════════════════ TOPOLOGY DIAGRAM ═════════════════════════ -->
-  <div>
+  <div class="topology-pane">
+    <div class="spotlight-cue">Spotlight selected</div>
     <div class="modes">
       <button class="active">Triage</button>
       <button>Estate</button>
@@ -1075,6 +1437,294 @@
       <div><span class="dot jewel"></span> Crown jewel (amber halo)</div>
       <div><span class="dot clean"></span> Clean · remediated (teal ring)</div>
     </div>
+
+    <!-- ═══════════════════════════ DETAIL PANEL ═══════════════════════════ -->
+    <aside class="detail-panel">
+
+      <!-- Sticky header -->
+      <div class="panel-header">
+        <button class="close" aria-label="Close panel">✕</button>
+        <div class="panel-kicker">Spotlight · Compute</div>
+        <h2>SafeRemediate-Test-Frontend-1</h2>
+        <div class="panel-subhdr">
+          EC2 · i-0f51b8b7ad29a359b<br/>
+          eu-west-1a · subnet-0d193156… · 10.0.1.0/24
+        </div>
+      </div>
+
+      <!-- Risk banner -->
+      <div class="risk-banner">
+        <div>
+          <div style="font-size:9px; letter-spacing:0.08em; opacity:0.8;">RISK</div>
+          <div class="num">87</div>
+        </div>
+        <div style="text-align:right; font-size:11px; line-height:1.4;">
+          Posture · LATENT_EXPOSURE<br/>
+          <span style="opacity:0.8;">Priority 3 · 14m ago</span>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="panel-tabs">
+        <button class="active">Posture</button>
+        <button>IAM <span class="count clean">clean</span></button>
+        <button>Traffic <span class="count amber">FULL</span></button>
+        <button>Remediation <span class="count">2</span></button>
+        <button>Related <span class="count">7</span></button>
+      </div>
+
+      <!-- POSTURE SECTION -->
+      <div class="section">
+        <h3>Posture</h3>
+        <div class="kv">
+          <div class="k">Exposure</div>
+          <div class="v">LATENT_EXPOSURE <span class="badge latent">Allowed · unused</span></div>
+        </div>
+        <div class="kv">
+          <div class="k">Verdict</div>
+          <div class="v">LATENT · priority 3</div>
+        </div>
+        <div class="kv">
+          <div class="k">Direct paths</div>
+          <div class="v">0</div>
+        </div>
+        <div class="kv">
+          <div class="k">LB chains</div>
+          <div class="v">1 <span class="badge warn">Intact</span></div>
+        </div>
+
+        <h3 style="margin-top:18px;">LB chain (intact, never exercised)</h3>
+        <div class="chain">
+          <div class="hop">
+            <div class="l1">payment-prod-alb</div>
+            <div class="l2">application · internet-facing</div>
+          </div>
+          <div class="hop">
+            <div class="l1">Listener :80 · sg-06a6f52b…</div>
+            <div class="l2">lb_listener_allows_internet = true</div>
+          </div>
+          <div class="hop">
+            <div class="l1">Target group</div>
+            <div class="l2">payment-prod-frontend-tg</div>
+          </div>
+          <div class="hop">
+            <div class="l1">SafeRemediate-Test-Frontend-1</div>
+            <div class="l2">i-0f51b8b7ad29a359b</div>
+          </div>
+          <div class="verdict">
+            Chain reachable but unused — 0 inbound from public over 365 days.
+          </div>
+        </div>
+
+        <h3 style="margin-top:18px;">365-day inbound</h3>
+        <div class="data-stats">
+          <div class="stat">
+            <div class="num">0</div>
+            <div class="lbl">Observed events</div>
+          </div>
+          <div class="stat">
+            <div class="num">0</div>
+            <div class="lbl">Unique sources</div>
+          </div>
+          <div class="stat warn">
+            <div class="num">∅</div>
+            <div class="lbl">Sensitivity evidence</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IAM SECTION -->
+      <div class="section">
+        <h3>IAM</h3>
+        <div class="kv">
+          <div class="k">Role</div>
+          <div class="v mono">cyntro-demo-frontend-ssm-role <span class="badge clean">Clean</span></div>
+        </div>
+        <div class="kv">
+          <div class="k">Attached via</div>
+          <div class="v">Instance profile + ASSUMES_ROLE</div>
+        </div>
+        <div class="kv">
+          <div class="k">Allowed / used / unused</div>
+          <div class="v mono">0 / 0 / 0</div>
+        </div>
+        <div class="kv">
+          <div class="k">Last remediated</div>
+          <div class="v">2026-03-09 · UnifiedPipeline</div>
+        </div>
+
+        <div class="sync-warn">
+          <strong>Data trust note.</strong>
+          allowed_count = 0 but Cyntro observed 10 actions in use over the last
+          observation window — role counts are likely stale, not the role itself.
+          Surfaces a separate <em>"Re-sync IAM counts"</em> action below.
+        </div>
+
+        <h3 style="margin-top:18px;">Observed actions <span style="color:var(--cy-slate); font-weight:400;">(10 · USES_PERMISSION)</span></h3>
+        <div class="action-list">
+          <span class="act">cloudwatch:PutMetricData</span>
+          <span class="act">ec2:DescribeInstances</span>
+          <span class="act">iam:GetRole</span>
+          <span class="act">lambda:InvokeFunction</span>
+          <span class="act">rds:DescribeDBInstances</span>
+          <span class="act">s3:GetObject</span>
+          <span class="act">s3:PutObject</span>
+          <span class="act">sns:Publish</span>
+          <span class="act">sqs:SendMessage</span>
+          <span class="act">ssm:SendCommand</span>
+        </div>
+      </div>
+
+      <!-- TRAFFIC SECTION -->
+      <div class="section">
+        <h3>Traffic · Internet dependency</h3>
+        <div class="kv">
+          <div class="k">Tier</div>
+          <div class="v">FULL <span class="badge latent">Killer slide</span></div>
+        </div>
+        <div class="kv">
+          <div class="k">Window</div>
+          <div class="v">365 days</div>
+        </div>
+
+        <div class="data-stats" style="margin-top:14px;">
+          <div class="stat crit">
+            <div class="num">547</div>
+            <div class="lbl">Distinct destinations</div>
+          </div>
+          <div class="stat warn">
+            <div class="num">199</div>
+            <div class="lbl">AWS via NAT</div>
+          </div>
+          <div class="stat">
+            <div class="num">348</div>
+            <div class="lbl">Non-AWS</div>
+          </div>
+        </div>
+
+        <div class="kv" style="margin-top:14px;">
+          <div class="k">AWS via NAT</div>
+          <div class="v mono">EC2, S3</div>
+        </div>
+        <div class="kv">
+          <div class="k">AWS via VPCE</div>
+          <div class="v mono" style="color:var(--cy-slate);">— (none)</div>
+        </div>
+        <div class="kv">
+          <div class="k">VPCE gap</div>
+          <div class="v mono">EC2, S3 <span class="badge warn">Action</span></div>
+        </div>
+
+        <h3 style="margin-top:18px;">DNS queries observed</h3>
+        <div class="dns-list">
+          <div class="domain">
+            <span>amazonlinux-2-repos-eu-west-1.s3.dualstack.eu-west-1.amazonaws.com</span>
+            <span class="gap-tag">VPCE gap · S3</span>
+          </div>
+          <div class="domain">
+            <span>ssm.eu-west-1.amazonaws.com</span>
+            <span class="gap-tag">VPCE gap · SSM</span>
+          </div>
+          <div class="domain">
+            <span>ssmmessages.eu-west-1.amazonaws.com</span>
+            <span class="gap-tag">VPCE gap · SSM</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- REMEDIATION SECTION -->
+      <div class="section">
+        <h3>Remediation history</h3>
+        <div class="timeline">
+          <div class="event">
+            <div class="when">2026-03-09 · 20:22 UTC</div>
+            <div class="what">IAM role <code>cyntro-demo-frontend-ssm-role</code> remediated to least-privilege</div>
+            <div class="who">Actor · UnifiedPipeline · self-attested</div>
+          </div>
+          <div class="event drift">
+            <div class="when">2026-05-16 · 15:14 UTC</div>
+            <div class="what">Posture re-evaluated → <strong>LATENT_EXPOSURE</strong> (LB chain detected, no actual hits)</div>
+            <div class="who">Source · posture_evidence v0e7e7e4a</div>
+          </div>
+        </div>
+        <div style="font-size:11px; color:var(--cy-slate); margin-top:12px; line-height:1.5;">
+          <strong>No remediation yet for:</strong> LB chain narrowing (move to internal ALB), VPCE shortcut for S3 + SSM, IAM-count re-sync.
+        </div>
+      </div>
+
+      <!-- RELATED SECTION -->
+      <div class="section">
+        <h3>Related entities <span style="color:var(--cy-slate); font-weight:400;">(7 of 18 shown)</span></h3>
+        <div class="related-list">
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag">LB</span>payment-prod-alb</div>
+              <div class="meta">BEHIND_LOAD_BALANCER · internet-facing</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag">TG</span>payment-prod-frontend-tg</div>
+              <div class="meta">TARGETS · target group</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag clean">IAM</span>cyntro-demo-frontend-ssm-role</div>
+              <div class="meta">ASSUMES_ROLE · clean · 0/0</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag">SG</span>saferemediate-test-app-sg</div>
+              <div class="meta">ACTUAL_TRAFFIC · downstream · ×8</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag warn">STALE</span>SafeRemediate-Test-App-1</div>
+              <div class="meta">RUNTIME_CALLS · gone since 2026-04-07</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag">EC2</span>SafeRemediate-Test-App-2</div>
+              <div class="meta">RUNTIME_CALLS · contained</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="rel">
+            <div class="left">
+              <div class="nm"><span class="rel-tag">VPC</span>Payment-Production-VPC</div>
+              <div class="meta">RUNS_IN_VPC · vpc-0329e985…</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sticky footer with CTAs -->
+      <div class="panel-footer">
+        <button class="primary-cta">Trace this path → System Map</button>
+        <button class="secondary-cta">Open remediation plan · Suggest VPCE shortcut (S3 + SSM)</button>
+        <button class="secondary-cta">Re-sync IAM counts for ssm-role</button>
+        <button class="secondary-cta" style="color:#8B1F1F; border-color: rgba(224, 69, 69, 0.4);">Quarantine workload</button>
+      </div>
+
+    </aside>
+
   </div>
 
   <!-- ═══════════════════════════ RIGHT-SIDE RAIL ═════════════════════════ -->
@@ -1149,6 +1799,22 @@
     signal pills. Color-coded: teal (clean), carmine (gap), slate (stale). One-line affordance —
     the operator sees the role name and gap state without opening a detail panel. Click → full
     role view with action-by-action breakdown.
+  </p>
+  <p>
+    <strong>Detail panel (v0.2 addition).</strong>
+    The right-edge slide-in is the design piece that closes the triage loop — operator
+    spots Frontend-1 in the spotlight, the panel lets them actually understand it without
+    leaving the map. Non-modal by design: the topology stays interactive behind the panel
+    (search, hover, click another node) and the ranked rail stays visible to the right.
+    Five sections, all populated from live Neo4j: <strong>Posture</strong> (full
+    <code>exposure_evidence_json</code>, LB chain visualization, 365d inbound stats),
+    <strong>IAM</strong> (role + 10 USES_PERMISSION actions observed despite stale 0/0
+    counts — a real data-trust signal we surface honestly), <strong>Traffic</strong>
+    (internet-dependency tier FULL, 547 destinations, DNS queries with VPCE-gap tagging),
+    <strong>Remediation</strong> (timeline with 2026-03-09 IAM cleanup + 2026-05-16
+    posture re-eval), <strong>Related</strong> (7 of 18 neighbors with quick-jump). Footer
+    holds the four CTAs in priority order: Trace this path, Suggest VPCE shortcut, Re-sync
+    IAM counts, Quarantine.
   </p>
   <p>
     <strong>Honesty caveat.</strong>
