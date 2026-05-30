@@ -77,8 +77,14 @@ interface VPC {
   region: string | null
   azs: AZ[]
   internet_gateways: IGW[]
-  nat_gateways: NATGateway[]
-  route_tables: RouteTable[]
+  // 2026-05-31 — these were added when the response shape was
+  // updated to carry them, but older backends (pre-this-deploy) or
+  // VPCs serialized through a legacy path may omit the field
+  // entirely. Marking optional + null-coalescing everywhere they
+  // are read fixes the production "Cannot read properties of
+  // undefined (reading 'length')" crash.
+  nat_gateways?: NATGateway[]
+  route_tables?: RouteTable[]
   vpc_endpoints: VPCE[]
   security_groups: SG[]
   nacls: NACL[]
@@ -308,12 +314,12 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
               egress path; backend's `subnet_id` tells us which AZ each
               NAT GW lives in (rendered in column-aligned position once
               we have ALB inter-AZ rendering — for now, single row). */}
-          {vpc.nat_gateways.length > 0 && (
+          {(vpc.nat_gateways ?? []).length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="text-[8px] uppercase tracking-wider text-slate-500">
                 Egress
               </span>
-              {vpc.nat_gateways.map((n) => (
+              {(vpc.nat_gateways ?? []).map((n) => (
                 <div
                   key={n.id}
                   className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-900/20 px-2 py-1"
@@ -584,14 +590,16 @@ function TierRowsLayout({
         for (const { subnet } of byTier[tier]) {
           for (const w of subnet.workloads) {
             if (!isLoadBalancer(w)) continue
+            const wSGs = w.security_groups ?? []
             const existing = albs.get(w.id)
             if (existing) {
-              const sgUnion = Array.from(
-                new Set([...existing.security_groups, ...w.security_groups]),
-              )
+              const existingSGs = existing.security_groups ?? []
+              const sgUnion = Array.from(new Set([...existingSGs, ...wSGs]))
               albs.set(w.id, { ...existing, security_groups: sgUnion })
             } else {
-              albs.set(w.id, w)
+              // Normalize so the chip render below can safely read
+              // .length / .map without null guards.
+              albs.set(w.id, { ...w, security_groups: wSGs })
             }
           }
         }
@@ -742,10 +750,10 @@ function LoadBalancerChip({
       <div className="text-[8px] text-purple-300/60 font-mono">
         {shortName(alb.id)}
       </div>
-      {alb.security_groups.length > 0 && (
+      {(alb.security_groups ?? []).length > 0 && (
         <div className="flex flex-wrap items-center gap-1 justify-center mt-1 pt-1 border-t border-purple-500/30 w-full">
           <ShieldCheck className="h-2.5 w-2.5 text-rose-400" />
-          {alb.security_groups.map((sgId) => {
+          {(alb.security_groups ?? []).map((sgId) => {
             const sg = sgMap.get(sgId)
             return (
               <span
