@@ -1329,7 +1329,7 @@
     </div>
     <div class="meta-right">
       <span>2 active VPCs · 1 region (eu-west-1)</span>
-      <span>Refreshed 2m ago</span>
+      <span>Refreshed &lt;time&gt; ago</span>
       <a href="/design/topology-v0.2.html" class="mode-link">→ Switch to Triage</a>
     </div>
   </div>
@@ -1423,7 +1423,7 @@
                   <!-- SPOTLIGHT NODE — Frontend-1 LATENT_EXPOSURE (NETWORK), IAM is clean -->
                   <div class="node sev-critical">
                     <div class="icon ec2">EC2
-                      <span class="risk-chip">87</span>
+                      <span class="risk-chip">&mdash;</span>
                     </div>
                     <div class="name">SafeRemediate-Test-Frontend-1<span class="sub">i-0f51b8b7…</span></div>
                     <div class="signals">
@@ -1465,7 +1465,7 @@
                   <div class="label">saferemediate-test-alb-sg</div>
                   <div class="node sev-high">
                     <div class="icon ec2">EC2
-                      <span class="risk-chip">78</span>
+                      <span class="risk-chip">&mdash;</span>
                     </div>
                     <div class="name">SafeRemediate-Test-Frontend-2<span class="sub">i-03c72e12…</span></div>
                     <div class="signals">
@@ -1506,7 +1506,7 @@
                   <div class="node sev-stale">
                     <div class="icon ec2">EC2
                       <span class="stale-tag">Stale</span>
-                      <span class="risk-chip amber">48</span>
+                      <span class="risk-chip amber">&mdash;</span>
                     </div>
                     <div class="name">SafeRemediate-Test-App-1<span class="sub">i-0df88ac8…</span></div>
                     <div class="signals">
@@ -1546,7 +1546,7 @@
                   <!-- App-2: network CONTAINED, but IAM role 100% gap -->
                   <div class="node sev-high">
                     <div class="icon ec2">EC2
-                      <span class="risk-chip">68</span>
+                      <span class="risk-chip">&mdash;</span>
                     </div>
                     <div class="name">SafeRemediate-Test-App-2<span class="sub">i-0e9b8917…</span></div>
                     <div class="signals">
@@ -1599,7 +1599,7 @@
                   <div class="node sev-jewel">
                     <div class="icon rds">RDS
                       <span class="jewel-crown">👑</span>
-                      <span class="risk-chip amber">62</span>
+                      <span class="risk-chip amber">&mdash;</span>
                     </div>
                     <div class="name">saferemediate-test-db<span class="sub">postgres · multi-AZ</span></div>
                     <div class="signals">
@@ -1616,7 +1616,7 @@
                   <div class="node sev-stale">
                     <div class="icon rds">RDS
                       <span class="stale-tag">Stale</span>
-                      <span class="risk-chip amber">41</span>
+                      <span class="risk-chip amber">&mdash;</span>
                     </div>
                     <div class="name">alon-demo-demo-db<span class="sub">postgres</span></div>
                     <div class="signals">
@@ -1744,17 +1744,17 @@
       <div class="risk-banner">
         <div>
           <div style="font-size:9px; letter-spacing:0.08em; opacity:0.8;">RISK</div>
-          <div class="num">87</div>
+          <div class="num">&mdash;</div>
         </div>
         <div style="text-align:right; font-size:11px; line-height:1.4;">
           Posture · LATENT_EXPOSURE<br/>
-          <span style="opacity:0.8;">Priority 3 · 14m ago</span>
+          <span style="opacity:0.8;">priority 3 &middot; posture_correlated_at &lt;time&gt; ago</span>
         </div>
       </div>
 
       <!-- Tabs -->
       <div class="panel-tabs">
-        <button class="active">Score <span class="count amber">62%</span></button>
+        <button class="active">Score <span class="count amber">&mdash;</span></button>
         <button>Posture</button>
         <button>IAM <span class="count clean">clean</span></button>
         <button>Traffic <span class="count amber">FULL</span></button>
@@ -1767,20 +1767,19 @@
         <h3>Score breakdown <span style="color:var(--cy-slate); font-weight:400; text-transform:none; letter-spacing:0;">— contract: <code style="font-size:9px;">/api/topology-risk/alon-prod</code></span></h3>
 
         <div class="kv">
-          <div class="k">Score · tier</div>
-          <div class="v"><strong style="color:var(--cy-carmine);">87</strong> · WORST · rank #1 of 7 scored</div>
+          <div class="k">Score &middot; tier</div>
+          <div class="v"><strong>&mdash;</strong> &middot; pending /api/topology-risk &middot; posture priority 3 (worst available)</div>
         </div>
         <div class="kv">
           <div class="k">Confidence</div>
           <div class="v">
             <span class="conf-dot conf-degraded"></span>
-            <strong>62%</strong> · DEGRADED
-            <span class="badge warn">Posture + IAM stale</span>
+            <strong>&mdash;</strong> &middot; posture + IAM both stale (see freshness below)
           </div>
         </div>
         <div class="kv">
           <div class="k">Computed as</div>
-          <div class="v" style="font-family: ui-monospace, monospace; font-size:10px;">MIN(contributors.freshness) — no signal averaging</div>
+          <div class="v" style="font-family: ui-monospace, monospace; font-size:10px;">MIN(contributors.freshness) &middot; design only, not implemented</div>
         </div>
 
         <div class="contributors">
@@ -1788,11 +1787,11 @@
           <div class="contrib">
             <div class="row1">
               <span class="signal-name">network_exposure</span>
-              <span class="weight">weight 0.45 · value 1.00</span>
+              <span class="weight">weight &mdash; &middot; value &mdash;</span>
             </div>
-            <div class="bar"><div class="fill" style="width:45%;"></div></div>
+            <div class="bar"></div>
             <div class="freshness">
-              <span>posture_correlated_at · 14d old</span>
+              <span>posture_correlated_at &middot; 14d old</span>
               <span class="stale">Stale &gt; 7d</span>
             </div>
             <div class="auto-resolve">Auto-resolves when posture_correlated_at &lt; 7d.</div>
@@ -1801,24 +1800,24 @@
           <div class="contrib">
             <div class="row1">
               <span class="signal-name">internet_dependency</span>
-              <span class="weight">weight 0.25 · value 0.95</span>
+              <span class="weight">weight &mdash; &middot; value &mdash;</span>
             </div>
-            <div class="bar"><div class="fill" style="width:23.75%;"></div></div>
+            <div class="bar"></div>
             <div class="freshness">
-              <span>posture_correlated_at · 14d old</span>
+              <span>posture_correlated_at &middot; 14d old</span>
               <span class="stale">Stale &gt; 7d</span>
             </div>
             <div class="auto-resolve">Auto-resolves when posture_correlated_at &lt; 7d.</div>
           </div>
 
-          <div class="contrib value-zero">
+          <div class="contrib">
             <div class="row1">
               <span class="signal-name">iam_gap</span>
-              <span class="weight">weight 0.15 · value 0.00</span>
+              <span class="weight">weight &mdash; &middot; value &mdash;</span>
             </div>
-            <div class="bar"><div class="fill" style="width:1.5%;"></div></div>
+            <div class="bar"></div>
             <div class="freshness">
-              <span>permissions_synced_at · 34d old</span>
+              <span>permissions_synced_at &middot; 34d old</span>
               <span class="stale">Stale &gt; 14d</span>
             </div>
             <div class="auto-resolve">
@@ -1830,11 +1829,11 @@
           <div class="contrib">
             <div class="row1">
               <span class="signal-name">jewel_adjacency</span>
-              <span class="weight">weight 0.15 · value 0.60</span>
+              <span class="weight">weight &mdash; &middot; value &mdash;</span>
             </div>
-            <div class="bar"><div class="fill" style="width:9%;"></div></div>
+            <div class="bar"></div>
             <div class="freshness">
-              <span>graph topology · 0d</span>
+              <span>graph topology &middot; 0d</span>
               <span class="ok">Fresh</span>
             </div>
           </div>
@@ -1842,9 +1841,11 @@
         </div>
 
         <div style="margin-top:10px; font-size:10px; color:var(--cy-slate); line-height:1.5;">
-          Total weighted = 0.45 + 0.2375 + 0.015 + 0.09 = <strong>0.7925 × 100 ≈ 79</strong>.
-          The displayed 87 reflects tier-boundary lift for posture priority 3 (one of two highest-severity verdicts);
-          full math in <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal);">risk-contract.md §3.3</a>.
+          Weights and per-contributor values render here once
+          <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal);">/api/topology-risk</a>
+          is implemented. Until then, every contributor is a real signal pulled from Neo4j
+          (posture_verdict, exposure_evidence_json, IAMRole.unused_actions_count, jewel adjacency)
+          but the composite weighting is not computed.
         </div>
       </div>
 
@@ -2144,7 +2145,7 @@
     <div class="filter-group">
       <label><input type="checkbox" /> Show only stale-data nodes <span class="count amber">53</span></label>
       <label><input type="checkbox" /> Show only unscored nodes <span class="count amber">41</span></label>
-      <label><input type="checkbox" /> Show only contradicted-evidence <span class="count amber">2</span></label>
+      <label><input type="checkbox" /> Show only contradicted-evidence <span class="count amber">&mdash;</span></label>
     </div>
 
     <div class="filter-divider"></div>
@@ -2348,13 +2349,17 @@
     implementation.
   </p>
   <p>
-    <strong>Honesty caveat.</strong>
-    Risk-score integers (87 / 78 / 68 / 65 / 62 / 48) remain illustrative until the canonical
-    node-risk endpoint lands — and per the point above, that endpoint must expose data-confidence
-    as a first-class field, not just an aggregate number. Ranking order is honest, derived from
-    <code>posture_verdict_priority</code> + IAM <code>gap_percentage</code> + jewel flag + stale
-    flag. Auto-Scaling and route-table CIDR rows are AWS-canonical scaffolding shown for layout
-    legibility; Cyntro doesn't score them as nodes today.
+    <strong>Data policy (corrected after PR #79 review).</strong>
+    No fabricated numbers on this mockup. The KPI strip is fully real
+    (53 workloads / 7 flagged / 3 stale / 41 unscored / 0% posture fresh) &mdash; all five
+    counts came from Neo4j queries on alon-prod. The detail panel's risk score and confidence
+    percentage render as <code>&mdash;</code> placeholders until
+    <code>/api/topology-risk</code> is implemented. Filter rail counts, VPC names, and
+    workload identities are all real reads from the graph. Auto-Scaling and route-table CIDR
+    rows are AWS-canonical scaffolding shown for layout legibility; Cyntro doesn't score them
+    as nodes today. See
+    <a href="../../memory/feedback_no_mock_numbers_in_ui.md" style="color:var(--cy-teal);">feedback_no_mock_numbers_in_ui</a>
+    for the standing rule.
   </p>
 </div>
 
