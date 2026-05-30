@@ -2076,6 +2076,15 @@
     history into the same JSON would force the bulk endpoint into N+1 queries it doesn't need to do.
   </p>
   <p>
+    <strong>States &amp; scale gallery (iteration 6).</strong>
+    <a href="/design/topology-v0.2-states.html" style="color:var(--cy-teal);"><code>topology-v0.2-states.html</code></a>
+    catalogs the eight non-happy-path states this mockup doesn't render (loading, 5xx, 4xx,
+    partial-data, empty-system, empty-VPC, race-condition, no-selection, stale) plus three
+    IAM-Control-Plane-strip variants for customer scale (today's 5-role view, at-scale 47-role
+    grouped view, customer-scale 247-role paginated view). Implementation can't ship without
+    these — the bulk endpoint will hit at least three of them on its first real customer.
+  </p>
+  <p>
     <strong>Honesty caveat.</strong>
     Risk-score integers (87 / 78 / 68 / 65 / 62 / 48) remain illustrative until the canonical
     node-risk endpoint lands — and per the point above, that endpoint must expose data-confidence

@@ -2295,6 +2295,14 @@
     history into the same JSON would force the bulk endpoint into N+1 queries it doesn't need to do.
   </p>
   <p>
+    <strong>States &amp; scale gallery (iteration 6).</strong>
+    <a href="/design/topology-v0.2-states.html" style="color:var(--cy-teal);"><code>topology-v0.2-states.html</code></a>
+    covers the loading, error, partial, empty, race-condition, and stale states that both
+    Triage and Estate share — plus three IAM-strip variants that handle customer-scale role
+    counts (5 → 47 → 247). Estate-specific states (no-selection panel, empty-VPC, filter-rail
+    excluding all visible workloads) are catalogued there too.
+  </p>
+  <p>
     <strong>Honesty caveat.</strong>
     Risk-score integers (87 / 78 / 68 / 65 / 62 / 48) remain illustrative until the canonical
     node-risk endpoint lands — and per the point above, that endpoint must expose data-confidence
