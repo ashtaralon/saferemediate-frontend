@@ -1,9 +1,28 @@
 # Topology v0.2 — Risk Score Contract
 
 **Status:** Design spec (not implemented)
-**Owner:** Topology v0.2 design (PR #78)
-**Consumers:** `public/design/topology-v0.2.html` (mockup), eventual successor to `components/attack-paths-v2/topology-view.tsx`
+**Owner:** Topology v0.2 design (PR #78 + correction PR #81)
+**Consumers:** `public/design/topology-v0.2.html` (mockup), `public/design/topology-v0.2-estate.html` (mockup), eventual successor to `components/attack-paths-v2/topology-view.tsx`
 **Producer:** `saferemediate-backend` (Python · Render)
+
+---
+
+## ⚠ Correction notice — 2026-05-30 (read before implementing §3)
+
+The first cut of this contract (PR #78) was shaped around a single Estate-mode KPI called *"posture freshness %"* — implying the right system-level question was "what fraction of workloads have fresh posture data?" Validation against alon-prod revealed that framing **conflated two distinct findings** and was reshipped in PR #81 as two separate Estate KPI tiles. The contract is corrected accordingly.
+
+**Old framing (do NOT implement):**
+> "0% posture fresh · 53 of 53 workloads"
+
+**Corrected framing (implement THIS, per PR #81):**
+> "Posture coverage 17/57" + "Posture freshness 14d"
+
+**Why this matters for the contract:** the two findings have different owners and different fix paths. A backend implementation that returns a single composite "fresh%" number forces the UI to either re-split client-side (lossy) or accept the wrong framing (misroutes the customer conversation). The contract must expose both as first-class fields. **See §X "System-level KPIs" added below.**
+
+If you are reading this doc as the spec for backend implementation:
+1. Implement **§X System-level KPIs** as designed (separate coverage + freshness fields), not the single-percentage shorthand referenced in §1.
+2. Cross-reference the current Estate mockup at `public/design/topology-v0.2-estate.html` (post-merge of PR #81) — that's the canonical UI spec for what the contract feeds.
+3. The per-node response shape in §3.2 is unchanged. The addition is the system-level rollup.
 
 ---
 
@@ -211,6 +230,72 @@ Every `freshness.is_fresh = false` claim carries an `auto_resolves_when` clause 
 
 The contract does *not* include the escalation threshold itself — that's a UI configuration concern, not a backend one. The backend's job is to report freshness honestly; the UI's job is to render it.
 
+### 3.6 System-level KPIs — coverage AND freshness as separate fields
+
+**Added 2026-05-30 per the correction notice at the top of this doc.** The bulk response carries a `system_kpis` object at the top level (sibling to `nodes`). This is what the Estate-mode KPI strip consumes — and it MUST expose coverage and freshness as separate fields, not collapsed into a single "fresh%" number.
+
+```jsonc
+{
+  "system": "alon-prod",
+  "scored_at": "2026-05-30T18:51:00Z",
+  "vpc_id": "vpc-0329e985173bed24f",
+  "system_kpis": {
+    "workloads_total": 57,
+    "workloads_by_type": {
+      "EC2": 8, "Lambda": 30, "RDS": 2, "S3": 10, "DynamoDB": 8, "LoadBalancer": 1
+    },
+    "flagged_count": 4,                  // posture_verdict_priority <= 3, deduplicated by id
+    "stale_workloads_count": 3,          // aws_exists = false (zombie workloads)
+    "posture_coverage": {
+      "scored": 17,
+      "total": 57,
+      "by_type": {
+        "EC2":    { "scored": 5,  "total": 8  },
+        "Lambda": { "scored": 11, "total": 30 },
+        "RDS":    { "scored": 1,  "total": 2  },
+        "S3":     { "scored": 0,  "total": 10 },
+        "DynamoDB": { "scored": 0, "total": 8 }
+      }
+    },
+    "posture_freshness": {
+      "most_recent_run": "2026-05-16T18:44:20Z",
+      "age_days": 14,
+      "threshold_days": 7,
+      "is_fresh": false,
+      "auto_resolves_when": "posture_correlated_at >= now() - 7d on any workload"
+    }
+  },
+  "nodes": [ ... ]
+}
+```
+
+**Field semantics:**
+
+| Field | Type | Semantics |
+|---|---|---|
+| `workloads_total` | `int` | Distinct workload count after `:Service` legacy-stub dedup. Use `count(DISTINCT id)` not `count(*)`. |
+| `workloads_by_type` | map | Per-type breakdown of the above. |
+| `flagged_count` | `int` | Workloads with `posture_verdict_priority <= 3` (worst tier). Aggregate using `MIN` not `MAX` — priority is reverse-ordered, lower = worse. The original draft used `MAX` and reported 7 instead of the real 4. |
+| `stale_workloads_count` | `int` | Workloads with `aws_exists = false` OR carrying `:StaleResource` label. Cyntro's zombie count. Independent of posture state. |
+| `posture_coverage.scored` | `int` | Workloads where `posture_correlated_at IS NOT NULL` after dedup. |
+| `posture_coverage.total` | `int` | Same as `workloads_total`. |
+| `posture_coverage.by_type` | map | Per-type breakdown. **S3 and DynamoDB will currently report 0/N because no posture model exists for those types yet.** That's the product-coverage finding the Estate KPI surfaces; surfacing it honestly is the point. |
+| `posture_freshness.most_recent_run` | `datetime` | `max(posture_correlated_at)` across all workloads. |
+| `posture_freshness.age_days` | `int` | `now() - most_recent_run` in days. |
+| `posture_freshness.threshold_days` | `int` | Same as the per-contributor `network_exposure` / `internet_dependency` threshold (7 days as of v1). |
+| `posture_freshness.is_fresh` | `bool` | `age_days < threshold_days`. |
+| `posture_freshness.auto_resolves_when` | `string` | Self-resolving condition per [feedback_amber_must_self_heal](../memory/feedback_amber_must_self_heal.md). |
+
+**Why two fields, not one composite:**
+
+The two findings have different owners:
+- **Coverage gap** → platform team (build posture models for S3 / DDB / more Lambdas)
+- **Freshness gap** → ops team (scheduler cadence; posture last ran 14 days ago)
+
+A composite "fresh%" KPI collapses both into a single number that misroutes the conversation. The Estate mockup (PR #81) renders two separate tiles deliberately; the contract must feed them with two separate fields. See [feedback_validate_headline_before_shipping](../memory/feedback_validate_headline_before_shipping.md) for the discipline that drove this correction.
+
+**Sources for the per-type counts:** see §4.1 below.
+
 ---
 
 ## 4. Backend implementation notes (for the follow-up PR)
@@ -302,7 +387,9 @@ The new contract is intentionally a superset of the old shape: the existing sing
 ## 8. Acceptance — what "done" looks like
 
 - [ ] Backend endpoint `GET /api/topology-risk/{systemName}` returns the response shape in §3.2 against alon-prod within 800 ms p95
-- [ ] Confidence is computed as MIN-of-contributors, not average (§3.4)
+- [ ] Response includes the `system_kpis` object per §3.6 — coverage and freshness as SEPARATE fields, not a composite "fresh%". Sanity-check against alon-prod: `posture_coverage.scored = 17`, `posture_coverage.total = 57`, `posture_coverage.by_type.S3 = {0,10}`, `posture_coverage.by_type.DynamoDB = {0,8}`, `posture_freshness.most_recent_run = 2026-05-16T18:44:20Z`, `posture_freshness.is_fresh = false`
+- [ ] `flagged_count` uses `MIN(posture_verdict_priority)` after dedup-by-id — sanity check against alon-prod: 4, not 7
+- [ ] Per-node `confidence` is computed as MIN-of-contributors, not average (§3.4)
 - [ ] Every stale signal includes `auto_resolves_when` (§3.5)
 - [ ] Frontend proxy route `app/api/proxy/topology-risk/[systemName]/route.ts` mirrors the existing proxy pattern (caching, error handling)
 - [ ] Topology v0.2 mockup updated to render confidence inline (UI changes in this PR, contract consumption wires up in the next)
