@@ -69,7 +69,14 @@ export function LeftSidebarNav({
     // SG-1 through SG-6 backend live (discovery + plan + CREATE_ONLY + STAGED
     // preview); execute/rollback UI lands with SG-9b.
     { id: "shared-sgs", label: "Shared SGs", icon: Network, href: "/sg/shared-sgs" },
-    { id: "dependency-map", label: "Dependency Map", icon: Map, href: "/dependency-map?system=alon-prod" },
+    // Naming aligned with feedback_topology_views_naming (memory) and the page
+    // header GraphViewV2 renders. "Dependency Map" was the original sidebar
+    // label in PR #72 but it was a fourth name for the same surface — the
+    // component, the page header, and the team's shared vocabulary all use
+    // "Observed-First Map". Renamed here to stop the drift before it spreads.
+    // The route id stays "dependency-map" for URL stability (it's the route
+    // path); only the operator-facing label changes.
+    { id: "dependency-map", label: "Observed-First Map", icon: Map, href: "/dependency-map?system=alon-prod" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },
     { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
