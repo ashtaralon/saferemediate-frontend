@@ -116,6 +116,35 @@ export function LeftSidebarNav({
 
       {/* Menu Items */}
       <nav className="py-4">
+        {/* Design preview — Topology v0.1 mockup served from public/design/.
+            Lives above the main nav so it stays visible / discoverable while
+            we iterate on the design with Alon. Static HTML, opens in a new
+            tab so the dashboard SPA state is preserved. Remove once topology
+            ships into a real route. */}
+        <a
+          href="/design/topology-v0.1.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-all overflow-hidden border-b mb-2"
+          style={{
+            color: "var(--text-secondary)",
+            borderColor: "var(--border-subtle)",
+            fontStyle: "italic",
+          }}
+        >
+          <Sparkles className="w-4 h-4 shrink-0" style={{ color: "#00C2A8" }} />
+          <span className="whitespace-nowrap">Topology</span>
+          <span
+            className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase shrink-0"
+            style={{
+              background: "rgba(0, 194, 168, 0.15)",
+              color: "#00C2A8",
+            }}
+          >
+            v0.1
+          </span>
+        </a>
+
         {menuItems.map((item) => {
           const Icon = item.icon
           const isActive = activeItem === item.id
