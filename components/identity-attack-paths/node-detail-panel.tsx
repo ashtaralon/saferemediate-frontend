@@ -438,9 +438,11 @@ export function NodeDetailPanel({
       {(node.mitigation_history?.length ||
         typeof node.eni_count === "number" ||
         typeof node.lambda_invocations === "number" ||
+        typeof node.lambda_invocation_count === "number" ||
         node.target_groups?.length ||
         node.load_balancer_targets?.length ||
         node.s3_prefixes?.length ||
+        node.route_table ||
         node.route_tables?.length) ? (
         <Section title="Enriched Evidence" icon={<Eye className="w-3.5 h-3.5 text-sky-400" />}>
           <div className="space-y-3">
@@ -472,30 +474,41 @@ export function NodeDetailPanel({
                   Prior mitigations ({node.mitigation_history.length})
                 </div>
                 <div className="space-y-1">
-                  {node.mitigation_history.slice(0, 5).map((m, i) => (
-                    <div
-                      key={`${m.rule_id}-${i}`}
-                      className="flex items-center gap-2 px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
-                    >
-                      <span
-                        className={`px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[9px] ${
-                          m.outcome === "success"
-                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                            : m.outcome === "rolled_back"
-                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                              : m.outcome === "failed"
-                                ? "bg-red-500/20 text-red-300 border border-red-500/40"
-                                : "bg-slate-700/30 text-slate-400 border border-slate-700/50"
-                        }`}
+                  {node.mitigation_history.slice(0, 5).map((m, i) => {
+                    // MitigationEvent shape: status (descriptive,
+                    // "success" / "failed" / "RESTORED" / etc.),
+                    // event_type (action name, e.g. "narrow_iam_policy"),
+                    // kind (RemediationEvent / OverrideEvent /
+                    // QuarantineRecord / ...). Render status as the chip
+                    // and event_type as the descriptive line.
+                    const statusRaw = (m.status ?? (m.success === true ? "success" : m.success === false ? "failed" : null))
+                    const statusLower = statusRaw?.toLowerCase() ?? ""
+                    const isSuccess = statusLower === "success" || statusLower === "restored" || m.success === true
+                    const isRolledBack = Boolean(m.rolled_back_at) || statusLower === "rolled_back"
+                    const isFailed = statusLower === "failed" || statusLower === "error" || m.success === false
+                    const chipClass = isFailed
+                      ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                      : isRolledBack
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : isSuccess
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                          : "bg-slate-700/30 text-slate-400 border border-slate-700/50"
+                    const displayLabel = m.event_type ?? m.kind
+                    return (
+                      <div
+                        key={`${m.id}-${i}`}
+                        className="flex items-center gap-2 px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
                       >
-                        {m.outcome}
-                      </span>
-                      <span className="flex-1 min-w-0 text-slate-300 truncate font-mono" title={m.rule_id}>
-                        {m.rule_id}
-                      </span>
-                      <span className="shrink-0 text-slate-500">{m.at?.slice(0, 10) ?? "—"}</span>
-                    </div>
-                  ))}
+                        <span className={`px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[9px] ${chipClass}`}>
+                          {statusRaw ?? m.kind}
+                        </span>
+                        <span className="flex-1 min-w-0 text-slate-300 truncate font-mono" title={displayLabel}>
+                          {displayLabel}
+                        </span>
+                        <span className="shrink-0 text-slate-500">{m.at?.slice(0, 10) ?? "—"}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -512,11 +525,11 @@ export function NodeDetailPanel({
                 <div className="space-y-1">
                   {node.target_groups.slice(0, 5).map((tg, i) => (
                     <div
-                      key={`${tg.tg_arn}-${i}`}
+                      key={`${tg.id}-${i}`}
                       className="flex items-center gap-2 px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
                     >
-                      <span className="flex-1 min-w-0 font-mono text-slate-300 truncate" title={tg.tg_arn}>
-                        {tg.tg_arn.split("/").pop()}
+                      <span className="flex-1 min-w-0 font-mono text-slate-300 truncate" title={tg.id}>
+                        {tg.name ?? tg.id.split("/").pop()}
                       </span>
                       <span className="shrink-0 text-slate-500">
                         {tg.protocol ?? "—"}
@@ -560,48 +573,78 @@ export function NodeDetailPanel({
                   S3 prefixes accessed ({node.s3_prefixes.length})
                 </div>
                 <div className="space-y-1">
-                  {node.s3_prefixes.slice(0, 5).map((p, i) => (
-                    <div
-                      key={`${p.prefix}-${i}`}
-                      className="px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
-                    >
-                      <div className="font-mono text-slate-300 truncate" title={p.prefix}>{p.prefix}</div>
-                      {p.principals_with_access && p.principals_with_access.length > 0 && (
-                        <div className="text-slate-500 mt-0.5">
-                          {p.principals_with_access.length} principal{p.principals_with_access.length === 1 ? "" : "s"}
+                  {node.s3_prefixes.slice(0, 5).map((p, i) => {
+                    // Backend writes per-prefix access[] entries, one per
+                    // (principal, operation). Distinct principals is a
+                    // dedup of access[].principal_id.
+                    const principals = new Set((p.access ?? []).map((a) => a.principal_id))
+                    return (
+                      <div
+                        key={`${p.id || p.prefix}-${i}`}
+                        className="px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-slate-300 truncate" title={p.prefix}>{p.prefix}</span>
+                          {p.hits ? (
+                            <span className="shrink-0 text-slate-500 tabular-nums">{p.hits.toLocaleString()} hits</span>
+                          ) : null}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {principals.size > 0 && (
+                          <div className="text-slate-500 mt-0.5">
+                            {principals.size} principal{principals.size === 1 ? "" : "s"}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
 
-            {/* Route tables — subnet routing context. Helps the operator
+            {/* Route table — subnet routing context. Helps the operator
                 understand "where does this subnet's traffic go" when
-                evaluating whether a network gate narrowing is safe. */}
-            {node.route_tables && node.route_tables.length > 0 && (
+                evaluating whether a network gate narrowing is safe.
+                Per-Subnet singular (each Subnet has one effective RT in
+                AWS) — backend writes node.route_table. The plural
+                node.route_tables[] is legacy compat that older callers
+                still touch; render whichever is present. */}
+            {(node.route_table || (node.route_tables && node.route_tables.length > 0)) && (
               <div>
                 <div className="text-[9px] uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
                   <ArrowRightLeft className="w-3 h-3" />
-                  Route tables ({node.route_tables.length})
+                  Route table
                 </div>
                 <div className="space-y-1">
-                  {node.route_tables.slice(0, 3).map((rt, i) => (
-                    <div
-                      key={`${rt.rt_id}-${i}`}
-                      className="px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
-                    >
-                      <div className="font-mono text-slate-300 truncate">{rt.rt_id}</div>
-                      {rt.routes && rt.routes.length > 0 && (
-                        <div className="text-slate-500 mt-0.5">
-                          {rt.routes.length} route{rt.routes.length === 1 ? "" : "s"} · first:{" "}
-                          <span className="font-mono">{rt.routes[0].dest}</span> →{" "}
-                          <span className="font-mono">{rt.routes[0].target}</span>
+                  {(node.route_table ? [node.route_table] : node.route_tables ?? []).slice(0, 3).map((rt, i) => {
+                    const firstRoute = rt.routes && rt.routes.length > 0 ? rt.routes[0] : null
+                    return (
+                      <div
+                        key={`${rt.rtb_id}-${i}`}
+                        className="px-2 py-1 rounded bg-slate-800/40 border border-slate-700/40 text-[10px]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-slate-300 truncate">{rt.rtb_id}</span>
+                          {rt.is_main ? (
+                            <span className="px-1 py-0.5 text-[8px] rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 uppercase tracking-wider">
+                              Main
+                            </span>
+                          ) : null}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {firstRoute ? (
+                          <div className="text-slate-500 mt-0.5">
+                            {rt.routes.length} route{rt.routes.length === 1 ? "" : "s"} · first:{" "}
+                            <span className="font-mono">{firstRoute.destination}</span> →{" "}
+                            <span className="font-mono">{firstRoute.target_kind ?? firstRoute.target_id}</span>
+                          </div>
+                        ) : rt.route_count ? (
+                          <div className="text-slate-500 mt-0.5">
+                            {rt.route_count} route{rt.route_count === 1 ? "" : "s"}{" "}
+                            <span className="text-slate-600 italic">(targets not yet collected)</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}

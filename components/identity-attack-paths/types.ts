@@ -413,10 +413,15 @@ export interface PathNodeDetail {
   mitigation_history?: MitigationEvent[]
   target_groups?: TargetGroupEntry[]
   s3_prefixes?: S3PrefixEntry[]
-  route_tables?: Array<{
-    rt_id: string
-    routes?: Array<{ dest: string; target: string }>
-  }>
+  /** Singular: each Subnet has exactly one effective RouteTable. Matches
+   * the backend `_fetch_route_tables` shape (chip item 8). Frontend
+   * renders this as a small annotation on the Subnet card and as a
+   * grouped list in the node detail panel. */
+  route_table?: RouteTableInfo
+  /** Legacy plural — kept so older callers reading `node.route_tables`
+   * don't crash. New code should read `node.route_table` directly.
+   * Removed in a follow-up once all readers migrate. */
+  route_tables?: RouteTableInfo[]
   load_balancer_targets?: Array<{
     instance_id: string
     az?: string | null
@@ -467,6 +472,35 @@ export interface TargetGroupEntry {
     id: string
     name: string
     type?: string | null
+  }>
+}
+
+/** Subnet → RouteTable + per-route target. Backend's `_fetch_route_tables`.
+ * Per-Subnet (singular) because each Subnet has exactly one effective
+ * RouteTable in AWS. `routes` denormalizes the (Subnet)-[:ROUTES_VIA]
+ * edges keyed on destination CIDR. */
+export interface RouteTableInfo {
+  rtb_id: string
+  rtb_name: string
+  /** True when this RouteTable is the VPC's Main RT. Frontend prefixes
+   * the annotation with "Main · " for operator-clarity. */
+  is_main?: boolean | null
+  /** AWS-reported route count on the RouteTable (may exceed `routes`
+   * length if some routes target a CIDR-only NextHop the collector
+   * couldn't tie back to a typed node). */
+  route_count: number
+  routes: Array<{
+    destination: string  // CIDR or prefix-list
+    target_id: string
+    target_name: string
+    target_kind:
+      | "InternetGateway"
+      | "NATGateway"
+      | "VPCEndpoint"
+      | "TransitGateway"
+      | "VPCPeeringConnection"
+      | "EgressOnlyInternetGateway"
+      | null
   }>
 }
 
