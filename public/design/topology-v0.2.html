@@ -1152,6 +1152,38 @@
     background: #ECECEC; padding: 0 4px; border-radius: 2px;
     font-size: 10px;
   }
+
+  /* ── Accessibility primitives (iteration 7) ───────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .node.sev-critical .icon,
+    .node.sev-critical .icon::after,
+    .iam-role.sev-critical {
+      animation: none !important;
+    }
+  }
+  :focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  .node:focus-visible,
+  .iam-role:focus-visible,
+  .rail li:focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+  }
+  /* Color-blind severity redundancy: glyph in addition to halo.
+     WORST ◆ · HIGH △ · JEWEL 👑 · STALE ⌛ · CLEAN ✓
+     Halo + glyph survives protanopia where carmine ↔ amber compress. */
+  .severity-glyph {
+    display: inline-block;
+    margin-left: 3px;
+    font-size: 10px;
+    vertical-align: middle;
+    opacity: 0.85;
+  }
 </style>
 </head>
 <body>
@@ -2083,6 +2115,19 @@
     IAM-Control-Plane-strip variants for customer scale (today's 5-role view, at-scale 47-role
     grouped view, customer-scale 247-role paginated view). Implementation can't ship without
     these — the bulk endpoint will hit at least three of them on its first real customer.
+  </p>
+  <p>
+    <strong>Accessibility primitives (iteration 7).</strong>
+    Scene 10 of the states gallery covers the WCAG 2.1 AA primitives this mockup needs
+    to pass procurement at regulated buyers (federal, FFIEC, HIPAA): reduced-motion
+    handling for the carmine pulse, color-blind redundancy via shape glyphs
+    (<code>◆</code> WORST, <code>▲</code> HIGH, <code>👑</code> JEWEL, <code>⌛</code> STALE,
+    <code>✓</code> CLEAN), keyboard tab order for Triage and Estate, screen-reader
+    announcement patterns that put confidence + freshness inline (extending the iteration-3
+    data-confidence-first-class principle to assistive tech), and ARIA landmarks for
+    structural navigation. The CSS-level fixes (<code>prefers-reduced-motion</code> +
+    <code>:focus-visible</code> teal rings) ship in this mockup in iteration 7; semantic
+    role markup and skip-links land with the React implementation.
   </p>
   <p>
     <strong>Honesty caveat.</strong>

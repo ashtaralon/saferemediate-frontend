@@ -464,6 +464,40 @@
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
+
+  /* ── Accessibility primitives (iteration 7) ───────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .mini-node.skeleton,
+    .toast .spinner {
+      animation: none !important;
+    }
+    .mini-node.skeleton {
+      background: #d4d4d4 !important;
+      color: var(--cy-slate) !important;
+    }
+    .toast .spinner {
+      border-top-color: currentColor !important;
+      opacity: 0.6 !important;
+    }
+  }
+  :focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+  }
+  .severity-glyph {
+    display: inline-block;
+    margin-left: 3px;
+    font-size: 10px;
+    vertical-align: middle;
+    opacity: 0.85;
+  }
+  /* Accessibility patterns demonstrated in Scene 10 below. */
 </style>
 </head>
 <body>
@@ -497,6 +531,7 @@
   <a href="#no-selection">No selection</a>
   <a href="#stale">Stale data</a>
   <a href="#iam-scale">IAM at scale</a>
+  <a href="#a11y">Accessibility</a>
 </nav>
 
 <main class="gallery">
@@ -1197,6 +1232,201 @@
     </div>
   </section>
 
+  <!-- ═══════════════════════ 10 · ACCESSIBILITY ════════════════════ -->
+  <section class="scene" id="a11y">
+    <header>
+      <div class="label">State 10 · Issue from PR #79 review</div>
+      <h2>Accessibility primitives — WCAG 2.1 AA for the compliance-artifact framing</h2>
+      <div class="when">
+        Required for the regulated ICP (federal mandates WCAG 2.1 AA, FFIEC requires accessible
+        banking interfaces, HHS/HIPAA implies the same). The iteration-3 framing of
+        amber callouts as <em>compliance artifacts</em> contradicts itself if the
+        artifact is not itself a11y-compliant.
+      </div>
+    </header>
+    <div class="body" style="grid-template-columns: 1fr;">
+      <div style="padding: 22px 24px 8px;">
+
+        <!-- ─── 10a · Reduced motion ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10a · Reduced motion (the carmine pulse, shimmer, spinner)</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;">Default · motion enabled</div>
+            <div style="display:flex; flex-direction:column; gap: 6px; align-items: flex-start;">
+              <span class="mini-node halo-worst" style="box-shadow: 0 0 0 2px var(--cy-carmine), 0 0 12px 4px rgba(224, 69, 69, 0.55); animation: spin 0s;">EC2 Frontend-1 87</span>
+              <span class="mini-node skeleton">EC2-shimmer-loading</span>
+              <span class="toast" style="background:#F4F6F8; color:var(--cy-ink); box-shadow:none; padding: 6px 10px;"><span class="spinner" style="border-color: rgba(13,27,42,0.2); border-top-color: var(--cy-teal);"></span>Scoring 28 / 53</span>
+            </div>
+          </div>
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;"><code>prefers-reduced-motion: reduce</code></div>
+            <div style="display:flex; flex-direction:column; gap: 6px; align-items: flex-start;">
+              <span class="mini-node" style="background: var(--aws-orange); box-shadow: 0 0 0 2px var(--cy-carmine);">EC2 Frontend-1 87 ◆</span>
+              <span class="mini-node" style="background:#d4d4d4; color:var(--cy-slate);">EC2-loading</span>
+              <span class="toast" style="background:#F4F6F8; color:var(--cy-ink); box-shadow:none; padding: 6px 10px;"><span style="display:inline-block; width:10px; height:10px; border:2px solid var(--cy-slate); border-radius:50%; opacity:0.6;"></span>Scoring 28 / 53</span>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 6px;">
+          The pulse halo + shimmer placeholders + spinner all stop. Severity stays
+          encoded via halo + glyph (<code>◆</code> for WORST). Skeleton placeholders
+          drop the animated gradient and use a static gray. Spinner becomes a static
+          dot. Page remains functional; movement removed.
+        </p>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          Implementation cost: ~6 CSS rules, applied in all three v0.2 mockups this iteration.
+        </p>
+
+        <!-- ─── 10b · Color-blind safety ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10b · Color-blind safety — severity by shape, not color alone</h3>
+        <div style="background: #F4F6F8; padding: 14px; border-radius: 4px; margin-bottom: 10px;">
+          <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-carmine);">◆</div>
+              <strong>WORST</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">carmine halo + pulse + diamond</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-carmine);">▲</div>
+              <strong>HIGH</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">carmine halo + triangle</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-amber);">👑</div>
+              <strong>JEWEL</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">amber ring + crown</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-slate);">⌛</div>
+              <strong>STALE</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">dim + hourglass</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-teal);">✓</div>
+              <strong>CLEAN</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">teal ring + check</div>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          Carmine and amber compress dangerously in protanopia and deuteranopia.
+          Halo + ring redundancy isn't enough — the eye still relies on color contrast
+          to distinguish WORST from JEWEL. Adding a <strong>shape glyph</strong> next
+          to every severity-coded element provides shape redundancy that survives
+          all common color-vision deficiencies. The glyphs are already in use for JEWEL
+          and STALE in v0.2; this iteration adds <code>◆</code>, <code>▲</code>, and
+          <code>✓</code> to complete the catalog.
+        </p>
+
+        <!-- ─── 10c · Keyboard navigation order ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10c · Keyboard navigation order</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;">Triage mode · tab order</div>
+            <ol style="margin: 0; padding-left: 18px; font-size: 11px; line-height: 1.7;">
+              <li>Headline CTAs (Spotlight / Open detail / Trace path)</li>
+              <li>Mode toggle</li>
+              <li>Topology nodes — spatial order: top→bottom, left→right within each tier</li>
+              <li>IAM strip roles — left to right</li>
+              <li>Ranked rail (1 → 5)</li>
+              <li>If panel open: close → tabs → section CTAs → footer CTAs</li>
+              <li><code>Esc</code> closes panel; focus returns to selected node</li>
+            </ol>
+          </div>
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;">Estate mode · tab order</div>
+            <ol style="margin: 0; padding-left: 18px; font-size: 11px; line-height: 1.7;">
+              <li>Mode toggle</li>
+              <li>Filter checkboxes (type → severity → VPC → confidence)</li>
+              <li>Topology nodes — spatial order</li>
+              <li>IAM strip roles</li>
+              <li>Panel area: "no selection" hint contents (top-of-estate-tail list)</li>
+              <li>If panel opened by node click: same as Triage from step 6</li>
+            </ol>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 6px;">
+          The topology nodes are reachable via Tab. Arrow keys move between adjacent
+          nodes within a subnet; Tab moves out of the subnet to the next interactive
+          element. <code>Enter</code> or <code>Space</code> on a node opens the detail panel.
+        </p>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          <strong>Skip links</strong> at the top of each mode: "Skip to topology" /
+          "Skip to ranked rail" / "Skip to filters". Operators with screen readers don't
+          have to tab through the headline + mode toggle every page load.
+        </p>
+
+        <!-- ─── 10d · Screen reader announcements ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10d · Screen reader patterns — inline announcement, not tooltip</h3>
+        <div style="background: #F4F6F8; padding: 14px; border-radius: 4px; margin-bottom: 10px;">
+          <div style="font-family: ui-monospace, monospace; font-size:10px; color:var(--cy-ink); line-height:1.7;">
+            <div style="margin-bottom: 6px;"><strong style="color:var(--cy-slate);">A node with risk chip 87:</strong></div>
+            <div style="padding: 6px 10px; background: white; border-left: 3px solid var(--cy-teal); border-radius: 2px;">
+              SafeRemediate-Test-Frontend-1, EC2 instance,
+              <strong>risk 87 out of 100, severity worst</strong>,
+              <strong>confidence 62 percent degraded</strong>,
+              <strong>posture stale 14 days</strong>,
+              IAM counts stale 34 days.
+              Press enter to investigate.
+            </div>
+            <div style="margin-top: 14px; margin-bottom: 6px;"><strong style="color:var(--cy-slate);">A node with IAM gap pill "7 of 7":</strong></div>
+            <div style="padding: 6px 10px; background: white; border-left: 3px solid var(--cy-teal); border-radius: 2px;">
+              cyntro-demo-ec2-s3-role,
+              <strong>seven of seven allowed actions unused, 100 percent gap</strong>,
+              never remediated, attached to App-2 via instance profile.
+              Press enter for role detail.
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          The iteration-3 principle (<em>data-confidence is a first-class field, not in a
+          tooltip</em>) extends naturally to screen readers: the confidence + freshness
+          information lives in the <code>aria-label</code> of the focusable element, not
+          in a separate <code>aria-describedby</code> that the reader visits only on
+          request. Sighted operators see it inline; screen-reader operators hear it
+          inline. Same data-trust discipline, same delivery, no tooltip fishing.
+        </p>
+
+        <!-- ─── 10e · Semantic landmarks ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10e · Semantic structure + ARIA landmarks</h3>
+        <div style="background: #F4F6F8; padding: 14px; border-radius: 4px; margin-bottom: 10px; font-size: 11px; line-height: 1.6;">
+          <div style="font-family: ui-monospace, monospace; color: var(--cy-ink);">
+            &lt;header role="banner"&gt;            Headline strip / KPI strip<br/>
+            &lt;nav aria-label="Modes"&gt;          Mode toggle (Triage / Estate)<br/>
+            &lt;main&gt;                            Topology canvas<br/>
+            &nbsp;&nbsp;&lt;section aria-label="VPC"&gt;       AWS frame &gt; Region &gt; VPC<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&lt;section aria-label="Web tier"&gt; Tier rows with subnets<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&lt;section aria-label="IAM control plane"&gt; IAM strip<br/>
+            &lt;aside aria-label="Ranked rail"&gt;   Right rail (Triage) — role complementary<br/>
+            &lt;aside aria-label="Filters"&gt;       Right rail (Estate) — role complementary<br/>
+            &lt;aside aria-label="Detail panel" role="region"&gt; Slide-in panel<br/>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          Landmarks give screen-reader operators a structural map of the surface. They
+          can jump directly to "Detail panel" or "Ranked rail" without traversing every
+          node first. The KPI strip uses <code>role="group"</code> on each tile so the
+          number + label + subtext are announced as one unit, not three.
+        </p>
+
+        <!-- ─── 10f · Verification checklist ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10f · WCAG 2.1 AA verification — what the impl PR must pass</h3>
+        <div style="background: rgba(0, 194, 168, 0.06); border-left: 3px solid var(--cy-teal); padding: 12px 14px; font-size: 12px; line-height: 1.7;">
+          <strong>Automated:</strong> axe-core via Storybook + Playwright. Zero violations
+          on each surface (Triage, Estate, gallery).<br/>
+          <strong>Manual:</strong> NVDA + Chrome, VoiceOver + Safari. Tab through full
+          surface, confirm announcements match patterns in 10d.<br/>
+          <strong>Color-vision:</strong> Stark / Sim Daltonism overlay; confirm WORST,
+          HIGH, JEWEL distinguishable in protanopia + deuteranopia + tritanopia.<br/>
+          <strong>Motion:</strong> System preference set to "reduce motion"; confirm
+          pulse + shimmer + spinner all stop, severity still legible.<br/>
+          <strong>Keyboard-only:</strong> unplug mouse, complete a full Triage workflow
+          (spot worst → open panel → trace path) with Tab + arrow + Enter + Esc only.
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════════════════════ COVERAGE TABLE ════════════════════════ -->
   <section class="scene">
     <header>
@@ -1212,8 +1442,6 @@
       <div class="rationale" style="padding: 22px 22px; font-size: 12px;">
         <ul style="margin: 0; padding-left: 18px; line-height: 1.7;">
           <li><strong>Mobile / narrow viewport.</strong> KPI strip's 5-tile grid breaks below ~960px. Filter rail probably needs to collapse to a bottom sheet.</li>
-          <li><strong>Accessibility primitives.</strong> No ARIA roles specced. Keyboard navigation through topology + panel + filter rail is undefined.</li>
-          <li><strong>Color-blind safety.</strong> Severity uses halo + ring + chip — partially redundant but not fully color-blind safe (carmine + amber are close in protanopia simulation).</li>
           <li><strong>Serverless / event-driven architectures.</strong> AWS reference template assumes Web/App/DB tiers. SAM apps, EventBridge-driven systems, k8s topologies need separate templates.</li>
           <li><strong>Multi-VPC simultaneous render</strong> (deferred from Estate v0.2 to v0.3). Stacked / side-by-side / carousel — three options, none designed.</li>
           <li><strong>Cross-account topologies.</strong> Cyntro's tenant boundary is single-account per system today. Multi-account aggregation is a follow-up.</li>

@@ -1280,6 +1280,40 @@
     background: #ECECEC; padding: 0 4px; border-radius: 2px;
     font-size: 10px;
   }
+
+  /* ── Accessibility primitives (iteration 7) ───────────────────── */
+  /* Estate mode already suppresses .sev-critical animation via
+     body.estate-mode overrides — covers operators who arrive directly
+     in Estate. The prefers-reduced-motion block below covers operators
+     who flip from Triage (sev-critical .icon still has animation
+     declared, just suppressed at the body class). */
+  @media (prefers-reduced-motion: reduce) {
+    .node.sev-critical .icon,
+    .node.sev-critical .icon::after,
+    .iam-role.sev-critical {
+      animation: none !important;
+    }
+  }
+  :focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  .node:focus-visible,
+  .iam-role:focus-visible,
+  .filter-group label:focus-within {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+  }
+  .severity-glyph {
+    display: inline-block;
+    margin-left: 3px;
+    font-size: 10px;
+    vertical-align: middle;
+    opacity: 0.85;
+  }
 </style>
 </head>
 <body class="estate-mode">
@@ -2301,6 +2335,17 @@
     Triage and Estate share — plus three IAM-strip variants that handle customer-scale role
     counts (5 → 47 → 247). Estate-specific states (no-selection panel, empty-VPC, filter-rail
     excluding all visible workloads) are catalogued there too.
+  </p>
+  <p>
+    <strong>Accessibility primitives (iteration 7).</strong>
+    Scene 10 of the gallery covers WCAG 2.1 AA for both modes — reduced-motion
+    handling, color-blind shape glyphs (<code>◆ ▲ 👑 ⌛ ✓</code>), keyboard tab orders for
+    Triage <em>and</em> Estate, screen-reader announcement patterns, and ARIA landmarks.
+    Estate's tab order specifically routes filters → topology → IAM strip → panel, with
+    skip-links so screen-reader operators don't traverse the KPI strip every page load.
+    The CSS-level fixes (<code>prefers-reduced-motion</code> + <code>:focus-visible</code>
+    teal rings) are applied in iteration 7; semantic role markup lands with the React
+    implementation.
   </p>
   <p>
     <strong>Honesty caveat.</strong>
