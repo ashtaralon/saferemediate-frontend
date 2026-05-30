@@ -764,33 +764,57 @@ function buildAttackerArchitecture(
     (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
   )
 
-  // Path target AWS service token — used downstream for the AWS
-  // most-specific-route filter on the EGRESS GATEWAYS lane. Derived from
-  // the crown jewel's graph type, mapped to the VPCE service_name suffix
-  // (e.g. S3Bucket → "s3", DynamoDBTable → "dynamodb"). The mapping is
-  // structural on substrings of the graph type — no hardcoded resource
-  // names. Returns null when the jewel is not a service-typed target
-  // (e.g. raw IP, identity); the filter then degrades to "no filter"
-  // and IGW/NAT remain visible because we can't prove they're off-path.
-  const pathTargetServiceToken: string | null = (() => {
+  // Path target AWS service tokens — used downstream for the AWS
+  // most-specific-route filter on the EGRESS GATEWAYS lane.
+  //
+  // 2026-05-30 v2: Replaced the static 11-entry switch (s3/dynamodb/
+  // rds/kinesis/sqs/sns/lambda/secretsmanager/ssm/kms/ecr) with a
+  // discover-from-data derivation. Tokens come straight from each
+  // crown-jewel node's ARN service slot (arn:aws:<SERVICE>:...) plus
+  // a generic lowercase-type fallback for non-ARN ids. Any new AWS
+  // service slots in automatically — no table to maintain.
+  //
+  // Returns a SET because one path can target multiple resources of
+  // different services (rare but possible — e.g. a chain that ends at
+  // both an S3 bucket and a KMS key used to encrypt it). The egress
+  // filter and inference loop both check membership rather than
+  // equality.
+  //
+  // Empty when no crown jewel on the path has any extractable service
+  // hint — filter then degrades to "no filter" and IGW/NAT remain
+  // visible because we can't prove they're off-path.
+  const pathTargetServiceTokens: Set<string> = (() => {
+    const tokens = new Set<string>()
     for (const n of path.nodes ?? []) {
       if (n.tier !== "crown_jewel") continue
+      // 1. ARN service slot — canonical for any standard AWS ARN
+      //    (works for any service that follows arn:aws:<service>:...).
+      const arnSvc = (n.id || "").match(/^arn:aws:([^:]+):/)
+      if (arnSvc) tokens.add(arnSvc[1].toLowerCase())
+      // 2. Lowercase-type fallback for nodes whose id isn't ARN-shaped
+      //    (e.g. EC2 instance ids, bucket names without ARN prefix).
+      //    The bidirectional substring match in the filter below
+      //    handles cases like type="S3Bucket" / serviceHint="s3" —
+      //    "s3" is a substring of "s3bucket".
       const t = (n.type || "").toLowerCase()
-      if (t.includes("s3") || t.includes("bucket")) return "s3"
-      if (t.includes("dynamodb")) return "dynamodb"
-      if (t.includes("rds") || t.includes("aurora") || t.includes("database")) return "rds"
-      if (t.includes("kinesis")) return "kinesis"
-      if (t.includes("sqs")) return "sqs"
-      if (t.includes("sns")) return "sns"
-      if (t.includes("lambda")) return "lambda"
-      if (t.includes("secret")) return "secretsmanager"
-      if (t.includes("ssm") || t.includes("parameter")) return "ssm"
-      if (t.includes("kms")) return "kms"
-      if (t.includes("ecr")) return "ecr"
-      return null
+      if (t) tokens.add(t)
     }
-    return null
+    return tokens
   })()
+
+  // Does the path's target set match a VPCE's service token? Checks
+  // both directions (token vs every path-target string) so "s3" hits
+  // type "S3Bucket" and ARN-derived "s3" alike — no service-specific
+  // mapping needed.
+  const pathTargetMatchesServiceToken = (serviceToken: string): boolean => {
+    const tok = serviceToken.toLowerCase()
+    for (const target of pathTargetServiceTokens) {
+      if (target === tok) return true
+      if (target.includes(tok)) return true
+      if (tok.includes(target)) return true
+    }
+    return false
+  }
 
   // Dedup key combines (lowercased friendly name, lane bucket) so that
   // a Role and an InstanceProfile sharing a name stay distinct, but
@@ -2054,11 +2078,12 @@ function buildAttackerArchitecture(
   // flow):
   //
   //   Rule A (always-on, regardless of matching-VPCE presence):
-  //     Drop VPCEs whose serviceHint is set AND doesn't match
-  //     pathTargetServiceToken. A VPCE configured for SSM Messages
-  //     can NEVER carry S3 traffic — it's a lateral surface of the
-  //     VPC, not a node on this path. Same conceptual class as the
-  //     lateral SGs we filtered earlier.
+  //     Drop VPCEs whose serviceHint is set AND doesn't match ANY of
+  //     pathTargetServiceTokens (the set discovered from crown-jewel
+  //     ARNs + types). A VPCE configured for SSM Messages can NEVER
+  //     carry S3 traffic — it's a lateral surface of the VPC, not a
+  //     node on this path. Same conceptual class as the lateral SGs
+  //     we filtered earlier.
   //
   //   Rule B (only when a matching VPCE exists):
   //     Drop IGW / NAT / Transit / Egress-only IGW. AWS resolves the
@@ -2070,9 +2095,10 @@ function buildAttackerArchitecture(
   //     real path. Only Rule A's mismatched VPCEs drop.
   //
   // Service-agnostic at the code level: the gate is
-  //   gateway.serviceHint === pathTargetServiceToken
-  // not a hardcoded "drop IGW for S3 paths". The mapping from jewel
-  // type → service token lives at pathTargetServiceToken above.
+  //   pathTargetMatchesServiceToken(gateway.serviceHint)
+  // which checks the VPCE token against the set of service tokens
+  // discovered from the path's crown jewels (ARN service slot + type
+  // substring). New services slot in automatically — no table.
   //
   // VPCEs whose serviceHint is null/undefined (collector didn't tag)
   // stay — we can't prove they're off-path. Better to surface a
@@ -2082,15 +2108,18 @@ function buildAttackerArchitecture(
   // pushCanvasEdge skips any (subnet → IGW) ROUTES_VIA edges from the
   // lateral loop — the IGW card and its edges both go.
   const droppedEgressIds = new Set<string>()
-  if (pathTargetServiceToken) {
+  if (pathTargetServiceTokens.size > 0) {
     const hasMatchingVpce = egressGateways.some(
-      (g) => g.kind === "VPCEndpoint" && g.serviceHint === pathTargetServiceToken,
+      (g) =>
+        g.kind === "VPCEndpoint" &&
+        g.serviceHint &&
+        pathTargetMatchesServiceToken(g.serviceHint),
     )
     for (let i = egressGateways.length - 1; i >= 0; i--) {
       const g = egressGateways[i]
       if (g.kind === "VPCEndpoint") {
-        // Rule A — drop mismatched VPCEs always.
-        if (g.serviceHint && g.serviceHint !== pathTargetServiceToken) {
+        // Rule A — drop VPCEs whose serviceHint matches NO path target.
+        if (g.serviceHint && !pathTargetMatchesServiceToken(g.serviceHint)) {
           droppedEgressIds.add(g.id)
           egressGateways.splice(i, 1)
         }
