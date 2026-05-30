@@ -767,37 +767,72 @@ function buildAttackerArchitecture(
   // Path target AWS service tokens — used downstream for the AWS
   // most-specific-route filter on the EGRESS GATEWAYS lane.
   //
-  // 2026-05-30 v2: Replaced the static 11-entry switch (s3/dynamodb/
-  // rds/kinesis/sqs/sns/lambda/secretsmanager/ssm/kms/ecr) with a
-  // discover-from-data derivation. Tokens come straight from each
-  // crown-jewel node's ARN service slot (arn:aws:<SERVICE>:...) plus
-  // a generic lowercase-type fallback for non-ARN ids. Any new AWS
-  // service slots in automatically — no table to maintain.
+  // 2026-05-30 v3: Discover-from-data with five fallback signals.
+  // The collector already writes most of these for resource nodes;
+  // we just need to consume more of them.
   //
-  // Returns a SET because one path can target multiple resources of
-  // different services (rare but possible — e.g. a chain that ends at
-  // both an S3 bucket and a KMS key used to encrypt it). The egress
-  // filter and inference loop both check membership rather than
-  // equality.
+  // For each crown jewel on the path, harvest service hints from
+  // (in order of strength):
   //
-  // Empty when no crown jewel on the path has any extractable service
-  // hint — filter then degrades to "no filter" and IGW/NAT remain
-  // visible because we can't prove they're off-path.
+  //   1. ARN service slot — arn:aws:<SERVICE>:... regex extract.
+  //      Sources: node.id, node.arn (if id isn't ARN-shaped).
+  //   2. Explicit `service` key property — collector sometimes
+  //      writes "s3" / "dynamodb" / etc. directly.
+  //   3. `resource_type` key property — e.g. "S3Bucket" lowercased.
+  //   4. Neo4j labels[] — multi-label nodes carry "S3Bucket" /
+  //      "DynamoDBTable" alongside generic "Resource"/"Service".
+  //      We skip the generic ones and lowercase the rest.
+  //   5. Top-level `type` — last-resort fallback.
+  //
+  // The bidirectional substring match in pathTargetMatchesServiceToken
+  // below handles all the case variations ("s3" matches "s3bucket",
+  // "S3Bucket" lowercased becomes "s3bucket" which contains "s3",
+  // etc.) — no per-service mapping needed.
+  //
+  // Returns a Set because one path can target multiple resources of
+  // different services. Empty when no crown jewel on the path has
+  // any extractable hint — filter then degrades to "no filter" and
+  // IGW/NAT remain visible because we can't prove they're off-path.
+  const GENERIC_LABELS = new Set(["resource", "service", "node"])
+
   const pathTargetServiceTokens: Set<string> = (() => {
     const tokens = new Set<string>()
+    const addArnService = (s: string | null | undefined): void => {
+      const m = (s || "").match(/^arn:aws:([^:]+):/)
+      if (m) tokens.add(m[1].toLowerCase())
+    }
     for (const n of path.nodes ?? []) {
       if (n.tier !== "crown_jewel") continue
-      // 1. ARN service slot — canonical for any standard AWS ARN
-      //    (works for any service that follows arn:aws:<service>:...).
-      const arnSvc = (n.id || "").match(/^arn:aws:([^:]+):/)
-      if (arnSvc) tokens.add(arnSvc[1].toLowerCase())
-      // 2. Lowercase-type fallback for nodes whose id isn't ARN-shaped
-      //    (e.g. EC2 instance ids, bucket names without ARN prefix).
-      //    The bidirectional substring match in the filter below
-      //    handles cases like type="S3Bucket" / serviceHint="s3" —
-      //    "s3" is a substring of "s3bucket".
+
+      // 1. ARN extraction from id.
+      addArnService(n.id)
+
+      // 5. Top-level type fallback — keeps the path.nodes shape's
+      //    type as a hint when richer signals are absent.
       const t = (n.type || "").toLowerCase()
       if (t) tokens.add(t)
+
+      // 2-4. Richer signals come from graph.nodes which carries
+      //      key_properties + labels[]. path.nodes is sparser, so
+      //      look up the same id in graph.nodes for the full
+      //      payload.
+      const enriched = graph.nodes.find((g) => g.id === n.id)
+      if (enriched) {
+        // 1b. ARN from key_properties.arn (e.g. when id is a short
+        //     name but arn is set).
+        addArnService(enriched.key_properties?.arn as string | undefined)
+        // 2. Explicit service token.
+        const svc = (enriched.key_properties?.service as string | undefined)?.toLowerCase()
+        if (svc) tokens.add(svc)
+        // 3. resource_type.
+        const rt = (enriched.key_properties?.resource_type as string | undefined)?.toLowerCase()
+        if (rt) tokens.add(rt)
+        // 4. Labels — strip generic ones.
+        for (const label of enriched.labels ?? []) {
+          const l = label.toLowerCase()
+          if (l && !GENERIC_LABELS.has(l)) tokens.add(l)
+        }
+      }
     }
     return tokens
   })()
