@@ -404,6 +404,39 @@ function routeTablesById(vpc: VPC): Map<string, RouteTable> {
   return m
 }
 
+// 2026-05-31 — Phase 2 of the topology structural pass. ALBs in the
+// AWS reference architecture sit CENTERED between AZ columns (one
+// load balancer fronts every workload behind it, by definition
+// multi-AZ). Currently they land inside whatever subnet's workloads[]
+// they appear in — which renders them as just-another-EC2 card. The
+// hoisting logic below pulls them up to a tier-spanning row above
+// the AZ grid.
+//
+// Resource-type matching is conservative: only the AWS LB families
+// (ALB / NLB / Classic ELB). Returns false for everything else so
+// the EC2/Lambda/RDS path stays unchanged.
+function isLoadBalancer(w: Workload): boolean {
+  const t = (w.type || "").toLowerCase()
+  if (t === "alb" || t === "nlb" || t === "loadbalancer" || t === "load_balancer") {
+    return true
+  }
+  // Defensive: some collectors emit the AWS service-name. Match the
+  // canonical AWS strings explicitly so this stays evidence-driven
+  // and doesn't false-positive on, e.g., "lambdafunction" containing
+  // the substring "balanc".
+  if (t === "applicationloadbalancer" || t === "networkloadbalancer") {
+    return true
+  }
+  return false
+}
+
+function loadBalancerKind(w: Workload): "ALB" | "NLB" | "ELB" {
+  const t = (w.type || "").toLowerCase()
+  if (t === "nlb" || t === "networkloadbalancer") return "NLB"
+  if (t === "alb" || t === "applicationloadbalancer") return "ALB"
+  return "ELB"
+}
+
 function TierRowsLayout({
   vpc,
   onPathIds,
@@ -467,11 +500,62 @@ function TierRowsLayout({
           if (!byAz.has(az)) byAz.set(az, [])
           byAz.get(az)!.push(subnet)
         }
+        // Extract load-balancer workloads from this tier's subnets and
+        // hoist them to a tier-spanning row above the subnet grid.
+        // Dedupe by id — AWS ALBs span multi-AZ so the same ALB might
+        // appear in both AZs' subnets in the graph response. SG ids
+        // are unioned across appearances so the SG label stays
+        // accurate after hoisting.
+        const albs = new Map<string, Workload>()
+        for (const { subnet } of byTier[tier]) {
+          for (const w of subnet.workloads) {
+            if (!isLoadBalancer(w)) continue
+            const existing = albs.get(w.id)
+            if (existing) {
+              const sgUnion = Array.from(
+                new Set([...existing.security_groups, ...w.security_groups]),
+              )
+              albs.set(w.id, { ...existing, security_groups: sgUnion })
+            } else {
+              albs.set(w.id, w)
+            }
+          }
+        }
+        const hoistedIds = new Set(albs.keys())
         return (
           <div
             key={tier}
             className={`border border-dashed ${meta.tint} rounded-md p-2`}
           >
+            {/* Hoisted load balancers — render above the AZ grid,
+                centered to span all AZ columns. The tier-band
+                placeholder on the left keeps the layout aligned with
+                the subnet grid below. Only renders when this tier
+                has at least one LB. */}
+            {albs.size > 0 && (
+              <div
+                className="grid gap-2 items-center mb-2"
+                style={{
+                  gridTemplateColumns: `100px repeat(${Math.max(azNames.length, 1)}, minmax(0, 1fr))`,
+                }}
+              >
+                <div /> {/* tier-band placeholder */}
+                <div
+                  className="flex flex-wrap items-center justify-center gap-2"
+                  style={{ gridColumn: `span ${Math.max(azNames.length, 1)}` }}
+                >
+                  {Array.from(albs.values()).map((alb) => (
+                    <LoadBalancerChip
+                      key={alb.id}
+                      alb={alb}
+                      sgs={vpc.security_groups}
+                      onPathIds={onPathIds}
+                      hasPath={hasPath}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
             <div
               className="grid gap-2 items-stretch"
               style={{
@@ -506,6 +590,7 @@ function TierRowsLayout({
                           routeTable={
                             s.route_table_id ? rtById.get(s.route_table_id) ?? null : null
                           }
+                          excludeWorkloadIds={hoistedIds}
                         />
                       ))
                     )}
@@ -520,18 +605,107 @@ function TierRowsLayout({
   )
 }
 
+// ALB/NLB rendered as a centered inter-AZ chip above the tier's
+// subnet grid — matches the AWS reference architecture where one
+// load balancer fronts both AZs. Carries its SG label so the
+// "alb-sg" boundary information stays visible after hoisting out
+// of the per-subnet SG group.
+function LoadBalancerChip({
+  alb,
+  sgs,
+  onPathIds,
+  hasPath,
+}: {
+  alb: Workload
+  sgs: SG[]
+  onPathIds: Set<string>
+  hasPath: boolean
+}) {
+  const kind = loadBalancerKind(alb)
+  const sgMap = useMemo(() => {
+    const m = new Map<string, SG>()
+    for (const sg of sgs) m.set(sg.id, sg)
+    return m
+  }, [sgs])
+  const onPath = !hasPath || onPathIds.has(alb.id)
+  const ringClass = hasPath && onPath
+    ? "ring-2 ring-amber-400/70 shadow-[0_0_12px_rgba(251,191,36,0.4)]"
+    : hasPath
+      ? "opacity-40"
+      : ""
+
+  // Purple in the AWS reference is the load-balancer service color
+  // (the same hue the design HTML uses for the ALB chip). Keep the
+  // tone bold so the inter-AZ centering reads as "this is the
+  // entry point for both AZs."
+  return (
+    <div
+      className={`flex flex-col items-center gap-1 rounded-lg border-2 border-purple-500/60 bg-purple-900/30 px-4 py-2 min-w-[180px] ${ringClass} transition-all`}
+      title={alb.id}
+    >
+      <div className="flex items-center gap-1.5">
+        <Network className="h-4 w-4 text-purple-300" />
+        <span className="text-[9px] font-bold uppercase tracking-wider text-purple-200">
+          {kind === "ALB"
+            ? "Application Load Balancer"
+            : kind === "NLB"
+              ? "Network Load Balancer"
+              : "Load Balancer"}
+        </span>
+      </div>
+      <div className="text-[11px] font-mono text-purple-100">
+        {shortName(alb.name, 28)}
+      </div>
+      <div className="text-[8px] text-purple-300/60 font-mono">
+        {shortName(alb.id, 24)}
+      </div>
+      {alb.security_groups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 justify-center mt-1 pt-1 border-t border-purple-500/30 w-full">
+          <ShieldCheck className="h-2.5 w-2.5 text-rose-400" />
+          {alb.security_groups.map((sgId) => {
+            const sg = sgMap.get(sgId)
+            return (
+              <span
+                key={sgId}
+                className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-900/20 px-1 py-0.5"
+                title={sgId}
+              >
+                <span className="text-[7px] font-bold uppercase text-rose-200">SG</span>
+                <span className="text-[7px] text-rose-300/80 font-mono">
+                  {shortName(sg?.name || sgId, 18)}
+                </span>
+                {sg?.has_public_ingress && (
+                  <span className="text-[7px] font-bold uppercase text-amber-300 bg-amber-500/20 rounded px-0.5">
+                    Pub
+                  </span>
+                )}
+              </span>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SubnetBox({
   subnet,
   sgs,
   onPathIds,
   hasPath,
   routeTable,
+  excludeWorkloadIds,
 }: {
   subnet: Subnet
   sgs: SG[]
   onPathIds: Set<string>
   hasPath: boolean
   routeTable: RouteTable | null
+  // 2026-05-31 — workload ids hoisted to a tier-spanning chip above
+  // the subnet grid (currently used for ALB hoisting; future: NAT GW
+  // visual when subnet-specific). Filtered out of this subnet's
+  // workload list so we don't double-render.
+  excludeWorkloadIds?: Set<string>
 }) {
   // Public subnet → light-green tint. Private → light-blue tint.
   const tint = subnet.is_public
@@ -548,9 +722,12 @@ function SubnetBox({
   // Group workloads by SG so we can draw a dashed boundary around the
   // set that shares an SG (mirroring the AWS reference where SG is a
   // dashed perimeter around the resources it protects).
+  // Hoisted-up workloads (ALB at tier level) get filtered out here
+  // so the subnet card doesn't double-render them.
   const groups = useMemo(() => {
     const byKey = new Map<string, { sgIds: string[]; workloads: Workload[] }>()
     for (const w of subnet.workloads) {
+      if (excludeWorkloadIds && excludeWorkloadIds.has(w.id)) continue
       const key = w.security_groups.length === 0
         ? "__no_sg__"
         : [...w.security_groups].sort().join("|")
@@ -558,7 +735,7 @@ function SubnetBox({
       byKey.get(key)!.workloads.push(w)
     }
     return Array.from(byKey.values())
-  }, [subnet.workloads])
+  }, [subnet.workloads, excludeWorkloadIds])
 
   const sgById = useMemo(() => {
     const m = new Map<string, SG>()
