@@ -1942,6 +1942,21 @@ function buildExfilArchitecture(
     } as SubnetNode)
   }
 
+  // 2026-05-30 — track which workload(s) each SG is attached to so the
+  // canvas can label per-SG attribution. Critical on multi-reader
+  // exfil paths where two SGs ("alon-demo-app-sg" + "default") look
+  // ambiguous without knowing which compute they belong to.
+  const sgToWorkloads = new Map<string, Set<string>>()
+  for (const e of networkRows) {
+    const wlName = e.via_workload?.name
+    if (!wlName) continue
+    for (const sg of e.via_security_groups || []) {
+      if (!sg?.id) continue
+      if (!sgToWorkloads.has(sg.id)) sgToWorkloads.set(sg.id, new Set())
+      sgToWorkloads.get(sg.id)!.add(wlName)
+    }
+  }
+
   const sgSeen = new Set<string>()
   for (const e of networkRows) {
     for (const sg of e.via_security_groups || []) {
@@ -1959,6 +1974,7 @@ function buildExfilArchitecture(
         gapCount: 0,
         connectedSources: [],
         connectedTargets: [],
+        attachedWorkloads: Array.from(sgToWorkloads.get(sg.id) ?? []),
       })
     }
   }
@@ -2221,6 +2237,66 @@ function buildExfilArchitecture(
   const totalBytes = flows.reduce((s, f) => s + (f.bytes || 0), 0)
   const totalConnections = flows.reduce((s, f) => s + (f.connections || 0), 0)
 
+  // ── VPC GROUPS (2026-05-30) ─────────────────────────────────────
+  // Mirror attacker-view-panel.tsx's vpcGroups build so TFM's
+  // VPCBoundaries layer can draw the dashed VPC frame around the
+  // exfil flow. Without this the defaultShowVPCBoundaries={true}
+  // flag was on but vpcGroups was empty — nothing drew.
+  //
+  // VPC discovery: walk networkRows for via_vpc + backfill from
+  // workload_network when the network rows don't carry it (some
+  // serverless paths).
+  const vpcsById = new Map<string, { vpcId: string; vpcName: string }>()
+  for (const e of networkRows) {
+    const v = e.via_vpc
+    if (v?.id && !vpcsById.has(v.id)) {
+      vpcsById.set(v.id, { vpcId: v.id, vpcName: v.name || v.id })
+    }
+  }
+  if (
+    selectedPath?.workload_network?.is_vpc_attached &&
+    selectedPath.workload_network.vpc_id &&
+    !vpcsById.has(selectedPath.workload_network.vpc_id)
+  ) {
+    vpcsById.set(selectedPath.workload_network.vpc_id, {
+      vpcId: selectedPath.workload_network.vpc_id,
+      vpcName: selectedPath.workload_network.vpc_name || selectedPath.workload_network.vpc_id,
+    })
+  }
+  // Per-subnet compute attachment (used to anchor the VPC bounding box).
+  const subnetToComputes = new Map<string, string[]>()
+  for (const e of networkRows) {
+    if (!e.via_subnet?.id || !e.via_workload?.id) continue
+    const arr = subnetToComputes.get(e.via_subnet.id) ?? []
+    arr.push(e.via_workload.id)
+    subnetToComputes.set(e.via_subnet.id, arr)
+  }
+  // Network-anchor ids: SGs + NACLs in the architecture. Including
+  // them in every subnet's nodeIds keeps the VPC bounding box wide
+  // enough that the dashed frame visually wraps them rather than
+  // cutting through (same fix Attacker View applied — see
+  // attacker-view-panel.tsx networkAnchorIds).
+  const networkAnchorIds = [
+    ...securityGroups.map((s) => s.id),
+    ...nacls.map((n) => n.id),
+  ]
+  const vpcGroups = Array.from(vpcsById.values()).map((v) => ({
+    vpcId: v.vpcId,
+    vpcName: v.vpcName,
+    subnets: subnets
+      .filter((s) => s.vpcId === v.vpcId || !s.vpcId)
+      .map((s) => ({
+        subnetId: s.id,
+        subnetName: s.shortName ?? s.name,
+        isPublic: s.isPublic === true,
+        nodeIds: [
+          ...(subnetToComputes.get(s.id) ?? []),
+          s.id,
+          ...networkAnchorIds,
+        ],
+      })),
+  }))
+
   return {
     computeServices,
     entryPoints,
@@ -2303,7 +2379,7 @@ function buildExfilArchitecture(
     totalBytes,
     totalConnections,
     totalGaps: 0,
-    vpcGroups: [],
+    vpcGroups,
     // Evidence-backed DEFENSE overlay — drives TFM's "Non-VPC Workload"
     // banner with real Cypher evidence instead of inferring from empty
     // arrays. null when no path selected (no banner).

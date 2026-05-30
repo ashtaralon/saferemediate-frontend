@@ -100,6 +100,13 @@ export interface SecurityCheckpoint {
    *  to "treat as on-path" (back-compat for callers that don't yet
    *  surface this signal). */
   onPath?: boolean;
+  /** SG — display names of the workload(s) this SG is attached to
+   *  via SECURED_BY / HAS_SECURITY_GROUP. Populated by the Exfil
+   *  view for multi-reader exfil paths so the operator can map each
+   *  SG to the specific compute card to remediate (e.g. "default ·
+   *  on cyntro-web-server" vs "alon-demo-app-sg · on alon-demo-app2").
+   *  Undefined / empty → chip omitted (back-compat). */
+  attachedWorkloads?: string[];
   /** IAM Role — observed-activity evidence from CloudTrail
    *  ACCESSES_RESOURCE edges. liveObservedTotalHits is the
    *  per-resource max-then-sum count of distinct API calls.
@@ -966,6 +973,16 @@ export function SecurityGroupPanel({
                 title="Lateral SG — not attached to the path's workload. Pivot surface only."
               >
                 Lateral
+              </span>
+            )}
+            {sg.attachedWorkloads && sg.attachedWorkloads.length > 0 && (
+              <span
+                className="px-1.5 py-0.5 bg-orange-500/15 text-orange-300 rounded text-[9px] font-semibold"
+                title={`Attached to: ${sg.attachedWorkloads.join(", ")}`}
+              >
+                on {sg.attachedWorkloads.length === 1
+                  ? sg.attachedWorkloads[0]
+                  : `${sg.attachedWorkloads.length} workloads`}
               </span>
             )}
           </div>
