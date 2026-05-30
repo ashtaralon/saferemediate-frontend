@@ -1558,6 +1558,12 @@
           allowed_count = 0 but Cyntro observed 10 actions in use over the last
           observation window — role counts are likely stale, not the role itself.
           Surfaces a separate <em>"Re-sync IAM counts"</em> action below.
+          <div style="margin-top:6px; padding-top:6px; border-top: 1px dashed rgba(245,166,35,0.4); font-size:10px;">
+            <strong>Auto-resolves</strong> when the IAM collector next succeeds — no operator action
+            required for the happy path. Operator action surfaces only if the collector stays broken
+            beyond threshold (escalates from <em>stale</em> to <em>broken</em>, different visual).
+            This amber state is transient by contract.
+          </div>
         </div>
 
         <h3 style="margin-top:18px;">Observed actions <span style="color:var(--cy-slate); font-weight:400;">(10 · USES_PERMISSION)</span></h3>
@@ -1817,12 +1823,49 @@
     IAM counts, Quarantine.
   </p>
   <p>
+    <strong>Data-trust amber is an audit-trail artifact, not just a UX hygiene signal (v0.3).</strong>
+    The IAM section's stale-count callout is framed loosely as "trust" / "epistemic honesty" — true
+    but soft. For Cyntro's regulated ICP (fintech, healthcare, federal), the stronger argument is
+    <em>regulatory defense</em>. A CISO before an FFIEC examiner or OCC auditor must demonstrate
+    that the inputs to a security decision were verified. "Cyntro flagged stale IAM counts for this
+    role and we resolved the staleness before reducing policy" is a defensible audit trail. "Cyntro
+    silently used stale data and we made the decision off it" is a finding. Amber callouts aren't
+    just informing the operator — they're producing the artifact the operator's compliance team
+    needs. Strategic decks and sales briefs should lead with this framing, not the trust framing.
+  </p>
+  <p>
+    <strong>Amber is a transient self-healing state, never a permanent label (v0.3).</strong>
+    The earliest version of the elaboration warned about decorative ⚠ icons becoming wallpaper, but
+    missed the same failure mode for legitimate amber that never auto-resolves. If "Re-sync IAM
+    counts" sits unclicked for three weeks because the operator forgets and nothing else acts, it
+    becomes background noise — the discipline erodes via its own success. The contract for every
+    amber surface: <code>(a)</code> auto-stale threshold = N min since last successful collector run,
+    <code>(b)</code> auto-resolve when fresh data lands — no operator action on the happy path,
+    <code>(c)</code> operator action surfaces only when collector durably broken (> M min), at
+    which point visual escalates from <em>stale</em> to <em>broken</em>. Spec'd into the IAM
+    sync-warn box above; applies wherever amber is used across the product.
+  </p>
+  <p>
+    <strong>Composite-score data-confidence is the priority propagation point (v0.3).</strong>
+    Five surfaces need data-trust treatment (IAM-strip role chips, headline-strip fallback,
+    auto-remediation gating, view-parity gating, composite-score rollup). They're not
+    equal-priority — the composite score is the single silent-failure point. Every other surface
+    is *visible*; operators see amber and self-correct. The score is a number. If it doesn't
+    degrade when its inputs are stale, four honest panels can aggregate into a dishonest rollup,
+    and the operator catches the contradiction independently. That kills global trust. The risk
+    chip on every node, the headline-strip risk integer, and the right-rail rankings must all
+    derive from a score function that exposes <em>"low confidence — 4 collectors stale"</em>
+    inline, not behind a tooltip. Same architectural pattern as <code>view_parity</code> gating
+    — silent upstream failures undermine honest downstream surfaces.
+  </p>
+  <p>
     <strong>Honesty caveat.</strong>
     Risk-score integers (87 / 78 / 68 / 65 / 62 / 48) remain illustrative until the canonical
-    node-risk endpoint lands. Ranking order is honest, derived from <code>posture_verdict_priority</code>
-    + IAM <code>gap_percentage</code> + jewel flag + stale flag. Auto-Scaling and route-table CIDR
-    rows are AWS-canonical scaffolding shown for layout legibility; Cyntro doesn't score them as
-    nodes today.
+    node-risk endpoint lands — and per the point above, that endpoint must expose data-confidence
+    as a first-class field, not just an aggregate number. Ranking order is honest, derived from
+    <code>posture_verdict_priority</code> + IAM <code>gap_percentage</code> + jewel flag + stale
+    flag. Auto-Scaling and route-table CIDR rows are AWS-canonical scaffolding shown for layout
+    legibility; Cyntro doesn't score them as nodes today.
   </p>
 </div>
 
