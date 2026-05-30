@@ -2276,10 +2276,10 @@ function buildExfilArchitecture(
   // enough that the dashed frame visually wraps them rather than
   // cutting through (same fix Attacker View applied — see
   // attacker-view-panel.tsx networkAnchorIds).
-  const networkAnchorIds = [
-    ...securityGroups.map((s) => s.id),
-    ...nacls.map((n) => n.id),
-  ]
+  // NACLs intentionally omitted — the Exfil builder doesn't populate
+  // a `nacls` array today (return uses inline `nacls: []`). Fold them
+  // in here too once that lane gets populated.
+  const networkAnchorIds = securityGroups.map((s) => s.id)
   const vpcGroups = Array.from(vpcsById.values()).map((v) => ({
     vpcId: v.vpcId,
     vpcName: v.vpcName,
