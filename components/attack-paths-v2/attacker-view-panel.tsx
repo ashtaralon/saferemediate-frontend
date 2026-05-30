@@ -2263,23 +2263,21 @@ function buildAttackerArchitecture(
   // collector writes the real edge), this code transparently stops
   // synthesizing because builtEdges already carries the truth.
   //
-  // Service-token → resource-type-substring map. Add new pairs by
-  // extending this list; the rest of the logic is generic.
-  const SERVICE_PLANE_INFERENCE: Array<{ serviceToken: string; resourceTypeSubstr: string }> = [
-    { serviceToken: "s3", resourceTypeSubstr: "s3" },
-    { serviceToken: "dynamodb", resourceTypeSubstr: "dynamo" },
-    { serviceToken: "kms", resourceTypeSubstr: "kms" },
-    { serviceToken: "secretsmanager", resourceTypeSubstr: "secret" },
-    { serviceToken: "ssm", resourceTypeSubstr: "parameter" },
-    { serviceToken: "ecr", resourceTypeSubstr: "ecr" },
-    { serviceToken: "sqs", resourceTypeSubstr: "sqs" },
-    { serviceToken: "sns", resourceTypeSubstr: "sns" },
-  ]
+  // Service matching — derived from the resource ARN's service slot
+  // (arn:aws:<service>:...), which is the canonical AWS identifier
+  // regardless of how the renderer bucketed the type. Works for
+  // every AWS service that follows the standard ARN shape — no
+  // mapping table needed for the common case.
+  const serviceFromArn = (id: string | null | undefined): string | null => {
+    if (!id) return null
+    const m = id.match(/^arn:aws:([^:]+):/)
+    return m ? m[1].toLowerCase() : null
+  }
 
-  // Helper: extract the AWS account id from an ARN-shaped id, or from
-  // a VPC id (which doesn't carry account but the VPCE has account_id
-  // available on the path's egressGateway via vpcId — fallback to the
-  // jewel ARN's account when needed).
+  // Helper: extract the AWS account id from an ARN-shaped id. Returns
+  // null for ARN shapes that don't carry an account (e.g. S3 bucket
+  // ARNs which have empty account field) — caller treats null as
+  // "can't determine" and skips the same-account check.
   const accountFromArn = (idOrArn: string | null | undefined): string | null => {
     if (!idOrArn) return null
     const m = idOrArn.match(/^arn:aws:[^:]+:[^:]*:(\d+):/)
@@ -2287,17 +2285,17 @@ function buildAttackerArchitecture(
   }
 
   // For each VPCE in egressGateways with a matching jewel resource on
-  // the path, synthesize the inferred edge.
+  // the path, synthesize the inferred edge. Service match is direct
+  // string compare on the AWS service token — "s3" matches "s3", etc.
   for (const vpce of egressGateways) {
     if (vpce.kind !== "VPCEndpoint") continue
     if (!vpce.serviceHint) continue
-    const mapping = SERVICE_PLANE_INFERENCE.find((m) => m.serviceToken === vpce.serviceHint)
-    if (!mapping) continue
+    const vpceService = vpce.serviceHint.toLowerCase()
 
     for (const res of resources) {
-      // Condition 2: resource type matches VPCE service.
-      const resTypeLower = (res.type || "").toLowerCase()
-      if (!resTypeLower.includes(mapping.resourceTypeSubstr)) continue
+      // Condition 2: resource ARN's service slot matches VPCE service.
+      const resService = serviceFromArn(res.id)
+      if (!resService || resService !== vpceService) continue
 
       // Condition 3: same account. VPCE id (vpce-XXX) doesn't carry
       // account; we resolve by checking the resource ARN's account
