@@ -1336,29 +1336,29 @@
 
   <div class="estate-kpis">
     <div class="kpi">
-      <div class="kpi-num">53</div>
+      <div class="kpi-num">57</div>
       <div class="kpi-label">Workloads</div>
-      <div class="kpi-sub">EC2 11 · λ 22 · S3 10 · DDB 8 · RDS 1 · LB 1</div>
+      <div class="kpi-sub">EC2 8 &middot; &lambda; 30 &middot; S3 10 &middot; DDB 8 &middot; RDS 2 &middot; LB 1</div>
     </div>
     <div class="kpi kpi-warn">
-      <div class="kpi-num">7</div>
+      <div class="kpi-num">4</div>
       <div class="kpi-label">Flagged</div>
-      <div class="kpi-sub">all EC2 · posture LATENT or worse</div>
+      <div class="kpi-sub">posture_verdict_priority &le; 3 (worst tier)</div>
     </div>
     <div class="kpi kpi-amber">
       <div class="kpi-num">3</div>
-      <div class="kpi-label">Stale</div>
-      <div class="kpi-sub">2 EC2 + 1 RDS · gone since Apr 7</div>
-    </div>
-    <div class="kpi kpi-amber">
-      <div class="kpi-num">41</div>
-      <div class="kpi-label">Unscored</div>
-      <div class="kpi-sub">22 λ + 10 S3 + 8 DDB + 1 untyped</div>
+      <div class="kpi-label">Stale workloads</div>
+      <div class="kpi-sub">aws_exists = false &middot; 2 EC2 + 1 RDS</div>
     </div>
     <div class="kpi kpi-warn">
-      <div class="kpi-num">0%</div>
-      <div class="kpi-label">Confidence fresh</div>
-      <div class="kpi-sub">posture > 7d stale · 53 of 53 workloads</div>
+      <div class="kpi-num">17 / 57</div>
+      <div class="kpi-label">Posture coverage</div>
+      <div class="kpi-sub">S3 0/10 &middot; DDB 0/8 &middot; &lambda; 11/30 &middot; EC2 5/8 &middot; RDS 1/2</div>
+    </div>
+    <div class="kpi kpi-amber">
+      <div class="kpi-num">14d</div>
+      <div class="kpi-label">Posture freshness</div>
+      <div class="kpi-sub">last run 2026-05-16 &middot; scheduler below SLA</div>
     </div>
   </div>
 </header>
@@ -2113,9 +2113,9 @@
   <aside class="rail filter-rail">
     <h2>Workload type</h2>
     <div class="filter-group">
-      <label><input type="checkbox" checked /> EC2 <span class="count">11</span></label>
-      <label><input type="checkbox" checked /> Lambda <span class="count">22</span></label>
-      <label><input type="checkbox" checked /> RDS <span class="count">1</span></label>
+      <label><input type="checkbox" checked /> EC2 <span class="count">8</span></label>
+      <label><input type="checkbox" checked /> Lambda <span class="count">30</span></label>
+      <label><input type="checkbox" checked /> RDS <span class="count">2</span></label>
       <label><input type="checkbox" checked /> S3 bucket <span class="count">10</span></label>
       <label><input type="checkbox" checked /> DynamoDB <span class="count">8</span></label>
       <label><input type="checkbox" checked /> Load balancer <span class="count">1</span></label>
@@ -2125,7 +2125,7 @@
     <h2>Severity</h2>
     <div class="filter-group">
       <label><input type="checkbox" checked /> Worst <span class="count warn">0</span></label>
-      <label><input type="checkbox" checked /> High <span class="count warn">7</span></label>
+      <label><input type="checkbox" checked /> High <span class="count warn">4</span></label>
       <label><input type="checkbox" checked /> Elevated <span class="count">0</span></label>
       <label><input type="checkbox" checked /> Quiet <span class="count">1</span></label>
       <label><input type="checkbox" checked /> Stale <span class="count amber">3</span></label>
@@ -2171,16 +2171,15 @@
   <p>
     <strong>What changes vs Triage.</strong>
     <em>Headline</em> swaps the prose "worst right now" sentence for a five-tile KPI
-    strip (<code>53 workloads · 7 flagged · 3 stale · 41 unscored · 0% posture fresh</code>).
-    The "0% confidence fresh" tile is the dramatic finding Estate uniquely surfaces —
-    every single posture measurement in this estate is >7d stale, a systemic data-coverage
-    issue Triage can't show because it's not about urgency. <em>Halos</em> drop the pulse
-    and shrink to thin rings — visual presence, not visual emergency, because no node
-    is being spotlighted. <em>Right rail</em> swaps "Next worst" for filters by workload
-    type, severity, VPC, and confidence state (with counts per filter, so operators see
-    the lay-of-the-land at a glance). <em>Detail panel</em> hidden by default; same
-    panel as Triage, opens on node click. <em>Mode toggle</em> top-left flips between
-    the two surfaces — stable position so muscle memory carries.
+    strip (<code>57 workloads &middot; 4 flagged &middot; 3 stale &middot; 17/57 posture coverage &middot; last run 14d ago</code>).
+    The Coverage + Freshness pair is the dramatic finding Estate uniquely surfaces &mdash;
+    not because measurements are stale but because <strong>most measurements were never taken</strong>
+    (see next paragraph). <em>Halos</em> drop the pulse and shrink to thin rings &mdash;
+    visual presence, not visual emergency, because no node is being spotlighted.
+    <em>Right rail</em> swaps "Next worst" for filters by workload type, severity, VPC,
+    and confidence state. <em>Detail panel</em> hidden by default; same panel as Triage,
+    opens on node click. <em>Mode toggle</em> top-left flips between the two surfaces &mdash;
+    stable position so muscle memory carries.
   </p>
   <p>
     <strong>Why keep the AWS template across both modes.</strong>
@@ -2192,14 +2191,33 @@
     physically sit</em>.
   </p>
   <p>
-    <strong>The "Confidence 0% fresh" KPI is the headline story for this estate.</strong>
-    Surface 53 workloads, but every single posture verdict is more than 7 days old.
-    That's a system-health finding the Triage view literally cannot express because
-    it's scoped to one spotlighted node. Per the
+    <strong>The Coverage + Freshness split (corrected after validation).</strong>
+    The first draft of this mockup conflated coverage and staleness into a single
+    "0% confidence fresh" tile, implying that every workload <em>had</em> been measured but
+    the measurements were aging. Querying the real graph showed two distinct findings:
+    <strong>(1) 41 of 57 workloads have never had posture computed</strong> &mdash; S3 at 0/10,
+    DynamoDB at 0/8, Lambda at 11/30, EC2 at 5/8, RDS at 1/2. Posture is currently an
+    EC2-centric model. And <strong>(2) the most recent posture run for alon-prod was
+    2026-05-16</strong> &mdash; 14 days ago, in a single ~3.5-hour window. Of the 17 workloads
+    ever scored, all 17 are now &gt;7 days stale. Conflating the two as "0% fresh" sounds
+    like a scheduler-cadence problem ("just run posture more often"). The real story is
+    a <strong>product-coverage gap</strong> (build posture models for S3 / DDB / more
+    Lambdas) <em>plus</em> a scheduler gap. Two findings, each independently actionable
+    by a different owner. Per the
     <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal);">risk-contract</a>'s
-    MIN-of-contributors confidence model, this would drive every node's composite
-    confidence down to DEGRADED at best — and Estate mode renders that aggregate fact
-    where it lives, not behind a tooltip.
+    MIN-of-contributors confidence model, both feed the per-node confidence &mdash; but at
+    the estate level they're surfaced as two tiles so the right team can own the right
+    problem.
+  </p>
+  <p>
+    <strong>Honest about the "Flagged 4" correction too.</strong>
+    The first draft said "7 flagged" because it used <code>max(posture_verdict_priority)</code>
+    on workloads that appear under multiple labels (<code>:EC2Instance</code> +
+    <code>:Service</code> legacy stub). Priority is reverse-ordered (lower = worse), so
+    <code>max</code> returned the <em>least</em>-urgent variant. With <code>min</code>, only
+    4 of 57 workloads carry a posture_verdict_priority &le; 3. The flagged count came down
+    by 3; same node identities, different aggregation rule. Audit-trail discipline at the
+    query layer.
   </p>
   <p>
     <strong>Multi-VPC handling (Phase 1 of Estate).</strong>
@@ -2349,10 +2367,13 @@
     implementation.
   </p>
   <p>
-    <strong>Data policy (corrected after PR #79 review).</strong>
+    <strong>Data policy (corrected after PR #79 review and Estate KPI re-validation).</strong>
     No fabricated numbers on this mockup. The KPI strip is fully real
-    (53 workloads / 7 flagged / 3 stale / 41 unscored / 0% posture fresh) &mdash; all five
-    counts came from Neo4j queries on alon-prod. The detail panel's risk score and confidence
+    (<code>57 workloads &middot; 4 flagged &middot; 3 stale &middot; 17/57 coverage &middot; last run 14d ago</code>)
+    &mdash; all counts deduplicated by ID against alon-prod (<code>posture_correlated_at</code>,
+    <code>posture_verdict_priority</code> with <code>min</code> aggregation, <code>aws_exists</code>).
+    Earlier draft had 53 / 7 / 41 / 0% &mdash; corrected via the validation audit; see the
+    "Coverage + Freshness split" and "Flagged 4 correction" paragraphs above. The detail panel's risk score and confidence
     percentage render as <code>&mdash;</code> placeholders until
     <code>/api/topology-risk</code> is implemented. Filter rail counts, VPC names, and
     workload identities are all real reads from the graph. Auto-Scaling and route-table CIDR
