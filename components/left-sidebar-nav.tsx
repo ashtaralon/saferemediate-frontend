@@ -116,6 +116,39 @@ export function LeftSidebarNav({
 
       {/* Menu Items */}
       <nav className="py-4">
+        {/* Design preview — Topology v0.2 mockup served from public/design/.
+            Successor to the existing Phase 1 / v0.1 component at
+            components/attack-paths-v2/topology-view.tsx (already live on
+            cyntro.io, dark-themed, static layout). v0.2 is the design spec
+            for the next iteration: severity halos, signal pills, IAM control-
+            plane strip, detail panel, ranked rail, data-trust amber.
+            Lives above the main nav so it stays discoverable while the design
+            iterates. Static HTML, opens in a new tab. Remove once v0.2 ships
+            into a real route. */}
+        <a
+          href="/design/topology-v0.2.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-all overflow-hidden border-b mb-2"
+          style={{
+            color: "var(--text-secondary)",
+            borderColor: "var(--border-subtle)",
+            fontStyle: "italic",
+          }}
+        >
+          <Sparkles className="w-4 h-4 shrink-0" style={{ color: "#00C2A8" }} />
+          <span className="whitespace-nowrap">Topology</span>
+          <span
+            className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase shrink-0"
+            style={{
+              background: "rgba(0, 194, 168, 0.15)",
+              color: "#00C2A8",
+            }}
+          >
+            v0.2
+          </span>
+        </a>
+
         {menuItems.map((item) => {
           const Icon = item.icon
           const isActive = activeItem === item.id
