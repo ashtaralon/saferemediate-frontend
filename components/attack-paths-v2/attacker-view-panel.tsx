@@ -2260,6 +2260,14 @@ function buildAttackerArchitecture(
   }
 
   // (1) From the IAP path's edges — the chain backbone.
+  //
+  // 2026-05-30 (FE follow-up #7): backend B3 fix (PRs #47/#48/#49) made
+  // `_build_comprehensive_path` surface first_seen / last_seen on every
+  // observed-edge MapEdge. The producer here was the choke point that
+  // dropped them by passing null/null to pushCanvasEdge — which made
+  // PR #76's edge-hover provenance slice dead-code on this rendering
+  // path. Thread the timestamps through so the renderer's <title>
+  // tooltip surfaces them on hover in explicit-edges mode.
   for (const e of path.edges ?? []) {
     pushCanvasEdge(
       e.source,
@@ -2270,8 +2278,8 @@ function buildAttackerArchitecture(
       e.hit_count ?? null,
       e.port ?? null,
       e.protocol ?? null,
-      null,
-      null,
+      (e as any).first_seen ?? null,
+      (e as any).last_seen ?? null,
     )
   }
 
