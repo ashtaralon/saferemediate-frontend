@@ -260,6 +260,15 @@ export interface EgressGatewayNode {
   // Lets the lane chip distinguish "VPCE · s3" vs "VPCE · dynamodb" when
   // multiple gateway endpoints attach to the same RT.
   serviceHint?: string;
+  // Route provenance (2026-05-30) — when populated, the chip displays
+  // "via 0.0.0.0/0" for IGW/NAT default routes or
+  // "via com.amazonaws.eu-west-1.s3" for Gateway VPCEs. Backend emits
+  // these so the canvas can show the AUTHORITATIVE path (subnet's
+  // route table actually points here) vs the wrong-sibling-IGW that
+  // just happens to live in the same VPC.
+  routed?: boolean;
+  routeDestinationCidr?: string | null;
+  routeTargetService?: string | null;
 }
 
 // EXFIL view: items in the named EGRESS GATE lane (between IDENTITY and
@@ -4059,12 +4068,29 @@ export function UnifiedArchitectureDiagram({
                   gw.kind === 'NATGateway' ? 'text-sky-300' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-300' :
                   'text-violet-300';
+                // Route subtitle — shows the AUTHORITATIVE answer to
+                // "where does this gateway send traffic?":
+                //   IGW / NAT default route → "via 0.0.0.0/0"
+                //   Gateway VPCE for S3     → "via com.amazonaws.<region>.s3"
+                // Empty when route provenance is missing (older API
+                // response or in-vpc-only sibling gateway).
+                const routeLine = gw.routeTargetService
+                  ? `via ${gw.routeTargetService}`
+                  : gw.routeDestinationCidr
+                  ? `via ${gw.routeDestinationCidr}`
+                  : null;
+                const titleParts = [
+                  `${gw.kindLabel} · ${gw.name}`,
+                  gw.vpcId ? gw.vpcId : null,
+                  routeLine,
+                  gw.routed === false ? "sibling gateway — no route points here" : null,
+                ].filter(Boolean);
                 return (
                   <div
                     key={gw.id}
                     data-gateway-id={gw.id}
                     className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette}`}
-                    title={`${gw.kindLabel} · ${gw.name}${gw.vpcId ? ` · ${gw.vpcId}` : ''}`}
+                    title={titleParts.join(' · ')}
                     onMouseEnter={() => setHoveredId(gw.id)}
                     onMouseLeave={() => setHoveredId(null)}
                   >
@@ -4075,6 +4101,14 @@ export function UnifiedArchitectureDiagram({
                     <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
                       {gw.shortName}
                     </div>
+                    {routeLine && (
+                      <div
+                        className="text-[9px] text-center text-slate-400 mt-1 truncate max-w-[140px]"
+                        title={routeLine}
+                      >
+                        {routeLine}
+                      </div>
+                    )}
                   </div>
                 );
               })}

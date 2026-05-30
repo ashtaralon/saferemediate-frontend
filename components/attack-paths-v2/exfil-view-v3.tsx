@@ -173,6 +173,20 @@ interface ExfilNetworkEgressItem {
   channel?: string
   accessor_id?: string
   accessor_name?: string
+  // 2026-05-30 — route provenance from backend:
+  //   routed=true  → the subnet's route table actually targets this
+  //                  gateway. AUTHORITATIVE for "where bytes go".
+  //   routed=false → gateway exists in the VPC but no route points
+  //                  at it. Capability hint only — backend drops
+  //                  these from the merged set when routed gateways
+  //                  exist for the same subnet.
+  // route_destination_cidr / route_target_service describe WHAT the
+  // route is for: "0.0.0.0/0" for default routes via IGW/NAT,
+  // "com.amazonaws.<region>.s3" for Gateway VPCEs.
+  service_name?: string | null
+  routed?: boolean
+  route_destination_cidr?: string | null
+  route_target_service?: string | null
   via_workload: { id: string; name: string; type: string }
   via_subnet: {
     id: string
@@ -313,7 +327,27 @@ interface ExfilPath {
   workload_count: number
   workload_sample: Array<{ id: string; name: string; type: string }>
   gateway_count: number
-  gateway_sample: Array<{ id: string; name: string; kind: string }>
+  // gateway_sample carries route provenance from the backend (2026-05-30):
+  //   routed=true  → subnet's route table actually targets this gateway
+  //                  (the AUTHORITATIVE answer for "where do bytes go")
+  //   routed=false → gateway exists in the same VPC but no route points
+  //                  at it (capability hint only). Today the backend
+  //                  drops these from gateway_sample when ANY routed
+  //                  gateway is found for the same subnet — kept in
+  //                  the type for forwards-compat.
+  // route_destination_cidr → "0.0.0.0/0" for default routes via IGW/NAT
+  // route_target_service   → "com.amazonaws.eu-west-1.s3" for Gateway
+  //                          VPCEs (the AWS service prefix list this
+  //                          VPCE handles)
+  gateway_sample: Array<{
+    id: string
+    name: string
+    kind: string
+    service_name?: string | null
+    routed?: boolean
+    route_destination_cidr?: string | null
+    route_target_service?: string | null
+  }>
   workload_network: WorkloadNetworkPayload | null
   // ATLAS chain enrichment — present when backend computed it, null
   // when the call failed/timed out, undefined when include_atlas=false.
@@ -474,6 +508,25 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
     return data.paths.find((p) => p.path_id === selectedPathId) ?? null
   }, [data, selectedPathId])
 
+  // Sibling paths — other channels under the SAME accessor as the
+  // currently-selected path. Surfaced as a chip strip on the canvas
+  // header (see "Other channels for this role" below) so an operator
+  // looking at e.g. CyntroLambdaTier1-pilot|serverless_direct (8 non-VPC
+  // Lambdas) can SEE that the same role ALSO has a network_via_igw
+  // path (6 VPC-attached Lambdas + IGW + VPCE) without hunting in the
+  // path-picker dropdown. Operator-traced 2026-05-30: "from S3 to
+  // what?? we need to see traffic out of the VPC" — the VPC path
+  // existed, was in paths[], but the default sort tiebreak landed
+  // them on serverless_direct.
+  const siblingPaths = useMemo<ExfilPath[]>(() => {
+    if (!data?.paths || !selectedPath) return []
+    return data.paths.filter(
+      (p) =>
+        p.accessor_id === selectedPath.accessor_id &&
+        p.path_id !== selectedPath.path_id,
+    )
+  }, [data, selectedPath])
+
   const architecture = useMemo<SystemArchitecture | null>(() => {
     if (!data || !data.ok) return null
     return buildExfilArchitecture(data, selectedPath)
@@ -566,6 +619,37 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
         atlasSummary={data.atlas_summary}
         keystones={data.keystones ?? []}
       />
+      {siblingPaths.length > 0 && (
+        <div
+          className="flex items-center gap-2 px-6 py-2 border-b border-slate-800/60 bg-slate-900/40 text-[10px]"
+        >
+          <span className="text-slate-500 uppercase tracking-wider font-bold">
+            Same role · other channels
+          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {siblingPaths.map((p) => (
+              <button
+                key={p.path_id}
+                type="button"
+                onClick={() => setSelectedPathId(p.path_id)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/40 px-2 py-0.5 hover:border-amber-500/40 hover:bg-amber-500/5 transition-colors"
+                title={`Switch to ${p.channel_label} · ${p.workload_count} workloads · ${p.gateway_count} gateways`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  p.channel === "network_via_igw" ? "bg-emerald-400"
+                  : p.channel === "serverless_direct" ? "bg-amber-400"
+                  : p.channel === "ec2_no_egress" ? "bg-orange-400"
+                  : "bg-slate-400"
+                }`} />
+                <span className="text-slate-200 font-medium">{p.channel_label}</span>
+                <span className="text-slate-500">
+                  · {p.workload_count}w · {p.gateway_count}g
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="relative" style={{ minHeight: "640px" }}>
         <TrafficFlowMap
           systemName={systemName}
@@ -2043,6 +2127,17 @@ function buildExfilArchitecture(
       vpcId: e.via_vpc?.id ?? null,
       kind: kind,
       kindLabel: kindLabel[kind] || kind,
+      // 2026-05-30 — route provenance for "via 0.0.0.0/0" or
+      // "via com.amazonaws.eu-west-1.s3" subtitle on the chip.
+      // Defensive ?? null because the backend may omit these fields
+      // for in-vpc-only gateways (now filtered out backend-side, but
+      // forwards-compat for older API responses).
+      routed: e.routed ?? false,
+      routeDestinationCidr: e.route_destination_cidr ?? null,
+      routeTargetService: e.route_target_service ?? null,
+      serviceHint:
+        e.route_target_service?.split(".").pop() ??
+        e.service_name?.split(".").pop(),
     })
     if (e.via_workload?.id) {
       flows.push({
