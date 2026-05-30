@@ -17,6 +17,7 @@ import { useMemo } from "react"
 import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles, Maximize2, Minimize2, AlertOctagon } from "lucide-react"
 import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
+  type SystemArchitecture,
 } from "@/components/dependency-map/traffic-flow-map"
 import type {
   IdentityAttackPath,
@@ -37,6 +38,13 @@ interface PathAnalysisPanelProps {
    *  header to return to the 3-column layout. */
   isExpanded?: boolean
   onToggleExpand?: () => void
+  /** When provided, the embedded canvas renders the full Attacker-View
+   *  architecture (lateral fan-outs, 9-lane layout, hover provenance)
+   *  instead of the sparse path-filter view. Used by the merged
+   *  "Attack Path" tab so the canvas inherits Attacker View's lens
+   *  while the header / breadcrumb / closure card stay Per-Path. When
+   *  null/undefined, the legacy path-filter mode renders. */
+  architecture?: SystemArchitecture | null
 }
 
 // Short uppercase label for the decoration chips attached to
@@ -80,6 +88,7 @@ export function PathAnalysisPanel({
   systemName,
   isExpanded = false,
   onToggleExpand,
+  architecture,
 }: PathAnalysisPanelProps) {
   // Build the TrafficFlowMap pathFilter shape from the path's nodes
   // and edges. The filter tells the map "show only these nodes; draw
@@ -498,23 +507,40 @@ export function PathAnalysisPanel({
             className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
             style={{ height: "520px" }}
           >
-            <TrafficFlowMap
-              systemName={systemName}
-              pathFilter={pathFilter}
-              titleOverride=""
-              innerTitleOverride="Flow Map"
-              innerSubtitleOverride="Services on this attack path"
-              pathBadgeOverride={pathFilter.pathLabel}
-              // observedMode=true suppresses the synthesized API CALLS
-              // lane that renders fabricated "N calls (simulated)"
-              // counts derived from totalBytes/51200. The credibility
-              // bug from the 2026-05-21 review: the UI badge says
-              // OBSERVED, the chip says simulated. v2 hides the
-              // synthetic lane entirely — real action counts surface
-              // in the DataPlanePanel below via damage_capability +
-              // ACTUAL_S3_ACCESS edge data, which IS observed truth.
-              observedMode={true}
-            />
+            {architecture ? (
+              // Merged "Attack Path" lens: feed the canvas the full
+              // Attacker-View architecture (9 lanes, VPC boundary,
+              // lateral fan-outs with on_path/lateral distinction, 3-
+              // state edge coloring, hover provenance). Header /
+              // breadcrumb / closure card above still bind to `path`.
+              <TrafficFlowMap
+                systemName={systemName}
+                architectureOverride={architecture}
+                titleOverride=""
+                innerTitleOverride="Flow Map"
+                innerSubtitleOverride="On-path chain + lateral pivots"
+                pathBadgeOverride={pathFilter.pathLabel}
+                observedMode={true}
+              />
+            ) : (
+              <TrafficFlowMap
+                systemName={systemName}
+                pathFilter={pathFilter}
+                titleOverride=""
+                innerTitleOverride="Flow Map"
+                innerSubtitleOverride="Services on this attack path"
+                pathBadgeOverride={pathFilter.pathLabel}
+                // observedMode=true suppresses the synthesized API CALLS
+                // lane that renders fabricated "N calls (simulated)"
+                // counts derived from totalBytes/51200. The credibility
+                // bug from the 2026-05-21 review: the UI badge says
+                // OBSERVED, the chip says simulated. v2 hides the
+                // synthetic lane entirely — real action counts surface
+                // in the DataPlanePanel below via damage_capability +
+                // ACTUAL_S3_ACCESS edge data, which IS observed truth.
+                observedMode={true}
+              />
+            )}
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
               chain search for this path. Sits in the empty space under

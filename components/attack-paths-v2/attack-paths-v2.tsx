@@ -37,9 +37,8 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { PathListGrouped } from "./path-list-grouped"
-import { PathAnalysisPanel } from "./path-analysis-panel"
+import { AttackPathPanel } from "./attack-path-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
-import { AttackerViewPanel } from "./attacker-view-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
 // v4 was a wrong-direction experiment (cloned Phase View v0.3's 9-lane
 // grid, but Alon meant PER-PATH VIEW's TrafficFlowMap — same renderer
@@ -79,11 +78,14 @@ export function AttackPathsV2() {
   // shared ModeToggle bar. URL param name kept ("expand=path") for
   // bookmark back-compat.
   const isPathExpanded = expandMode === "path"
-  // Slice 5 + 9: three-lens toggle.
-  //   path     — per-path forensic view (legacy default)
-  //   exposure — all-doors aggregate per jewel
-  //   attacker — live Neo4j graph view with lateral moves per hop
-  const modeParam = searchParams?.get("mode") ?? "path"
+  // 2026-05-31 (merge): single "Attack Path" mode replaces the legacy
+  // "path" (Per-Path) + "attacker" (Attacker View) modes. The merged
+  // panel reads from one facade endpoint and renders Per-Path's header
+  // wrapper around Attacker View's canvas. Old ?mode=path and
+  // ?mode=attacker URLs are redirected below (router.replace) so deep
+  // links keep working. Other modes (exposure, attacker_v2, phase,
+  // exfil, topology) are unchanged.
+  const modeParam = searchParams?.get("mode") ?? "attack-path"
   // v0.3 phase view = the 9-lane attacker-phase Attacker View built
   // 2026-05-22. Renders chains from materialized AttackPath nodes (hop-
   // reified per v0.2 §3) — every line on the canvas comes from a real
@@ -100,20 +102,22 @@ export function AttackPathsV2() {
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology" =
+  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" =
     modeParam === "exposure"
       ? "exposure"
-      : modeParam === "attacker"
-        ? "attacker"
-        : modeParam === "attacker_v2"
-          ? "attacker_v2"
-          : modeParam === "phase"
-            ? "phase"
-            : modeParam === "exfil"
-              ? "exfil"
-              : modeParam === "topology"
-                ? "topology"
-                : "path"
+      : modeParam === "attacker_v2"
+        ? "attacker_v2"
+        : modeParam === "phase"
+          ? "phase"
+          : modeParam === "exfil"
+            ? "exfil"
+            : modeParam === "topology"
+              ? "topology"
+              : // Legacy "path" / "attacker" both collapse into the
+                // merged "attack-path" (URL gets rewritten by the
+                // useEffect below so deep links stop showing the old
+                // param values).
+                "attack-path"
 
   // 2026-05-30 v3 — auto-resolve which system to load when no ?system=
   // param is in the URL. Precedence:
@@ -141,6 +145,18 @@ export function AttackPathsV2() {
       /* private mode / quota */
     }
   }, [systemName])
+
+  // Legacy mode-param redirect (2026-05-31 merge). Old deep links
+  // (?mode=path or ?mode=attacker) silently rewrite to the unified
+  // ?mode=attack-path so bookmarks keep working. router.replace so the
+  // back-button doesn't trap the operator on the rewrite URL.
+  useEffect(() => {
+    if (modeParam === "path" || modeParam === "attacker") {
+      const params = new URLSearchParams(searchParams?.toString() ?? "")
+      params.set("mode", "attack-path")
+      router.replace(`${pathname}?${params.toString()}`)
+    }
+  }, [modeParam, searchParams, router, pathname])
 
   useEffect(() => {
     // Always fetch the systems list — the switcher in the header
@@ -319,15 +335,18 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology") => {
-    // Switching to exposure or phase clears the path selection — both
-    // aggregate ACROSS paths (phase shows every chain targeting the
-    // selected jewel). Switching to attacker / attacker_v2 REQUIRES a
-    // selected path — preserve it. Switching back to path-view
-    // preserves jewel + path selection.
+  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => {
+    // Switching to exposure / phase / topology clears the path
+    // selection — those aggregate across paths (phase shows every
+    // chain targeting the jewel; topology / exposure are jewel-scoped
+    // not path-scoped). attack-path and attacker_v2 require a path —
+    // preserve it.
     setUrl({
       mode: next,
-      path: next === "exposure" || next === "phase" ? null : undefined,
+      path:
+        next === "exposure" || next === "phase" || next === "topology"
+          ? null
+          : undefined,
     })
   }
 
@@ -556,20 +575,6 @@ export function AttackPathsV2() {
                 jewel={jewels.find((j) => j.id === selectedJewelId)!}
                 systemName={systemName}
               />
-            ) : viewMode === "attacker" ? (
-              !selectedPath ? (
-                <EmptyState
-                  title="Select a path for attacker view"
-                  subtitle="Attacker view renders the live Neo4j graph + lateral moves per hop. Pick a path on the left."
-                  large
-                />
-              ) : (
-                <AttackerViewPanel
-                  path={selectedPath}
-                  jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
-                  systemName={systemName}
-                />
-              )
             ) : viewMode === "attacker_v2" ? (
               // V2 — typed, edge-proven canvas. Lives alongside V1
               // for side-by-side comparison until V2 is proven
@@ -627,7 +632,7 @@ export function AttackPathsV2() {
                   jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
                 />
               )
-            ) : !selectedPath ? (
+            ) : !selectedPath || !selectedJewelId ? (
               <EmptyState
                 title="Select a path"
                 subtitle={
@@ -638,10 +643,16 @@ export function AttackPathsV2() {
                 large
               />
             ) : (
-              <PathAnalysisPanel
-                path={selectedPath}
-                jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+              // Merged "Attack Path" view (2026-05-31). One facade fetch
+              // (/api/proxy/attack-path/<sys>/<jewel>?path_id=<id>),
+              // Per-Path header/footer wrapper around Attacker-View 9-
+              // lane canvas. Replaces both the legacy PathAnalysisPanel
+              // (direct prop pass) and AttackerViewPanel (separate
+              // graph-view fetch) renders.
+              <AttackPathPanel
                 systemName={systemName}
+                jewelId={selectedJewelId}
+                pathId={selectedPath.id}
                 isExpanded={isPathExpanded}
                 onToggleExpand={handleToggleExpand}
               />
@@ -668,8 +679,8 @@ function ModeToggle({
   isExpanded,
   onToggleExpand,
 }: {
-  mode: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology"
-  onChange: (next: "path" | "exposure" | "attacker" | "attacker_v2" | "phase" | "exfil" | "topology") => void
+  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
+  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -684,15 +695,15 @@ function ModeToggle({
       <FreshnessBanner variant="pill" />
       <div className="flex rounded-md border border-slate-700 overflow-hidden">
         <button
-          onClick={() => onChange("path")}
+          onClick={() => onChange("attack-path")}
           className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "path"
+            mode === "attack-path"
               ? "bg-blue-500/15 text-blue-200"
               : "bg-slate-900 text-slate-400 hover:text-slate-200"
           }`}
-          title="Explain one attack route — the path's full chain of hops, IAM, network, and damage."
+          title="Attack Path — Per-Path header (severity, evidence, breadcrumb, closure) wrapped around the Attacker View canvas (9 lanes, lateral pivots, VPC boundary, hover provenance). One chain, one source of truth."
         >
-          Per-path view
+          Attack Path
         </button>
         <button
           onClick={() => onChange("exposure")}
@@ -704,17 +715,6 @@ function ModeToggle({
           title="All doors view — aggregate every workload, role, and policy that exposes this jewel."
         >
           Exposure view
-        </button>
-        <button
-          onClick={() => onChange("attacker")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "attacker"
-              ? "bg-red-500/15 text-red-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="Attacker view (v1) — live Neo4j graph + lateral inference. Has known inference bugs being phased out as Attack Map v2 proves correct."
-        >
-          Attacker view
         </button>
         <button
           onClick={() => onChange("attacker_v2")}
@@ -779,19 +779,17 @@ function ModeToggle({
         </button>
       </div>
       <div className="text-[10px] text-slate-500 italic min-w-0 truncate flex-1">
-        {mode === "path"
-          ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"}`
+        {mode === "attack-path"
+          ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"} — Per-Path header on Attacker-View canvas`
           : mode === "exposure"
             ? `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`
-            : mode === "attacker"
-              ? `Live Neo4j graph + lateral moves per hop — the attacker's pivot tree`
-              : mode === "attacker_v2"
-                ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
-                : mode === "phase"
-                  ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
-                  : mode === "topology"
-                    ? `AWS-style containment view — VPC > AZ > Subnet > workloads, sourced from Neo4j`
-                    : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
+            : mode === "attacker_v2"
+              ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
+              : mode === "phase"
+                ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
+                : mode === "topology"
+                  ? `AWS-style containment view — VPC > AZ > Subnet > workloads, sourced from Neo4j`
+                  : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
       </div>
       <button
         onClick={onToggleExpand}

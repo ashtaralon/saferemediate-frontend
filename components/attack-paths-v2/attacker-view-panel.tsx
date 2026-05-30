@@ -47,7 +47,7 @@ interface AttackerViewPanelProps {
   systemName: string
 }
 
-interface GraphViewResponse {
+export interface GraphViewResponse {
   system_name: string
   node_count: number
   nodes: GraphViewNode[]
@@ -700,7 +700,10 @@ function bucketForGraphType(
   return "ignore"
 }
 
-function buildAttackerArchitecture(
+// Exported so the merged AttackPathPanel can reuse the synthesis
+// without copy-pasting. When attacker-view-panel.tsx is deleted
+// (M5 of the merge), move this function to its own module.
+export function buildAttackerArchitecture(
   graph: GraphViewResponse,
   path: IdentityAttackPath,
 ): SystemArchitecture {
