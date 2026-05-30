@@ -35,7 +35,7 @@ import { PathAnalysisPanel } from "./path-analysis-panel"
 import {
   buildAttackerArchitecture,
   type GraphViewResponse,
-} from "./attacker-view-panel"
+} from "./build-attacker-architecture"
 import type {
   AttackPathPayload,
   AttackPathFacadeError,

@@ -1,24 +1,34 @@
-"use client"
-
-// Attacker View — Slice 9 v1.1.
+// =============================================================================
+// buildAttackerArchitecture — graph-view → SystemArchitecture synthesis.
+// =============================================================================
 //
-// Renders the path + lateral pivots as a dynamic flow map using the
-// same TrafficFlowMap renderer the Per-Path view uses. Visual
-// consistency with the other lens (animated lanes, click-to-detail,
-// SG/IAM cards) — but the underlying architecture comes from the
-// /api/attack-chain/graph-view endpoint, which surfaces the actual
-// Neo4j graph: every lateral role the attacker could assume, every
-// other resource on the role, every other workload sharing the role.
+// Lifted out of components/attack-paths-v2/attacker-view-panel.tsx during the
+// 2026-05-31 Per-Path/Attacker-View merge so the merged AttackPathPanel can
+// reuse the synthesis without depending on the deleted panel file.
 //
-// 2026-05-22: rewrote from the v1.0 tree-list rendering (developer-
-// grade JSON dump). The TrafficFlowMap reuse means operators see the
-// attack surface in the same visual language as Per-Path, just with
-// the lateral fan-out lanes populated by the graph-view endpoint.
+// Inputs:
+//   - GraphViewResponse: raw response from POST /api/attack-chain/graph-view
+//     (nodes + per-node lateral fan-outs)
+//   - IdentityAttackPath: the chain whose nodes/edges this graph is centered
+//     on (used for on-path overlay + path-tier classification)
+//
+// Output:
+//   - SystemArchitecture: the shape TrafficFlowMap renders. 9 lanes (compute,
+//     subnets, route tables, security groups, NACLs, identity, egress
+//     gateways, resources, plus principals), VPC boundaries, on-path vs
+//     lateral edge distinction, hover-provenance fields preserved on the
+//     CanvasEdge[] tail.
+//
+// History:
+//   - 2026-05-22: rewritten from V1 tree-list to flow-map synthesis
+//   - 2026-05-26: lateral_cap_per_node 30 → 200 (collector dedup pressure)
+//   - 2026-05-28: edge semantic states (locked vs operator-controllable)
+//   - 2026-05-29: VPCEndpoint added to egress-gateway lane
+//   - 2026-05-30: explicit CanvasEdge[] (no cross-plane synthesis)
+//   - 2026-05-31: extracted into its own module — same logic, no behavior
+//     change
+// =============================================================================
 
-import { useMemo } from "react"
-import { Crown, AlertTriangle, Eye, RefreshCw } from "lucide-react"
-import dynamic from "next/dynamic"
-import { FreshnessBanner } from "@/components/freshness-banner"
 import type {
   SystemArchitecture,
   ServiceNode,
@@ -27,35 +37,12 @@ import type {
   TrafficFlow,
   EgressGatewayNode,
 } from "@/components/dependency-map/traffic-flow-map"
-import type {
-  IdentityAttackPath,
-  CrownJewelSummary,
-} from "@/components/identity-attack-paths/types"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
-import { AtlasInlineSection } from "./atlas-inline-section"
 
-// Heavy renderer — lazy-load so the v2 page doesn't pull the full
-// dep-map bundle until the operator switches to attacker view.
-const TrafficFlowMap = dynamic(() => import("@/components/dependency-map/traffic-flow-map"), {
-  ssr: false,
-})
+// ─── Graph-view response shape (forwarded verbatim from the backend) ──
 
-interface AttackerViewPanelProps {
-  path: IdentityAttackPath
-  jewel: CrownJewelSummary | null
-  systemName: string
-}
-
-export interface GraphViewResponse {
-  system_name: string
-  node_count: number
-  nodes: GraphViewNode[]
-  laterals_by_node: Record<string, GraphViewEdge[]>
-  generated_at: string
-}
-
-interface GraphViewNode {
+export interface GraphViewNode {
   id: string
   name: string | null
   labels: string[]
@@ -63,7 +50,7 @@ interface GraphViewNode {
   key_properties: Record<string, any>
 }
 
-interface GraphViewEdge {
+export interface GraphViewEdge {
   direction: "in" | "out"
   type: string
   neighbor_id: string
@@ -89,482 +76,13 @@ interface GraphViewEdge {
     | "misc"
 }
 
-export function AttackerViewPanel({ path, jewel, systemName }: AttackerViewPanelProps) {
-  // Stable request body — recomputed only when path identity / system
-  // changes. Without useMemo the body would be a fresh string on every
-  // render and the fetchInit reference flip would trip useRetryFetch's
-  // dependency comparison.
-  const requestBody = useMemo(() => {
-    const nodeIds = (path.nodes ?? []).map((n) => n.id)
-    const pathEdges = (path.edges ?? []).map((e) => ({
-      source: e.source,
-      target: e.target,
-    }))
-    return JSON.stringify({
-      system_name: systemName,
-      node_ids: nodeIds,
-      path_edges: pathEdges,
-      // 2026-05-26: bumped from 30 → 200. The cap is applied per node
-      // INSIDE the Cypher `collect[0..$cap]` slice, BEFORE dedup. So a
-      // CJ with N principals × M duplicate edges per principal (e.g.
-      // cyntro-demo-prod-data has 4 principals × 2–11 dup edges = 22
-      // raw rows) eats headroom against the cap and silently drops
-      // real lateral attackers. CyntroLambdaTier1-pilot (492 hits)
-      // and part of alon-demo-ec2-role's edge list both fell off at
-      // 30. 200 is generous enough that a realistic CJ never bumps
-      // it, and tight enough that a pathologically-connected node
-      // doesn't blow up the payload.
-      lateral_cap_per_node: 200,
-    })
-  }, [path.id, path.nodes, path.edges, systemName])
-
-  // Auto-retry on 502/503/504 — the Render backend's IAP endpoint can
-  // saturate the worker pool when a slow query is in flight, causing
-  // graph-view to return 5xx transiently even though it's a fast
-  // query in isolation (~0.75s warm). useRetryFetch handles the
-  // transient-status set + provides a manual retry handle.
-  //
-  // refetchKey=path.id triggers a fresh sequence when the user clicks
-  // a different path in the left rail. maxRetries=2 means the user
-  // gets 3 attempts spaced ~1s/2s before seeing the error UI — covers
-  // a typical worker-pool blip without making them stare at a spinner
-  // for the worst case.
-  const fetchInit = useMemo<RequestInit>(
-    () => ({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: requestBody,
-    }),
-    [requestBody],
-  )
-  const {
-    data,
-    loading,
-    error,
-    retry,
-    retrying,
-    attempt,
-  } = useRetryFetch<GraphViewResponse>(
-    "/api/proxy/attack-chain/graph-view",
-    {
-      fetchInit,
-      refetchKey: path.id,
-      maxRetries: 2,
-      initialDelayMs: 1000,
-    },
-  )
-
-  // Synthesize a SystemArchitecture from the graph-view response.
-  // Path nodes get added to their canonical lanes; lateral nodes also
-  // get added to lanes (so the operator sees the fan-out); flows are
-  // synthesized from both the path's chain edges AND any lateral
-  // edges with real observed bytes or hits so the TrafficFlowMap
-  // animates the actual data flow rather than implying connections
-  // that don't have evidence.
-  const architecture = useMemo<SystemArchitecture | null>(() => {
-    if (!data) return null
-    return buildAttackerArchitecture(data, path)
-  }, [data, path])
-
-  // ── Lateral attackers (Phase 1.7 — 2026-05-26) ────────────────────
-  //
-  // "Show me ANY path to the crown jewel" was the original CISO ask.
-  // The current canvas shows ONE chain (the path the user selected
-  // from the IAP list). But the CJ may have multiple distinct
-  // principals with observed ACCESSES_RESOURCE hits — Lambdas,
-  // service-roles, anonymous principals — that don't share an EC2
-  // origin and so don't appear in the same chain. Without surfacing
-  // them, the operator scrolling the Attacker View thinks they see
-  // the full picture and they don't.
-  //
-  // Collection rule: any neighbor of the CJ via incoming
-  // ACCESSES_RESOURCE with hit_count > 0, that ISN'T already a node
-  // on the current rendered chain. Hit-count threshold filters out
-  // historical / zero-traffic edges.
-  const lateralAttackers = useMemo(() => {
-    if (!data) return [] as Array<{
-      id: string
-      name: string
-      type: string
-      hits: number
-      firstSeen: string | null
-      lastSeen: string | null
-    }>
-    const cjIds = new Set(
-      (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
-    )
-    const pathIds = new Set((path.nodes ?? []).map((n) => n.id))
-    type AttackerRow = {
-      id: string
-      name: string
-      type: string
-      hits: number
-      firstSeen: string | null
-      lastSeen: string | null
-    }
-    // Per-principal accumulator — aggregate across duplicate edges
-    // emitted by the collector (the graph carries multiple
-    // ACCESSES_RESOURCE edges per (principal, resource) pair when the
-    // CloudTrail/silver writer ran more than once or the node has
-    // dual labels). Verified 2026-05-28 on alon-prod /
-    // cyntro-demo-prod-data: e.g. alon-demo-ec2-role has 11 such
-    // edges with hits varying 3..6. Without aggregation we'd take
-    // whichever edge arrived first — a non-deterministic display.
-    //
-    // Policy: max(hits) + broadest seen window. Mirrors the anonymous-
-    // principal aggregation and matches the backend's per-resource
-    // MAX-then-SUM rule for the same root cause (see
-    // attack_chain_view.py `_enrich_live_role_usage`).
-    const namedAcc = new Map<string, AttackerRow>()
-    // Aggregate edges with no resolved neighbor_id (CloudTrail
-    // Principal stubs without a recognised role ARN) into a single
-    // "anonymous principal" row so the operator sees the real hit
-    // count instead of those events being silently dropped. The
-    // backend keeps these edges as long as they carry hits/bytes;
-    // the frontend collapses them here.
-    let anonHits = 0
-    let anonFirstSeen: string | null = null
-    let anonLastSeen: string | null = null
-    for (const cjId of cjIds) {
-      const laterals = data.laterals_by_node?.[cjId] ?? []
-      for (const e of laterals) {
-        if (e.type !== "ACCESSES_RESOURCE") continue
-        if (e.direction !== "in") continue
-        const hits = e.hit_count ?? 0
-        if (hits <= 0) continue
-        const nid = e.neighbor_id || ""
-        if (!nid) {
-          // Anonymous CloudTrail principal — aggregate.
-          anonHits = Math.max(anonHits, hits)
-          if (e.first_seen && (!anonFirstSeen || e.first_seen < anonFirstSeen)) {
-            anonFirstSeen = e.first_seen
-          }
-          if (e.last_seen && (!anonLastSeen || e.last_seen > anonLastSeen)) {
-            anonLastSeen = e.last_seen
-          }
-          continue
-        }
-        if (pathIds.has(nid)) continue
-        const prev = namedAcc.get(nid)
-        if (!prev) {
-          namedAcc.set(nid, {
-            id: nid,
-            name: e.neighbor_name || nid,
-            type: e.neighbor_type || "Unknown",
-            hits,
-            firstSeen: e.first_seen ?? null,
-            lastSeen: e.last_seen ?? null,
-          })
-        } else {
-          if (hits > prev.hits) prev.hits = hits
-          if (e.first_seen && (!prev.firstSeen || e.first_seen < prev.firstSeen)) {
-            prev.firstSeen = e.first_seen
-          }
-          if (e.last_seen && (!prev.lastSeen || e.last_seen > prev.lastSeen)) {
-            prev.lastSeen = e.last_seen
-          }
-        }
-      }
-    }
-    const attackers: AttackerRow[] = Array.from(namedAcc.values())
-    if (anonHits > 0) {
-      attackers.push({
-        id: "anonymous-principal",
-        name: "(anonymous principal)",
-        type: "Principal",
-        hits: anonHits,
-        firstSeen: anonFirstSeen,
-        lastSeen: anonLastSeen,
-      })
-    }
-    return attackers.sort((a, b) => b.hits - a.hits)
-  }, [data, path])
-
-  // 2026-05-26 (Phase 1.3): single source of truth for the chain's
-  // observed-traffic stats. Previously this useMemo iterated a
-  // different edge set than `buildAttackerArchitecture` did, producing
-  // the audit's "header says 771 KB on the wire / canvas mini-header
-  // says 0 B Traffic" contradiction. Now we derive both numbers off
-  // architecture.flows[] (the exact set the canvas renders) so the
-  // two headers cannot disagree.
-  const flowSummary = useMemo(() => {
-    if (!architecture) return { observedFlows: 0, totalBytes: 0, totalHits: 0 }
-    let observedFlows = 0
-    let totalBytes = 0
-    let totalHits = 0
-    for (const f of architecture.flows ?? []) {
-      // isActive = backend or path edge marked observed, or has
-      // hits/bytes. Same predicate the canvas uses to animate the line.
-      if (!f.isActive) continue
-      observedFlows++
-      totalBytes += f.bytes || 0
-      totalHits += f.connections || 0
-    }
-    return { observedFlows, totalBytes, totalHits }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [architecture])
-
-  if (loading) {
-    const retryLabel =
-      retrying && attempt > 0
-        ? `Backend was slow — retrying (attempt ${attempt + 1})…`
-        : "Querying Neo4j for the path's neighborhood…"
-    return (
-      <div className="flex flex-col h-full">
-        <Header jewel={jewel} subtitle="Loading the live attack surface…" />
-        <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
-          {retryLabel}
-        </div>
-      </div>
-    )
-  }
-  if (error) {
-    // Error copy distinguishes the two failure modes operators care
-    // about: transient 5xx (backend worker pool busy — retry usually
-    // works) vs everything else (bad request / network gone). Both get
-    // a Retry button so the operator can act without reloading the page.
-    const looks5xx = /\b5\d\d\b/.test(error)
-    return (
-      <div className="flex flex-col h-full">
-        <Header jewel={jewel} subtitle="Could not load attacker view" />
-        <div className="flex-1 flex items-center justify-center px-6">
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md text-sm text-red-200">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="font-semibold">Graph view failed</span>
-            </div>
-            <div className="text-xs text-red-200/80">{error}</div>
-            {looks5xx && (
-              <div className="mt-2 text-[11px] text-red-200/60">
-                The backend's worker pool was likely busy with a slow
-                upstream query (the per-system IAP enrichment can run
-                long). Retrying usually clears it.
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={retry}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/20"
-            >
-              <RefreshCw className="h-3 w-3" />
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-  if (!data || !architecture) return null
-
-  // Path-only header — reflects what's actually on the canvas after
-  // Slice 9.4. Operator sees the chain length + observed-flow count +
-  // total observed bytes. No lateral-pivot count in the header
-  // anymore (move to Exposure view for the full fan-out).
-  //
-  // 2026-05-26 terminology fix: previously "${node_count} hops" but
-  // node_count is the count of NODES the graph-view returned (path
-  // + security-critical enriched neighbors). A "hop" is an edge in
-  // the chain — what we want is `path.edges.length`. Saying "16 hops"
-  // when the chain has ~6 hops overstates blast radius to the CISO.
-  const nodeCount = data.node_count
-  const hopCount = (path.edges ?? []).length
-  const subtitle =
-    flowSummary.observedFlows === 0
-      ? `${nodeCount} node${nodeCount === 1 ? "" : "s"} · ${hopCount} hop${hopCount === 1 ? "" : "s"} · no observed traffic on this path`
-      : `${nodeCount} node${nodeCount === 1 ? "" : "s"} · ${hopCount} hop${hopCount === 1 ? "" : "s"} · ${
-          flowSummary.observedFlows
-        } observed flow${flowSummary.observedFlows === 1 ? "" : "s"} · ${formatBytesShort(
-          flowSummary.totalBytes,
-        )} on the wire`
-
-  return (
-    <div className="flex flex-col h-full">
-      <Header jewel={jewel} subtitle={subtitle} />
-      <div className="flex-1 min-h-0">
-        <TrafficFlowMap
-          systemName={systemName}
-          architectureOverride={architecture}
-          observedMode={true}
-          titleOverride=""
-          innerTitleOverride="Attack Surface"
-          innerSubtitleOverride="Path chain + lateral pivots, sourced from Neo4j as-is"
-          pathBadgeOverride={`Path → ${jewel?.name ?? path.id}`}
-          // VPC is genuinely on the attack chain (network container
-          // between SG and Subnet), not a layered overlay — show its
-          // boundary by default so the path doesn't visually skip the
-          // hop. Operator can still toggle it off via the header.
-          defaultShowVPCBoundaries={true}
-          // 2026-05-28 — Phase 2 V1 slice 1. Crown jewel cards
-          // visually dominate (1.15x scale + persistent emerald
-          // glow) so the operator's eye lands on the attack target
-          // first, before scanning the lateral fan-out. Default off
-          // for non-attacker surfaces — System Map / Per-Path /
-          // Exfil keep their existing visual weighting.
-          jewelEmphasis={true}
-        />
-      </div>
-      {/* ATLAS chains inline — Phase 3.2.1 (2026-05-27). Auto-derives
-          foothold + target from the selected path and renders
-          deterministic catalog-driven chains compactly below the canvas.
-          Renders nothing if the path doesn't have an entry-tier node or
-          jewel id, so it never adds visual noise to a path it can't
-          analyze. */}
-      <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
-      {lateralAttackers.length > 0 ? (
-        <LateralAttackersPanel
-          attackers={lateralAttackers}
-          jewelName={jewel?.name ?? "this jewel"}
-        />
-      ) : null}
-    </div>
-  )
+export interface GraphViewResponse {
+  system_name: string
+  node_count: number
+  nodes: GraphViewNode[]
+  laterals_by_node: Record<string, GraphViewEdge[]>
+  generated_at: string
 }
-
-// ── Lateral attackers panel ──────────────────────────────────────────
-//
-// Renders below the canvas when the CJ has incoming ACCESSES_RESOURCE
-// hits from principals NOT on the current chain. Answers the CISO's
-// "show me any path to the crown jewel" — the canvas above shows ONE
-// chain; this panel surfaces the others as evidence-grounded rows.
-//
-// Copy discipline (feedback_signal_language): no "Suspicious" or
-// alert language. We say "Other principals observed accessing …"
-// because that is exactly what the graph evidence is.
-
-interface LateralAttacker {
-  id: string
-  name: string
-  type: string
-  hits: number
-  firstSeen: string | null
-  lastSeen: string | null
-}
-
-function LateralAttackersPanel({
-  attackers,
-  jewelName,
-}: {
-  attackers: LateralAttacker[]
-  jewelName: string
-}) {
-  const formatNumber = (n: number): string => {
-    if (n < 1000) return String(n)
-    if (n < 1000000) return `${(n / 1000).toFixed(1)}K`
-    return `${(n / 1000000).toFixed(1)}M`
-  }
-  const formatRelative = (iso: string | null): string => {
-    if (!iso) return "—"
-    try {
-      const d = new Date(iso)
-      if (isNaN(d.getTime())) return "—"
-      return d.toISOString().slice(0, 10)
-    } catch {
-      return "—"
-    }
-  }
-  return (
-    <div className="border-t border-slate-800/60 bg-slate-950/70">
-      <div className="px-6 py-3 flex items-baseline justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-wider text-amber-300/90 flex items-center gap-1.5">
-            <AlertTriangle className="h-3 w-3" />
-            Other ways in · {attackers.length} principal
-            {attackers.length === 1 ? "" : "s"} observed
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">
-            Principals with observed <span className="font-mono">ACCESSES_RESOURCE</span> to
-            {" "}<span className="text-amber-200/90 font-mono">{jewelName}</span> that aren't
-            on this chain. Sorted by hit count.
-          </div>
-        </div>
-      </div>
-      <div className="px-6 pb-4">
-        <div className="rounded-md border border-slate-800/80 overflow-hidden">
-          <table className="w-full text-[11px]">
-            <thead className="bg-slate-900/70">
-              <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
-                <th className="px-3 py-2 font-semibold">Principal</th>
-                <th className="px-3 py-2 font-semibold">Type</th>
-                <th className="px-3 py-2 font-semibold text-right">Hits</th>
-                <th className="px-3 py-2 font-semibold">First seen</th>
-                <th className="px-3 py-2 font-semibold">Last seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attackers.map((a) => (
-                <tr
-                  key={a.id}
-                  className="border-t border-slate-800/60 text-slate-200 hover:bg-slate-900/40"
-                >
-                  <td
-                    className="px-3 py-2 font-mono text-slate-200 truncate max-w-[420px]"
-                    title={a.id}
-                  >
-                    {a.name}
-                  </td>
-                  <td className="px-3 py-2 text-slate-400">{a.type}</td>
-                  <td className="px-3 py-2 text-right font-mono text-amber-200/90">
-                    {formatNumber(a.hits)}
-                  </td>
-                  <td className="px-3 py-2 text-slate-400">{formatRelative(a.firstSeen)}</td>
-                  <td className="px-3 py-2 text-slate-400">{formatRelative(a.lastSeen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="text-[10px] text-slate-500 mt-2 italic">
-          Each row is one principal with at least one observed CloudTrail
-          API call against this jewel. Rendered from Neo4j
-          {" "}<span className="font-mono">ACCESSES_RESOURCE</span> edges, max-merged per
-          {" "}<span className="font-mono">(principal, resource)</span>.
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Header ──────────────────────────────────────────────────────────
-
-function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle: string }) {
-  return (
-    <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10 flex items-start justify-between gap-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1.5">
-          <Eye className="h-3 w-3 text-red-300" />
-          ATTACKER VIEW · live attack surface
-          {/* Honest freshness pill — sources graph age from
-              CollectorRun.finished_at. Replaces the implicit "live"
-              claim with the actual seconds-since-last-write. */}
-          <FreshnessBanner variant="pill" className="ml-2" />
-        </div>
-        <div className="text-[11px] text-slate-400">{subtitle}</div>
-      </div>
-      {jewel && (
-        <div className="text-right shrink-0">
-          <div className="flex items-center gap-1.5 justify-end mb-0.5">
-            <Crown className="h-3 w-3 text-amber-400" />
-            <span className="text-[10px] uppercase tracking-wider text-slate-500">target</span>
-          </div>
-          {/* Crown jewel name. 2026-05-26: widened from max-w-[260px]
-              so the full bucket name fits — S3 bucket names can be up
-              to 63 chars, and the old truncation hid the prod-data
-              identifier behind an ellipsis. CISO scanning the header
-              must be able to see WHICH bucket is under attack without
-              hovering for a tooltip. */}
-          <div
-            className="text-xs font-mono text-amber-200/90 break-all max-w-[520px]"
-            title={jewel.name}
-          >
-            {jewel.name}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Architecture synthesis ──────────────────────────────────────────
 
 const CLASS_LABELS = {
   escalation: "escalation",

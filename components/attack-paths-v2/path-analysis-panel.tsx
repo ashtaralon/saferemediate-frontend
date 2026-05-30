@@ -507,40 +507,31 @@ export function PathAnalysisPanel({
             className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
             style={{ height: "520px" }}
           >
-            {architecture ? (
-              // Merged "Attack Path" lens: feed the canvas the full
-              // Attacker-View architecture (9 lanes, VPC boundary,
-              // lateral fan-outs with on_path/lateral distinction, 3-
-              // state edge coloring, hover provenance). Header /
-              // breadcrumb / closure card above still bind to `path`.
-              <TrafficFlowMap
-                systemName={systemName}
-                architectureOverride={architecture}
-                titleOverride=""
-                innerTitleOverride="Flow Map"
-                innerSubtitleOverride="On-path chain + lateral pivots"
-                pathBadgeOverride={pathFilter.pathLabel}
-                observedMode={true}
-              />
-            ) : (
-              <TrafficFlowMap
-                systemName={systemName}
-                pathFilter={pathFilter}
-                titleOverride=""
-                innerTitleOverride="Flow Map"
-                innerSubtitleOverride="Services on this attack path"
-                pathBadgeOverride={pathFilter.pathLabel}
-                // observedMode=true suppresses the synthesized API CALLS
-                // lane that renders fabricated "N calls (simulated)"
-                // counts derived from totalBytes/51200. The credibility
-                // bug from the 2026-05-21 review: the UI badge says
-                // OBSERVED, the chip says simulated. v2 hides the
-                // synthetic lane entirely — real action counts surface
-                // in the DataPlanePanel below via damage_capability +
-                // ACTUAL_S3_ACCESS edge data, which IS observed truth.
-                observedMode={true}
-              />
-            )}
+            {/* Merged "Attack Path" lens (2026-05-31): the canvas
+                always renders the full Attacker-View architecture (9
+                lanes, VPC boundary, lateral fan-outs with on_path /
+                lateral distinction, 3-state edge coloring, hover
+                provenance). Header / breadcrumb / closure card above
+                bind to `path` — the metadata wrapper Per-Path
+                contributed to the merge. The earlier "sparse path-
+                filter polyline" fallback was deleted with M5 (it was
+                the per-path canvas the merge spec dropped as the
+                wrong default).
+                observedMode=true suppresses the synthesized API CALLS
+                lane that renders fabricated "N calls (simulated)"
+                counts derived from totalBytes/51200 — the 2026-05-21
+                credibility bug. Real action counts surface in the
+                DataPlanePanel below via damage_capability +
+                ACTUAL_S3_ACCESS edge data, which IS observed truth. */}
+            <TrafficFlowMap
+              systemName={systemName}
+              architectureOverride={architecture ?? null}
+              titleOverride=""
+              innerTitleOverride="Flow Map"
+              innerSubtitleOverride="On-path chain + lateral pivots"
+              pathBadgeOverride={pathFilter.pathLabel}
+              observedMode={true}
+            />
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
               chain search for this path. Sits in the empty space under
