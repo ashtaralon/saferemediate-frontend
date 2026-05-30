@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Cyntro · Topology v0.2 · alon-prod</title>
+<title>Cyntro · Topology v0.2 · Estate mode · alon-prod</title>
 <style>
   :root {
     --cy-navy: #0D1B2A;
@@ -681,6 +681,134 @@
   .legend .dot.jewel { box-shadow: 0 0 6px 2px rgba(245, 166, 35, 0.5); background: var(--aws-blue); }
   .legend .dot.clean { box-shadow: 0 0 0 2px var(--cy-teal); background: white; }
 
+  /* ── Estate-mode KPI strip (replaces Triage headline) ──────────── */
+  .headline.estate-headline {
+    padding: 18px 36px 22px;
+  }
+  .estate-meta {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 14px;
+  }
+  .estate-meta .mode-link {
+    color: var(--cy-teal);
+    text-decoration: none;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: 6px 12px;
+    border: 1px solid var(--cy-teal);
+    border-radius: 3px;
+  }
+  .estate-meta .mode-link:hover {
+    background: rgba(0, 194, 168, 0.15);
+  }
+  .estate-meta .meta-right {
+    font-size: 11px;
+    color: #97A4B0;
+    letter-spacing: 0.04em;
+    display: flex; gap: 14px; align-items: center;
+  }
+  .estate-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+  }
+  .kpi {
+    border-left: 3px solid #2A3B4D;
+    padding: 4px 12px 4px 14px;
+    color: white;
+  }
+  .kpi.kpi-warn   { border-left-color: var(--cy-carmine); }
+  .kpi.kpi-amber  { border-left-color: var(--cy-amber); }
+  .kpi.kpi-teal   { border-left-color: var(--cy-teal); }
+  .kpi .kpi-num {
+    font-family: Georgia, serif;
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi.kpi-warn .kpi-num { color: var(--cy-carmine); }
+  .kpi.kpi-amber .kpi-num { color: var(--cy-amber); }
+  .kpi.kpi-teal .kpi-num { color: var(--cy-teal); }
+  .kpi .kpi-label {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--cy-teal);
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .kpi .kpi-sub {
+    font-size: 10px;
+    color: #97A4B0;
+    line-height: 1.4;
+  }
+
+  /* ── Filter rail (replaces "Next worst" in Estate) ─────────────── */
+  .rail.filter-rail h2 {
+    margin-top: 18px;
+  }
+  .rail.filter-rail h2:first-child { margin-top: 0; }
+  .filter-group {
+    display: flex; flex-direction: column;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .filter-group label {
+    display: flex; align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--cy-ink);
+    cursor: pointer;
+    padding: 4px 0;
+    user-select: none;
+  }
+  .filter-group label:hover {
+    color: var(--cy-navy);
+  }
+  .filter-group input[type="checkbox"],
+  .filter-group input[type="radio"] {
+    accent-color: var(--cy-teal);
+    margin: 0;
+    width: 13px; height: 13px;
+  }
+  .filter-group .count {
+    margin-left: auto;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--cy-slate);
+    background: #F1F4F7;
+    padding: 1px 6px;
+    border-radius: 8px;
+  }
+  .filter-group .count.warn { background: rgba(224, 69, 69, 0.12); color: #8B1F1F; }
+  .filter-group .count.amber { background: rgba(245, 166, 35, 0.18); color: #8C5A04; }
+  .filter-group .vpc-name {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--cy-slate);
+    margin-left: 4px;
+  }
+  .filter-divider {
+    height: 1px;
+    background: #E0E5EA;
+    margin: 14px 0 10px;
+  }
+
+  /* Estate mode: dim down halos uniformly (no pulse anywhere) */
+  body.estate-mode .node .icon { animation: none !important; }
+  body.estate-mode .node .icon::after { animation: none !important; }
+  body.estate-mode .node.sev-critical .icon {
+    box-shadow: 0 0 0 2px rgba(224, 69, 69, 0.4), 0 0 12px 3px rgba(224, 69, 69, 0.35);
+    animation: none;
+  }
+  body.estate-mode .node.sev-critical .icon::after { display: none; }
+  body.estate-mode .iam-role.sev-critical {
+    animation: none;
+  }
+
   /* ── Confidence dots + contributors (v0.4 — risk contract) ─────── */
   .conf-dot {
     display: inline-block;
@@ -1154,6 +1282,11 @@
   }
 
   /* ── Accessibility primitives (iteration 7) ───────────────────── */
+  /* Estate mode already suppresses .sev-critical animation via
+     body.estate-mode overrides — covers operators who arrive directly
+     in Estate. The prefers-reduced-motion block below covers operators
+     who flip from Triage (sev-critical .icon still has animation
+     declared, just suppressed at the body class). */
   @media (prefers-reduced-motion: reduce) {
     .node.sev-critical .icon,
     .node.sev-critical .icon::after,
@@ -1170,13 +1303,10 @@
   a:focus-visible,
   .node:focus-visible,
   .iam-role:focus-visible,
-  .rail li:focus-visible {
+  .filter-group label:focus-within {
     outline: 2px solid var(--cy-teal);
     outline-offset: 2px;
   }
-  /* Color-blind severity redundancy: glyph in addition to halo.
-     WORST ◆ · HIGH △ · JEWEL 👑 · STALE ⌛ · CLEAN ✓
-     Halo + glyph survives protanopia where carmine ↔ amber compress. */
   .severity-glyph {
     display: inline-block;
     margin-left: 3px;
@@ -1186,27 +1316,50 @@
   }
 </style>
 </head>
-<body>
+<body class="estate-mode">
 
-<!-- ═══════════════════════════ HEADLINE STRIP ═══════════════════════════ -->
-<header class="headline">
-  <div class="kicker">Worst right now · Topology v0.2 · alon-prod</div>
-  <h1>
-    <span class="target">SafeRemediate-Test-Frontend-1</span> is internet-reachable
-    via <span class="target">payment-prod-alb</span> but has received
-    zero public inbound in 365 days — while egressing to 547 destinations,
-    199 of them AWS calls over NAT that could route through a VPC endpoint.
-  </h1>
-  <div class="provenance">
-    <span><strong style="color:white;">Risk 87</strong> · WORST</span>
-    <span><span class="conf-dot conf-degraded"></span>Confidence 62% · DEGRADED</span>
-    <span>Posture stale 14d · IAM-counts stale 34d</span>
-    <span>Source · LB chain + 365d traffic + IAM gap + jewel adjacency</span>
+<!-- ═══════════════════════════ ESTATE KPI STRIP ═══════════════════════════ -->
+<header class="headline estate-headline">
+  <div class="estate-meta">
+    <div>
+      <div class="kicker">Estate · Topology v0.2 · alon-prod</div>
+      <div style="font-family: Georgia, serif; font-size:22px; font-weight:400; color:white; margin-top:4px;">
+        Estate overview
+      </div>
+    </div>
+    <div class="meta-right">
+      <span>2 active VPCs · 1 region (eu-west-1)</span>
+      <span>Refreshed 2m ago</span>
+      <a href="/design/topology-v0.2.html" class="mode-link">→ Switch to Triage</a>
+    </div>
   </div>
-  <div class="actions">
-    <button class="primary">Spotlight this</button>
-    <button>Open detail</button>
-    <button>Trace this path →</button>
+
+  <div class="estate-kpis">
+    <div class="kpi">
+      <div class="kpi-num">53</div>
+      <div class="kpi-label">Workloads</div>
+      <div class="kpi-sub">EC2 11 · λ 22 · S3 10 · DDB 8 · RDS 1 · LB 1</div>
+    </div>
+    <div class="kpi kpi-warn">
+      <div class="kpi-num">7</div>
+      <div class="kpi-label">Flagged</div>
+      <div class="kpi-sub">all EC2 · posture LATENT or worse</div>
+    </div>
+    <div class="kpi kpi-amber">
+      <div class="kpi-num">3</div>
+      <div class="kpi-label">Stale</div>
+      <div class="kpi-sub">2 EC2 + 1 RDS · gone since Apr 7</div>
+    </div>
+    <div class="kpi kpi-amber">
+      <div class="kpi-num">41</div>
+      <div class="kpi-label">Unscored</div>
+      <div class="kpi-sub">22 λ + 10 S3 + 8 DDB + 1 untyped</div>
+    </div>
+    <div class="kpi kpi-warn">
+      <div class="kpi-num">0%</div>
+      <div class="kpi-label">Confidence fresh</div>
+      <div class="kpi-sub">posture > 7d stale · 53 of 53 workloads</div>
+    </div>
   </div>
 </header>
 
@@ -1214,11 +1367,10 @@
 
   <!-- ═══════════════════════════ TOPOLOGY DIAGRAM ═════════════════════════ -->
   <div class="topology-pane">
-    <div class="spotlight-cue">Spotlight selected</div>
     <div class="modes">
-      <button class="active">Triage</button>
-      <button>Estate</button>
-      <span class="source-tag"><span class="live"></span>Live · Neo4j alon-prod · vpc-0329e9… · scores via <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal); text-decoration:none;">risk-contract.md</a></span>
+      <button>Triage</button>
+      <button class="active">Estate</button>
+      <span class="source-tag"><span class="live"></span>Live · Neo4j alon-prod · vpc-0329e9… · primary VPC shown · <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal); text-decoration:none;">risk-contract.md</a></span>
     </div>
 
     <div class="aws-cloud">
@@ -1570,8 +1722,12 @@
       <div><span class="dot clean"></span> Clean · remediated (teal ring)</div>
     </div>
 
-    <!-- ═══════════════════════════ DETAIL PANEL ═══════════════════════════ -->
-    <aside class="detail-panel">
+    <!-- ═══════════════════════════ DETAIL PANEL ═══════════════════════════
+         In Estate mode the panel is hidden by default — the operator
+         hasn't selected a node yet. Click any node to open it (same shape
+         and behavior as in Triage mode). Markup retained so reviewers
+         can compare; rendering is suppressed via display:none. -->
+    <aside class="detail-panel" style="display:none;">
 
       <!-- Sticky header -->
       <div class="panel-header">
@@ -1952,43 +2108,108 @@
 
   </div>
 
-  <!-- ═══════════════════════════ RIGHT-SIDE RAIL ═════════════════════════ -->
-  <aside class="rail">
-    <h2>Next worst</h2>
-    <ol>
-      <li>
-        <div class="target">SafeRemediate-Test-Frontend-2<span class="layer-tag net">Network</span></div>
-        <div class="reason">Same LATENT chain via payment-prod-alb · 0 inbound 365d · paired Web tier instance (eu-west-1b)</div>
-        <div class="meta"><span class="dot high"></span>Risk 78 · posture LATENT</div>
-      </li>
-      <li>
-        <div class="target">App-2 IAM role · cyntro-demo-ec2-s3-role<span class="layer-tag iam">IAM</span></div>
-        <div class="reason">7 of 7 allowed actions unused · 100% gap · never remediated · attached to i-0e9b8917…</div>
-        <div class="meta"><span class="dot crit"></span>Risk 68 · lp_score 100</div>
-      </li>
-      <li>
-        <div class="target">Lambda role · SafeRemediate-Lambda-Remediation-Role<span class="layer-tag iam">IAM</span></div>
-        <div class="reason">10 of 10 unused · drift since 2026-04-04 remediation · shared by PaymentProductionAPI + VPCTrafficGenerator</div>
-        <div class="meta"><span class="dot crit"></span>Risk 65 · drift</div>
-      </li>
-      <li>
-        <div class="target">saferemediate-test-db<span class="layer-tag net">Network</span></div>
-        <div class="reason">Crown jewel · sensitive data · containment verified, but 1-hop from app tier</div>
-        <div class="meta"><span class="dot amber"></span>Risk 62 · jewel</div>
-      </li>
-      <li>
-        <div class="target">SafeRemediate-Test-App-1<span class="layer-tag net">Stale</span></div>
-        <div class="reason">Stale since 2026-04-07 · zombie EC2 + zombie SafeRemediate-EC2-App-Role · should be reaped</div>
-        <div class="meta"><span class="dot amber"></span>Risk 48 · stale</div>
-      </li>
-    </ol>
+  <!-- ═══════════════════════════ FILTER RAIL (Estate mode) ═════════════════ -->
+  <aside class="rail filter-rail">
+    <h2>Workload type</h2>
+    <div class="filter-group">
+      <label><input type="checkbox" checked /> EC2 <span class="count">11</span></label>
+      <label><input type="checkbox" checked /> Lambda <span class="count">22</span></label>
+      <label><input type="checkbox" checked /> RDS <span class="count">1</span></label>
+      <label><input type="checkbox" checked /> S3 bucket <span class="count">10</span></label>
+      <label><input type="checkbox" checked /> DynamoDB <span class="count">8</span></label>
+      <label><input type="checkbox" checked /> Load balancer <span class="count">1</span></label>
+    </div>
+
+    <div class="filter-divider"></div>
+    <h2>Severity</h2>
+    <div class="filter-group">
+      <label><input type="checkbox" checked /> Worst <span class="count warn">0</span></label>
+      <label><input type="checkbox" checked /> High <span class="count warn">7</span></label>
+      <label><input type="checkbox" checked /> Elevated <span class="count">0</span></label>
+      <label><input type="checkbox" checked /> Quiet <span class="count">1</span></label>
+      <label><input type="checkbox" checked /> Stale <span class="count amber">3</span></label>
+      <label><input type="checkbox" checked /> Unscored <span class="count amber">41</span></label>
+    </div>
+
+    <div class="filter-divider"></div>
+    <h2>VPC</h2>
+    <div class="filter-group">
+      <label><input type="radio" name="vpc" /> All</label>
+      <label><input type="radio" name="vpc" checked /> Payment-Production <span class="vpc-name">vpc-0329e985…</span></label>
+      <label><input type="radio" name="vpc" /> (untitled) <span class="vpc-name">vpc-086bcc21…</span></label>
+    </div>
+
+    <div class="filter-divider"></div>
+    <h2>Confidence</h2>
+    <div class="filter-group">
+      <label><input type="checkbox" /> Show only stale-data nodes <span class="count amber">53</span></label>
+      <label><input type="checkbox" /> Show only unscored nodes <span class="count amber">41</span></label>
+      <label><input type="checkbox" /> Show only contradicted-evidence <span class="count amber">2</span></label>
+    </div>
+
+    <div class="filter-divider"></div>
+    <div style="font-size:10px; color:var(--cy-slate); line-height:1.5;">
+      <strong style="color:var(--cy-ink);">Estate vs Triage:</strong>
+      Filters replace the "Next worst" rail. No spotlight, no pulse — operator
+      goal here is <em>scan</em>, not urgency. Click any node for the same
+      detail panel as Triage.
+    </div>
   </aside>
 </div>
 
 <!-- ═══════════════════════════ DESIGN NOTES ═════════════════════════════ -->
 <div class="note">
   <p>
-    <strong>Topology v0.2 — alon-prod, live data, IAM control plane added.</strong>
+    <strong>Topology v0.2 · Estate mode (iteration 5) — alon-prod, live data.</strong>
+    The counterpart to Triage mode (<a href="/design/topology-v0.2.html" style="color:var(--cy-teal);"><code>topology-v0.2.html</code></a>).
+    Same AWS reference-architecture template, same Neo4j data, same detail panel —
+    but a different operator job. Triage answers "what's the single worst thing in 5
+    seconds?". Estate answers "scan the whole estate" or "find a specific thing".
+    The visual changes follow that job split:
+  </p>
+  <p>
+    <strong>What changes vs Triage.</strong>
+    <em>Headline</em> swaps the prose "worst right now" sentence for a five-tile KPI
+    strip (<code>53 workloads · 7 flagged · 3 stale · 41 unscored · 0% posture fresh</code>).
+    The "0% confidence fresh" tile is the dramatic finding Estate uniquely surfaces —
+    every single posture measurement in this estate is >7d stale, a systemic data-coverage
+    issue Triage can't show because it's not about urgency. <em>Halos</em> drop the pulse
+    and shrink to thin rings — visual presence, not visual emergency, because no node
+    is being spotlighted. <em>Right rail</em> swaps "Next worst" for filters by workload
+    type, severity, VPC, and confidence state (with counts per filter, so operators see
+    the lay-of-the-land at a glance). <em>Detail panel</em> hidden by default; same
+    panel as Triage, opens on node click. <em>Mode toggle</em> top-left flips between
+    the two surfaces — stable position so muscle memory carries.
+  </p>
+  <p>
+    <strong>Why keep the AWS template across both modes.</strong>
+    Tempting to flip Estate to a flat taxonomy view (group all EC2s together, all
+    Lambdas together, etc.). Rejected: operators have learned to read the AWS reference
+    architecture, and the value of the template is precisely that it stays the same
+    canvas across views. Different layouts per mode would double the cognitive cost.
+    The mode toggle should change <em>weighting and emphasis</em>, not <em>where things
+    physically sit</em>.
+  </p>
+  <p>
+    <strong>The "Confidence 0% fresh" KPI is the headline story for this estate.</strong>
+    Surface 53 workloads, but every single posture verdict is more than 7 days old.
+    That's a system-health finding the Triage view literally cannot express because
+    it's scoped to one spotlighted node. Per the
+    <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal);">risk-contract</a>'s
+    MIN-of-contributors confidence model, this would drive every node's composite
+    confidence down to DEGRADED at best — and Estate mode renders that aggregate fact
+    where it lives, not behind a tooltip.
+  </p>
+  <p>
+    <strong>Multi-VPC handling (Phase 1 of Estate).</strong>
+    alon-prod has 2 active VPCs (<code>vpc-0329e985…</code> Payment-Production with 8
+    workloads, <code>vpc-086bcc21…</code> with 6). v0.2 Estate renders the primary VPC
+    by default with a radio switcher in the rail. Simultaneous multi-VPC layout
+    (stacked frames, side-by-side, or carousel) is a v0.3 / v1 problem — Phase 1 ships
+    with the switcher so the affordance exists even if multi-render doesn't.
+  </p>
+  <p>
+    <strong>Inherits from v0.2 Triage:</strong>
     Successor to the existing <code>components/attack-paths-v2/topology-view.tsx</code>
     on cyntro.io (the dark-themed Phase 1 / v0.1 renderer — single-VPC focus, static
     layout, no interactivity beyond scrolling). v0.2 keeps the same AWS reference-
@@ -2110,24 +2331,21 @@
   <p>
     <strong>States &amp; scale gallery (iteration 6).</strong>
     <a href="/design/topology-v0.2-states.html" style="color:var(--cy-teal);"><code>topology-v0.2-states.html</code></a>
-    catalogs the eight non-happy-path states this mockup doesn't render (loading, 5xx, 4xx,
-    partial-data, empty-system, empty-VPC, race-condition, no-selection, stale) plus three
-    IAM-Control-Plane-strip variants for customer scale (today's 5-role view, at-scale 47-role
-    grouped view, customer-scale 247-role paginated view). Implementation can't ship without
-    these — the bulk endpoint will hit at least three of them on its first real customer.
+    covers the loading, error, partial, empty, race-condition, and stale states that both
+    Triage and Estate share — plus three IAM-strip variants that handle customer-scale role
+    counts (5 → 47 → 247). Estate-specific states (no-selection panel, empty-VPC, filter-rail
+    excluding all visible workloads) are catalogued there too.
   </p>
   <p>
     <strong>Accessibility primitives (iteration 7).</strong>
-    Scene 10 of the states gallery covers the WCAG 2.1 AA primitives this mockup needs
-    to pass procurement at regulated buyers (federal, FFIEC, HIPAA): reduced-motion
-    handling for the carmine pulse, color-blind redundancy via shape glyphs
-    (<code>◆</code> WORST, <code>▲</code> HIGH, <code>👑</code> JEWEL, <code>⌛</code> STALE,
-    <code>✓</code> CLEAN), keyboard tab order for Triage and Estate, screen-reader
-    announcement patterns that put confidence + freshness inline (extending the iteration-3
-    data-confidence-first-class principle to assistive tech), and ARIA landmarks for
-    structural navigation. The CSS-level fixes (<code>prefers-reduced-motion</code> +
-    <code>:focus-visible</code> teal rings) ship in this mockup in iteration 7; semantic
-    role markup and skip-links land with the React implementation.
+    Scene 10 of the gallery covers WCAG 2.1 AA for both modes — reduced-motion
+    handling, color-blind shape glyphs (<code>◆ ▲ 👑 ⌛ ✓</code>), keyboard tab orders for
+    Triage <em>and</em> Estate, screen-reader announcement patterns, and ARIA landmarks.
+    Estate's tab order specifically routes filters → topology → IAM strip → panel, with
+    skip-links so screen-reader operators don't traverse the KPI strip every page load.
+    The CSS-level fixes (<code>prefers-reduced-motion</code> + <code>:focus-visible</code>
+    teal rings) are applied in iteration 7; semantic role markup lands with the React
+    implementation.
   </p>
   <p>
     <strong>Honesty caveat.</strong>
