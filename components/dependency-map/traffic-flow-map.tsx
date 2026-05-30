@@ -2645,6 +2645,15 @@ function AnimatedTrafficLine({
   const useCurve = !!edgeData;
   const plane: EdgePlane | undefined = (() => {
     if (!edgeData) return undefined;
+    // Inferred service-plane edges (VPCE → S3/DynamoDB/etc) carry
+    // relationship="ROUTES_VIA" for semantic honesty (the edge IS a
+    // route), but visually they represent the data-plane traversal —
+    // bytes physically transit the VPCE to reach the bucket. Per the
+    // Greenlight constraint #1, color them like data-flow edges
+    // (orange) so the read direction is consistent with the
+    // surrounding observed flows. Dash style still distinguishes them
+    // from real observed edges.
+    if (edgeData.inferred) return 'data';
     // Re-derive plane from relationship — passed-in planeColor reflects
     // the same logic, but we need the discrete plane label for arch
     // direction. Cheap; could also be threaded through as a prop later.
@@ -2777,19 +2786,42 @@ function AnimatedTrafficLine({
 
       {/* Main line — straight in legacy flow mode, Bezier curve in
        *  explicit-edges mode so lines bend around unrelated cards
-       *  rather than bisecting them. Dashed for attack paths. */}
+       *  rather than bisecting them.
+       *
+       *  Stroke style precedence (most-specific first):
+       *    1. attack path → red dashed (operator-critical signal)
+       *    2. inferred service-plane edge (e.g. VPCE→S3 derived from
+       *       VPCE.service_name) → dashed, same color as solid so the
+       *       direction stays readable; provenance via line style not
+       *       palette (Greenlight 2026-05-30 constraint #1). Hover
+       *       tooltip shows inferred_reason.
+       *    3. observed/config edge → solid.
+       */}
       <path
         d={pathD}
         fill="none"
         stroke={lineColor}
         strokeWidth={heatmapStrokeWidth ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)}
         strokeLinecap="round"
-        strokeDasharray={isAttackPath ? "10,5" : undefined}
+        strokeDasharray={
+          isAttackPath
+            ? "10,5"
+            : edgeData?.inferred
+              ? "6,4"
+              : undefined
+        }
         className="transition-all duration-300"
-      />
+      >
+        {edgeData?.inferred && edgeData.inferred_reason && (
+          <title>Inferred edge — {edgeData.inferred_reason}</title>
+        )}
+      </path>
 
-      {/* Animated particles - always show when animate is true */}
-      {animate && !isLockedFlow && (
+      {/* Animated particles - always show when animate is true.
+       *  Suppressed for inferred service-plane edges — those are
+       *  derived, not observed, and animating them would lie about
+       *  having traffic evidence we don't have. */}
+      {animate && !isLockedFlow && !edgeData?.inferred && (
         <>
           {/* Define the path for animation — same shape as the visible
            *  line so the particles follow the curve. */}
@@ -3044,7 +3076,10 @@ export function ConnectionLinesSVG({
             continue;
           }
 
-          const plane = planeForString(edge.relationship);
+          // Inferred service-plane edges (VPCE→S3 etc) override
+          // plane to data so the line color matches the surrounding
+          // observed data-flow edges (Greenlight constraint #1).
+          const plane: EdgePlane = edge.inferred ? 'data' : planeForString(edge.relationship);
           const isHighlighted =
             hoveredId === edge.source_aws_id || hoveredId === edge.target_aws_id;
           // Animation gate: ONLY data-plane edges animate, AND only when

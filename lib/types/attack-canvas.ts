@@ -341,6 +341,31 @@ export interface CanvasEdge {
   last_seen: string | null
   port: number | null
   protocol: string | null
+  /**
+   * Service-plane inferred edge (2026-05-30). True when the edge is NOT
+   * present in Neo4j as a real (n)-[r]-(m) row but is derived from a
+   * structural fact (e.g. VPCEndpoint.service_name = "*.s3" + path
+   * target is an S3Bucket in same account/region → AWS routes this
+   * traffic via the VPCE even though the graph doesn't stamp the edge).
+   *
+   * Renderer treatment when true:
+   *   - Dashed line in the SAME color as the equivalent solid edge
+   *     (provenance via line style, not color — operators reading the
+   *     direction shouldn't get confused by a palette shift).
+   *   - Hover tooltip surfaces `inferred_reason` so the operator can
+   *     audit WHY this edge was synthesized.
+   *
+   * Renderer auto-graduates when the underlying graph fact lands:
+   * inference is skipped if a real (non-inferred) edge with the same
+   * source/target already exists in the edge set. Option B (collector
+   * writes `(VPCEndpoint)-[:SERVES]->(S3Bucket)`) is the durable
+   * follow-up; once shipped this flag stops getting set for that pair.
+   */
+  inferred?: boolean
+  /** Operator-visible explanation of how this inferred edge was
+   *  derived. Example: "VPCEndpoint serves com.amazonaws.eu-west-1.s3;
+   *  S3Bucket is in same account/region — AWS routes via VPCE." */
+  inferred_reason?: string
 }
 
 /**

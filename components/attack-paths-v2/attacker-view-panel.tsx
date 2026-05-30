@@ -2234,6 +2234,121 @@ function buildAttackerArchitecture(
     }
   }
 
+  // ── Service-plane inferred edges (2026-05-30) ───────────────────
+  //
+  // Neo4j models the VPCE side (network route: Subnet → VPCE) and the
+  // bucket side (data plane: Role → S3) as separate fact patterns —
+  // there's no (VPCEndpoint)-[->]-(S3Bucket) edge. But at AWS data
+  // plane every byte transits the VPCE on its way to the bucket, so
+  // the canvas needs to draw that segment for the flow to read
+  // complete.
+  //
+  // This is the generic primitive — same logic covers VPCE→S3,
+  // VPCE→DynamoDB, VPCE→KMS, VPCE→SecretsManager, etc. The mapping
+  // from VPCE.serviceHint to graph-resource-type is structural; no
+  // hardcoded "drop X for Y" pairs.
+  //
+  // Three-condition guard (Greenlight feedback 2026-05-30):
+  //   1. VPCE is in the egressGateways list (i.e. on the path).
+  //   2. A resource on the path has type matching the VPCE
+  //      serviceHint (S3Bucket for "s3", DynamoDBTable for "dynamodb",
+  //      etc).
+  //   3. Same-account/region: the VPCE.vpc_id account prefix and the
+  //      resource id account prefix match. Without this, drawing
+  //      inferred edges across accounts/regions would lie about flows
+  //      that physically can't traverse the VPCE.
+  //
+  // Auto-graduate: if a real (non-inferred) edge already exists
+  // between the same source/target, skip. When Option B lands (the
+  // collector writes the real edge), this code transparently stops
+  // synthesizing because builtEdges already carries the truth.
+  //
+  // Service-token → resource-type-substring map. Add new pairs by
+  // extending this list; the rest of the logic is generic.
+  const SERVICE_PLANE_INFERENCE: Array<{ serviceToken: string; resourceTypeSubstr: string }> = [
+    { serviceToken: "s3", resourceTypeSubstr: "s3" },
+    { serviceToken: "dynamodb", resourceTypeSubstr: "dynamo" },
+    { serviceToken: "kms", resourceTypeSubstr: "kms" },
+    { serviceToken: "secretsmanager", resourceTypeSubstr: "secret" },
+    { serviceToken: "ssm", resourceTypeSubstr: "parameter" },
+    { serviceToken: "ecr", resourceTypeSubstr: "ecr" },
+    { serviceToken: "sqs", resourceTypeSubstr: "sqs" },
+    { serviceToken: "sns", resourceTypeSubstr: "sns" },
+  ]
+
+  // Helper: extract the AWS account id from an ARN-shaped id, or from
+  // a VPC id (which doesn't carry account but the VPCE has account_id
+  // available on the path's egressGateway via vpcId — fallback to the
+  // jewel ARN's account when needed).
+  const accountFromArn = (idOrArn: string | null | undefined): string | null => {
+    if (!idOrArn) return null
+    const m = idOrArn.match(/^arn:aws:[^:]+:[^:]*:(\d+):/)
+    return m ? m[1] : null
+  }
+
+  // For each VPCE in egressGateways with a matching jewel resource on
+  // the path, synthesize the inferred edge.
+  for (const vpce of egressGateways) {
+    if (vpce.kind !== "VPCEndpoint") continue
+    if (!vpce.serviceHint) continue
+    const mapping = SERVICE_PLANE_INFERENCE.find((m) => m.serviceToken === vpce.serviceHint)
+    if (!mapping) continue
+
+    for (const res of resources) {
+      // Condition 2: resource type matches VPCE service.
+      const resTypeLower = (res.type || "").toLowerCase()
+      if (!resTypeLower.includes(mapping.resourceTypeSubstr)) continue
+
+      // Condition 3: same account. VPCE id (vpce-XXX) doesn't carry
+      // account; we resolve by checking the resource ARN's account
+      // against any other ARN-bearing node on the path (e.g. the role
+      // sitting on the path). When ARNs are unavailable we skip
+      // rather than infer cross-account — safer to under-draw than
+      // over-draw.
+      const resAccount = accountFromArn(res.id)
+      let pathAccount: string | null = null
+      for (const r of iamRoles) {
+        const a = accountFromArn(r.id)
+        if (a) {
+          pathAccount = a
+          break
+        }
+      }
+      if (resAccount && pathAccount && resAccount !== pathAccount) continue
+
+      // Auto-graduate: skip if a real edge between VPCE and resource
+      // already exists (Option B's (VPCE)-[:SERVES]->(Resource) edge,
+      // when shipped, will populate builtEdges before this inference
+      // runs).
+      const realEdgeExists = builtEdges.some(
+        (e) =>
+          !e.inferred &&
+          ((e.source_aws_id === vpce.id && e.target_aws_id === res.id) ||
+            (e.source_aws_id === res.id && e.target_aws_id === vpce.id)),
+      )
+      if (realEdgeExists) continue
+
+      const inferredId = `${vpce.id}|ROUTES_VIA_INFERRED|${res.id}`
+      if (edgeKeys.has(inferredId)) continue
+      edgeKeys.add(inferredId)
+      builtEdges.push({
+        id: inferredId,
+        source_aws_id: vpce.id,
+        target_aws_id: res.id,
+        relationship: "ROUTES_VIA" as CanvasRelationshipType,
+        observed: null,
+        hit_count: null,
+        bytes: null,
+        first_seen: null,
+        last_seen: null,
+        port: null,
+        protocol: null,
+        inferred: true,
+        inferred_reason: `VPCEndpoint serves "${vpce.serviceHint}". ${res.name || res.id} is a ${res.type} in the same account. AWS routes service traffic via the VPCE even though Neo4j doesn't stamp the edge.`,
+      })
+    }
+  }
+
   return {
     computeServices,
     principals,
