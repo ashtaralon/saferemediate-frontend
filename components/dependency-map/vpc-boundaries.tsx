@@ -40,7 +40,16 @@ interface VPCRect extends BoundingRect {
   subnetRects: SubnetRect[];
 }
 
-const PADDING = 32;
+// 2026-05-30 — asymmetric padding. The previous symmetric 32px box
+// extended 32px below the deepest node and that bottom edge cut
+// straight through the "IDENTITY · IP 1 · ROLES 1 · POLICIES 2" and
+// "RESOURCES (1)" lane-header text that sits just below the top
+// network lanes. Bottom padding shrunk to 8px so the dashed line
+// ends tight against the last VPC-scoped card without overlapping
+// downstream labels. Side/top padding preserved at 32px.
+const PADDING_X = 32;
+const PADDING_TOP = 32;
+const PADDING_BOTTOM = 8;
 const VPC_LABEL_HEIGHT = 32;
 const SUBNET_LABEL_HEIGHT = 20;
 
@@ -105,10 +114,10 @@ function computeBoundingBox(
   if (!isFinite(minX)) return null;
 
   return {
-    x: minX - PADDING,
-    y: minY - PADDING,
-    width: maxX - minX + PADDING * 2,
-    height: maxY - minY + PADDING * 2,
+    x: minX - PADDING_X,
+    y: minY - PADDING_TOP,
+    width: maxX - minX + PADDING_X * 2,
+    height: maxY - minY + PADDING_TOP + PADDING_BOTTOM,
   };
 }
 
