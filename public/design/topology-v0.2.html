@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Cyntro · Topology v0.1 · alon-prod</title>
+<title>Cyntro · Topology v0.2 · alon-prod</title>
 <style>
   :root {
     --cy-navy: #0D1B2A;
@@ -1058,7 +1058,7 @@
 
 <!-- ═══════════════════════════ HEADLINE STRIP ═══════════════════════════ -->
 <header class="headline">
-  <div class="kicker">Worst right now · Topology v0.1 · alon-prod</div>
+  <div class="kicker">Worst right now · Topology v0.2 · alon-prod</div>
   <h1>
     <span class="target">SafeRemediate-Test-Frontend-1</span> is internet-reachable
     via <span class="target">payment-prod-alb</span> but has received
@@ -1769,7 +1769,13 @@
 <!-- ═══════════════════════════ DESIGN NOTES ═════════════════════════════ -->
 <div class="note">
   <p>
-    <strong>Topology v0.1 — alon-prod, live data, IAM control plane added.</strong>
+    <strong>Topology v0.2 — alon-prod, live data, IAM control plane added.</strong>
+    Successor to the existing <code>components/attack-paths-v2/topology-view.tsx</code>
+    on cyntro.io (the dark-themed Phase 1 / v0.1 renderer — single-VPC focus, static
+    layout, no interactivity beyond scrolling). v0.2 keeps the same AWS reference-
+    architecture template and adds the Cyntro intelligence layer Phase 1 explicitly
+    didn't have: severity halos, signal pills, IAM control-plane strip, ranked rail,
+    detail panel slide-in, data-trust amber.
     Every entity, gap count, AZ, SG, and route-table ID is pulled from production Neo4j
     (Aura <code>4e9962b7</code>, VPC <code>vpc-0329e985173bed24f</code>, eu-west-1, acct 745783559495).
     The two Frontend EC2s sit in <code>posture_verdict = LATENT</code> with
@@ -1789,7 +1795,7 @@
     over-privileged are they?"</em> without leaving the topology view.
   </p>
   <p>
-    <strong>The real IAM story (corrected from v0.1 first cut).</strong>
+    <strong>The real IAM story (corrected from first iteration).</strong>
     The earlier mockup put a fabricated "23 unused perms" pill on Frontend-1. Wrong — Frontend-1's
     role <code>cyntro-demo-frontend-ssm-role</code> is <em>clean</em>: 0/0 actions, remediated
     2026-03-09. Frontend-2's <code>CyntroEC2S3Role</code> is also clean. The actual gaps live one
@@ -1807,7 +1813,7 @@
     role view with action-by-action breakdown.
   </p>
   <p>
-    <strong>Detail panel (v0.2 addition).</strong>
+    <strong>Detail panel (iteration 2).</strong>
     The right-edge slide-in is the design piece that closes the triage loop — operator
     spots Frontend-1 in the spotlight, the panel lets them actually understand it without
     leaving the map. Non-modal by design: the topology stays interactive behind the panel
@@ -1823,7 +1829,7 @@
     IAM counts, Quarantine.
   </p>
   <p>
-    <strong>Data-trust amber is an audit-trail artifact, not just a UX hygiene signal (v0.3).</strong>
+    <strong>Data-trust amber is an audit-trail artifact, not just a UX hygiene signal (iteration 3).</strong>
     The IAM section's stale-count callout is framed loosely as "trust" / "epistemic honesty" — true
     but soft. For Cyntro's regulated ICP (fintech, healthcare, federal), the stronger argument is
     <em>regulatory defense</em>. A CISO before an FFIEC examiner or OCC auditor must demonstrate
@@ -1834,7 +1840,7 @@
     needs. Strategic decks and sales briefs should lead with this framing, not the trust framing.
   </p>
   <p>
-    <strong>Amber is a transient self-healing state, never a permanent label (v0.3).</strong>
+    <strong>Amber is a transient self-healing state, never a permanent label (iteration 3).</strong>
     The earliest version of the elaboration warned about decorative ⚠ icons becoming wallpaper, but
     missed the same failure mode for legitimate amber that never auto-resolves. If "Re-sync IAM
     counts" sits unclicked for three weeks because the operator forgets and nothing else acts, it
@@ -1846,7 +1852,7 @@
     sync-warn box above; applies wherever amber is used across the product.
   </p>
   <p>
-    <strong>Composite-score data-confidence is the priority propagation point (v0.3).</strong>
+    <strong>Composite-score data-confidence is the priority propagation point (iteration 3).</strong>
     Five surfaces need data-trust treatment (IAM-strip role chips, headline-strip fallback,
     auto-remediation gating, view-parity gating, composite-score rollup). They're not
     equal-priority — the composite score is the single silent-failure point. Every other surface

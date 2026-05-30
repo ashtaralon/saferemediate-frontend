@@ -116,13 +116,17 @@ export function LeftSidebarNav({
 
       {/* Menu Items */}
       <nav className="py-4">
-        {/* Design preview — Topology v0.1 mockup served from public/design/.
-            Lives above the main nav so it stays visible / discoverable while
-            we iterate on the design with Alon. Static HTML, opens in a new
-            tab so the dashboard SPA state is preserved. Remove once topology
-            ships into a real route. */}
+        {/* Design preview — Topology v0.2 mockup served from public/design/.
+            Successor to the existing Phase 1 / v0.1 component at
+            components/attack-paths-v2/topology-view.tsx (already live on
+            cyntro.io, dark-themed, static layout). v0.2 is the design spec
+            for the next iteration: severity halos, signal pills, IAM control-
+            plane strip, detail panel, ranked rail, data-trust amber.
+            Lives above the main nav so it stays discoverable while the design
+            iterates. Static HTML, opens in a new tab. Remove once v0.2 ships
+            into a real route. */}
         <a
-          href="/design/topology-v0.1.html"
+          href="/design/topology-v0.2.html"
           target="_blank"
           rel="noopener noreferrer"
           className="relative w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-all overflow-hidden border-b mb-2"
@@ -141,7 +145,7 @@ export function LeftSidebarNav({
               color: "#00C2A8",
             }}
           >
-            v0.1
+            v0.2
           </span>
         </a>
 
