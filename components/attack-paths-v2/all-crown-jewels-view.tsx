@@ -28,6 +28,10 @@ interface AllCrownJewelsViewProps {
   paths: IdentityAttackPath[]
   onSelectJewel: (jewelId: string) => void
   onSelectPath: (jewelId: string, pathId: string) => void
+  /** Other systems the operator can switch to when this one has 0 paths. */
+  otherSystems?: string[]
+  onSwitchSystem?: (s: string) => void
+  currentSystem?: string
 }
 
 function severityColor(sev: string | number): string {
@@ -66,6 +70,9 @@ export function AllCrownJewelsView({
   paths,
   onSelectJewel,
   onSelectPath,
+  otherSystems = [],
+  onSwitchSystem,
+  currentSystem,
 }: AllCrownJewelsViewProps) {
   // Group paths by crown_jewel_id.
   const pathsByJewel = useMemo(() => {
@@ -101,10 +108,38 @@ export function AllCrownJewelsView({
           All Crown Jewel Paths
         </h2>
         <span className="text-[10px] text-slate-500 italic">
+          {currentSystem ? `${currentSystem} · ` : ""}
           {jewels.length} crown jewel{jewels.length === 1 ? "" : "s"} ·{" "}
           {totalPaths} path{totalPaths === 1 ? "" : "s"} total · sourced from Neo4j
         </span>
       </div>
+
+      {/* 0-paths system switcher banner — when the operator lands on
+          a system whose CJs have no attack paths recorded, surface a
+          one-click switcher instead of staring at empty cards. */}
+      {totalPaths === 0 && jewels.length > 0 && otherSystems.length > 0 && onSwitchSystem && (
+        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="text-xs font-semibold text-amber-200 mb-2">
+            No attack paths recorded on this system
+          </div>
+          <p className="text-[11px] text-amber-300/80 mb-3">
+            {jewels.length} crown jewel{jewels.length === 1 ? "" : "s"} defined,
+            but no observed or modeled paths reach them. Switch to a system with active paths:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {otherSystems.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onSwitchSystem(s)}
+                className="text-[11px] font-semibold rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-amber-200 transition-colors"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {jewels.length === 0 ? (
         <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-8 text-center">

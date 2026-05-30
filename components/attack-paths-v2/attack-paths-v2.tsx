@@ -143,7 +143,9 @@ export function AttackPathsV2() {
   }, [systemName])
 
   useEffect(() => {
-    if (systemName) return
+    // Always fetch the systems list — the switcher in the header
+    // needs it even when systemName IS set, so the operator can
+    // swap to a different system without leaving the page.
     let aborted = false
     ;(async () => {
       try {
@@ -162,7 +164,13 @@ export function AttackPathsV2() {
               : (s?.name as string) ?? (s?.SystemName as string) ?? (s?.system_name as string) ?? "",
           )
           .filter(Boolean)
+          .sort()
         setAvailableSystems(names)
+        // Auto-redirect only fires when no system is in the URL.
+        if (systemName) {
+          setAutoRedirectDone(true)
+          return
+        }
 
         // Pick the target system: last-used (if still in the list) →
         // first available. localStorage-resume is the dominant UX
@@ -437,11 +445,27 @@ export function AttackPathsV2() {
               className="p-1.5 -ml-1.5 rounded-md hover:bg-slate-800 transition-colors shrink-0"
               iconClassName="w-4 h-4 text-slate-300"
             />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">
                 CYNTRO · ATTACK PATHS V2
               </div>
-              <div className="text-sm font-semibold text-white mt-0.5">{systemName}</div>
+              {/* System switcher — operator can swap to a different
+                  system without leaving the page. Replaces the
+                  static label that locked them in once auto-redirect
+                  picked a wrong system. */}
+              <SystemSwitcher
+                currentSystem={systemName}
+                availableSystems={availableSystems}
+                onSwitch={(s) => {
+                  const params = new URLSearchParams(searchParams?.toString() ?? "")
+                  params.set("system", s)
+                  // Drop jewel/path when switching system — those ids
+                  // are per-system and won't resolve on a different one.
+                  params.delete("jewel")
+                  params.delete("path")
+                  router.replace(`${pathname}?${params.toString()}`)
+                }}
+              />
               <div className="text-[11px] text-slate-400 mt-0.5">
                 {allPaths.length} paths · {jewels.length} crown jewels
               </div>
@@ -504,6 +528,15 @@ export function AttackPathsV2() {
             paths={allPaths}
             onSelectJewel={(jewelId) => setUrl({ jewel: jewelId })}
             onSelectPath={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId })}
+            currentSystem={systemName}
+            otherSystems={availableSystems.filter((s) => s !== systemName)}
+            onSwitchSystem={(s) => {
+              const params = new URLSearchParams(searchParams?.toString() ?? "")
+              params.set("system", s)
+              params.delete("jewel")
+              params.delete("path")
+              router.replace(`${pathname}?${params.toString()}`)
+            }}
           />
         ) : (
           <>
@@ -783,6 +816,66 @@ function ModeToggle({
 }
 
 // ─── Helper: empty / placeholder state ──────────────────────────
+/**
+ * System switcher — sidebar header dropdown. Replaces the static
+ * system-name label so operators can swap to a different system
+ * without leaving the page. The localStorage-resume effect picks up
+ * the new value on next visit.
+ */
+function SystemSwitcher({
+  currentSystem,
+  availableSystems,
+  onSwitch,
+}: {
+  currentSystem: string
+  availableSystems: string[]
+  onSwitch: (s: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const hasOthers = availableSystems.filter((s) => s !== currentSystem).length > 0
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-left w-full mt-0.5 flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+        title={hasOthers ? "Switch system" : "Only system available"}
+      >
+        <span className="text-sm font-semibold text-white truncate">{currentSystem}</span>
+        {hasOthers && (
+          <span className="text-[9px] text-slate-400 uppercase">▾</span>
+        )}
+      </button>
+      {open && hasOthers && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full mt-1 z-20 min-w-[200px] max-h-[300px] overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg">
+            <div className="px-3 py-2 text-[9px] uppercase tracking-wider text-slate-500 border-b border-slate-800">
+              Switch system
+            </div>
+            {availableSystems.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  if (s !== currentSystem) onSwitch(s)
+                }}
+                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-800 transition-colors ${
+                  s === currentSystem ? "text-amber-300 font-semibold" : "text-slate-200"
+                }`}
+              >
+                {s === currentSystem ? "● " : "  "}
+                {s}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function EmptyState({
   title,
   subtitle,
