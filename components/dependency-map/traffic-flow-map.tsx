@@ -2755,7 +2755,30 @@ function AnimatedTrafficLine({
   // (gray dotted, already handled by ghosted/inactive branches).
   // Cross-consumer safe: non-attacker callers leave flowData.isLocked
   // undefined; the override is then no-op.
-  const isLockedFlow = !!flowData?.isLocked && isActive && !isAttackPath && !heatmapMode;
+  //
+  // 2026-05-30 (FE follow-up #7): in explicit-edges mode (the active
+  // canvas path for ATTACKER VIEW) the producer hands the renderer a
+  // CanvasEdge instead of a TrafficFlow, and CanvasEdge has no
+  // `isLocked` field — that was only on TrafficFlow. To keep PR #77's
+  // 3-state encoding from being dead code on the new render path,
+  // mirror the producer's isLockedEdgeType locally: derive lock from
+  // the relationship name. List MUST stay in sync with the producer at
+  // components/attack-paths-v2/attacker-view-panel.tsx::isLockedEdgeType.
+  const isLockedRelationship = (rel: string | null | undefined): boolean => {
+    if (!rel) return false;
+    const R = rel.toUpperCase();
+    return (
+      R === 'HAS_INSTANCE_PROFILE' ||
+      R === 'USES_ROLE' ||
+      R === 'ASSUMES_ROLE' ||
+      R === 'ASSUMES_ROLE_ACTUAL' ||
+      R === 'USED_IDENTITY' ||
+      R === 'HAS_POLICY'
+    );
+  };
+  const isLockedFlow =
+    (!!flowData?.isLocked || (!!edgeData && isLockedRelationship(edgeData.relationship)))
+    && isActive && !isAttackPath && !heatmapMode;
   const lineColor = heatmapMode && !isAttackPath
     ? getHeatmapColor(heatmapRatio)
     : isAttackPath ? '#ef4444'
@@ -2840,6 +2863,25 @@ function AnimatedTrafficLine({
       >
         {edgeData?.inferred && edgeData.inferred_reason && (
           <title>Inferred edge — {edgeData.inferred_reason}</title>
+        )}
+        {/*
+          2026-05-30 (FE follow-up #7): when the producer threaded
+          first_seen / last_seen onto the CanvasEdge (PR #76's feature),
+          surface them as a native browser <title> tooltip on the SVG
+          path. The legacy TrafficFlow hover-panel (line ~4586) carries
+          a richer pill UI; that fires only in flow-mode. Explicit-edges
+          mode has no equivalent pill — a <title> is the lightest
+          honest path to make the temporal evidence visible. Skips when
+          the inferred-edge title already claimed the slot OR neither
+          timestamp is populated.
+        */}
+        {!edgeData?.inferred && edgeData && (edgeData.first_seen || edgeData.last_seen) && (
+          <title>
+            {[
+              edgeData.last_seen ? `Last seen ${edgeData.last_seen}` : null,
+              edgeData.first_seen ? `First seen ${edgeData.first_seen}` : null,
+            ].filter(Boolean).join(' · ')}
+          </title>
         )}
       </path>
 
