@@ -681,6 +681,106 @@
   .legend .dot.jewel { box-shadow: 0 0 6px 2px rgba(245, 166, 35, 0.5); background: var(--aws-blue); }
   .legend .dot.clean { box-shadow: 0 0 0 2px var(--cy-teal); background: white; }
 
+  /* ── Confidence dots + contributors (v0.4 — risk contract) ─────── */
+  .conf-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+  }
+  .conf-dot.conf-full {
+    background: var(--cy-teal);
+    box-shadow: 0 0 4px var(--cy-teal);
+  }
+  .conf-dot.conf-degraded {
+    background: var(--cy-amber);
+    box-shadow: 0 0 4px var(--cy-amber);
+  }
+  .conf-dot.conf-low {
+    background: var(--cy-carmine);
+    box-shadow: 0 0 4px var(--cy-carmine);
+  }
+  .risk-chip .conf-dot {
+    width: 5px; height: 5px;
+    margin: 0 0 0 3px;
+    top: 0;
+  }
+  /* small inline confidence integer on chips */
+  .risk-chip .conf-pct {
+    font-size: 7px;
+    margin-left: 2px;
+    opacity: 0.85;
+  }
+
+  .contributors {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .contrib {
+    background: #FAFBFC;
+    border: 1px solid #EEF1F4;
+    border-radius: 4px;
+    padding: 7px 9px;
+  }
+  .contrib .row1 {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px;
+  }
+  .contrib .signal-name {
+    font-size: 11px; font-weight: 600; color: var(--cy-ink);
+    font-family: ui-monospace, monospace;
+  }
+  .contrib .weight {
+    font-size: 9px; color: var(--cy-slate);
+    letter-spacing: 0.04em;
+  }
+  .contrib .bar {
+    height: 5px; background: #E8EDF1; border-radius: 3px; overflow: hidden;
+    position: relative;
+  }
+  .contrib .bar > .fill {
+    height: 100%;
+    background: var(--cy-carmine);
+    border-radius: 3px;
+  }
+  .contrib.value-zero .bar > .fill {
+    background: var(--cy-teal);
+  }
+  .contrib .freshness {
+    margin-top: 5px;
+    font-size: 9px;
+    color: var(--cy-slate);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: ui-monospace, monospace;
+  }
+  .contrib .freshness .stale {
+    background: rgba(245, 166, 35, 0.18);
+    color: #8C5A04;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: -apple-system, sans-serif;
+    font-size: 8px;
+  }
+  .contrib .freshness .ok {
+    color: var(--cy-teal);
+    font-weight: 600;
+  }
+  .contrib .auto-resolve {
+    margin-top: 4px;
+    font-size: 9px;
+    color: var(--cy-slate);
+    font-style: italic;
+    line-height: 1.4;
+  }
+
   /* ── Detail panel (right-edge slide-in, non-modal) ──────────────── */
   .topology-pane {
     position: relative;
@@ -1066,10 +1166,10 @@
     199 of them AWS calls over NAT that could route through a VPC endpoint.
   </h1>
   <div class="provenance">
-    <span>Risk 87</span>
-    <span>Posture · LATENT_EXPOSURE</span>
-    <span>IAM clean · remediated 2026-03-09</span>
-    <span>Source · LB chain + 365d traffic + Internet-dependency tier</span>
+    <span><strong style="color:white;">Risk 87</strong> · WORST</span>
+    <span><span class="conf-dot conf-degraded"></span>Confidence 62% · DEGRADED</span>
+    <span>Posture stale 14d · IAM-counts stale 34d</span>
+    <span>Source · LB chain + 365d traffic + IAM gap + jewel adjacency</span>
   </div>
   <div class="actions">
     <button class="primary">Spotlight this</button>
@@ -1086,7 +1186,7 @@
     <div class="modes">
       <button class="active">Triage</button>
       <button>Estate</button>
-      <span class="source-tag"><span class="live"></span>Live · Neo4j alon-prod · vpc-0329e9…</span>
+      <span class="source-tag"><span class="live"></span>Live · Neo4j alon-prod · vpc-0329e9… · scores via <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal); text-decoration:none;">risk-contract.md</a></span>
     </div>
 
     <div class="aws-cloud">
@@ -1466,11 +1566,98 @@
 
       <!-- Tabs -->
       <div class="panel-tabs">
-        <button class="active">Posture</button>
+        <button class="active">Score <span class="count amber">62%</span></button>
+        <button>Posture</button>
         <button>IAM <span class="count clean">clean</span></button>
         <button>Traffic <span class="count amber">FULL</span></button>
         <button>Remediation <span class="count">2</span></button>
         <button>Related <span class="count">7</span></button>
+      </div>
+
+      <!-- SCORE BREAKDOWN SECTION (new — risk-contract.md) -->
+      <div class="section">
+        <h3>Score breakdown <span style="color:var(--cy-slate); font-weight:400; text-transform:none; letter-spacing:0;">— contract: <code style="font-size:9px;">/api/topology-risk/alon-prod</code></span></h3>
+
+        <div class="kv">
+          <div class="k">Score · tier</div>
+          <div class="v"><strong style="color:var(--cy-carmine);">87</strong> · WORST · rank #1 of 7 scored</div>
+        </div>
+        <div class="kv">
+          <div class="k">Confidence</div>
+          <div class="v">
+            <span class="conf-dot conf-degraded"></span>
+            <strong>62%</strong> · DEGRADED
+            <span class="badge warn">Posture + IAM stale</span>
+          </div>
+        </div>
+        <div class="kv">
+          <div class="k">Computed as</div>
+          <div class="v" style="font-family: ui-monospace, monospace; font-size:10px;">MIN(contributors.freshness) — no signal averaging</div>
+        </div>
+
+        <div class="contributors">
+
+          <div class="contrib">
+            <div class="row1">
+              <span class="signal-name">network_exposure</span>
+              <span class="weight">weight 0.45 · value 1.00</span>
+            </div>
+            <div class="bar"><div class="fill" style="width:45%;"></div></div>
+            <div class="freshness">
+              <span>posture_correlated_at · 14d old</span>
+              <span class="stale">Stale &gt; 7d</span>
+            </div>
+            <div class="auto-resolve">Auto-resolves when posture_correlated_at &lt; 7d.</div>
+          </div>
+
+          <div class="contrib">
+            <div class="row1">
+              <span class="signal-name">internet_dependency</span>
+              <span class="weight">weight 0.25 · value 0.95</span>
+            </div>
+            <div class="bar"><div class="fill" style="width:23.75%;"></div></div>
+            <div class="freshness">
+              <span>posture_correlated_at · 14d old</span>
+              <span class="stale">Stale &gt; 7d</span>
+            </div>
+            <div class="auto-resolve">Auto-resolves when posture_correlated_at &lt; 7d.</div>
+          </div>
+
+          <div class="contrib value-zero">
+            <div class="row1">
+              <span class="signal-name">iam_gap</span>
+              <span class="weight">weight 0.15 · value 0.00</span>
+            </div>
+            <div class="bar"><div class="fill" style="width:1.5%;"></div></div>
+            <div class="freshness">
+              <span>permissions_synced_at · 34d old</span>
+              <span class="stale">Stale &gt; 14d</span>
+            </div>
+            <div class="auto-resolve">
+              Auto-resolves when permissions_synced_at &lt; 14d.
+              Plus 1 data-trust warning (see IAM tab).
+            </div>
+          </div>
+
+          <div class="contrib">
+            <div class="row1">
+              <span class="signal-name">jewel_adjacency</span>
+              <span class="weight">weight 0.15 · value 0.60</span>
+            </div>
+            <div class="bar"><div class="fill" style="width:9%;"></div></div>
+            <div class="freshness">
+              <span>graph topology · 0d</span>
+              <span class="ok">Fresh</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div style="margin-top:10px; font-size:10px; color:var(--cy-slate); line-height:1.5;">
+          Total weighted = 0.45 + 0.2375 + 0.015 + 0.09 = <strong>0.7925 × 100 ≈ 79</strong>.
+          The displayed 87 reflects tier-boundary lift for posture priority 3 (one of two highest-severity verdicts);
+          full math in <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal);">risk-contract.md §3.3</a>.
+        </div>
       </div>
 
       <!-- POSTURE SECTION -->
@@ -1863,6 +2050,30 @@
     derive from a score function that exposes <em>"low confidence — 4 collectors stale"</em>
     inline, not behind a tooltip. Same architectural pattern as <code>view_parity</code> gating
     — silent upstream failures undermine honest downstream surfaces.
+  </p>
+  <p>
+    <strong>Risk-score contract — operationalizes the v0.3 principles (iteration 4).</strong>
+    <a href="../../docs/topology-v0.2-risk-contract.md" style="color:var(--cy-teal);"><code>docs/topology-v0.2-risk-contract.md</code></a>
+    defines the JSON contract for a new bulk endpoint <code>/api/topology-risk/{systemName}</code>. Every
+    risk integer on this mockup — headline, node chips, rail entries, detail-panel banner — derives from
+    that contract once implemented. Confidence is a first-class field, computed as
+    <code>MIN(contributors.freshness)</code> rather than averaged — a rollup is no more trustworthy than
+    its weakest input, and that mirrors how a compliance auditor reasons ("did you verify <em>each</em>
+    input?", not "did you verify <em>most</em> inputs?"). Each contributor carries weight + value +
+    freshness metadata + an <code>auto_resolves_when</code> clause that encodes the transient-state
+    contract from iteration 3. Stale workloads exit the score and the rank entirely — they get a
+    separate halo state, not a zero-baseline that would muddy averages. The Score-breakdown section in
+    the detail panel is the inline UI surface that consumes this — operators see contributor bars +
+    freshness chips + auto-resolve clauses without leaving the panel.
+  </p>
+  <p>
+    <strong>What the contract deliberately doesn't bundle.</strong>
+    Remediation plans, per-action audit, trend/delta, customer-tunable weights, and cross-system rollup
+    are out of scope for the topology-risk endpoint — each has its own owner
+    (<code>/api/remediation/*</code>, <code>OverrideEvent</code> nodes, a future <code>/trend</code>
+    sibling, PolicyPack, and <code>global-org-score</code> respectively). Keeping the contract narrow is
+    a design decision: every surface that consumes a score wants the same shape, but loading remediation
+    history into the same JSON would force the bulk endpoint into N+1 queries it doesn't need to do.
   </p>
   <p>
     <strong>Honesty caveat.</strong>
