@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
+import { derivePrecedenceForDestination } from "@/lib/route-precedence";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -4826,6 +4827,20 @@ export function UnifiedArchitectureDiagram({
               const vuln = nodeVulnerabilities.get(node.id);
               const isInAttackPath = attackPathNodeIds.has(node.id);
               const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
+              // Route-precedence chip — answers the operator's "does
+              // this destination's traffic exit via the public IGW or
+              // the private VPCE?" question without making them
+              // mentally apply AWS most-specific-prefix routing to
+              // the EGRESS GATEWAYS lane inventory. Pure derivation
+              // from architecture.egressGateways (path-scoped on the
+              // backend). Returns null when the lane has no gateway
+              // that could carry this destination's traffic — chip
+              // is omitted rather than fabricated. Anchor:
+              // pattern_render_the_answer_not_the_inventory.
+              const routePrecedence = derivePrecedenceForDestination(
+                node,
+                architecture.egressGateways,
+              );
               // 2026-05-28 — emphasize crown jewels in attacker view.
               // jewelEmphasis is opt-in per consumer (ATTACKER VIEW turns it
               // on; System Map, Per-Path, Exfil leave it off so their
@@ -4859,9 +4874,13 @@ export function UnifiedArchitectureDiagram({
                   key={node.id}
                   data-resource-id={node.id}
                   data-jewel-severity={emphasizeJewel ? jewelSev || "LOW" : undefined}
+                  data-route-precedence-via={
+                    routePrecedence ? (routePrecedence.isPrivate ? "private" : "public") : undefined
+                  }
+                  data-route-precedence-gateway-id={routePrecedence?.gateway.id}
                   className={`relative transition-transform duration-200 ${
                     emphasizeJewel ? 'scale-[1.15] z-20' : ''
-                  }`}
+                  } ${routePrecedence ? 'pb-4' : ''}`}
                   style={emphasizeJewel ? {
                     filter: jewelHaloFilter,
                   } : undefined}
@@ -4897,6 +4916,43 @@ export function UnifiedArchitectureDiagram({
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'resource')}
                   />
+                  {/* Route-precedence chip — bottom-centered below the
+                      destination card. Answers "via VPCE · private" or
+                      "via IGW · public" so the operator doesn't have
+                      to apply AWS most-specific-prefix routing to the
+                      EGRESS GATEWAYS lane inventory in their head.
+                      Color discipline: emerald for private (AWS
+                      backbone), amber for public (internet egress).
+                      Tooltip names the gateway + the route label
+                      (e.g. "com.amazonaws.eu-west-1.s3") so the
+                      derivation is auditable, not magical. */}
+                  {routePrecedence && (
+                    <div
+                      className={`absolute left-1/2 -translate-x-1/2 -bottom-1 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border shadow-md whitespace-nowrap ${
+                        routePrecedence.isPrivate
+                          ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                          : 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                      }`}
+                      title={
+                        `Traffic from in-VPC compute reaches this destination via ${routePrecedence.gateway.kindLabel} ${routePrecedence.gateway.shortName} — ` +
+                        `${routePrecedence.isPrivate ? 'private route over the AWS backbone' : 'public route over the internet'}. ` +
+                        `Route: ${routePrecedence.label}. ` +
+                        `(AWS picks the most specific prefix; this destination matches ${routePrecedence.gateway.kindLabel}'s route.)`
+                      }
+                    >
+                      {routePrecedence.isPrivate ? (
+                        <Lock className="w-2.5 h-2.5" />
+                      ) : (
+                        <Globe className="w-2.5 h-2.5" />
+                      )}
+                      <span className="text-[9px] font-bold tracking-wider uppercase">
+                        via {routePrecedence.gateway.kindLabel}
+                      </span>
+                      <span className="text-[9px] font-semibold opacity-80">
+                        · {routePrecedence.isPrivate ? 'private' : 'public'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}
