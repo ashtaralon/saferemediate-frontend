@@ -45,6 +45,24 @@ interface PathAnalysisPanelProps {
    *  while the header / breadcrumb / closure card stay Per-Path. When
    *  null/undefined, the legacy path-filter mode renders. */
   architecture?: SystemArchitecture | null
+  /** Visual v2 opt-in (?canvas=v2). Adds the caption strip above the
+   *  canvas, the severity halo on the jewel card, and (in later
+   *  passes) lateral dimming + verb chips + palette consolidation.
+   *  Pure visual layer — no data/contract impact. Default false so
+   *  legacy operators see the unchanged canvas. */
+  canvasV2?: boolean
+}
+
+// V2-1 helper: middle-truncate a jewel name for the caption strip.
+// Jewel names are usually friendly already (e.g. "cyntro-demo-prod-
+// data-745783559495") but the trailing 12-digit account ID is
+// noise — keep prefix + suffix readable, truncate the middle. Full
+// name still surfaces on hover via the title attribute.
+function captionTruncate(name: string, maxLen = 36): string {
+  if (!name) return ""
+  if (name.length <= maxLen) return name
+  const half = Math.floor((maxLen - 1) / 2)
+  return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
 }
 
 // Short uppercase label for the decoration chips attached to
@@ -89,6 +107,7 @@ export function PathAnalysisPanel({
   isExpanded = false,
   onToggleExpand,
   architecture,
+  canvasV2 = false,
 }: PathAnalysisPanelProps) {
   // Build the TrafficFlowMap pathFilter shape from the path's nodes
   // and edges. The filter tells the map "show only these nodes; draw
@@ -490,6 +509,43 @@ export function PathAnalysisPanel({
 
       {/* ─── Embedded path-filtered map ────────────────────────── */}
       <div className="border-b border-slate-800/60 bg-slate-950/40">
+        {/* V2-1: Caption strip — one-line story above the canvas.
+            ENTRY: <hop[0]> → via N hops → REACHES: <jewel>.
+            Mirrors the breadcrumb up top but binds visually to the
+            canvas (not the metadata header) so the eye gets a
+            reading direction WITH the diagram, not 200px above it.
+            Behind ?canvas=v2 — legacy operators see no change. */}
+        {canvasV2 && start && target && (
+          <div className="px-6 pt-4 pb-1 flex items-center gap-2 text-[11px]">
+            <span className="text-slate-500 uppercase tracking-wider font-medium shrink-0">
+              Entry
+            </span>
+            <span
+              className="font-mono text-slate-200 truncate max-w-[280px]"
+              title={start.name}
+            >
+              {start.name}
+            </span>
+            <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
+            <span className="text-slate-400 shrink-0">
+              via <span className="font-semibold text-slate-200">{path.hop_count}</span>{" "}
+              {path.hop_count === 1 ? "hop" : "hops"}
+            </span>
+            <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
+            <span className="text-slate-500 uppercase tracking-wider font-medium shrink-0">
+              Reaches
+            </span>
+            <span
+              className="font-mono text-amber-300 truncate"
+              title={jewel?.name ?? target.name}
+            >
+              {captionTruncate(jewel?.name ?? target.name)}
+            </span>
+            {jewel?.name && (
+              <Crown className="h-3 w-3 text-amber-400 shrink-0" />
+            )}
+          </div>
+        )}
         <div className="px-6 pt-4 pb-2 flex items-center justify-between">
           <div className="text-[10px] uppercase tracking-wider text-slate-400">
             FLOW MAP · services on this path

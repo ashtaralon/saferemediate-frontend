@@ -29,6 +29,7 @@
 // =============================================================================
 
 import { useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { PathAnalysisPanel } from "./path-analysis-panel"
@@ -87,6 +88,15 @@ export function AttackPathPanel({
   isExpanded = false,
   onToggleExpand,
 }: AttackPathPanelProps) {
+  // Visual v2 opt-in via ?canvas=v2 URL flag. Pure-visual polish layer
+  // (caption strip, severity halo, ENTRY chip, lateral dimming, verb
+  // chips, palette consolidation) — no data/contract changes. Behind
+  // a flag so operators can compare side-by-side before v2 becomes
+  // the default. See pattern_non_destructive_component_merge.md for
+  // the discipline this scaffolding follows.
+  const searchParams = useSearchParams()
+  const canvasV2 = searchParams?.get("canvas") === "v2"
+
   const fetchUrl = useMemo(() => {
     if (!systemName || !jewelId || !pathId) return null
     return `/api/proxy/attack-path/${encodeURIComponent(systemName)}/${encodeURIComponent(jewelId)}?path_id=${encodeURIComponent(pathId)}`
@@ -210,6 +220,7 @@ export function AttackPathPanel({
       isExpanded={isExpanded}
       onToggleExpand={onToggleExpand}
       architecture={architecture}
+      canvasV2={canvasV2}
     />
   )
 }
