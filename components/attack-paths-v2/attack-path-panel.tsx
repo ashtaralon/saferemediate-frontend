@@ -88,14 +88,26 @@ export function AttackPathPanel({
   isExpanded = false,
   onToggleExpand,
 }: AttackPathPanelProps) {
-  // Visual v2 opt-in via ?canvas=v2 URL flag. Pure-visual polish layer
-  // (caption strip, severity halo, ENTRY chip, lateral dimming, verb
-  // chips, palette consolidation) — no data/contract changes. Behind
-  // a flag so operators can compare side-by-side before v2 becomes
-  // the default. See pattern_non_destructive_component_merge.md for
-  // the discipline this scaffolding follows.
+  // Canvas v2 — visual polish layer (caption strip, severity halo,
+  // ENTRY chip, lateral dimming, verb chips, palette consolidation).
+  // Pure visual — no data/contract changes.
+  //
+  // Promoted to DEFAULT on 2026-05-31 after the 12/12 prod
+  // verification on dpl_7R2Q1N4AKrtUbiAti7vaTGWjwk8H (full check
+  // matrix in sprint_canvas_v2_polish.md). The legacy renderer
+  // stays reachable via ?canvas=v1 — escape hatch for the rollback
+  // window, same shape as the ?mode=path → ?mode=attack-path
+  // legacy-redirect we used for the merge itself
+  // (decision_url_mode_default_implicit_for_merged_tab.md).
+  //
+  // URL convention:
+  //   - No ?canvas=  → v2 (the new default)
+  //   - ?canvas=v2   → v2 (explicit canonical; same behavior, kept
+  //                    so old bookmarks of the opt-in window keep
+  //                    working without redirect)
+  //   - ?canvas=v1   → legacy (rollback escape hatch)
   const searchParams = useSearchParams()
-  const canvasV2 = searchParams?.get("canvas") === "v2"
+  const canvasV2 = searchParams?.get("canvas") !== "v1"
 
   const fetchUrl = useMemo(() => {
     if (!systemName || !jewelId || !pathId) return null
