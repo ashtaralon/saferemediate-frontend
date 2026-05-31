@@ -444,6 +444,19 @@ export interface SystemArchitecture {
     workload_count_queried: number;
     workload_count_in_sample: number;
   } | null;
+  // V2-3 (2026-05-31): set of CanvasEdge.id values that belong to the
+  // on-path chain. Computed at synthesis time from the same path /
+  // lateral distinction the backend already returns (path edges
+  // populated from `path.edges`; lateral edges populated from
+  // `graph.laterals_by_node`). Pure passthrough — no FE inference,
+  // matches the attack-canvas invariant. Optional for back-compat
+  // with consumers that don't compute it (TFM falls back to "treat
+  // all edges as path" when undefined — same as legacy behavior).
+  onPathEdgeIds?: Set<string>;
+  // V2-3: same idea for nodes — the set of ServiceNode/SecurityCheckpoint
+  // ids that are on the chain (vs lateral pivots). Drives lateral
+  // dimming on the node cards. Optional; legacy callers undefined.
+  onPathNodeIds?: Set<string>;
 }
 
 // Attack Path types
@@ -2620,6 +2633,9 @@ function AnimatedTrafficLine({
   planeColor,
   planeGlow,
   edgeData,
+  canvasV2 = false,
+  isOnPath = true,
+  dim = false,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -2631,6 +2647,14 @@ function AnimatedTrafficLine({
   heatmapMode?: boolean;
   heatmapRatio?: number;
   ghosted?: boolean;
+  // V2-3 (2026-05-31): canvas-v2 visual layer flags forwarded from
+  // ConnectionLinesSVG. canvasV2 enables the polish layer; isOnPath
+  // is computed from architecture.onPathEdgeIds; dim is the resolved
+  // "should this edge render at ~30% opacity" boolean. All three are
+  // no-ops when canvasV2 is false (legacy unchanged).
+  canvasV2?: boolean;
+  isOnPath?: boolean;
+  dim?: boolean;
   /** When set (explicit-edges mode), overrides the default
    *  "active=blue / default=slate" color so identity edges read purple,
    *  network edges read teal, and data edges read warm orange. Attack-
@@ -2807,8 +2831,61 @@ function AnimatedTrafficLine({
     );
   }
 
+  // V2-3 (2026-05-31): top-level opacity for the dim layer + DOM data
+  // attributes for empirical verification (DOM-probe pattern). When
+  // canvasV2=false the data attribute defaults to "v1" so spot-checks
+  // can distinguish legacy from V2 render without trusting CSS pixel
+  // diffs.
+  const v2GroupOpacity = dim ? 0.3 : 1
+  // V2-5: 3-treatment palette — dim lateral edges override stroke to
+  // a neutral slate so they don't compete for the eye with on-path
+  // colored edges. On-path edges keep their planeColor.
+  const v2StrokeOverride = dim ? "#64748b" : undefined
+  // V2-4: verb chip mapping for on-path edges (canvasV2 + isOnPath).
+  // 1-3 word labels at edge midpoint so the chain reads like a
+  // sentence. Falls back to a lowercased rel name when no specific
+  // mapping is defined. Lateral edges get NO chip (user's discipline:
+  // chips on the eye's primary read, dim everything else).
+  const verbForRelationship = (rel?: string): string | null => {
+    if (!rel) return null
+    const R = rel.toUpperCase()
+    const map: Record<string, string> = {
+      ASSUMES_ROLE: "assumes",
+      ASSUMES_ROLE_ACTUAL: "assumes",
+      USES_ROLE: "uses",
+      HAS_INSTANCE_PROFILE: "via profile",
+      HAS_POLICY: "has policy",
+      ACCESSES_RESOURCE: "accesses",
+      ACTUAL_S3_ACCESS: "reads",
+      ACTUAL_API_CALL: "calls API",
+      READS_FROM: "reads",
+      WRITES_TO: "writes",
+      RUNTIME_CALLS: "calls",
+      ROUTES_VIA: "via VPCE",
+      IN_VPC: "in VPC",
+      RUNS_IN_VPC: "in VPC",
+      IN_SUBNET: "in subnet",
+      ATTACHED_TO_SG: "uses SG",
+      APPLIES_TO: "applies",
+      USED_IDENTITY: "as",
+      SECURED_BY: "secured by",
+    }
+    if (map[R]) return map[R]
+    // Fallback: lowercase + space-separated, capped at 18 chars
+    const friendly = R.toLowerCase().replace(/_/g, " ")
+    return friendly.length > 18 ? friendly.slice(0, 17) + "…" : friendly
+  }
+  const verbChipLabel =
+    canvasV2 && isOnPath && !dim && edgeData
+      ? verbForRelationship(edgeData.relationship)
+      : null
   return (
-    <g>
+    <g
+      data-canvas-mode={canvasV2 ? "v2" : "v1"}
+      data-edge-onpath={canvasV2 ? (isOnPath ? "true" : "false") : undefined}
+      data-edge-dim={canvasV2 && dim ? "true" : undefined}
+      style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
+    >
       {/* Glow effect for active lines and attack paths.
        *  Uses pathD so curves get glowed along their actual shape.
        *  Locked observed flows (Phase 2 V1 slice 3) skip the glow —
@@ -2849,7 +2926,7 @@ function AnimatedTrafficLine({
       <path
         d={pathD}
         fill="none"
-        stroke={lineColor}
+        stroke={v2StrokeOverride ?? lineColor}
         strokeWidth={heatmapStrokeWidth ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)}
         strokeLinecap="round"
         strokeDasharray={
@@ -2884,6 +2961,61 @@ function AnimatedTrafficLine({
           </title>
         )}
       </path>
+
+      {/* V2-4 (2026-05-31): verb chip at edge midpoint, on-path
+       *  edges only. Reads like a sentence when the operator scans
+       *  left-to-right: "root assumes alon-demo-ec2-role accesses
+       *  cyntro-demo-prod-data". Lateral edges intentionally get no
+       *  chip (user discipline: chips on the eye's primary read).
+       *
+       *  Midpoint math: for curved edges use the cubic Bezier value
+       *  at t=0.5 (B(0.5) = 0.125 P0 + 0.375 P1 + 0.375 P2 + 0.125 P3).
+       *  For straight legacy lines fall back to the simple midpoint.
+       *  Background rect renders behind the text so the chip stays
+       *  readable on top of other lines / canvas chrome. */}
+      {verbChipLabel && (() => {
+        const midX = useCurve
+          ? 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
+          : (x1 + x2) / 2
+        const midY = useCurve
+          ? 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
+          : (y1 + y2) / 2
+        // Approximate text width from char count (no canvas
+        // measurement available in SSR-safe SVG). 6px per char at
+        // font-size 9 is conservative.
+        const labelW = verbChipLabel.length * 6 + 10
+        return (
+          <g
+            data-verb-chip="true"
+            data-verb-chip-text={verbChipLabel}
+            pointerEvents="none"
+          >
+            <rect
+              x={midX - labelW / 2}
+              y={midY - 8}
+              width={labelW}
+              height={14}
+              rx={4}
+              ry={4}
+              fill="#0f172a"
+              stroke="#475569"
+              strokeWidth={0.5}
+              opacity={0.92}
+            />
+            <text
+              x={midX}
+              y={midY + 2}
+              textAnchor="middle"
+              fontSize={9}
+              fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif"
+              fill="#e2e8f0"
+              letterSpacing={0.2}
+            >
+              {verbChipLabel}
+            </text>
+          </g>
+        )
+      })()}
 
       {/* Animated particles - always show when animate is true.
        *  Suppressed for inferred service-plane edges — those are
@@ -3018,6 +3150,8 @@ export function ConnectionLinesSVG({
   attackPathEdges = EMPTY_EDGE_SET as Set<string>,
   heatmapMode = false,
   ghostedNodeIds = EMPTY_NODE_SET as Set<string>,
+  canvasV2 = false,
+  showLaterals = false,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
@@ -3026,6 +3160,13 @@ export function ConnectionLinesSVG({
   attackPathEdges?: Set<string>;
   heatmapMode?: boolean;
   ghostedNodeIds?: Set<string>;
+  // V2-3 (2026-05-31): when canvasV2 is true and showLaterals is
+  // false, edges whose CanvasEdge.id is NOT in architecture.
+  // onPathEdgeIds render at ~30% opacity (path is the hero). When
+  // showLaterals flips true, all edges render at full opacity. When
+  // canvasV2 is false (legacy), both flags are no-ops.
+  canvasV2?: boolean;
+  showLaterals?: boolean;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
@@ -3460,6 +3601,15 @@ export function ConnectionLinesSVG({
           // active/default color resolution.
           const planeColor = line.plane ? PLANE_COLOR[line.plane] : undefined;
           const planeGlow = line.plane ? PLANE_GLOW[line.plane] : undefined;
+          // V2-3: derive on-path-ness from architecture.onPathEdgeIds.
+          // When canvasV2 + !showLaterals + not-on-path → dim.
+          // When canvasV2 is off, isOnPath stays true (no dimming).
+          const isOnPath = !canvasV2
+            ? true
+            : line.edge && architecture.onPathEdgeIds
+              ? architecture.onPathEdgeIds.has(line.edge.id)
+              : true
+          const dim = canvasV2 && !isOnPath && !showLaterals
           return (
             <AnimatedTrafficLine
               key={`line-${i}-${line.sourceId}-${line.targetId}`}
@@ -3479,6 +3629,9 @@ export function ConnectionLinesSVG({
               heatmapMode={heatmapMode}
               heatmapRatio={riskRatio}
               ghosted={isGhosted}
+              canvasV2={canvasV2}
+              isOnPath={isOnPath}
+              dim={dim}
             />
           );
         })}
@@ -3508,6 +3661,8 @@ export function UnifiedArchitectureDiagram({
   onRoleClick,
   jewelEmphasis = false,
   jewelSeverity,
+  canvasV2 = false,
+  showLaterals = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -3551,6 +3706,14 @@ export function UnifiedArchitectureDiagram({
   // orange / amber. See TrafficFlowMap.jewelSeverity for the full
   // rationale. The forward through here is just plumbing.
   jewelSeverity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  // V2-3 (2026-05-31): canvas-v2 visual layer master switch + the
+  // "Show laterals" toggle state. When canvasV2 is true and
+  // showLaterals is false, lateral edges/nodes render at ~30%
+  // opacity (path is hero). When showLaterals is true, laterals
+  // brighten to full opacity. When canvasV2 is false (legacy), both
+  // flags are no-ops. Forward from TrafficFlowMap.
+  canvasV2?: boolean;
+  showLaterals?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -3721,6 +3884,8 @@ export function UnifiedArchitectureDiagram({
           attackPathEdges={attackPathEdges}
           heatmapMode={heatmapMode}
           ghostedNodeIds={ghostedNodeIds}
+          canvasV2={canvasV2}
+          showLaterals={showLaterals}
         />
 
         {/* When the path has no network controls at all — no subnets, no
@@ -5301,6 +5466,7 @@ export default function TrafficFlowMap({
   onRoleClick,
   jewelEmphasis = false,
   jewelSeverity,
+  canvasV2 = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -5363,6 +5529,12 @@ export default function TrafficFlowMap({
   // Pure visual — no behavior change. When undefined or LOW, the
   // existing emerald glow renders (back-compat preserved).
   jewelSeverity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  // V2-3 (2026-05-31): visual v2 master switch. When true, the canvas
+  // applies the lateral-dimming + verb-chips + 3-color palette layer
+  // on top of the existing render. When undefined/false, the canvas
+  // renders identically to its pre-V2 behavior (back-compat). Driven
+  // by the ?canvas=v2 URL flag in PathAnalysisPanel.
+  canvasV2?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -5385,6 +5557,29 @@ export default function TrafficFlowMap({
   // Hook-level errors come from useCachedFetch directly; this one only
   // fires after a valid response with empty payload.
   const [emptyDataError, setEmptyDataError] = useState<string | null>(null);
+
+  // V2-3 (2026-05-31): "Show laterals" toggle for canvas-v2 mode.
+  // Default is FALSE → lateral edges + nodes render dimmed at ~30%
+  // opacity (path is the hero). Toggle to TRUE → laterals at full
+  // opacity (operator pivots to see the lateral story). State
+  // persists in localStorage scoped per-user (not per-chain) so the
+  // operator's preference sticks across navigation.
+  const [showLaterals, setShowLateralsState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false
+    try {
+      return window.localStorage.getItem("cyntro:canvasV2:showLaterals") === "true"
+    } catch {
+      return false
+    }
+  })
+  const setShowLaterals = useCallback((next: boolean) => {
+    setShowLateralsState(next)
+    try {
+      window.localStorage.setItem("cyntro:canvasV2:showLaterals", String(next))
+    } catch {
+      /* private mode / quota */
+    }
+  }, [])
 
   const depMapUrl = useMemo(() => {
     // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
@@ -7172,6 +7367,31 @@ export default function TrafficFlowMap({
             onToggleVPC={() => setShowVPCBoundaries(!showVPCBoundaries)}
           />
 
+          {/* V2-3 (2026-05-31): "Show laterals" toggle. Visible only
+              when canvasV2 is on (the polish layer is opt-in via the
+              ?canvas=v2 flag). Default false → laterals dim at ~30%;
+              true → laterals at full opacity. Persists in localStorage
+              per-user, not per-chain. */}
+          {canvasV2 && (
+            <button
+              onClick={() => setShowLaterals(!showLaterals)}
+              data-canvas-v2-toggle="show-laterals"
+              data-show-laterals={showLaterals ? "true" : "false"}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                showLaterals
+                  ? "bg-amber-500/20 text-amber-300"
+                  : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-slate-300"
+              }`}
+              title={
+                showLaterals
+                  ? "Laterals at full opacity. Click to dim non-path edges/nodes."
+                  : "Laterals dimmed to 30%. Click to surface them at full opacity."
+              }
+            >
+              Laterals: {showLaterals ? "bright" : "dim"}
+            </button>
+          )}
+
           {/* Export */}
           <ExportControls
             containerRef={mapContainerRef as React.RefObject<HTMLDivElement>}
@@ -7232,6 +7452,8 @@ export default function TrafficFlowMap({
             onRoleClick={onRoleClick}
             jewelEmphasis={jewelEmphasis}
             jewelSeverity={jewelSeverity}
+            canvasV2={canvasV2}
+            showLaterals={showLaterals}
             onSelectService={(service, type) => {
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the

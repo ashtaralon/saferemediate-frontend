@@ -1612,6 +1612,20 @@ export function buildAttackerArchitecture(
   // dropped — counted but never invented. Dedupe by canonical key.
   const edgeKeys = new Set<string>()
   const builtEdges: CanvasEdge[] = []
+  // V2-3 (2026-05-31): track which builtEdges belong to the on-path
+  // chain (vs lateral fan-outs). Populated as pushCanvasEdge fires —
+  // the path-edge loop passes isOnPath=true, the lateral loop passes
+  // isOnPath = e.on_path (the backend already tags lateral edges
+  // that coincide with the path). The Set ships in the architecture
+  // return; TFM's canvasV2 layer reads it to dim non-on-path edges.
+  // Pure passthrough — no FE inference; the path/lateral split came
+  // from the backend's distinct response fields.
+  const onPathEdgeIds = new Set<string>()
+  // V2-3: same for nodes — derived from path.nodes verbatim. Used by
+  // the renderer to dim node cards that aren't on the chain.
+  const onPathNodeIds = new Set<string>(
+    (path.nodes ?? []).map((n) => n.id),
+  )
 
   // ── AWS most-specific-route filter on EGRESS GATEWAYS (2026-05-29) ──
   //
@@ -1743,6 +1757,7 @@ export function buildAttackerArchitecture(
     protocol: string | null,
     firstSeen: string | null,
     lastSeen: string | null,
+    isOnPath: boolean = false,
   ) => {
     if (!source || !target) return
     if (!seen.has(source) || !seen.has(target)) return
@@ -1758,8 +1773,14 @@ export function buildAttackerArchitecture(
       if (looksLikeCompute && looksLikeRole) return
     }
     const id = `${source}|${rel}|${target}`
-    if (edgeKeys.has(id)) return
+    if (edgeKeys.has(id)) {
+      // Dedup: if a later caller marks an already-pushed edge as on-
+      // path, honor it (path is the more authoritative signal).
+      if (isOnPath) onPathEdgeIds.add(id)
+      return
+    }
     edgeKeys.add(id)
+    if (isOnPath) onPathEdgeIds.add(id)
     builtEdges.push({
       id,
       source_aws_id: source,
@@ -1801,6 +1822,7 @@ export function buildAttackerArchitecture(
       e.protocol ?? null,
       (e as any).first_seen ?? null,
       (e as any).last_seen ?? null,
+      true, // V2-3: this loop ingests the on-path chain backbone.
     )
   }
 
@@ -1823,6 +1845,10 @@ export function buildAttackerArchitecture(
         e.protocol,
         e.first_seen,
         e.last_seen,
+        // V2-3: the backend's lateral feed already tags edges that
+        // coincide with the on-path chain via `on_path`. Honor it.
+        // Lateral-only edges (the fan-outs) get isOnPath=false.
+        e.on_path ?? false,
       )
     }
   }
@@ -1977,5 +2003,10 @@ export function buildAttackerArchitecture(
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
     totalGaps: 0,
     vpcGroups,
+    // V2-3 (2026-05-31): on-path classification for the canvas v2
+    // dimming layer. Pure passthrough — populated during the path-
+    // edge loop (isOnPath=true) and the lateral loop (e.on_path).
+    onPathEdgeIds,
+    onPathNodeIds,
   }
 }
