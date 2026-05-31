@@ -36,6 +36,7 @@ import { BackToDashboard } from "@/components/back-to-dashboard"
 import { ExecuteActions } from "@/components/iam-shared-roles-execute-actions"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
+import { ReplayVerifyPanel } from "@/components/iam-shared-roles-replay-verify"
 import {
   approveSplitPlan,
   fetchSimulationRun,
@@ -370,6 +371,14 @@ function ChainDeltaPanel({
           jewels_with_drop: 0,
         },
         progress: { evaluated: 0, total: manifest.jewels_total, failed: 0 },
+        // Replay-state defaults — a freshly-started sim has never
+        // been replayed. ReplayVerifyPanel is hidden while status
+        // is RUNNING, so these are only ever read after the first
+        // poll lands on COMPLETED with values from the backend.
+        replay_count: 0,
+        last_replayed_at: null,
+        last_verdict: null,
+        last_replay_id: null,
       })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -488,7 +497,27 @@ function ChainDeltaPanel({
 
         {/* COMPLETED state */}
         {run && run.status === "COMPLETED" && (
-          <ChainDeltaResults run={run} onRerun={startSimulate} />
+          <>
+            <ChainDeltaResults run={run} onRerun={startSimulate} />
+            {/* Phase 4 replay-verify surface — reads the 4 replay-state
+              * fields off the same `run` prop and renders one of 6
+              * resting states (or transient "verifying" mid-POST). On
+              * successful re-verify, refetch the run so the panel
+              * resolves to whatever new resting state the backend
+              * indicates — drift self-heals via PR-A.0's atomic SET. */}
+            <ReplayVerifyPanel
+              run={run}
+              onReverified={async () => {
+                try {
+                  const next = await fetchSimulationRun(run.sim_id)
+                  setRun(next)
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e)
+                  setError(msg)
+                }
+              }}
+            />
+          </>
         )}
       </CardContent>
     </Card>
