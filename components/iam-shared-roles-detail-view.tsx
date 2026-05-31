@@ -22,6 +22,11 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -73,6 +78,19 @@ const EVIDENCE_COLORS: Record<EvidenceState, string> = {
   NONE: "bg-zinc-100 text-zinc-700 border-zinc-300",
   CONFLICTED: "bg-orange-100 text-orange-900 border-orange-300",
   COMPLEX_POLICY: "bg-purple-100 text-purple-900 border-purple-300",
+}
+
+// PR-D-3a (2026-05-31) — plain-English hover-explanation for each
+// evidence-state badge. Operator surfacing the badges in the BEFORE
+// column expanded list (PR-D-3) revealed they weren't self-
+// explanatory — the badge values are internal taxonomy. These
+// strings are the operator-facing translation, descriptive (not
+// accusative; feedback_signal_language).
+const EVIDENCE_STATE_EXPLANATION: Record<EvidenceState, string> = {
+  HIGH: "API calls observed from this consumer, all of which are inside this role's allowed-actions list. Ready to split — Cyntro can propose a scoped role containing only the actions this consumer actually uses.",
+  NONE: "No API calls observed from this consumer during the observation window. Not splittable yet — either the consumer is dormant (→ quarantine candidate) or the window doesn't cover its activity.",
+  CONFLICTED: "API calls observed, but some are for actions outside this role's policy. The consumer is probably using another IAM role too via STS assume-role, so observed actions union across every role the principal has assumed. Cyntro flags this honestly instead of proposing a wrong scope.",
+  COMPLEX_POLICY: "Role's policy has constructs Cyntro can't yet translate safely (conditions, NotAction, NotResource, etc.). Not splittable yet — translation logic needed before proposing a scoped role.",
 }
 
 // Operator-facing translation of machine reason codes.
@@ -1105,13 +1123,43 @@ function BeforeConsumerRow({ consumer }: { consumer: ConsumerEvidence }) {
           {type}
         </div>
       </div>
-      <Badge
-        variant="outline"
-        className={`${EVIDENCE_COLORS[consumer.evidence_state]} text-[10px] font-medium uppercase tracking-wider shrink-0`}
-      >
-        {consumer.evidence_state}
-      </Badge>
+      <EvidenceStateBadge state={consumer.evidence_state} />
     </li>
+  )
+}
+
+// PR-D-3a — Badge + Tooltip overlay so the badge value is no longer
+// dead internal taxonomy. Hover (or focus, for keyboard users) shows
+// the plain-English meaning from EVIDENCE_STATE_EXPLANATION. The
+// Tooltip primitive auto-wraps its own TooltipProvider so no parent
+// provider is needed.
+//
+// Used by BeforeConsumerRow in the BEFORE column's expanded consumer
+// list. Future agents wanting the same hover-explanation on AFTER-
+// column badges should import and reuse this same component.
+
+function EvidenceStateBadge({ state }: { state: EvidenceState }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          tabIndex={0}
+          aria-label={`Evidence state: ${state}. ${EVIDENCE_STATE_EXPLANATION[state]}`}
+          className={`${EVIDENCE_COLORS[state]} text-[10px] font-medium uppercase tracking-wider shrink-0 cursor-help focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none`}
+          data-evidence-badge={state}
+        >
+          {state}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent
+        side="left"
+        sideOffset={6}
+        className="max-w-xs text-xs leading-relaxed"
+      >
+        {EVIDENCE_STATE_EXPLANATION[state]}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
