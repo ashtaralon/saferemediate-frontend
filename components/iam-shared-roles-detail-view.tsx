@@ -32,7 +32,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { BackToDashboard } from "@/components/back-to-dashboard"
 import { ExecuteActions } from "@/components/iam-shared-roles-execute-actions"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
@@ -334,24 +333,34 @@ function BackLink() {
 // ─── Section: PlanHero ─────────────────────────────────────────────
 
 function PlanHero({ plan }: { plan: SplitPlan }) {
+  // PR-D-2 (2026-05-31) compacted for the 360px left rail:
+  //   - Dropped the duplicate BackToDashboard button (BackLink at top of
+  //     page already covers navigation; second back affordance was
+  //     redundant once the rail layout shipped).
+  //   - text-3xl → text-base — long role names like
+  //     "SafeRemediate-Lambda-Remediation-Role" overflow at 360px and
+  //     the bigger text didn't add information.
+  //   - State badge moved below the role name on its own row so it
+  //     always fits, even when the name wraps to 2-3 lines.
+  //   - ARN: text-[11px], monospace, break-all, title-attr for full
+  //     value on hover. Identity stays accessible without dominating.
   return (
-    <header className="space-y-2">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-start gap-3 min-w-0">
-          <BackToDashboard
-            href="/iam/shared-roles"
-            ariaLabel="Back to shared roles"
-            className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-1 shrink-0"
-          />
-          <h1 className="text-3xl font-bold tracking-tight min-w-0 break-words">
-            {plan.shared_role.role_name}
-          </h1>
-        </div>
-        <Badge variant="outline" className={`${STATE_COLORS[plan.state]} text-sm shrink-0`}>
+    <header className="space-y-1.5" data-rail-block="plan-hero">
+      <h1 className="text-base font-semibold tracking-tight break-words leading-snug">
+        {plan.shared_role.role_name}
+      </h1>
+      <div>
+        <Badge
+          variant="outline"
+          className={`${STATE_COLORS[plan.state]} text-[10px] font-medium uppercase tracking-wider`}
+        >
           {plan.state}
         </Badge>
       </div>
-      <p className="text-sm text-zinc-700 dark:text-zinc-400 font-mono break-all">
+      <p
+        className="text-[11px] text-zinc-600 dark:text-zinc-400 font-mono break-all leading-tight"
+        title={plan.shared_role.role_arn}
+      >
         {plan.shared_role.role_arn}
       </p>
     </header>
@@ -401,27 +410,45 @@ function BlastRadiusHero({ plan }: { plan: SplitPlan }) {
       </span>,
     )
 
+  // PR-D-2 (2026-05-31) — restructured as a vertical KPI block for the
+  // 360px left rail. Previously a horizontal split (big number left,
+  // ratio + blocker breakdown right) that wrapped awkwardly at constrained
+  // widths and lost visual hierarchy. New shape:
+  //
+  //   [ Headline metric: NN% blast-radius reduction per Lambda when split ]
+  //   ────────────────────────────────────────────────────────────────
+  //   Ratio chip:   "2 of 18 ready"          (large, tabular-nums)
+  //   Blockers:     awaiting · conflicting · complex-policy
+  //                 (or "All consumers eligible")
+  //
+  // Same data, same source of truth — just stacked.
   return (
-    <Card className="border-l-4 border-l-emerald-600">
-      <CardContent className="py-5 flex items-center justify-between gap-6 flex-wrap">
-        <div className="flex items-baseline gap-4">
-          <div className="text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+    <Card className="border-l-4 border-l-emerald-600" data-rail-block="blast-radius">
+      <CardContent className="py-4 space-y-3">
+        {/* Headline KPI */}
+        <div className="flex items-baseline gap-2.5">
+          <div className="text-4xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none">
             {hasReady ? `${Math.round(avg)}%` : "—"}
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-              Blast-radius reduction
-            </span>
-            <span className="text-xs text-zinc-700 dark:text-zinc-400">
-              per Lambda when split
+          <div className="flex flex-col min-w-0">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 leading-tight">
+              Blast-radius
+              <br />reduction
             </span>
           </div>
         </div>
-        <div className="flex flex-col text-sm text-right">
-          <span className="text-zinc-900 dark:text-zinc-100 font-medium">
-            <strong className="tabular-nums">{ratio}</strong> ready to split
-          </span>
-          <span className="text-xs text-zinc-700 dark:text-zinc-400">
+        <p className="text-[11px] text-zinc-600 dark:text-zinc-400 -mt-1">
+          per Lambda when split
+        </p>
+        {/* Ratio + blocker breakdown */}
+        <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
+          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <strong className="tabular-nums">{ratio}</strong>{" "}
+            <span className="text-zinc-600 dark:text-zinc-400 font-normal">
+              ready to split
+            </span>
+          </div>
+          <div className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-snug">
             {allBlockerCounts === 0 ? (
               <>All consumers eligible</>
             ) : (
@@ -432,7 +459,7 @@ function BlastRadiusHero({ plan }: { plan: SplitPlan }) {
                 </span>
               ))
             )}
-          </span>
+          </div>
         </div>
       </CardContent>
     </Card>
