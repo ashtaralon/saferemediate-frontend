@@ -4001,8 +4001,13 @@ export function UnifiedArchitectureDiagram({
 
           {/* COMPUTE column.
               Workloads only — EC2/Lambda/ECS. Principals moved to the
-              dedicated ENTRY lane above 2026-05-25. */}
-          <div className="flex flex-col gap-3">
+              dedicated ENTRY lane above 2026-05-25.
+              data-vpc-scoped-column anchors the VPC boundary's lane-based
+              math (vpc-boundaries.tsx) — replaces the previous DOM-bounding-
+              box-of-cards primitive that recurrently engulfed IAM/S3 cards
+              when SG card heights grew. See pattern_recurring_cosmetic_fix_
+              signals_wrong_primitive. */}
+          <div className="flex flex-col gap-3" data-vpc-scoped-column="true" data-lane="compute">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-400" />
               Compute ({architecture.computeServices.length})
@@ -4133,7 +4138,7 @@ export function UnifiedArchitectureDiagram({
                 ROUTE TABLES lane (next column) — the user wants it
                 as a separated service in the flow, not nested
                 inside the subnet card. */}
-          <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets">
+          <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets" data-vpc-scoped-column="true" data-lane="subnets">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Globe className="w-4 h-4 text-cyan-400" />
               Subnets ({architecture.subnets?.length ?? 0})
@@ -4195,7 +4200,7 @@ export function UnifiedArchitectureDiagram({
               route count + main-flag. The card carries data-rtb-id
               so future flow routing can zigzag through it. */}
           {(architecture.subnets ?? []).some(s => s.routeTableId) && (
-            <div className="flex flex-col gap-3 min-w-[160px]">
+            <div className="flex flex-col gap-3 min-w-[160px]" data-vpc-scoped-column="true" data-lane="route-tables">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                 <ArrowRight className="w-4 h-4 text-slate-300" />
                 Route Tables ({(architecture.subnets ?? []).filter(s => s.routeTableId).length})
@@ -4230,7 +4235,7 @@ export function UnifiedArchitectureDiagram({
           )}
 
           {/* SECURITY GROUPS */}
-          <div className="flex flex-col gap-3 min-w-[180px]">
+          <div className="flex flex-col gap-3 min-w-[180px]" data-vpc-scoped-column="true" data-lane="security-groups">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Shield className="w-4 h-4 text-orange-400" />
               Security Groups ({architecture.securityGroups.length})
@@ -4265,7 +4270,7 @@ export function UnifiedArchitectureDiagram({
               empty (SGs, IGW) still render their placeholders because
               their absence is itself a meaningful security signal. */}
           {architecture.nacls.length > 0 && (
-            <div className="flex flex-col gap-3 min-w-[140px]">
+            <div className="flex flex-col gap-3 min-w-[140px]" data-vpc-scoped-column="true" data-lane="nacls">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Lock className="w-4 h-4 text-cyan-400" />
                 NACLs ({architecture.nacls.length})
@@ -4308,7 +4313,7 @@ export function UnifiedArchitectureDiagram({
               The two planes converge at the S3 bucket from different
               sides instead of overlapping. */}
           {architecture.egressGateways.length > 0 && (
-            <div className="flex flex-col gap-3 items-center">
+            <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="egress-gateways">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Globe className="w-4 h-4 text-amber-400" />
                 Egress Gateways ({architecture.egressGateways.length})
@@ -4382,11 +4387,23 @@ export function UnifiedArchitectureDiagram({
               Rendering both card stacks inside one column with the
               IP above the Role visually conveys the bind. The IP
               counts and Role counts are still surfaced separately
-              in the header so the chain's hop count stays honest. */}
-          <div className="flex flex-col gap-3 items-center">
+              in the header so the chain's hop count stays honest.
+              data-lane-global signals to the VPC boundary renderer that
+              this column lives OUTSIDE any VPC enclosure — IAM is a
+              regional/global service, not VPC-scoped. The GLOBAL chip
+              in the header makes the semantic explicit so operators
+              don't read the VPC boundary's absence around this column
+              as a bug. */}
+          <div className="flex flex-col gap-3 items-center" data-lane-global="true" data-lane="identity">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Key className="w-4 h-4 text-pink-400" />
               Identity
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-700/60 text-slate-300 border border-slate-600/60"
+                title="IAM is a regional/global service. IAM Roles, Instance Profiles, and Policies are not VPC-scoped and therefore sit outside any VPC enclosure on this canvas."
+              >
+                Global
+              </span>
               {(architecture.instanceProfiles?.length ?? 0) > 0 && (
                 <span className="text-amber-300/80">
                   IP {architecture.instanceProfiles?.length ?? 0}
@@ -4611,7 +4628,7 @@ export function UnifiedArchitectureDiagram({
               state renders a faint "No VPC endpoints" so the lane
               still occupies grid space when none apply to the path. */}
           {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
-          <div className="flex flex-col gap-3 items-center">
+          <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="vpc-endpoints">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Cloud className="w-4 h-4 text-violet-400" />
               VPC Endpoints ({architecture.vpcEndpoints.length})
@@ -4720,11 +4737,21 @@ export function UnifiedArchitectureDiagram({
             </div>
           )}
 
-          {/* RESOURCES */}
-          <div className="flex flex-col gap-3">
+          {/* RESOURCES.
+              data-lane-global: S3, DynamoDB, KMS — all regional services,
+              not VPC-scoped. The GLOBAL chip makes the semantic explicit
+              so the VPC boundary's exclusion of this column reads as
+              correct AWS semantics, not a missing-data bug. */}
+          <div className="flex flex-col gap-3" data-lane-global="true" data-lane="resources">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Database className="w-4 h-4 text-purple-400" />
               Resources ({architecture.resources.length})
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-700/60 text-slate-300 border border-slate-600/60"
+                title="S3, DynamoDB, KMS and other AWS data services are regional, not VPC-scoped. They sit outside any VPC enclosure on this canvas — traffic from inside a VPC reaches them via the VPC Endpoint or NAT/IGW gateway shown to the left."
+              >
+                Global
+              </span>
             </div>
             {architecture.resources.map(node => {
               const vuln = nodeVulnerabilities.get(node.id);
