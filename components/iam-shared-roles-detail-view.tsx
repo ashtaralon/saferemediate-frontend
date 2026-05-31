@@ -937,24 +937,13 @@ function BeforeAfterCanvas({ plan }: { plan: SplitPlan }) {
               )}
             </ul>
           </div>
-          <div className="pt-2 border-t">
-            <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-              Attached to
-            </div>
-            <div className="text-base mt-0.5">
-              <strong className="tabular-nums">{consumerCount}</strong> consumer
-              {consumerCount === 1 ? "" : "s"}
-              <span className="text-zinc-700 dark:text-zinc-400">
-                {" "}
-                in {systemLine}
-              </span>
-            </div>
-            <div className="text-xs text-zinc-700 dark:text-zinc-400 mt-1">
-              Every consumer inherits the same {allowedCount} permission
-              {allowedCount === 1 ? "" : "s"} — there's no per-consumer
-              scoping today.
-            </div>
-          </div>
+          <BeforeAttachedToBlock
+            consumerCount={consumerCount}
+            systemLine={systemLine}
+            allowedCount={allowedCount}
+            eligibleGroups={eligible}
+            blockedConsumers={blocked}
+          />
         </CardContent>
       </Card>
 
@@ -997,6 +986,132 @@ function BeforeAfterCanvas({ plan }: { plan: SplitPlan }) {
         </Card>
       </div>
     </div>
+  )
+}
+
+// ─── Sub-section: BeforeAttachedToBlock ────────────────────────────
+//
+// PR-D-3 (2026-05-31) — the BEFORE column previously showed only the
+// count of attached consumers ("18 consumers in alon-prod") as dead
+// text. Now wraps the same headline in a <details> disclosure so the
+// operator can expand to see the actual list — name + type + evidence
+// state per consumer. Pulls from the same data the AFTER column
+// already uses (eligible_groups + blocked_consumers), so the BEFORE
+// view is honest by construction (every consumer accounted for, no
+// hidden buckets).
+//
+// Uses native <details>/<summary> rather than a controlled accordion:
+//   - No state plumbing needed (works during SSR + after hydration)
+//   - Keyboard-accessible out of the box
+//   - The "open" state survives in-page interactions (e.g. tab swaps)
+//
+// Default-closed keeps the BEFORE column compact at first paint —
+// operator opts in to the detail when needed. Addresses the original
+// "BEFORE column dies short while AFTER scrolls long" complaint by
+// giving BEFORE the same information density on demand, without
+// forcing it on first paint.
+
+function BeforeAttachedToBlock({
+  consumerCount,
+  systemLine,
+  allowedCount,
+  eligibleGroups,
+  blockedConsumers,
+}: {
+  consumerCount: number
+  systemLine: string
+  allowedCount: number
+  eligibleGroups: SplitPlanGroup[]
+  blockedConsumers: ConsumerEvidence[]
+}) {
+  // Flatten every consumer reachable through the plan. This is the
+  // ground truth of what's attached today — same source the AFTER
+  // column slices into proposed groups + awaiting/conflicting/complex
+  // buckets. By unioning here, BEFORE shows the SAME 18 consumers in
+  // a single flat list (the pre-split view).
+  const allConsumers: ConsumerEvidence[] = [
+    ...eligibleGroups.flatMap((g) => g.consumers),
+    ...blockedConsumers,
+  ]
+  // Stable sort by consumer_name for predictable rendering across
+  // refresh cycles — backend ordering isn't guaranteed.
+  allConsumers.sort((a, b) =>
+    (a.consumer_name ?? a.consumer_id).localeCompare(
+      b.consumer_name ?? b.consumer_id,
+    ),
+  )
+
+  return (
+    <div className="pt-2 border-t" data-before-block="attached-to">
+      <details className="group">
+        <summary className="flex items-start gap-1.5 cursor-pointer list-none -ml-0.5 select-none">
+          <ChevronRight className="h-4 w-4 mt-0.5 shrink-0 text-zinc-500 transition-transform group-open:rotate-90" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+              Attached to
+            </div>
+            <div className="text-base mt-0.5">
+              <strong className="tabular-nums">{consumerCount}</strong>{" "}
+              consumer{consumerCount === 1 ? "" : "s"}
+              <span className="text-zinc-700 dark:text-zinc-400">
+                {" "}
+                in {systemLine}
+              </span>
+            </div>
+            <div className="text-xs text-zinc-700 dark:text-zinc-400 mt-1 group-open:hidden">
+              Every consumer inherits the same {allowedCount} permission
+              {allowedCount === 1 ? "" : "s"} — there&apos;s no per-consumer
+              scoping today.
+            </div>
+            <div className="hidden group-open:block text-[11px] text-zinc-500 dark:text-zinc-500 mt-1 italic">
+              Click a row&apos;s evidence badge in the After column to see
+              what Cyntro proposes for that consumer.
+            </div>
+          </div>
+        </summary>
+        <ul
+          className="mt-2 space-y-1.5 pl-5"
+          data-before-block="consumer-list"
+        >
+          {allConsumers.map((c) => (
+            <BeforeConsumerRow key={c.consumer_id} consumer={c} />
+          ))}
+        </ul>
+      </details>
+    </div>
+  )
+}
+
+// Distinct from the existing ConsumerRow further down in this file —
+// that one renders the rich card variant for the AFTER column's
+// awaiting / conflicting / complex-policy buckets. This row is the
+// compact list-item variant for the BEFORE column's expanded
+// consumer list.
+
+function BeforeConsumerRow({ consumer }: { consumer: ConsumerEvidence }) {
+  const name = consumer.consumer_name ?? consumer.consumer_id
+  const type = consumer.consumer_type ?? "Consumer"
+  return (
+    <li
+      className="flex items-center justify-between gap-2 py-1 border-b border-zinc-100 dark:border-zinc-800 last:border-b-0"
+      data-consumer-id={consumer.consumer_id}
+      data-evidence-state={consumer.evidence_state}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate" title={name}>
+          {name}
+        </div>
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
+          {type}
+        </div>
+      </div>
+      <Badge
+        variant="outline"
+        className={`${EVIDENCE_COLORS[consumer.evidence_state]} text-[10px] font-medium uppercase tracking-wider shrink-0`}
+      >
+        {consumer.evidence_state}
+      </Badge>
+    </li>
   )
 }
 
