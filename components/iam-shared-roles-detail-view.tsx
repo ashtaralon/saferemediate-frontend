@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   ArrowRight,
@@ -150,26 +150,169 @@ export default function IAMSharedRolesDetailView({ planId }: Props) {
     )
   }
 
+  return <DetailShell plan={plan} reload={reload} />
+}
+
+// ─── Shell: two-pane operator layout ───────────────────────────────
+//
+// PR-D-1 (2026-05-31) — restructures the 13-section vertical stack
+// into a sticky-left-rail (identity + status + primary actions) +
+// tabbed-right-pane (working content) layout.
+//
+// PR-D-1 is layout-only: existing section components render verbatim,
+// no behavior changes inside any of them. The complaint this fixes is
+// (a) ~50% empty horizontal space inside max-w-6xl, and (b) deep
+// vertical drilling to reach Approve/Execute/Rollback (~6 viewport
+// heights from PlanHero).
+//
+// URL state via ?tab= matches Cyntro's existing convention
+// (?canvas=v2, ?mode=attack-path). Deep-linkable, default-implicit.
+// Sister to decision_url_mode_default_implicit_for_merged_tab.
+
+type DetailTab = "comparison" | "reasoning" | "audit" | "engineering"
+
+const DETAIL_TABS: ReadonlyArray<{ id: DetailTab; label: string }> = [
+  { id: "comparison", label: "Comparison" },
+  { id: "reasoning", label: "Plan reasoning" },
+  { id: "audit", label: "Audit" },
+  { id: "engineering", label: "Engineering" },
+]
+
+function DetailShell({
+  plan,
+  reload,
+}: {
+  plan: SplitPlan
+  reload: () => void
+}) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const rawTab = searchParams?.get("tab") ?? "comparison"
+  const activeTab: DetailTab = DETAIL_TABS.some((t) => t.id === rawTab)
+    ? (rawTab as DetailTab)
+    : "comparison"
+
+  const setTab = useCallback(
+    (next: DetailTab) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? "")
+      if (next === "comparison") {
+        // Default-implicit: drop the param for the default tab so the
+        // URL stays clean. Explicit-canonical only for non-default
+        // tabs. Matches the V2-promote convention.
+        params.delete("tab")
+      } else {
+        params.set("tab", next)
+      }
+      const qs = params.toString()
+      router.replace(qs ? `?${qs}` : "?", { scroll: false })
+    },
+    [router, searchParams]
+  )
+
   return (
-    <div className="p-6 space-y-5 max-w-6xl">
+    <div className="p-6 mx-auto max-w-[1600px]">
       <BackLink />
-      <PlanHero plan={plan} />
-      <BlastRadiusHero plan={plan} />
-      <ChainDeltaPanel planId={plan.plan_id} planState={plan.state} />
-      <BeforeAfterCanvas plan={plan} />
-      <WhyItMatters plan={plan} />
-      <WhatCyntroWillDo />
-      <WhereThisStands plan={plan} />
-      <GateReadinessPanel planId={plan.plan_id} planState={plan.state} mode="CREATE_ONLY" />
-      <ApprovalAction plan={plan} onApproved={reload} />
-      <ExecuteActions
-        planId={plan.plan_id}
-        planState={plan.state}
-        planExpired={plan.expired ?? false}
-        onReload={reload}
-      />
-      <ExecutionHistory planId={plan.plan_id} planState={plan.state} />
-      <EngineeringDetails plan={plan} />
+      <div className="mt-4 flex flex-col lg:flex-row gap-6 items-start">
+        {/* ─── LEFT RAIL — sticky, 360px, identity + status + actions ─── */}
+        <aside
+          className="w-full lg:w-[360px] lg:shrink-0 lg:sticky lg:top-6 self-start space-y-4"
+          data-detail-rail="left"
+        >
+          <PlanHero plan={plan} />
+          <BlastRadiusHero plan={plan} />
+          <GateReadinessPanel
+            planId={plan.plan_id}
+            planState={plan.state}
+            mode="CREATE_ONLY"
+          />
+          <ApprovalAction plan={plan} onApproved={reload} />
+          <ExecuteActions
+            planId={plan.plan_id}
+            planState={plan.state}
+            planExpired={plan.expired ?? false}
+            onReload={reload}
+          />
+        </aside>
+
+        {/* ─── RIGHT PANE — tabbed working content ─── */}
+        <main
+          className="flex-1 min-w-0 w-full space-y-5"
+          data-detail-rail="right"
+        >
+          <DetailTabBar activeTab={activeTab} onTabChange={setTab} />
+          {activeTab === "comparison" && (
+            <>
+              <ChainDeltaPanel
+                planId={plan.plan_id}
+                planState={plan.state}
+              />
+              <BeforeAfterCanvas plan={plan} />
+            </>
+          )}
+          {activeTab === "reasoning" && (
+            <div className="space-y-5">
+              <WhyItMatters plan={plan} />
+              <WhatCyntroWillDo />
+              <WhereThisStands plan={plan} />
+            </div>
+          )}
+          {activeTab === "audit" && (
+            <ExecutionHistory
+              planId={plan.plan_id}
+              planState={plan.state}
+            />
+          )}
+          {activeTab === "engineering" && (
+            <EngineeringDetails plan={plan} />
+          )}
+        </main>
+      </div>
+    </div>
+  )
+}
+
+// ─── TabBar — in-house, URL-state-driven, no Radix dependency ──────
+//
+// Cyntro has no Tabs primitive in components/ui/ and no Radix Tabs
+// dependency. This is a small in-house implementation matching the
+// existing button styling. If a second consumer surfaces, lift to a
+// shared primitive at that point — not before (premature abstraction).
+
+function DetailTabBar({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: DetailTab
+  onTabChange: (next: DetailTab) => void
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Plan detail sections"
+      className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800"
+      data-detail-tabs
+    >
+      {DETAIL_TABS.map((tab) => {
+        const selected = tab.id === activeTab
+        return (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={selected}
+            data-tab-id={tab.id}
+            data-tab-selected={selected}
+            onClick={() => onTabChange(tab.id)}
+            className={
+              "px-3 py-2 text-sm border-b-2 -mb-px transition-colors " +
+              (selected
+                ? "border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100 font-medium"
+                : "border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100")
+            }
+          >
+            {tab.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
