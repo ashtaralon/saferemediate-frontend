@@ -37,6 +37,9 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { PathListGrouped } from "./path-list-grouped"
+import { ExfilPathListColumn } from "./exfil-path-list-column"
+import type { ExfilPayload } from "./exfil-view-v3"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { AttackPathPanel } from "./attack-path-panel"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
@@ -71,6 +74,10 @@ export function AttackPathsV2() {
   const systemName = searchParams?.get("system") ?? null
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
+  // Exfil tab uses its own per-path selection (orthogonal to attack-path
+  // selection). 2026-05-31: lifted from inside ExfilViewV3 so the center
+  // column can render the path list mirroring PathListGrouped.
+  const selectedExfilPathId = searchParams?.get("exfil_path") ?? null
   const expandMode = searchParams?.get("expand") ?? null
   // Canvas-expand toggle: hides columns 1+2 so the right-column view
   // (any mode) gets the full screen. Was originally gated to per-path
@@ -261,6 +268,52 @@ export function AttackPathsV2() {
     return narrowActivePaths(allPaths, (p) => p.crown_jewel_id === selectedJewelId)
   }, [selectedJewelId, allPaths])
 
+  // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
+  // Lives at this level so the center column (ExfilPathListColumn) and
+  // the canvas (ExfilViewV3 — Commit 2 will read this same data via a
+  // prop) read from one source. Today (Commit 1 — non-destructive add)
+  // ExfilViewV3 still fetches independently from inside; the dual-fetch
+  // is intentional and short-lived. Both reads return the same payload
+  // from the same proxy.
+  //
+  // Gated on viewMode === "exfil" + a jewel id: every other mode skips
+  // the fetch (network savings — exfil costs include the ATLAS chain
+  // enrichment, ~200-400ms).
+  const exfilEnabled = viewMode === "exfil" && !!systemName && !!selectedJewelId
+  const exfilRequestBody = useMemo(
+    () =>
+      JSON.stringify({
+        system_name: systemName ?? "",
+        jewel_id: selectedJewelId ?? "",
+        include_capable: true,
+        include_observed: true,
+        max_destinations: 50,
+        include_atlas: true,
+        atlas_max_hops: 6,
+      }),
+    [systemName, selectedJewelId],
+  )
+  const exfilFetchInit = useMemo<RequestInit>(
+    () => ({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: exfilRequestBody,
+    }),
+    [exfilRequestBody],
+  )
+  const {
+    data: exfilData,
+    loading: exfilLoading,
+  } = useRetryFetch<ExfilPayload>(
+    exfilEnabled ? "/api/proxy/attack-chain/exfil-paths" : null,
+    {
+      fetchInit: exfilFetchInit,
+      refetchKey: `exfil:${systemName}:${selectedJewelId ?? ""}`,
+      maxRetries: 2,
+      initialDelayMs: 1000,
+    },
+  )
+
   // The selected path object, if any. We tolerate selectedPathId
   // pointing at a path that doesn't exist (e.g. operator deep-linked
   // an old path id that's since been removed) — UI shows "path not
@@ -312,7 +365,7 @@ export function AttackPathsV2() {
 
   // Selection helpers — write to URL so deep links work and the
   // browser back button restores state.
-  const setUrl = (next: { jewel?: string | null; path?: string | null; expand?: string | null; mode?: string | null }) => {
+  const setUrl = (next: { jewel?: string | null; path?: string | null; exfilPath?: string | null; expand?: string | null; mode?: string | null }) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "")
     if (next.jewel !== undefined) {
       if (next.jewel === null) params.delete("jewel")
@@ -321,6 +374,10 @@ export function AttackPathsV2() {
     if (next.path !== undefined) {
       if (next.path === null) params.delete("path")
       else params.set("path", next.path)
+    }
+    if (next.exfilPath !== undefined) {
+      if (next.exfilPath === null) params.delete("exfil_path")
+      else params.set("exfil_path", next.exfilPath)
     }
     if (next.expand !== undefined) {
       if (next.expand === null) params.delete("expand")
@@ -361,11 +418,16 @@ export function AttackPathsV2() {
   const handleSelectJewel = (jewelId: string) => {
     // Selecting a new jewel resets the path selection — different
     // jewel = different path set, so an old path id wouldn't match.
-    setUrl({ jewel: jewelId, path: null })
+    // Also clears exfil_path: exfil path ids are also per-jewel.
+    setUrl({ jewel: jewelId, path: null, exfilPath: null })
   }
 
   const handleSelectPath = (pathId: string) => {
     setUrl({ path: pathId })
+  }
+
+  const handleSelectExfilPath = (pathId: string) => {
+    setUrl({ exfilPath: pathId })
   }
 
   // ─── No-system-selected guard ──────────────────────────────────
@@ -509,6 +571,17 @@ export function AttackPathsV2() {
           <EmptyState
             title="Select a crown jewel"
             subtitle="Pick an asset on the left to see every path that reaches it."
+          />
+        ) : viewMode === "exfil" ? (
+          // Exfil tab: channel-grouped exfil-path rail. Mirrors
+          // PathListGrouped's role for the attack-path tab — same
+          // mental model, same column slot. 2026-05-31.
+          <ExfilPathListColumn
+            paths={exfilData?.paths ?? []}
+            selectedPathId={selectedExfilPathId}
+            onSelectPath={handleSelectExfilPath}
+            jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
+            loading={exfilLoading}
           />
         ) : (
           <PathListGrouped

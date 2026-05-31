@@ -315,7 +315,7 @@ export interface RemediationPayload {
   data_access: RemediationDataAccess
 }
 
-interface ExfilPath {
+export interface ExfilPath {
   path_id: string
   accessor_id: string
   accessor_name: string
@@ -374,7 +374,7 @@ interface ExfilDestination {
   provenance: "capable" | "observed"
 }
 
-interface ExfilPayload {
+export interface ExfilPayload {
   ok: boolean
   error?: string
   system_name?: string
@@ -1754,7 +1754,7 @@ function PathSelector({
   )
 }
 
-function compactNumber(n: number): string {
+export function compactNumber(n: number): string {
   if (!isFinite(n) || n < 1) return "0"
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`
@@ -2509,7 +2509,7 @@ function shortName(name: string, maxLen = 22): string {
 // render boundary in case a payload slips through (stale cache,
 // alternative endpoint, etc.).
 const _SHA256_RE = /^[a-f0-9]{64}$/i
-function friendlyAccessorName(name: string | null | undefined): string {
+export function friendlyAccessorName(name: string | null | undefined): string {
   if (!name) return ""
   if (_SHA256_RE.test(name)) return "Anonymous principal"
   return name
