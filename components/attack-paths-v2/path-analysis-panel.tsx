@@ -590,6 +590,7 @@ export function PathAnalysisPanel({
               jewelEmphasis={canvasV2}
               jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
               canvasV2={canvasV2}
+              entryNodeId={canvasV2 ? start?.id : undefined}
             />
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven

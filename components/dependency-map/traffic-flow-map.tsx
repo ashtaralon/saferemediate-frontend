@@ -2858,6 +2858,7 @@ function AnimatedTrafficLine({
       ACCESSES_RESOURCE: "accesses",
       ACTUAL_S3_ACCESS: "reads",
       ACTUAL_API_CALL: "calls API",
+      ACTUAL_TRAFFIC: "sends traffic to",
       READS_FROM: "reads",
       WRITES_TO: "writes",
       RUNTIME_CALLS: "calls",
@@ -2867,7 +2868,12 @@ function AnimatedTrafficLine({
       IN_SUBNET: "in subnet",
       ATTACHED_TO_SG: "uses SG",
       APPLIES_TO: "applies",
-      USED_IDENTITY: "as",
+      // V2-4.1: USED_IDENTITY semantically describes the API call's
+      // authenticated identity (CloudTrail "the call was made AS this
+      // role"). "assumes" reads more naturally in the chain sentence
+      // than the previous "as" — operators parse "X assumes Y" as the
+      // pivot, not "X as Y" which reads like a label.
+      USED_IDENTITY: "assumes",
       SECURED_BY: "secured by",
     }
     if (map[R]) return map[R]
@@ -3663,6 +3669,7 @@ export function UnifiedArchitectureDiagram({
   jewelSeverity,
   canvasV2 = false,
   showLaterals = false,
+  entryNodeId,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -3714,6 +3721,12 @@ export function UnifiedArchitectureDiagram({
   // flags are no-ops. Forward from TrafficFlowMap.
   canvasV2?: boolean;
   showLaterals?: boolean;
+  // V2-2b (2026-05-31): the id of the chain's hop[0] node — the
+  // attacker's entry point. When canvasV2 is on AND a card with
+  // matching id renders, an "ENTRY POINT" chip overlays the top-
+  // right corner so the eye lands on the start of the story before
+  // following edges to the jewel. Undefined → no overlay.
+  entryNodeId?: string;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -3947,15 +3960,29 @@ export function UnifiedArchitectureDiagram({
                 </div>
                 {entries.map((node) => {
                   const isInAttackPath = attackPathNodeIds.has(node.id);
+                  const isChainEntry = canvasV2 && entryNodeId && node.id === entryNodeId
                   return (
                     <div
                       key={`entry:${node.id}`}
                       data-entry-id={node.id}
                       data-compute-id={node.id}
+                      data-chain-entry={isChainEntry ? "true" : undefined}
                       className="relative mb-3"
                     >
                       {isInAttackPath && (
                         <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-cyan-400/50" />
+                      )}
+                      {/* V2-2b: ENTRY POINT chip on hop[0]. Pinned to the
+                          top-right corner so it doesn't fight the crown-jewel
+                          marker (which lives top-left of the resource card).
+                          Only renders when canvasV2 is on AND this node matches
+                          the chain's hop[0] id passed via entryNodeId. */}
+                      {isChainEntry && (
+                        <div className="absolute -top-2 -right-2 z-10 pointer-events-none">
+                          <div className="px-1.5 py-0.5 rounded bg-cyan-500/90 text-cyan-950 text-[8px] font-bold uppercase tracking-wider shadow-md ring-1 ring-cyan-300/60">
+                            Entry
+                          </div>
+                        </div>
                       )}
                       <ServiceNodeBox
                         node={node}
@@ -3983,8 +4010,14 @@ export function UnifiedArchitectureDiagram({
             {architecture.computeServices.map(node => {
               const vuln = nodeVulnerabilities.get(node.id);
               const isInAttackPath = attackPathNodeIds.has(node.id);
+              const isChainEntry = canvasV2 && entryNodeId && node.id === entryNodeId
               return (
-                <div key={node.id} data-compute-id={node.id} className="relative">
+                <div
+                  key={node.id}
+                  data-compute-id={node.id}
+                  data-chain-entry={isChainEntry ? "true" : undefined}
+                  className="relative"
+                >
                   {/* Attack path vulnerability indicator */}
                   {isInAttackPath && vuln && (
                     <div className="absolute -top-2 -left-2 z-10">
@@ -3999,6 +4032,16 @@ export function UnifiedArchitectureDiagram({
                     <div className={`absolute inset-0 rounded-xl pointer-events-none ${
                       vuln?.critical_cves ? 'ring-2 ring-red-500 animate-pulse' : 'ring-2 ring-orange-500/50'
                     }`} />
+                  )}
+                  {/* V2-2b: ENTRY POINT chip — same overlay as in the
+                      entry/principals lane (some chains start in COMPUTE
+                      with an EC2/Lambda hop[0] instead of root). */}
+                  {isChainEntry && (
+                    <div className="absolute -top-2 -right-2 z-10 pointer-events-none">
+                      <div className="px-1.5 py-0.5 rounded bg-cyan-500/90 text-cyan-950 text-[8px] font-bold uppercase tracking-wider shadow-md ring-1 ring-cyan-300/60">
+                        Entry
+                      </div>
+                    </div>
                   )}
                   <ServiceNodeBox
                     node={node}
@@ -5467,6 +5510,7 @@ export default function TrafficFlowMap({
   jewelEmphasis = false,
   jewelSeverity,
   canvasV2 = false,
+  entryNodeId,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -5535,6 +5579,10 @@ export default function TrafficFlowMap({
   // renders identically to its pre-V2 behavior (back-compat). Driven
   // by the ?canvas=v2 URL flag in PathAnalysisPanel.
   canvasV2?: boolean;
+  // V2-2b (2026-05-31): id of the chain's hop[0] node. Drives the
+  // "ENTRY" chip overlay on the matching card. When canvasV2 is off
+  // or the prop is undefined, no chip renders.
+  entryNodeId?: string;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -7454,6 +7502,7 @@ export default function TrafficFlowMap({
             jewelSeverity={jewelSeverity}
             canvasV2={canvasV2}
             showLaterals={showLaterals}
+            entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the
