@@ -3507,6 +3507,7 @@ export function UnifiedArchitectureDiagram({
   observedMode = false,
   onRoleClick,
   jewelEmphasis = false,
+  jewelSeverity,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -3545,6 +3546,11 @@ export function UnifiedArchitectureDiagram({
   // their visual stays unchanged. No layout change, no new lanes —
   // pure visual weight emphasis on the existing jewel card.
   jewelEmphasis?: boolean;
+  // V2-2 (2026-05-31): severity-driven halo color for the crown jewel
+  // card. Undefined → emerald (legacy). CRITICAL/HIGH/MEDIUM → red /
+  // orange / amber. See TrafficFlowMap.jewelSeverity for the full
+  // rationale. The forward through here is just plumbing.
+  jewelSeverity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -4524,15 +4530,36 @@ export function UnifiedArchitectureDiagram({
               // The scale is intentionally moderate — bigger than 1.2 makes
               // the card overflow the resource lane on narrow viewports.
               const emphasizeJewel = jewelEmphasis && !!node.isCrownJewel;
+              // V2-2: jewel halo color is severity-driven when jewelSeverity is
+              // provided. Default (no prop, or LOW) keeps the legacy emerald
+              // glow that signals "this is the crown jewel" regardless of
+              // attacker reachability. Higher severities take over with their
+              // own palette so the eye lands on the jewel weighted by risk:
+              //   CRITICAL → red (rgba(239,68,68,…))
+              //   HIGH     → orange (rgba(249,115,22,…))
+              //   MEDIUM   → amber (rgba(234,179,8,…))
+              //   LOW/none → emerald (rgba(16,185,129,…)) — legacy fallback
+              const jewelSev = (jewelSeverity || "").toUpperCase()
+              const jewelHaloFilter = (() => {
+                if (jewelSev === "CRITICAL")
+                  return "drop-shadow(0 0 14px rgba(239, 68, 68, 0.65)) drop-shadow(0 0 28px rgba(239, 68, 68, 0.3))"
+                if (jewelSev === "HIGH")
+                  return "drop-shadow(0 0 14px rgba(249, 115, 22, 0.65)) drop-shadow(0 0 28px rgba(249, 115, 22, 0.3))"
+                if (jewelSev === "MEDIUM")
+                  return "drop-shadow(0 0 14px rgba(234, 179, 8, 0.55)) drop-shadow(0 0 28px rgba(234, 179, 8, 0.25))"
+                // LOW / UNKNOWN / no prop → legacy emerald (back-compat)
+                return "drop-shadow(0 0 14px rgba(16, 185, 129, 0.55)) drop-shadow(0 0 28px rgba(16, 185, 129, 0.25))"
+              })()
               return (
                 <div
                   key={node.id}
                   data-resource-id={node.id}
+                  data-jewel-severity={emphasizeJewel ? jewelSev || "LOW" : undefined}
                   className={`relative transition-transform duration-200 ${
                     emphasizeJewel ? 'scale-[1.15] z-20' : ''
                   }`}
                   style={emphasizeJewel ? {
-                    filter: 'drop-shadow(0 0 14px rgba(16, 185, 129, 0.55)) drop-shadow(0 0 28px rgba(16, 185, 129, 0.25))',
+                    filter: jewelHaloFilter,
                   } : undefined}
                 >
                   {/* Crown jewel indicator — set by applyPathFilter when this
@@ -5273,6 +5300,7 @@ export default function TrafficFlowMap({
   headerSlot,
   onRoleClick,
   jewelEmphasis = false,
+  jewelSeverity,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -5327,6 +5355,14 @@ export default function TrafficFlowMap({
   // emerald glow). ATTACKER VIEW opts in; other consumers (System
   // Map, Per-Path View, Exfil View) leave the default off.
   jewelEmphasis?: boolean;
+  // V2-2 (2026-05-31): when provided, the crown jewel's halo color
+  // is driven by chain severity instead of the default emerald. Used
+  // by the Attack Path tab's ?canvas=v2 visual layer so the eye
+  // lands on the jewel weighted by attacker reachability:
+  //   CRITICAL → red, HIGH → orange, MEDIUM → amber, LOW → emerald.
+  // Pure visual — no behavior change. When undefined or LOW, the
+  // existing emerald glow renders (back-compat preserved).
+  jewelSeverity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -7195,6 +7231,7 @@ export default function TrafficFlowMap({
             observedMode={observedMode}
             onRoleClick={onRoleClick}
             jewelEmphasis={jewelEmphasis}
+            jewelSeverity={jewelSeverity}
             onSelectService={(service, type) => {
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the

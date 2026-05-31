@@ -587,6 +587,8 @@ export function PathAnalysisPanel({
               innerSubtitleOverride="On-path chain + lateral pivots"
               pathBadgeOverride={pathFilter.pathLabel}
               observedMode={true}
+              jewelEmphasis={canvasV2}
+              jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
             />
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
