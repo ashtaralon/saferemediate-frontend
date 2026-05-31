@@ -2107,21 +2107,47 @@ function ConflictingCard({ conflicted }: { conflicted: ConsumerEvidence[] }) {
         <div className="text-[10px] uppercase tracking-wide text-zinc-600 dark:text-zinc-400 font-semibold">
           Why this can happen
         </div>
+        {/*
+          2026-05-31 — SG-IAM-1 B2 frontend honesty fix. Original copy carried
+          two negative-phantom capability claims that contradicted the backend
+          per-role attribution work shipped in commit ecf9e9f (queries.py
+          lines 70-143 do Pattern A/B/C per-consumer attribution).
+
+          Negative phantoms tell operators Cyntro is LESS capable than it is.
+          See pattern_no_phantom_capabilities_in_ui (extended 2026-05-31 with
+          the inversion scope) + pattern_multi_layer_qa_admits_partial_pass
+          (Gate 4 of the SG-IAM-1 E2E QA found this stale tooltip after
+          Gates 1-3 cleared).
+
+          Removed claims:
+            - "the graph hasn't separated per-role attribution yet" (bullet 1)
+              → backend does separate. Replaced with the observable symptom
+              ("actions appear under this role's evidence trail") instead of
+              the internal-mechanism claim.
+            - "per-principal attribution is partial" (bullet 3)
+              → ambiguous; 66.7% attributed + 33% provenance-tagged isn't
+              "partial" in the operator's read. Replaced with the specific
+              STS session-name collision edge case described concretely.
+
+          Bullet 2 kept as-is — it describes a real data state (allowed_actions
+          list incomplete), not a capability claim.
+        */}
         <ol className="space-y-1.5 text-zinc-700 dark:text-zinc-300 list-decimal list-inside leading-relaxed">
           <li>
             <strong>The consumer also assumes another IAM role</strong> for some
-            operations, and the graph hasn't separated per-role attribution yet.
-            Most common cause today.
+            operations. The other role&apos;s actions can appear under this
+            role&apos;s evidence trail.
           </li>
           <li>
-            <strong>The role's policy is incomplete</strong> in Cyntro's graph —
+            <strong>The role&apos;s policy is incomplete</strong> in Cyntro&apos;s graph &mdash;
             AWS may grant the action, but our pre-computed `allowed_actions`
             list is missing it.
           </li>
           <li>
-            <strong>Per-principal attribution is partial</strong> — observed
-            activity from a different principal got attributed here by an STS
-            session-name collision.
+            <strong>A rare STS session-name collision</strong> &mdash; when two
+            role sessions share the same session-name, observed activity from
+            one principal can be attributed to the other. Affects a small subset
+            of edges where session names overlap.
           </li>
         </ol>
       </div>
