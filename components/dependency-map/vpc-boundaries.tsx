@@ -359,31 +359,47 @@ export function VPCBoundaries({
                   strokeDasharray={subnet.isPublic ? '8,4' : 'none'}
                 />
 
-                <rect
-                  x={subnet.x + 8}
-                  y={subnet.y + 4}
-                  width={
-                    Math.min(
-                      subnet.subnetName.length * 6 + 12,
-                      subnet.width - 16
-                    )
-                  }
-                  height={16}
-                  rx={8}
-                  ry={8}
-                  fill={subnet.isPublic ? '#78350f' : '#14532d'}
-                  opacity={0.8}
-                />
-                <text
-                  x={subnet.x + 14}
-                  y={subnet.y + 16}
-                  fill={subnet.isPublic ? '#fbbf24' : '#86efac'}
-                  fontSize={10}
-                  fontFamily="system-ui, -apple-system, sans-serif"
-                  fontWeight={500}
-                >
-                  {subnet.subnetName}
-                </text>
+                {/* Subnet label. V2-6 (2026-06-01): prefix "Public · " on
+                    public subnets so the orange-dashed boundary's semantic
+                    is unambiguous. Without the prefix the label is just the
+                    subnet ID, which doesn't tell the operator WHY the boundary
+                    is colored orange + dashed.
+                    Private subnets keep the bare id — green solid carries the
+                    "private" meaning unambiguously in AWS visual convention. */}
+                {(() => {
+                  const labelText = subnet.isPublic
+                    ? `Public · ${subnet.subnetName}`
+                    : subnet.subnetName
+                  return (
+                    <>
+                      <rect
+                        x={subnet.x + 8}
+                        y={subnet.y + 4}
+                        width={
+                          Math.min(
+                            labelText.length * 6 + 12,
+                            subnet.width - 16
+                          )
+                        }
+                        height={16}
+                        rx={8}
+                        ry={8}
+                        fill={subnet.isPublic ? '#78350f' : '#14532d'}
+                        opacity={0.8}
+                      />
+                      <text
+                        x={subnet.x + 14}
+                        y={subnet.y + 16}
+                        fill={subnet.isPublic ? '#fbbf24' : '#86efac'}
+                        fontSize={10}
+                        fontFamily="system-ui, -apple-system, sans-serif"
+                        fontWeight={500}
+                      >
+                        {labelText}
+                      </text>
+                    </>
+                  )
+                })()}
               </g>
             ))}
           </g>

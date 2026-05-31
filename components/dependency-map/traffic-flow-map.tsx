@@ -2836,11 +2836,59 @@ function AnimatedTrafficLine({
   // canvasV2=false the data attribute defaults to "v1" so spot-checks
   // can distinguish legacy from V2 render without trusting CSS pixel
   // diffs.
-  const v2GroupOpacity = dim ? 0.3 : 1
-  // V2-5: 3-treatment palette — dim lateral edges override stroke to
-  // a neutral slate so they don't compete for the eye with on-path
-  // colored edges. On-path edges keep their planeColor.
-  const v2StrokeOverride = dim ? "#64748b" : undefined
+  //
+  // V2-6 (2026-06-01): multi-channel lateral differentiation. See memory
+  // pattern_multi_channel_visual_differentiation. The previous single-
+  // channel fix (stroke #64748b only) blended with on-path cyan because
+  // slate-500 has cool-blue undertones — operators read laterals as
+  // visually equivalent to on-path. New encoding: lateral edges differ
+  // from on-path in FOUR channels (hue + width + dash pattern + opacity)
+  // always. The dim/bright toggle (showLaterals) now moves opacity + dash
+  // rhythm WITHIN the lateral class, never spanning the class boundary.
+  //
+  // Lateral state — three-valued:
+  //   'on-path'  : edge is on the highlighted attack path (or canvasV2
+  //                is off entirely). planeColor + solid + width 2 + full opacity.
+  //   'dim'      : lateral edge with showLaterals=false (default).
+  //                Maximally demoted; visible but clearly subordinate.
+  //   'bright'   : lateral edge with showLaterals=true (operator opted
+  //                in to see laterals). Still visually a lateral —
+  //                different hue / width / pattern from on-path — but
+  //                higher opacity + denser dash rhythm than 'dim'.
+  // lateralState is derivable from the existing (canvasV2, isOnPath, dim)
+  // props — no new prop needed. The producer (ConnectionLinesSVG) already
+  // computes `dim = canvasV2 && !isOnPath && !showLaterals`, so:
+  //   on-path  : !canvasV2 OR isOnPath
+  //   dim      : canvasV2 + !isOnPath + dim (showLaterals=false default)
+  //   bright   : canvasV2 + !isOnPath + !dim (showLaterals=true)
+  const lateralState: 'on-path' | 'dim' | 'bright' =
+    !canvasV2 || isOnPath
+      ? 'on-path'
+      : (dim ? 'dim' : 'bright')
+
+  // Channel 1: hue. Lateral neutral zinc-400 (no cool-blue undertone that
+  // collides with cyan on-path). On-path keeps planeColor.
+  // Channel 2: stroke-opacity (applied on the group element via
+  // v2GroupOpacity so it multiplies cleanly through inferred-edge dashes
+  // and other path treatments).
+  // Channel 3: stroke-width.
+  // Channel 4: stroke-dasharray. attack-path's "10,5" and inferred's
+  // "6,4" still win (set in the <path> element directly); lateral dash
+  // applies when neither override is active.
+  const v2StrokeOverride =
+    lateralState === 'on-path' ? undefined : '#a1a1aa'
+  const v2GroupOpacity =
+    lateralState === 'dim'    ? 0.25
+    : lateralState === 'bright' ? 0.65
+    : 1
+  const v2LateralStrokeWidth =
+    lateralState === 'dim'    ? 1
+    : lateralState === 'bright' ? 1.5
+    : undefined
+  const v2LateralDasharray =
+    lateralState === 'dim'    ? '4 4'
+    : lateralState === 'bright' ? '6 3'
+    : undefined
   // V2-4: verb chip mapping for on-path edges (canvasV2 + isOnPath).
   // 1-3 word labels at edge midpoint so the chain reads like a
   // sentence. Falls back to a lowercased rel name when no specific
@@ -2889,7 +2937,12 @@ function AnimatedTrafficLine({
     <g
       data-canvas-mode={canvasV2 ? "v2" : "v1"}
       data-edge-onpath={canvasV2 ? (isOnPath ? "true" : "false") : undefined}
-      data-edge-dim={canvasV2 && dim ? "true" : undefined}
+      // data-edge-dim kept for backward compat with any existing e2e probes
+      // (PR #82-era). data-laterals is the canonical attribute going forward
+      // — tri-state, distinguishes 'dim' vs 'bright' vs 'on-path' for DOM-probe
+      // verification of the multi-channel encoding (PR for V2-6).
+      data-edge-dim={canvasV2 && lateralState === 'dim' ? "true" : undefined}
+      data-laterals={canvasV2 ? lateralState : undefined}
       style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
     >
       {/* Glow effect for active lines and attack paths.
@@ -2933,14 +2986,23 @@ function AnimatedTrafficLine({
         d={pathD}
         fill="none"
         stroke={v2StrokeOverride ?? lineColor}
-        strokeWidth={heatmapStrokeWidth ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)}
+        strokeWidth={
+          heatmapStrokeWidth
+            ?? v2LateralStrokeWidth
+            ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)
+        }
         strokeLinecap="round"
         strokeDasharray={
+          // Precedence (most-specific first):
+          //   1. attack path → red dashed "10,5" (operator-critical signal)
+          //   2. inferred edge → "6,4" (provenance via line style not palette)
+          //   3. lateral edge → "4 4" dim / "6 3" bright (V2-6 multi-channel)
+          //   4. observed/config on-path → solid
           isAttackPath
             ? "10,5"
             : edgeData?.inferred
               ? "6,4"
-              : undefined
+              : v2LateralDasharray ?? undefined
         }
         className="transition-all duration-300"
       >
@@ -3026,8 +3088,15 @@ function AnimatedTrafficLine({
       {/* Animated particles - always show when animate is true.
        *  Suppressed for inferred service-plane edges — those are
        *  derived, not observed, and animating them would lie about
-       *  having traffic evidence we don't have. */}
-      {animate && !isLockedFlow && !edgeData?.inferred && (
+       *  having traffic evidence we don't have.
+       *
+       *  V2-6: also suppressed for lateral edges (dim OR bright).
+       *  Lateral edges represent context, not the chain's primary
+       *  traffic — animating them would compete with the on-path
+       *  particles for the operator's eye and contradict the
+       *  multi-channel demotion (lower opacity + dashed pattern
+       *  signals "not the primary read"). */}
+      {animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && (
         <>
           {/* Define the path for animation — same shape as the visible
            *  line so the particles follow the curve. */}
