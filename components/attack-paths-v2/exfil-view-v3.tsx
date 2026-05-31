@@ -32,11 +32,10 @@
  * lanes the graph can't fill today render empty rather than mocked.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ChevronDown, Crown, Route, AlertTriangle, RefreshCw, Loader2, ExternalLink, Globe, ShieldCheck } from "lucide-react"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { ArrowRight, Crown, AlertTriangle, RefreshCw, Loader2, ExternalLink, Globe, ShieldCheck } from "lucide-react"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import { postSplitPlan } from "@/lib/api-client"
 import { RoleDetailPanel } from "./exfil-role-detail-panel"
@@ -403,129 +402,51 @@ export interface ExfilPayload {
 interface ExfilViewV3Props {
   systemName: string
   jewel: CrownJewelSummary | null
+  // 2026-05-31: fetch + path-selection state lifted up to AttackPathsV2
+  // so the new center-column rail (ExfilPathListColumn) and this canvas
+  // share one source of truth. The component now PURE-RENDERS from
+  // props; it owns no fetch, no URL-sync effect, and no PathSelector
+  // dropdown.
+  data: ExfilPayload | null
+  loading: boolean
+  error: string | null
+  retry: () => void
+  retrying: boolean
+  attempt: number
+  selectedPathId: string | null
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- read
+  // back via parent's URL handler, no internal call site after the
+  // dropdown was removed.
+  onSelectPath: (pathId: string) => void
 }
 
-export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
-  // Stable request body — recomputed only on system/jewel change, same
-  // pattern as attacker-view-panel.tsx to keep useRetryFetch's dependency
-  // comparison stable across renders.
-  const requestBody = useMemo(
-    () =>
-      JSON.stringify({
-        system_name: systemName,
-        jewel_id: jewel?.id ?? "",
-        include_capable: true,
-        include_observed: true,
-        max_destinations: 50,
-        // ATLAS multi-hop chain enrichment — Layer A (2026-05-27).
-        // Default ON so the killer-solution chain count is visible on
-        // first render. Backend dedupes by workload + caps at 4 parallel
-        // calls (ThreadPoolExecutor, 30s timeout). Graceful null on
-        // failure — never a fabricated "0 chains" from an error.
-        include_atlas: true,
-        atlas_max_hops: 6,
-      }),
-    [systemName, jewel?.id],
-  )
-
-  const fetchInit = useMemo<RequestInit>(
-    () => ({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: requestBody,
-    }),
-    [requestBody],
-  )
-
+export function ExfilViewV3({
+  systemName,
+  jewel,
+  data,
+  loading,
+  error,
+  retry,
+  retrying,
+  attempt,
+  selectedPathId,
+}: ExfilViewV3Props) {
   const enabled = !!systemName && !!jewel?.id
-  const { data, loading, error, retry, retrying, attempt } = useRetryFetch<ExfilPayload>(
-    enabled ? "/api/proxy/attack-chain/exfil-paths" : null,
-    {
-      fetchInit,
-      refetchKey: `${systemName}:${jewel?.id ?? ""}`,
-      maxRetries: 2,
-      initialDelayMs: 1000,
-    },
-  )
-
-  // Per-path selection — each (accessor, channel) chain renders as its
-  // own canvas. URL-synced so deep-links survive reload / back-button.
-  //
-  // 2026-05-26: unified URL-read + validation into a single effect to
-  // kill the race that broke deep-link round-trip — previously the
-  // mount effect set state from URL, but a parallel validation effect
-  // fired with `selectedPathId === null` on the first render after
-  // data arrived and reset to paths[0] before the mount effect's
-  // setState propagated. Now we read URL inline on every (re)validate
-  // so the URL value wins as long as it matches a real path_id.
-  const [selectedPathId, setSelectedPathId] = useState<string | null>(null)
   // Role detail panel state — 2026-05-27. Click a role chip on the
   // canvas → its SecurityCheckpoint is stashed here → RoleDetailPanel
   // renders as an overlay slide-in. Null when nothing selected.
   const [detailRole, setDetailRole] = useState<SecurityCheckpoint | null>(null)
-
-  useEffect(() => {
-    if (!data?.paths || data.paths.length === 0) {
-      setSelectedPathId(null)
-      return
-    }
-    // Keep current selection if still valid.
-    if (selectedPathId && data.paths.some((p) => p.path_id === selectedPathId)) {
-      return
-    }
-    // Try URL value first — wins over the default-pick if it matches
-    // a real path. This makes deep-links survive reload.
-    let urlPath: string | null = null
-    if (typeof window !== "undefined") {
-      try {
-        urlPath = new URLSearchParams(window.location.search).get("exfil_path")
-      } catch {
-        // ignore (SSR / sandboxed env)
-      }
-    }
-    if (urlPath && data.paths.some((p) => p.path_id === urlPath)) {
-      setSelectedPathId(urlPath)
-      return
-    }
-    // Backend pre-sorts paths[] highest-traffic first; fall back to [0].
-    setSelectedPathId(data.paths[0]?.path_id ?? null)
-  }, [data, selectedPathId])
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !selectedPathId) return
-    try {
-      const url = new URL(window.location.href)
-      if (url.searchParams.get("exfil_path") === selectedPathId) return
-      url.searchParams.set("exfil_path", selectedPathId)
-      window.history.replaceState(null, "", url.toString())
-    } catch {
-      // ignore
-    }
-  }, [selectedPathId])
 
   const selectedPath = useMemo<ExfilPath | null>(() => {
     if (!data?.paths || !selectedPathId) return null
     return data.paths.find((p) => p.path_id === selectedPathId) ?? null
   }, [data, selectedPathId])
 
-  // Sibling paths — other channels under the SAME accessor as the
-  // currently-selected path. Surfaced as a chip strip on the canvas
-  // header (see "Other channels for this role" below) so an operator
-  // looking at e.g. CyntroLambdaTier1-pilot|serverless_direct (8 non-VPC
-  // Lambdas) can SEE that the same role ALSO has a network_via_igw
-  // path (6 VPC-attached Lambdas + IGW + VPCE) without hunting in the
-  // path-picker dropdown. Operator-traced 2026-05-30: "from S3 to
-  // what?? we need to see traffic out of the VPC" — the VPC path
-  // existed, was in paths[], but the default sort tiebreak landed
-  // them on serverless_direct.
-  const siblingPaths = useMemo<ExfilPath[]>(() => {
-    if (!data?.paths || !selectedPath) return []
-    return data.paths.filter(
-      (p) =>
-        p.accessor_id === selectedPath.accessor_id &&
-        p.path_id !== selectedPath.path_id,
-    )
-  }, [data, selectedPath])
+  // Sibling-paths chip strip (2026-05-30 "other channels for this role"
+  // affordance) removed 2026-05-31 — replaced by the channel-grouped
+  // ExfilPathListColumn in the parent. Every channel under every role
+  // is now visible in the center rail; the canvas no longer needs a
+  // sibling shortcut.
 
   const architecture = useMemo<SystemArchitecture | null>(() => {
     if (!data || !data.ok) return null
@@ -603,14 +524,9 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
       ? "Data exit paths — capable (amber) vs observed (red)"
       : "Capable data-exit paths — observed-exfil layer pending"
 
-  const pathSelectorNode =
-    paths.length > 0 ? (
-      <PathSelector
-        paths={paths}
-        selectedPathId={selectedPathId}
-        onSelect={setSelectedPathId}
-      />
-    ) : null
+  // PathSelector dropdown + sibling-strip removed 2026-05-31. Path
+  // selection is operator-facing in the parent's center-column rail
+  // (ExfilPathListColumn); the canvas reads selectedPathId from props.
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -619,37 +535,6 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
         atlasSummary={data.atlas_summary}
         keystones={data.keystones ?? []}
       />
-      {siblingPaths.length > 0 && (
-        <div
-          className="flex items-center gap-2 px-6 py-2 border-b border-slate-800/60 bg-slate-900/40 text-[10px]"
-        >
-          <span className="text-slate-500 uppercase tracking-wider font-bold">
-            Same role · other channels
-          </span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {siblingPaths.map((p) => (
-              <button
-                key={p.path_id}
-                type="button"
-                onClick={() => setSelectedPathId(p.path_id)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/40 px-2 py-0.5 hover:border-amber-500/40 hover:bg-amber-500/5 transition-colors"
-                title={`Switch to ${p.channel_label} · ${p.workload_count} workloads · ${p.gateway_count} gateways`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  p.channel === "network_via_igw" ? "bg-emerald-400"
-                  : p.channel === "serverless_direct" ? "bg-amber-400"
-                  : p.channel === "ec2_no_egress" ? "bg-orange-400"
-                  : "bg-slate-400"
-                }`} />
-                <span className="text-slate-200 font-medium">{p.channel_label}</span>
-                <span className="text-slate-500">
-                  · {p.workload_count}w · {p.gateway_count}g
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="relative" style={{ minHeight: "640px" }}>
         <TrafficFlowMap
           systemName={systemName}
@@ -667,7 +552,6 @@ export function ExfilViewV3({ systemName, jewel }: ExfilViewV3Props) {
               ? `${friendlyAccessorName(selectedPath.accessor_name)} → ${data.jewel.name}`
               : `Exfil → ${data.jewel.name}`
           }
-          headerSlot={pathSelectorNode}
           defaultShowVPCBoundaries={true}
           // Role chip click opens the side panel — Alon feedback
           // 2026-05-27 "i cant understand nothing." Chip stays
@@ -1638,121 +1522,12 @@ function KeystoneStrip({
   )
 }
 
-// ─── Path selector ───────────────────────────────────────────────
-// Compact dropdown rendered INLINE in TFM's top toolbar (via headerSlot).
-// Inline so it stays visible in TFM's full-screen mode where outer panel
-// chrome is hidden. Dropdown so 7+ paths fit a single toolbar row.
-
-function PathSelector({
-  paths,
-  selectedPathId,
-  onSelect,
-}: {
-  paths: ExfilPath[]
-  selectedPathId: string | null
-  onSelect: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!containerRef.current) return
-      if (!containerRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", onDoc)
-    return () => document.removeEventListener("mousedown", onDoc)
-  }, [open])
-
-  // Tone per channel — used on both the trigger dot AND each row dot so
-  // operators can scan-distinguish channels at a glance.
-  const dotFor = (channel: string): string =>
-    ({
-      network_via_igw: "bg-amber-400",
-      serverless_direct: "bg-violet-400",
-      ec2_no_egress: "bg-slate-300",
-      direct_api: "bg-rose-400",
-    }) as Record<string, string>[channel] || "bg-slate-300"
-
-  const selected = paths.find((p) => p.path_id === selectedPathId) ?? paths[0]
-  if (!selected) return null
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/60 hover:bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-100"
-        title="Switch exfil path"
-      >
-        <Route className="h-3 w-3 text-slate-400" />
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-          Path {paths.indexOf(selected) + 1}/{paths.length}
-        </span>
-        <span className={`h-1.5 w-1.5 rounded-full ${dotFor(selected.channel)}`} />
-        <span className="truncate max-w-[200px]">{selected.channel_label}</span>
-        <AtlasPill atlas={selected.atlas} compact />
-        <ChevronDown
-          className={`h-3 w-3 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {open && (
-        <div className="absolute top-full left-0 mt-1.5 z-50 w-[420px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 ring-1 ring-black/40">
-          <div className="px-3 py-2 border-b border-slate-800 text-[9px] font-bold uppercase tracking-wider text-slate-500">
-            {paths.length} exfil path{paths.length === 1 ? "" : "s"} — pick one to inspect
-          </div>
-          <div className="max-h-[60vh] overflow-y-auto py-1">
-            {paths.map((p, idx) => {
-              const isSelected = p.path_id === selectedPathId
-              const observed = p.accessor_provenance === "observed"
-              return (
-                <button
-                  key={p.path_id}
-                  type="button"
-                  onClick={() => {
-                    onSelect(p.path_id)
-                    setOpen(false)
-                  }}
-                  className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors ${
-                    isSelected ? "bg-slate-800/80" : "hover:bg-slate-800/50"
-                  }`}
-                >
-                  <span className="text-[9px] font-mono text-slate-500 w-4 shrink-0">
-                    {idx + 1}
-                  </span>
-                  <span className={`h-2 w-2 rounded-full shrink-0 ${dotFor(p.channel)}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-mono text-slate-200 truncate">
-                        {friendlyAccessorName(p.accessor_name)}
-                      </span>
-                      <span
-                        className={`text-[8px] uppercase tracking-wider font-bold ${observed ? "text-red-300" : "text-amber-300"}`}
-                      >
-                        {observed ? "observed" : "capable"}
-                      </span>
-                      <AtlasPill atlas={p.atlas} compact />
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">
-                      {p.channel_label} · {p.workload_count} workload
-                      {p.workload_count === 1 ? "" : "s"} · {p.gateway_count} gateway
-                      {p.gateway_count === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                  <span className="text-[10px] tabular-nums font-mono text-slate-400 shrink-0">
-                    {compactNumber(p.jewel_hits)}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// PathSelector dropdown removed 2026-05-31 — path selection moved to
+// the new ExfilPathListColumn in the parent (attack-paths-v2.tsx). The
+// dropdown was useful when the canvas was the only place to discover
+// the 9-channel-per-jewel path catalog; with the channel-grouped center
+// rail, the same affordance lives at the column level and is visible
+// without expanding a control.
 
 export function compactNumber(n: number): string {
   if (!isFinite(n) || n < 1) return "0"

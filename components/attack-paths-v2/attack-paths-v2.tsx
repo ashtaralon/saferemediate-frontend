@@ -269,16 +269,11 @@ export function AttackPathsV2() {
   }, [selectedJewelId, allPaths])
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
-  // Lives at this level so the center column (ExfilPathListColumn) and
-  // the canvas (ExfilViewV3 — Commit 2 will read this same data via a
-  // prop) read from one source. Today (Commit 1 — non-destructive add)
-  // ExfilViewV3 still fetches independently from inside; the dual-fetch
-  // is intentional and short-lived. Both reads return the same payload
-  // from the same proxy.
-  //
-  // Gated on viewMode === "exfil" + a jewel id: every other mode skips
-  // the fetch (network savings — exfil costs include the ATLAS chain
-  // enrichment, ~200-400ms).
+  // Single source of truth for both the center-column rail
+  // (ExfilPathListColumn) and the canvas (ExfilViewV3 — receives via
+  // props). Gated on viewMode === "exfil" + a jewel id: every other
+  // mode skips the fetch (network savings — exfil costs include the
+  // ATLAS chain enrichment, ~200-400ms).
   const exfilEnabled = viewMode === "exfil" && !!systemName && !!selectedJewelId
   const exfilRequestBody = useMemo(
     () =>
@@ -304,6 +299,10 @@ export function AttackPathsV2() {
   const {
     data: exfilData,
     loading: exfilLoading,
+    error: exfilError,
+    retry: exfilRetry,
+    retrying: exfilRetrying,
+    attempt: exfilAttempt,
   } = useRetryFetch<ExfilPayload>(
     exfilEnabled ? "/api/proxy/attack-chain/exfil-paths" : null,
     {
@@ -313,6 +312,29 @@ export function AttackPathsV2() {
       initialDelayMs: 1000,
     },
   )
+
+  // Auto-select the first exfil path when data arrives + URL doesn't
+  // already specify one (or specifies a stale id no longer in the
+  // list). Backend pre-sorts paths[] highest-traffic first, so this
+  // matches the auto-pick behavior ExfilViewV3 had internally before
+  // 2026-05-31 when the fetch was lifted up here.
+  useEffect(() => {
+    if (viewMode !== "exfil") return
+    if (!exfilData?.paths) return
+    if (exfilData.paths.length === 0) return
+    if (
+      selectedExfilPathId &&
+      exfilData.paths.some((p) => p.path_id === selectedExfilPathId)
+    )
+      return
+    const firstId = exfilData.paths[0]?.path_id
+    if (firstId) {
+      setUrl({ exfilPath: firstId })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setUrl
+    // intentionally not in deps (would re-run every URL change and
+    // re-pick when it shouldn't).
+  }, [viewMode, exfilData, selectedExfilPathId])
 
   // The selected path object, if any. We tolerate selectedPathId
   // pointing at a path that doesn't exist (e.g. operator deep-linked
@@ -703,6 +725,14 @@ export function AttackPathsV2() {
                 <ExfilViewV3
                   systemName={systemName}
                   jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                  data={exfilData ?? null}
+                  loading={exfilLoading}
+                  error={exfilError}
+                  retry={exfilRetry}
+                  retrying={exfilRetrying}
+                  attempt={exfilAttempt}
+                  selectedPathId={selectedExfilPathId}
+                  onSelectPath={handleSelectExfilPath}
                 />
               )
             ) : !selectedPath || !selectedJewelId ? (
