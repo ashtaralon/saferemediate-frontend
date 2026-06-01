@@ -23,6 +23,7 @@ import {
   Network,
   Filter,
 } from "lucide-react"
+import { NarrowingExpander } from "@/components/shared-resources/narrowing-expander"
 
 // ── Types ────────────────────────────────────────────
 
@@ -674,8 +675,8 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               const exposureSeverity = totalExposure > 100 ? "#ef4444" : totalExposure > 30 ? "#f97316" : "#eab308"
 
               return (
+                <div key={role.role_name} className="space-y-0">
                 <button
-                  key={role.role_name}
                   onClick={() => analyzeRole(role.role_name)}
                   className="w-full text-left rounded-lg border p-5 transition-all hover:bg-white/5"
                   style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
@@ -755,6 +756,12 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                     })}
                   </div>
                 </button>
+                <NarrowingExpander
+                  resourceType="iam-role"
+                  identifier={role.role_name}
+                  displayName={role.role_name}
+                />
+                </div>
               )
             })}
 
@@ -772,8 +779,8 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   const hasPublic = sg.has_public || false
 
                   return (
+                    <div key={sg.sg_id || sg.role_name} className="space-y-0">
                     <button
-                      key={sg.sg_id || sg.role_name}
                       onClick={() => analyzeRole(sg.role_name)}
                       className="w-full text-left rounded-lg border p-5 transition-all hover:bg-white/5"
                       style={{ background: "var(--bg-primary)", borderColor: hasPublic ? "#ef444440" : "var(--border-subtle)" }}
@@ -864,6 +871,14 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                         })}
                       </div>
                     </button>
+                    {sg.sg_id && (
+                      <NarrowingExpander
+                        resourceType="security-group"
+                        identifier={sg.sg_id}
+                        displayName={sg.role_name}
+                      />
+                    )}
+                    </div>
                   )
                 })}
               </>
