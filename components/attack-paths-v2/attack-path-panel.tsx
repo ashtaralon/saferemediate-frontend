@@ -28,7 +28,7 @@
 // the only thing that changes here.
 // =============================================================================
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
@@ -183,16 +183,48 @@ export function AttackPathPanel({
     )
   }, [payload, identityPath])
 
+  // Honest progress messaging for cold-cache loads. The backend's
+  // /api/proxy/attack-path + /api/proxy/identity-attack-paths handlers
+  // return 200 in 47-53s on cold cache (warm: 2.4s). A bare
+  // "Loading attack path…" spinner that sits for 50+ seconds reads as
+  // a hang to operators — per pattern_distinguish_hang_from_slow_success
+  // the cure for slow-success-misread-as-hang is honest progress
+  // messaging, not silence. After 15s, swap the copy to explain the
+  // wait. Stamp data-loading-stage for empirical spot-checks.
+  const [extendedWait, setExtendedWait] = useState(false)
+  useEffect(() => {
+    if (!(loading || retrying)) {
+      setExtendedWait(false)
+      return
+    }
+    const timer = setTimeout(() => setExtendedWait(true), 15_000)
+    return () => clearTimeout(timer)
+  }, [loading, retrying])
+
   // ---- Loading / error states -------------------------------------------
   if (loading || retrying) {
+    const stage = extendedWait ? "extended" : "initial"
     const label =
       retrying && attempt > 0
         ? `Backend was slow — retrying (attempt ${attempt + 1})…`
-        : "Loading attack path…"
+        : extendedWait
+          ? "Still loading…"
+          : "Loading attack path…"
+    const subtitle = extendedWait && !(retrying && attempt > 0)
+      ? "Cold-cache responses can take 30–60s on first request after a deploy. The backend returns 200 eventually."
+      : null
     return (
-      <div className="flex flex-col h-full items-center justify-center gap-3 text-sm text-slate-500">
+      <div
+        className="flex flex-col h-full items-center justify-center gap-3 text-sm text-slate-500"
+        data-loading-stage={stage}
+      >
         <Loader2 className="w-5 h-5 animate-spin" />
-        {label}
+        <div>{label}</div>
+        {subtitle && (
+          <div className="text-xs text-slate-600 max-w-md text-center px-4">
+            {subtitle}
+          </div>
+        )}
       </div>
     )
   }
