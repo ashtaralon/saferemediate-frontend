@@ -2,6 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
+import { useEffect, useState } from "react"
 import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map } from "lucide-react"
 
 interface LeftSidebarNavProps {
@@ -11,12 +12,57 @@ interface LeftSidebarNavProps {
   pendingTagsCount?: number
 }
 
+/** Live narrowing-available count across both shared-resource endpoints.
+ *  Per docs/shared-resources-real-data-wiring.md §4 (backend repo):
+ *  N = SUM(headline_state === "narrowing_available") across
+ *  /api/iam/shared-roles + /api/sg/shared-sgs. Renders 4 today on
+ *  alon-prod (3 IAM + 1 SG, empirically verified 2026-06-01). Honest
+ *  small number per the spec's substrate-honesty contract. */
+function useSharedResourcesActionableCount(): number | null {
+  const [count, setCount] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [iamRes, sgRes] = await Promise.all([
+          fetch("/api/proxy/iam/shared-roles?system_name=alon-prod", { cache: "no-store" }),
+          fetch("/api/proxy/sg/shared-sgs?system_name=alon-prod", { cache: "no-store" }),
+        ])
+        if (cancelled) return
+        const iamJson = iamRes.ok ? await iamRes.json() : {}
+        const sgJson = sgRes.ok ? await sgRes.json() : {}
+        const iamRows: Array<{ headline_state?: string }> =
+          iamJson.shared_roles ?? iamJson.roles ?? []
+        const sgRows: Array<{ narrowing?: { headline_state?: string } }> =
+          sgJson.shared_sgs ?? sgJson.sgs ?? []
+        const iamNarrowable = iamRows.filter(
+          (r) => r.headline_state === "narrowing_available",
+        ).length
+        const sgNarrowable = sgRows.filter(
+          (r) => r.narrowing?.headline_state === "narrowing_available",
+        ).length
+        if (!cancelled) setCount(iamNarrowable + sgNarrowable)
+      } catch {
+        // Honest fallback per pattern_no_phantom_capabilities_in_ui —
+        // don't fabricate a count if the endpoints fail; leave null,
+        // sidebar renders the label without a number.
+        if (!cancelled) setCount(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return count
+}
+
 export function LeftSidebarNav({
   activeItem = "home",
   onItemClick,
   issuesCount = 0,
   pendingTagsCount = 0,
 }: LeftSidebarNavProps) {
+  const sharedResourcesCount = useSharedResourcesActionableCount()
   // Every item now renders as a real Next.js <Link>. URL is the source of
   // truth for which section is active — that fixes:
   //   - Cmd/Ctrl-click → "Open in new tab" works (was broken: items were buttons)
@@ -60,15 +106,20 @@ export function LeftSidebarNav({
     // there's no graceful empty-state in the identities section today, so the link
     // would show a broken page to a CISO.
     // { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
-    { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
-    // New shared-roles refactor — coexists with the legacy "Shared Resource"
-    // entry above. Both stay until the legacy /api/remediation/execute-per-resource
-    // path is frozen (design memo step 9).
-    { id: "shared-roles", label: "Shared Roles", icon: Users, href: "/iam/shared-roles" },
-    // Shared SGs — same lifecycle as shared-roles, applied to Security Groups.
-    // SG-1 through SG-6 backend live (discovery + plan + CREATE_ONLY + STAGED
-    // preview); execute/rollback UI lands with SG-9b.
-    { id: "shared-sgs", label: "Shared SGs", icon: Network, href: "/sg/shared-sgs" },
+    // Shared Resources — Slice 0 (sidebar IA cleanup) per
+    // docs/shared-resources-real-data-wiring.md §4. Replaces the
+    // previous three entries ("Shared Resource", "Shared Roles",
+    // "Shared SGs") with ONE unified entry. The count is SUM of
+    // headline_state === "narrowing_available" across both
+    // /api/iam/shared-roles + /api/sg/shared-sgs — the actionable
+    // narrowing-opportunity surface, not "all shared resources ever".
+    // Mirrors "Issues (3)" semantics. Live N on alon-prod = 4 today
+    // (3 IAM + 1 SG, 2026-06-01). Honest small number; the fix for
+    // "small count" lives at the substrate, not in display logic.
+    // Legacy /iam/shared-roles + /sg/shared-sgs routes stay reachable
+    // for back-compat with bookmarks; the unified surface is the
+    // canonical entry point.
+    { id: "shared-resources", label: "Shared Resources", icon: Split, count: sharedResourcesCount ?? undefined, href: "/shared-resources" },
     // Naming aligned with feedback_topology_views_naming (memory) and the page
     // header GraphViewV2 renders. "Dependency Map" was the original sidebar
     // label in PR #72 but it was a fourth name for the same surface — the
