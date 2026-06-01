@@ -2953,8 +2953,20 @@ function AnimatedTrafficLine({
   // Channel 4: stroke-dasharray. attack-path's "10,5" and inferred's
   // "6,4" still win (set in the <path> element directly); lateral dash
   // applies when neither override is active.
+  // Canvas v3 Slice C — crossing-internet edges (IGW/NAT route) get a
+  // rose stroke override so they read as "this edge exits the AWS
+  // backbone to the public internet" without text. Stays-private (VPCE
+  // route) keeps the on-path planeColor so the contrast carries the
+  // security signal. Per pattern_partition_boundaries_carry_security_state
+  // — the boundary lives on the edge color when no explicit boundary
+  // line is drawn (Slice C minimal version; full layout repartition is
+  // a follow-up).
+  const crossesInternet =
+    routePrecedence ? !routePrecedence.isPrivate : false
+  const crossingStrokeOverride = crossesInternet ? '#fb7185' : undefined
   const v2StrokeOverride =
-    lateralState === 'on-path' ? undefined : '#a1a1aa'
+    crossingStrokeOverride ??
+    (lateralState === 'on-path' ? undefined : '#a1a1aa')
   const v2GroupOpacity =
     lateralState === 'dim'    ? 0.25
     : lateralState === 'bright' ? 0.65
@@ -3067,6 +3079,18 @@ function AnimatedTrafficLine({
       // route-precedence claim per pattern_geometry_must_match_label.
       data-edge-via-gateway={
         waypoint && routePrecedence ? routePrecedence.gateway.id : undefined
+      }
+      // Canvas v3 Slice C — Internet-partition crossing classification.
+      // true  → traffic exits via IGW/NAT/EIGW (public internet)
+      // false → traffic stays on AWS backbone via VPCE
+      // undefined → no route-precedence resolved (chip absent)
+      // Drives the rose-stroke + crossing chip per pattern_partition_
+      // boundaries_carry_security_state. Operators can DOM-probe for
+      // [data-crosses-internet="true"] to find public-egress edges.
+      data-crosses-internet={
+        routePrecedence
+          ? routePrecedence.isPrivate ? "false" : "true"
+          : undefined
       }
       style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
     >
@@ -4121,6 +4145,68 @@ export function UnifiedArchitectureDiagram({
           )}
         </div>
       </div>
+
+      {/* Canvas v3 Slice C — Internet partition banner. Visible header
+          showing the security boundary between AWS-backbone-routed
+          traffic and public-internet-routed traffic. Renders the
+          security claim's home (per pattern_partition_boundaries_carry_
+          security_state) without requiring a full layout repartition.
+          Counts of edges per side are computed from architecture.edges
+          when present + the resolved route precedence for each.
+          Banner suppressed when no destinations on path have route
+          precedence (e.g. identity-only paths) — honest empty rather
+          than rendering a meaningless boundary. */}
+      {(() => {
+        const resources = architecture.resources ?? []
+        const gateways = architecture.egressGateways ?? []
+        if (resources.length === 0 || gateways.length === 0) return null
+        let privCount = 0
+        let pubCount = 0
+        for (const r of resources) {
+          const rp = derivePrecedenceForDestination(r, gateways)
+          if (!rp) continue
+          if (rp.isPrivate) privCount++; else pubCount++;
+        }
+        if (privCount === 0 && pubCount === 0) return null
+        return (
+          <div
+            className="mb-4 flex items-stretch gap-2 text-[10px] font-bold uppercase tracking-wider"
+            data-internet-partition="true"
+            data-internet-partition-private-count={privCount}
+            data-internet-partition-public-count={pubCount}
+          >
+            <div
+              className={`flex-1 flex items-center justify-between px-3 py-1.5 rounded-lg border ${
+                privCount > 0
+                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300"
+                  : "bg-slate-700/30 border-slate-600/40 text-slate-500"
+              }`}
+              title="Traffic that stays inside the AWS backbone (VPCE-routed). Bytes never traverse the public internet."
+            >
+              <span className="flex items-center gap-1.5">
+                <Lock className="w-3 h-3" />
+                AWS Backbone · private
+              </span>
+              <span className="font-mono text-[10px] opacity-80">{privCount} edge{privCount === 1 ? "" : "s"}</span>
+            </div>
+            <div className="self-center text-slate-500 px-1">|</div>
+            <div
+              className={`flex-1 flex items-center justify-between px-3 py-1.5 rounded-lg border ${
+                pubCount > 0
+                  ? "bg-rose-500/10 border-rose-500/40 text-rose-300"
+                  : "bg-slate-700/30 border-slate-600/40 text-slate-500"
+              }`}
+              title="Traffic that exits via IGW/NAT/Egress-only IGW to the public internet. Bytes traverse the open internet."
+            >
+              <span className="flex items-center gap-1.5">
+                <Globe className="w-3 h-3" />
+                Public Internet · public
+              </span>
+              <span className="font-mono text-[10px] opacity-80">{pubCount} edge{pubCount === 1 ? "" : "s"}</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Main diagram */}
       <div ref={containerRef} className="relative min-h-[450px]">
@@ -5774,15 +5860,32 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   // Egress gateways — same evidence standard. Either the BFS includes
   // the gateway, or a flow explicitly carries gateway routing
-  // evidence. No "same VPC" inference. (egressGatewayId field on
-  // TrafficFlow is the future hook for route-table-driven gateway
-  // tagging; until that's wired, this lane stays empty by default
-  // for path views — which is the honest read.)
+  // evidence.
+  //
+  // Canvas v3 Slice C — relaxation for visualize-by-negation: we ALSO
+  // include same-VPC sibling gateways (typically the IGW that lives in
+  // the workload's VPC but isn't the winning route for the on-path
+  // S3 destination). The renderer (Slice A) grays these as "Not used"
+  // so the operator sees the unused alternative — the security claim
+  // "VPCE wins, IGW exists but doesn't carry this traffic" becomes
+  // palpable as the gap between full-color and grayed.
+  //
+  // Per pattern_visualize_by_negation. Without this relaxation, the
+  // lane would only show the winning gateway and the negation half of
+  // the security story stays invisible.
   const filteredFlowGatewayIds = new Set<string>(
     flows.map(f => (f as any).egressGatewayId).filter(Boolean) as string[],
   );
+  // Collect VPCs that any path node lives in so we can include their
+  // sibling gateways as visible-but-grayed alternatives.
+  const pathVPCIds = new Set<string>();
+  arch.subnets?.forEach(s => { if (s.vpcId) pathVPCIds.add(s.vpcId); });
+  arch.vpcGroups?.forEach(g => { if (g.vpcId) pathVPCIds.add(g.vpcId); });
   const egressGateways = arch.egressGateways.filter(
-    g => inPath(g.id) || filteredFlowGatewayIds.has(g.id),
+    g =>
+      inPath(g.id) ||
+      filteredFlowGatewayIds.has(g.id) ||
+      (g.vpcId !== null && g.vpcId !== undefined && pathVPCIds.has(g.vpcId)),
   );
 
   return {
