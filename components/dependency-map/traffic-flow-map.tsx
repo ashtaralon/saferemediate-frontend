@@ -4702,13 +4702,22 @@ export function UnifiedArchitectureDiagram({
                   <div
                     key={gw.id}
                     data-gateway-id={gw.id}
+                    // Canvas v3 — gateway state stamp. "available-not-selected"
+                    // is the descriptive replacement for "unused" (per
+                    // feedback_signal_language — descriptive, not accusative).
+                    // Operators read "this gateway exists in the path's VPC
+                    // but route precedence didn't pick it for any destination
+                    // on this path." Still backwards-compatible: the
+                    // data-gateway-unused stamp is kept for any existing DOM
+                    // probes that key off it.
+                    data-gateway-state={isGateUnused ? "available-not-selected" : undefined}
                     data-gateway-unused={isGateUnused ? "true" : undefined}
                     className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette} ${
                       isGateUnused ? "opacity-50" : ""
                     }`}
                     title={
                       isGateUnused
-                        ? `${titleParts.join(' · ')} — NOT USED on this path (route precedence picked a different gateway)`
+                        ? `${titleParts.join(' · ')} — Available in this VPC but route precedence picked a different gateway for the destinations on this path.`
                         : titleParts.join(' · ')
                     }
                     onMouseEnter={() => setHoveredId(gw.id)}
@@ -4732,9 +4741,9 @@ export function UnifiedArchitectureDiagram({
                     {isGateUnused && (
                       <div
                         className="mt-1.5 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full border border-slate-600/60 bg-slate-800/70 text-[9px] font-bold uppercase tracking-wider text-slate-400 mx-auto w-fit"
-                        title="The path's route table does not direct any destination's traffic through this gateway."
+                        title="This gateway exists in the path's VPC but route precedence didn't select it for any destination on this path."
                       >
-                        Not used
+                        Available · Not selected
                       </div>
                     )}
                   </div>
@@ -5885,7 +5894,19 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     g =>
       inPath(g.id) ||
       filteredFlowGatewayIds.has(g.id) ||
-      (g.vpcId !== null && g.vpcId !== undefined && pathVPCIds.has(g.vpcId)),
+      (g.vpcId !== null && g.vpcId !== undefined && pathVPCIds.has(g.vpcId)) ||
+      // Trust-backend-inclusion: when the backend returns a gateway node
+      // in canvas.nodes but the gateway has no vpc_id direct property
+      // (IGW nodes in Neo4j carry their VPC via IN_VPC edges, not as a
+      // property), the assembler stores it with vpcId=null. Empirically
+      // verified 2026-06-01 on path-5203dfee3012: igw-0d1dd1d08b071f5cf
+      // appears in canvas.nodes with key_properties.vpc_id missing — the
+      // backend's inclusion is itself the signal that the gateway is
+      // path-relevant. Don't reject the empirical truth because of a
+      // property-shape gap. Surface it grayed (Slice A renderer) so the
+      // operator sees the unused alternative.
+      g.vpcId === null ||
+      g.vpcId === undefined,
   );
 
   return {
