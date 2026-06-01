@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
-import { derivePrecedenceForDestination } from "@/lib/route-precedence";
+import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -2637,6 +2637,7 @@ function AnimatedTrafficLine({
   canvasV2 = false,
   isOnPath = true,
   dim = false,
+  routePrecedence = null,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -2666,6 +2667,18 @@ function AnimatedTrafficLine({
   /** Backing edge in explicit-edges mode. Used for the hover label so
    *  operators see relationship type + port/protocol in the tooltip. */
   edgeData?: CanvasEdge;
+  /** Canvas v3 — route-precedence anchored on this edge when it
+   *  represents a data-plane access (role → bucket via a resolved
+   *  egress gateway). When set, the verb chip on the edge midpoint
+   *  carries the route-precedence suffix ("reads · via VPCE · private")
+   *  so the operator reads the routing answer from the FLOW LINE, not
+   *  from a chip floating beside the destination card. Drives
+   *  data-chip-anchored-on-edge + data-route-precedence-via stamps on
+   *  the edge group. Per pattern_geometry_must_match_label —
+   *  the label REINFORCES the geometry of the edge, doesn't substitute
+   *  for it (Slice B will add the waypoint that routes the edge
+   *  geometrically through the gateway). */
+  routePrecedence?: RoutePrecedence | null;
 }) {
   const pathId = useMemo(() => `path-${Math.random().toString(36).substr(2, 9)}`, []);
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -2930,10 +2943,40 @@ function AnimatedTrafficLine({
     const friendly = R.toLowerCase().replace(/_/g, " ")
     return friendly.length > 18 ? friendly.slice(0, 17) + "…" : friendly
   }
-  const verbChipLabel =
+  // Canvas v3 Slice A: extend the verb-chip with the route-precedence
+  // suffix when this edge carries data-plane access to a destination
+  // whose route resolved to a specific gateway. Example label transform:
+  //   "reads"  →  "reads · via VPCE · s3 · private"
+  //   "calls API"  →  "calls API · via IGW · public"
+  // The chip becomes the EDGE'S label, not a separate annotation beside
+  // the destination card. Per pattern_geometry_must_match_label, the
+  // label reinforces the flow line — it sits on the line itself via the
+  // existing Bezier-at-t=0.5 midpoint math.
+  //
+  // De-dup discipline: gateway.kindLabel sometimes already carries the
+  // service hint (e.g. "VPCE · s3" from build-attacker-architecture.ts
+  // assemblers), so appending serviceHint a second time would produce
+  // "VPCE · s3 · s3". Only add the serviceHint suffix when kindLabel
+  // doesn't already contain it.
+  const baseVerb =
     canvasV2 && isOnPath && !dim && edgeData
       ? verbForRelationship(edgeData.relationship)
       : null
+  const precedenceSuffix = routePrecedence
+    ? (() => {
+        const klabel = routePrecedence.gateway.kindLabel
+        const hint = routePrecedence.gateway.serviceHint
+        const serviceSegment =
+          hint && !klabel.toLowerCase().includes(hint.toLowerCase())
+            ? ` · ${hint}`
+            : ""
+        const privacy = routePrecedence.isPrivate ? "private" : "public"
+        return ` · via ${klabel}${serviceSegment} · ${privacy}`
+      })()
+    : ""
+  const verbChipLabel = baseVerb
+    ? `${baseVerb}${precedenceSuffix}`
+    : null
   return (
     <g
       data-canvas-mode={canvasV2 ? "v2" : "v1"}
@@ -2944,6 +2987,16 @@ function AnimatedTrafficLine({
       // verification of the multi-channel encoding (PR for V2-6).
       data-edge-dim={canvasV2 && lateralState === 'dim' ? "true" : undefined}
       data-laterals={canvasV2 ? lateralState : undefined}
+      // Canvas v3 Slice A — route-precedence anchored on edge (not card).
+      // Stamped on the SVG group wrapping the edge + its chip so DOM
+      // probes can verify "the chip is on the flow line."
+      data-route-precedence-via={
+        routePrecedence
+          ? routePrecedence.isPrivate ? "private" : "public"
+          : undefined
+      }
+      data-route-precedence-gateway-id={routePrecedence?.gateway.id}
+      data-chip-anchored-on-edge={routePrecedence ? "true" : undefined}
       style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
     >
       {/* Glow effect for active lines and attack paths.
@@ -3686,6 +3739,32 @@ export function ConnectionLinesSVG({
               ? architecture.onPathEdgeIds.has(line.edge.id)
               : true
           const dim = canvasV2 && !isOnPath && !showLaterals
+          // Canvas v3 Slice A — anchor the route-precedence chip on the
+          // edge whose target is the destination. Look up by the line's
+          // targetId against architecture.resources (which carries the
+          // NodeType the precedence function needs). Only on-path data-
+          // plane edges carry the chip; lateral / context edges stay
+          // unannotated. Per pattern_geometry_must_match_label — the
+          // chip lives on the edge that represents the access, not on
+          // the destination card.
+          const isDataPlaneAccess =
+            line.edge?.relationship === "ACCESSES_RESOURCE" ||
+            line.edge?.relationship === "ACTUAL_S3_ACCESS" ||
+            line.edge?.relationship === "ACTUAL_API_CALL" ||
+            line.edge?.relationship === "ACTUAL_TRAFFIC" ||
+            line.edge?.relationship === "READS_FROM" ||
+            line.edge?.relationship === "WRITES_TO" ||
+            line.edge?.relationship === "RUNTIME_CALLS"
+          const targetResource = isDataPlaneAccess
+            ? architecture.resources.find((r) => r.id === line.targetId)
+            : undefined
+          const linePrecedence =
+            isOnPath && targetResource && architecture.egressGateways.length > 0
+              ? derivePrecedenceForDestination(
+                  targetResource,
+                  architecture.egressGateways,
+                )
+              : null
           return (
             <AnimatedTrafficLine
               key={`line-${i}-${line.sourceId}-${line.targetId}`}
@@ -3708,6 +3787,7 @@ export function ConnectionLinesSVG({
               canvasV2={canvasV2}
               isOnPath={isOnPath}
               dim={dim}
+              routePrecedence={linePrecedence}
             />
           );
         })}
@@ -4388,13 +4468,36 @@ export function UnifiedArchitectureDiagram({
                 <Globe className="w-4 h-4 text-amber-400" />
                 Egress Gateways ({architecture.egressGateways.length})
               </div>
+              {/* Canvas v3 Slice A — visualize-by-negation on the gateway
+                  lane. Compute the set of gateways that win SOMETHING on
+                  this path (any destination's route resolves to them).
+                  Gateways NOT in this winning set are rendered grayed
+                  with a "Not used" annotation — the gap between full-
+                  color (active) and grayed (alternative) IS the security
+                  signal. Per pattern_visualize_by_negation. */}
               {architecture.egressGateways.map(gw => {
+                const isWinningForAnyDestination =
+                  architecture.resources.some(r => {
+                    const rp = derivePrecedenceForDestination(
+                      r,
+                      architecture.egressGateways,
+                    )
+                    return rp?.gateway.id === gw.id
+                  })
+                // Some paths have no resources (identity-only paths) —
+                // in that case no gateway "wins" anything; render at full
+                // color since the canvas isn't making a routing claim.
+                const noDestinationsAtAll = architecture.resources.length === 0
+                const isGateUnused =
+                  !noDestinationsAtAll && !isWinningForAnyDestination
                 const palette =
+                  isGateUnused ? 'bg-slate-700/30 border-slate-600/40' :
                   gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
                   gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
                   'bg-violet-500/10 border-violet-500/40';
                 const iconColor =
+                  isGateUnused ? 'text-slate-500' :
                   gw.kind === 'InternetGateway' ? 'text-amber-300' :
                   gw.kind === 'NATGateway' ? 'text-sky-300' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-300' :
@@ -4420,14 +4523,21 @@ export function UnifiedArchitectureDiagram({
                   <div
                     key={gw.id}
                     data-gateway-id={gw.id}
-                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette}`}
-                    title={titleParts.join(' · ')}
+                    data-gateway-unused={isGateUnused ? "true" : undefined}
+                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette} ${
+                      isGateUnused ? "opacity-50" : ""
+                    }`}
+                    title={
+                      isGateUnused
+                        ? `${titleParts.join(' · ')} — NOT USED on this path (route precedence picked a different gateway)`
+                        : titleParts.join(' · ')
+                    }
                     onMouseEnter={() => setHoveredId(gw.id)}
                     onMouseLeave={() => setHoveredId(null)}
                   >
                     <div className="flex items-center justify-center gap-2 mb-1">
                       <Globe className={`w-4 h-4 ${iconColor}`} />
-                      <span className="text-sm font-semibold text-white">{gw.kindLabel}</span>
+                      <span className={`text-sm font-semibold ${isGateUnused ? "text-slate-400" : "text-white"}`}>{gw.kindLabel}</span>
                     </div>
                     <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
                       {gw.shortName}
@@ -4438,6 +4548,14 @@ export function UnifiedArchitectureDiagram({
                         title={routeLine}
                       >
                         {routeLine}
+                      </div>
+                    )}
+                    {isGateUnused && (
+                      <div
+                        className="mt-1.5 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full border border-slate-600/60 bg-slate-800/70 text-[9px] font-bold uppercase tracking-wider text-slate-400 mx-auto w-fit"
+                        title="The path's route table does not direct any destination's traffic through this gateway."
+                      >
+                        Not used
                       </div>
                     )}
                   </div>
@@ -4880,7 +4998,7 @@ export function UnifiedArchitectureDiagram({
                   data-route-precedence-gateway-id={routePrecedence?.gateway.id}
                   className={`relative transition-transform duration-200 ${
                     emphasizeJewel ? 'scale-[1.15] z-20' : ''
-                  } ${routePrecedence ? 'pb-4' : ''}`}
+                  }`}
                   style={emphasizeJewel ? {
                     filter: jewelHaloFilter,
                   } : undefined}
@@ -4916,43 +5034,15 @@ export function UnifiedArchitectureDiagram({
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'resource')}
                   />
-                  {/* Route-precedence chip — bottom-centered below the
-                      destination card. Answers "via VPCE · private" or
-                      "via IGW · public" so the operator doesn't have
-                      to apply AWS most-specific-prefix routing to the
-                      EGRESS GATEWAYS lane inventory in their head.
-                      Color discipline: emerald for private (AWS
-                      backbone), amber for public (internet egress).
-                      Tooltip names the gateway + the route label
-                      (e.g. "com.amazonaws.eu-west-1.s3") so the
-                      derivation is auditable, not magical. */}
-                  {routePrecedence && (
-                    <div
-                      className={`absolute left-1/2 -translate-x-1/2 -bottom-1 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border shadow-md whitespace-nowrap ${
-                        routePrecedence.isPrivate
-                          ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
-                          : 'bg-amber-500/15 border-amber-500/50 text-amber-300'
-                      }`}
-                      title={
-                        `Traffic from in-VPC compute reaches this destination via ${routePrecedence.gateway.kindLabel} ${routePrecedence.gateway.shortName} — ` +
-                        `${routePrecedence.isPrivate ? 'private route over the AWS backbone' : 'public route over the internet'}. ` +
-                        `Route: ${routePrecedence.label}. ` +
-                        `(AWS picks the most specific prefix; this destination matches ${routePrecedence.gateway.kindLabel}'s route.)`
-                      }
-                    >
-                      {routePrecedence.isPrivate ? (
-                        <Lock className="w-2.5 h-2.5" />
-                      ) : (
-                        <Globe className="w-2.5 h-2.5" />
-                      )}
-                      <span className="text-[9px] font-bold tracking-wider uppercase">
-                        via {routePrecedence.gateway.kindLabel}
-                      </span>
-                      <span className="text-[9px] font-semibold opacity-80">
-                        · {routePrecedence.isPrivate ? 'private' : 'public'}
-                      </span>
-                    </div>
-                  )}
+                  {/* Canvas v3 Slice A — destination-card chip from PR #93
+                      removed. The route-precedence chip now lives on the
+                      EDGE MIDPOINT (rendered by AnimatedTrafficLine via
+                      verbChipLabel) so the chip labels the flow line,
+                      not a floating annotation beside the bucket. The
+                      data-route-precedence-via attribute on this wrapper
+                      div is kept for spot-checks of "did precedence
+                      resolve for this destination" (independent of where
+                      the chip renders). Per pattern_geometry_must_match_label. */}
                 </div>
               );
             })}
