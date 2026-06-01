@@ -106,21 +106,21 @@ export function LeftSidebarNav({
     // there's no graceful empty-state in the identities section today, so the link
     // would show a broken page to a CISO.
     // { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
-    // 2026-06-01: PARTIAL REVERT of the Slice 0 IA cleanup. The
-    // previous three entries are restored because they were the
-    // operator's working entry points to existing surfaces — removing
-    // them broke familiar workflows. The new unified "Shared Resources"
-    // entry stays as an additional row alongside them; operators can
-    // use either path until we know which is preferred. Honest
-    // additive change.
-    { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
-    { id: "shared-roles", label: "Shared Roles", icon: Users, href: "/iam/shared-roles" },
-    { id: "shared-sgs", label: "Shared SGs", icon: Network, href: "/sg/shared-sgs" },
-    // New unified Shared Resources surface from PR #101 (Slice 0 + PR-3).
-    // Routes to /shared-resources where the merged list view renders
-    // rows from both /api/iam/shared-roles + /api/sg/shared-sgs,
-    // sorted by sort_score. Count = SUM of headline_state ===
-    // "narrowing_available" across both endpoints (live N=4 today).
+    // 2026-06-02: Slice 0 IA cleanup re-applied per operator direction.
+    // Empirical verification on alon-prod found:
+    //   • Legacy /?section=per-resource page calls /api/scan, which
+    //     returns 4 SGs and zero IAM roles — phantom-incapability per
+    //     pattern_no_phantom_capabilities_in_ui inversion direction.
+    //   • Legacy /iam/shared-roles and /sg/shared-sgs are subsumed by
+    //     the new /shared-resources merged list view (PR #101) which
+    //     uses /api/iam/shared-roles + /api/sg/shared-sgs and renders
+    //     real KEEP / NARROW AWAY / INVESTIGATE breakdowns.
+    // The three legacy URLs redirect to /shared-resources via
+    // next.config.js redirects(), so bookmarks and existing back-links
+    // (detail-view "back to list" buttons) land on the working page.
+    // Detail routes /iam/shared-roles/by-plan/[plan_id] and
+    // /sg/shared-sgs/by-plan/[plan_id] are NOT redirected — they're
+    // useful deep-links to plan-specific narrowing proposals.
     { id: "shared-resources", label: "Shared Resources", icon: Split, count: sharedResourcesCount ?? undefined, href: "/shared-resources" },
     // Naming aligned with feedback_topology_views_naming (memory) and the page
     // header GraphViewV2 renders. "Dependency Map" was the original sidebar
@@ -285,7 +285,10 @@ export function LeftSidebarNav({
           // activeSection didn't update. Now using an explicit set of
           // dedicated-route ids so additions in either direction are
           // unambiguous.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "shared-roles", "shared-sgs", "dependency-map"])
+          // shared-roles + shared-sgs removed 2026-06-02 — their sidebar
+          // entries were cut and the legacy URLs redirect to
+          // /shared-resources via next.config.js.
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "dependency-map", "shared-resources"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button
