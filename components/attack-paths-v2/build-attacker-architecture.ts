@@ -1689,17 +1689,31 @@ export function buildAttackerArchitecture(
       const g = egressGateways[i]
       if (g.kind === "VPCEndpoint") {
         // Rule A — drop VPCEs whose serviceHint matches NO path target.
+        // These are noise (a DynamoDB VPCE on an S3-only path wouldn't
+        // have been an alternative route for that S3 traffic) per the
+        // user's "don't include gateways that wouldn't have been an
+        // alternative" criterion.
         if (g.serviceHint && !pathTargetMatchesServiceToken(g.serviceHint)) {
           droppedEgressIds.add(g.id)
           egressGateways.splice(i, 1)
         }
-      } else if (hasMatchingVpce) {
-        // Rule B — drop IGW/NAT/etc when a service-matching VPCE
-        // exists (most-specific-route wins).
-        droppedEgressIds.add(g.id)
-        egressGateways.splice(i, 1)
       }
-      // Rule C — non-VPCE gateway, no matching VPCE → keep.
+      // Rule B (KEPT, NOT DROPPED 2026-06-01 — canvas-v3-routing fix) —
+      // IGW/NAT/EIGW/TGW when a service-matching VPCE exists are NOT
+      // dropped anymore. They ARE the alternative the operator needs
+      // to see grayed-but-present, per pattern_visualize_by_negation.
+      // The frontend renderer (traffic-flow-map.tsx applyPathFilter
+      // visualize-by-negation pass) grays them with the "Available ·
+      // Not selected" label so the gap between full-color VPCE and
+      // grayed IGW IS the security signal.
+      //
+      // OLD behavior dropped these silently, which made
+      // pattern_visualize_by_negation impossible to render — the
+      // alternative was invisible. New behavior keeps the data, lets
+      // the renderer demote it visually.
+      //
+      // Rule C — non-VPCE gateway with no matching VPCE → keep (the
+      // winning route for this path; rendered full color).
     }
   }
   // Remove the dropped gateway ids from `seen` so the edge build below
