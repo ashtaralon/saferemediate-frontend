@@ -2638,6 +2638,7 @@ function AnimatedTrafficLine({
   isOnPath = true,
   dim = false,
   routePrecedence = null,
+  waypoint = null,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -2675,10 +2676,17 @@ function AnimatedTrafficLine({
    *  from a chip floating beside the destination card. Drives
    *  data-chip-anchored-on-edge + data-route-precedence-via stamps on
    *  the edge group. Per pattern_geometry_must_match_label —
-   *  the label REINFORCES the geometry of the edge, doesn't substitute
-   *  for it (Slice B will add the waypoint that routes the edge
-   *  geometrically through the gateway). */
+   *  the label REINFORCES the geometry of the edge. */
   routePrecedence?: RoutePrecedence | null;
+  /** Canvas v3 Slice B — waypoint that the edge must geometrically
+   *  pass through (the resolved egress gateway's center). When set,
+   *  the source→target line becomes piecewise: source → waypoint →
+   *  target, so the operator's eye follows the actual route. Per
+   *  pattern_geometry_must_match_label — chip + geometry both say
+   *  "via VPCE", reinforcing each other. ConnectionLinesSVG resolves
+   *  the waypoint coords from the gateway's DOM rect; this component
+   *  just consumes them. */
+  waypoint?: { x: number; y: number } | null;
 }) {
   const pathId = useMemo(() => `path-${Math.random().toString(36).substr(2, 9)}`, []);
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -2746,14 +2754,70 @@ function AnimatedTrafficLine({
   const cy1 = y1 + dyBz * 0.3 + perpY;
   const cx2 = x1 + dxBz * 0.7 + perpX;
   const cy2 = y1 + dyBz * 0.7 + perpY;
-  const pathD = useCurve
-    ? `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
-    : `M ${x1} ${y1} L ${x2} ${y2}`;
-  // Arrow rotation = tangent at the endpoint. For straight lines that's
-  // (y2-y1, x2-x1). For cubic Bezier at t=1 the tangent is along
-  // (P3 - P2) = (x2-cx2, y2-cy2).
-  const arrowDx = useCurve ? x2 - cx2 : x2 - x1;
-  const arrowDy = useCurve ? y2 - cy2 : y2 - y1;
+  // Canvas v3 Slice B — when a waypoint is supplied (the resolved
+  // egress gateway's center), the edge becomes piecewise: source →
+  // waypoint → target. Two quadratic Bezier segments per the
+  // pattern_geometry_must_match_label discipline — the chip claims
+  // "via VPCE", the geometry must show the line passing through the
+  // VPCE node. Control points for each segment are pulled toward the
+  // straight midpoint, giving each half a gentle arch that converges
+  // at the waypoint. Falls back to single-Bezier (or straight) when
+  // no waypoint is supplied (legacy behavior, no regression for
+  // non-route-precedence edges).
+  const hasWaypoint = !!waypoint && useCurve;
+  // Segment 1 (source → waypoint) control point: midpoint perp-offset.
+  const seg1MidX = hasWaypoint ? (x1 + waypoint!.x) / 2 : 0;
+  const seg1MidY = hasWaypoint ? (y1 + waypoint!.y) / 2 : 0;
+  const seg1Len = hasWaypoint
+    ? Math.sqrt(
+        Math.pow(waypoint!.x - x1, 2) + Math.pow(waypoint!.y - y1, 2),
+      )
+    : 0;
+  const seg1Arch = hasWaypoint ? Math.min(30, seg1Len * 0.12) : 0;
+  const seg1PerpX = hasWaypoint
+    ? ((-(waypoint!.y - y1)) / Math.max(1, seg1Len)) * archDir * seg1Arch
+    : 0;
+  const seg1PerpY = hasWaypoint
+    ? ((waypoint!.x - x1) / Math.max(1, seg1Len)) * archDir * seg1Arch
+    : 0;
+  const seg1Cx = seg1MidX + seg1PerpX;
+  const seg1Cy = seg1MidY + seg1PerpY;
+  // Segment 2 (waypoint → target) control point: midpoint perp-offset.
+  const seg2MidX = hasWaypoint ? (waypoint!.x + x2) / 2 : 0;
+  const seg2MidY = hasWaypoint ? (waypoint!.y + y2) / 2 : 0;
+  const seg2Len = hasWaypoint
+    ? Math.sqrt(
+        Math.pow(x2 - waypoint!.x, 2) + Math.pow(y2 - waypoint!.y, 2),
+      )
+    : 0;
+  const seg2Arch = hasWaypoint ? Math.min(30, seg2Len * 0.12) : 0;
+  const seg2PerpX = hasWaypoint
+    ? ((-(y2 - waypoint!.y)) / Math.max(1, seg2Len)) * archDir * seg2Arch
+    : 0;
+  const seg2PerpY = hasWaypoint
+    ? ((x2 - waypoint!.x) / Math.max(1, seg2Len)) * archDir * seg2Arch
+    : 0;
+  const seg2Cx = seg2MidX + seg2PerpX;
+  const seg2Cy = seg2MidY + seg2PerpY;
+  const pathD = hasWaypoint
+    ? `M ${x1} ${y1} Q ${seg1Cx} ${seg1Cy}, ${waypoint!.x} ${waypoint!.y} Q ${seg2Cx} ${seg2Cy}, ${x2} ${y2}`
+    : useCurve
+      ? `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
+      : `M ${x1} ${y1} L ${x2} ${y2}`;
+  // Arrow rotation = tangent at the endpoint. For the piecewise path,
+  // segment 2's endpoint tangent is (x2-seg2Cx, y2-seg2Cy). For cubic
+  // Bezier at t=1 the tangent is along (P3 - P2). For straight lines
+  // it's (y2-y1, x2-x1).
+  const arrowDx = hasWaypoint
+    ? x2 - seg2Cx
+    : useCurve
+      ? x2 - cx2
+      : x2 - x1;
+  const arrowDy = hasWaypoint
+    ? y2 - seg2Cy
+    : useCurve
+      ? y2 - cy2
+      : y2 - y1;
   const arrowAngleDeg = (Math.atan2(arrowDy, arrowDx) * 180) / Math.PI;
 
   // Speed based on intensity - faster = more traffic (slower base for better visibility)
@@ -2997,6 +3061,13 @@ function AnimatedTrafficLine({
       }
       data-route-precedence-gateway-id={routePrecedence?.gateway.id}
       data-chip-anchored-on-edge={routePrecedence ? "true" : undefined}
+      // Canvas v3 Slice B — when this edge has a waypoint resolved, the
+      // path geometrically passes through the gateway node. The stamp
+      // lets DOM probes confirm geometry (not just label) matches the
+      // route-precedence claim per pattern_geometry_must_match_label.
+      data-edge-via-gateway={
+        waypoint && routePrecedence ? routePrecedence.gateway.id : undefined
+      }
       style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
     >
       {/* Glow effect for active lines and attack paths.
@@ -3765,6 +3836,27 @@ export function ConnectionLinesSVG({
                   architecture.egressGateways,
                 )
               : null
+          // Canvas v3 Slice B — when the edge has a resolved gateway,
+          // look up the gateway's DOM center so AnimatedTrafficLine can
+          // route the path geometrically through it. The lookup uses
+          // the existing data-gateway-id stamps in the lane render. Per
+          // pattern_geometry_must_match_label — chip claims "via VPCE",
+          // geometry must show line passing through the VPCE node.
+          let lineWaypoint: { x: number; y: number } | null = null;
+          if (linePrecedence && containerRef.current) {
+            const containerEl = containerRef.current;
+            const gatewayEl = containerEl.querySelector(
+              `[data-gateway-id="${linePrecedence.gateway.id}"]`,
+            );
+            if (gatewayEl) {
+              const gRect = gatewayEl.getBoundingClientRect();
+              const cRect = containerEl.getBoundingClientRect();
+              lineWaypoint = {
+                x: gRect.left + gRect.width / 2 - cRect.left,
+                y: gRect.top + gRect.height / 2 - cRect.top,
+              };
+            }
+          }
           return (
             <AnimatedTrafficLine
               key={`line-${i}-${line.sourceId}-${line.targetId}`}
@@ -3788,6 +3880,7 @@ export function ConnectionLinesSVG({
               isOnPath={isOnPath}
               dim={dim}
               routePrecedence={linePrecedence}
+              waypoint={lineWaypoint}
             />
           );
         })}
