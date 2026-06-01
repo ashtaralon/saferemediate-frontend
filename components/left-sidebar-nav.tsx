@@ -106,19 +106,21 @@ export function LeftSidebarNav({
     // there's no graceful empty-state in the identities section today, so the link
     // would show a broken page to a CISO.
     // { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
-    // Shared Resources — Slice 0 (sidebar IA cleanup) per
-    // docs/shared-resources-real-data-wiring.md §4. Replaces the
-    // previous three entries ("Shared Resource", "Shared Roles",
-    // "Shared SGs") with ONE unified entry. The count is SUM of
-    // headline_state === "narrowing_available" across both
-    // /api/iam/shared-roles + /api/sg/shared-sgs — the actionable
-    // narrowing-opportunity surface, not "all shared resources ever".
-    // Mirrors "Issues (3)" semantics. Live N on alon-prod = 4 today
-    // (3 IAM + 1 SG, 2026-06-01). Honest small number; the fix for
-    // "small count" lives at the substrate, not in display logic.
-    // Legacy /iam/shared-roles + /sg/shared-sgs routes stay reachable
-    // for back-compat with bookmarks; the unified surface is the
-    // canonical entry point.
+    // 2026-06-01: PARTIAL REVERT of the Slice 0 IA cleanup. The
+    // previous three entries are restored because they were the
+    // operator's working entry points to existing surfaces — removing
+    // them broke familiar workflows. The new unified "Shared Resources"
+    // entry stays as an additional row alongside them; operators can
+    // use either path until we know which is preferred. Honest
+    // additive change.
+    { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
+    { id: "shared-roles", label: "Shared Roles", icon: Users, href: "/iam/shared-roles" },
+    { id: "shared-sgs", label: "Shared SGs", icon: Network, href: "/sg/shared-sgs" },
+    // New unified Shared Resources surface from PR #101 (Slice 0 + PR-3).
+    // Routes to /shared-resources where the merged list view renders
+    // rows from both /api/iam/shared-roles + /api/sg/shared-sgs,
+    // sorted by sort_score. Count = SUM of headline_state ===
+    // "narrowing_available" across both endpoints (live N=4 today).
     { id: "shared-resources", label: "Shared Resources", icon: Split, count: sharedResourcesCount ?? undefined, href: "/shared-resources" },
     // Naming aligned with feedback_topology_views_naming (memory) and the page
     // header GraphViewV2 renders. "Dependency Map" was the original sidebar
