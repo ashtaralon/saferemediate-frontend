@@ -275,64 +275,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     setStage("scan")
 
     try {
-      // Canonical scan: parallel fetch of /api/iam/shared-roles and
-      // /api/sg/shared-sgs. Per memory pattern_two_discovery_paths_inconsistent.md,
-      // these are the authoritative endpoints — /api/cyntro/scan
-      // (previously used here) under-counts on alon-prod (returns 4 SGs +
-      // 0 IAM roles where the canonical returns 5 roles + 8 SGs).
       const qs = systemName ? `?system_name=${encodeURIComponent(systemName)}` : ""
-      const [rolesResp, sgsResp] = await Promise.all([
-        apiCall("GET", `/api/proxy/iam/shared-roles${qs}`),
-        apiCall("GET", `/api/proxy/sg/shared-sgs${qs}`),
-      ])
-
-      // Adapt canonical shapes → ScannedRole shape the UI already knows.
-      // The canonical endpoints return summary fields (counts +
-      // consumer_breakdown) rather than individual resource arrays;
-      // expand consumer_breakdown into pseudo-ScanResource entries so
-      // the per-row badges still render meaningfully ("EC2 × 2", "Lambda × 4").
-      const adaptedRoles: ScannedRole[] = (rolesResp.shared_roles || []).map((r: any): ScannedRole => ({
-        role_name: r.role_name,
-        role_arn: r.role_arn,
-        total_permissions: r.allowed_count ?? 0,
-        all_permissions: [],
-        // The canonical endpoint returns consumer_count + consumer_kinds
-        // (an array of {kind, count} pairs). Map each kind to a single
-        // summary ScanResource the per-row UI can render as a chip.
-        resources: (r.consumer_kinds || []).map((ck: any) => ({
-          resource_id: `${r.role_arn}::${ck.kind}`,
-          resource_name: `${ck.kind} × ${ck.count}`,
-          resource_type: ck.kind,
-        })),
-      }))
-
-      const adaptedSGs: ScannedRole[] = (sgsResp.shared_sgs || []).map((sg: any): ScannedRole => {
-        const cb = sg.consumer_breakdown || {}
-        // consumer_breakdown is { ec2: N, lambda: N, network_interface: N, ... }
-        const resourceChips = Object.entries(cb)
-          .filter(([_, count]) => (count as number) > 0)
-          .map(([kind, count]) => ({
-            resource_id: `${sg.sg_id}::${kind}`,
-            resource_name: `${kind.replace("_", " ")} × ${count}`,
-            resource_type: kind === "load_balancer" ? "ALB/NLB" : kind.toUpperCase(),
-          }))
-        return {
-          role_name: sg.sg_name,
-          role_arn: "",
-          total_permissions: (sg.rule_summary?.inbound ?? 0) + (sg.rule_summary?.outbound ?? 0),
-          all_permissions: [],
-          resources: resourceChips,
-          resource_type: "SecurityGroup",
-          sg_id: sg.sg_id,
-          has_public: sg.rule_summary?.has_public_ingress ?? false,
-          active_ports: sg.narrowing?.traffic_ports_observed ?? 0,
-          inbound_rules: sg.rule_summary?.inbound ?? 0,
-        }
-      })
-
-      const merged: ScannedRole[] = [...adaptedRoles, ...adaptedSGs]
-      setRoles(merged)
-      if (merged.length === 0) {
+      const data = await apiCall("GET", `/api/proxy/cyntro/scan${qs}`)
+      setRoles(data)
+      if (data.length === 0) {
         setError("No shared resources found. All roles and SGs are single-resource.")
       }
     } catch (e: any) {
