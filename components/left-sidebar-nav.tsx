@@ -121,7 +121,13 @@ export function LeftSidebarNav({
     // Detail routes /iam/shared-roles/by-plan/[plan_id] and
     // /sg/shared-sgs/by-plan/[plan_id] are NOT redirected — they're
     // useful deep-links to plan-specific narrowing proposals.
-    { id: "shared-resources", label: "Shared Resources", icon: Split, count: sharedResourcesCount ?? undefined, href: "/shared-resources" },
+    // 2026-06-02 (revised): both surfaces kept. Per operator direction —
+    // the legacy light per-resource scanner is the canonical day-to-day
+    // view; the dark merged-list view is alongside as "V2". Both reachable
+    // from the sidebar. The next.config.js redirect that pushed
+    // /?section=per-resource → /shared-resources is removed in this commit.
+    { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
+    { id: "shared-resources", label: "Shared Resources V2", icon: Split, count: sharedResourcesCount ?? undefined, href: "/shared-resources" },
     // Naming aligned with feedback_topology_views_naming (memory) and the page
     // header GraphViewV2 renders. "Dependency Map" was the original sidebar
     // label in PR #72 but it was a fourth name for the same surface — the
