@@ -62,26 +62,14 @@ const nextConfig = {
   // the rollback path open if we ever need to bring legacy back.
   // The /api/proxy/iam/shared-roles/* and /api/proxy/sg/shared-sgs/*
   // routes are unaffected — those are API endpoints, not page routes.
-  // 2026-06-02 (revised): per-resource redirect removed. Operator
-  // direction — keep BOTH the legacy light scanner AND the new dark
-  // V2 merged list. Both have sidebar entries; both are independently
-  // reachable on fresh nav. The legacy /iam/shared-roles and
-  // /sg/shared-sgs routes still redirect to /shared-resources because
-  // their per-page surfaces were never operator-facing — only the
-  // top-level scanner and the merged-list V2 are surfaces operators
-  // land on.
-  redirects: async () => [
-    {
-      source: "/iam/shared-roles",
-      destination: "/shared-resources",
-      permanent: false,
-    },
-    {
-      source: "/sg/shared-sgs",
-      destination: "/shared-resources",
-      permanent: false,
-    },
-  ],
+  // 2026-06-02 (revised again): all three legacy redirects removed.
+  // The dark V2 list (shared-resources-list-view.tsx) has an "Open full
+  // {role,SG} detail" button on each expanded row that navigates to
+  // /iam/shared-roles?focus=X or /sg/shared-sgs?focus=X. With those
+  // redirects in place, the button bounced users back to the V2 page
+  // they were already on. Per operator direction: keep both surfaces
+  // independently reachable.
+  redirects: async () => [],
 };
 
 module.exports = nextConfig;
