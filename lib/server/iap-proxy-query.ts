@@ -8,6 +8,8 @@
  */
 export const IAP_PROXY_DEFAULT_MAX_JEWELS = 8
 export const IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL = 8
+/** Attack-path facade graph-view lateral fan-out (backend caps at 100). */
+export const IAP_PROXY_DEFAULT_LATERAL_CAP = 50
 
 export type IapProxyQueryOptions = {
   maxJewels?: string | number

@@ -227,8 +227,11 @@ export function AttackPathsV2() {
   // Same fetch pattern as the legacy page — reusing the proxy +
   // useCachedFetch SWR layer so v2 inherits the cold-backend handling
   // that took several iterations to get right.
+  // Enriched supplements run on the attack-path facade (map tab) only —
+  // not here. Page load is jewel list + path graph shape; enriched=true
+  // on this fetch doubled IAP cold time (~20–60s) before the map could start.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&enriched=true`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
     : null
   const {
     data: rawData,
@@ -756,6 +759,11 @@ export function AttackPathsV2() {
                 systemName={systemName}
                 jewelId={selectedJewelId}
                 pathId={selectedPath.id}
+                pathFromPage={selectedPath}
+                jewelFromPage={
+                  jewels.find((j) => j.id === selectedJewelId) ?? null
+                }
+                siblingPathsFromPage={jewelPaths}
                 isExpanded={isPathExpanded}
                 onToggleExpand={handleToggleExpand}
               />

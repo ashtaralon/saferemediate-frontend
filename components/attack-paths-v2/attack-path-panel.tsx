@@ -51,6 +51,10 @@ interface AttackPathPanelProps {
   systemName: string
   jewelId: string
   pathId: string
+  /** When the page already fetched IAP, skip the facade's second full-system IAP round-trip. */
+  pathFromPage?: IdentityAttackPath | null
+  jewelFromPage?: CrownJewelSummary | null
+  siblingPathsFromPage?: IdentityAttackPath[]
   isExpanded?: boolean
   onToggleExpand?: () => void
 }
@@ -85,6 +89,9 @@ export function AttackPathPanel({
   systemName,
   jewelId,
   pathId,
+  pathFromPage,
+  jewelFromPage,
+  siblingPathsFromPage,
   isExpanded = false,
   onToggleExpand,
 }: AttackPathPanelProps) {
@@ -114,6 +121,42 @@ export function AttackPathPanel({
     return `/api/proxy/attack-path/${encodeURIComponent(systemName)}/${encodeURIComponent(jewelId)}?path_id=${encodeURIComponent(pathId)}`
   }, [systemName, jewelId, pathId])
 
+  const fetchInit = useMemo<RequestInit | undefined>(() => {
+    if (!pathFromPage || pathFromPage.id !== pathId) return undefined
+    const sibling_paths = (siblingPathsFromPage ?? []).map((p) => ({
+      id: p.id,
+      hop_count: p.hop_count ?? p.nodes?.length ?? 0,
+      evidence_type: p.evidence_type ?? "configured",
+      severity:
+        typeof (p.severity as { overall_score?: number })?.overall_score ===
+        "number"
+          ? (p.severity as { overall_score: number }).overall_score
+          : null,
+    }))
+    return {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path_id: pathId,
+        path: pathFromPage,
+        jewel: jewelFromPage
+          ? {
+              id: jewelFromPage.id,
+              name: jewelFromPage.name,
+              type: jewelFromPage.type,
+              path_count: jewelFromPage.path_count,
+            }
+          : undefined,
+        sibling_paths,
+      }),
+    }
+  }, [
+    pathFromPage,
+    pathId,
+    siblingPathsFromPage,
+    jewelFromPage,
+  ])
+
   const {
     data: payload,
     loading,
@@ -122,7 +165,8 @@ export function AttackPathPanel({
     retrying,
     attempt,
   } = useRetryFetch<AttackPathPayload | AttackPathFacadeError>(fetchUrl, {
-    refetchKey: `${systemName}:${jewelId}:${pathId}`,
+    refetchKey: `${systemName}:${jewelId}:${pathId}:${pathFromPage ? "page" : "iap"}`,
+    fetchInit,
     maxRetries: 2,
     initialDelayMs: 1000,
   })
