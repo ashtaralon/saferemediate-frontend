@@ -560,7 +560,7 @@ export function PathAnalysisPanel({
             FLOW MAP · services on this path
           </div>
           <div className="text-[10px] text-slate-500">
-            click any service for plane-level details ↓
+            click a data resource (canvas or Storage sidebar) for damage scope
           </div>
         </div>
         {/* Fixed-height container so the map fits the 3-column panel

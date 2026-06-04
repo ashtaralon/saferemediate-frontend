@@ -7742,6 +7742,20 @@ export default function TrafficFlowMap({
         <StackSidebar
           architecture={architecture}
           onSelectResource={(resource, type) => {
+            // Attack Paths v2: Storage/DDB/RDS row click opens damage-scope
+            // drawer (same as clicking the canvas node on the right).
+            const damageScopeType = resolveDamageScopeNodeType(
+              resource as { id?: string; type?: string },
+              'resource',
+            );
+            if (onDamageScopeDataNode && damageScopeType) {
+              onDamageScopeDataNode({
+                id: resource.id,
+                name: (resource as { name?: string }).name ?? resource.id,
+                type: damageScopeType,
+              });
+              return;
+            }
             setSelectedService({ service: resource, type: type as any });
             setSelectedNodeForHops(resource.id);
             // Scroll to node on map
