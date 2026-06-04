@@ -147,8 +147,24 @@ function shortName(name: string, maxLen = 22): string {
 //   iam_policy         → IAM POLICIES (the actual grant document; IS
 //                        the finding for over-permissive paths)
 //   subnet             → SUBNETS lane (rendered as decoration column)
+//
+// AWS Config writes ConfigurationSnapshot on the same Neo4j node as the
+// live resource. Until graph-view/IAP label priority ships, infer the
+// operator-meaningful type from the ARN (fix/attacker-view-s3-render).
+function resolveGraphTypeForLane(type: string, nodeId?: string): string {
+  if ((type || "").toLowerCase() !== "configurationsnapshot") return type
+  const id = (nodeId || "").toLowerCase()
+  if (id.includes(":s3:") || id.startsWith("arn:aws:s3:::")) return "S3Bucket"
+  if (id.includes(":dynamodb:")) return "DynamoDBTable"
+  if (id.includes(":rds:")) return "RDSInstance"
+  if (id.includes(":role/") && !id.includes(":instance-profile/")) return "IAMRole"
+  if (id.includes(":instance-profile/")) return "InstanceProfile"
+  return type
+}
+
 function bucketForGraphType(
   type: string,
+  nodeId?: string,
 ):
   | "compute"
   | "resource"
@@ -163,7 +179,7 @@ function bucketForGraphType(
   | "egress_gateway"
   | "network_interface"
   | "ignore" {
-  const t = (type || "").toLowerCase()
+  const t = resolveGraphTypeForLane(type, nodeId).toLowerCase()
   if (t.includes("ec2") || t.includes("lambda") || t.includes("ecs") || t.includes("fargate"))
     return "compute"
   if (
@@ -966,7 +982,7 @@ export function buildAttackerArchitecture(
   // (fix for the "0 rules" / "0 affected" / "permission_count missing"
   // class of credibility bugs).
   for (const node of graph.nodes) {
-    const bucket = bucketForGraphType(node.type)
+    const bucket = bucketForGraphType(node.type, node.id)
     const props = (node.key_properties as Record<string, any> | undefined) ?? null
     if (bucket === "compute") addAsCompute(node.id, node.type, node.name)
     else if (bucket === "resource") addAsResource(node.id, node.type, node.name)
@@ -1095,7 +1111,7 @@ export function buildAttackerArchitecture(
   // discovered via SG fan-out etc).
   const pathNodeTypeByKey = new Map<string, string>()
   for (const node of graph.nodes) {
-    pathNodeTypeByKey.set(node.id, bucketForGraphType(node.type))
+    pathNodeTypeByKey.set(node.id, bucketForGraphType(node.type, node.id))
   }
 
   // Pre-compute the set of InstanceProfile ids that the path's IAMRole
