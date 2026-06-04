@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { buildIapIdentityAttackPathsQuery } from "@/lib/server/iap-proxy-query"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { backendNodeId } from "@/lib/iap-node-id"
 
@@ -131,9 +132,11 @@ export async function GET(
     // No envelope — facade just needs paths/crown_jewels at the top
     // level. envelope=true wraps in { provenance, result } which the
     // page-level fetch unwraps; for our internal join we skip it.
+    // 8×8 — same backend cache key as the page-level identity-attack-paths
+    // proxy (defaults). 12×12 was a guaranteed Redis miss on every path click.
     const url =
       `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}` +
-      `?max_jewels=12&max_paths_per_jewel=12&enriched=true`
+      buildIapIdentityAttackPathsQuery({ enriched: true })
     const t0 = Date.now()
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
