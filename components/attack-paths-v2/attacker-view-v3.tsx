@@ -37,6 +37,7 @@ import {
   fetchChainsForCJ,
   triggerAttackChainsMaterialization,
 } from "@/lib/api-client"
+import { backendNodeId } from "@/lib/iap-node-id"
 import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
 } from "@/components/dependency-map/traffic-flow-map"
@@ -556,10 +557,7 @@ function ChainFlowMapSection({
       name: n.name,
       type: n.type,
     }))
-    const nodeIds = pathNodes.map((n) => {
-      const cid = (n as { canonical_id?: string | null }).canonical_id
-      return typeof cid === "string" && cid.length > 0 ? cid : n.id
-    })
+    const nodeIds = pathNodes.map((n) => backendNodeId(n))
     const pathEdges = (chain.hops || []).map((h) => ({
       source: h.source_id,
       target: h.target_id,

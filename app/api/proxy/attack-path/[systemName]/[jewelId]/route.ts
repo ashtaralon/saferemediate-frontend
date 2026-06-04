@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { backendNodeId } from "@/lib/iap-node-id"
 
 // =============================================================================
 // Unified Attack Path facade — strangler-pattern endpoint
@@ -199,10 +200,7 @@ export async function GET(
   // Step 2: POST the selected path's nodes + edges to graph-view to get
   // the rich canvas data (lateral fan-outs, on_path flags, provenance).
   // -----------------------------------------------------------------------
-  const nodeIds = selectedPath.nodes.map((n) => {
-    const cid = (n as { canonical_id?: string | null }).canonical_id
-    return typeof cid === "string" && cid.length > 0 ? cid : n.id
-  })
+  const nodeIds = selectedPath.nodes.map((n) => backendNodeId(n))
   const pathEdges = selectedPath.edges.map((e) => ({
     source: e.source,
     target: e.target,
