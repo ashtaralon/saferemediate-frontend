@@ -13,7 +13,7 @@
 // polyline. This is the same TrafficFlowMap renderer we use in the
 // existing attack-paths drill-in, just embedded smaller.
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles, Maximize2, Minimize2, AlertOctagon } from "lucide-react"
 import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
@@ -28,6 +28,10 @@ import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-p
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
+import {
+  DamageScopeDrawer,
+  type DamageScopeTarget,
+} from "./damage-scope-drawer"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -109,6 +113,11 @@ export function PathAnalysisPanel({
   architecture,
   canvasV2 = false,
 }: PathAnalysisPanelProps) {
+  const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
+    null,
+  )
+  const [damageScopeOpen, setDamageScopeOpen] = useState(false)
+
   // Build the TrafficFlowMap pathFilter shape from the path's nodes
   // and edges. The filter tells the map "show only these nodes; draw
   // the polyline through these checkpoint hops." applyPathFilter()
@@ -591,6 +600,16 @@ export function PathAnalysisPanel({
               jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
               canvasV2={canvasV2}
               entryNodeId={canvasV2 ? start?.id : undefined}
+              onDamageScopeDataNode={(node) => {
+                setDamageScopeTarget({
+                  nodeId: node.id,
+                  nodeName: node.name,
+                  nodeType: node.type,
+                  systemName,
+                  pathId: path.id,
+                })
+                setDamageScopeOpen(true)
+              }}
             />
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
@@ -650,6 +669,12 @@ export function PathAnalysisPanel({
         {/* Slice 4 — live hardening recommendations */}
         <HardeningPanel path={path} systemName={systemName} />
       </div>
+
+      <DamageScopeDrawer
+        target={damageScopeTarget}
+        open={damageScopeOpen}
+        onOpenChange={setDamageScopeOpen}
+      />
     </div>
   )
 }
