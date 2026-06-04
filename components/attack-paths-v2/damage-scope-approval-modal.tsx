@@ -17,6 +17,7 @@ import type { DamageScopePayload } from "./damage-scope-drawer"
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  portalContainer?: HTMLElement | null
   lpConfidence: DamageScopePayload["lp_confidence"]
   remediationAction: DamageScopePayload["remediation_action"]
   roleName: string
@@ -33,6 +34,7 @@ function levelBadgeClass(level: string) {
 export function DamageScopeApprovalModal({
   open,
   onOpenChange,
+  portalContainer,
   lpConfidence,
   remediationAction,
   roleName,
@@ -83,6 +85,7 @@ export function DamageScopeApprovalModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        container={portalContainer}
         className="sm:max-w-md bg-slate-950 border-slate-800 text-slate-100"
         data-testid="damage-scope-approval-modal"
       >

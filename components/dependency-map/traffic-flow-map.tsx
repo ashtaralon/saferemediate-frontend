@@ -5996,6 +5996,7 @@ export default function TrafficFlowMap({
   jewelSeverity,
   canvasV2 = false,
   entryNodeId,
+  fullscreenContainerRef,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -6070,6 +6071,8 @@ export default function TrafficFlowMap({
   // "ENTRY" chip overlay on the matching card. When canvasV2 is off
   // or the prop is undefined, no chip renders.
   entryNodeId?: string;
+  /** Set to the canvas root while in browser fullscreen (for Radix portal container). */
+  fullscreenContainerRef?: React.MutableRefObject<HTMLDivElement | null>;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -7710,6 +7713,34 @@ export default function TrafficFlowMap({
     }
   }, []);
 
+  useEffect(() => {
+    if (!fullscreenContainerRef) return;
+    if (isFullscreen && containerRef.current) {
+      fullscreenContainerRef.current = containerRef.current;
+    } else if (!document.fullscreenElement) {
+      fullscreenContainerRef.current = null;
+    }
+  }, [isFullscreen, fullscreenContainerRef]);
+
+  useEffect(() => {
+    if (!fullscreenContainerRef) return;
+    const onFullscreenChange = () => {
+      if (
+        document.fullscreenElement instanceof HTMLElement &&
+        containerRef.current &&
+        document.fullscreenElement === containerRef.current
+      ) {
+        fullscreenContainerRef.current = containerRef.current;
+        setIsFullscreen(true);
+      } else {
+        fullscreenContainerRef.current = null;
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [fullscreenContainerRef]);
+
   if (loading && !architecture) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-slate-900">
@@ -8000,7 +8031,10 @@ export default function TrafficFlowMap({
 
           {/* Fullscreen toggle */}
           <button
+            type="button"
             onClick={toggleFullscreen}
+            data-testid="canvas-fullscreen-toggle"
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium"
           >
             {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}

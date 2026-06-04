@@ -13,7 +13,7 @@
 // polyline. This is the same TrafficFlowMap renderer we use in the
 // existing attack-paths drill-in, just embedded smaller.
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { Crown, ChevronRight, ShieldAlert, AlertTriangle, Sparkles, Maximize2, Minimize2, AlertOctagon } from "lucide-react"
 import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
@@ -117,6 +117,7 @@ export function PathAnalysisPanel({
     null,
   )
   const [damageScopeOpen, setDamageScopeOpen] = useState(false)
+  const damageScopePortalContainerRef = useRef<HTMLDivElement | null>(null)
 
   // Build the TrafficFlowMap pathFilter shape from the path's nodes
   // and edges. The filter tells the map "show only these nodes; draw
@@ -600,6 +601,7 @@ export function PathAnalysisPanel({
               jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
               canvasV2={canvasV2}
               entryNodeId={canvasV2 ? start?.id : undefined}
+              fullscreenContainerRef={damageScopePortalContainerRef}
               onDamageScopeDataNode={(node) => {
                 setDamageScopeTarget({
                   nodeId: node.id,
@@ -674,6 +676,7 @@ export function PathAnalysisPanel({
         target={damageScopeTarget}
         open={damageScopeOpen}
         onOpenChange={setDamageScopeOpen}
+        portalContainerRef={damageScopePortalContainerRef}
       />
     </div>
   )
