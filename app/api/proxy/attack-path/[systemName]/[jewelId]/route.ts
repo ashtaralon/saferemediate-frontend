@@ -199,7 +199,10 @@ export async function GET(
   // Step 2: POST the selected path's nodes + edges to graph-view to get
   // the rich canvas data (lateral fan-outs, on_path flags, provenance).
   // -----------------------------------------------------------------------
-  const nodeIds = selectedPath.nodes.map((n) => n.id)
+  const nodeIds = selectedPath.nodes.map((n) => {
+    const cid = (n as { canonical_id?: string | null }).canonical_id
+    return typeof cid === "string" && cid.length > 0 ? cid : n.id
+  })
   const pathEdges = selectedPath.edges.map((e) => ({
     source: e.source,
     target: e.target,

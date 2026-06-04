@@ -556,7 +556,10 @@ function ChainFlowMapSection({
       name: n.name,
       type: n.type,
     }))
-    const nodeIds = pathNodes.map((n) => n.id)
+    const nodeIds = pathNodes.map((n) => {
+      const cid = (n as { canonical_id?: string | null }).canonical_id
+      return typeof cid === "string" && cid.length > 0 ? cid : n.id
+    })
     const pathEdges = (chain.hops || []).map((h) => ({
       source: h.source_id,
       target: h.target_id,
