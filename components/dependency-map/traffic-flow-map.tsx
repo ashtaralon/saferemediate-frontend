@@ -5960,6 +5960,23 @@ const DAMAGE_SCOPE_DATA_TYPES = new Set([
   'SecretsManagerSecret',
 ]);
 
+/** Canvas ServiceNode.type is NodeType (storage/database); backend expects S3Bucket etc. */
+function resolveDamageScopeNodeType(
+  service: { id?: string; type?: string },
+  laneType: string,
+): string | null {
+  if (laneType !== 'resource') return null
+  const t = String(service.type || '')
+  const id = String(service.id || '').toLowerCase()
+  if (DAMAGE_SCOPE_DATA_TYPES.has(t)) return t
+  if (t === 'storage' || id.includes(':s3:') || id.includes('s3:::')) return 'S3Bucket'
+  if (t === 'dynamodb' || id.includes('dynamodb')) return 'DynamoDBTable'
+  if (t === 'database' || id.includes(':rds:')) return 'RDSInstance'
+  if (id.includes('kms') || t.includes('kms')) return 'KMSKey'
+  if (id.includes('secretsmanager')) return 'SecretsManagerSecret'
+  return null
+}
+
 export default function TrafficFlowMap({
   systemName,
   pathFilter,
@@ -8011,16 +8028,12 @@ export default function TrafficFlowMap({
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
-              const nodeType = String((service as { type?: string }).type || '');
-              if (
-                onDamageScopeDataNode &&
-                type === 'resource' &&
-                DAMAGE_SCOPE_DATA_TYPES.has(nodeType)
-              ) {
+              const damageScopeType = resolveDamageScopeNodeType(service, type);
+              if (onDamageScopeDataNode && damageScopeType) {
                 onDamageScopeDataNode({
                   id: service.id,
                   name: (service as { name?: string }).name ?? service.id,
-                  type: nodeType,
+                  type: damageScopeType,
                 });
                 return;
               }
