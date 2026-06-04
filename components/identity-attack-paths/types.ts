@@ -339,6 +339,8 @@ export interface NodeFinding {
 
 export interface PathNodeDetail {
   id: string
+  /** ARN preferred for canvas / graph-view backend lookups (PR #63). */
+  canonical_id?: string | null
   name: string
   type: string
   tier: "entry" | "identity" | "network_control" | "crown_jewel"
@@ -579,6 +581,8 @@ export interface IdentityAttackPath {
 
 export interface CrownJewelSummary {
   id: string
+  /** ARN preferred for canvas / graph-view backend lookups (PR #63). */
+  canonical_id?: string | null
   name: string
   type: string
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"

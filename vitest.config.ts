@@ -9,7 +9,11 @@ import path from 'node:path'
 export default defineConfig({
   test: {
     environment: 'happy-dom',
-    include: ['__tests__/**/*.test.ts', '__tests__/**/*.test.tsx'],
+    include: [
+      '__tests__/**/*.test.ts',
+      '__tests__/**/*.test.tsx',
+      'tests/integration/**/*.spec.ts',
+    ],
     // describe/it/expect available without import — keeps existing
     // sg-inspector.test.ts and the new instance-profile-routing tests
     // working with their Jest-style implicit globals.
