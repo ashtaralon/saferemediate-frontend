@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "start": "next start",
     "test": "vitest run",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(!pkg.dependencies.next.startsWith('16.1')) { console.error('ERROR: Next.js must be 16.1.x'); process.exit(1); } else { console.log('✅ Next.js version is secure'); }\""
   },
   "dependencies": {

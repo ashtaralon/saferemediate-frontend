@@ -7212,6 +7212,26 @@ export default function TrafficFlowMap({
     };
   }, []);
 
+  // Transform inspector API configured_rules → SGRule (shared by per-SG and bulk).
+  const mapInspectorRulesToSGRules = useCallback((configuredRules: any[]): SGRule[] => {
+    return configuredRules.map((rule: any) => {
+      const isInbound = rule.direction === 'inbound' || rule.direction === 'ingress';
+      return {
+        direction: isInbound ? 'ingress' : 'egress',
+        protocol: rule.protocol || rule.proto || 'tcp',
+        fromPort: rule.from_port,
+        toPort: rule.to_port,
+        portDisplay: rule.port_display || (rule.from_port === rule.to_port ? String(rule.from_port || 'All') : `${rule.from_port}-${rule.to_port}`),
+        source: rule.source_cidr || rule.source_sg || rule.peer_value || 'unknown',
+        sourceType: rule.source_type || (rule.source_sg ? 'security_group' : 'cidr'),
+        status: rule.status || 'unknown',
+        flowCount: rule.flow_count || 0,
+        lastSeen: rule.last_seen || null,
+        isPublic: rule.is_public || (rule.source_cidr === '0.0.0.0/0'),
+      };
+    });
+  }, []);
+
   // Fetch real SG rules from inspector API
   const fetchSGRules = useCallback(async (sgId: string): Promise<SGRule[]> => {
     try {
@@ -7219,43 +7239,12 @@ export default function TrafficFlowMap({
       if (!res.ok) return [];
 
       const data = await res.json();
-      const configuredRules = data.configured_rules || [];
-
-      // Transform API response to our SGRule interface.
-      //
-      // Direction mapping bug fix (2026-05-21): the inspector v2 returns
-      // direction='inbound' / 'outbound' (AWS-canonical names) but the
-      // frontend SGRule interface and the SecurityGroupPanel filters
-      // expect 'ingress' / 'egress' (Cypher-canonical names). The old
-      // ternary `=== 'ingress' ? 'ingress' : 'egress'` evaluated false
-      // on every 'inbound' value, so every inbound rule got labelled
-      // egress. Visible symptom: SecurityGroupPanel rendered 0 inbound
-      // rules + N "egress" rules (which were really inbound), and the
-      // chip's "↓N in / ↑N out" badge always read 0 in.
-      //
-      // Accept both vocabularies on the inspector side; emit the
-      // Cypher-canonical names on the SGRule side.
-      return configuredRules.map((rule: any) => {
-        const isInbound = rule.direction === 'inbound' || rule.direction === 'ingress';
-        return {
-          direction: isInbound ? 'ingress' : 'egress',
-          protocol: rule.protocol || rule.proto || 'tcp',
-          fromPort: rule.from_port,
-          toPort: rule.to_port,
-          portDisplay: rule.port_display || (rule.from_port === rule.to_port ? String(rule.from_port || 'All') : `${rule.from_port}-${rule.to_port}`),
-          source: rule.source_cidr || rule.source_sg || rule.peer_value || 'unknown',
-          sourceType: rule.source_type || (rule.source_sg ? 'security_group' : 'cidr'),
-          status: rule.status || 'unknown',
-          flowCount: rule.flow_count || 0,
-          lastSeen: rule.last_seen || null,
-          isPublic: rule.is_public || (rule.source_cidr === '0.0.0.0/0'),
-        };
-      });
+      return mapInspectorRulesToSGRules(data.configured_rules || []);
     } catch (err) {
       console.error(`Failed to fetch rules for SG ${sgId}:`, err);
       return [];
     }
-  }, []);
+  }, [mapInspectorRulesToSGRules]);
 
   // Fetch IAM role gap analysis data
   const fetchIAMRoleData = useCallback(async (roleName: string): Promise<{
@@ -7393,16 +7382,43 @@ export default function TrafficFlowMap({
     // does NOT block the architecture render.
     if (archForGaps.iamRoles.length > 0) {
       console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
-      Promise.all(
-        archForGaps.iamRoles.map(role =>
-          fetchIAMRoleData(role.name)
-            .then(data => ({ roleId: role.id, ...data }))
-            .catch(err => {
-              console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
-              return null;
-            }),
-        ),
-      ).then(iamResults => {
+      const loadIamEnrichment = async () => {
+        const roleNames = archForGaps.iamRoles.map(r => r.name);
+        try {
+          const bulkRes = await fetch('/api/proxy/iam-roles/gap-analysis/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role_names: roleNames, days: 365 }),
+          });
+          if (!bulkRes.ok) throw new Error(`bulk IAM ${bulkRes.status}`);
+          const bulk = await bulkRes.json();
+          return archForGaps.iamRoles.map(role => {
+            const data = bulk.results?.[role.name];
+            if (!data) return null;
+            const summary = data.summary || {};
+            return {
+              roleId: role.id,
+              usedCount: summary.used_count || data.used_count || 0,
+              totalCount: summary.total_permissions || summary.allowed_count || data.allowed_count || 0,
+              gapCount: summary.unused_count || data.unused_count || 0,
+              lpScore: summary.lp_score || 0,
+            };
+          });
+        } catch (bulkErr) {
+          console.warn('[TrafficFlowMap] IAM bulk fetch failed, falling back to per-role:', bulkErr);
+          return Promise.all(
+            archForGaps.iamRoles.map(role =>
+              fetchIAMRoleData(role.name)
+                .then(data => ({ roleId: role.id, ...data }))
+                .catch(err => {
+                  console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
+                  return null;
+                }),
+            ),
+          );
+        }
+      };
+      loadIamEnrichment().then(iamResults => {
         // Guard against stale enrichment: if a newer runEnrichment ran while
         // these IAM lookups were in flight, the architecture state has
         // since been replaced. Don't overwrite it with our stale data.
@@ -7430,16 +7446,37 @@ export default function TrafficFlowMap({
     // Background SG rules enrichment (parallel to IAM). Fires-and-
     // forgets; doesn't block architecture render.
     if (archForGaps.securityGroups.length > 0) {
-      Promise.all(
-        archForGaps.securityGroups.map(sg =>
-          fetchSGRules(sg.id)
-            .then(rules => ({ sgId: sg.id, rules }))
-            .catch(err => {
-              console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
-              return null;
-            }),
-        ),
-      ).then(sgRulesResults => {
+      const loadSgEnrichment = async () => {
+        const sgIds = archForGaps.securityGroups.map(sg => sg.id);
+        try {
+          const bulkRes = await fetch('/api/proxy/security-groups/inspector/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sg_ids: sgIds, window: '30d' }),
+          });
+          if (!bulkRes.ok) throw new Error(`bulk SG ${bulkRes.status}`);
+          const bulk = await bulkRes.json();
+          return archForGaps.securityGroups.map(sg => {
+            const data = bulk.results?.[sg.id];
+            if (!data) return null;
+            const rules = mapInspectorRulesToSGRules(data.configured_rules || []);
+            return { sgId: sg.id, rules };
+          });
+        } catch (bulkErr) {
+          console.warn('[TrafficFlowMap] SG bulk fetch failed, falling back to per-SG:', bulkErr);
+          return Promise.all(
+            archForGaps.securityGroups.map(sg =>
+              fetchSGRules(sg.id)
+                .then(rules => ({ sgId: sg.id, rules }))
+                .catch(err => {
+                  console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
+                  return null;
+                }),
+            ),
+          );
+        }
+      };
+      loadSgEnrichment().then(sgRulesResults => {
         if (fetchEpochRef.current !== myEpoch) {
           console.log('[TrafficFlowMap] SG enrichment skipped — superseded by newer fetch');
           return;
@@ -7478,7 +7515,7 @@ export default function TrafficFlowMap({
     } else {
       setRefreshStatus('idle');
     }
-  }, [buildArchitecture, fetchSGRules, fetchIAMRoleData]);
+  }, [buildArchitecture, fetchSGRules, fetchIAMRoleData, mapInspectorRulesToSGRules]);
 
   // Drive runEnrichment off the cached dep-map data. Fires on initial
   // mount (when localStorage has cache, this runs synchronously with the
