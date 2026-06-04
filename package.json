@@ -10,7 +10,7 @@
     "start": "next start",
     "test": "vitest run",
     "test:integration": "vitest run tests/integration",
-    "test:e2e": "playwright test tests/integration/damage-scope-drawer-live.spec.ts",
+    "test:e2e": "playwright test tests/integration/damage-scope-handoff-live.spec.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(!pkg.dependencies.next.startsWith('16.1')) { console.error('ERROR: Next.js must be 16.1.x'); process.exit(1); } else { console.log('✅ Next.js version is secure'); }\""
@@ -81,6 +81,7 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@tailwindcss/postcss": "^4.1.9",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",

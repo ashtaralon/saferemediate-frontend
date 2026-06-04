@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Loader2 } from "lucide-react"
-import { DamageScopeApprovalModal } from "./damage-scope-approval-modal"
+import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
 
 export type DamageScopeTarget = {
   nodeId: string
@@ -50,6 +50,12 @@ export type DamageScopePayload = {
     method: string
     payload: Record<string, unknown>
   }
+}
+
+function extractRoleName(arn: string | undefined): string {
+  if (!arn) return ""
+  const m = arn.match(/\/role\/([^/]+)/)
+  return m ? m[1] : arn.split("/").pop() || arn
 }
 
 function severityFromPercent(pct: number): "LOW" | "MEDIUM" | "HIGH" {
@@ -236,7 +242,7 @@ export function DamageScopeDrawer({
                 data-testid="damage-scope-cta"
                 onClick={() => setApprovalOpen(true)}
               >
-                Review & approve remediation
+                Open LP analysis
               </Button>
             </div>
           )}
@@ -244,16 +250,17 @@ export function DamageScopeDrawer({
       </Sheet>
 
       {data && target && (
-        <DamageScopeApprovalModal
-          open={approvalOpen}
-          onOpenChange={setApprovalOpen}
-          portalContainer={portalContainer}
-          lpConfidence={data.lp_confidence}
-          remediationAction={data.remediation_action}
-          roleName={String(data.remediation_action.payload.role_name || "")}
-          onSuccess={() => {
+        <IAMPermissionAnalysisModal
+          isOpen={approvalOpen}
+          onClose={() => setApprovalOpen(false)}
+          roleName={
+            String(data.remediation_action.payload.role_name || "") ||
+            extractRoleName(data.principal_arn)
+          }
+          systemName={target.systemName}
+          identityType="IAMRole"
+          onRemediationSuccess={() => {
             setApprovalOpen(false)
-            onOpenChange(false)
           }}
         />
       )}
