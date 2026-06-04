@@ -45,6 +45,45 @@ test.describe("damage-scope drawer live", () => {
     await expect(page.getByTestId("lp-confidence-level")).toBeVisible()
   })
 
+  test("drawer opens in fullscreen canvas and is inside fullscreen subtree", async ({
+    page,
+  }) => {
+    let target = page.locator("[data-resource-id]").filter({ hasText: BUCKET_LABEL }).first()
+    if ((await target.count()) === 0) {
+      target = page.getByText(BUCKET_LABEL).first()
+    }
+    if ((await target.count()) === 0) {
+      test.skip(true, "saferemediate-logs node not visible on canvas")
+    }
+
+    await page.getByTestId("canvas-fullscreen-toggle").click()
+    await page.waitForFunction(() => !!document.fullscreenElement, null, {
+      timeout: 15_000,
+    })
+
+    await target.click()
+
+    const drawer = page.getByTestId("damage-scope-drawer")
+    await expect(drawer).toBeVisible({ timeout: 60_000 })
+    await expect(drawer.getByText("Damage scope")).toBeVisible()
+    await expect(drawer.getByTestId("damage-reduction-badge")).toBeVisible()
+
+    const insideFullscreen = await page.evaluate(() => {
+      const fs = document.fullscreenElement
+      const el = document.querySelector('[data-testid="damage-scope-drawer"]')
+      return !!(fs && el && fs.contains(el))
+    })
+    expect(insideFullscreen).toBe(true)
+
+    await page.getByRole("button", { name: "Close" }).first().click()
+    await expect(drawer).not.toBeVisible({ timeout: 10_000 })
+
+    await page.evaluate(() => document.exitFullscreen())
+    await page.waitForFunction(() => !document.fullscreenElement, null, {
+      timeout: 10_000,
+    })
+  })
+
   test("shadow button calls iam remediate with mode shadow", async ({ page }) => {
     const bucket = page.getByText(BUCKET_LABEL).first()
     if ((await bucket.count()) === 0) {

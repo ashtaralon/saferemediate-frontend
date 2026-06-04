@@ -96,13 +96,34 @@ type DamageScopeDrawerProps = {
   target: DamageScopeTarget | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Canvas root while in browser fullscreen — Sheet portal targets this subtree. */
+  portalContainerRef?: React.MutableRefObject<HTMLDivElement | null>
 }
 
-export function DamageScopeDrawer({ target, open, onOpenChange }: DamageScopeDrawerProps) {
+export function DamageScopeDrawer({
+  target,
+  open,
+  onOpenChange,
+  portalContainerRef,
+}: DamageScopeDrawerProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<DamageScopePayload | null>(null)
   const [approvalOpen, setApprovalOpen] = useState(false)
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const syncPortal = () => {
+      setPortalContainer(portalContainerRef?.current ?? null)
+    }
+    syncPortal()
+    document.addEventListener("fullscreenchange", syncPortal)
+    return () => document.removeEventListener("fullscreenchange", syncPortal)
+  }, [portalContainerRef])
+
+  useEffect(() => {
+    if (open) setPortalContainer(portalContainerRef?.current ?? null)
+  }, [open, portalContainerRef])
 
   const fetchScope = useCallback(async (t: DamageScopeTarget) => {
     setLoading(true)
@@ -153,6 +174,7 @@ export function DamageScopeDrawer({ target, open, onOpenChange }: DamageScopeDra
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="right"
+          container={portalContainer}
           className="w-full sm:max-w-[480px] bg-slate-950 border-slate-800 text-slate-100 overflow-y-auto"
           data-testid="damage-scope-drawer"
         >
@@ -225,6 +247,7 @@ export function DamageScopeDrawer({ target, open, onOpenChange }: DamageScopeDra
         <DamageScopeApprovalModal
           open={approvalOpen}
           onOpenChange={setApprovalOpen}
+          portalContainer={portalContainer}
           lpConfidence={data.lp_confidence}
           remediationAction={data.remediation_action}
           roleName={String(data.remediation_action.payload.role_name || "")}
