@@ -5952,10 +5952,19 @@ export type OnPathNodeAction = (
   },
 ) => void;
 
+const DAMAGE_SCOPE_DATA_TYPES = new Set([
+  'S3Bucket',
+  'DynamoDBTable',
+  'RDSInstance',
+  'KMSKey',
+  'SecretsManagerSecret',
+]);
+
 export default function TrafficFlowMap({
   systemName,
   pathFilter,
   onPathNodeAction,
+  onDamageScopeDataNode,
   exfilByWorkloadId,
   architectureOverride,
   titleOverride,
@@ -5974,6 +5983,8 @@ export default function TrafficFlowMap({
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
   onPathNodeAction?: OnPathNodeAction;
+  /** Data-plane nodes (S3, DDB, RDS, KMS, Secrets) → damage-scope drawer */
+  onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
@@ -8000,6 +8011,19 @@ export default function TrafficFlowMap({
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
+              const nodeType = String((service as { type?: string }).type || '');
+              if (
+                onDamageScopeDataNode &&
+                type === 'resource' &&
+                DAMAGE_SCOPE_DATA_TYPES.has(nodeType)
+              ) {
+                onDamageScopeDataNode({
+                  id: service.id,
+                  name: (service as { name?: string }).name ?? service.id,
+                  type: nodeType,
+                });
+                return;
+              }
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the
               // right remediation modal per node type.
