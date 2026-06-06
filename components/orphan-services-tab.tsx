@@ -72,6 +72,9 @@ interface OrphanResource {
   isInternetFacing: boolean
   hasEncryption: boolean | null
   totalPermissions: number
+  evidenceSources?: Array<"cloudtrail" | "flow_logs" | "access_advisor" | "graph_only">
+  telemetryConfidence?: "confirmed" | "probable" | "assumed"
+  missingEvidenceSources?: string[]
 }
 
 interface ConfidenceSignal {
@@ -196,6 +199,38 @@ const CONFIDENCE_COLORS = {
   HIGH: "text-[#22c55e]",
   MEDIUM: "text-[#f97316]",
   LOW: "text-[#6b7280]",
+}
+
+const TELEMETRY_CONFIDENCE_CHIP = {
+  confirmed: { label: "Confirmed", className: "bg-[#22c55e15] text-[#22c55e] border-[#22c55e30]" },
+  probable: { label: "Probable", className: "bg-[#eab30815] text-[#ca8a04] border-[#eab30830]" },
+  assumed: { label: "Assumed", className: "bg-[#eab30815] text-[#ca8a04] border-[#eab30830]" },
+} as const
+
+const EVIDENCE_SOURCE_LABELS: Record<string, string> = {
+  cloudtrail: "CloudTrail",
+  flow_logs: "Flow Logs",
+  access_advisor: "Access Advisor",
+  graph_only: "Graph only",
+}
+
+function awsConsoleUrl(orphan: OrphanResource): string {
+  const region = orphan.region || "eu-west-1"
+  switch (orphan.type) {
+    case "S3":
+    case "S3Bucket":
+      return `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(orphan.name)}?region=${region}`
+    case "Lambda":
+    case "LambdaFunction":
+      return `https://${region}.console.aws.amazon.com/lambda/home?region=${region}#/functions/${encodeURIComponent(orphan.name)}`
+    case "RDS":
+    case "RDSInstance":
+      return `https://${region}.console.aws.amazon.com/rds/home?region=${region}#database:id=${encodeURIComponent(orphan.name)}`
+    case "SecurityGroup":
+      return `https://${region}.console.aws.amazon.com/ec2/home?region=${region}#SecurityGroup:`
+    default:
+      return `https://${region}.console.aws.amazon.com/console/home?region=${region}`
+  }
 }
 
 const RECOMMENDATION_CONFIG = {
@@ -763,7 +798,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--muted-foreground,#6b7280)]">
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : `${orphan.idleDays}d idle (no activity ever)`}</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : "no telemetry — assumed idle (verify in AWS console)"}</span>
                             <span>{orphan.region}</span>
                             {orphan.lastUsedBy && <span>Last used by: {orphan.lastUsedBy}</span>}
                           </div>
@@ -782,6 +817,19 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                           {orphan.estimatedMonthlyCost > 0 && (
                             <span className="text-xs font-medium text-[#22c55e] bg-[#22c55e10] px-2 py-1 rounded">
                               ${orphan.estimatedMonthlyCost}/mo
+                            </span>
+                          )}
+                          {orphan.telemetryConfidence && (
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border flex items-center gap-1 ${TELEMETRY_CONFIDENCE_CHIP[orphan.telemetryConfidence].className}`}
+                              title={
+                                orphan.evidenceSources?.length
+                                  ? `Sources: ${orphan.evidenceSources.map(s => EVIDENCE_SOURCE_LABELS[s] || s).join(", ")}`
+                                  : "No Cyntro telemetry — verify in AWS console before deleting"
+                              }
+                            >
+                              {orphan.telemetryConfidence === "assumed" && <AlertTriangle className="w-3 h-3" />}
+                              {TELEMETRY_CONFIDENCE_CHIP[orphan.telemetryConfidence].label}
                             </span>
                           )}
                           <span className={`text-[10px] font-semibold px-2 py-1 rounded border ${riskClass}`}>
@@ -807,7 +855,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Idle Duration</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? `${orphan.idleDays} days since last activity` : 'No activity ever recorded'}</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? `${orphan.idleDays} days since last activity` : 'No telemetry — idle duration assumed'}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Connections</div>
@@ -815,11 +863,29 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Evidence Sources</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? 'CloudTrail · Flow Logs · Access Advisor' : 'No evidence found in any source'}</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">
+                                  {orphan.evidenceSources?.length
+                                    ? orphan.evidenceSources.map(s => EVIDENCE_SOURCE_LABELS[s] || s).join(" · ")
+                                    : "No telemetry sources"}
+                                </div>
+                                {orphan.missingEvidenceSources && orphan.missingEvidenceSources.length > 0 && (
+                                  <div className="text-[10px] text-[#ca8a04] mt-0.5">Missing: {orphan.missingEvidenceSources.join(", ")}</div>
+                                )}
                               </div>
                               <div>
-                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Confidence</div>
-                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {!orphan.lastSeen ? 'No activity across any evidence plane' : orphan.idleDays >= 180 ? `${Math.floor(orphan.idleDays / 30)}+ months since last activity` : `${orphan.idleDays} days since last observed activity`}</div>
+                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Telemetry Confidence</div>
+                                <div className={`font-medium flex items-center gap-1 ${orphan.telemetryConfidence === "confirmed" ? "text-[#22c55e]" : "text-[#ca8a04]"}`}>
+                                  {orphan.telemetryConfidence === "assumed" && <AlertTriangle className="w-3.5 h-3.5" />}
+                                  {orphan.telemetryConfidence
+                                    ? TELEMETRY_CONFIDENCE_CHIP[orphan.telemetryConfidence].label
+                                    : orphan.confidence}
+                                  {" — "}
+                                  {!orphan.lastSeen
+                                    ? "No Cyntro telemetry; verify in AWS console"
+                                    : orphan.idleDays >= 180
+                                      ? `${Math.floor(orphan.idleDays / 30)}+ months since last activity`
+                                      : `${orphan.idleDays} days since last observed activity`}
+                                </div>
                               </div>
                             </div>
 
@@ -1260,6 +1326,27 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                       </div>
                     ))}
                   </div>
+
+                  {/* Assumed-confidence telemetry warning */}
+                  {preCheckModal.orphan.telemetryConfidence === "assumed" && (
+                    <div className="flex items-start gap-2 p-3 bg-[#eab30815] border border-[#eab30840] rounded-lg">
+                      <AlertTriangle className="w-4 h-4 text-[#ca8a04] mt-0.5 shrink-0" />
+                      <div className="text-xs text-[#92400e] space-y-1">
+                        <p className="font-semibold">No Cyntro telemetry for this resource — verify in AWS console first.</p>
+                        {preCheckModal.orphan.missingEvidenceSources && preCheckModal.orphan.missingEvidenceSources.length > 0 && (
+                          <p>Missing sources: {preCheckModal.orphan.missingEvidenceSources.join(", ")}</p>
+                        )}
+                        <a
+                          href={awsConsoleUrl(preCheckModal.orphan)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[#b45309] underline font-medium"
+                        >
+                          Open in AWS Console
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Warnings */}
                   {preCheckModal.safetyScore.warnings.length > 0 && (
