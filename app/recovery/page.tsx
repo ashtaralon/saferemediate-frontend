@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
+import { BackToDashboard } from '@/components/back-to-dashboard';
 
 interface Snapshot {
   snapshot_id: string;
@@ -227,11 +228,14 @@ export default function RecoveryTab() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Recovery & Restore</h1>
-        <p className="text-gray-600">
-          Restore resources to their previous state using snapshots taken before remediation.
-        </p>
+      <div className="mb-6 flex items-start gap-3">
+        <BackToDashboard className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-0.5 shrink-0" />
+        <div>
+          <h1 className="text-2xl font-bold mb-2">Recovery & Restore</h1>
+          <p className="text-gray-600">
+            Restore resources to their previous state using snapshots taken before remediation.
+          </p>
+        </div>
       </div>
 
       {snapshots.length === 0 ? (

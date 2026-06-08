@@ -13,19 +13,26 @@
  */
 
 import { PendingApprovals } from "@/components/pending-approvals"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 
 export default function PendingTagsPage() {
   return (
     <div className="min-h-screen bg-slate-950 p-8">
       <div className="max-w-5xl mx-auto">
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Pending Tag Approvals</h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Resources flagged by the auto-tagger that require human review before being attributed to a system.
-            Edges like <code className="text-slate-300 bg-slate-800/80 px-1.5 rounded">ACTUAL_TRAFFIC</code> and{" "}
-            <code className="text-slate-300 bg-slate-800/80 px-1.5 rounded">ACCESSES_RESOURCE</code> produce behavioral
-            candidates that never auto-tag — they wait here for explicit approval.
-          </p>
+        <header className="mb-6 flex items-start gap-3">
+          <BackToDashboard
+            className="p-2 -ml-2 rounded-lg hover:bg-slate-800 transition-colors mt-1 shrink-0"
+            iconClassName="w-5 h-5 text-slate-300"
+          />
+          <div>
+            <h1 className="text-2xl font-bold text-white">Pending Tag Approvals</h1>
+            <p className="text-slate-400 text-sm mt-1">
+              Resources flagged by the auto-tagger that require human review before being attributed to a system.
+              Edges like <code className="text-slate-300 bg-slate-800/80 px-1.5 rounded">ACTUAL_TRAFFIC</code> and{" "}
+              <code className="text-slate-300 bg-slate-800/80 px-1.5 rounded">ACCESSES_RESOURCE</code> produce behavioral
+              candidates that never auto-tag — they wait here for explicit approval.
+            </p>
+          </div>
         </header>
         {/* No systemName prop → shows pending tags across all systems */}
         <PendingApprovals />

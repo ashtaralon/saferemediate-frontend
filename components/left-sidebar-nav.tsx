@@ -2,7 +2,8 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map } from "lucide-react"
 
 interface LeftSidebarNavProps {
   activeItem?: string
@@ -11,12 +12,57 @@ interface LeftSidebarNavProps {
   pendingTagsCount?: number
 }
 
+/** Live narrowing-available count across both shared-resource endpoints.
+ *  Per docs/shared-resources-real-data-wiring.md §4 (backend repo):
+ *  N = SUM(headline_state === "narrowing_available") across
+ *  /api/iam/shared-roles + /api/sg/shared-sgs. Renders 4 today on
+ *  alon-prod (3 IAM + 1 SG, empirically verified 2026-06-01). Honest
+ *  small number per the spec's substrate-honesty contract. */
+function useSharedResourcesActionableCount(): number | null {
+  const [count, setCount] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [iamRes, sgRes] = await Promise.all([
+          fetch("/api/proxy/iam/shared-roles?system_name=alon-prod", { cache: "no-store" }),
+          fetch("/api/proxy/sg/shared-sgs?system_name=alon-prod", { cache: "no-store" }),
+        ])
+        if (cancelled) return
+        const iamJson = iamRes.ok ? await iamRes.json() : {}
+        const sgJson = sgRes.ok ? await sgRes.json() : {}
+        const iamRows: Array<{ headline_state?: string }> =
+          iamJson.shared_roles ?? iamJson.roles ?? []
+        const sgRows: Array<{ narrowing?: { headline_state?: string } }> =
+          sgJson.shared_sgs ?? sgJson.sgs ?? []
+        const iamNarrowable = iamRows.filter(
+          (r) => r.headline_state === "narrowing_available",
+        ).length
+        const sgNarrowable = sgRows.filter(
+          (r) => r.narrowing?.headline_state === "narrowing_available",
+        ).length
+        if (!cancelled) setCount(iamNarrowable + sgNarrowable)
+      } catch {
+        // Honest fallback per pattern_no_phantom_capabilities_in_ui —
+        // don't fabricate a count if the endpoints fail; leave null,
+        // sidebar renders the label without a number.
+        if (!cancelled) setCount(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return count
+}
+
 export function LeftSidebarNav({
   activeItem = "home",
   onItemClick,
   issuesCount = 0,
   pendingTagsCount = 0,
 }: LeftSidebarNavProps) {
+  const sharedResourcesCount = useSharedResourcesActionableCount()
   // Every item now renders as a real Next.js <Link>. URL is the source of
   // truth for which section is active — that fixes:
   //   - Cmd/Ctrl-click → "Open in new tab" works (was broken: items were buttons)
@@ -40,6 +86,18 @@ export function LeftSidebarNav({
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
     { id: "least-privilege", label: "Least Privilege", icon: Shield, href: "/?section=least-privilege" },
     { id: "attack-paths", label: "Attack Paths", icon: Route, href: "/?section=attack-paths" },
+    // v2 redesign — coexists with the legacy section above. Operators
+    // can toggle while the redesign is being reviewed. Drop the legacy
+    // entry once v2 is approved as canonical.
+    // 2026-05-30 — removed hardcoded "?system=alon-prod" default. The
+    // page handles missing system param by showing the system picker;
+    // operators on any customer reach a working state without us
+    // pre-selecting a demo system that doesn't exist on their tenant.
+    { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2" },
+    // Attacker Map is reachable from inside system detail: Risk → Attacker Map.
+    // The top-level sidebar entry was removed because the page routing in
+    // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
+    // the same time — see system-detail-dashboard.tsx tab integration.
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
     { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
     { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },
@@ -48,7 +106,36 @@ export function LeftSidebarNav({
     // there's no graceful empty-state in the identities section today, so the link
     // would show a broken page to a CISO.
     // { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
+    // 2026-06-02: Slice 0 IA cleanup re-applied per operator direction.
+    // Empirical verification on alon-prod found:
+    //   • Legacy /?section=per-resource page calls /api/scan, which
+    //     returns 4 SGs and zero IAM roles — phantom-incapability per
+    //     pattern_no_phantom_capabilities_in_ui inversion direction.
+    //   • Legacy /iam/shared-roles and /sg/shared-sgs are subsumed by
+    //     the new /shared-resources merged list view (PR #101) which
+    //     uses /api/iam/shared-roles + /api/sg/shared-sgs and renders
+    //     real KEEP / NARROW AWAY / INVESTIGATE breakdowns.
+    // The three legacy URLs redirect to /shared-resources via
+    // next.config.js redirects(), so bookmarks and existing back-links
+    // (detail-view "back to list" buttons) land on the working page.
+    // Detail routes /iam/shared-roles/by-plan/[plan_id] and
+    // /sg/shared-sgs/by-plan/[plan_id] are NOT redirected — they're
+    // useful deep-links to plan-specific narrowing proposals.
+    // 2026-06-02 (revised): both surfaces kept. Per operator direction —
+    // the legacy light per-resource scanner is the canonical day-to-day
+    // view; the dark merged-list view is alongside as "V2". Both reachable
+    // from the sidebar. The next.config.js redirect that pushed
+    // /?section=per-resource → /shared-resources is removed in this commit.
     { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
+    { id: "shared-resources", label: "Shared Resources V2", icon: Split, count: sharedResourcesCount ?? undefined, href: "/shared-resources" },
+    // Naming aligned with feedback_topology_views_naming (memory) and the page
+    // header GraphViewV2 renders. "Dependency Map" was the original sidebar
+    // label in PR #72 but it was a fourth name for the same surface — the
+    // component, the page header, and the team's shared vocabulary all use
+    // "Observed-First Map". Renamed here to stop the drift before it spreads.
+    // The route id stays "dependency-map" for URL stability (it's the route
+    // path); only the operator-facing label changes.
+    { id: "dependency-map", label: "Observed-First Map", icon: Map, href: "/dependency-map?system=alon-prod" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },
     { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
@@ -96,6 +183,64 @@ export function LeftSidebarNav({
 
       {/* Menu Items */}
       <nav className="py-4">
+        {/* Design preview — Topology v0.2 mockups served from public/design/.
+            Successor to the existing Phase 1 / v0.1 component at
+            components/attack-paths-v2/topology-view.tsx (already live on
+            cyntro.io, dark-themed, static layout). v0.2 is the design spec
+            for the next iteration: severity halos, signal pills, IAM control-
+            plane strip, detail panel, ranked rail, data-trust amber.
+            Two surfaces, two operator jobs:
+              - Triage : "what's the single worst thing in 5 seconds"
+              - Estate : "scan the whole estate" / "find a specific thing"
+            Both share the AWS reference template + Neo4j data + detail panel.
+            Static HTML, opens in a new tab. Remove once v0.2 ships into a real
+            route. */}
+        <a
+          href="/design/topology-v0.2.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative w-full flex items-center gap-3 px-6 py-2 text-sm transition-all overflow-hidden"
+          style={{
+            color: "var(--text-secondary)",
+            fontStyle: "italic",
+          }}
+        >
+          <Sparkles className="w-4 h-4 shrink-0" style={{ color: "#00C2A8" }} />
+          <span className="whitespace-nowrap">Topology · Triage</span>
+          <span
+            className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase shrink-0"
+            style={{
+              background: "rgba(0, 194, 168, 0.15)",
+              color: "#00C2A8",
+            }}
+          >
+            v0.2
+          </span>
+        </a>
+        <a
+          href="/design/topology-v0.2-estate.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative w-full flex items-center gap-3 px-6 py-2 text-sm transition-all overflow-hidden border-b mb-2"
+          style={{
+            color: "var(--text-secondary)",
+            borderColor: "var(--border-subtle)",
+            fontStyle: "italic",
+          }}
+        >
+          <Sparkles className="w-4 h-4 shrink-0" style={{ color: "#00C2A8" }} />
+          <span className="whitespace-nowrap">Topology · Estate</span>
+          <span
+            className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase shrink-0"
+            style={{
+              background: "rgba(0, 194, 168, 0.15)",
+              color: "#00C2A8",
+            }}
+          >
+            v0.2
+          </span>
+        </a>
+
         {menuItems.map((item) => {
           const Icon = item.icon
           const isActive = activeItem === item.id
@@ -146,7 +291,10 @@ export function LeftSidebarNav({
           // activeSection didn't update. Now using an explicit set of
           // dedicated-route ids so additions in either direction are
           // unambiguous.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources"])
+          // shared-roles + shared-sgs removed 2026-06-02 — their sidebar
+          // entries were cut and the legacy URLs redirect to
+          // /shared-resources via next.config.js.
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "dependency-map", "shared-resources"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button

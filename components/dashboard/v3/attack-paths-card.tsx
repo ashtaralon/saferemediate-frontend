@@ -1,5 +1,10 @@
 "use client"
 
+// WAIVER_active_filter: card consumes only the aggregate `total_paths`
+// counter, never iterates the `.paths[]` array. A stale workload
+// changing the count by ±1 is not the bug class lib/active-filters.ts
+// is gating against.
+
 import { Crown, Globe } from "lucide-react"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"

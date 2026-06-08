@@ -195,7 +195,11 @@ const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
 // severity hero, attack-chain strip, hop-by-hop graph viz, crown-jewel
 // list panel). The component already takes a ``systemName`` prop and
 // hits ``/api/proxy/identity-attack-paths/<systemName>`` so the data
-// scope is the same set of resources tagged into this system. Replaced
+// scope is the same set of resources tagged into this system.
+//
+// WAIVER_active_filter: the URL mention above is documentation only —
+// this dashboard does not fetch IAP itself; it dynamically imports
+// IdentityAttackPaths, which has its own filterActivePaths gate. Replaced
 // the legacy AttackPathsTab — operators were getting two different
 // visual languages for the same concept across the org-level and
 // per-system views.
@@ -209,6 +213,25 @@ const SystemAttackPaths = dynamic(
     loading: () => (
       <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
         <RefreshCw className="w-8 h-8 text-rose-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+
+// New Attacker Map tab — Phase 1 canonical attacker view + Phase 2
+// all-paths fan-in DAG. Lives alongside the legacy "Attack Paths" tab
+// during transition; both consume the same /api/proxy/identity-
+// attack-paths/{system} endpoint. Dynamic import for the same reason
+// SystemAttackPaths uses it: reactflow + dagre bundle is non-trivial
+// and only needed when the operator drills into this view.
+const SystemAttackerMap = dynamic(
+  () =>
+    import("./attacker-map/attacker-map").then((m) => ({ default: m.AttackerMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
       </div>
     ),
   },
@@ -551,6 +574,10 @@ interface SystemDetailDashboardProps {
   // "Show the path" CTA) can deep-link into other sections without
   // imperative router calls.
   onNavigateToSection?: (section: string) => void
+  // Optional leaf tab id to pre-select on mount. Used by URL deep-links
+  // (e.g. /systems?systemName=X&tab=orphan-services from the IAM
+  // Quarantine-candidates flow).
+  initialTab?: string
 }
 
 interface CriticalIssue {
@@ -627,8 +654,8 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection }: SystemDetailDashboardProps) {
-  const [activeTab, setActiveTab] = useState("overview")
+export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab }: SystemDetailDashboardProps) {
+  const [activeTab, setActiveTab] = useState(initialTab ?? "overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // chunk #2a: cross-tab navigation + deep-link. The Attack Path
@@ -1540,6 +1567,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection 
         { id: "least-privilege", label: "Least Privilege" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
+        { id: "attacker-map", label: "Attacker Map" },
         { id: "crown-jewels", label: "Crown Jewels" },
         { id: "egress", label: "Traffic" },
       ],
@@ -2537,6 +2565,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection 
       {activeTab === "attack-paths" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "attacker-map" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <SystemAttackerMap key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 

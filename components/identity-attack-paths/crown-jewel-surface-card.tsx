@@ -1,5 +1,11 @@
 "use client"
 
+// WAIVER_active_filter: card fetches the jewel-SURFACE endpoint, not the
+// paths endpoint. The surface endpoint returns workloads under
+// `data.workloads[]` which carry `is_stale` directly (rendered as a
+// "⚠ stale" badge — see jewel-exposure-panel.tsx) — different shape
+// from the `paths[]` array lib/active-filters.ts gates.
+
 import { useState } from "react"
 import { Crown, Globe, Network, UserCircle, Skull, ShieldAlert, Wrench, Zap, Database, ChevronDown, ChevronRight } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"

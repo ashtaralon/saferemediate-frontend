@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Cyntro · Topology v0.2 · States & Scale Gallery</title>
+<style>
+  :root {
+    --cy-navy: #0D1B2A;
+    --cy-navy-2: #142536;
+    --cy-teal: #00C2A8;
+    --cy-carmine: #E04545;
+    --cy-amber: #F5A623;
+    --cy-slate: #5A6B7A;
+    --cy-ink: #1A2330;
+    --aws-orange: #FF9900;
+    --aws-purple: #7E57C2;
+    --aws-blue: #2E73B8;
+    --aws-green: #1E8E3E;
+    --aws-frame: #232F3E;
+    --tier-web: #E8F5E9;
+    --tier-app: #E3F2FD;
+    --iam-pink: #DD344C;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+    color: var(--cy-ink);
+    background: #F4F6F8;
+  }
+
+  /* ── Gallery header ────────────────────────────────────────────── */
+  .gallery-header {
+    background: var(--cy-navy);
+    color: white;
+    padding: 24px 36px 28px;
+    border-bottom: 2px solid var(--cy-teal);
+  }
+  .gallery-header .kicker {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--cy-teal);
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .gallery-header h1 {
+    font-family: Georgia, serif;
+    font-size: 28px;
+    font-weight: 400;
+    line-height: 1.3;
+    margin: 8px 0 8px;
+    max-width: 1100px;
+  }
+  .gallery-header .sub {
+    font-size: 13px;
+    color: #97A4B0;
+    max-width: 920px;
+    line-height: 1.5;
+  }
+  .gallery-header .actions {
+    margin-top: 14px;
+    display: flex; gap: 10px;
+  }
+  .gallery-header .actions a {
+    color: white;
+    border: 1px solid #2A3B4D;
+    padding: 6px 14px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    text-decoration: none;
+  }
+  .gallery-header .actions a:hover {
+    border-color: var(--cy-teal);
+    color: var(--cy-teal);
+  }
+
+  /* ── Table of contents ─────────────────────────────────────────── */
+  .toc {
+    background: white;
+    border-bottom: 1px solid #E0E5EA;
+    padding: 14px 36px;
+    display: flex; flex-wrap: wrap; gap: 0 18px;
+    font-size: 12px;
+    position: sticky; top: 0;
+    z-index: 20;
+  }
+  .toc strong {
+    color: var(--cy-slate);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10px;
+    margin-right: 8px;
+  }
+  .toc a {
+    color: var(--cy-ink);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 1px dotted transparent;
+  }
+  .toc a:hover {
+    border-bottom-color: var(--cy-teal);
+    color: var(--cy-navy);
+  }
+
+  /* ── Gallery sections ──────────────────────────────────────────── */
+  .gallery {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 32px 36px 60px;
+  }
+  .scene {
+    background: white;
+    border: 1px solid #E0E5EA;
+    border-radius: 6px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .scene > header {
+    background: #FAFBFC;
+    border-bottom: 1px solid #EEF1F4;
+    padding: 14px 22px 14px;
+  }
+  .scene > header .label {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cy-teal);
+    font-weight: 700;
+  }
+  .scene > header h2 {
+    font-family: Georgia, serif;
+    font-size: 22px;
+    font-weight: 500;
+    margin: 4px 0 4px;
+    line-height: 1.2;
+    color: var(--cy-ink);
+  }
+  .scene > header .when {
+    font-size: 11px; color: var(--cy-slate); line-height: 1.5;
+  }
+  .scene .body {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 0;
+  }
+  .scene .demo {
+    padding: 22px;
+    background: #F4F6F8;
+    border-right: 1px solid #EEF1F4;
+    min-height: 240px;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .scene .demo.demo-dark {
+    background: var(--cy-navy);
+    color: white;
+  }
+  .scene .rationale {
+    padding: 22px 24px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--cy-ink);
+  }
+  .scene .rationale h3 {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--cy-slate);
+    margin: 0 0 8px;
+    font-weight: 700;
+  }
+  .scene .rationale p { margin: 0 0 10px; }
+  .scene .rationale p:last-child { margin-bottom: 0; }
+  .scene .rationale code {
+    background: #ECECEC; padding: 0 4px; border-radius: 2px;
+    font-size: 11px;
+  }
+  .scene .rationale .pull {
+    background: rgba(0, 194, 168, 0.08);
+    border-left: 3px solid var(--cy-teal);
+    padding: 8px 12px;
+    font-size: 12px;
+    margin: 10px 0;
+    line-height: 1.5;
+  }
+
+  /* ── Mini topology + reusable bits ────────────────────────────── */
+  .mini-headline {
+    background: var(--cy-navy);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 4px 4px 0 0;
+    font-family: Georgia, serif;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .mini-headline .k {
+    font-size: 9px; letter-spacing: 0.16em;
+    color: var(--cy-teal); text-transform: uppercase;
+    font-family: -apple-system, sans-serif; font-weight: 600;
+  }
+  .mini-headline .prov {
+    font-size: 10px; color: #97A4B0;
+    font-family: -apple-system, sans-serif;
+    margin-top: 4px; letter-spacing: 0.04em;
+  }
+  .mini-frame {
+    background: white;
+    border: 1.5px solid var(--aws-frame);
+    border-radius: 0 0 4px 4px;
+    padding: 26px 14px 14px;
+    position: relative;
+  }
+  .mini-frame > .label {
+    position: absolute; top: 0; left: 10px;
+    background: white; padding: 0 6px;
+    font-size: 9px; color: var(--aws-frame);
+    transform: translateY(-50%);
+  }
+  .mini-subnets {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .mini-subnet {
+    border: 1.5px solid var(--aws-blue);
+    background: rgba(187, 222, 251, 0.2);
+    border-radius: 4px;
+    padding: 14px 8px 8px;
+    position: relative;
+    min-height: 80px;
+  }
+  .mini-subnet > .label {
+    position: absolute; top: 0; left: 6px; background: #F4F6F8;
+    padding: 0 5px; font-size: 9px; color: var(--aws-blue);
+    transform: translateY(-50%);
+    font-family: ui-monospace, monospace;
+  }
+  .mini-node {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--aws-orange); color: white;
+    padding: 4px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    margin: 3px;
+  }
+  .mini-node.rds { background: var(--aws-blue); }
+  .mini-node.lambda { background: var(--aws-orange); }
+  .mini-node.lambda::before { content: "λ "; }
+  .mini-node.alb { background: var(--aws-purple); }
+  .mini-node.halo-worst { box-shadow: 0 0 0 2px var(--cy-carmine), 0 0 8px 2px rgba(224, 69, 69, 0.5); }
+  .mini-node.halo-amber { box-shadow: 0 0 0 2px var(--cy-amber); }
+  .mini-node.skeleton {
+    background: linear-gradient(90deg, #d4d4d4 25%, #e8e8e8 50%, #d4d4d4 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+    color: transparent;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── Banners ──────────────────────────────────────────────────── */
+  .banner {
+    padding: 9px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px;
+  }
+  .banner.amber {
+    background: rgba(245, 166, 35, 0.13);
+    border: 1px solid rgba(245, 166, 35, 0.4);
+    color: #8C5A04;
+  }
+  .banner.carmine {
+    background: rgba(224, 69, 69, 0.1);
+    border: 1px solid rgba(224, 69, 69, 0.35);
+    color: #8B1F1F;
+  }
+  .banner.slate {
+    background: rgba(90, 107, 122, 0.08);
+    border: 1px solid #DCE3E9;
+    color: var(--cy-slate);
+  }
+  .banner .ctas {
+    display: flex; gap: 6px;
+  }
+  .banner button {
+    background: white; border: 1px solid currentColor;
+    color: inherit;
+    padding: 4px 10px; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    border-radius: 3px; font-weight: 600;
+    cursor: pointer;
+  }
+  .banner button.solid {
+    background: currentColor;
+    color: white;
+  }
+
+  /* ── IAM strip variants (issue #4) ────────────────────────────── */
+  .iam-mini {
+    background: rgba(221, 52, 76, 0.06);
+    border-radius: 4px;
+    padding: 10px;
+    margin-top: 10px;
+  }
+  .iam-mini .iam-strip-header {
+    font-size: 10px; color: var(--cy-slate);
+    margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .iam-mini .iam-strip-header strong { color: var(--cy-navy); }
+  .iam-mini .iam-cat {
+    margin-bottom: 8px;
+  }
+  .iam-mini .iam-cat-header {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--iam-pink);
+    font-weight: 700;
+    margin: 8px 0 5px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .iam-mini .iam-cat-header .cat-count {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    color: var(--cy-slate);
+    font-weight: 400;
+  }
+  .iam-mini .iam-cat-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+  }
+  .iam-mini .iam-role-mini {
+    background: white;
+    border: 1px solid var(--iam-pink);
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-size: 9px;
+    font-family: ui-monospace, monospace;
+    color: var(--cy-ink);
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 4px;
+  }
+  .iam-mini .iam-role-mini.crit {
+    box-shadow: 0 0 0 2px rgba(224, 69, 69, 0.4);
+    border-color: var(--cy-carmine);
+  }
+  .iam-mini .iam-role-mini.clean {
+    border-color: var(--cy-teal);
+    opacity: 0.6;
+  }
+  .iam-mini .iam-role-mini .gap-pill {
+    background: var(--cy-carmine); color: white;
+    padding: 0 4px; border-radius: 8px;
+    font-size: 8px; font-weight: 700;
+    font-family: -apple-system, sans-serif;
+  }
+  .iam-mini .iam-role-mini.clean .gap-pill {
+    background: var(--cy-teal); color: var(--cy-navy);
+  }
+  .iam-mini .iam-overflow {
+    text-align: center; font-size: 9px; color: var(--cy-slate);
+    padding: 4px;
+    border: 1px dashed #D0D5DA;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .iam-mini .iam-overflow:hover { color: var(--cy-teal); border-color: var(--cy-teal); }
+
+  /* ── Empty-state placeholder ──────────────────────────────────── */
+  .empty-card {
+    background: white;
+    border: 1.5px dashed #D0D5DA;
+    border-radius: 6px;
+    padding: 24px;
+    text-align: center;
+    color: var(--cy-slate);
+  }
+  .empty-card .emoji { font-size: 22px; margin-bottom: 6px; opacity: 0.6; }
+  .empty-card h4 {
+    margin: 0 0 6px; font-size: 14px;
+    color: var(--cy-ink); font-weight: 600;
+    font-family: Georgia, serif;
+  }
+  .empty-card p { font-size: 11px; margin: 0 0 8px; line-height: 1.5; }
+  .empty-card .cta {
+    background: var(--cy-teal); color: var(--cy-navy);
+    border: none; padding: 7px 14px;
+    border-radius: 3px; font-size: 11px;
+    letter-spacing: 0.06em; font-weight: 700;
+    text-transform: uppercase; cursor: pointer;
+    margin-top: 6px;
+  }
+
+  /* ── Panel-empty placeholder ──────────────────────────────────── */
+  .panel-empty {
+    background: white;
+    border: 1px solid #E0E5EA;
+    border-radius: 4px;
+    padding: 24px 18px;
+    text-align: center;
+    color: var(--cy-slate);
+    margin-top: 8px;
+  }
+  .panel-empty .icon-hint {
+    font-size: 26px; color: var(--cy-teal);
+    margin-bottom: 4px;
+  }
+  .panel-empty p { font-size: 11px; line-height: 1.5; margin: 0; }
+
+  /* ── System picker mini ───────────────────────────────────────── */
+  .picker {
+    background: white;
+    border-radius: 4px;
+    padding: 14px;
+  }
+  .picker h4 {
+    font-size: 11px; letter-spacing: 0.08em;
+    color: var(--cy-slate); text-transform: uppercase;
+    margin: 0 0 8px; font-weight: 700;
+  }
+  .picker .opt {
+    padding: 8px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #EEF1F4;
+  }
+  .picker .opt:hover { background: #F4F6F8; }
+  .picker .opt .meta {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    color: var(--cy-slate);
+  }
+  .picker .opt strong {
+    color: var(--cy-ink); font-weight: 600;
+    font-family: -apple-system, sans-serif;
+    font-size: 11px;
+  }
+
+  /* ── Toast ─────────────────────────────────────────────────────── */
+  .toast {
+    background: var(--cy-navy);
+    color: white;
+    padding: 8px 14px;
+    border-radius: 18px;
+    font-size: 11px;
+    display: inline-flex; align-items: center; gap: 8px;
+    box-shadow: 0 4px 12px rgba(13, 27, 42, 0.2);
+  }
+  .toast .spinner {
+    width: 10px; height: 10px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: var(--cy-teal);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Accessibility primitives (iteration 7) ───────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .mini-node.skeleton,
+    .toast .spinner {
+      animation: none !important;
+    }
+    .mini-node.skeleton {
+      background: #d4d4d4 !important;
+      color: var(--cy-slate) !important;
+    }
+    .toast .spinner {
+      border-top-color: currentColor !important;
+      opacity: 0.6 !important;
+    }
+  }
+  :focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--cy-teal);
+    outline-offset: 2px;
+  }
+  .severity-glyph {
+    display: inline-block;
+    margin-left: 3px;
+    font-size: 10px;
+    vertical-align: middle;
+    opacity: 0.85;
+  }
+  /* Accessibility patterns demonstrated in Scene 10 below. */
+</style>
+</head>
+<body>
+
+<header class="gallery-header">
+  <div class="kicker">Topology v0.2 · Iteration 6 · States & Scale Gallery</div>
+  <h1>The states we hadn't designed yet</h1>
+  <div class="sub">
+    The Triage and Estate mockups assumed happy-path data. This gallery catalogs the
+    eight non-happy-path states the implementation needs (loading, error, partial, empty,
+    no-selection, stale, race-condition) plus three IAM-Control-Plane-strip variants
+    that handle customer-scale role counts the current 5-role design can't.
+    Each scene has a visual mockup and a design rationale.
+  </div>
+  <div class="actions">
+    <a href="/design/topology-v0.2.html">&rarr; Triage mockup</a>
+    <a href="/design/topology-v0.2-estate.html">&rarr; Estate mockup</a>
+    <a href="../../docs/topology-v0.2-risk-contract.md">&rarr; Risk contract</a>
+  </div>
+  <div style="margin-top: 14px; padding: 10px 14px; background: rgba(0, 194, 168, 0.1); border-left: 3px solid var(--cy-teal); font-size: 12px; line-height: 1.5;">
+    <strong style="color: var(--cy-teal);">Data policy:</strong>
+    No fabricated values in this gallery. State-demo specifics that would be populated at
+    render time use templated placeholders &mdash; <code>&lt;n&gt;</code>, <code>&lt;total&gt;</code>,
+    <code>&lt;time&gt;</code>, <code>&lt;system-id&gt;</code>. Risk scores are
+    <code>&mdash;</code> until <code>/api/topology-risk</code> ships. Entity names,
+    posture verdicts, IAM gap counts, freshness timestamps, and Estate KPIs are all real
+    Neo4j reads (Aura <code>4e9962b7</code>, alon-prod).
+  </div>
+</header>
+
+<nav class="toc">
+  <strong>Jump to:</strong>
+  <a href="#loading">Loading</a>
+  <a href="#error-5xx">5xx error</a>
+  <a href="#error-4xx">4xx error</a>
+  <a href="#partial">Partial data</a>
+  <a href="#empty-system">Empty system</a>
+  <a href="#empty-vpc">Empty VPC</a>
+  <a href="#race">Race condition</a>
+  <a href="#no-selection">No selection</a>
+  <a href="#stale">Stale data</a>
+  <a href="#iam-scale">IAM at scale</a>
+  <a href="#a11y">Accessibility</a>
+</nav>
+
+<main class="gallery">
+
+  <!-- ═══════════════════════ 1 · LOADING ═══════════════════════════ -->
+  <section class="scene" id="loading">
+    <header>
+      <div class="label">State 01</div>
+      <h2>Loading — first render before the bulk endpoint responds</h2>
+      <div class="when">
+        Shows when <code>GET /api/topology-risk/{systemName}</code> is in-flight on initial page
+        load, or after the operator switches systems / VPCs.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo">
+        <div class="mini-headline">
+          <span class="k">Scoring · alon-prod</span>
+          <div style="margin-top: 4px; font-size: 13px;">Estimating risk across observed workloads…</div>
+          <div class="prov">Estimated 2-4 seconds &middot; 1 VPC &middot; &lt;n&gt; workloads</div>
+        </div>
+        <div class="mini-frame">
+          <div class="label">VPC · 10.0.0.0/16</div>
+          <div class="mini-subnets">
+            <div class="mini-subnet">
+              <div class="label">Public · 10.0.1.0/24</div>
+              <span class="mini-node skeleton">EC2-XXXXXX</span>
+              <span class="mini-node skeleton">EC2-XXXXXX</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Public · 10.0.2.0/24</div>
+              <span class="mini-node skeleton">EC2-XXXXXX</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.10.0/24</div>
+              <span class="mini-node skeleton">EC2-XXXXXX</span>
+              <span class="mini-node skeleton">λ-XXXXXX</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.20.0/24</div>
+              <span class="mini-node skeleton">RDS-XXXXXX</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px;"><span class="toast"><span class="spinner"></span>Scoring &lt;n&gt; workloads &middot; &lt;done&gt; / &lt;total&gt; returned</span></div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Render the topology structure immediately from cached Neo4j metadata (workloads,
+          subnets, SGs, route tables) — that data is already on hand. Don't wait for risk
+          scores to render anything.
+        </p>
+        <p>
+          Nodes render as <strong>skeleton shimmer placeholders</strong>, not empty halos.
+          Empty halos read as "all clean" and false-positive the operator into an OK
+          state. Shimmer reads as "computing", correctly.
+        </p>
+        <p>
+          The toast shows progress through the bulk response (a stream / chunked response
+          could update it incrementally). Estimated time is shown to set expectations —
+          honest about slowness rather than pretending instant.
+        </p>
+        <div class="pull">
+          <strong>Anti-pattern:</strong> filling the topology with neutral-gray nodes
+          before scores arrive. That looks like the data has answered and the answer is
+          "nothing wrong" — exactly the wrong default.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 2 · 5xx ERROR ═════════════════════════ -->
+  <section class="scene" id="error-5xx">
+    <header>
+      <div class="label">State 02</div>
+      <h2>5xx error — risk scoring temporarily unavailable</h2>
+      <div class="when">
+        Shows when the bulk endpoint returns 502 / 500 / timeout. Topology data
+        (workloads, subnets) is still available from Neo4j — only the scoring
+        layer failed.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo">
+        <div class="banner carmine">
+          <span><strong>Risk scoring temporarily unavailable.</strong> Showing topology structure. Last good scores: &lt;time&gt; ago.</span>
+          <span class="ctas">
+            <button class="solid">Retry</button>
+            <button>Show last good</button>
+          </span>
+        </div>
+        <div class="mini-frame">
+          <div class="label">VPC · 10.0.0.0/16</div>
+          <div class="mini-subnets">
+            <div class="mini-subnet">
+              <div class="label">Public · 10.0.1.0/24</div>
+              <span class="mini-node" style="opacity:0.6;">EC2 Frontend-1</span>
+              <span class="mini-node alb" style="opacity:0.6;">ALB</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.10.0/24</div>
+              <span class="mini-node" style="opacity:0.6;">EC2 App-1</span>
+              <span class="mini-node lambda" style="opacity:0.6;">Payment-API</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.20.0/24</div>
+              <span class="mini-node rds" style="opacity:0.6;">RDS test-db</span>
+            </div>
+            <div class="mini-subnet"><div class="label">Private · 10.0.21.0/24</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Never hide the topology — operators need to see what's <em>there</em> even when
+          they can't see what's <em>wrong</em>. The nodes render at 60% opacity to signal
+          "not scored", but they're present and clickable.
+        </p>
+        <p>
+          The banner gives three options, in priority order:
+        </p>
+        <ul style="margin: 0 0 10px; padding-left: 18px; font-size: 12px; line-height: 1.5;">
+          <li><strong>Retry</strong> — most common path; backend hiccup, will probably succeed</li>
+          <li><strong>Show last good</strong> — pull from <code>use-cached-fetch</code> SWR cache, mark every score with a "from cache · Nm ago" chip per <a href="../../docs/topology-v0.2-risk-contract.md">contract §3.5</a></li>
+          <li>No "Continue without scores" CTA — that would normalize a degraded mode</li>
+        </ul>
+        <div class="pull">
+          <strong>Carmine banner color is correct here.</strong> This is a security tool
+          failing to score security state — that <em>is</em> a security event, even if
+          the failure is transient. Amber would understate it.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 3 · 4xx ERROR ═════════════════════════ -->
+  <section class="scene" id="error-4xx">
+    <header>
+      <div class="label">State 03</div>
+      <h2>4xx error — system not found</h2>
+      <div class="when">
+        Shows when the operator navigated to a system that no longer exists, was
+        deleted, or was typo'd in the URL.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo" style="display:flex; align-items:center; justify-content:center;">
+        <div class="picker" style="width: 100%; max-width: 360px;">
+          <h4>"alon-prod-x" isn't a known system</h4>
+          <div style="font-size:11px; color:var(--cy-slate); margin-bottom:10px; line-height:1.5;">
+            Closest matches from your tenant:
+          </div>
+          <div class="opt">
+            <span><strong>&lt;system-id&gt;</strong></span>
+            <span class="meta">&lt;n&gt; workloads &middot; last scored &lt;time&gt; ago</span>
+          </div>
+          <div class="opt">
+            <span><strong>&lt;system-id&gt;</strong></span>
+            <span class="meta">&lt;n&gt; workloads &middot; last scored &lt;time&gt; ago</span>
+          </div>
+          <div class="opt">
+            <span><strong>&lt;system-id&gt;</strong></span>
+            <span class="meta">&lt;n&gt; workloads &middot; last scored &lt;time&gt; ago</span>
+          </div>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Route to recovery, not a dead-end error page. Show the system picker pre-populated
+          with fuzzy-matched candidates from the operator's tenant. One click resumes work
+          on the right system.
+        </p>
+        <p>
+          Each option shows <em>workload count</em> and <em>last-scored time</em> so the
+          operator can verify they're picking a live system, not one that's also broken.
+        </p>
+        <div class="pull">
+          <strong>Anti-pattern:</strong> "404 — system not found" full-page error. Forces a
+          back-button + nav re-entry. Hostile to muscle memory.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 4 · PARTIAL DATA ══════════════════════ -->
+  <section class="scene" id="partial">
+    <header>
+      <div class="label">State 04</div>
+      <h2>Partial data — some workloads scored, others pending</h2>
+      <div class="when">
+        Shows when the bulk endpoint returns some node scores synchronously and
+        leaves others as <code>{status: "pending"}</code> — typical for slow scorers
+        like jewel-adjacency on large graphs.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo">
+        <div class="banner amber">
+          <span><strong>&lt;done&gt; of &lt;total&gt; workloads scored.</strong> Slow contributors (jewel adjacency) still computing. Auto-refreshing.</span>
+          <span class="ctas"><button>Skip slow scorers</button></span>
+        </div>
+        <div class="mini-frame">
+          <div class="label">VPC · 10.0.0.0/16</div>
+          <div class="mini-subnets">
+            <div class="mini-subnet">
+              <div class="label">Public · 10.0.1.0/24</div>
+              <span class="mini-node halo-worst">EC2 Frontend-1</span>
+              <span class="mini-node alb halo-amber">ALB</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.10.0/24</div>
+              <span class="mini-node skeleton">EC2-XXXXXX</span>
+              <span class="mini-node skeleton">λ-XXXXXX</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.11.0/24</div>
+              <span class="mini-node halo-amber">EC2 App-2</span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.20.0/24</div>
+              <span class="mini-node rds halo-amber">RDS test-db</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Mixed rendering: scored nodes show halos, unscored nodes show shimmer. The
+          operator immediately understands which findings are real <em>now</em> versus
+          still-coming.
+        </p>
+        <p>
+          The "Skip slow scorers" CTA lets operators trade completeness for speed when
+          they're triaging under pressure. The skipped contributors get attributed
+          confidence weight = 0 — so the score's <code>confidence</code> field
+          honestly reflects the truncation.
+        </p>
+        <p>
+          Auto-refresh polls the endpoint every <em>5s</em> until all nodes return.
+          The implementation uses <code>use-cached-fetch</code>'s revalidation, not a
+          fresh fetch — no flash of empty state during refresh.
+        </p>
+        <div class="pull">
+          <strong>Critical:</strong> the unscored nodes must NOT be assigned a default score
+          (e.g., 0 or 50). That would pollute the rank order in the right rail. They're
+          excluded from rank until they return.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 5 · EMPTY SYSTEM ══════════════════════ -->
+  <section class="scene" id="empty-system">
+    <header>
+      <div class="label">State 05a</div>
+      <h2>Empty system — Cyntro hasn't observed any AWS resources</h2>
+      <div class="when">
+        Shows when a system exists in Cyntro but no collectors have run yet — typical
+        immediately after tenant onboarding.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo" style="align-items:center;">
+        <div class="empty-card" style="max-width: 380px; margin: 0 auto;">
+          <div class="emoji">🌥</div>
+          <h4>No AWS resources observed yet for <em>alon-prod</em></h4>
+          <p>
+            Cyntro's discovery collectors haven't returned data for this system. Typical
+            first-run takes 6 - 12 minutes from connection.
+          </p>
+          <p>
+            <strong>Last collector activity:</strong> <em>&lt;recency&gt;</em>.
+          </p>
+          <button class="cta">Run discovery now</button>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Empty state is an <em>opportunity</em> moment — operator is new, needs orientation.
+          The card explains what's missing, why, and a single action to resolve.
+        </p>
+        <p>
+          "Run discovery now" triggers an out-of-band collector dispatch. If automatic
+          discovery is already running on cadence, the CTA reads "Speed up next scan"
+          instead.
+        </p>
+        <div class="pull">
+          <strong>The "last collector activity" line is load-bearing.</strong> Empty state
+          could mean: (a) tenant is brand new — wait, (b) collectors broken — escalate,
+          (c) collectors running but slow — wait. Surfacing the activity timestamp
+          disambiguates without making operator do detective work.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 5b · EMPTY VPC ════════════════════════ -->
+  <section class="scene" id="empty-vpc">
+    <header>
+      <div class="label">State 05b</div>
+      <h2>Empty VPC — system has VPCs but none with workloads</h2>
+      <div class="when">
+        Shows when the operator selected a VPC in Estate mode (or one VPC system in
+        Triage mode) that has subnets but no observed compute / database workloads.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo">
+        <div class="mini-frame">
+          <div class="label">VPC · 172.31.0.0/16</div>
+          <div class="empty-card" style="margin-top:8px; padding: 14px;">
+            <div class="emoji" style="font-size:18px;">⌖</div>
+            <h4 style="font-size:13px;">No workloads observed in this VPC</h4>
+            <p>
+              VPC has 4 subnets and 3 route tables, but no EC2, Lambda, RDS, ECS, or
+              other compute observed in the last 7 days. May be a transit-only VPC.
+            </p>
+            <p style="margin-bottom:4px;">
+              <a href="#" style="color: var(--cy-teal); font-size: 11px;">View 4 subnets →</a>
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Different from empty-system. The infrastructure is observed (subnets, route
+          tables); just no workloads. This is a legitimate architectural pattern (transit
+          VPCs, default-VPC-leftover, isolated test VPCs).
+        </p>
+        <p>
+          The "View 4 subnets" link lets the operator inspect what <em>does</em> exist
+          without forcing them to switch views. The topology canvas isn't blank — it's
+          framed by the VPC border, and the empty-state card sits inside it.
+        </p>
+        <p>
+          If the user's filter rail (Estate mode) is excluding workload types that <em>do</em>
+          exist in this VPC, the card adjusts: "Filter excludes 12 workloads. Adjust
+          filters to see them."
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 6 · RACE CONDITION ════════════════════ -->
+  <section class="scene" id="race">
+    <header>
+      <div class="label">State 06</div>
+      <h2>Race condition — clicked node missing from bulk response</h2>
+      <div class="when">
+        Shows when the operator clicks a node before the bulk endpoint has returned
+        its score, or when the clicked node was just removed from AWS between
+        topology render and click.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo" style="background: white; border: 1px solid #E0E5EA; align-items: flex-start;">
+        <div style="background: var(--cy-navy); color: white; padding: 14px 18px;">
+          <div style="font-size: 10px; letter-spacing: 0.18em; color: var(--cy-teal); text-transform: uppercase; font-weight: 600;">Loading detail</div>
+          <h2 style="font-family: Georgia, serif; font-size: 17px; font-weight: 500; margin: 6px 0 4px; line-height: 1.2; color: white;">SafeRemediate-Test-Frontend-1</h2>
+          <div style="font-size: 10px; color: #97A4B0; font-family: ui-monospace, monospace;">i-0f51b8b7ad29a359b · subnet-0d193156…</div>
+        </div>
+        <div style="padding: 16px 18px; font-size: 11px; color: var(--cy-slate);">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+            <span class="toast" style="background:#F4F6F8; color:var(--cy-ink); box-shadow:none;">
+              <span class="spinner" style="border-color: rgba(13,27,42,0.2); border-top-color: var(--cy-teal);"></span>
+              Computing score…
+            </span>
+          </div>
+          <p style="font-size: 11px; margin: 0; line-height: 1.5;">
+            Workload identified from cached Neo4j metadata. Risk score and contributors
+            requested from <code>/api/topology-risk/{system}/node/{id}</code>.
+          </p>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Optimistic UI: open the panel immediately with the node's identity (name,
+          subnet, IDs) since that comes from cached topology data. Show "Computing score"
+          for the parts that depend on the bulk response.
+        </p>
+        <p>
+          If the per-node fetch returns a score, the panel fills in. If it returns 404
+          (node was deleted between topology render and click), the panel switches to a
+          dedicated "This workload was just removed" view with timestamps from CloudTrail.
+        </p>
+        <div class="pull">
+          <strong>Anti-pattern:</strong> blocking the panel open until the score is ready.
+          Operators experience that as a click that did nothing — they click again and
+          get the inverse race.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 7 · NO SELECTION ══════════════════════ -->
+  <section class="scene" id="no-selection">
+    <header>
+      <div class="label">State 07</div>
+      <h2>No selection — Estate mode default, no node clicked yet</h2>
+      <div class="when">
+        Shows in Estate mode when the operator first arrives. Triage mode never
+        shows this — it always opens with the spotlight node pre-selected.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo">
+        <div class="panel-empty">
+          <div class="icon-hint">⌖</div>
+          <p style="font-weight:600; color:var(--cy-ink); font-size:12px; margin-bottom:4px;">No workload selected</p>
+          <p>
+            Click any node in the topology to see its score breakdown, IAM posture, traffic
+            evidence, remediation history, and related entities. Or pick from the ranked
+            estate tail below.
+          </p>
+          <div style="margin-top:14px; padding-top:14px; border-top:1px solid #EEF1F4; text-align:left;">
+            <div style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin-bottom:8px;">Top of estate tail</div>
+            <div style="font-size:11px; color:var(--cy-ink); padding:4px 0;">
+              <span style="color:var(--cy-carmine); font-family:Georgia, serif; font-size:14px; font-weight:600;">&mdash;</span>
+              SafeRemediate-Test-Frontend-1
+              <span style="color:var(--cy-slate); font-size:10px;"> &middot; posture LATENT &middot; priority 3</span>
+            </div>
+            <div style="font-size:11px; color:var(--cy-ink); padding:4px 0;">
+              <span style="color:var(--cy-carmine); font-family:Georgia, serif; font-size:14px; font-weight:600;">&mdash;</span>
+              SafeRemediate-Test-Frontend-2
+              <span style="color:var(--cy-slate); font-size:10px;"> &middot; posture LATENT &middot; priority 3</span>
+            </div>
+            <div style="font-size:11px; color:var(--cy-ink); padding:4px 0;">
+              <span style="color:var(--cy-amber); font-family:Georgia, serif; font-size:14px; font-weight:600;">&mdash;</span>
+              saferemediate-test-db
+              <span style="color:var(--cy-slate); font-size:10px;"> &middot; is_sensitive_data = true</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          Affordance, not invitation. The hint <em>shows</em> the operator what's coming
+          (a list of contents — score, IAM, traffic, remediation, related) rather than
+          decoratively asking them to do something.
+        </p>
+        <p>
+          The "Top of estate tail" mini-list bridges the gap between "look at the whole
+          map" (Estate mode's job) and "go investigate something specific" (Triage mode's
+          job). Operators who scanned the estate and want to drill in get a starting
+          point without flipping modes.
+        </p>
+        <div class="pull">
+          <strong>Why not collapse the panel entirely.</strong> Reserving the panel space
+          keeps the layout stable — when the operator does click a node, the panel doesn't
+          shove the topology around to make room.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 8 · STALE ═════════════════════════════ -->
+  <section class="scene" id="stale">
+    <header>
+      <div class="label">State 08</div>
+      <h2>Stale data — bulk succeeded but scoring is system-wide old</h2>
+      <div class="when">
+        Shows when the contract response has <code>scored_at</code> older than the
+        operator's freshness threshold (default 1 day). The data is technically
+        valid; it's just confidently old.
+      </div>
+    </header>
+    <div class="body">
+      <div class="demo">
+        <div class="banner amber">
+          <span>
+            <strong>Scores last computed &lt;time&gt; ago.</strong> Re-running collectors. Best-effort
+            confidence shown.
+          </span>
+          <span class="ctas"><button>Force re-score</button></span>
+        </div>
+        <div class="mini-frame">
+          <div class="label">VPC · 10.0.0.0/16 · last scored 2026-05-22</div>
+          <div class="mini-subnets">
+            <div class="mini-subnet">
+              <div class="label">Public · 10.0.1.0/24</div>
+              <span class="mini-node halo-amber">EC2 Frontend-1 <span style="opacity:0.6; font-size:8px;">&mdash; &#x231b;</span></span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.10.0/24</div>
+              <span class="mini-node halo-amber">EC2 App-1 <span style="opacity:0.6; font-size:8px;">&mdash; &#x231b;</span></span>
+            </div>
+            <div class="mini-subnet">
+              <div class="label">Private · 10.0.20.0/24</div>
+              <span class="mini-node rds halo-amber">RDS test-db <span style="opacity:0.6; font-size:8px;">&mdash; &#x231b;</span></span>
+            </div>
+            <div class="mini-subnet"><div class="label">Private · 10.0.21.0/24</div></div>
+          </div>
+        </div>
+        <div style="font-size:10px; color:var(--cy-slate); margin-top:10px;">
+          Every node halo demoted to amber regardless of underlying severity — global
+          confidence has dropped below the carmine threshold.
+        </div>
+      </div>
+      <div class="rationale">
+        <h3>Design rationale</h3>
+        <p>
+          This is the amber-as-transient principle (<a href="../../memory/feedback_amber_must_self_heal.md">feedback_amber_must_self_heal</a>)
+          at the global scope. The banner declares a self-healing state and the system is
+          already acting on it ("Re-running collectors" — not a button for operator).
+        </p>
+        <p>
+          Per the contract's MIN-of-contributors confidence model, system-wide stale
+          posture forces <em>every</em> node's confidence to DEGRADED at best. Visually:
+          all halos shift to amber, the underlying severity tier is shown numerically next
+          to the node but de-emphasized.
+        </p>
+        <p>
+          The hourglass glyph (⌛) next to each score is the inline cue that <em>this number</em>
+          is the stale one. Same affordance everywhere — chip, rail, panel.
+        </p>
+        <div class="pull">
+          <strong>"Force re-score" is the operator escape hatch</strong> — it triggers
+          out-of-band collector dispatches in priority order (posture first, then IAM, then
+          traffic). The button is the only operator action surfaced in this state.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 9 · IAM AT SCALE ══════════════════════ -->
+  <section class="scene" id="iam-scale">
+    <header>
+      <div class="label">State 09 · Issue #4</div>
+      <h2>IAM Control Plane strip — three scale variants</h2>
+      <div class="when">
+        The current v0.2 design renders 5 roles cleanly. Customer-scale VPCs attach
+        40 - 200+ roles. This section catalogs the three rendering variants the
+        implementation must handle.
+      </div>
+    </header>
+    <div class="body" style="grid-template-columns: 1fr;">
+      <div style="padding: 22px 22px 4px;">
+
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">9a · Today (5 roles, all visible) — what's in v0.2</h3>
+        <div class="iam-mini">
+          <div class="iam-strip-header">
+            <span><strong>5 roles attached</strong> · 2 critical · 2 clean · 1 stale</span>
+            <span>flat lane</span>
+          </div>
+          <div class="iam-cat-grid" style="grid-template-columns: repeat(5, 1fr);">
+            <div class="iam-role-mini crit">
+              <span>ec2-s3-role</span><span class="gap-pill">7/7</span>
+            </div>
+            <div class="iam-role-mini crit">
+              <span>Lambda-Remed</span><span class="gap-pill">10/10</span>
+            </div>
+            <div class="iam-role-mini clean">
+              <span>frontend-ssm</span><span class="gap-pill">clean</span>
+            </div>
+            <div class="iam-role-mini clean">
+              <span>EC2S3Role</span><span class="gap-pill">clean</span>
+            </div>
+            <div class="iam-role-mini clean" style="opacity:0.5;">
+              <span>App-Role</span><span class="gap-pill" style="background:var(--cy-slate); color:white;">stale</span>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 18px 0 8px;">9b &middot; At scale (40&ndash;200+ roles) &mdash; deferred to a real customer dataset</h3>
+        <div style="background: rgba(245, 166, 35, 0.08); border: 1px solid rgba(245, 166, 35, 0.4); border-radius: 4px; padding: 14px; font-size: 12px; line-height: 1.55;">
+          alon-prod has only 5 attached roles, so we can't render an at-scale variant
+          without inventing role names and gap counts. Per
+          <a href="../../memory/feedback_no_mock_numbers_in_ui.md" style="color:var(--cy-teal);">feedback_no_mock_numbers_in_ui</a>,
+          that's not allowed in design artifacts. The at-scale layout (grouping by service
+          principal, collapsed-by-default groups, overflow links, paginated category headers)
+          is described in prose below but not rendered as a mockup. We'll mock it when we
+          have a real customer system in Neo4j with 40+ attached roles.
+        </div>
+
+        <div class="rationale" style="padding: 16px 0 22px;">
+          <h3>Design rationale</h3>
+          <p>
+            <strong>Group by service principal first,</strong> not by gap tier or by role
+            name. Customers organize their roles by what kind of workload assumes them —
+            that's how they reason about IAM, that's how they name their roles, that's how
+            they delegate ownership. Severity sorting <em>within</em> a group.
+          </p>
+          <p>
+            <strong>Always show critical-gap roles inline.</strong> Even at 247 roles, the
+            5 - 30 critical ones live above the fold of their group, no expand required.
+            Clean and stale roles collapse into a single "+ N more" link per group.
+          </p>
+          <p>
+            <strong>Service-linked roles are explicitly skipped.</strong> Cyntro doesn't
+            modify AWS-managed roles; they have their own least-privilege owned by AWS.
+            Surfacing them just adds noise.
+          </p>
+          <p>
+            <strong>Cross-account / federated as a separate category.</strong> Audit-only
+            because Cyntro can't remediate roles trusted from outside the account. Marking
+            them prevents accidental remediation attempts.
+          </p>
+          <div class="pull" style="background: rgba(0, 194, 168, 0.08); border-left: 3px solid var(--cy-teal); padding: 8px 12px; margin: 10px 0;">
+            <strong>Same collapse pattern across all categories.</strong> Operator learns
+            one interaction model and it scales from 5 roles to 247 with no new vocabulary.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 10 · ACCESSIBILITY ════════════════════ -->
+  <section class="scene" id="a11y">
+    <header>
+      <div class="label">State 10 · Issue from PR #79 review</div>
+      <h2>Accessibility primitives — WCAG 2.1 AA for the compliance-artifact framing</h2>
+      <div class="when">
+        Required for the regulated ICP (federal mandates WCAG 2.1 AA, FFIEC requires accessible
+        banking interfaces, HHS/HIPAA implies the same). The iteration-3 framing of
+        amber callouts as <em>compliance artifacts</em> contradicts itself if the
+        artifact is not itself a11y-compliant.
+      </div>
+    </header>
+    <div class="body" style="grid-template-columns: 1fr;">
+      <div style="padding: 22px 24px 8px;">
+
+        <!-- ─── 10a · Reduced motion ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10a · Reduced motion (the carmine pulse, shimmer, spinner)</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;">Default · motion enabled</div>
+            <div style="display:flex; flex-direction:column; gap: 6px; align-items: flex-start;">
+              <span class="mini-node halo-worst" style="box-shadow: 0 0 0 2px var(--cy-carmine), 0 0 12px 4px rgba(224, 69, 69, 0.55); animation: spin 0s;">EC2 Frontend-1 &mdash;</span>
+              <span class="mini-node skeleton">EC2-shimmer-loading</span>
+              <span class="toast" style="background:#F4F6F8; color:var(--cy-ink); box-shadow:none; padding: 6px 10px;"><span class="spinner" style="border-color: rgba(13,27,42,0.2); border-top-color: var(--cy-teal);"></span>Scoring &lt;done&gt; / &lt;total&gt;</span>
+            </div>
+          </div>
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;"><code>prefers-reduced-motion: reduce</code></div>
+            <div style="display:flex; flex-direction:column; gap: 6px; align-items: flex-start;">
+              <span class="mini-node" style="background: var(--aws-orange); box-shadow: 0 0 0 2px var(--cy-carmine);">EC2 Frontend-1 &mdash; &#9670;</span>
+              <span class="mini-node" style="background:#d4d4d4; color:var(--cy-slate);">EC2-loading</span>
+              <span class="toast" style="background:#F4F6F8; color:var(--cy-ink); box-shadow:none; padding: 6px 10px;"><span style="display:inline-block; width:10px; height:10px; border:2px solid var(--cy-slate); border-radius:50%; opacity:0.6;"></span>Scoring &lt;done&gt; / &lt;total&gt;</span>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 6px;">
+          The pulse halo + shimmer placeholders + spinner all stop. Severity stays
+          encoded via halo + glyph (<code>◆</code> for WORST). Skeleton placeholders
+          drop the animated gradient and use a static gray. Spinner becomes a static
+          dot. Page remains functional; movement removed.
+        </p>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          Implementation cost: ~6 CSS rules, applied in all three v0.2 mockups this iteration.
+        </p>
+
+        <!-- ─── 10b · Color-blind safety ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10b · Color-blind safety — severity by shape, not color alone</h3>
+        <div style="background: #F4F6F8; padding: 14px; border-radius: 4px; margin-bottom: 10px;">
+          <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-carmine);">◆</div>
+              <strong>WORST</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">carmine halo + pulse + diamond</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-carmine);">▲</div>
+              <strong>HIGH</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">carmine halo + triangle</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-amber);">👑</div>
+              <strong>JEWEL</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">amber ring + crown</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-slate);">⌛</div>
+              <strong>STALE</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">dim + hourglass</div>
+            </div>
+            <div style="text-align:center; font-size:11px;">
+              <div style="font-size:18px; color:var(--cy-teal);">✓</div>
+              <strong>CLEAN</strong>
+              <div style="font-size:9px; color:var(--cy-slate);">teal ring + check</div>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          Carmine and amber compress dangerously in protanopia and deuteranopia.
+          Halo + ring redundancy isn't enough — the eye still relies on color contrast
+          to distinguish WORST from JEWEL. Adding a <strong>shape glyph</strong> next
+          to every severity-coded element provides shape redundancy that survives
+          all common color-vision deficiencies. The glyphs are already in use for JEWEL
+          and STALE in v0.2; this iteration adds <code>◆</code>, <code>▲</code>, and
+          <code>✓</code> to complete the catalog.
+        </p>
+
+        <!-- ─── 10c · Keyboard navigation order ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10c · Keyboard navigation order</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;">Triage mode · tab order</div>
+            <ol style="margin: 0; padding-left: 18px; font-size: 11px; line-height: 1.7;">
+              <li>Headline CTAs (Spotlight / Open detail / Trace path)</li>
+              <li>Mode toggle</li>
+              <li>Topology nodes — spatial order: top→bottom, left→right within each tier</li>
+              <li>IAM strip roles — left to right</li>
+              <li>Ranked rail (1 → 5)</li>
+              <li>If panel open: close → tabs → section CTAs → footer CTAs</li>
+              <li><code>Esc</code> closes panel; focus returns to selected node</li>
+            </ol>
+          </div>
+          <div style="background: #F4F6F8; padding: 14px; border-radius: 4px;">
+            <div style="font-size:10px; letter-spacing:0.08em; color:var(--cy-slate); text-transform:uppercase; margin-bottom: 8px;">Estate mode · tab order</div>
+            <ol style="margin: 0; padding-left: 18px; font-size: 11px; line-height: 1.7;">
+              <li>Mode toggle</li>
+              <li>Filter checkboxes (type → severity → VPC → confidence)</li>
+              <li>Topology nodes — spatial order</li>
+              <li>IAM strip roles</li>
+              <li>Panel area: "no selection" hint contents (top-of-estate-tail list)</li>
+              <li>If panel opened by node click: same as Triage from step 6</li>
+            </ol>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 6px;">
+          The topology nodes are reachable via Tab. Arrow keys move between adjacent
+          nodes within a subnet; Tab moves out of the subnet to the next interactive
+          element. <code>Enter</code> or <code>Space</code> on a node opens the detail panel.
+        </p>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          <strong>Skip links</strong> at the top of each mode: "Skip to topology" /
+          "Skip to ranked rail" / "Skip to filters". Operators with screen readers don't
+          have to tab through the headline + mode toggle every page load.
+        </p>
+
+        <!-- ─── 10d · Screen reader announcements ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10d · Screen reader patterns — inline announcement, not tooltip</h3>
+        <div style="background: #F4F6F8; padding: 14px; border-radius: 4px; margin-bottom: 10px;">
+          <div style="font-family: ui-monospace, monospace; font-size:10px; color:var(--cy-ink); line-height:1.7;">
+            <div style="margin-bottom: 6px;"><strong style="color:var(--cy-slate);">A node with risk chip 87:</strong></div>
+            <div style="padding: 6px 10px; background: white; border-left: 3px solid var(--cy-teal); border-radius: 2px;">
+              SafeRemediate-Test-Frontend-1, EC2 instance,
+              <strong>risk &lt;score&gt; out of 100, severity &lt;tier&gt;</strong>,
+              <strong>confidence &lt;percent&gt; percent &lt;tier&gt;</strong>,
+              <strong>posture stale &lt;days&gt; days</strong>,
+              IAM counts stale &lt;days&gt; days.
+              Press enter to investigate.
+            </div>
+            <div style="margin-top: 14px; margin-bottom: 6px;"><strong style="color:var(--cy-slate);">A node with IAM gap pill "7 of 7":</strong></div>
+            <div style="padding: 6px 10px; background: white; border-left: 3px solid var(--cy-teal); border-radius: 2px;">
+              cyntro-demo-ec2-s3-role,
+              <strong>seven of seven allowed actions unused, 100 percent gap</strong>,
+              never remediated, attached to App-2 via instance profile.
+              Press enter for role detail.
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          The iteration-3 principle (<em>data-confidence is a first-class field, not in a
+          tooltip</em>) extends naturally to screen readers: the confidence + freshness
+          information lives in the <code>aria-label</code> of the focusable element, not
+          in a separate <code>aria-describedby</code> that the reader visits only on
+          request. Sighted operators see it inline; screen-reader operators hear it
+          inline. Same data-trust discipline, same delivery, no tooltip fishing.
+        </p>
+
+        <!-- ─── 10e · Semantic landmarks ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10e · Semantic structure + ARIA landmarks</h3>
+        <div style="background: #F4F6F8; padding: 14px; border-radius: 4px; margin-bottom: 10px; font-size: 11px; line-height: 1.6;">
+          <div style="font-family: ui-monospace, monospace; color: var(--cy-ink);">
+            &lt;header role="banner"&gt;            Headline strip / KPI strip<br/>
+            &lt;nav aria-label="Modes"&gt;          Mode toggle (Triage / Estate)<br/>
+            &lt;main&gt;                            Topology canvas<br/>
+            &nbsp;&nbsp;&lt;section aria-label="VPC"&gt;       AWS frame &gt; Region &gt; VPC<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&lt;section aria-label="Web tier"&gt; Tier rows with subnets<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&lt;section aria-label="IAM control plane"&gt; IAM strip<br/>
+            &lt;aside aria-label="Ranked rail"&gt;   Right rail (Triage) — role complementary<br/>
+            &lt;aside aria-label="Filters"&gt;       Right rail (Estate) — role complementary<br/>
+            &lt;aside aria-label="Detail panel" role="region"&gt; Slide-in panel<br/>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--cy-ink); line-height:1.55; margin: 0 0 18px;">
+          Landmarks give screen-reader operators a structural map of the surface. They
+          can jump directly to "Detail panel" or "Ranked rail" without traversing every
+          node first. The KPI strip uses <code>role="group"</code> on each tile so the
+          number + label + subtext are announced as one unit, not three.
+        </p>
+
+        <!-- ─── 10f · Verification checklist ─── -->
+        <h3 style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--cy-slate); margin: 0 0 8px;">10f · WCAG 2.1 AA verification — what the impl PR must pass</h3>
+        <div style="background: rgba(0, 194, 168, 0.06); border-left: 3px solid var(--cy-teal); padding: 12px 14px; font-size: 12px; line-height: 1.7;">
+          <strong>Automated:</strong> axe-core via Storybook + Playwright. Zero violations
+          on each surface (Triage, Estate, gallery).<br/>
+          <strong>Manual:</strong> NVDA + Chrome, VoiceOver + Safari. Tab through full
+          surface, confirm announcements match patterns in 10d.<br/>
+          <strong>Color-vision:</strong> Stark / Sim Daltonism overlay; confirm WORST,
+          HIGH, JEWEL distinguishable in protanopia + deuteranopia + tritanopia.<br/>
+          <strong>Motion:</strong> System preference set to "reduce motion"; confirm
+          pulse + shimmer + spinner all stop, severity still legible.<br/>
+          <strong>Keyboard-only:</strong> unplug mouse, complete a full Triage workflow
+          (spot worst → open panel → trace path) with Tab + arrow + Enter + Esc only.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ COVERAGE TABLE ════════════════════════ -->
+  <section class="scene">
+    <header>
+      <div class="label">Coverage</div>
+      <h2>What this gallery doesn't yet cover</h2>
+      <div class="when">
+        Honest about the design gaps. None are blocking the v0.2 Triage / Estate ship,
+        but they're worth knowing before the backend impl PR lands or the design ports
+        into <code>components/attack-paths-v2/topology-view.tsx</code>.
+      </div>
+    </header>
+    <div class="body" style="grid-template-columns: 1fr;">
+      <div class="rationale" style="padding: 22px 22px; font-size: 12px;">
+        <ul style="margin: 0; padding-left: 18px; line-height: 1.7;">
+          <li><strong>Mobile / narrow viewport.</strong> KPI strip's 5-tile grid breaks below ~960px. Filter rail probably needs to collapse to a bottom sheet.</li>
+          <li><strong>Serverless / event-driven architectures.</strong> AWS reference template assumes Web/App/DB tiers. SAM apps, EventBridge-driven systems, k8s topologies need separate templates.</li>
+          <li><strong>Multi-VPC simultaneous render</strong> (deferred from Estate v0.2 to v0.3). Stacked / side-by-side / carousel — three options, none designed.</li>
+          <li><strong>Cross-account topologies.</strong> Cyntro's tenant boundary is single-account per system today. Multi-account aggregation is a follow-up.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

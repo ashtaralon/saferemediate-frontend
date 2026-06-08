@@ -2867,7 +2867,11 @@ export function IAMPermissionAnalysisModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
 
-      <div className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
+      <div
+        className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4"
+        style={{ background: "var(--card, #ffffff)" }}
+        data-testid="iam-permission-analysis-modal"
+      >
         {/* Header */}
         <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)" }}>
           <div className="min-w-0">

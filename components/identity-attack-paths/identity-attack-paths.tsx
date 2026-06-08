@@ -3,8 +3,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { filterActivePaths, narrowActivePaths } from "@/lib/active-filters"
+import type { ActivePathList } from "@/lib/active-filters"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
+import { AttackTreePanel } from "./attack-tree-panel"
 import { PathListPanel } from "./path-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { PathKillerMap } from "./path-killer-map"
@@ -109,6 +112,14 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // resources confirmed absent from AWS during the last successful scan).
   // Default off — live view hides zombies.
   const [includeDeleted, setIncludeDeleted] = useState(false)
+  // Enriched-evidence toggle (2026-05-20). When on, the proxy passes
+  // enriched=true so the backend's Tier-1 Part 2 supplements attach
+  // extra fields per path node — egress destinations, ENI count,
+  // mitigation history, target groups, S3 prefixes, route tables,
+  // LB targets, lambda invocation counts. Additive only — path graph
+  // shape unchanged. Default off so the lighter payload stays the
+  // norm and operators opt in when they want the deeper drill.
+  const [enriched, setEnriched] = useState(false)
 
   // Stale-while-revalidate via useCachedFetch (localStorage SWR).
   // Replaced the raw fetch + AbortController + useState pattern because
@@ -129,7 +140,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // independently — without that, the two snapshots would clobber
   // each other.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}${enriched ? "&enriched=true" : ""}`
     : null
   const {
     data: rawData,
@@ -137,7 +148,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     error,
     retry,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}`,
+    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}:${enriched}`,
   })
 
   // Envelope unwrap. Backend optionally wraps responses in a
@@ -166,16 +177,29 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     retry()
   }, [retry])
 
-  const jewelPaths = useMemo(() => {
-    if (!data || !selectedJewelId) return []
-    return (data.paths ?? []).filter((p) => p.crown_jewel_id === selectedJewelId)
-  }, [data, selectedJewelId])
+  // Client-side stale-node gate. See lib/active-filters.ts —
+  // drops paths where any node carries is_active=false. Applied at the
+  // single read site so EVERY downstream useMemo / render gets a
+  // pre-filtered array. Catches localStorage-SWR-cached responses
+  // from before backend hardening landed.
+  const activePaths: ActivePathList<IdentityAttackPath> = useMemo(
+    () => filterActivePaths(data?.paths ?? []),
+    [data?.paths],
+  )
+
+  // narrowActivePaths preserves the ActivePathList brand through the
+  // crown-jewel filter so downstream components requiring the brand
+  // type-check correctly.
+  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
+    if (!selectedJewelId) return filterActivePaths([])
+    return narrowActivePaths(activePaths, (p) => p.crown_jewel_id === selectedJewelId)
+  }, [activePaths, selectedJewelId])
 
   // ── Partition jewels + paths by "safe" definition: no actionable remediation ──
   const { atRiskJewels, safeJewels, atRiskPathCount, safePathCount } = useMemo(() => {
     if (!data) return { atRiskJewels: [], safeJewels: [], atRiskPathCount: 0, safePathCount: 0 }
     const jewels = data.crown_jewels ?? []
-    const paths = data.paths ?? []
+    const paths = activePaths
     const pathHasAction = (p: IdentityAttackPath) =>
       (p.risk_reduction?.top_actions?.length ?? 0) > 0
 
@@ -900,6 +924,40 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                 {includeDeleted ? "● Show deleted" : "○ Hide deleted"}
               </span>
             </button>
+            {/* Enriched-evidence toggle (2026-05-20): when ON, each path
+                node carries the Tier-1 Part 2 supplement fields (egress
+                destinations, ENI count, mitigation history, target
+                groups, S3 prefixes, route tables, LB targets, lambda
+                invocations). The node detail panel renders these as
+                additional evidence sections — additive only, never
+                changes the path graph. Default off so the lighter
+                payload stays the norm. */}
+            <button
+              onClick={() => setEnriched((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-semibold transition-colors"
+              style={
+                enriched
+                  ? {
+                      background: "rgba(56, 189, 248, 0.15)",
+                      color: "#7dd3fc",
+                      border: "1px solid rgba(56, 189, 248, 0.35)",
+                    }
+                  : {
+                      background: "rgba(15, 23, 42, 0.8)",
+                      color: "#94a3b8",
+                      border: "1px solid rgba(148, 163, 184, 0.15)",
+                    }
+              }
+              title={
+                enriched
+                  ? "Enriched evidence ON — showing route tables, egress destinations, ENI counts, target groups, prior mitigations, and more per node. Click to switch to the standard view."
+                  : "Standard view — click to attach Tier-1 evidence (route tables, egress destinations, ENI counts, target groups, prior mitigations) to each path node."
+              }
+            >
+              <span className="text-[10px]">
+                {enriched ? "● Enriched" : "○ Standard"}
+              </span>
+            </button>
             <button
               onClick={() => fetchData()}
               className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
@@ -930,6 +988,26 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           {selectedJewelId && (
             <CrownJewelSurfaceCard systemName={systemName} jewelId={selectedJewelId} />
           )}
+
+          {/* Attack Tree — structural "every door to this bucket" view for
+              S3 jewels. Sits between the surface card and the per-path list
+              so the operator gets the cross-path picture (which roles +
+              workloads reach this bucket, multi-role pivots, default-SG
+              exposure) before drilling into any single path. Suppressed for
+              non-S3 jewels until the backend Cypher generalises. */}
+          {selectedJewelId && (() => {
+            const sel = (data?.crown_jewels ?? []).find((j) => j.id === selectedJewelId)
+            if (!sel) return null
+            const isS3 =
+              (sel.type || "").toLowerCase().includes("s3") ||
+              sel.id.includes(":s3:::") ||
+              sel.id.startsWith("arn:aws:s3:")
+            if (!isS3) return null
+            // Prefer the bucket name (matches Neo4j b.name); fall back to ARN.
+            // Backend accepts name / id / arn — name is the most readable.
+            const identifier = sel.name || sel.id
+            return <AttackTreePanel bucketIdentifier={identifier} bucketLabel={sel.name || sel.id} />
+          })()}
 
           {/* PATH LIST — default landing per jewel. Operator picks one
               path's risk/damage to drill into. Skip in detail mode. */}

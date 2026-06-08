@@ -1,7 +1,7 @@
 "use client"
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, NotWiredCard, Section } from "./card-shell"
 import {
   accentByCategory,
   descriptorClass,
@@ -204,6 +204,25 @@ export function HeroBrssCard() {
         label="Global blast radius score"
         error={msg}
         onRetry={() => (usingOrg ? orgRetry() : legacyRetry())}
+      />
+    )
+  }
+  // Defense-in-depth against backend regressions: a score on zero
+  // systems / zero resources is meaningless by construction. The
+  // backend was caught returning 100/100 with `0 systems · 0 resources`
+  // (api/global_org_score.py used to default to 100 when discovery
+  // returned no rows). Per feedback_no_mock_numbers_in_ui.md, never
+  // render a fabricated number — surface the empty-corpus reality
+  // even if a future backend deploy regresses to a synthetic default.
+  if (systemCount === 0 || resourcesAnalyzed === 0) {
+    return (
+      <NotWiredCard
+        label="Global blast radius score"
+        reason={
+          orgData?.message ||
+          orgData?.error ||
+          "No systems or resources discovered in the graph. The score is undefined until at least one system contributes a BRSS computation. Run a collector sync or verify system-tagging has completed."
+        }
       />
     )
   }

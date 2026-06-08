@@ -6,6 +6,7 @@
 
 import { useParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // Dynamically import the component to avoid SSR issues
 const SGInspectorTemplate = dynamic(
@@ -26,7 +27,10 @@ export default function SGInspectorPage() {
 
   return (
     <div style={{ padding: '24px', backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
-      <h1 style={{ marginBottom: '20px' }}>SG Inspector: {sgId}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+        <BackToDashboard />
+        <h1 style={{ margin: 0 }}>SG Inspector: {sgId}</h1>
+      </div>
       <SGInspectorTemplate sgId={sgId} initialWindow={30} />
     </div>
   )

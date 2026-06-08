@@ -68,6 +68,76 @@ export interface UseCachedFetchResult<T> {
 const CACHE_PREFIX = "cyntro:swr:"
 const DEFAULT_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h
 
+// Defensive render-time filter against the specific phantom-edge class
+// surfaced by the backend verify-gate (2026-05-29 dep_map_full step-10
+// COALESCE bug): an edge whose source or target is a raw Neo4j elementId
+// like "4:e1c412d2-04c0-4554-a49b-ce0cd85dbb91:71" — not a real AWS id
+// or ARN, and not joinable against any other consumer. The backend now
+// rejects these via the gate, but a cached payload written BEFORE the
+// fix could still serve one to the renderer on this user's next visit
+// (per feedback_frontend_cache_can_serve_stale_phantoms: "backend
+// filter only protects fresh responses; localStorage SWR can resurface
+// cached pre-fix payloads"). Mirror the filter here so render-time
+// drops these regardless of cache age.
+//
+// Pattern: <int>:<uuid>:<int> — Neo4j 5+ elementId format. Same regex
+// as the gate's identity check. Adding a new bad-id pattern is one
+// regex edit here.
+const NEO4J_ELEMENT_ID_RE = /^\d+:[a-z0-9-]+:\d+$/i
+
+function looksLikePhantomId(value: unknown): boolean {
+  return typeof value === "string" && NEO4J_ELEMENT_ID_RE.test(value)
+}
+
+/**
+ * Walk an arbitrary API response and drop edges whose source/target
+ * looks like a phantom (raw Neo4j elementId). Recognizes both the
+ * MapEdge/PathEdge shape (`source`/`target` keys) and the CanvasEdge
+ * shape (`source_aws_id`/`target_aws_id`). Logs once per cache key
+ * when something is filtered so the console flags lingering cached
+ * pre-fix payloads — silent filtering would hide them.
+ *
+ * Returns the cleaned value and a count of edges dropped.
+ */
+function sanitizePhantomEdges(value: unknown): { cleaned: unknown; dropped: number } {
+  let dropped = 0
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) {
+      const out: unknown[] = []
+      for (const item of v) {
+        // Edge-shaped object check before recursing — drop the whole edge
+        // if either endpoint is a phantom id. Don't try to recurse INTO a
+        // dropped edge.
+        if (item && typeof item === "object" && !Array.isArray(item)) {
+          const obj = item as Record<string, unknown>
+          const flatPhantom =
+            "source" in obj && "target" in obj &&
+            (looksLikePhantomId(obj.source) || looksLikePhantomId(obj.target))
+          const canvasPhantom =
+            "source_aws_id" in obj && "target_aws_id" in obj &&
+            (looksLikePhantomId(obj.source_aws_id) || looksLikePhantomId(obj.target_aws_id))
+          if (flatPhantom || canvasPhantom) {
+            dropped += 1
+            continue
+          }
+        }
+        out.push(walk(item))
+      }
+      return out
+    }
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {}
+      for (const [k, vv] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = walk(vv)
+      }
+      return out
+    }
+    return v
+  }
+  const cleaned = walk(value)
+  return { cleaned, dropped }
+}
+
 function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | null {
   if (typeof window === "undefined") return null
   try {
@@ -76,7 +146,22 @@ function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | nu
     const entry: CacheEntry<T> = JSON.parse(raw)
     if (typeof entry?.ts !== "number") return null
     if (Date.now() - entry.ts > maxAge) return null
-    return { data: entry.data, ts: entry.ts }
+    // Apply the phantom-edge filter on every read. A payload written
+    // before the backend fix may still be in localStorage, and the user
+    // would see the orphan elementId target on the canvas without this.
+    const { cleaned, dropped } = sanitizePhantomEdges(entry.data)
+    if (dropped > 0) {
+      // Loud log: lingering cached pre-fix payload caught at render time.
+      // Stays visible in DevTools so the dev knows the cache filter
+      // earned its keep.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[useCachedFetch] dropped ${dropped} phantom edge(s) from cached ` +
+          `payload key=${key}. Likely a pre-2026-05-29 backend response ` +
+          `where dep_map step-10 emitted Neo4j elementId targets.`,
+      )
+    }
+    return { data: cleaned as T, ts: entry.ts }
   } catch {
     return null
   }
@@ -174,7 +259,22 @@ export function useCachedFetch<T = unknown>(
       }
       const json = (await res.json()) as T
       if (myEpoch !== epochRef.current) return
-      setData(json)
+      // Defensive double-check on FRESH responses too. The backend gate
+      // makes phantom edges impossible to ship in new deploys, but if
+      // a CI gap or a hot-fix bypass ever lets one through, this
+      // catches it at the render boundary so the operator never sees
+      // an orphan elementId on the canvas.
+      const { cleaned, dropped } = sanitizePhantomEdges(json)
+      if (dropped > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[useCachedFetch] FRESH response key=${cacheKey} contained ` +
+            `${dropped} phantom edge(s) — backend gate failed to catch ` +
+            `this. Filtered at render. Investigate the contract coverage.`,
+        )
+      }
+      const sanitized = cleaned as T
+      setData(sanitized)
       setIsStale(false)
       // cachedAt = null means "this data is fresh from the network in
       // this session." The UI suppresses the stale indicator in that
@@ -183,7 +283,7 @@ export function useCachedFetch<T = unknown>(
       setCachedAt(null)
       setError(null)
       setLoading(false)
-      writeCache(cacheKey, json)
+      writeCache(cacheKey, sanitized)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
       if (data === null) {

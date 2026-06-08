@@ -121,6 +121,28 @@ export type SeverityFactor =
   | "identity_chain"
   | "network_controls"
 
+// Principal-like node types that show up as the entry-tier "who is
+// authenticating" wrapper on an attack path. As of 2026-05-22 the IAP
+// backend serializes path-node `type` from Neo4j labels rather than
+// the collector-written `n.type` property — so an STS-derived session
+// that the harness sees as labels=[AWSPrincipal, Principal] now arrives
+// here as type="AWSPrincipal" (was "CloudTrailPrincipal" previously),
+// and an STS session whose labels include IAMRole arrives as
+// type="IAMRole". This set lets any code that needs to detect the
+// "entry principal" widen the check without duplicating the list.
+// "CloudTrailPrincipal" is retained for back-compat in case future
+// nodes lack a more-specific label.
+export const PRINCIPAL_NODE_TYPES = new Set<string>([
+  "CloudTrailPrincipal",
+  "AWSPrincipal",
+  "Principal",
+  "Root",
+])
+
+export function isPrincipalNodeType(type: string | undefined | null): boolean {
+  return !!type && PRINCIPAL_NODE_TYPES.has(type)
+}
+
 export const FACTOR_LABELS: Record<SeverityFactor, string> = {
   impact: "Impact Severity",
   internet_exposure: "Internet Exposure",
@@ -317,6 +339,8 @@ export interface NodeFinding {
 
 export interface PathNodeDetail {
   id: string
+  /** ARN preferred for canvas / graph-view backend lookups (PR #63). */
+  canonical_id?: string | null
   name: string
   type: string
   tier: "entry" | "identity" | "network_control" | "crown_jewel"
@@ -334,6 +358,13 @@ export interface PathNodeDetail {
   // muted for roles; IAMUser without MFA is a HARD signal.
   has_mfa?: boolean | null
   has_console_access?: boolean | null
+  // 2026-05-23: soft-delete flag surfaced through the response so the
+  // frontend's client-side stale gate (lib/active-filters.ts) can drop
+  // paths through inactive nodes even when localStorage SWR serves a
+  // cached IAP response from before backend hardening. `false` = node
+  // is_active=false in Neo4j (soft-deleted by reconciliation pass).
+  // `true` / `null` / undefined = node is renderable.
+  is_active?: boolean | null
   // Tier-1: SecurityFinding nodes whose resourceArn === this node.id.
   // Empty array when no findings reference this node. Backend caps at
   // 10 per node — operator drills in via the detail panel for the rest.
@@ -369,6 +400,137 @@ export interface PathNodeDetail {
     city?: string
     aws?: { service?: string; region?: string; network_border_group?: string } | null
   }
+  // ── Tier-1 enrichment Part 2 fields (proxy ?enriched=true) ───────
+  // Each field only appears when backend `_apply_enriched_supplements`
+  // resolved a relevant graph fact for THIS node. Frontend renders the
+  // section conditionally — `node.<field>` truthy → show section,
+  // otherwise drop silently (no empty-state spam).
+  //
+  // Per `feedback_remediation_safety_signals.md` these ARE evidence
+  // signals next to the recommendation — render them on the node
+  // detail panel so the operator sees WHY a recommendation routed
+  // the way it did (e.g. mitigation_history showing a prior rollback).
+  egress_destinations?: EgressDestinationEntry[]
+  eni_count?: number
+  mitigation_history?: MitigationEvent[]
+  target_groups?: TargetGroupEntry[]
+  s3_prefixes?: S3PrefixEntry[]
+  /** Singular: each Subnet has exactly one effective RouteTable. Matches
+   * the backend `_fetch_route_tables` shape (chip item 8). Frontend
+   * renders this as a small annotation on the Subnet card and as a
+   * grouped list in the node detail panel. */
+  route_table?: RouteTableInfo
+  /** Legacy plural — kept so older callers reading `node.route_tables`
+   * don't crash. New code should read `node.route_table` directly.
+   * Removed in a follow-up once all readers migrate. */
+  route_tables?: RouteTableInfo[]
+  load_balancer_targets?: Array<{
+    instance_id: string
+    az?: string | null
+    health?: string | null
+  }>
+  lambda_invocation_count?: number
+  lambda_invocations?: number
+}
+
+/** ── Tier-1 expanded supplements (?enriched=true) ─────────────────
+ * Per-node arrays attached by backend `_apply_enriched_supplements`.
+ * Each interface mirrors the backend Cypher's RETURN shape. All fields
+ * optional — backend tolerates missing graph data; frontend renders the
+ * three-state contract per `feedback_no_mock_numbers_in_ui`.
+ */
+
+export interface EgressDestinationEntry {
+  destination_ip: string
+  destination_class?: string
+  bytes?: number
+  hits?: number
+  org?: string | null
+  aws_service?: string | null
+  domain?: string | null
+}
+
+export interface S3PrefixEntry {
+  id: string
+  prefix: string
+  hits: number
+  bytes?: number
+  last_seen?: string | null
+  access?: Array<{
+    principal_id: string
+    operation: string
+    hits: number
+    last_seen?: string | null
+  }>
+}
+
+export interface TargetGroupEntry {
+  id: string
+  name: string
+  protocol?: string | null
+  port?: number | null
+  target_type?: string | null
+  targets: Array<{
+    id: string
+    name: string
+    type?: string | null
+  }>
+}
+
+/** Subnet → RouteTable + per-route target. Backend's `_fetch_route_tables`.
+ * Per-Subnet (singular) because each Subnet has exactly one effective
+ * RouteTable in AWS. `routes` denormalizes the (Subnet)-[:ROUTES_VIA]
+ * edges keyed on destination CIDR. */
+export interface RouteTableInfo {
+  rtb_id: string
+  rtb_name: string
+  /** True when this RouteTable is the VPC's Main RT. Frontend prefixes
+   * the annotation with "Main · " for operator-clarity. */
+  is_main?: boolean | null
+  /** AWS-reported route count on the RouteTable (may exceed `routes`
+   * length if some routes target a CIDR-only NextHop the collector
+   * couldn't tie back to a typed node). */
+  route_count: number
+  routes: Array<{
+    destination: string  // CIDR or prefix-list
+    target_id: string
+    target_name: string
+    target_kind:
+      | "InternetGateway"
+      | "NATGateway"
+      | "VPCEndpoint"
+      | "TransitGateway"
+      | "VPCPeeringConnection"
+      | "EgressOnlyInternetGateway"
+      | null
+  }>
+}
+
+export type MitigationKind =
+  | "RemediationEvent"
+  | "OverrideEvent"
+  | "MutationEvent"
+  | "RollbackEvent"
+  | "QuarantineRecord"
+
+export interface MitigationEvent {
+  id: string
+  kind: MitigationKind
+  rel_type?: string
+  event_type?: string
+  status?: string | null
+  success?: boolean | null
+  confidence?: number | null
+  rollback_available?: boolean | null
+  rolled_back_at?: string | null
+  rolled_back_by?: string | null
+  overridden_by?: string | null
+  rationale?: string | null
+  resource_type?: string | null
+  initiated_by?: string | null
+  quarantined_at?: string | null
+  restored_at?: string | null
+  at: string
 }
 
 export interface PathEdgeDetail {
@@ -419,6 +581,8 @@ export interface IdentityAttackPath {
 
 export interface CrownJewelSummary {
   id: string
+  /** ARN preferred for canvas / graph-view backend lookups (PR #63). */
+  canonical_id?: string | null
   name: string
   type: string
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
@@ -427,6 +591,10 @@ export interface CrownJewelSummary {
   is_internet_exposed: boolean
   data_classification: string | null
   priority_score: number
+  // "reachable_only" = jewel isn't tagged to this system but the system's
+  // IAM roles reach it via observed edges (shared-bucket-across-systems
+  // pattern). Absent/null for in-system jewels.
+  crown_jewel_source?: "reachable_only" | null
 }
 
 // Tier-1: system-level posture summary attached to the top of the

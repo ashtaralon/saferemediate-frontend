@@ -4,6 +4,7 @@ import { useSystem } from "@/lib/system-context"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { AlertTriangle } from "lucide-react"
 import type { ReactNode } from "react"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 
 interface SystemGuardProps {
   children: ReactNode
@@ -20,7 +21,8 @@ export function SystemGuard({ children, fallback }: SystemGuardProps) {
 
   if (!hasSystem) {
     return fallback ?? (
-      <div className="p-6">
+      <div className="p-6 space-y-4">
+        <BackToDashboard />
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>No system selected</AlertTitle>

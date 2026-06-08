@@ -16,6 +16,8 @@ import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-rem
 import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-remediation-modal'
 import type { BlastRadiusScore } from '@/lib/types'
 import { CoveragePill } from '@/components/brss/coverage-pill'
+import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -135,7 +137,10 @@ interface GapResource {
       resources_checked?: number
     }> | null
   }
-  severity: 'critical' | 'high' | 'medium' | 'low'
+  // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
+  // in this file still write lowercase. Severity rendering goes through
+  // lib/lp-severity.ts which normalises case before mapping.
+  severity: string
   confidence: number
   observationDays: number
   title: string
@@ -224,9 +229,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // Traffic Simulator state
   const [showTrafficSimulator, setShowTrafficSimulator] = useState(false)
   const [isSimulatingTraffic, setIsSimulatingTraffic] = useState(false)
-  const [simSource, setSimSource] = useState("SafeRemediate-Test-App-1")
-  const [simTarget, setSimTarget] = useState("cyntro-demo-prod-data-745783559495")
-  const [simIamRole, setSimIamRole] = useState("cyntro-demo-ec2-s3-role")
+  // 2026-05-30 — removed hardcoded demo defaults (SafeRemediate-Test-App-1,
+  // cyntro-demo-prod-data-745783559495, cyntro-demo-ec2-s3-role). The
+  // simulator now requires the operator to pick real source/target/role
+  // from the dropdowns populated by the dependency-map API. Empty defaults
+  // are honest — Cyntro doesn't know what the operator wants to simulate
+  // until they tell us.
+  const [simSource, setSimSource] = useState("")
+  const [simTarget, setSimTarget] = useState("")
+  const [simIamRole, setSimIamRole] = useState("")
   const [simDays, setSimDays] = useState(420)
   const [simEventsPerDay, setSimEventsPerDay] = useState(3)
 
@@ -262,14 +273,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     KMS: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
   }
 
-  const DEMO_SCENARIOS = [
-    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 420, eventsPerDay: 3, connectionType: 'api' as const },
-    { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 180, eventsPerDay: 10, connectionType: 'api' as const },
-    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", iamRole: "", days: 90, eventsPerDay: 25, connectionType: 'api' as const },
-    { name: "S3 → Lambda (Events)", source: "cyntro-demo-prod-data-745783559495", target: "analytics-lambda", iamRole: "", days: 120, eventsPerDay: 15, connectionType: 'api' as const },
-    { name: "S3 → S3 (Replication)", source: "cyntro-demo-prod-data-745783559495", target: "cyntro-demo-backup-745783559495", iamRole: "s3-replication-role", days: 365, eventsPerDay: 5, connectionType: 'api' as const },
-    { name: "EC2 → RDS (MySQL)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-rds", iamRole: "", days: 90, eventsPerDay: 50, connectionType: 'network' as const, port: 3306 },
-  ]
+  // 2026-05-30 — DEMO_SCENARIOS array removed. The previous 6 entries all
+  // pointed at SafeRemediate-Test/cyntro-demo-* resource names that don't
+  // exist for any other customer, so the "Quick scenarios" buttons silently
+  // did nothing outside the demo environment. Empty array preserves the
+  // typeof reference for applyScenario's parameter, the UI maps over it,
+  // and a future iteration can populate from the system's actual graph
+  // (e.g. top 5 path-frequency source→target pairs from IAP).
+  const DEMO_SCENARIOS: Array<{
+    name: string
+    source: string
+    target: string
+    iamRole: string
+    days: number
+    eventsPerDay: number
+    connectionType: 'api' | 'network'
+    port?: number
+  }> = []
 
   // Fetch available services from Neo4j
   const fetchAvailableServices = async () => {
@@ -424,8 +444,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
     setIsSimulatingTraffic(true)
     try {
+      // 2026-05-30 — removed cyntro-demo-ec2-s3-role hardcoded fallback.
+      // When no role is selected the backend has nothing to reset; require
+      // the operator to pick one rather than silently scrubbing a demo role.
+      if (!simIamRole || !simIamRole.trim()) {
+        toast({
+          title: "Select an IAM role",
+          description: "Pick a role from the dropdown before resetting demo traffic.",
+          variant: "destructive",
+        })
+        setIsSimulatingTraffic(false)
+        return
+      }
       const params = new URLSearchParams({
-        role_name: simIamRole || 'cyntro-demo-ec2-s3-role',
+        role_name: simIamRole,
         clear_traffic: 'true'
       })
 
@@ -1400,31 +1432,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (type === 'S3Bucket') return Database
     return AlertTriangle
   }
+  // Severity badge mirrors the backend `severity` field verbatim
+  // (case-insensitive). The frontend must not re-derive severity from
+  // gapPercent — a bucket flagged CRITICAL for a public-read policy has
+  // gapPercent=0 yet must render CRITICAL, not Low.
   const getSeverityColor = (resource: GapResource) => {
     if (isRemediated(resource)) return '#10b981'
-    const pct = resource.gapPercent ?? 0
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      const s = (resource.severity || '').toUpperCase()
-      if (s === 'CRITICAL') return '#ef4444'
-      if (s === 'HIGH') return '#f97316'
-      if (s === 'MEDIUM') return '#eab308'
-      return '#22c55e'
-    }
-    if (pct >= 80) return '#ef4444'
-    if (pct >= 50) return '#f97316'
-    if (pct >= 20) return '#eab308'
-    return '#22c55e'
+    return lpSeverityColor(resource.severity)
   }
   const getSeverityLabel = (resource: GapResource) => {
     if (isRemediated(resource)) return 'Remediated'
-    const pct = resource.gapPercent ?? 0
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      return (resource.severity || 'low').toUpperCase()
-    }
-    if (pct >= 80) return 'Critical'
-    if (pct >= 50) return 'High'
-    if (pct >= 20) return 'Medium'
-    return 'Low'
+    return lpSeverityLabel(resource.severity)
   }
   // ── Blast Radius (v1.1) colour + confidence helpers ──
   const getBRSColor = (band?: string) => {
@@ -1561,16 +1579,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       {/* Compact Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            GAP between allowed and actual permissions
-            {data?.fromCache && (
-              <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
-              </span>
-            )}
-          </p>
+        <div className="flex items-center gap-3">
+          <BackToDashboard />
+          <div>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              GAP between allowed and actual permissions
+              {data?.fromCache && (
+                <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -3087,7 +3108,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       value={simSource}
                       onChange={(e) => setSimSource(e.target.value)}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
-                      placeholder="e.g., SafeRemediate-Test-App-1"
+                      placeholder="Source resource name"
                     />
                   )}
                   <input
@@ -3249,7 +3270,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       value={simIamRole}
                       onChange={(e) => setSimIamRole(e.target.value)}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] bg-white"
-                      placeholder="e.g., cyntro-demo-ec2-s3-role"
+                      placeholder="IAM role name"
                     />
                     <p className="text-xs text-slate-500 mt-1">If specified, marks permissions as used for this role</p>
                   </div>

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { ConfidenceExplanationPanel } from '@/components/ConfidenceExplanationPanel'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 import type { ConfidenceScore } from '@/lib/types'
 
 export default function ConfidenceTestPage() {
@@ -46,12 +47,15 @@ export default function ConfidenceTestPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Agent 5 · Confidence Scorer Test</h1>
-        <p className="text-sm text-slate-600 mt-1">
-          End-to-end verification for the <code>/api/confidence/check</code> backend endpoint,
-          including the LLM explanation layer.
-        </p>
+      <div className="flex items-start gap-3">
+        <BackToDashboard className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-0.5" />
+        <div>
+          <h1 className="text-2xl font-semibold">Agent 5 · Confidence Scorer Test</h1>
+          <p className="text-sm text-slate-600 mt-1">
+            End-to-end verification for the <code>/api/confidence/check</code> backend endpoint,
+            including the LLM explanation layer.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-3 rounded-lg border p-4 bg-white">

@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
 import { PageHeader } from "@/components/ui/page-header"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 
 interface System {
   name: string
@@ -598,6 +599,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
   if (localSystems.length === 0 && !isLoadingData) {
     return (
+      <div className="space-y-4">
+        <BackToDashboard />
       <div
         className="rounded-lg border p-12"
         style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
@@ -671,11 +674,15 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           </div>
         </div>
       </div>
+      </div>
     )
   }
 
   return (
     <div className="space-y-6">
+      <div>
+        <BackToDashboard />
+      </div>
       {/* PageHeader — shared with Home V3 and Issues so the three top-
          level dashboards present a consistent identity. Per the dashboard
          design review (2026-04-30): trust pill goes here once each page

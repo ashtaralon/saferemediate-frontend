@@ -65,14 +65,8 @@ export function SystemPickerCard({ onSelect }: SystemPickerCardProps) {
 
       {!loading && !error && systems.length === 0 && (
         <div className="text-sm text-slate-500">
-          No systems available.{" "}
-          <button
-            type="button"
-            onClick={() => onSelect("alon-prod")}
-            className="text-blue-600 underline"
-          >
-            Try alon-prod
-          </button>
+          No systems available. Run an AWS sync from the dashboard to
+          populate this list.
         </div>
       )}
 

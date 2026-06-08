@@ -8,6 +8,7 @@ import {
   Box, FileText, Radio, Activity, Eye, Clock, ChevronDown,
   TrendingUp, CheckCircle, User
 } from 'lucide-react'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // Service icons by type
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
@@ -434,15 +435,18 @@ export default function AllServicesInventory({ systemName }: Props) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Grid className="w-6 h-6 text-violet-500" />
-            All Services Inventory
-          </h2>
-          <p className="text-slate-500">
-            {filteredServices.length} of {services.length} services • 
-            Last sync: {lastSync ? new Date(lastSync).toLocaleTimeString() : 'Never'}
-          </p>
+        <div className="flex items-start gap-3">
+          <BackToDashboard className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-1 shrink-0" />
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Grid className="w-6 h-6 text-violet-500" />
+              All Services Inventory
+            </h2>
+            <p className="text-slate-500">
+              {filteredServices.length} of {services.length} services •
+              Last sync: {lastSync ? new Date(lastSync).toLocaleTimeString() : 'Never'}
+            </p>
+          </div>
         </div>
         
         <div className="flex items-center gap-3">

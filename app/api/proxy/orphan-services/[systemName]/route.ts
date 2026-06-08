@@ -77,7 +77,51 @@ const AWS_MANAGED_EXACT = new Set([
   'flowlogs', // CloudWatch log group auto-created by VPC Flow Logs
 ])
 
-function isAWSManagedResource(name: string, type: string): boolean {
+type EvidenceSource = 'cloudtrail' | 'flow_logs' | 'access_advisor' | 'graph_only'
+type TelemetryConfidence = 'confirmed' | 'probable' | 'assumed'
+
+function deriveEvidenceSources(
+  ev: { cloudtrail_events?: number; total_hits?: number; access_advisor_services?: number; total_relationships?: number; evidence_sources?: string[] } | undefined,
+  totalRels: number,
+): EvidenceSource[] {
+  if (ev?.evidence_sources?.length) {
+    return ev.evidence_sources.filter((s): s is EvidenceSource =>
+      s === 'cloudtrail' || s === 'flow_logs' || s === 'access_advisor' || s === 'graph_only'
+    )
+  }
+  const sources: EvidenceSource[] = []
+  if ((ev?.cloudtrail_events ?? 0) > 0) sources.push('cloudtrail')
+  if ((ev?.total_hits ?? 0) > 0) sources.push('flow_logs')
+  if ((ev?.access_advisor_services ?? 0) > 0) sources.push('access_advisor')
+  if (sources.length === 0 && (ev?.total_relationships ?? totalRels) > 0) sources.push('graph_only')
+  return sources
+}
+
+function deriveTelemetryConfidence(sources: EvidenceSource[], idleDays: number, thresholdDays: number): TelemetryConfidence {
+  if (sources.length === 0) return 'assumed'
+  if (sources.length >= 2 && idleDays >= thresholdDays) return 'confirmed'
+  if (sources.length === 1 && idleDays >= thresholdDays) return 'probable'
+  return 'assumed'
+}
+
+function evidenceSourceLabel(source: EvidenceSource): string {
+  switch (source) {
+    case 'cloudtrail': return 'CloudTrail'
+    case 'flow_logs': return 'Flow Logs'
+    case 'access_advisor': return 'Access Advisor'
+    case 'graph_only': return 'Graph only'
+  }
+}
+
+function isAWSManagedResource(name: string, type: string, properties?: Record<string, any>): boolean {
+  const props = properties || {}
+  if (props.key_manager === 'AWS') return true
+  if (props.aws_managed === true) return true
+  const rid = props.id || ''
+  if (typeof rid === 'string' && rid.startsWith('AWS/')) return true
+  const arn = props.arn || props.key_arn || ''
+  if (typeof arn === 'string' && arn.startsWith('arn:aws:iam::aws:')) return true
+
   // Filter out known AWS-managed exact names
   if (AWS_MANAGED_EXACT.has(name)) return true
   // Filter out AWS-managed IAM policies (exist in every account)
@@ -133,6 +177,9 @@ interface OrphanResource {
   isInternetFacing: boolean
   hasEncryption: boolean | null
   totalPermissions: number
+  evidenceSources: EvidenceSource[]
+  telemetryConfidence: TelemetryConfidence
+  missingEvidenceSources: string[]
 }
 
 interface ConfidenceSignal {
@@ -433,7 +480,7 @@ export async function GET(
 
       // Skip AWS-managed resources, service-linked roles, and permission string nodes
       const resourceName = r.name || ''
-      if (isAWSManagedResource(resourceName, resourceType)) continue
+      if (isAWSManagedResource(resourceName, resourceType, r.properties)) continue
 
       // Get evidence for this resource.
       const ev = evidence[resourceName]
@@ -705,6 +752,13 @@ export async function GET(
       const isDR = hasDRTag || isDRByName
       const classification = classifyOrphan(r, totalRels, idleDays, seasonalInfo, secRisk, isDR)
 
+      const evidenceSources = deriveEvidenceSources(ev, totalRels)
+      const telemetryConfidence = deriveTelemetryConfidence(evidenceSources, idleDays, ORPHAN_THRESHOLD_DAYS)
+      const allSources: EvidenceSource[] = ['cloudtrail', 'flow_logs', 'access_advisor']
+      const missingEvidenceSources = allSources
+        .filter(s => !evidenceSources.includes(s))
+        .map(evidenceSourceLabel)
+
       const orphanResource: OrphanResource = {
         id: r.id || r.name || Math.random().toString(),
         name: r.name || 'Unknown',
@@ -714,6 +768,9 @@ export async function GET(
         lastSeen: hasValidDate ? lastSeen!.toISOString() : '',
         properties: r.properties || {},
         lastUsedBy: classification.lastUsedBy || lastUsedByMap[r.name] || null,
+        evidenceSources,
+        telemetryConfidence,
+        missingEvidenceSources,
         ...classification,
       }
 
@@ -730,8 +787,9 @@ export async function GET(
         const candidates = orphans.map(o => ({
           name: o.name,
           type: o.type,
-          arn: o.properties?.arn || '',
+          arn: o.properties?.arn || o.properties?.key_arn || '',
           id: o.properties?.id || o.id || '',
+          properties: o.properties || {},
         }))
 
         const validateResp = await fetch(
@@ -752,6 +810,10 @@ export async function GET(
           // Filter out stale resources (don't exist in AWS) and attached IAM policies
           const validatedOrphans = orphans.filter(o => {
             const awsStatus = awsValidation[o.name]
+            if (awsStatus?.verdict === 'aws_managed') {
+              console.log(`[orphan-services] Removing AWS-managed resource "${o.name}"`)
+              return false
+            }
             if (awsStatus?.checked && !awsStatus.exists) {
               console.log(`[orphan-services] Removing stale orphan "${o.name}" — does not exist in AWS`)
               return false

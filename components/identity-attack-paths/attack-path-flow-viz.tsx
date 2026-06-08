@@ -7,6 +7,7 @@ import {
   Maximize2, Minimize2, X, Layers, Table2, KeyRound, ShieldOff,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
+import type { ActivePathList } from "@/lib/active-filters"
 import type {
   IdentityAttackPath,
   PathNodeDetail,
@@ -27,10 +28,13 @@ import type {
   SystemArchitecture,
   NodeType,
 } from "@/components/dependency-map/traffic-flow-map"
+import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 
 // ── Props ───────────────────────────────────────────────────────────
 interface AttackPathFlowVizProps {
-  paths: IdentityAttackPath[]
+  // ActivePathList enforces at compile time that filterActivePaths
+  // ran on this array. See lib/active-filters.ts.
+  paths: ActivePathList<IdentityAttackPath>
   selectedPathIndex: number
   onNodeClick: (nodeId: string) => void
   selectedNodeId: string | null
@@ -610,9 +614,16 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
       flows.push({
         sourceId: entry.id,
         targetId: jewel.id,
-        sgId: computeId,
-        naclId: identityId,
-        roleId: pivotId,
+        // Phase 4 (2026-05-25): checkpoint-bundle fields removed. The
+        // prior synthesis routed one entry→jewel polyline THROUGH
+        // sgId/naclId/roleId waypoints — but those fields were
+        // repurposed (sgId=computeId, naclId=identityId, roleId=
+        // pivotId), mixing identity-plane + network-plane + data-plane
+        // checkpoints onto a single SVG line. Cross-plane drawing bug
+        // that the audit caught for attacker-view-panel applies here
+        // too. Rendering now driven by `architecture.edges[]` — the
+        // real graph edges, one plane-colored line per edge. Flow
+        // stays for header math (totalBytes / totalConnections).
         ports: [],
         protocol: "TCP",
         bytes,
@@ -625,14 +636,11 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
   // Fallback: if no flows and we have computes, treat them as entries
   if (flows.length === 0 && actualComputes.length > 0 && jewels.length > 0) {
     for (const compute of actualComputes) {
-      const identityId = findConnected(compute.id, identityIdSet, identityEdgeTypes) ?? identities[0]?.id
       for (const jewel of jewels) {
         flows.push({
           sourceId: compute.id,
           targetId: jewel.id,
-          sgId: undefined as any,
-          naclId: identityId,
-          roleId: pivots[0]?.id,
+          // See note above — checkpoint waypoint bundle removed.
           ports: [],
           protocol: "TCP",
           bytes: 0,
@@ -683,14 +691,65 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     type: "instance_profile" as NodeType,
   }))
 
+  // ── Step 6: Build explicit edges (Phase 4 — 2026-05-25) ──────────
+  //
+  // One CanvasEdge per real graph relationship between rendered cards.
+  // ConnectionLinesSVG short-circuits to plane-colored 1:1 lines when
+  // architecture.edges is non-empty, bypassing the legacy zigzag.
+  //
+  // Rendered card ids — anything getting a data-* attribute in the
+  // architecture below. InstanceProfiles get data-ip-id via the
+  // _instanceProfiles extra metadata. Edges to/from sgNaclNodes (the
+  // network-control badges) are intentionally dropped because those
+  // render as compute-card chips, not standalone cards.
+  const renderedIds = new Set<string>([
+    ...entries.map((e) => e.id),
+    ...actualComputes.map((c) => c.id),
+    ...identities.map((i) => i.id),
+    ...pivots.map((p) => p.id),
+    ...jewels.map((j) => j.id),
+    ...instanceProfiles.map((ip) => ip.id),
+  ])
+  const builtEdges: CanvasEdge[] = []
+  const edgeKeys = new Set<string>()
+  for (const e of edges) {
+    if (!e.source || !e.target) continue
+    if (!renderedIds.has(e.source) || !renderedIds.has(e.target)) continue
+    const rel = (e.type ?? "").toUpperCase()
+    if (!rel) continue
+    const id = `${e.source}|${rel}|${e.target}`
+    if (edgeKeys.has(id)) continue
+    edgeKeys.add(id)
+    builtEdges.push({
+      id,
+      source_aws_id: e.source,
+      target_aws_id: e.target,
+      relationship: rel as CanvasRelationshipType,
+      observed: e.is_observed ?? null,
+      hit_count: e.hit_count ?? null,
+      bytes: e.traffic_bytes ?? null,
+      first_seen: null,
+      last_seen: null,
+      port: e.port ?? null,
+      protocol: e.protocol ?? null,
+    })
+  }
+
   return {
     // SystemArchitecture fields (repurposed for ConnectionLinesSVG)
     computeServices: entries,               // data-compute-id → Entry Points
+    subnets: [],                             // lateral view doesn't use the subnets lane
     securityGroups: computeCheckpoints,      // data-sg-id → Compute
     nacls: identities,                       // data-nacl-id → Identity (IAM)
     iamRoles: pivotCheckpoints,              // data-role-id → Pivot Services
     resources: jewels,                       // data-resource-id → Crown Jewels
+    vpcEndpoints: [],                        // lateral view doesn't render VPCEs
+    egressGateways: [],                      // lateral view doesn't render egress gateways
     flows,
+    // Phase 4: explicit edges drive rendering. Real graph relationships
+    // only — no synthesized entry→jewel summary lines through unrelated
+    // waypoints. Plane-colored, curved, animation strict to data plane.
+    edges: builtEdges,
     totalBytes,
     totalConnections,
     totalGaps: identities.reduce((s, r) => s + r.gapCount, 0),

@@ -20,6 +20,10 @@ import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabi
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
 import { IdentityAttackPaths } from "@/components/identity-attack-paths/identity-attack-paths"
+// AttackerMap is consumed by system-detail-dashboard.tsx (Risk → Attacker Map
+// sub-tab), not as a top-level section. The top-level case below was removed
+// when we discovered the (selectedSystem, activeSection) routing can't hold
+// both at once — see system-detail-dashboard.tsx for the canonical entry.
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
