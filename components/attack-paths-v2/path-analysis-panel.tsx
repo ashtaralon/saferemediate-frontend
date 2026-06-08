@@ -27,6 +27,7 @@ import { isPrincipalNodeType, PRINCIPAL_NODE_TYPES } from "@/components/identity
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
+import { PotentialDamageSection } from "./risk-potential-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import {
   DamageScopeDrawer,
@@ -664,9 +665,13 @@ export function PathAnalysisPanel({
         <IdentityPlanePanel path={path} />
         <DataPlanePanel path={path} />
 
-        {/* Slice 3 — plain-English damage projection (iam-action-to-english
-            lookup + LLM damage_narrative + damage_capability counts). */}
-        <DamagePanel path={path} />
+        {/* Slice 3 — Risk Potential (exposure findings API) when live;
+            falls back to legacy IAM damage projection. */}
+        <PotentialDamageSection
+          path={path}
+          systemName={systemName}
+          legacy={<DamagePanel path={path} />}
+        />
 
         {/* Slice 4 — live hardening recommendations */}
         <HardeningPanel path={path} systemName={systemName} />
