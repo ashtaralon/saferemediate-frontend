@@ -6203,7 +6203,15 @@ export default function TrafficFlowMap({
   // A toggle button stays available either way so the operator can
   // re-open the sidebar on demand (per the 2026-05-21 design review:
   // "collapse by default, don't permanently hide").
-  const [sidebarOpen, setSidebarOpen] = useState(!pathFilter);
+  //
+  // 2026-06-09: design pivot — operator review on the embedded per-path
+  // canvas confirmed they want StackSidebar OPEN by default in both
+  // contexts. The "closed when pathFilter" branch was hiding the rich
+  // path-scoped inventory that is the operator's primary navigation
+  // surface on the Per-Path tab. Defaulting open everywhere; toggle
+  // remains available to collapse when the operator needs canvas
+  // real-estate.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [heatmapMode, setHeatmapMode] = useState(false);
   const [hopDepth, setHopDepth] = useState(3);
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
