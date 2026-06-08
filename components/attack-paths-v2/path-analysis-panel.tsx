@@ -590,9 +590,30 @@ export function PathAnalysisPanel({
                 credibility bug. Real action counts surface in the
                 DataPlanePanel below via damage_capability +
                 ACTUAL_S3_ACCESS edge data, which IS observed truth. */}
+            {/* 2026-06-09 fix: switched from architectureOverride=
+                (stripped per-path synthesis from buildAttackerArchitecture)
+                to architectureOverride=null + pathFilter prop.
+
+                Why: the stripped synthesis didn't include the data
+                StackSidebar / AWS-Backbone-vs-Public-Internet partitions
+                / VPCE chip / IGW "AVAILABLE · NOT SELECTED" treatment
+                need. Letting TrafficFlowMap self-fetch the full system
+                dependency-map (the same payload the standalone
+                /dependency-map page uses) + applying pathFilter at the
+                renderer layer gives the operator the same rich Flow
+                Map view they get on the standalone page — Stack
+                Components sidebar + partitions + edge labels — but
+                path-scoped to the current path's nodes via
+                applyPathFilter (traffic-flow-map.tsx:2952).
+
+                Same pattern the dependency-map-tab.tsx:652 uses —
+                just `<TrafficFlowMap systemName={X} />` and let
+                TrafficFlowMap do the rest. The pathFilter prop is the
+                additive piece. */}
             <TrafficFlowMap
               systemName={systemName}
-              architectureOverride={architecture ?? null}
+              architectureOverride={null}
+              pathFilter={pathFilter}
               titleOverride=""
               innerTitleOverride="Flow Map"
               innerSubtitleOverride="On-path chain + lateral pivots"
