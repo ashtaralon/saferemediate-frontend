@@ -19,11 +19,13 @@ import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
   type SystemArchitecture,
 } from "@/components/dependency-map/traffic-flow-map"
+import { AttackPathFlowViz } from "@/components/identity-attack-paths/attack-path-flow-viz"
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType, PRINCIPAL_NODE_TYPES } from "@/components/identity-attack-paths/types"
+import { filterActivePaths } from "@/lib/active-filters"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
@@ -119,6 +121,14 @@ export function PathAnalysisPanel({
   )
   const [damageScopeOpen, setDamageScopeOpen] = useState(false)
   const damageScopePortalContainerRef = useRef<HTMLDivElement | null>(null)
+  // Flow Map = rich TrafficFlowMap (Stack sidebar, ROUTE TABLES, EGRESS
+  // GATEWAYS, lateral pivots). Lateral Movement = the 5-column lane
+  // diagram (Entry → Compute → Identity → Pivot → Crown Jewel) from
+  // Identity Attack Paths — same view operators had under the "Lanes"
+  // toggle before Attack Paths v2 dropped it.
+  const [mapView, setMapView] = useState<"flow" | "lateral">("flow")
+
+  const lateralPaths = useMemo(() => filterActivePaths([path]), [path])
 
   // Build the TrafficFlowMap pathFilter shape from the path's nodes
   // and edges. The filter tells the map "show only these nodes; draw
@@ -557,12 +567,37 @@ export function PathAnalysisPanel({
             )}
           </div>
         )}
-        <div className="px-6 pt-4 pb-2 flex items-center justify-between">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">
-            FLOW MAP · services on this path
+        <div className="px-6 pt-4 pb-2 flex items-center justify-between gap-3">
+          <div className="inline-flex items-center bg-slate-800/60 rounded p-0.5 border border-slate-700 shrink-0">
+            <button
+              type="button"
+              onClick={() => setMapView("flow")}
+              className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                mapView === "flow"
+                  ? "bg-blue-500/20 text-blue-200"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+              title="Rich system map — Stack Components sidebar, ROUTE TABLES, EGRESS GATEWAYS, lateral pivot edges"
+            >
+              Flow Map
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapView("lateral")}
+              className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                mapView === "lateral"
+                  ? "bg-fuchsia-500/20 text-fuchsia-200"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+              title="5-column lateral movement layout — Entry · Compute · Identity · Pivot · Crown Jewel"
+            >
+              Lateral Movement
+            </button>
           </div>
-          <div className="text-[10px] text-slate-500">
-            click a data resource (canvas or Storage sidebar) for damage scope
+          <div className="text-[10px] text-slate-500 text-right min-w-0">
+            {mapView === "flow"
+              ? "click a data resource (canvas or Storage sidebar) for damage scope"
+              : "Entry → Compute → Identity → Pivot → Crown Jewel"}
           </div>
         </div>
         {/* Fixed-height container so the map fits the 3-column panel
@@ -574,58 +609,42 @@ export function PathAnalysisPanel({
             className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
             style={{ height: "520px" }}
           >
-            {/* Merged "Attack Path" lens (2026-05-31): the canvas
-                always renders the full Attacker-View architecture (9
-                lanes, VPC boundary, lateral fan-outs with on_path /
-                lateral distinction, 3-state edge coloring, hover
-                provenance). Header / breadcrumb / closure card above
-                bind to `path` — the metadata wrapper Per-Path
-                contributed to the merge. The earlier "sparse path-
-                filter polyline" fallback was deleted with M5 (it was
-                the per-path canvas the merge spec dropped as the
-                wrong default).
-                observedMode=true suppresses the synthesized API CALLS
-                lane that renders fabricated "N calls (simulated)"
-                counts derived from totalBytes/51200 — the 2026-05-21
-                credibility bug. Real action counts surface in the
-                DataPlanePanel below via damage_capability +
-                ACTUAL_S3_ACCESS edge data, which IS observed truth. */}
-            {/* Canvas data source (2026-06-09 corrected):
-                attack-path-panel.tsx synthesizes the rich 9-lane
-                architecture via buildAttackerArchitecture (egressGateways,
-                ROUTE TABLES, partition bars, principals, VPCE/IGW negation).
-                TrafficFlowMap uses architectureOverride when set — pathFilter
-                only scopes badges/pathMode, it does NOT replace the arch.
-
-                architectureOverride=null + pathFilter was wrong: self-fetch
-                + applyPathFilter renders the stripped linear lane view (no
-                EGRESS GATEWAYS, no Backbone partitions). Fall back to that
-                only when the parent didn't supply architecture. */}
-            <TrafficFlowMap
-              systemName={systemName}
-              architectureOverride={architecture ?? null}
-              pathFilter={pathFilter}
-              titleOverride=""
-              innerTitleOverride="Flow Map"
-              innerSubtitleOverride="On-path chain + lateral pivots"
-              pathBadgeOverride={pathFilter.pathLabel}
-              observedMode={true}
-              jewelEmphasis={canvasV2}
-              jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
-              canvasV2={canvasV2}
-              entryNodeId={canvasV2 ? start?.id : undefined}
-              fullscreenContainerRef={damageScopePortalContainerRef}
-              onDamageScopeDataNode={(node) => {
-                setDamageScopeTarget({
-                  nodeId: node.id,
-                  nodeName: node.name,
-                  nodeType: node.type,
-                  systemName,
-                  pathId: path.id,
-                })
-                setDamageScopeOpen(true)
-              }}
-            />
+            {mapView === "flow" ? (
+              <TrafficFlowMap
+                systemName={systemName}
+                architectureOverride={architecture ?? null}
+                pathFilter={pathFilter}
+                titleOverride=""
+                innerTitleOverride="Flow Map"
+                innerSubtitleOverride="On-path chain + lateral pivots"
+                pathBadgeOverride={pathFilter.pathLabel}
+                observedMode={true}
+                jewelEmphasis={canvasV2}
+                jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
+                canvasV2={canvasV2}
+                entryNodeId={canvasV2 ? start?.id : undefined}
+                fullscreenContainerRef={damageScopePortalContainerRef}
+                onDamageScopeDataNode={(node) => {
+                  setDamageScopeTarget({
+                    nodeId: node.id,
+                    nodeName: node.name,
+                    nodeType: node.type,
+                    systemName,
+                    pathId: path.id,
+                  })
+                  setDamageScopeOpen(true)
+                }}
+              />
+            ) : (
+              <div className="h-full overflow-auto">
+                <AttackPathFlowViz
+                  paths={lateralPaths}
+                  selectedPathIndex={0}
+                  onNodeClick={() => {}}
+                  selectedNodeId={null}
+                />
+              </div>
+            )}
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
               chain search for this path. Sits in the empty space under
