@@ -1,15 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Shield, Play, Loader2, AlertTriangle, CheckCircle2, RefreshCw, Zap } from "lucide-react"
+import { Shield, Loader2, AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { SimulateModal } from "./simulate-modal"
 import { fetchSecurityFindings, triggerScan, getScanStatus, type SecurityFinding } from "@/lib/api-client"
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
 export function SecurityDashboard() {
   const [findings, setFindings] = useState<SecurityFinding[]>([])

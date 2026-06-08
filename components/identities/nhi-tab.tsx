@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import { riskLabel } from "@/lib/utils"
 import {
   Bot,
   Search,
@@ -32,6 +33,7 @@ import {
   ArrowRightLeft,
   Wifi,
   BarChart3,
+  Wrench,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
 
@@ -303,7 +305,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
     const roleName = identity.sub_type.startsWith("Lambda Function")
       ? (identity.attached_resources?.[0] || identity.name)
       : identity.name
-    setSelectedIdentity({ roleName, systemName: identity.system_name || "" })
+    setSelectedIdentity({ roleName, systemName: identity.system_name || "", identityType: identity.sub_type || "IAMRole" })
     setShowPermissionModal(true)
   }
 
@@ -579,9 +581,8 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                         <div className="flex items-center justify-between mb-3">
                                           <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Damage Score</span>
                                           <span className="text-xl font-bold" style={{
-                                            color: detailData.damage_classification.damage_score >= 70 ? "#ef4444"
-                                              : detailData.damage_classification.damage_score >= 40 ? "#f97316" : "#22c55e"
-                                          }}>{detailData.damage_classification.damage_score}/100</span>
+                                            color: riskLabel(detailData.damage_classification.damage_score).color
+                                          }}>{riskLabel(detailData.damage_classification.damage_score).label}</span>
                                         </div>
                                         <div className="space-y-2">
                                           {Object.entries(detailData.damage_classification.details || {}).map(([cat, actions]) => {
@@ -641,6 +642,17 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                       </div>
                                     ))}
                                   </div>
+                                )}
+
+                                {/* Remediate Button */}
+                                {nhi.unused_permissions_count > 0 && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleReviewFix(nhi) }}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
+                                    style={{ background: "#8b5cf6" }}
+                                  >
+                                    <Wrench className="w-4 h-4" /> Remediate {nhi.unused_permissions_count} Unused Permission{nhi.unused_permissions_count !== 1 ? 's' : ''}
+                                  </button>
                                 )}
                               </div>
                             )}
@@ -1120,6 +1132,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
           onClose={() => { setShowPermissionModal(false); setSelectedIdentity(null) }}
           roleName={selectedIdentity.roleName}
           systemName={selectedIdentity.systemName}
+          identityType={selectedIdentity.identityType}
           onSuccess={() => { fetchNHIs() }}
           onRemediationSuccess={(roleName) => {
             fetchNHIs()

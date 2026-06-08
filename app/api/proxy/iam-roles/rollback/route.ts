@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com";
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com";
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,12 +47,15 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' }
       });
     } else if (snapshotId) {
-      // Use remediation rollback with snapshot_id
-      console.log(`[IAM-ROLLBACK] Using remediation rollback endpoint`);
-      response = await fetch(`${BACKEND_URL}/api/remediation/rollback`, {
+      // Legacy IAM checkpoints must use the dedicated IAM rollback endpoint.
+      console.log(`[IAM-ROLLBACK] Using dedicated IAM rollback endpoint`);
+      response = await fetch(`${BACKEND_URL}/api/iam-roles/rollback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshot_id: snapshotId })
+        body: JSON.stringify({
+          checkpoint_id: snapshotId,
+          role_name: body.role_name || undefined,
+        })
       });
     } else {
       return NextResponse.json(

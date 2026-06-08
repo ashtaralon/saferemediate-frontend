@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { healthLabel } from "@/lib/utils"
 import { X } from "lucide-react"
 
 interface BulkAutomationModalProps {
@@ -60,7 +61,7 @@ export function BulkAutomationModal({ isOpen, onClose, selectedFindings }: BulkA
           {/* Live Metrics Panel */}
           <div className="grid grid-cols-4 gap-4 mb-6">
             {[
-              { label: "Health Score", value: "72/100", status: "Stable ✅", color: "#10B981" },
+              { label: "Health Score", value: healthLabel(72).label, status: "Stable ✅", color: "#10B981" },
               { label: "Error Rate", value: "1.2%", status: "Normal ✅", color: "#10B981" },
               { label: "Response Time", value: "245ms", status: "Normal ✅", color: "#10B981" },
               { label: "Active Connections", value: "1,247", status: "Stable", color: "#10B981" },
@@ -148,7 +149,7 @@ export function BulkAutomationModal({ isOpen, onClose, selectedFindings }: BulkA
             </h3>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { label: "Health Score Monitor", status: "Healthy", current: "72/100", threshold: "< 70" },
+                { label: "Health Score Monitor", status: "Healthy", current: healthLabel(72).label, threshold: "Below Fair" },
                 { label: "Error Rate Monitor", status: "Normal", current: "1.2%", threshold: "> 5%" },
                 { label: "Performance Monitor", status: "Normal", current: "+6.5%", threshold: "< 20%" },
                 { label: "Service Availability", status: "Up", current: "100%", threshold: "Health check" },
@@ -176,7 +177,7 @@ export function BulkAutomationModal({ isOpen, onClose, selectedFindings }: BulkA
             <div className="space-y-2 max-h-[200px] overflow-y-auto text-sm">
               {[
                 "14:35:43 - 5-minute check: All metrics normal ✅",
-                "14:31:00 - Health check: 72/100 ✅",
+                "14:31:00 - Health check: Fair ✅",
                 "14:31:00 - Response time: 242ms ✅",
                 "14:31:00 - Error rate: 1.1% ✅",
                 "14:25:43 - Starting canary monitoring (30 minutes)",
@@ -438,7 +439,7 @@ export function BulkAutomationModal({ isOpen, onClose, selectedFindings }: BulkA
                     }}
                   />
                   <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-                    /100 (Current: 72)
+                    (Current: {healthLabel(72).label})
                   </span>
                 </div>
               </div>

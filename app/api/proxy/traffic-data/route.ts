@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 // Route: /api/proxy/traffic-data
 // Returns actual traffic data from VPC Flow Logs (ACTUAL_TRAFFIC relationships)
@@ -9,7 +10,6 @@ export const revalidate = 0
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache for traffic data (2-minute TTL)
@@ -22,7 +22,10 @@ function getCacheKey(systemName: string, resourceId: string | null): string {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const systemName = searchParams.get("system_name") || "alon-prod"
+  const systemName = searchParams.get("system_name")
+  if (!systemName) {
+    return NextResponse.json({ error: "system_name query parameter is required" }, { status: 400 })
+  }
   const resourceId = searchParams.get("resource_id")
   const forceRefresh = searchParams.get("refresh") === "true"
 
@@ -74,33 +77,13 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[proxy] traffic-data backend returned ${res.status}: ${errorText}`)
-
-      // Return stale cache if available
-      const cached = cache.get(cacheKey)
-      if (cached) {
-        console.log(`[proxy] traffic-data returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Cache": "STALE",
-          },
-        })
-      }
-
-      // Return empty fallback data to prevent UI crashes
-      return NextResponse.json({
-        system_name: systemName,
-        resource_id: resourceId,
-        observed_ports: { ports: [], totalPorts: 0, utilizationPercent: 0, summary: "No data available" },
-        traffic_timeline: { period: "7d", data: [], totalRequests: 0, avgDailyRequests: 0 },
-        flows: [],
-        unique_sources: [],
-        has_traffic_data: false,
-        error: `Backend returned ${res.status}`,
-      }, { status: 200 })
+      const errorText = await res.text().catch(() => "")
+      console.error(`[proxy] traffic-data backend returned ${res.status}: ${errorText.slice(0, 200)}`)
+      return backendError({
+        status: res.status,
+        message: `traffic-data backend returned ${res.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await res.json()
@@ -127,30 +110,8 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[proxy] traffic-data error:", error)
-
-    // Return stale cache if available
-    const cached = cache.get(cacheKey)
-    if (cached) {
-      console.log(`[proxy] traffic-data returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Cache": "STALE",
-        },
-      })
-    }
-
-    // Return empty fallback data on error
-    return NextResponse.json({
-      observed_ports: { ports: [], totalPorts: 0, utilizationPercent: 0, summary: "Error loading data" },
-      traffic_timeline: { period: "7d", data: [], totalRequests: 0, avgDailyRequests: 0 },
-      flows: [],
-      unique_sources: [],
-      has_traffic_data: false,
-      error: error.name === "AbortError" ? "Request timed out" : error.message,
-    }, { status: 200 })
+    return fromCaughtError(error)
   }
 }

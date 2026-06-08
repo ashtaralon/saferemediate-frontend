@@ -7,13 +7,19 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-// Neo4j Aura configuration
-const NEO4J_URI = process.env.NEO4J_URI || 'https://4e9962b7.databases.neo4j.io'
-const NEO4J_USERNAME = process.env.NEO4J_USERNAME || 'neo4j'
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
-
 export async function POST(request: NextRequest) {
   try {
+    const NEO4J_URI = process.env.NEO4J_URI
+    const NEO4J_USERNAME = process.env.NEO4J_USERNAME
+    const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD
+
+    if (!NEO4J_URI || !NEO4J_USERNAME || !NEO4J_PASSWORD) {
+      return NextResponse.json(
+        { error: 'Neo4j connection is not configured on this environment' },
+        { status: 500 }
+      )
+    }
+
     const body = await request.json()
     const { cypher } = body
 

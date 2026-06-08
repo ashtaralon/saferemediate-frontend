@@ -134,6 +134,7 @@ interface AttackPath {
   total_cves: number;
   critical_cves: number;
   evidence_type: string;
+  path_kind?: string;
 }
 
 interface BlastRadiusData {
@@ -231,7 +232,7 @@ export default function Neo4jAWSMap() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [blastRadius, setBlastRadius] = useState<BlastRadiusData | null>(null);
   const [loadingPaths, setLoadingPaths] = useState(false);
-  const animRef = useRef<number>();
+  const animRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Animation loop
@@ -359,7 +360,11 @@ export default function Neo4jAWSMap() {
     setLoadingPaths(true);
     try {
       // Use system name from query param or default
-      const systemName = new URLSearchParams(window.location.search).get('system') || 'alon-prod';
+      const systemName = new URLSearchParams(window.location.search).get('system');
+      if (!systemName) {
+        setLoadingPaths(false);
+        return;
+      }
       const res = await fetch(`/api/proxy/attack-paths/${systemName}`);
       if (res.ok) {
         const data = await res.json();
@@ -921,9 +926,11 @@ export default function Neo4jAWSMap() {
                     </div>
                     <div className="flex gap-1 mt-0.5">
                       <span className="text-[8px] text-slate-500">{path.path_length} hops</span>
-                      {path.total_cves > 0 && (
+                      {path.total_cves > 0 ? (
                         <span className="text-[8px] text-red-400">{path.total_cves} CVEs</span>
-                      )}
+                      ) : path.path_kind ? (
+                        <span className="text-[8px] text-cyan-400 capitalize">{path.path_kind.replace(/-/g, ' ')}</span>
+                      ) : null}
                       <span className={`text-[8px] ${path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}`}>
                         {path.evidence_type}
                       </span>

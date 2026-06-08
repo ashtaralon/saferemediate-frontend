@@ -430,27 +430,12 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       setIsLoading(true)
       setError(null)
       
-      // Try multiple endpoints
-      const endpoints = [
-        "/api/proxy/graph-data",
-        "https://saferemediate-backend-f.onrender.com/api/graph/snapshot",
-        "https://saferemediate-backend-f.onrender.com/api/graph/live",
-      ]
-      
-      let data = null
-      for (const endpoint of endpoints) {
-        try {
-          const res = await fetch(endpoint)
-          if (res.ok) {
-            data = await res.json()
-            break
-          }
-        } catch (e) {
-          continue
-        }
+      const res = await fetch("/api/proxy/graph-data")
+      if (!res.ok) {
+        throw new Error(`Failed to fetch graph data: HTTP ${res.status}`)
       }
-      
-      if (!data) throw new Error("Failed to fetch graph data")
+
+      const data = await res.json()
       
       const rawNodes = data.nodes || data.infrastructure?.nodes || []
       const rawEdges = data.relationships || data.edges || []

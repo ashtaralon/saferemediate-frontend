@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(
   req: NextRequest,

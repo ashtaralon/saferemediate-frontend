@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export const maxDuration = 30
 
@@ -29,10 +29,14 @@ export async function GET(
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      // Return empty fallback on backend error
+      // Honesty contract: avg_lp_score must be `null` (unknown), never `100`
+      // (which any consumer not gating on `error` would render as a perfect
+      // score). Status stays 200 so the client can read `error: true` and
+      // render an inline "data unavailable" without triggering its global
+      // network-error toast.
       return NextResponse.json({
         total_roles: 0,
-        avg_lp_score: 100,
+        avg_lp_score: null,
         total_unused_permissions: 0,
         error: true,
         message: `Backend returned ${response.status}`
@@ -44,11 +48,11 @@ export async function GET(
   } catch (error: any) {
     clearTimeout(timeoutId)
     console.error("LP Summary proxy error:", error)
-    
-    // Return empty fallback on timeout or error
+
+    // Same honesty rule on timeout/error: null score, not 100.
     return NextResponse.json({
       total_roles: 0,
-      avg_lp_score: 100,
+      avg_lp_score: null,
       total_unused_permissions: 0,
       timeout: error.name === 'AbortError',
       error: true,

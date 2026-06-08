@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { riskLabel } from "@/lib/utils"
 import {
   Key, Shield, Eye, PenTool, Trash2, Lock, AlertTriangle,
   CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronRight, Target, Wrench,
@@ -55,8 +56,8 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
           </div>
           <div className="flex items-center gap-4 text-sm">
             {damage && (
-              <span style={{ color: damage.damage_score >= 50 ? '#ef4444' : damage.damage_score >= 20 ? '#f97316' : '#22c55e' }}>
-                Damage: {damage.damage_score}/100
+              <span style={{ color: riskLabel(damage.damage_score).color }}>
+                Damage: {riskLabel(damage.damage_score).label}
               </span>
             )}
             <span style={{ color: "var(--text-secondary, #64748b)" }}>{usedCount} used / {totalCount} total</span>
@@ -111,7 +112,7 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
                   <div className="rounded-lg p-3 mb-3 border" style={{ background: "var(--bg-secondary, #f8fafc)", borderColor: "var(--border, #e2e8f0)" }}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-medium flex items-center gap-1" style={{ color: "var(--text-secondary, #64748b)" }}><Target className="w-3 h-3" /> Damage Potential</span>
-                      <span className="text-lg font-bold" style={{ color: damage.damage_score >= 50 ? '#ef4444' : damage.damage_score >= 20 ? '#f97316' : '#22c55e' }}>{damage.damage_score}/100</span>
+                      <span className="text-lg font-bold" style={{ color: riskLabel(damage.damage_score).color }}>{riskLabel(damage.damage_score).label}</span>
                     </div>
                     <div className="space-y-1.5">
                       {Object.entries(damage.details || {}).map(([cat, actions]) => {

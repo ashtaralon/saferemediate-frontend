@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(
   request: NextRequest,
@@ -9,12 +9,13 @@ export async function GET(
   const { bucketName } = await params
   const searchParams = request.nextUrl.searchParams
   const days = searchParams.get('days') || '90'
-  
+  const envelope = searchParams.get('envelope') === 'true'
+
   console.log('[Proxy] GET /api/proxy/s3-buckets/' + bucketName + '/gap-analysis')
-  
+
   try {
     const response = await fetch(
-      `${BACKEND_URL}/api/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=${days}`,
+      `${BACKEND_URL}/api/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=${days}${envelope ? '&envelope=true' : ''}`,
       {
         method: 'GET',
         headers: {

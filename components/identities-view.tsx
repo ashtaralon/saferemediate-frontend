@@ -239,21 +239,24 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
         })}
       </div>
 
-      {/* Alert Banner */}
+      {/* Identities-at-risk finding banner. Reframed amber because
+          the customer is reading a normal product finding, not a
+          system error. Per-identity risk-tier badges below carry
+          the severity signal. */}
       {identitiesAtRisk.length > 0 && (
-        <div className="rounded-xl p-6 border-2" style={{ background: "#ef444415", borderColor: "#ef4444" }}>
+        <div className="rounded-xl p-6 border-2" style={{ background: "#fffbeb", borderColor: "#fde68a" }}>
           <div className="flex items-start gap-4">
-            <AlertTriangle className="w-8 h-8 flex-shrink-0" style={{ color: "#ef4444" }} />
+            <AlertTriangle className="w-8 h-8 flex-shrink-0" style={{ color: "#d97706" }} />
             <div className="flex-1">
-              <h3 className="text-xl font-bold mb-2" style={{ color: "#ef4444" }}>
-                Least Privilege Violations Detected
+              <h3 className="text-xl font-bold mb-2" style={{ color: "#b45309" }}>
+                Least-privilege findings
               </h3>
-              <p className="text-sm mb-3" style={{ color: "var(--text-secondary, #6b7280)" }}>
-                {identitiesAtRisk.length} identities have excessive permissions based on {identitiesAtRisk[0]?.recordingDays || 90}-day usage analysis. These identities have 53-83% unused permissions that should be removed to achieve least privilege compliance.
+              <p className="text-sm mb-3" style={{ color: "var(--foreground, #111827)" }}>
+                {identitiesAtRisk.length} identities have excessive permissions based on {identitiesAtRisk[0]?.recordingDays || 90}-day usage analysis. These identities have 53-83% unused permissions that could be removed to achieve least privilege compliance.
               </p>
               <div className="flex items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
-                  <Activity className="w-4 h-4" style={{ color: "#ef4444" }} />
+                  <Activity className="w-4 h-4" style={{ color: "#92400e" }} />
                   <span style={{ color: "var(--text-secondary, #6b7280)" }}>
                     <strong>{totalUnusedPermissions} total</strong> unused permissions detected
                   </span>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
+import { BackToDashboard } from '@/components/back-to-dashboard';
 
 interface Snapshot {
   snapshot_id: string;
@@ -32,8 +33,6 @@ export default function RecoveryTab() {
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
   const { toast } = useToast();
-
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com';
 
   useEffect(() => {
     fetchSnapshots();
@@ -173,10 +172,9 @@ export default function RecoveryTab() {
       const roleName = snapshot.original_role || snapshot.finding_id || '';
       if (roleName && isIAMRole) {
         try {
-          // Clear from all known system localStorage keys
-          const systemNames = ['alon-prod', 'payment-production', 'default'];
-          systemNames.forEach(sysName => {
-            const remediatedKey = `remediated_roles_${sysName}`;
+          // Clear from all system localStorage keys by enumerating matching keys
+          const keysToCheck = Object.keys(localStorage).filter(k => k.startsWith('remediated_roles_'));
+          keysToCheck.forEach(remediatedKey => {
             const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]');
             const filtered = existing.filter((r: string) => r !== roleName);
             if (filtered.length !== existing.length) {
@@ -230,11 +228,14 @@ export default function RecoveryTab() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Recovery & Restore</h1>
-        <p className="text-gray-600">
-          Restore resources to their previous state using snapshots taken before remediation.
-        </p>
+      <div className="mb-6 flex items-start gap-3">
+        <BackToDashboard className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-0.5 shrink-0" />
+        <div>
+          <h1 className="text-2xl font-bold mb-2">Recovery & Restore</h1>
+          <p className="text-gray-600">
+            Restore resources to their previous state using snapshots taken before remediation.
+          </p>
+        </div>
       </div>
 
       {snapshots.length === 0 ? (

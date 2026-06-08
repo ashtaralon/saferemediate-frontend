@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,13 +14,19 @@ export async function GET(req: NextRequest) {
 
     const resourceId = searchParams.get("resource_id")
     const resourceType = searchParams.get("resource_type")
+    // Accept either ?system_name= (the backend's canonical key) or
+    // ?system= (legacy frontend convention) and forward as system_name.
+    const systemName = searchParams.get("system_name") || searchParams.get("system")
+    const envelope = searchParams.get("envelope") === "true"
 
     const queryParams = new URLSearchParams()
     if (startDate) queryParams.set("start_date", startDate)
     if (endDate) queryParams.set("end_date", endDate)
     if (resourceId) queryParams.set("resource_id", resourceId)
     if (resourceType) queryParams.set("resource_type", resourceType)
+    if (systemName) queryParams.set("system_name", systemName)
     queryParams.set("limit", limit)
+    if (envelope) queryParams.set("envelope", "true")
 
     const url = `${BACKEND_URL}/api/remediation-history/timeline?${queryParams.toString()}`
     console.log("[Remediation Timeline Proxy] Fetching:", url)

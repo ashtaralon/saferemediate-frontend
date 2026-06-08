@@ -32,7 +32,11 @@ import {
   Database,
   Cpu,
   Network,
+  Sparkles,
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ConfidenceExplanationPanel } from '@/components/ConfidenceExplanationPanel';
+import type { ConfidenceScore } from '@/lib/types';
 
 // =============================================================================
 // TYPES
@@ -79,6 +83,45 @@ interface RuleAnalysis {
   traffic: TrafficData;
   recommendation: Recommendation;
   protection?: RuleProtection;
+  tighten?: {
+    replacement_sources: string[];
+    source_count?: number;
+    uses_ranges?: boolean;
+    is_internal?: boolean;
+    cidr_confidence?: string;
+    review_reason?: string;
+  };
+  // Sprint 1 CP2 — Decision Contract operator_context. Present when the
+  // backend invoked build_*_decision for this rule (e.g. SG-to-SG zero-
+  // traffic → sg_reference_attribution_gap). Frontend renders structured
+  // runbook in place of the bare recommendation.reason.
+  decision_contract?: {
+    decision_id?: string;
+    reason_code?: string;
+    outcome?: string;
+    operator_context?: {
+      summary?: string;
+      rendered_explanation?: string;
+      blocked_change?: { resource_id?: string; current_state?: string; proposed_change?: string };
+      why?: { explanation?: string; confidence?: number };
+      what_to_check?: Array<{ check?: string; command_or_link?: string; expected_result?: string }>;
+      suggested_safer_actions?:
+        | Array<{ action?: string; explanation?: string; expected_risk_reduction?: string }>
+        | { no_safer_action_known?: boolean; explanation?: string };
+      override_requirements?: {
+        allowed?: boolean;
+        required_acknowledgements?: string[];
+        rationale_required?: boolean;
+        rollback_required?: boolean;
+      };
+      escalation_target?: {
+        target_type?: string;
+        display_name?: string | null;
+        source?: string;
+        confidence?: number;
+      };
+    };
+  } | null;
 }
 
 interface AttachedResource {
@@ -167,7 +210,7 @@ interface SGLeastPrivilegeModalProps {
   systemName?: string;
   isOpen: boolean;
   onClose: () => void;
-  onRemediate?: (sgId: string, rules: RuleAnalysis[]) => void;
+  onRemediate?: (sgId: string, rules: RuleAnalysis[], result?: { snapshotId?: string; eventId?: string; rollbackAvailable?: boolean }) => void;
 }
 
 // =============================================================================
@@ -238,11 +281,13 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   onClose,
   onRemediate,
 }) => {
+  const { toast } = useToast();
   const [analysis, setAnalysis] = useState<SGAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [showSimulation, setShowSimulation] = useState(false);
+  const [analysisTab, setAnalysisTab] = useState<'summary' | 'rules' | 'context'>('summary');
   const [simulating, setSimulating] = useState(false);
   const [applying, setApplying] = useState(false);
   const [createSnapshot, setCreateSnapshot] = useState(true);
@@ -254,6 +299,38 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     message: string;
     attachment_count: number;
   } | null>(null);
+  const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null);
+  const [confidenceLoading, setConfidenceLoading] = useState(false);
+
+  // Fetch Agent 5 confidence score when modal opens
+  useEffect(() => {
+    if (!isOpen || !sgId) return;
+    const fetchConfidenceScore = async () => {
+      setConfidenceLoading(true);
+      setConfidenceScore(null);
+      try {
+        const res = await fetch('/api/proxy/confidence/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resource_type: 'security_group',
+            resource_id: sgId,
+            changes: [],
+          }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (typeof data?.confidence === 'number') {
+          setConfidenceScore(data as ConfidenceScore);
+        }
+      } catch (e) {
+        console.warn('[SG-Modal] confidence fetch failed:', e);
+      } finally {
+        setConfidenceLoading(false);
+      }
+    };
+    fetchConfidenceScore();
+  }, [isOpen, sgId]);
 
   // Fetch orphan status when modal opens
   useEffect(() => {
@@ -310,6 +387,18 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     }
   }, [isOpen, sgId, fetchAnalysis]);
 
+  const getReplacementSources = (rule: RuleAnalysis) => {
+    if (rule.tighten?.replacement_sources?.length) {
+      return rule.tighten.replacement_sources;
+    }
+    if (rule.traffic?.sample_sources?.length) {
+      return rule.traffic.sample_sources
+        .filter(Boolean)
+        .map((ip) => (ip.includes('/') ? ip : `${ip}/32`));
+    }
+    return [];
+  };
+
   const handleSyncFlowLogs = async () => {
     setSyncing(true);
     try {
@@ -330,6 +419,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const handleSimulate = async () => {
     if (!analysis) return;
     setSimulating(true);
+    let simulationSucceeded = false;
 
     try {
       // Create pre-simulation snapshot
@@ -353,6 +443,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
         ...analysis.recommendations.tighten.map(r => ({
           rule_id: r.rule_id, direction: r.direction, protocol: r.protocol.toLowerCase(),
           from_port: r.from_port, to_port: r.to_port, source: r.source, action: 'TIGHTEN' as const,
+          replacement_sources: getReplacementSources(r),
         })),
       ];
 
@@ -365,11 +456,19 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       if (!response.ok) throw new Error(`Simulation failed: ${response.status}`);
       const result = await response.json();
       console.log('[SG-LP] Simulation result:', result);
+      simulationSucceeded = true;
     } catch (err: any) {
       console.error('Simulation error:', err);
+      toast({
+        title: 'Simulation Failed',
+        description: err.message || 'Could not simulate this SG remediation.',
+        variant: 'destructive',
+      });
     } finally {
       setSimulating(false);
-      setShowSimulation(true);
+      if (simulationSucceeded) {
+        setShowSimulation(true);
+      }
     }
   };
 
@@ -399,6 +498,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
             to_port: r.to_port,
             source: r.source,
             action: r.status === 'OVERLY_BROAD' ? 'TIGHTEN' : 'DELETE',
+            replacement_sources: r.status === 'OVERLY_BROAD' ? getReplacementSources(r) : undefined,
           })),
           create_snapshot: createSnapshot,
           dry_run: false,
@@ -413,11 +513,28 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       const result = await response.json();
       console.log('[SG-Remediate] Success:', result);
 
+      if (!result.success) {
+        throw new Error(result.message || result.block_reason || 'Security Group remediation did not complete.');
+      }
+
       await fetchAnalysis();
-      onRemediate?.(sgId, selectedRules);
+      onRemediate?.(sgId, selectedRules, {
+        snapshotId: result.snapshot_id || null,
+        eventId: result.timeline_event_id || null,
+        rollbackAvailable: !!(result.snapshot_id || result.rollback?.available),
+      });
+      toast({
+        title: 'Security Group Updated',
+        description: `Applied ${result.summary?.rules_removed || 0} removals and ${result.summary?.rules_tightened || 0} tightenings.${result.snapshot_id ? ` Snapshot: ${result.snapshot_id}` : ''}`,
+      });
       handleClose();
     } catch (err: any) {
       console.error('Remediation error:', err);
+      toast({
+        title: 'Remediation Failed',
+        description: err.message || 'Could not apply the selected security group changes.',
+        variant: 'destructive',
+      });
     } finally {
       setApplying(false);
     }
@@ -448,6 +565,7 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
 
   const handleClose = () => {
     setShowSimulation(false);
+    setAnalysisTab('summary');
     setAnalysis(null);
     setError(null);
     setSnapshotId(null);
@@ -506,7 +624,23 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
     if (orphanStatus?.is_orphan) score = Math.max(10, score - 10);
     return Math.max(5, Math.min(100, score));
   };
-  const safetyScore = calculateSafetyScore();
+  const legacySafetyScore = calculateSafetyScore();
+
+  // One-score rule: Agent 5 confidence overrides the legacy client-side calc
+  // when available. Keeps legacy fallback for load + failure states.
+  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore;
+
+  // Verdict bucket — derive from Agent 5 routing when present, else from
+  // legacy score thresholds to preserve existing UX for pre-Agent-5 paths.
+  const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
+    confidenceScore?.routing
+      ?? (safetyScore < 50 ? 'manual_review'
+        : safetyScore < 75 ? 'human_approval'
+          : 'auto_execute');
+
+  const protectedRules = analysis?.recommendations?.protected?.length ?? 0;
+  const cautionRules = analysis?.recommendations?.warn?.length ?? 0;
+  const connectedResourcesCount = analysis?.attached_resources?.length ?? 0;
 
   // Loading state
   if (loading && !analysis) {
@@ -613,49 +747,71 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Safety Score Banner */}
+            {/* Safety Score Banner — single source via Agent 5 when available */}
             {(() => {
-              if (safetyScore < 50) {
+              const suffix = confidenceScore ? '' : '%';
+
+              if (verdictBucket === 'blocked') {
+                return (
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <XCircle className="w-10 h-10 text-[#ef4444]" />
+                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">BLOCKED</span>
+                    </div>
+                    <p className="text-[#ef4444] mt-2 font-semibold">
+                      {confidenceScore?.gates_failed?.[0]?.detail ?? 'Hard block — see confidence panel below for gate details.'}
+                    </p>
+                  </div>
+                );
+              }
+              if (verdictBucket === 'manual_review') {
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#f97316]">LOW CONFIDENCE</span>
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'REVIEW REQUIRED' : 'LOW CONFIDENCE'}</span>
                     </div>
                     <p className="text-[#f97316] mt-2 font-semibold">
                       Insufficient traffic data — review rules individually before applying.
                     </p>
                   </div>
                 );
-              } else if (safetyScore < 75) {
+              }
+              if (verdictBucket === 'human_approval') {
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#f97316]">REVIEW RECOMMENDED</span>
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'NEEDS APPROVAL' : 'REVIEW RECOMMENDED'}</span>
                     </div>
                     <p className="text-[#f97316] mt-2">
                       Some rules need verification — review before applying.
                     </p>
                   </div>
                 );
-              } else {
-                return (
-                  <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
-                    </div>
-                    <p className="text-[#22c55e] mt-2">
-                      {observationDays} days of traffic data analyzed — No service disruption expected
-                    </p>
-                  </div>
-                );
               }
+              return (
+                <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
+                  <div className="flex items-center justify-center gap-3">
+                    <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                    <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}{suffix}</span>
+                    <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
+                  </div>
+                  <p className="text-[#22c55e] mt-2">
+                    {confidenceScore
+                      ? 'Confidence ≥ 95, AI reviewer agrees — no service disruption expected.'
+                      : `${observationDays} days of traffic data analyzed — No service disruption expected`}
+                  </p>
+                </div>
+              );
             })()}
+
+            <div className="rounded-xl border px-4 py-3 text-sm" style={{ background: "#faf5ff", borderColor: "#ddd6fe", color: "#6d28d9" }}>
+              A rollback snapshot is created before execution, and the completed change is tracked in Remediation History for restore.
+            </div>
 
             {/* What Will Change */}
             <div>
@@ -757,14 +913,95 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     </div>
                     <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                       {deleteRules.map(rule => (
-                        <RuleDisplay
-                          key={rule.rule_id}
-                          rule={rule}
-                          checkbox
-                          checked={selectedRulesToRemediate.has(rule.rule_id)}
-                          onChange={() => toggleRuleSelection(rule.rule_id)}
-                          showStatus={false}
-                        />
+                        <div key={rule.rule_id}>
+                          <RuleDisplay
+                            rule={rule}
+                            checkbox
+                            checked={selectedRulesToRemediate.has(rule.rule_id)}
+                            onChange={() => toggleRuleSelection(rule.rule_id)}
+                            showStatus={false}
+                          />
+                          {/* Sprint 1 CP2 — Decision Contract operator runbook */}
+                          {rule.decision_contract?.operator_context && (() => {
+                            const oc = rule.decision_contract!.operator_context!
+                            const checks = oc.what_to_check || []
+                            const saferRaw = oc.suggested_safer_actions
+                            const saferList = Array.isArray(saferRaw) ? saferRaw : []
+                            const saferAbsent = !Array.isArray(saferRaw) && saferRaw && (saferRaw as any).no_safer_action_known
+                            const ackList = oc.override_requirements?.required_acknowledgements || []
+                            const reasonCode = rule.decision_contract!.reason_code
+                            const et = oc.escalation_target
+                            return (
+                              <div className="ml-8 mt-1 mb-2 px-3 py-2 text-xs rounded-lg border" style={{ borderColor: '#fcd34d', background: '#fffbeb', color: '#78350f' }}>
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#92400e]" />
+                                  <div className="flex-1 space-y-2">
+                                    <div>
+                                      {reasonCode && (
+                                        <span className="inline-block text-[9px] uppercase tracking-wider font-bold mr-2 px-1.5 py-0.5 rounded bg-[#92400e20] text-[#92400e]">
+                                          {reasonCode.replace(/_/g, ' ')}
+                                        </span>
+                                      )}
+                                      <span className="font-semibold text-[#92400e]">{oc.summary}</span>
+                                    </div>
+                                    {checks.length > 0 && (
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">What to check</div>
+                                        <ul className="list-disc ml-4 space-y-1">
+                                          {checks.map((c, ci) => (
+                                            <li key={ci}>
+                                              {c.check}
+                                              {c.command_or_link && <> · <a href={c.command_or_link} target="_blank" rel="noopener noreferrer" className="underline text-[#92400e]">link ↗</a></>}
+                                              {c.expected_result && <span className="opacity-75"> — expect: {c.expected_result}</span>}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {saferList.length > 0 && (
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">Safer alternatives</div>
+                                        <ul className="list-disc ml-4 space-y-1">
+                                          {saferList.map((a, ai) => (
+                                            <li key={ai}>
+                                              <span className="font-semibold">{a.action}</span>
+                                              {a.explanation && <span className="opacity-90"> — {a.explanation}</span>}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {saferAbsent && (
+                                      <div className="italic">No safer action known — operator must acknowledge override.</div>
+                                    )}
+                                    {ackList.length > 0 && (
+                                      <div className="text-[10px]">
+                                        <span className="uppercase tracking-wider font-semibold">Override requires: </span>
+                                        {ackList.map(a => a.replace(/_/g, ' ')).join(', ')}
+                                      </div>
+                                    )}
+                                    {et && (() => {
+                                      const isUnknown = et.target_type === 'unknown_no_default_configured'
+                                      return (
+                                        <div className="text-[10px]">
+                                          <span className="uppercase tracking-wider font-semibold">Escalate to: </span>
+                                          {isUnknown ? (
+                                            <span className="italic">no default escalation team configured — set one in onboarding to enable AUTO_APPLY mode</span>
+                                          ) : (
+                                            <>
+                                              {et.display_name || et.target_type?.replace(/_/g, ' ')}
+                                              {et.source && et.source !== 'unknown' ? <span className="opacity-75"> (via {et.source.replace(/_/g, ' ')})</span> : null}
+                                            </>
+                                          )}
+                                        </div>
+                                      )
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })()}
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -1066,85 +1303,101 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
         <div className="flex-1 overflow-y-auto">
           {analysis ? (
             <>
-              {/* Observation Period Banner */}
-              <div className="mx-6 mt-4 p-4 border-l-4 rounded-r-lg" style={{ borderColor: "#3b82f6", background: "#3b82f610" }}>
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-5 h-5" style={{ color: "#3b82f6" }} />
-                  <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{observationDays}-Day Observation Period</span>
+              <div className="px-6 pt-5">
+                <div className="flex items-center gap-2 border-b" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+                  {([
+                    { id: 'summary' as const, label: 'Summary', icon: ShieldCheck },
+                    { id: 'rules' as const, label: 'Rules', icon: Activity },
+                    { id: 'context' as const, label: 'Context', icon: Sparkles },
+                  ]).map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setAnalysisTab(tab.id)}
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px"
+                      style={{
+                        borderColor: analysisTab === tab.id ? '#8b5cf6' : 'transparent',
+                        color: analysisTab === tab.id ? '#8b5cf6' : 'var(--muted-foreground, #6b7280)',
+                      }}
+                    >
+                      <tab.icon className="w-4 h-4" />
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
-                <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
-                  Tracked from {formatDate(startDate)} to {formatDate(endDate)} - VPC Flow Logs analyzed
-                </p>
               </div>
 
-              {/* Orphan Warning */}
-              {orphanStatus?.is_orphan && (
-                <div className={`mx-6 mt-4 p-5 border-l-4 rounded-r-lg ${
-                  orphanStatus.severity === 'CRITICAL' ? 'border-[#ef4444]' : 'border-[#f97316]'
-                }`} style={{ background: orphanStatus.severity === 'CRITICAL' ? '#ef444410' : '#f9731610' }}>
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className={`w-6 h-6 flex-shrink-0 ${
-                      orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
-                    }`} />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${
-                          orphanStatus.severity === 'CRITICAL' ? 'bg-[#ef4444]' : 'bg-[#f97316]'
-                        }`}>
-                          {orphanStatus.severity} - ORPHAN SG
+              {analysisTab === 'summary' && confidenceLoading && (
+                <div className="mx-6 mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
+                  <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
+                  Agent 5 scoring remediation safety…
+                </div>
+              )}
+              {analysisTab === 'summary' && confidenceScore && (
+                <div className="mx-6 mt-4">
+                  <ConfidenceExplanationPanel score={confidenceScore} />
+                </div>
+              )}
+
+              {analysisTab === 'summary' && (
+                <>
+                  {/* Observation Period Banner */}
+                  <div className="mx-6 mt-4 p-4 border rounded-2xl" style={{ borderColor: "#dbeafe", background: "#eff6ff" }}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-5 h-5" style={{ color: "#2563eb" }} />
+                          <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{observationDays}-Day Observation Period</span>
+                        </div>
+                        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                          Tracked from {formatDate(startDate)} to {formatDate(endDate)} using VPC Flow Logs and SG traffic summaries.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: "#ffffff", color: "#2563eb", border: "1px solid #bfdbfe" }}>
+                          {connectedResourcesCount} connected resources
+                        </span>
+                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: "#ffffff", color: cautionRules > 0 ? "#ca8a04" : "#6b7280", border: "1px solid #e5e7eb" }}>
+                          {protectedRules} protected · {cautionRules} caution
                         </span>
                       </div>
-                      <p className={`mt-1 font-medium ${
-                        orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
-                      }`}>
-                        {orphanStatus.message}
-                      </p>
-                      <p className={`text-sm mt-1 ${
-                        orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
-                      }`}>
-                        {orphanStatus.attachment_count} attachments.
-                        {orphanStatus.severity === 'CRITICAL'
-                          ? ' Public ingress rules pose a security risk.'
-                          : ' Consider deleting to reduce attack surface.'}
-                      </p>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* Connected Resources */}
-              {analysis.attached_resources && analysis.attached_resources.length > 0 && (
-                <div className="mx-6 mt-4 p-4 rounded-xl border" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Server className="w-4 h-4" style={{ color: "var(--muted-foreground, #6b7280)" }} />
-                    <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
-                      Connected Resources ({analysis.attached_resources.length})
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {analysis.attached_resources.map((res, idx) => {
-                      const style = getResourceTypeStyle(res.resource_type);
-                      const IconComp = style.Icon;
-                      return (
-                        <div
-                          key={`${res.resource_id}-${idx}`}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm"
-                          style={{ borderColor: `${style.color}30`, background: style.bg }}
-                        >
-                          <IconComp className="w-3.5 h-3.5 flex-shrink-0" style={{ color: style.color }} />
-                          <span className="font-medium" style={{ color: style.color }}>{style.label}</span>
-                          <span className="text-xs truncate max-w-[180px]" style={{ color: "var(--foreground, #374151)" }} title={res.resource_name}>
-                            {res.resource_name}
-                          </span>
+                  {/* Orphan Warning */}
+                  {orphanStatus?.is_orphan && (
+                    <div className={`mx-6 mt-4 p-5 border rounded-2xl ${
+                      orphanStatus.severity === 'CRITICAL' ? 'border-[#ef444440]' : 'border-[#f9731640]'
+                    }`} style={{ background: orphanStatus.severity === 'CRITICAL' ? '#fef2f2' : '#fff7ed' }}>
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className={`w-6 h-6 flex-shrink-0 ${
+                          orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
+                        }`} />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${
+                              orphanStatus.severity === 'CRITICAL' ? 'bg-[#ef4444]' : 'bg-[#f97316]'
+                            }`}>
+                              {orphanStatus.severity} - ORPHAN SG
+                            </span>
+                          </div>
+                          <p className={`mt-1 font-medium ${
+                            orphanStatus.severity === 'CRITICAL' ? 'text-[#b91c1c]' : 'text-[#c2410c]'
+                          }`}>
+                            {orphanStatus.message}
+                          </p>
+                          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                            {orphanStatus.attachment_count} attachments.
+                            {orphanStatus.severity === 'CRITICAL'
+                              ? ' Public ingress rules increase immediate exposure.'
+                              : ' Consider deleting to reduce attack surface.'}
+                          </p>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Over-Privileged Banner + Stats */}
-              <div className="p-6 space-y-4">
+                  {/* Over-Privileged Banner + Stats */}
+                  <div className="p-6 space-y-4">
                 {/* Over-Privileged Bar */}
                 <div className="flex items-center gap-5 p-5 rounded-xl border-2" style={{
                   borderColor: remediatePercent >= 75 ? '#ef444440' : remediatePercent >= 50 ? '#f9731640' : remediatePercent >= 25 ? '#eab30840' : '#22c55e40',
@@ -1201,10 +1454,33 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     <div className="mt-1" style={{ color: "#ef4444" }}>To Remediate ({remediatePercent}%)</div>
                   </div>
                 </div>
-              </div>
+                  </div>
 
-              {/* Rule Usage Breakdown */}
-              <div className="px-6 pb-6 space-y-4">
+                  {/* Recommended Action */}
+                  {toRemediate > 0 && (
+                    <div className="mx-6 mb-6 p-5 border rounded-2xl" style={{ borderColor: "var(--border, #e5e7eb)", background: "#fafafa" }}>
+                      <h3 className="font-bold text-base" style={{ color: "var(--foreground, #111827)" }}>Recommended Action</h3>
+                      <p className="mt-1 text-sm" style={{ color: "var(--muted-foreground, #4b5563)" }}>
+                        {unusedRules > 0 && `Remove ${unusedRules} unused rule${unusedRules !== 1 ? 's' : ''}`}
+                        {unusedRules > 0 && overlyBroadRules > 0 && ' and '}
+                        {overlyBroadRules > 0 && `tighten ${overlyBroadRules} overly broad rule${overlyBroadRules !== 1 ? 's' : ''}`}
+                        {' '}to reduce attack surface by {remediatePercent}%.
+                      </p>
+                      <div className="flex items-center gap-2 mt-3 text-[#22c55e]">
+                        <Shield className="w-5 h-5" />
+                        <span className="font-medium">
+                          {safetyScore >= 75 ? 'High confidence — no service disruption expected'
+                           : safetyScore >= 50 ? 'Medium confidence — review recommended before applying'
+                           : 'Low confidence — investigate before applying'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {analysisTab === 'rules' && (
+                <div className="px-6 py-6 space-y-4">
                 <h3 className="text-lg font-bold" style={{ color: "var(--foreground, #111827)" }}>Rule Usage Breakdown</h3>
 
                 {/* Used Rules — Keep */}
@@ -1323,25 +1599,90 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     <p className="mt-3 text-sm" style={{ color: "var(--muted-foreground, #9ca3af)" }}>No unused rules found</p>
                   )}
                 </div>
-              </div>
+                </div>
+              )}
 
-              {/* Recommended Action */}
-              {toRemediate > 0 && (
-                <div className="mx-6 mb-6 p-4 border rounded-xl" style={{ borderColor: "var(--border, #e5e7eb)" }}>
-                  <h3 className="font-bold" style={{ color: "var(--foreground, #111827)" }}>Recommended Action</h3>
-                  <p className="mt-1" style={{ color: "var(--muted-foreground, #4b5563)" }}>
-                    {unusedRules > 0 && `Remove ${unusedRules} unused rule${unusedRules !== 1 ? 's' : ''}`}
-                    {unusedRules > 0 && overlyBroadRules > 0 && ' and '}
-                    {overlyBroadRules > 0 && `tighten ${overlyBroadRules} overly broad rule${overlyBroadRules !== 1 ? 's' : ''}`}
-                    {' '}to reduce attack surface by {remediatePercent}%.
-                  </p>
-                  <div className="flex items-center gap-2 mt-3 text-[#22c55e]">
-                    <Shield className="w-5 h-5" />
-                    <span className="font-medium">
-                      {safetyScore >= 75 ? 'High confidence — No service disruption expected'
-                       : safetyScore >= 50 ? 'Medium confidence — Review recommended before applying'
-                       : 'Low confidence — Investigate before applying'}
-                    </span>
+              {analysisTab === 'context' && (
+                <div className="px-6 py-6 space-y-4">
+                  {analysis.attached_resources && analysis.attached_resources.length > 0 && (
+                    <div className="p-4 rounded-2xl border" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Server className="w-4 h-4" style={{ color: "var(--muted-foreground, #6b7280)" }} />
+                        <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                          Connected Resources ({analysis.attached_resources.length})
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {analysis.attached_resources.map((res, idx) => {
+                          const style = getResourceTypeStyle(res.resource_type);
+                          const IconComp = style.Icon;
+                          return (
+                            <div
+                              key={`${res.resource_id}-${idx}`}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm"
+                              style={{ borderColor: `${style.color}30`, background: style.bg }}
+                            >
+                              <IconComp className="w-3.5 h-3.5 flex-shrink-0" style={{ color: style.color }} />
+                              <span className="font-medium" style={{ color: style.color }}>{style.label}</span>
+                              <span className="text-xs truncate max-w-[180px]" style={{ color: "var(--foreground, #374151)" }} title={res.resource_name}>
+                                {res.resource_name}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border, #e5e7eb)", background: "#ffffff" }}>
+                      <h3 className="font-semibold mb-3" style={{ color: "var(--foreground, #111827)" }}>Evidence & Confidence</h3>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Safety score</span>
+                          <span className="font-semibold" style={{ color: safetyScore >= 75 ? "#16a34a" : safetyScore >= 50 ? "#ca8a04" : "#dc2626" }}>{safetyScore}%</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Evidence window</span>
+                          <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{observationDays} days</span>
+                        </div>
+                        {(analysis.evidence?.sources || []).map((source, i) => (
+                          <div key={i} className="flex items-center justify-between text-sm">
+                            <span style={{ color: "var(--muted-foreground, #6b7280)" }}>{source.name}</span>
+                            <span className="font-semibold" style={{ color: source.available ? "#16a34a" : "#dc2626" }}>
+                              {source.available ? 'Available' : 'Missing'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border, #e5e7eb)", background: "#ffffff" }}>
+                      <h3 className="font-semibold mb-3" style={{ color: "var(--foreground, #111827)" }}>Execution Safeguards</h3>
+                      <div className="space-y-2 text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                        <div className="flex items-center justify-between">
+                          <span>Snapshot before apply</span>
+                          <span className="font-semibold text-[#16a34a]">Required</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Rollback path</span>
+                          <span className="font-semibold text-[#16a34a]">Available via History</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Protected rules</span>
+                          <span className="font-semibold" style={{ color: protectedRules > 0 ? "#6b7280" : "#16a34a" }}>{protectedRules}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Review-first rules</span>
+                          <span className="font-semibold" style={{ color: cautionRules > 0 ? "#ca8a04" : "#16a34a" }}>{cautionRules}</span>
+                        </div>
+                      </div>
+                      {snapshotId && (
+                        <div className="mt-3 rounded-xl px-3 py-2 text-xs font-medium" style={{ background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ddd6fe" }}>
+                          Pre-simulation snapshot: {snapshotId}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

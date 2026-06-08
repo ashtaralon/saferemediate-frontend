@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120 // 2 minutes for Render cold starts + Neo4j query
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  process.env.BACKEND_API_URL ||
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache with 5-minute TTL
@@ -69,44 +68,13 @@ export async function GET() {
     const response = await fetchWithRetry()
 
     if (!response.ok) {
-      const responseText = await response.text()
+      const responseText = await response.text().catch(() => "")
       console.error("[API Proxy] Backend error:", response.status, responseText.substring(0, 200))
-
-      // Return cached data if available, even if stale
-      if (cached) {
-        console.log(`[API Proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            'X-Cache': 'STALE',
-            'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-            'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-          }
-        })
-      }
-
-      if (response.status === 404) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Systems endpoint not found",
-            hint: "Make sure your backend has the /api/systems endpoint implemented.",
-            offline: false,
-            systems: [],
-            total: 0,
-          },
-          { status: 200 }
-        )
-      }
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Backend returned ${response.status}`,
-          systems: [],
-          total: 0,
-        },
-        { status: 200 }
-      )
+      return backendError({
+        status: response.status,
+        message: `Systems backend returned ${response.status}`,
+        detail: responseText.slice(0, 500),
+      })
     }
 
     const responseText = await response.text()
@@ -115,23 +83,42 @@ export async function GET() {
       data = JSON.parse(responseText)
     } catch (parseError) {
       console.error("[API Proxy] Failed to parse JSON:", responseText.substring(0, 200))
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid response from backend",
-          hint: "Backend returned non-JSON response",
-          systems: [],
-          total: 0,
-        },
-        { status: 200 }
-      )
+      return backendError({
+        status: 502,
+        message: "Systems backend returned non-JSON response",
+        detail: responseText.slice(0, 500),
+      })
     }
 
     const systems = data.systems || []
+
+    // Disambiguate case-insensitive name collisions for the picker UI.
+    // Backend currently emits separate entries for e.g. "Payment-Production"
+    // and "payment-production" — different account_ids, different finding
+    // counts, but visually identical in a dropdown. Until backend dedupes
+    // at source, append an account-id tag to displayName so the operator
+    // can tell them apart. Original `name` (used as lookup key everywhere)
+    // is untouched.
+    const nameCounts = new Map<string, number>()
+    for (const s of systems) {
+      const key = String(s.name || "").toLowerCase()
+      if (key) nameCounts.set(key, (nameCounts.get(key) || 0) + 1)
+    }
+    const disambiguated = systems.map((s: any) => {
+      const key = String(s.name || "").toLowerCase()
+      if ((nameCounts.get(key) || 0) <= 1) return s
+      const acct = s.account_id ? `acct ${String(s.account_id).slice(-4)}` : "no account"
+      return {
+        ...s,
+        displayName: `${s.displayName || s.name} [${acct}]`,
+        nameAmbiguous: true,
+      }
+    })
+
     const responseData = {
       success: true,
-      systems,
-      total: data.total || systems.length,
+      systems: disambiguated,
+      total: data.total || disambiguated.length,
       timestamp: data.timestamp,
     }
 
@@ -156,31 +143,9 @@ export async function GET() {
         'X-Cache': 'MISS',
       }
     })
-  } catch (error: any) {
-    console.error("[API Proxy] Fetch failed:", error.name, error.message)
-
-    // Return cached data if available
-    if (cached) {
-      console.log(`[API Proxy] Returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          'X-Cache': 'STALE',
-          'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        }
-      })
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to connect to backend",
-        hint: "Make sure your backend is running at " + BACKEND_URL,
-        offline: true,
-        systems: [],
-        total: 0,
-      },
-      { status: 200 }
-    )
+  } catch (error: unknown) {
+    const e = error as Error
+    console.error("[API Proxy] Fetch failed:", e?.name, e?.message)
+    return fromCaughtError(error)
   }
 }

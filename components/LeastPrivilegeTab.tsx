@@ -1,13 +1,23 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { riskLabel } from '@/lib/utils'
 import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
+import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
+import type { SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
-import { S3PolicyAnalysisModal } from '@/components/s3-policy-analysis-modal'
-import { SGLeastPrivilegeModal } from '@/components/sg-least-privilege-modal'
+// Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
+// preserve existing JSX without further changes at the call sites.
+import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-remediation-modal'
+import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-remediation-modal'
+import type { BlastRadiusScore } from '@/lib/types'
+import { CoveragePill } from '@/components/brss/coverage-pill'
+import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -30,6 +40,9 @@ interface GapResource {
   // Remediation metadata
   remediatedAt?: string
   remediatedBy?: string
+  snapshotId?: string | null
+  eventId?: string | null
+  rollbackAvailable?: boolean
   // Orphan status for Security Groups
   isOrphan?: boolean
   attachmentCount?: number
@@ -38,6 +51,16 @@ interface GapResource {
   usedCount: number | null  // null for Security Groups
   gapCount: number | null  // null for Security Groups
   gapPercent: number | null  // null for Security Groups
+  // Blast Radius Score v1.1 — breach impact (orthogonal to gap%).
+  blastRadius?: {
+    brs: number
+    band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+    components: { doc: number; ips: number; nes: number; lms: number }
+    amplifier: number
+    doc_floor_applied: boolean
+    rationale: string[]
+  }
   networkExposure?: {
     score: number
     severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
@@ -114,13 +137,23 @@ interface GapResource {
       resources_checked?: number
     }> | null
   }
-  severity: 'critical' | 'high' | 'medium' | 'low'
+  // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
+  // in this file still write lowercase. Severity rendering goes through
+  // lib/lp-severity.ts which normalises case before mapping.
+  severity: string
   confidence: number
   observationDays: number
   title: string
   description: string
   remediation: string
   region?: string  // For Security Groups
+  // Operator-facing subtab routing — backend is source of truth.
+  // 'removable' = action available (remove/tighten)
+  // 'coverage'  = no observation data; enable upstream data source
+  // 'audit'     = well-utilized; periodic review only
+  // Older backend responses may omit this — treated as 'removable' so
+  // rows stay visible during/right after deploy.
+  category?: 'removable' | 'coverage' | 'audit'
 }
 
 interface LeastPrivilegeSummary {
@@ -143,6 +176,8 @@ interface LeastPrivilegeResponse {
   summary: LeastPrivilegeSummary
   resources: GapResource[]
   timestamp: string
+  fromCache?: boolean
+  cacheAge?: number
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
@@ -154,6 +189,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
   const [simulationModalOpen, setSimulationModalOpen] = useState(false)
+  const [iamSimulateFixResult, setIamSimulateFixResult] = useState<SimulateFixResponse | null>(null)
+  const [iamSimulateFixModalOpen, setIamSimulateFixModalOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [confirmationModalOpen, setConfirmationModalOpen] = useState(false)
@@ -173,18 +210,34 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
-  const [activeTab, setActiveTab] = useState<'active' | 'remediated'>('active')
+  // Subtab routing — was 'active' | 'remediated' (a single catch-all "active" tab
+  // mixed three operator-facing categories). Backend now tags rows with
+  // category = 'removable' | 'coverage' | 'audit'; we route to one tab each.
+  const [activeTab, setActiveTab] = useState<'removable' | 'coverage' | 'audit' | 'remediated'>('removable')
+  const [syncingFlowLogs, setSyncingFlowLogs] = useState(false)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
+  // Blast Radius Score — replaces the per-gap-average "LP Score" with the
+  // family-scoped BRSS for IAM. Fetched from /api/proxy/issues-summary in
+  // parallel with the main LP data.
+  const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
   const { toast } = useToast()
+  const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
+  const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
 
   // Traffic Simulator state
   const [showTrafficSimulator, setShowTrafficSimulator] = useState(false)
   const [isSimulatingTraffic, setIsSimulatingTraffic] = useState(false)
-  const [simSource, setSimSource] = useState("SafeRemediate-Test-App-1")
-  const [simTarget, setSimTarget] = useState("cyntro-demo-prod-data-745783559495")
-  const [simIamRole, setSimIamRole] = useState("cyntro-demo-ec2-s3-role")
+  // 2026-05-30 — removed hardcoded demo defaults (SafeRemediate-Test-App-1,
+  // cyntro-demo-prod-data-745783559495, cyntro-demo-ec2-s3-role). The
+  // simulator now requires the operator to pick real source/target/role
+  // from the dropdowns populated by the dependency-map API. Empty defaults
+  // are honest — Cyntro doesn't know what the operator wants to simulate
+  // until they tell us.
+  const [simSource, setSimSource] = useState("")
+  const [simTarget, setSimTarget] = useState("")
+  const [simIamRole, setSimIamRole] = useState("")
   const [simDays, setSimDays] = useState(420)
   const [simEventsPerDay, setSimEventsPerDay] = useState(3)
 
@@ -195,8 +248,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [simApiOperations, setSimApiOperations] = useState<string[]>(['s3:GetObject', 's3:PutObject', 's3:GetObjectTagging', 's3:ListBucket', 's3:DeleteObject', 's3:HeadObject'])
   const [availableServices, setAvailableServices] = useState<Array<{id: string, name: string, type: string}>>([])
   const [servicesLoading, setServicesLoading] = useState(false)
-
-  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
 
   // Common ports for network traffic
   const COMMON_PORTS = [
@@ -222,14 +273,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     KMS: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
   }
 
-  const DEMO_SCENARIOS = [
-    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 420, eventsPerDay: 3, connectionType: 'api' as const },
-    { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 180, eventsPerDay: 10, connectionType: 'api' as const },
-    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", iamRole: "", days: 90, eventsPerDay: 25, connectionType: 'api' as const },
-    { name: "S3 → Lambda (Events)", source: "cyntro-demo-prod-data-745783559495", target: "analytics-lambda", iamRole: "", days: 120, eventsPerDay: 15, connectionType: 'api' as const },
-    { name: "S3 → S3 (Replication)", source: "cyntro-demo-prod-data-745783559495", target: "cyntro-demo-backup-745783559495", iamRole: "s3-replication-role", days: 365, eventsPerDay: 5, connectionType: 'api' as const },
-    { name: "EC2 → RDS (MySQL)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-rds", iamRole: "", days: 90, eventsPerDay: 50, connectionType: 'network' as const, port: 3306 },
-  ]
+  // 2026-05-30 — DEMO_SCENARIOS array removed. The previous 6 entries all
+  // pointed at SafeRemediate-Test/cyntro-demo-* resource names that don't
+  // exist for any other customer, so the "Quick scenarios" buttons silently
+  // did nothing outside the demo environment. Empty array preserves the
+  // typeof reference for applyScenario's parameter, the UI maps over it,
+  // and a future iteration can populate from the system's actual graph
+  // (e.g. top 5 path-frequency source→target pairs from IAP).
+  const DEMO_SCENARIOS: Array<{
+    name: string
+    source: string
+    target: string
+    iamRole: string
+    days: number
+    eventsPerDay: number
+    connectionType: 'api' | 'network'
+    port?: number
+  }> = []
 
   // Fetch available services from Neo4j
   const fetchAvailableServices = async () => {
@@ -284,7 +344,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           protocol: simProtocol,
         })
 
-        const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-network-traffic?${trafficParams}`, {
+        const trafficResponse = await fetch(`/api/proxy/debug/simulate-network-traffic?${trafficParams}`, {
           method: 'POST'
         })
 
@@ -302,7 +362,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           operations: operations
         })
 
-        const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${trafficParams}`, {
+        const trafficResponse = await fetch(`/api/proxy/debug/simulate-traffic?${trafficParams}`, {
           method: 'POST'
         })
 
@@ -320,7 +380,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           events_per_action: Math.max(100, simEventsPerDay * 10).toString()
         })
 
-        const iamResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-iam-usage?${iamParams}`, {
+        const iamResponse = await fetch(`/api/proxy/debug/simulate-iam-usage?${iamParams}`, {
           method: 'POST'
         })
 
@@ -384,12 +444,24 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
     setIsSimulatingTraffic(true)
     try {
+      // 2026-05-30 — removed cyntro-demo-ec2-s3-role hardcoded fallback.
+      // When no role is selected the backend has nothing to reset; require
+      // the operator to pick one rather than silently scrubbing a demo role.
+      if (!simIamRole || !simIamRole.trim()) {
+        toast({
+          title: "Select an IAM role",
+          description: "Pick a role from the dropdown before resetting demo traffic.",
+          variant: "destructive",
+        })
+        setIsSimulatingTraffic(false)
+        return
+      }
       const params = new URLSearchParams({
-        role_name: simIamRole || 'cyntro-demo-ec2-s3-role',
+        role_name: simIamRole,
         clear_traffic: 'true'
       })
 
-      const response = await fetch(`${BACKEND_URL}/api/debug/reset-demo?${params}`, {
+      const response = await fetch(`/api/proxy/debug/reset-demo?${params}`, {
         method: 'POST'
       })
 
@@ -484,6 +556,34 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   useEffect(() => {
     fetchGaps()
+    // Cross-component refresh: when a remediation/rollback fires from
+    // anywhere (Timeline, IAM modal, SG modal, Trust Boundary modal,
+    // etc.), refetch with force_refresh=true so the proxy's 2-min
+    // in-memory cache at app/api/proxy/least-privilege/issues/route.ts
+    // doesn't serve stale rows. See lib/remediation-events.ts.
+    const unsubscribe = onRemediationChanged(() => {
+      void fetchGaps(true, true)
+    })
+    // Fetch BRSS in parallel — independent from LP data, so failures don't
+    // block the main list view.
+    ;(async () => {
+      try {
+        const sysParam = systemName ? `?systemName=${encodeURIComponent(systemName)}` : ''
+        const res = await fetch(`/api/proxy/issues-summary${sysParam}`)
+        if (!res.ok) return
+        const payload = await res.json()
+        if (payload?.blast_radius_score && !payload.blast_radius_score.error) {
+          setBrss(payload.blast_radius_score as BlastRadiusScore)
+        } else {
+          setBrss(null)
+        }
+      } catch {
+        setBrss(null)
+      }
+    })()
+    return () => {
+      unsubscribe()
+    }
   }, [systemName])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
@@ -499,12 +599,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       }
       setError(null)
       
-      // Use AWS-based endpoint directly - this returns actual LP analysis data
-      // The Neo4j endpoint returns graph nodes without LP analysis, causing "0 used / 0 unused" display
+      // Use AWS-based endpoint directly - this returns actual LP analysis data.
+      // The Neo4j endpoint returns graph nodes without LP analysis, causing
+      // "0 used / 0 unused" display. cache: 'no-store' is mandatory: the
+      // proxy returns 502/504 on backend failure (post-2026-05-04 hardening),
+      // and we don't want browser/disk cache to serve a previously-cached
+      // empty response over a fresh error response.
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`)
-      if (!response.ok) throw new Error(`Failed: ${response.status}`)
+      const response = await fetch(
+        `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`,
+        { cache: 'no-store' },
+      )
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        const detail = body.detail || body.error || `HTTP ${response.status}`
+        throw new Error(`Backend ${response.status}: ${detail}`)
+      }
       const result = await response.json()
       
       // Log what we received for debugging
@@ -550,12 +661,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             resourceName: r.resourceName,
             resourceArn: r.resourceArn,
             systemName: r.systemName,
+            // Backend-driven subtab routing — must be carried through the
+            // transform, otherwise every row falls back to 'removable' and
+            // the Coverage/Audit subtabs render empty.
+            category: r.category,
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
             allowedCount: r.allowedCount || 0,
             usedCount: r.usedCount ?? 0,
             gapCount: r.gapCount ?? 0,
             gapPercent: r.gapPercent ?? 0,
+            blastRadius: r.blastRadius ?? r.blast_radius ?? undefined,
             networkExposure: networkExposure ? {
               score: networkExposure.score || 0,
               severity: networkExposure.severity || 'MEDIUM',
@@ -613,6 +729,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             // Remediation metadata
             remediatedAt: r.remediatedAt ?? r.remediated_at ?? null,
             remediatedBy: r.remediatedBy ?? r.remediated_by ?? null,
+            snapshotId: r.snapshotId ?? r.snapshot_id ?? null,
+            eventId: r.eventId ?? r.event_id ?? null,
+            rollbackAvailable: r.rollbackAvailable ?? r.rollback_available ?? false,
             // Orphan status (for Security Groups)
             isOrphan: r.isOrphan ?? r.is_orphan ?? false,
             attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0,
@@ -647,11 +766,60 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           // The user can see which ones need remediation
           return true
         }),
-        timestamp: result.timestamp || new Date().toISOString()
+        timestamp: result.timestamp || new Date().toISOString(),
+        fromCache: !!result.fromCache,
+        cacheAge: safeNumber(result.cacheAge, 0),
       }
 
-      setData(transformed)
-      
+      // Merge: preserve local remediation metadata (remediatedAt, snapshotId, etc.)
+      // that was set by handleRemediationSuccess but not yet persisted in the backend.
+      // Without this, the background re-fetch overwrites local SG/S3 remediation state.
+      setData(prev => {
+        if (!prev) return transformed
+
+        const prevRemedMap = new Map<string, Partial<GapResource>>()
+        for (const r of prev.resources) {
+          if (r.remediatedAt) {
+            const key = r.id || r.resourceName
+            prevRemedMap.set(key, {
+              remediatedAt: r.remediatedAt,
+              remediatedBy: r.remediatedBy,
+              snapshotId: r.snapshotId,
+              eventId: r.eventId,
+              rollbackAvailable: r.rollbackAvailable,
+              gapCount: r.gapCount,
+              gapPercent: r.gapPercent,
+              lpScore: r.lpScore,
+              severity: r.severity,
+              allowedCount: r.allowedCount,
+              usedCount: r.usedCount,
+            })
+          }
+        }
+
+        if (prevRemedMap.size === 0) return transformed
+
+        return {
+          ...transformed,
+          resources: transformed.resources.map(r => {
+            const key = r.id || r.resourceName
+            const prevRemed = prevRemedMap.get(key)
+            if (prevRemed && !r.remediatedAt) {
+              return { ...r, ...prevRemed }
+            }
+            return r
+          }),
+          summary: recalculateSummary(
+            transformed.resources.map(r => {
+              const key = r.id || r.resourceName
+              const prevRemed = prevRemedMap.get(key)
+              return (prevRemed && !r.remediatedAt) ? { ...r, ...prevRemed } : r
+            }),
+            transformed.summary
+          ),
+        }
+      })
+
       // Log transformed data
       console.log('[LeastPrivilegeTab] Transformed resources:', {
         total: transformed.resources.length,
@@ -673,110 +841,243 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     await fetchGaps(true, true) // Force cache refresh
   }
 
-  // Handle successful remediation - remove resource from list and update counts
-  const handleRemediationSuccess = (resourceName: string) => {
-    console.log('[LeastPrivilegeTab] Remediation successful for:', resourceName)
+  const isRemediatedResource = (resource: GapResource) =>
+    !!(resource.remediatedAt || (resource.resourceType === 'IAMRole' && resource.allowedCount === 0))
 
-    // Persist remediated roles in localStorage so they stay hidden after refresh
-    try {
-      const remediatedKey = `remediated_roles_${systemName}`
-      const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-      if (!existing.includes(resourceName)) {
-        existing.push(resourceName)
-        localStorage.setItem(remediatedKey, JSON.stringify(existing))
-        console.log('[LeastPrivilegeTab] Stored remediated role in localStorage:', resourceName)
+  const getUsageMetricsForResource = (resource: GapResource) => {
+    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
+      const totalRules = resource.networkExposure.totalRules || 0
+      const exposedRules = resource.networkExposure.internetExposedRules || 0
+      const secureRules = totalRules - exposedRules
+      return {
+        usedCount: secureRules,
+        unusedCount: exposedRules,
+        total: totalRules,
+        gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0
       }
-    } catch (e) {
-      console.warn('[LeastPrivilegeTab] Failed to persist remediation to localStorage:', e)
     }
 
-    // Remove the remediated resource from the displayed list
-    setData(prev => {
-      if (!prev) return prev
-      
-      const removedResource = prev.resources.find(r => r.resourceName === resourceName || r.id === resourceName)
-      if (!removedResource) {
-        console.warn('[LeastPrivilegeTab] Resource not found:', resourceName)
-        return prev
-      }
-      
-      const filteredResources = prev.resources.filter(r => r.resourceName !== resourceName && r.id !== resourceName)
-      
-      // Update summary counts based on resource type
-      const resourceType = removedResource.resourceType
-      const newSummary = {
-        ...prev.summary,
-        totalResources: filteredResources.length,
-        // Decrement the appropriate count based on resource type
-        iamIssuesCount: resourceType === 'IAMRole' 
-          ? Math.max(0, (prev.summary.iamIssuesCount || 0) - 1) 
-          : prev.summary.iamIssuesCount,
-        networkIssuesCount: resourceType === 'SecurityGroup' 
-          ? Math.max(0, (prev.summary.networkIssuesCount || 0) - 1) 
-          : prev.summary.networkIssuesCount,
-        s3IssuesCount: resourceType === 'S3Bucket' 
-          ? Math.max(0, (prev.summary.s3IssuesCount || 0) - 1) 
-          : prev.summary.s3IssuesCount,
-        // Update severity counts
-        criticalCount: removedResource.severity === 'critical' 
-          ? Math.max(0, (prev.summary.criticalCount || 0) - 1) 
-          : prev.summary.criticalCount,
-        highCount: removedResource.severity === 'high' 
-          ? Math.max(0, (prev.summary.highCount || 0) - 1) 
-          : prev.summary.highCount,
-        mediumCount: removedResource.severity === 'medium' 
-          ? Math.max(0, (prev.summary.mediumCount || 0) - 1) 
-          : prev.summary.mediumCount,
-        lowCount: removedResource.severity === 'low' 
-          ? Math.max(0, (prev.summary.lowCount || 0) - 1) 
-          : prev.summary.lowCount,
-      }
-      
-      console.log('[LeastPrivilegeTab] Updated resources:', {
-        before: prev.resources.length,
-        after: filteredResources.length,
-        removed: removedResource?.resourceName,
-        resourceType: resourceType,
-        newTotalResources: newSummary.totalResources
-      })
-      
-      return {
-        ...prev,
-        resources: filteredResources,
-        summary: newSummary
-      }
-    })
-    
-    // Also clear the cache for this resource
-    setIamGapAnalysisCache(prev => {
-      const { [resourceName]: _, ...rest } = prev
-      return rest
-    })
+    const used = resource.usedCount ?? 0
+    const unused = resource.gapCount ?? 0
+    const total = resource.resourceType === 'S3Bucket'
+      ? (used + unused || 1)
+      : (resource.allowedCount || (used + unused) || 1)
 
-    // Also clear SG cache if it's a Security Group
-    setSgGapAnalysisCache(prev => {
-      const { [resourceName]: _, ...rest } = prev
-      return rest
-    })
+    return {
+      usedCount: used,
+      unusedCount: unused,
+      total,
+      gapPct: Math.round((unused / total) * 100)
+    }
   }
 
-  // Handle successful rollback - remove resource from remediated list and re-fetch
+  const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
+    const activeResources = resources.filter(resource => !isRemediatedResource(resource))
+    const severityCounts = activeResources.reduce((acc, resource) => {
+      acc[resource.severity] = (acc[resource.severity] || 0) + 1
+      return acc
+    }, { critical: 0, high: 0, medium: 0, low: 0 } as Record<'critical' | 'high' | 'medium' | 'low', number>)
+
+    const totalExcessPermissions = activeResources.reduce((total, resource) => {
+      const metrics = getUsageMetricsForResource(resource)
+      return total + metrics.unusedCount
+    }, 0)
+
+    const avgLPScore = resources.length > 0
+      ? resources.reduce((total, resource) => total + (100 - getUsageMetricsForResource(resource).gapPct), 0) / resources.length
+      : 100
+
+    const confidenceLevel = resources.length > 0
+      ? resources.reduce((total, resource) => total + safeNumber(resource.confidence, 0), 0) / resources.length
+      : previousSummary.confidenceLevel
+
+    const attackSurfaceReduction = resources.length > 0
+      ? resources.reduce((total, resource) => total + getUsageMetricsForResource(resource).gapPct, 0) / resources.length
+      : 0
+
+    return {
+      ...previousSummary,
+      totalResources: resources.length,
+      totalExcessPermissions,
+      avgLPScore,
+      iamIssuesCount: activeResources.filter(resource => resource.resourceType === 'IAMRole').length,
+      networkIssuesCount: activeResources.filter(resource => resource.resourceType === 'SecurityGroup').length,
+      s3IssuesCount: activeResources.filter(resource => resource.resourceType === 'S3Bucket').length,
+      criticalCount: severityCounts.critical,
+      highCount: severityCounts.high,
+      mediumCount: severityCounts.medium,
+      lowCount: severityCounts.low,
+      confidenceLevel,
+      attackSurfaceReduction,
+    }
+  }
+
+  const readStoredDismissedResources = (): string[] => {
+    if (typeof window === 'undefined') return []
+
+    try {
+      const stored = JSON.parse(localStorage.getItem(dismissedResourcesStorageKey) || '[]')
+      if (Array.isArray(stored) && stored.length > 0) return stored
+
+      const legacy = JSON.parse(localStorage.getItem(legacyDismissedResourcesStorageKey) || '[]')
+      return Array.isArray(legacy) ? legacy : []
+    } catch {
+      return []
+    }
+  }
+
+  const writeStoredDismissedResources = (values: string[]) => {
+    if (typeof window === 'undefined') return
+
+    localStorage.setItem(dismissedResourcesStorageKey, JSON.stringify(values))
+    localStorage.removeItem(legacyDismissedResourcesStorageKey)
+  }
+
+  const handleRemediationSuccess = (
+    resource: GapResource,
+    metadata?: {
+      snapshotId?: string | null
+      eventId?: string | null
+      rollbackAvailable?: boolean
+      remediatedBy?: string
+      afterTotal?: number | null
+      removedCount?: number | null
+    }
+  ) => {
+    const resourceIdentifier = resource.resourceName || resource.id
+    console.log('[LeastPrivilegeTab] Remediation successful for:', resourceIdentifier, metadata)
+
+    setData(prev => {
+      if (!prev) return prev
+
+      const remediatedAt = new Date().toISOString()
+      const nextResources = prev.resources.map<GapResource>(existing => {
+        const matches = existing.id === resource.id || existing.resourceName === resource.resourceName
+        if (!matches) return existing
+
+        if (existing.resourceType === 'SecurityGroup') {
+          const totalRules = existing.networkExposure?.totalRules || existing.allowedCount || 0
+          return {
+            ...existing,
+            remediatedAt,
+            remediatedBy: metadata?.remediatedBy || 'user@cyntro.io',
+            snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
+            eventId: metadata?.eventId ?? existing.eventId ?? null,
+            rollbackAvailable: metadata?.rollbackAvailable ?? !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
+            allowedCount: totalRules,
+            usedCount: totalRules,
+            gapCount: 0,
+            gapPercent: 0,
+            lpScore: 100,
+            severity: 'low',
+            networkExposure: existing.networkExposure ? {
+              ...existing.networkExposure,
+              score: 100,
+              severity: 'LOW' as const,
+              internetExposedRules: 0,
+              highRiskPorts: [] as number[],
+              details: {
+                ...existing.networkExposure.details,
+                findingsCount: 0,
+                criticalFindings: 0,
+                highFindings: 0,
+              }
+            } : existing.networkExposure,
+          }
+        }
+
+        const currentUsed = existing.usedCount ?? 0
+        const currentAllowed = existing.allowedCount || currentUsed
+        const afterTotal = metadata?.afterTotal ?? currentUsed
+        const nextAllowed = Math.max(0, safeNumber(afterTotal, currentUsed))
+        const removedCount = metadata?.removedCount ?? Math.max(0, currentAllowed - nextAllowed)
+
+        return {
+          ...existing,
+          remediatedAt,
+          remediatedBy: metadata?.remediatedBy || 'user@cyntro.io',
+          snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
+          eventId: metadata?.eventId ?? existing.eventId ?? null,
+          rollbackAvailable: metadata?.rollbackAvailable ?? !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
+          allowedCount: nextAllowed,
+          usedCount: nextAllowed,
+          gapCount: 0,
+          gapPercent: 0,
+          lpScore: 100,
+          severity: 'low',
+          unusedList: [],
+          highRiskUnused: [],
+          title: `${existing.resourceName} remediated`,
+          description: removedCount > 0
+            ? `Removed ${removedCount} unused permissions from ${existing.resourceName}.`
+            : existing.description,
+        }
+      })
+
+      return {
+        ...prev,
+        resources: nextResources,
+        summary: recalculateSummary(nextResources, prev.summary),
+      }
+    })
+
+    setIamGapAnalysisCache(prev => {
+      const next = { ...prev }
+      delete next[resource.resourceName]
+      if (resource.id) delete next[resource.id]
+      return next
+    })
+
+    setSgGapAnalysisCache(prev => {
+      const next = { ...prev }
+      delete next[resource.resourceName]
+      if (resource.id) delete next[resource.id]
+      return next
+    })
+
+    void fetchGaps(false, false)
+  }
+
   const handleRollbackSuccess = (resourceName: string) => {
     console.log('[LeastPrivilegeTab] Rollback successful for:', resourceName)
 
-    // Remove from remediated localStorage list
-    try {
-      const remediatedKey = `remediated_roles_${systemName}`
-      const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-      const updated = existing.filter((name: string) => name !== resourceName)
-      localStorage.setItem(remediatedKey, JSON.stringify(updated))
-      console.log('[LeastPrivilegeTab] Removed rolled-back role from localStorage:', resourceName)
-    } catch (e) {
-      console.warn('[LeastPrivilegeTab] Failed to update localStorage after rollback:', e)
-    }
+    setData(prev => {
+      if (!prev) return prev
 
-    // Re-fetch data to get updated LP values from backend
-    fetchGaps(true, true)
+      const nextResources = prev.resources.map(resource => {
+        if (resource.resourceName !== resourceName && resource.id !== resourceName) return resource
+
+        return {
+          ...resource,
+          remediatedAt: undefined,
+          remediatedBy: undefined,
+          snapshotId: null,
+          eventId: null,
+          rollbackAvailable: false,
+        }
+      })
+
+      return {
+        ...prev,
+        resources: nextResources,
+        summary: recalculateSummary(nextResources, prev.summary),
+      }
+    })
+
+    void fetchGaps(true, true)
+
+    // Broadcast so other views (Trust Boundary map, dashboard counters)
+    // refetch too. resource_type is best-effort: handleRollbackSuccess
+    // takes only resourceName, so we look it up from current data.
+    const resourceType =
+      data?.resources?.find(
+        r => r.resourceName === resourceName || r.id === resourceName,
+      )?.resourceType || "IAMRole"
+    dispatchRemediationChanged({
+      action: "rollback",
+      resource_type: resourceType,
+      resource_id: resourceName,
+    })
   }
 
   // ---------- Rollback from remediated tab ----------
@@ -789,13 +1090,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const resourceId = resource.id || resource.resourceName
       console.log('[Rollback] Starting for:', resourceName, 'type:', resource.resourceType)
 
-      // Step 1: Find snapshot/event for this resource using multiple strategies
-      let snapshotId: string | null = null
-      let eventId: string | null = null
+      // Step 1: Prefer stored remediation metadata, then fall back to discovery
+      let snapshotId: string | null = resource.snapshotId || null
+      let eventId: string | null = resource.eventId || null
       let eventSource: string | null = null
       let sgId: string | null = null
 
-      if (resource.resourceType === 'IAMRole') {
+      if (resource.resourceType === 'IAMRole' && !snapshotId && !eventId) {
         // Strategy A: Fetch all IAM snapshots, find matching one
         try {
           const snapRes = await fetch('/api/proxy/iam-snapshots')
@@ -803,7 +1104,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             const snapshots = await snapRes.json()
             const arr = Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || [])
             console.log('[Rollback] Found', arr.length, 'IAM snapshots, searching for:', resourceName)
-            const match = arr.find((s: any) =>
+            const match = arr
+              .filter((s: any) =>
               s.rollback_available !== false &&
               !s.rolled_back_at &&
               s.status !== 'restored' &&
@@ -811,7 +1113,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                s.resource_id === resourceName ||
                s.role_name === resourceName ||
                s.original_role === resourceId)
-            )
+              )
+              .sort((a: any, b: any) =>
+                new Date(b.created_at || b.timestamp || 0).getTime() - new Date(a.created_at || a.timestamp || 0).getTime()
+              )[0]
             if (match) {
               snapshotId = match.snapshot_id || match.id
               console.log('[Rollback] Found IAM snapshot:', snapshotId)
@@ -823,25 +1128,31 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       } else if (resource.resourceType === 'SecurityGroup') {
         sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
         // Strategy A for SG: Fetch SG snapshots
-        try {
-          const sgSnapRes = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`)
-          if (sgSnapRes.ok) {
-            const sgSnapData = await sgSnapRes.json()
-            const sgSnaps = sgSnapData.snapshots || []
-            console.log('[Rollback] Found', sgSnaps.length, 'SG snapshots for:', sgId)
-            const sgMatch = sgSnaps.find((s: any) => !s.rolled_back)
-            if (sgMatch) {
-              snapshotId = sgMatch.id || sgMatch.snapshot_id
-              console.log('[Rollback] Found SG snapshot:', snapshotId)
+        if (!snapshotId && !eventId) {
+          try {
+            const sgSnapRes = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`)
+            if (sgSnapRes.ok) {
+              const sgSnapData = await sgSnapRes.json()
+              const sgSnaps = sgSnapData.snapshots || []
+              console.log('[Rollback] Found', sgSnaps.length, 'SG snapshots for:', sgId)
+              const sgMatch = sgSnaps
+                .filter((s: any) => !s.rolled_back)
+                .sort((a: any, b: any) =>
+                  new Date(b.created_at || b.timestamp || 0).getTime() - new Date(a.created_at || a.timestamp || 0).getTime()
+                )[0]
+              if (sgMatch) {
+                snapshotId = sgMatch.id || sgMatch.snapshot_id
+                console.log('[Rollback] Found SG snapshot:', snapshotId)
+              }
             }
+          } catch (e) {
+            console.warn('[Rollback] SG snapshots fetch failed:', e)
           }
-        } catch (e) {
-          console.warn('[Rollback] SG snapshots fetch failed:', e)
         }
       }
 
       // Strategy B: Query remediation timeline for this resource
-      if (!snapshotId) {
+      if (!snapshotId && !eventId) {
         try {
           // Try multiple resource ID formats
           const idsToTry = [resourceName, resourceId, resource.resourceArn].filter(Boolean)
@@ -851,11 +1162,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const historyData = await historyRes.json()
               const events = historyData.events || []
               console.log('[Rollback] Timeline query for', tryId, '→', events.length, 'events')
-              const remEvent = events.find((e: any) =>
-                e.status === 'completed' &&
-                e.action_type !== 'ROLLBACK' &&
-                e.rollback_available !== false
-              )
+              const remEvent = events
+                .filter((e: any) =>
+                  e.status === 'completed' &&
+                  e.action_type !== 'ROLLBACK' &&
+                  e.rollback_available !== false &&
+                  (!systemName || !e.system_name || e.system_name === systemName)
+                )
+                .sort((a: any, b: any) =>
+                  new Date(b.completed_at || b.created_at || b.timestamp || 0).getTime() -
+                  new Date(a.completed_at || a.created_at || a.timestamp || 0).getTime()
+                )[0]
               if (remEvent) {
                 snapshotId = remEvent.snapshot_id || null
                 eventId = remEvent.event_id || null
@@ -873,27 +1190,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const canRollback = snapshotId || eventId
 
       if (!canRollback) {
-        // No snapshot exists — offer to reset remediation status instead
-        const resetConfirmed = window.confirm(
-          `No remediation snapshot found for "${resourceName}".\n\nThis may have been remediated before snapshot tracking was enabled. Would you like to move it back to Active Issues so you can re-analyze and remediate it properly?`
-        )
-        if (!resetConfirmed) return
-
-        try {
-          const resetEndpoint = resource.resourceType === 'SecurityGroup'
-            ? `/api/proxy/sg-least-privilege/${resourceId}/reset-remediation`
-            : `/api/proxy/iam-gap/${resourceId}/reset-remediation`
-          const resetRes = await fetch(resetEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-          const resetData = await resetRes.json().catch(() => ({}))
-          if (resetRes.ok && resetData.success !== false) {
-            toast({ title: "Moved to Active", description: `${resourceName} moved back to Active Issues for re-analysis.` })
-            handleRollbackSuccess(resourceName)
-          } else {
-            throw new Error(resetData.detail || resetData.error || 'Reset failed')
-          }
-        } catch (resetErr: any) {
-          toast({ title: "Reset Failed", description: resetErr.message, variant: "destructive" })
-        }
+        toast({
+          title: "Rollback Unavailable",
+          description: `${resourceName} has no stored remediation snapshot yet. Please use Remediation History for authoritative rollback records.`,
+          variant: "destructive"
+        })
         return
       }
 
@@ -914,7 +1215,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
         bodyContent = {}
       } else if (resource.resourceType === 'SecurityGroup' && sgId && snapshotId) {
-        endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+        // Two SG snapshot formats coexist; each has its own rollback endpoint.
+        // "sg-snap-{sg_id}-{ts}" ← api/sg_least_privilege.py
+        // "snap-{sg_id}-{ts}"   ← api/sg_gap_analysis.py
+        if (snapshotId.startsWith('sg-snap-')) {
+          endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+        } else {
+          endpoint = `/api/proxy/security-groups/${sgId}/rollback`
+        }
         bodyContent = { snapshot_id: snapshotId }
       } else if (resource.resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
@@ -1025,12 +1333,79 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     )
   }
 
+  // Discriminate the empty states. The previous "No GAP issues found / All
+  // permissions are being used. Your system follows least privilege." was
+  // emitted whenever data.resources.length === 0 — but that's true under
+  // three different conditions, only one of which is "system is clean":
+  //
+  //   (A) System filter has no LP-tracked resources in this scope
+  //       e.g. /api/proxy/least-privilege/issues?systemName=alon-prod returns []
+  //       while the org-wide call returns 13 issues. The honest answer is
+  //       "no issues *for this system*", not "permissions are clean."
+  //   (B) No resources tracked at all (collector hasn't ingested yet,
+  //       observation window empty, no roles in the account).
+  //   (C) Resources exist and every one has gap == 0 — the genuine
+  //       "system is clean" path. We can only claim this when summary
+  //       reports a non-zero resource count AND zero excess permissions.
+  //
+  // Picking the wrong empty state is the most credibility-damaging single
+  // screen in the product per the dashboard design review (2026-04-30):
+  // home shows 13 LP issues / 55 excess permissions, this page says
+  // "All permissions are being used."
   if (!data || data.resources.length === 0) {
+    const isSystemScoped = !!systemName
+    const orgIssues =
+      data?.summary?.iamIssuesCount ??
+      data?.summary?.totalExcessPermissions ??
+      null
+
+    // (A) Filter scope: a system is selected but has no LP issues in scope.
+    if (isSystemScoped) {
+      return (
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+            No LP issues for system <span className="font-mono">{systemName}</span>
+          </p>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            This system has no resources flagged for least-privilege gap analysis. Other systems
+            in the organization may still have issues — clear the filter or pick another system.
+          </p>
+        </div>
+      )
+    }
+
+    // (B) No system filter, but the API returned no resources at all. We
+    // genuinely don't know if this means "clean" or "not yet ingested."
+    // Lead with the diagnostic, not the conclusion.
+    return (
+      <div className="text-center py-12">
+        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-secondary)" }} />
+        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+          No least-privilege resources tracked
+        </p>
+        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+          The least-privilege analyzer returned no resources. This usually means the LP collector
+          hasn&apos;t completed an ingestion yet, or the observation window has no eligible roles
+          in scope. It does <em>not</em> mean there are no issues — run the collector and refresh.
+        </p>
+      </div>
+    )
+  }
+
+  // (C) Resources exist but all have gap == 0. This IS the clean path.
+  // Render before the table so the operator sees the conclusion first.
+  if (data.resources.length > 0 && (data.summary?.totalExcessPermissions ?? 0) === 0) {
     return (
       <div className="text-center py-12">
         <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
-        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>No GAP issues found!</p>
-        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>All permissions are being used. Your system follows least privilege.</p>
+        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+          No LP gaps detected
+        </p>
+        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+          Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
+          all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
+        </p>
       </div>
     )
   }
@@ -1057,51 +1432,36 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (type === 'S3Bucket') return Database
     return AlertTriangle
   }
+  // Severity badge mirrors the backend `severity` field verbatim
+  // (case-insensitive). The frontend must not re-derive severity from
+  // gapPercent — a bucket flagged CRITICAL for a public-read policy has
+  // gapPercent=0 yet must render CRITICAL, not Low.
   const getSeverityColor = (resource: GapResource) => {
     if (isRemediated(resource)) return '#10b981'
-    const pct = resource.gapPercent ?? 0
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      const s = (resource.severity || '').toUpperCase()
-      if (s === 'CRITICAL') return '#ef4444'
-      if (s === 'HIGH') return '#f97316'
-      if (s === 'MEDIUM') return '#eab308'
-      return '#22c55e'
-    }
-    if (pct >= 80) return '#ef4444'
-    if (pct >= 50) return '#f97316'
-    if (pct >= 20) return '#eab308'
-    return '#22c55e'
+    return lpSeverityColor(resource.severity)
   }
   const getSeverityLabel = (resource: GapResource) => {
     if (isRemediated(resource)) return 'Remediated'
-    const pct = resource.gapPercent ?? 0
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      return (resource.severity || 'low').toUpperCase()
-    }
-    if (pct >= 80) return 'Critical'
-    if (pct >= 50) return 'High'
-    if (pct >= 20) return 'Medium'
-    return 'Low'
+    return lpSeverityLabel(resource.severity)
   }
-  const getUsageMetricsForResource = (resource: GapResource) => {
-    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
-      const totalRules = resource.networkExposure.totalRules || 0
-      const exposedRules = resource.networkExposure.internetExposedRules || 0
-      const secureRules = totalRules - exposedRules
-      return { usedCount: secureRules, unusedCount: exposedRules, total: totalRules, gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0 }
-    } else if (resource.resourceType === 'S3Bucket') {
-      const used = resource.usedCount ?? 0
-      const unused = resource.gapCount ?? 0
-      const total = used + unused || 1
-      return { usedCount: used, unusedCount: unused, total, gapPct: Math.round((unused / total) * 100) }
-    } else {
-      const used = resource.usedCount ?? 0
-      const unused = resource.gapCount ?? 0
-      const total = resource.allowedCount || (used + unused) || 1
-      return { usedCount: used, unusedCount: unused, total, gapPct: Math.round((unused / total) * 100) }
+  // ── Blast Radius (v1.1) colour + confidence helpers ──
+  const getBRSColor = (band?: string) => {
+    switch ((band || '').toUpperCase()) {
+      case 'CRITICAL': return '#ef4444'
+      case 'HIGH':     return '#f97316'
+      case 'MEDIUM':   return '#eab308'
+      case 'LOW':      return '#22c55e'
+      default:         return '#6b7280'
     }
   }
-
+  const getConfidenceColor = (conf?: string) => {
+    switch ((conf || '').toUpperCase()) {
+      case 'HIGH':   return '#22c55e'
+      case 'MEDIUM': return '#eab308'
+      case 'LOW':    return '#9ca3af'
+      default:       return '#6b7280'
+    }
+  }
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
     if (resource.resourceType === 'IAMRole') {
@@ -1131,14 +1491,29 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   // ---------- Identify remediated resources ----------
-  const isRemediated = (r: LeastPrivilegeResource) => !!(r.remediatedAt || (r.resourceType === 'IAMRole' && r.allowedCount === 0))
+  const isRemediated = (r: GapResource) => isRemediatedResource(r)
 
   // ---------- Compute filtered resources ----------
   const nonDeletedResources = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName))
   const activeResources = nonDeletedResources.filter(r => !isRemediated(r))
   const remediatedResources = nonDeletedResources.filter(r => isRemediated(r))
 
-  const filteredResources = (activeTab === 'remediated' ? remediatedResources : activeResources)
+  // Subtab partition. Rows missing `category` (older backend response shape
+  // during deploy) fall into 'removable' to match prior behaviour where every
+  // active row was shown.
+  const categoryOf = (r: GapResource): 'removable' | 'coverage' | 'audit' =>
+    r.category ?? 'removable'
+  const removableResources = activeResources.filter(r => categoryOf(r) === 'removable')
+  const coverageResources = activeResources.filter(r => categoryOf(r) === 'coverage')
+  const auditResources = activeResources.filter(r => categoryOf(r) === 'audit')
+
+  const tabResources: GapResource[] =
+    activeTab === 'remediated' ? remediatedResources
+      : activeTab === 'coverage' ? coverageResources
+        : activeTab === 'audit' ? auditResources
+          : removableResources
+
+  const filteredResources = tabResources
     .filter(r => {
       if (resourceTypeFilter === 'all') return true
       return r.resourceType === resourceTypeFilter
@@ -1149,12 +1524,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
     })
     .filter(r => {
-      if (activeTab === 'remediated') return true
+      // Was: "hide IAM roles with gapCount=0 on the Active Issues tab" — that
+      // gate is now redundant because such rows route to Audit (gap=0 → audit).
+      // Keep the gate only on the Removable tab as a defence-in-depth filter
+      // in case the backend mis-categorises.
+      if (activeTab !== 'removable') return true
       if (r.resourceType === 'IAMRole') return (r.gapCount ?? 0) > 0
       return true
     })
     .filter(r => {
-      if (activeTab === 'remediated') return true
+      if (activeTab !== 'removable') return true
       if (r.resourceType !== 'IAMRole') return true
       if (!showRemediableOnly) return true
       return r.isRemediable !== false
@@ -1200,16 +1579,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       {/* Compact Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            GAP between allowed and actual permissions
-            {data?.fromCache && (
-              <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
-              </span>
-            )}
-          </p>
+        <div className="flex items-center gap-3">
+          <BackToDashboard />
+          <div>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              GAP between allowed and actual permissions
+              {data?.fromCache && (
+                <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1255,30 +1637,83 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
           <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{summary.totalExcessPermissions.toLocaleString()}</div>
         </div>
-        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-          <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-5 h-5" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#ef4444' : (summary.avgLPScore ?? 0) < 75 ? '#f97316' : '#22c55e' }} />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>LP Score</span>
-          </div>
-          <div className="text-2xl font-bold" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#ef4444' : (summary.avgLPScore ?? 0) < 75 ? '#f97316' : '#22c55e' }}>
-            {isNaN(summary.avgLPScore) || summary.avgLPScore === null ? '—' : `${summary.avgLPScore.toFixed(0)}%`}
-          </div>
-        </div>
+        {(() => {
+          // BRSS family-scoped score for IAM — replaces the legacy avg-gap "LP Score".
+          // Falls back to '—' until the backend snapshot lands.
+          const iamScore = brss?.per_family?.iam
+          const color = iamScore === undefined || iamScore === null
+            ? '#94A3B8'
+            : iamScore < 50 ? '#ef4444'
+              : iamScore < 75 ? '#f97316'
+                : '#22c55e'
+          return (
+            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="brss-iam-score">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="w-5 h-5" style={{ color }} />
+                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Blast Radius · IAM</span>
+              </div>
+              <div className="text-2xl font-bold" style={{ color }}>
+                {iamScore === undefined || iamScore === null ? '—' : iamScore}
+              </div>
+              {brss && (
+                <div className="mt-1">
+                  <CoveragePill
+                    brss={brss}
+                    testId="coverage-pill-lp"
+                    className="inline-flex items-center gap-1 text-[10px] cursor-help focus:outline-none focus:ring-1 focus:ring-slate-400 rounded"
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
-      {/* Tabs: Active Issues / Remediated */}
+      {/* Subtabs: Removable / Coverage Gaps / Audit / Remediated.
+          Replaces the catch-all "Active Issues" tab. Each subtab corresponds to a
+          backend-assigned category so operators see one role at a time:
+          fix, fix-the-pipeline, or just review. */}
       <div className="flex gap-1 border-b" style={{ borderColor: "var(--border-subtle)" }}>
         <button
-          onClick={() => { setActiveTab('active'); setResourceTypeFilter('all') }}
+          onClick={() => { setActiveTab('removable'); setResourceTypeFilter('all') }}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'active' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+            activeTab === 'removable' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
           }`}
-          style={activeTab !== 'active' ? { color: "var(--text-secondary)" } : undefined}
+          style={activeTab !== 'removable' ? { color: "var(--text-secondary)" } : undefined}
+          title="Resources where an action is available right now — remove unused permissions, tighten rules, fix a public policy."
         >
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
-            Active Issues
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{activeResources.length}</span>
+            Removable
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{removableResources.length}</span>
+          </span>
+        </button>
+        <button
+          onClick={() => { setActiveTab('coverage'); setResourceTypeFilter('all') }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'coverage' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+          }`}
+          style={activeTab !== 'coverage' ? { color: "var(--text-secondary)" } : undefined}
+          title="Resources we cannot analyse because observation data is missing — enable VPC Flow Logs, S3 Data Events, or CloudTrail."
+        >
+          <span className="flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            Coverage Gaps
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#f59e0b20] text-[#f59e0b]">{coverageResources.length}</span>
+          </span>
+        </button>
+        <button
+          onClick={() => { setActiveTab('audit'); setResourceTypeFilter('all') }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'audit' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+          }`}
+          style={activeTab !== 'audit' ? { color: "var(--text-secondary)" } : undefined}
+          title="Fully-utilised resources surfaced for periodic review. No action required today."
+        >
+          <span className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            Audit
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">{auditResources.length}</span>
           </span>
         </button>
         <button
@@ -1316,12 +1751,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             className="px-3 py-2 rounded-lg border text-sm"
             style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           >
-            <option value="all">All Types ({(activeTab === 'remediated' ? remediatedResources : activeResources).length})</option>
-            <option value="IAMRole">IAM Roles ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'IAMRole').length})</option>
-            <option value="SecurityGroup">Security Groups ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'SecurityGroup').length})</option>
-            <option value="S3Bucket">S3 Buckets ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'S3Bucket').length})</option>
+            <option value="all">All Types ({tabResources.length})</option>
+            <option value="IAMRole">IAM Roles ({tabResources.filter(r => r.resourceType === 'IAMRole').length})</option>
+            <option value="SecurityGroup">Security Groups ({tabResources.filter(r => r.resourceType === 'SecurityGroup').length})</option>
+            <option value="S3Bucket">S3 Buckets ({tabResources.filter(r => r.resourceType === 'S3Bucket').length})</option>
           </select>
-          {activeTab === 'active' && (
+          {activeTab === 'removable' && (
             <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
               <input
                 type="checkbox"
@@ -1334,7 +1769,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           )}
           {deletedResources.size > 0 && (
             <button
-              onClick={() => { setDeletedResources(new Set()); try { localStorage.removeItem(`remediated_roles_${systemName}`) } catch {} }}
+              onClick={() => {
+                setDeletedResources(new Set())
+                try {
+                  localStorage.removeItem(dismissedResourcesStorageKey)
+                  localStorage.removeItem(legacyDismissedResourcesStorageKey)
+                } catch {}
+              }}
               className="text-xs underline whitespace-nowrap"
               style={{ color: "#3b82f6" }}
             >
@@ -1344,6 +1785,83 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           <span className="text-sm whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{filteredResources.length} results</span>
         </div>
       </div>
+
+      {/* Coverage Gaps explanatory banner — only on the Coverage tab.
+          Rows here are NOT problems with the resource; they're problems
+          with our observability. The CTA triggers the same flow-logs sync
+          that the SG remediation flow uses. */}
+      {activeTab === 'coverage' && (
+        <div
+          className="rounded-lg border p-4 flex items-start gap-3"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <Eye className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: "#f59e0b" }} />
+          <div className="flex-1">
+            <div className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+              These resources don't have enough observation data to analyse
+            </div>
+            <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              Cyntro decides what's removable from observed traffic and API calls.
+              When VPC Flow Logs, S3 Data Events, or CloudTrail Data Events are
+              missing for a resource, we surface it here instead of guessing.
+              Enable the upstream source and re-sync to move these rows to
+              Removable or Audit.
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              setSyncingFlowLogs(true)
+              try {
+                const res = await fetch('/api/proxy/sg-least-privilege/sync-flow-logs?days=30', {
+                  method: 'POST',
+                })
+                if (res.ok) {
+                  toast({
+                    title: 'Flow logs sync started',
+                    description: 'Re-run LP analysis in a few minutes to see resources move out of Coverage Gaps.',
+                  })
+                } else {
+                  toast({
+                    title: 'Sync failed',
+                    description: `Backend returned ${res.status}.`,
+                    variant: 'destructive',
+                  })
+                }
+              } catch (err) {
+                toast({
+                  title: 'Sync failed',
+                  description: err instanceof Error ? err.message : 'Unknown error',
+                  variant: 'destructive',
+                })
+              } finally {
+                setSyncingFlowLogs(false)
+              }
+            }}
+            disabled={syncingFlowLogs}
+            className="px-3 py-1.5 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+            style={{ background: "#f59e0b" }}
+          >
+            {syncingFlowLogs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {syncingFlowLogs ? 'Syncing…' : 'Sync flow logs'}
+          </button>
+        </div>
+      )}
+
+      {/* Audit subtab subtitle — softer treatment than Removable/Coverage.
+          No red badges, no CTA — these rows are info, not work. */}
+      {activeTab === 'audit' && (
+        <div
+          className="rounded-lg border p-4 flex items-start gap-3"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <BarChart3 className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: "#64748b" }} />
+          <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Periodic review.</span>
+            {" "}These resources are fully utilised — every permission or rule has been used in the observation window.
+            Listed for awareness; no action required today.
+          </div>
+        </div>
+      )}
 
       {/* Resources Table */}
       <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
@@ -1362,14 +1880,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
         ) : (
           <div
-            className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            className="grid grid-cols-[2fr_110px_110px_60px_60px_130px_90px_80px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
             style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
           >
             <span>Resource</span>
             <span>Type</span>
-            <span className="text-center">Over-Privileged</span>
+            <span
+              className="text-center inline-flex items-center justify-center gap-1 cursor-help"
+              title="Permission Gap — share of granted permissions never observed being used in the observation window. Higher = more cleanup opportunity."
+            >
+              Gap % <span className="text-[10px] opacity-60">ⓘ</span>
+            </span>
             <span className="text-center">Used</span>
-            <span className="text-center">To Remove</span>
+            <span className="text-center">Unused</span>
+            <span
+              className="text-center inline-flex items-center justify-center gap-1 cursor-help"
+              title="Blast Radius Score (BRS v1.1) — breach impact IF this resource is compromised right now. Combines Damage-on-Compromise, Identity Privilege, Network Exposure, Lateral Movement. Shown with confidence (HIGH/MED/LOW) based on observation evidence."
+            >
+              Blast Radius <span className="text-[10px] opacity-60">ⓘ</span>
+            </span>
             <span className="text-center">Severity</span>
             <span className="text-center">Action</span>
           </div>
@@ -1456,7 +1985,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   ) : (
                     /* ===== ACTIVE ROW — original layout ===== */
                     <div
-                      className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      className="grid grid-cols-[2fr_110px_110px_60px_60px_130px_90px_80px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
                       onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
                     >
                       {/* Resource */}
@@ -1495,6 +2024,47 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       {/* Unused */}
                       <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
                         {metrics.unusedCount}
+                      </div>
+
+                      {/* Blast Radius — breach impact (v1.1). Shows score · band · confidence. */}
+                      <div
+                        className="flex items-center justify-center gap-1.5"
+                        title={
+                          resource.blastRadius
+                            ? `BRS ${resource.blastRadius.brs} ${resource.blastRadius.band} — `
+                              + `DOC ${resource.blastRadius.components.doc} / `
+                              + `IPS ${resource.blastRadius.components.ips} / `
+                              + `NES ${resource.blastRadius.components.nes} / `
+                              + `LMS ${resource.blastRadius.components.lms}`
+                              + (resource.blastRadius.amplifier > 1 ? ` × ${resource.blastRadius.amplifier} amplifier` : '')
+                              + (resource.blastRadius.doc_floor_applied ? ' (DOC floor applied)' : '')
+                              + ` · Confidence ${resource.blastRadius.confidence}`
+                            : 'Blast Radius not available — backend needs redeploy'
+                        }
+                      >
+                        {resource.blastRadius ? (
+                          <>
+                            <span
+                              className="text-sm font-bold tabular-nums"
+                              style={{ color: getBRSColor(resource.blastRadius.band) }}
+                            >
+                              {Math.round(resource.blastRadius.brs)}
+                            </span>
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                              style={{ background: `${getBRSColor(resource.blastRadius.band)}20`, color: getBRSColor(resource.blastRadius.band) }}
+                            >
+                              {resource.blastRadius.band}
+                            </span>
+                            <span
+                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                              style={{ background: getConfidenceColor(resource.blastRadius.confidence) }}
+                              aria-label={`Confidence: ${resource.blastRadius.confidence}`}
+                            />
+                          </>
+                        ) : (
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
                       </div>
 
                       {/* Severity */}
@@ -1579,6 +2149,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               <span>Current Permissions</span>
                               <span className="font-medium" style={{ color: "#10b981" }}>{metrics.usedCount}</span>
                             </div>
+                            {(resource.snapshotId || resource.eventId) && (
+                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span>Rollback Artifact</span>
+                                <span className="font-medium truncate max-w-[150px]" style={{ color: "var(--text-primary)" }}>
+                                  {resource.snapshotId || resource.eventId}
+                                </span>
+                              </div>
+                            )}
                             {resource.region && (
                               <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                 <span>Region</span>
@@ -1610,10 +2188,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                   if (resource.id) next.add(resource.id)
                                   if (resource.resourceName) next.add(resource.resourceName)
                                   try {
-                                    const k = `remediated_roles_${systemName}`
-                                    const ex = JSON.parse(localStorage.getItem(k) || '[]')
+                                    const ex = readStoredDismissedResources()
                                     if (resource.resourceName && !ex.includes(resource.resourceName)) ex.push(resource.resourceName)
-                                    localStorage.setItem(k, JSON.stringify(ex))
+                                    writeStoredDismissedResources(ex)
                                   } catch {}
                                   return next
                                 })
@@ -1744,7 +2321,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 <>
                                   <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                     <span>Exposure Score</span>
-                                    <span className="font-medium" style={{ color: sevColor }}>{resource.networkExposure.score}/100</span>
+                                    <span className="font-medium" style={{ color: riskLabel(resource.networkExposure.score).color }}>{riskLabel(resource.networkExposure.score).label}</span>
                                   </div>
                                   <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                     <span>Internet Exposed Rules</span>
@@ -1754,11 +2331,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                   </div>
                                 </>
                               )}
-                              {resource.networkExposure?.highRiskPorts?.length > 0 && (
+                              {(resource.networkExposure?.highRiskPorts?.length ?? 0) > 0 && (
                                 <div>
                                   <div className="text-xs font-medium mb-1" style={{ color: "#ef4444" }}>High-Risk Ports:</div>
                                   <div className="flex flex-wrap gap-1">
-                                    {resource.networkExposure.highRiskPorts.slice(0, 5).map((port, i) => (
+                                    {resource.networkExposure?.highRiskPorts?.slice(0, 5).map((port, i) => (
                                       <span key={i} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>{port}</span>
                                     ))}
                                   </div>
@@ -1818,7 +2395,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 {resource.evidence?.confidence || 'LOW'}
                               </span>
                             </div>
-                            {(resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence)) && resource.gapCount > 0 && (
+                            {(resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence)) && (resource.gapCount ?? 0) > 0 && (
                               <div className="mt-2 p-2 rounded text-xs" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
                                 <span style={{ color: "#991b1b" }}>
                                   No usage data collected — permissions may be used by services not tracked by CloudTrail. Enable data events before remediating.
@@ -1882,10 +2459,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               if (resource.id) next.add(resource.id)
                               if (resource.resourceName) next.add(resource.resourceName)
                               try {
-                                const k = `remediated_roles_${systemName}`
-                                const ex = JSON.parse(localStorage.getItem(k) || '[]')
+                                const ex = readStoredDismissedResources()
                                 if (resource.resourceName && !ex.includes(resource.resourceName)) ex.push(resource.resourceName)
-                                localStorage.setItem(k, JSON.stringify(ex))
+                                writeStoredDismissedResources(ex)
                               } catch {}
                               return next
                             })
@@ -1975,115 +2551,32 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 setSimulationModalOpen(true)
                 
               } else {
-                // IAM Role simulation (existing flow)
-              const response = await fetch('/api/proxy/simulate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    finding_id: selectedResource.id,
-                  resource_type: selectedResource.resourceType,
-                  resource_id: selectedResource.resourceArn || selectedResource.resourceName
+                // IAM Role simulation - use new simulate-fix endpoint
+                const effectiveSystemName = selectedResource.systemName || systemName
+                if (!effectiveSystemName) {
+                  throw new Error('System context is missing — cannot verify safety for this role. Refresh the page or select a system.')
+                }
+                const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    resource_type: 'IAMRole',
+                    resource_id: selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || selectedResource.id,
+                    system_name: effectiveSystemName
+                  })
                 })
-              })
-              
-              if (!response.ok) {
-                throw new Error(`Simulation failed: ${response.status}`)
-              }
-              
-              const backendData = await response.json()
-              
-              // Transform backend response to SimulationResultsModal format
-              const simulationData = backendData.simulation || backendData
-              const decision = backendData.decision || {}
-              
-              // Map backend confidence (0-100) to modal format
-              const backendConfidence = simulationData.confidence || decision.confidence || 0
-              const confidenceValue = typeof backendConfidence === 'number' 
-                ? (backendConfidence > 1 ? backendConfidence / 100 : backendConfidence) 
-                : 0.5
-              
-              // Determine status from decision action
-              let status: 'EXECUTE' | 'CANARY' | 'REVIEW' | 'BLOCKED' = 'REVIEW'
-              if (decision.action === 'AUTO_REMEDIATE' || decision.action === 'EXECUTE') {
-                status = 'EXECUTE'
-              } else if (decision.action === 'CANARY') {
-                status = 'CANARY'
-              } else if (decision.action === 'BLOCK' || decision.action === 'BLOCKED') {
-                status = 'BLOCKED'
-              }
-              
-              const transformedResult = {
-                  type: 'iam_role',
-                status,
-                confidence: confidenceValue,
-                blast_radius: {
-                  level: decision.breakdown?.dependency < 0.5 ? 'ISOLATED' : 'LOW',
-                  numeric: decision.breakdown?.dependency || 0.1,
-                  affected_resources_count: simulationData.impacted_resources?.length || 0,
-                  affected_resources: (simulationData.impacted_resources || []).map((id: string) => ({
-                    id,
-                    type: selectedResource.resourceType,
-                    name: id.split('/').pop() || id,
-                    impact: 'Low'
-                  }))
-                },
-                evidence: {
-                  cloudtrail: {
-                    total_events: 0,
-                    matched_events: 0,
-                    days_since_last_use: selectedResource.evidence.observationDays
-                  },
-                  summary: {
-                    total_sources: 2,
-                    agreeing_sources: 2
-                  }
-                },
-                simulation_steps: [
-                  {
-                    step_number: 1,
-                    name: 'Fetch Role Details',
-                    description: 'Retrieved IAM role information from AWS',
-                    status: 'COMPLETED' as const
-                  },
-                  {
-                    step_number: 2,
-                    name: 'Collect Evidence',
-                    description: 'Gathered CloudTrail and Access Advisor data',
-                    status: 'COMPLETED' as const
-                  },
-                  {
-                    step_number: 3,
-                    name: 'Analyze Usage',
-                    description: `Analyzed ${selectedResource.evidence.observationDays} days of usage data`,
-                    status: 'COMPLETED' as const
-                  },
-                  {
-                    step_number: 4,
-                    name: 'Calculate Confidence',
-                    description: `Confidence: ${((confidenceValue ?? 0) * 100).toFixed(0)}%`,
-                    status: 'COMPLETED' as const
-                  }
-                ],
-                edge_cases: [],
-                action_policy: {
-                  auto_apply: decision.auto_allowed || false,
-                  allowed_actions: decision.action ? [decision.action] : [],
-                  reason: decision.reasons?.join('; ') || 'Based on evidence analysis',
-                  issue_type: selectedResource.resourceType
-                },
-                recommendation: decision.reasons?.join('. ') || simulationData.after_state || 'Review recommended',
-                before_state_summary: simulationData.before_state,
-                after_state_summary: simulationData.after_state,
-                timestamp: new Date().toISOString(),
-                human_readable_evidence: decision.reasons || [
-                  `${selectedResource.gapCount ?? 0} unused permissions detected`,
-                  `${selectedResource.evidence.observationDays ?? 0} days of observation`,
-                  `Confidence: ${((confidenceValue ?? 0) * 100).toFixed(0)}%`
-                ]
-              }
-              
-              setSimulationResult(transformedResult)
-              setSimulationModalOpen(true)
+
+                if (!response.ok) {
+                  const errorData = await response.json().catch(() => ({}))
+                  throw new Error(errorData.error || `Simulation failed: ${response.status}`)
+                }
+
+                const simulateFixData: SimulateFixResponse = await response.json()
+                console.log('Simulate-fix result:', simulateFixData)
+
+                // Use the new IAM Simulate Fix modal
+                setIamSimulateFixResult(simulateFixData)
+                setIamSimulateFixModalOpen(true)
               }
             } catch (err) {
               console.error('Simulation error:', err)
@@ -2172,10 +2665,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                     return newCache
                   })
 
-                  // Remove the remediated SG from the list immediately
-                  // Use the resource name or ID to find and remove it
-                  const sgIdentifier = selectedResource.resourceName || selectedResource.id || sgId
-                  handleRemediationSuccess(sgIdentifier)
+                  handleRemediationSuccess(selectedResource, {
+                    snapshotId: result.snapshot?.snapshot_id || result.snapshot_id || null,
+                    eventId: result.event_id || null,
+                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot?.snapshot_id || result.snapshot_id || result.event_id),
+                    remediatedBy: 'user@cyntro.io',
+                  })
 
                   // Close the drawer if open
                   setDrawerOpen(false)
@@ -2224,6 +2719,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             try {
               // Get role name from resource
               const roleName = selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || ''
+              const permissionsToRemove = Array.from(new Set(
+                (selectedResource.unusedList || [])
+                  .map((permission) => String(permission || '').trim())
+                  .filter(Boolean)
+              ))
+
+              if (!dryRun && permissionsToRemove.length === 0) {
+                throw new Error('No explicit permissions were selected for remediation')
+              }
 
               // Call remediation API
               const response = await fetch('/api/proxy/cyntro/remediate', {
@@ -2231,7 +2735,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   role_name: roleName,
-                  dry_run: dryRun
+                  dry_run: dryRun,
+                  permissions_to_remove: permissionsToRemove
                 })
               })
 
@@ -2243,23 +2748,32 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const result = await response.json()
 
               if (result.success) {
+                const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
                 toast({
                   title: dryRun ? 'Preview Complete' : 'Remediation Complete',
                   description: dryRun
                     ? `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0}`
-                    : `Snapshot: ${result.snapshot_id || 'Created'}. Permissions reduced to ${result.new_role?.permissions_count || 0}`
+                    : `Snapshot: ${result.snapshot_id || 'Created'}. Removed ${removedPermissions} unused permissions.`
                 })
 
                 if (!dryRun) {
-                  // Close modal and remove from list on live execution
                   setSimulationModalOpen(false)
                   setSimulationResult(null)
-                  handleRemediationSuccess(roleName)
+                  handleRemediationSuccess(selectedResource, {
+                    snapshotId: result.snapshot_id || null,
+                    eventId: result.event_id || null,
+                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
+                    remediatedBy: 'user@cyntro.io',
+                    afterTotal: result.summary?.after_total ?? null,
+                    removedCount: removedPermissions,
+                  })
                   setDrawerOpen(false)
                   setSelectedResource(null)
                 }
+              } else if (result.blocked) {
+                throw new Error(result.block_reason || result.message || 'Remediation blocked by safety gate')
               } else {
-                throw new Error(result.error || 'Remediation failed')
+                throw new Error(result.message || result.error || 'Remediation failed')
               }
             } catch (error) {
               console.error('Remediation error:', error)
@@ -2276,6 +2790,116 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         )
       )}
 
+      {/* IAM Simulate Fix Modal - New backend-driven simulation */}
+      {iamSimulateFixModalOpen && iamSimulateFixResult && selectedResource && (
+        <IAMSimulateFixModal
+          isOpen={iamSimulateFixModalOpen}
+          onClose={() => {
+            setIamSimulateFixModalOpen(false)
+            setIamSimulateFixResult(null)
+          }}
+          result={iamSimulateFixResult}
+          resourceName={selectedResource.resourceName}
+          isExecuting={isExecuting}
+          onExecute={async (dryRun: boolean) => {
+            setIsExecuting(true)
+            try {
+              // Get role name from resource
+              const roleName = selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || ''
+              let permissionsToRemove = Array.from(new Set(
+                (selectedResource.unusedList || [])
+                  .map((permission) => String(permission || '').trim())
+                  .filter(Boolean)
+              ))
+
+              // If no permissions in unusedList, fetch from gap analysis
+              if (permissionsToRemove.length === 0 && roleName) {
+                console.log('[IAM-SIMULATE-FIX] Fetching permissions from gap analysis...')
+                const gapRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+                if (gapRes.ok) {
+                  const gapData = await gapRes.json()
+                  permissionsToRemove = Array.from(new Set(
+                    (gapData.unused_permissions || [])
+                      .map((p: unknown) => String(p || '').trim())
+                      .filter(Boolean)
+                  ))
+                  console.log(`[IAM-SIMULATE-FIX] Found ${permissionsToRemove.length} unused permissions`)
+                }
+              }
+
+              if (permissionsToRemove.length === 0) {
+                throw new Error('No unused permissions found for remediation')
+              }
+
+              console.log(`[IAM-SIMULATE-FIX] ${dryRun ? 'DRY RUN' : 'LIVE'} - Removing ${permissionsToRemove.length} permissions`)
+
+              // Call remediation API
+              const response = await fetch('/api/proxy/cyntro/remediate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  role_name: roleName,
+                  dry_run: dryRun,
+                  permissions_to_remove: permissionsToRemove
+                })
+              })
+
+              if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}))
+                throw new Error(errorData.error || `Remediation failed: ${response.status}`)
+              }
+
+              const result = await response.json()
+
+              if (result.success) {
+                const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
+
+                if (dryRun) {
+                  // Dry-run: show preview, keep modal open
+                  toast({
+                    title: 'Preview Complete',
+                    description: `Would remove ${removedPermissions} permissions. Toggle to Live Mode to apply.`
+                  })
+                  console.log('[IAM-SIMULATE-FIX] Dry-run result:', result)
+                } else {
+                  // Live: show success, close modal
+                  toast({
+                    title: 'Remediation Complete',
+                    description: `Snapshot: ${result.snapshot_id || 'Created'}. Removed ${removedPermissions} unused permissions.`
+                  })
+
+                  setIamSimulateFixModalOpen(false)
+                  setIamSimulateFixResult(null)
+                  handleRemediationSuccess(selectedResource, {
+                    snapshotId: result.snapshot_id || null,
+                    eventId: result.event_id || null,
+                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
+                    remediatedBy: 'user@cyntro.io',
+                    afterTotal: result.summary?.after_total ?? null,
+                    removedCount: removedPermissions,
+                  })
+                  setDrawerOpen(false)
+                  setSelectedResource(null)
+                }
+              } else if (result.blocked) {
+                throw new Error(result.block_reason || result.message || 'Remediation blocked by safety gate')
+              } else {
+                throw new Error(result.message || result.error || 'Remediation failed')
+              }
+            } catch (error) {
+              console.error('Remediation error:', error)
+              toast({
+                title: 'Remediation Failed',
+                description: error instanceof Error ? error.message : 'Check console for details',
+                variant: 'destructive'
+              })
+            } finally {
+              setIsExecuting(false)
+            }
+          }}
+        />
+      )}
+
       {/* IAM Permission Analysis Modal */}
       <IAMPermissionAnalysisModal
         isOpen={iamModalOpen}
@@ -2288,7 +2912,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}
-        onRemediationSuccess={handleRemediationSuccess}
+        onRemediationSuccess={(roleName) => {
+          const resource = data?.resources.find(candidate =>
+            candidate.resourceType === 'IAMRole' &&
+            (candidate.resourceName === roleName || candidate.id === roleName)
+          )
+
+          if (resource) {
+            handleRemediationSuccess(resource, { remediatedBy: 'user@cyntro.io' })
+          } else {
+            void fetchGaps(false, false)
+          }
+        }}
         onRollbackSuccess={handleRollbackSuccess}
       />
 
@@ -2301,12 +2936,31 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           setSelectedS3Resource(null)
         }}
         bucketName={selectedS3Bucket || ''}
-        systemName={systemName}
+        systemName={systemName || ''}
         resourceData={selectedS3Resource}
         onApplyFix={(data) => {
           console.log('[S3] Apply fix requested:', data)
         }}
-        onRemediationSuccess={handleRemediationSuccess}
+        onRemediationSuccess={(result) => {
+          const bucketName = result.bucketName
+          const resource = data?.resources.find(candidate =>
+            candidate.resourceType === 'S3Bucket' &&
+            (candidate.resourceName === bucketName || candidate.id === bucketName)
+          )
+
+          if (resource) {
+            handleRemediationSuccess(resource, {
+              remediatedBy: 'user@cyntro.io',
+              snapshotId: result.snapshotId ?? null,
+              eventId: result.eventId ?? null,
+              rollbackAvailable: result.rollbackAvailable,
+              afterTotal: result.afterTotal ?? null,
+              removedCount: result.removedCount ?? null,
+            })
+          } else {
+            void fetchGaps(false, false)
+          }
+        }}
       />
 
       {/* Security Group Least Privilege Modal */}
@@ -2319,11 +2973,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }}
         sgId={selectedSGId || ''}
         sgName={selectedSGName || undefined}
-        systemName={systemName}
-        onRemediate={(sgId, rules) => {
-          console.log('[SG] Remediate requested:', sgId, rules)
-          // Remove remediated SG from the list using sgId or sgName
-          handleRemediationSuccess(selectedSGId || selectedSGName || sgId)
+        systemName={systemName || ''}
+        onRemediate={(sgId, rules, result) => {
+          console.log('[SG] Remediate requested:', sgId, rules, result)
+          const sgResource = data?.resources.find(resource =>
+            resource.resourceType === 'SecurityGroup' &&
+            (resource.id === sgId || resource.resourceName === sgId || resource.resourceName === selectedSGName || resource.id === selectedSGId)
+          )
+
+          if (sgResource) {
+            handleRemediationSuccess(sgResource, {
+              remediatedBy: 'user@cyntro.io',
+              snapshotId: result?.snapshotId ?? null,
+              eventId: result?.eventId ?? null,
+              rollbackAvailable: result?.rollbackAvailable ?? false,
+            })
+          } else {
+            void fetchGaps(false, false)
+          }
+
           // Also clear the SG cache
           setSgGapAnalysisCache(prev => {
             const { [sgId]: _, ...rest } = prev
@@ -2440,7 +3108,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       value={simSource}
                       onChange={(e) => setSimSource(e.target.value)}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
-                      placeholder="e.g., SafeRemediate-Test-App-1"
+                      placeholder="Source resource name"
                     />
                   )}
                   <input
@@ -2602,7 +3270,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       value={simIamRole}
                       onChange={(e) => setSimIamRole(e.target.value)}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] bg-white"
-                      placeholder="e.g., cyntro-demo-ec2-s3-role"
+                      placeholder="IAM role name"
                     />
                     <p className="text-xs text-slate-500 mt-1">If specified, marks permissions as used for this role</p>
                   </div>
@@ -2855,7 +3523,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
           <>
             <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
               <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Network Exposure Score</div>
-              <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{resource.networkExposure.score}/100</div>
+              <div className="text-3xl font-bold" style={{ color: riskLabel(resource.networkExposure.score).color }}>{riskLabel(resource.networkExposure.score).label}</div>
               <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.networkExposure.internetExposedRules} internet-exposed rules
               </div>
@@ -4040,7 +4708,7 @@ function SGSimulationResultsModal({
                 Warnings
               </h3>
               <ul className="space-y-1">
-                {safeArray(result?.warnings).map((warning: string, i: number) => (
+                {safeArray<string>(result?.warnings).map((warning, i) => (
                   <li key={i} className="text-sm text-[#eab308]">• {warning}</li>
                 ))}
               </ul>

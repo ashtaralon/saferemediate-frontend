@@ -455,13 +455,14 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
   }
 
   const isCompact = variant === 'compact'
+  const isFull = variant === 'full'
 
   if (loading) {
     return (
-      <div className={`flex items-center justify-center ${isCompact ? 'h-[460px]' : 'h-[600px]'} bg-slate-900 rounded-xl`}>
+      <div className={`flex items-center justify-center ${isCompact ? 'h-[460px]' : 'h-[600px]'} ${isFull ? 'bg-slate-50 border border-slate-200' : 'bg-slate-900'} rounded-xl`}>
         <div className="flex flex-col items-center gap-4">
-          <RefreshCw className="w-10 h-10 text-blue-400 animate-spin" />
-          <span className="text-white text-lg">Building system dependency map...</span>
+          <RefreshCw className={`w-10 h-10 animate-spin ${isFull ? 'text-blue-600' : 'text-blue-400'}`} />
+          <span className={`${isFull ? 'text-slate-800' : 'text-white'} text-lg`}>Building system dependency map...</span>
         </div>
       </div>
     )
@@ -469,11 +470,11 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
 
   if (error) {
     return (
-      <div className={`flex items-center justify-center ${isCompact ? 'h-[460px]' : 'h-[600px]'} bg-slate-900 rounded-xl`}>
+      <div className={`flex items-center justify-center ${isCompact ? 'h-[460px]' : 'h-[600px]'} ${isFull ? 'bg-slate-50 border border-slate-200' : 'bg-slate-900'} rounded-xl`}>
         <div className="flex flex-col items-center gap-4 text-center">
           <AlertTriangle className="w-12 h-12 text-red-400" />
-          <span className="text-white text-lg">Failed to load dependency map</span>
-          <span className="text-slate-400 text-sm">{error}</span>
+          <span className={`${isFull ? 'text-slate-900' : 'text-white'} text-lg`}>Failed to load dependency map</span>
+          <span className={`${isFull ? 'text-slate-500' : 'text-slate-400'} text-sm`}>{error}</span>
           <button 
             onClick={handleRefresh}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -493,23 +494,27 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold flex items-center gap-2">
-                <Layers className="w-6 h-6 text-purple-500" />
-                System Architecture
+                <Layers className={`w-6 h-6 ${isFull ? 'text-[#2D51DA]' : 'text-purple-500'}`} />
+                {isFull ? 'System Map' : 'System Architecture'}
               </h2>
               <p className="text-slate-500">
-                Real-time dependency visualization • {nodes.length} components • {edges.length} connections
+                {isFull
+                  ? `System-scoped architecture map • ${nodes.length} components • ${edges.length} connections`
+                  : `Real-time dependency visualization • ${nodes.length} components • ${edges.length} connections`}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowPaths(!showPaths)}
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                  showPaths ? 'bg-[#8b5cf6] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                <Eye className="w-4 h-4" />
-                {showPaths ? 'Hide' : 'Show'} Paths
-              </button>
+              {!isFull && (
+                <button
+                  onClick={() => setShowPaths(!showPaths)}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                    showPaths ? 'bg-[#8b5cf6] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Eye className="w-4 h-4" />
+                  {showPaths ? 'Hide' : 'Show'} Paths
+                </button>
+              )}
               <button
                 onClick={handleRefresh}
                 disabled={loading}
@@ -522,7 +527,7 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
           </div>
 
           {/* Legend */}
-          <div className="flex items-center gap-6 text-sm bg-slate-50 rounded-lg p-3">
+          <div className={`flex items-center gap-6 text-sm rounded-lg p-3 ${isFull ? 'border border-slate-200 bg-white' : 'bg-slate-50'}`}>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-[#ef444410]0" />
               <span>Critical (Public)</span>
@@ -554,7 +559,7 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
       {/* Main content */}
       <div className="flex gap-4">
         {/* Graph */}
-        <div className={`bg-slate-900 rounded-xl overflow-hidden border border-slate-700 ${showPaths && !isCompact ? 'flex-1' : 'w-full'}`} style={{ height: isCompact ? '460px' : '600px' }}>
+        <div className={`${isFull ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'} rounded-xl overflow-hidden border ${showPaths && !isCompact && !isFull ? 'flex-1' : 'w-full'}`} style={{ height: isCompact ? '460px' : isFull ? '680px' : '600px' }}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -567,17 +572,17 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
             minZoom={0.3}
             maxZoom={1.5}
             defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-            nodesDraggable={!isCompact}
+            nodesDraggable={!isCompact && !isFull}
             nodesConnectable={false}
-            elementsSelectable={!isCompact}
+            elementsSelectable={!isCompact && !isFull}
             panOnDrag={!isCompact}
             zoomOnScroll={!isCompact}
             zoomOnPinch={!isCompact}
             zoomOnDoubleClick={!isCompact}
             preventScrolling={false}
           >
-            <Background color="#475569" gap={20} />
-            {!isCompact && (
+            <Background color={isFull ? "#cbd5e1" : "#475569"} gap={20} />
+            {!isCompact && !isFull && (
               <>
                 <Controls className="!bg-slate-800 !border-slate-600 [&>button]:!bg-slate-700 [&>button]:!border-slate-600 [&>button]:!text-white" />
                 <MiniMap
@@ -595,7 +600,7 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
         </div>
 
         {/* Paths Panel */}
-        {!isCompact && showPaths && (
+        {!isCompact && !isFull && showPaths && (
           <div className="w-80 bg-white border rounded-xl p-4 overflow-y-auto" style={{ height: '600px' }}>
             <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
               <Zap className="w-5 h-5 text-purple-500" />

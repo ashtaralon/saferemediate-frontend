@@ -4,13 +4,14 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  process.env.BACKEND_API_URL ||
   "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
-  const systemId = searchParams.get("systemId") || "alon-prod"
+  const systemId = searchParams.get("systemId")
+  if (!systemId) {
+    return NextResponse.json({ error: "systemId query parameter is required" }, { status: 400 })
+  }
   const window = searchParams.get("window") || "7d"
 
   try {

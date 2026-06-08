@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { healthLabel } from "@/lib/utils"
 import {
   Download,
   Plus,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
+import { PageHeader } from "@/components/ui/page-header"
+import { BackToDashboard } from "@/components/back-to-dashboard"
 
 interface System {
   name: string
@@ -28,7 +31,38 @@ interface System {
   high: number
   total: number
   lastScan: string
+  // ISO timestamp from backend (or null if never scanned). Used to compute
+  // staleness deterministically — if older than STALE_THRESHOLD_DAYS, the
+  // row's health number gets faded and a "stale" badge appears next to
+  // the lastScan cell. Without this signal, a system can show a confident
+  // green health=95 next to "Last scan 22 days ago" — that contradicts
+  // the freshness story. Per dashboard design review (2026-04-30).
+  lastScanAt: string | null
   owner: string
+}
+
+// Threshold for marking a row as stale. Picked at 7 days because most
+// shops re-ingest weekly; anything older than that is genuinely
+// out-of-date for security posture purposes. Tunable; if/when we surface
+// per-tenant scan SLOs we should drive this from config.
+const STALE_THRESHOLD_DAYS = 7
+
+function daysSinceScan(lastScanAt: string | null): number | null {
+  if (!lastScanAt) return null
+  const ts = Date.parse(lastScanAt)
+  if (Number.isNaN(ts)) return null
+  const ms = Date.now() - ts
+  if (ms < 0) return 0
+  return Math.floor(ms / (1000 * 60 * 60 * 24))
+}
+
+function isStale(lastScanAt: string | null): boolean {
+  // null timestamp = "never scanned" — treat as stale by default rather
+  // than as fresh. Same posture as feedback_safety_language.md: don't
+  // claim a clean state we can't prove.
+  if (!lastScanAt) return true
+  const d = daysSinceScan(lastScanAt)
+  return d === null || d >= STALE_THRESHOLD_DAYS
 }
 
 interface AvailableSystem {
@@ -43,9 +77,10 @@ interface AvailableSystem {
 interface SystemsViewProps {
   systems?: System[]
   onSystemSelect?: (systemName: string) => void
+  systemName?: string
 }
 
-export function SystemsView({ systems: propSystems = [], onSystemSelect }: SystemsViewProps) {
+export function SystemsView({ systems: propSystems = [], onSystemSelect, systemName }: SystemsViewProps) {
   const [localSystems, setLocalSystems] = useState<System[]>(propSystems)
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -73,12 +108,20 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
   // Fetch gap-analysis from real CloudTrail data
   const fetchGapAnalysisFromFindings = useCallback(async () => {
+    // SystemsView is rendered on /systems without a systemName prop —
+    // the page is the org-wide list, not a per-system view. Without
+    // this guard, fetchSystemsData unconditionally calls this and
+    // fires `?systemName=undefined` (literal string), which the
+    // backend then rejects after a wasted round trip. Skip cleanly
+    // when there's no system to scope the gap analysis to.
+    if (!systemName) {
+      return
+    }
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
-      
-      // Use gap-analysis proxy which has real CloudTrail data
-      const res = await fetch("/api/proxy/gap-analysis?systemName=alon-prod", {
+
+      const res = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`, {
         signal: controller.signal,
       })
       
@@ -107,7 +150,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     } catch (err: any) {
       console.warn("[systems-view] Gap analysis error:", err.message)
     }
-  }, [])
+  }, [systemName])
 
   const fetchSystemsData = useCallback(async (isBackgroundRefresh = false) => {
     setIsScanning(true)
@@ -164,6 +207,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
               high: sys.high_count ?? sys.highIssues ?? 0,
               total: resourceCount,
               lastScan: sys.lastScan || "Just now",
+              lastScanAt: sys.lastScanAt ?? null,
               owner: sys.owner || "Platform Team",
             }
           })
@@ -355,6 +399,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       high: 0,
       total: 0,
       lastScan: "Pending",
+      // Newly-added system has never been scanned — null means "stale by
+      // default" per isStale() semantics, which is the honest read.
+      lastScanAt: null,
       owner: sys.owner || "Unassigned",
     }
 
@@ -454,21 +501,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       console.log("[systems-view] Re-ingestion success:", {
         result,
         totalTimeMs: totalTime,
-        collectorsRun: result.collectors_run?.length || 0,
+        jobId: result.job_id,
+        alreadyRunning: result.already_running,
       })
 
-      const collectorsRun = result.collectors_run?.length || 0
-      const errors = result.errors?.length || 0
-
+      // This button now unifies with "Sync from AWS" — it kicks off the same
+      // 15-step async pipeline (VPC flow logs, CloudTrail, Security Groups,
+      // NACLs, S3 access logs, behavioral sync, etc.). No per-system scoping
+      // today — sync-all is global.
       toast({
-        title: "Re-ingestion Started",
-        description:
-          scope === "all"
-            ? `All systems are being re-ingested. ${collectorsRun} collectors started${errors > 0 ? ` (${errors} errors)` : ""}.`
-            : `System '${target}' is being re-ingested. ${collectorsRun} collectors started.`,
+        title: result.already_running ? "Sync already in progress" : "Sync from AWS started",
+        description: result.already_running
+          ? `A sync job is already running (step ${result.current_step ?? "?"}/15). Watch the Overview card for completion.`
+          : `Running the full 15-step data pipeline (VPC flow logs, CloudTrail, SGs, NACLs, S3 access logs, behavioral sync, visibility signals, auto-tagger). Takes several minutes — click Refresh on the Overview card when it's done.`,
       })
 
-      // Refresh systems data after a short delay
+      // Refresh systems data after a short delay so any IAM-tag changes surface.
+      // The full sync takes minutes — the Overview card's Blast Radius score
+      // will update on its next refresh cycle after the job completes.
       setTimeout(() => {
         fetchSystemsData()
       }, 2000)
@@ -500,6 +550,39 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       ? Math.round(localSystems.reduce((sum, s) => sum + (s.health || 0), 0) / localSystems.length)
       : 0
 
+  // ── Panels below KPIs ──
+  // Top at-risk: rank by (critical desc, high desc, health asc). Cap at 3.
+  const topAtRiskSystems = [...localSystems]
+    .sort((a, b) => {
+      if (b.critical !== a.critical) return b.critical - a.critical
+      if (b.high !== a.high) return b.high - a.high
+      return (a.health || 0) - (b.health || 0)
+    })
+    .slice(0, 3)
+
+  // Environment breakdown: normalize casing, count, keep order by count desc.
+  const environmentBreakdown: Array<{ env: string; count: number; color: string }> = (() => {
+    const counts = new Map<string, number>()
+    for (const s of localSystems) {
+      const normalized = (s.environment || "Unknown").trim().toLowerCase()
+      const label = normalized.charAt(0).toUpperCase() + normalized.slice(1)
+      counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+    // Consistent colors per environment
+    const envColors: Record<string, string> = {
+      Production: "#ef4444",
+      Staging: "#f97316",
+      Development: "#eab308",
+      Dev: "#eab308",
+      Test: "#3b82f6",
+      Qa: "#3b82f6",
+      Unknown: "#6b7280",
+    }
+    return Array.from(counts.entries())
+      .map(([env, count]) => ({ env, count, color: envColors[env] ?? "#8b5cf6" }))
+      .sort((a, b) => b.count - a.count)
+  })()
+
   const getCriticalityColor = (criticality: number) => {
     if (criticality >= 5) return "bg-[#ef4444]"
     if (criticality >= 4) return "bg-[#f97316]"
@@ -516,30 +599,39 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
   if (localSystems.length === 0 && !isLoadingData) {
     return (
-      <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-12">
+      <div className="space-y-4">
+        <BackToDashboard />
+      <div
+        className="rounded-lg border p-12"
+        style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+      >
         <div className="text-center max-w-md mx-auto">
-          <div className="w-16 h-16 bg-[#3b82f620] rounded-full flex items-center justify-center mx-auto mb-6">
-            <Shield className="w-8 h-8 text-[#3b82f6]" />
+          <div className="w-16 h-16 bg-[#8b5cf620] rounded-full flex items-center justify-center mx-auto mb-6">
+            <Shield className="w-8 h-8" style={{ color: "#8b5cf6" }} />
           </div>
-          <h2 className="text-2xl font-semibold text-[var(--foreground,#111827)] mb-2">No Systems Found</h2>
-          <p className="text-[var(--muted-foreground,#4b5563)] mb-8">
+          <h2 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>No Systems Found</h2>
+          <p className="text-sm mb-8" style={{ color: "var(--text-secondary)" }}>
             Add your first system to start monitoring security and compliance across your infrastructure.
           </p>
 
           <div className="relative inline-block" ref={emptyDropdownRef}>
             <button
               onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "#8b5cf6" }}
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="w-3.5 h-3.5" />
               Add System
-              <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 bg-white rounded-lg shadow-xl border border-[var(--border,#e5e7eb)] z-50">
-                <div className="p-3 border-b border-[var(--border,#f3f4f6)]">
-                  <p className="text-sm text-[var(--muted-foreground,#4b5563)]">
+              <div
+                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 rounded-lg shadow-xl border z-50"
+                style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+              >
+                <div className="p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                     {backendStatus === "checking"
                       ? "Checking backend..."
                       : backendStatus === "connected"
@@ -551,27 +643,28 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                 <div className="max-h-64 overflow-y-auto">
                   {isLoadingAvailable ? (
                     <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#3b82f6]" />
-                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">Loading systems...</p>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
+                      <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>Loading systems...</p>
                     </div>
                   ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center text-[var(--muted-foreground,#6b7280)]">
-                      <p className="text-sm">No new systems found</p>
+                    <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>
+                      <p className="text-xs">No new systems found</p>
                     </div>
                   ) : (
                     availableSystems.map((sys, idx) => (
                       <button
                         key={idx}
                         onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-[var(--border,#f3f4f6)] last:border-0"
+                        className="w-full p-3 text-left hover:bg-white/5 flex items-center justify-between border-b last:border-0 transition-colors"
+                        style={{ borderColor: "var(--border-subtle)" }}
                       >
                         <div>
-                          <p className="font-medium text-[var(--foreground,#111827)]">{sys.SystemName || ""}</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
+                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sys.SystemName || ""}</p>
+                          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                             {sys.resourceCount || sys.resource_count || 0} resources
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-[#3b82f6]" />
+                        <Plus className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
                       </button>
                     ))
                   )}
@@ -581,78 +674,99 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           </div>
         </div>
       </div>
+      </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[var(--foreground,#111827)]">Systems Overview</h1>
-          <div className="flex items-center gap-4 mt-1">
-            <p className="text-[var(--muted-foreground,#6b7280)]">{localSystems.length} systems monitored across all environments</p>
+      <div>
+        <BackToDashboard />
+      </div>
+      {/* PageHeader — shared with Home V3 and Issues so the three top-
+         level dashboards present a consistent identity. Per the dashboard
+         design review (2026-04-30): trust pill goes here once each page
+         wires its provenance; for now identity + scan-status + actions. */}
+      <PageHeader
+        eyebrow="Cyntro · systems"
+        title="Systems Overview"
+        subtitle={`${localSystems.length} systems monitored across all environments`}
+        actions={
+          <>
             <div className="flex items-center gap-2">
               {isScanning ? (
-                <div className="flex items-center gap-2 text-[#3b82f6]">
+                <div className="flex items-center gap-2" style={{ color: "#8b5cf6" }}>
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3b82f610]0"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "#8b5cf6" }}></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "#8b5cf6" }}></span>
                   </span>
-                  <span className="text-sm font-medium">Scanning...</span>
+                  <span className="text-xs font-medium">Scanning...</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-[var(--muted-foreground,#6b7280)]">
+                <div className="flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
                   <span className="relative flex h-2 w-2">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e10]0"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "#22c55e" }}></span>
                   </span>
-                  <span className="text-sm">Next scan in {secondsUntilRefresh}s</span>
+                  <span className="text-xs">Next scan in {secondsUntilRefresh}s</span>
                 </div>
               )}
             </div>
-          </div>
-          {gapData.unused > 0 && (
-            <div className="mt-2 inline-flex items-center gap-2 bg-[#eab30810] border border-[#eab30840] text-[#eab308] px-3 py-1.5 rounded-full text-sm font-medium">
-              <AlertTriangle className="w-4 h-4" />
-              Auto-remediation pending: {gapData.unused} permissions at 99% confidence
-            </div>
-          )}
-        </div>
+            <button
+              onClick={() => fetchSystemsData()}
+              disabled={isScanning}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 hover:opacity-90"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => fetchSystemsData()}
-            disabled={isScanning}
-            className="inline-flex items-center gap-2 border border-[var(--border,#d1d5db)] bg-white hover:bg-gray-50 text-[var(--foreground,#374151)] px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${isScanning ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+      {/* Auto-remediation pending badge — kept under the header rather
+         than inside it so it can fade in/out without disturbing the
+         identity row. */}
+      {gapData.unused > 0 && (
+        <div className="inline-flex items-center gap-2 bg-[#eab30810] border border-[#eab30840] text-[#eab308] px-3 py-1 rounded-full text-xs font-medium">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Auto-remediation pending: {gapData.unused} permissions at 99% confidence
+        </div>
+      )}
+
+      {/* Secondary action row — re-ingest + add-system dropdown. Kept
+         separate from the PageHeader actions slot so the dropdown's
+         absolute-positioned panel doesn't fight with header layout. */}
+      <div className="flex items-center justify-end gap-2">
 
           <button
             onClick={() => handleReingest("all")}
             disabled={isReingesting || isScanning}
-            className="inline-flex items-center gap-2 border border-blue-300 bg-[#3b82f610] hover:bg-[#3b82f620] text-[#3b82f6] px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 border border-[#8b5cf640] bg-[#8b5cf610] hover:bg-[#8b5cf620] text-[#8b5cf6] px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
             title="Trigger manual resource discovery from AWS. Systems will emerge from tags."
           >
-            <RotateCcw className={`w-4 h-4 ${isReingesting ? "animate-spin" : ""}`} />
+            <RotateCcw className={`w-3.5 h-3.5 ${isReingesting ? "animate-spin" : ""}`} />
             {isReingesting ? "Re-ingesting..." : "Re-ingest Now"}
           </button>
 
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "#8b5cf6" }}
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-3.5 h-3.5" />
               Add System
-              <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-[var(--border,#e5e7eb)] z-50">
-                <div className="p-3 border-b border-[var(--border,#f3f4f6)]">
-                  <p className="text-sm text-[var(--muted-foreground,#4b5563)]">
+              <div
+                className="absolute top-full right-0 mt-2 w-80 rounded-lg shadow-xl border z-50"
+                style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+              >
+                <div className="p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                     {backendStatus === "checking"
                       ? "Checking backend..."
                       : backendStatus === "connected"
@@ -664,27 +778,28 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                 <div className="max-h-64 overflow-y-auto">
                   {isLoadingAvailable ? (
                     <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#3b82f6]" />
-                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">Loading systems...</p>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
+                      <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>Loading systems...</p>
                     </div>
                   ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center text-[var(--muted-foreground,#6b7280)]">
-                      <p className="text-sm">No new systems found</p>
+                    <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>
+                      <p className="text-xs">No new systems found</p>
                     </div>
                   ) : (
                     availableSystems.map((sys, idx) => (
                       <button
                         key={idx}
                         onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-[var(--border,#f3f4f6)] last:border-0"
+                        className="w-full p-3 text-left hover:bg-white/5 flex items-center justify-between border-b last:border-0 transition-colors"
+                        style={{ borderColor: "var(--border-subtle)" }}
                       >
                         <div>
-                          <p className="font-medium text-[var(--foreground,#111827)]">{sys.SystemName || ""}</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
+                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sys.SystemName || ""}</p>
+                          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                             {sys.resourceCount || sys.resource_count || 0} resources
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-[#3b82f6]" />
+                        <Plus className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
                       </button>
                     ))
                   )}
@@ -693,126 +808,219 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             )}
           </div>
 
-          <button className="inline-flex items-center gap-2 border border-[var(--border,#d1d5db)] bg-white hover:bg-gray-50 text-[var(--foreground,#374151)] px-4 py-2 rounded-lg font-medium transition-colors">
-            <Download className="w-4 h-4" />
+          <button
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors hover:opacity-90"
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+          >
+            <Download className="w-3.5 h-3.5" />
             Export Report
           </button>
-        </div>
       </div>
 
       {/* Search and Filter */}
-      <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-4">
+      <div
+        className="rounded-lg border p-4"
+        style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+      >
         <div className="flex items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-muted)" }} />
             <input
               type="text"
               placeholder="Search systems..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-[var(--border,#e5e7eb)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
+              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
+              style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
             />
           </div>
-          <button className="inline-flex items-center gap-2 border border-[var(--border,#d1d5db)] bg-white hover:bg-gray-50 text-[var(--foreground,#374151)] px-4 py-2 rounded-lg font-medium transition-colors">
-            <Filter className="w-4 h-4" />
+          <button
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors hover:opacity-90"
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+          >
+            <Filter className="w-3.5 h-3.5" />
             Filter
           </button>
         </div>
       </div>
 
       {/* Systems Table */}
-      <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] overflow-hidden">
+      <div
+        className="rounded-lg border overflow-hidden"
+        style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+      >
         {isLoadingData ? (
           <div className="p-12 text-center">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#3b82f6]" />
-            <p className="text-[var(--muted-foreground,#6b7280)] mt-4">Loading systems from backend...</p>
+            <Loader2 className="w-10 h-10 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
+            <p className="text-sm mt-4" style={{ color: "var(--text-secondary)" }}>Loading systems from backend...</p>
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-[var(--border,#e5e7eb)]">
+            <thead className="border-b" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
               <tr>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">SYSTEM NAME</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">BUSINESS CRITICALITY</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">ENVIRONMENT</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">HEALTH SCORE</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">CRITICAL</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">HIGH</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">TOTAL FINDINGS</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">LAST SCAN</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">OWNER</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">ACTIONS</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>System Name</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Business Criticality</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Environment</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Health</th>
+                {/* Per-system aggregates from /api/proxy/systems include
+                   ALL findings (open + accepted + suppressed). The System
+                   Detail page filters to "open" findings only, so its
+                   counts are typically lower. The header labels make the
+                   scope explicit so the two views aren't read as
+                   contradictory by the design review (2026-04-30). */}
+                <th
+                  className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Total critical findings for this system across all statuses (open + accepted + suppressed). System Detail page filters to open-only."
+                >
+                  Critical (all)
+                </th>
+                <th
+                  className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Total high findings for this system across all statuses. System Detail page filters to open-only."
+                >
+                  High (all)
+                </th>
+                <th
+                  className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Total findings (all severities + all statuses) for this system."
+                >
+                  Total
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Last Scan</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Owner</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredSystems.map((system, idx) => (
-                <tr key={idx} className="border-b border-[var(--border,#f3f4f6)] hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <span className="font-medium text-[var(--foreground,#111827)]">{system.name}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold text-white ${getCriticalityColor(system.criticality)}`}
-                    >
-                      {system.criticalityLabel}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-[#22c55e20] text-[#22c55e]">
-                      {system.environment}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div
-                      className={`inline-flex items-center justify-center w-10 h-10 rounded-full border-2 ${getHealthColor(system.health).replace("text-", "border-")}`}
-                    >
-                      <span className={`text-sm font-bold ${getHealthColor(system.health)}`}>
+              {filteredSystems.map((system, idx) => {
+                // Criticality color for translucent chip
+                const critColorMap: Record<string, string> = {
+                  "bg-[#ef4444]": "#ef4444",
+                  "bg-[#f97316]": "#f97316",
+                  "bg-[#eab308]": "#eab308",
+                  "bg-[#22c55e]": "#22c55e",
+                  "bg-[#3b82f6]": "#3b82f6",
+                  "bg-[#6b7280]": "#6b7280",
+                }
+                const critHex = critColorMap[getCriticalityColor(system.criticality)] || "#6b7280"
+                const healthColor = getHealthColor(system.health).match(/#[0-9a-fA-F]+/)?.[0] || "#6b7280"
+                // Stale rows fade the health number + show a stale badge in
+                // the lastScan cell. The health number is still readable but
+                // visually de-emphasized so operators don't act on a green
+                // 95 backed by a 22-day-old scan. Per design review.
+                const stale = isStale(system.lastScanAt)
+                const daysOld = daysSinceScan(system.lastScanAt)
+                return (
+                  <tr
+                    key={idx}
+                    className="border-b hover:bg-white/5 transition-colors"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                  >
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{system.name}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className="inline-flex px-2 py-0.5 rounded text-xs font-semibold"
+                        style={{ background: `${critHex}20`, color: critHex }}
+                      >
+                        {system.criticalityLabel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-[#22c55e20] text-[#22c55e]">
+                        {system.environment}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span
+                        className="text-sm font-bold"
+                        style={{
+                          color: healthColor,
+                          opacity: stale ? 0.45 : 1,
+                        }}
+                        title={
+                          stale
+                            ? `Health score is faded because the last scan is ${daysOld === null ? "missing or older than threshold" : `${daysOld} days old`}. Re-ingest to refresh.`
+                            : undefined
+                        }
+                      >
                         {system.health || "--"}
                       </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span
-                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${system.critical > 0 ? "bg-[#ef444420] text-[#ef4444]" : "bg-gray-100 text-[var(--muted-foreground,#6b7280)]"}`}
-                    >
-                      {system.critical}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span
-                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${system.high > 0 ? "bg-[#f9731610]0 text-white" : "bg-gray-100 text-[var(--muted-foreground,#6b7280)]"}`}
-                    >
-                      {system.high}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="font-semibold text-[var(--foreground,#111827)]">{system.total}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-[var(--muted-foreground,#4b5563)]">{system.lastScan}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-[var(--foreground,#111827)]">{system.owner}</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => handleViewDashboard(system.name)}
-                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span
+                        className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                        style={
+                          system.critical > 0
+                            ? { background: "#ef444420", color: "#ef4444" }
+                            : { background: "var(--bg-primary)", color: "var(--text-muted)" }
+                        }
                       >
-                        View Dashboard
-                      </button>
-                      <button
-                        onClick={() => handleReingest("system", system.name)}
-                        disabled={isReingesting}
-                        className="inline-flex items-center gap-1 border border-blue-300 bg-[#3b82f610] hover:bg-[#3b82f620] text-[#3b82f6] px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                        title={`Re-ingest resources for ${system.name}. Resources with SystemName=${system.name} tag will be discovered.`}
+                        {system.critical}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span
+                        className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                        style={
+                          system.high > 0
+                            ? { background: "#f9731620", color: "#f97316" }
+                            : { background: "var(--bg-primary)", color: "var(--text-muted)" }
+                        }
                       >
-                        <RotateCcw className={`w-3 h-3 ${isReingesting ? "animate-spin" : ""}`} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {system.high}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{system.total}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>{system.lastScan}</span>
+                        {stale && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                            style={{ background: "#f9731620", color: "#f97316", border: "1px solid #f9731640" }}
+                            title={
+                              system.lastScanAt
+                                ? `Last scan is ${daysOld} days old (≥ ${STALE_THRESHOLD_DAYS}-day stale threshold). Numbers may not reflect current AWS state.`
+                                : "No scan recorded for this system. Numbers below are not validated against current AWS state."
+                            }
+                          >
+                            stale
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{system.owner}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleViewDashboard(system.name)}
+                          className="inline-flex items-center gap-1 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
+                          style={{ background: "#8b5cf6" }}
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleReingest("system", system.name)}
+                          disabled={isReingesting}
+                          className="inline-flex items-center gap-1 border border-[#8b5cf640] bg-[#8b5cf610] hover:bg-[#8b5cf620] text-[#8b5cf6] px-2 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                          title={`Re-ingest resources for ${system.name}. Resources with SystemName=${system.name} tag will be discovered.`}
+                        >
+                          <RotateCcw className={`w-3 h-3 ${isReingesting ? "animate-spin" : ""}`} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
@@ -820,73 +1028,305 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
       {/* Summary Cards */}
       <div className="grid grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-6">
-          <Server className="w-6 h-6 text-[var(--muted-foreground,#9ca3af)] mb-3" />
-          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{totalSystems}</div>
-          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Systems</div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-[#f9731640] p-6">
-          <svg
-            className="w-6 h-6 text-orange-500 mb-3"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <div className="text-3xl font-bold text-orange-500">{missionCriticalAtRisk}</div>
-          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Mission Critical at Risk</div>
-          <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">Requires immediate attention</div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-6">
-          <AlertTriangle className="w-6 h-6 text-[#ef4444] mb-3" />
-          <div className="text-3xl font-bold text-[#ef4444]">{totalCriticalIssues}</div>
-          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Critical Issues</div>
-        </div>
-
-        {/* Permission Gap card - NOW SHOWS 10! */}
-        <div className="bg-white rounded-xl border border-purple-200 p-6">
-          <Shield className="w-6 h-6 text-purple-500 mb-3" />
-          <div className="text-3xl font-bold text-[#8b5cf6]">{gapData.unused}</div>
-          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Permission Gap</div>
-          <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">
-            {gapData.allowed} allowed, {gapData.used} used
+        <div
+          className="rounded-lg p-4 border"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Server className="w-5 h-5" style={{ color: "#3b82f6" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Systems</span>
           </div>
+          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{totalSystems}</div>
         </div>
 
-        <div className="bg-gray-50 rounded-xl border border-[var(--border,#e5e7eb)] p-6">
-          <Activity className="w-6 h-6 text-blue-500 mb-3" />
-          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">
-            {avgHealthScore}
-            <span className="text-lg text-[var(--muted-foreground,#9ca3af)]">/100</span>
+        <div
+          className="rounded-lg p-4 border"
+          style={{ background: "var(--bg-secondary)", borderColor: "#f9731640" }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5" style={{ color: "#f97316" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Mission Critical at Risk</span>
           </div>
-          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Avg Health Score</div>
+          <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{missionCriticalAtRisk}</div>
+          <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Requires immediate attention</div>
+        </div>
+
+        <div
+          className="rounded-lg p-4 border"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Critical Issues</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalCriticalIssues}</div>
+        </div>
+
+        <div
+          className="rounded-lg p-4 border"
+          style={{ background: "var(--bg-secondary)", borderColor: "#8b5cf640" }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Shield className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Permission Gap{systemName ? ` · ${systemName}` : ""}
+            </span>
+          </div>
+          {/* Three-state KPI — explicit about scope so it doesn't silently
+             contradict the org-wide Wildcard Bloat number on the home
+             dashboard. Per dashboard design review (2026-04-30): home
+             showed 6,005 unused permissions while this KPI showed 0. The
+             0 wasn't wrong on its own — it's that the KPI is system-
+             scoped (queries /api/proxy/gap-analysis?systemName=…) but
+             rendered like an org-wide aggregate, with no scope label. */}
+          {!systemName ? (
+            <>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Pick a system
+              </div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Per-system gap analysis. Org-wide bloat lives on the home dashboard.
+              </div>
+            </>
+          ) : gapData.allowed === 0 ? (
+            <>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+                No analysis yet
+              </div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Run the LP collector for {systemName} or wait for the next cycle.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold" style={{ color: "#8b5cf6" }}>{gapData.unused}</div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                {gapData.allowed} allowed, {gapData.used} used
+              </div>
+            </>
+          )}
+        </div>
+
+        <div
+          className="rounded-lg p-4 border"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="w-5 h-5" style={{ color: "#22c55e" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Avg Health</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: healthLabel(avgHealthScore).color }}>
+            {healthLabel(avgHealthScore).label}
+          </div>
         </div>
       </div>
 
-      {/* New Systems Modal */}
+      {/* Insight row: top at-risk systems + environment breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {/* Systems Needing Attention (spans 3 cols) */}
+        <div
+          className="lg:col-span-3 rounded-lg border p-4"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
+              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Systems Needing Attention
+              </span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                · ranked by criticals, highs, lowest health
+              </span>
+            </div>
+          </div>
+
+          {topAtRiskSystems.length === 0 ? (
+            <div
+              className="text-center py-8 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              All systems look clean — no findings to rank.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {topAtRiskSystems.map((sys, idx) => {
+                const healthColor = getHealthColor(sys.health).match(/#[0-9a-fA-F]+/)?.[0] || "#6b7280"
+                const critHex =
+                  sys.critical > 0 ? "#ef4444" : sys.high > 0 ? "#f97316" : "#22c55e"
+                return (
+                  <div
+                    key={sys.name + idx}
+                    className="flex items-center gap-3 rounded-lg border p-3 hover:bg-white/5 transition-colors"
+                    style={{
+                      background: "var(--bg-primary)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    {/* Rank badge */}
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                      style={{ background: `${critHex}20`, color: critHex }}
+                    >
+                      {idx + 1}
+                    </div>
+
+                    {/* Name + criticality */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-sm font-medium truncate"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {sys.name}
+                        </span>
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
+                          style={{ background: `${critHex}15`, color: critHex }}
+                        >
+                          {sys.criticalityLabel}
+                        </span>
+                      </div>
+                      <div
+                        className="text-xs mt-0.5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {sys.environment} · {sys.owner} · last scan {sys.lastScan}
+                      </div>
+                    </div>
+
+                    {/* Health */}
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Health</span>
+                      <span className="text-sm font-bold" style={{ color: healthColor }}>
+                        {sys.health || "--"}
+                      </span>
+                    </div>
+
+                    {/* Critical/High pills */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {sys.critical > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                          style={{ background: "#ef444420", color: "#ef4444" }}
+                          title={`${sys.critical} critical`}
+                        >
+                          {sys.critical}C
+                        </span>
+                      )}
+                      {sys.high > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                          style={{ background: "#f9731620", color: "#f97316" }}
+                          title={`${sys.high} high`}
+                        >
+                          {sys.high}H
+                        </span>
+                      )}
+                    </div>
+
+                    {/* View button */}
+                    <button
+                      onClick={() => handleViewDashboard(sys.name)}
+                      className="inline-flex items-center gap-1 text-white px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90 shrink-0"
+                      style={{ background: "#8b5cf6" }}
+                    >
+                      View
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Environment Breakdown (spans 2 cols) */}
+        <div
+          className="lg:col-span-2 rounded-lg border p-4"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Environment Breakdown
+            </span>
+          </div>
+
+          {environmentBreakdown.length === 0 ? (
+            <div
+              className="text-center py-8 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              No systems yet.
+            </div>
+          ) : (
+            <>
+              {/* Stacked proportional bar */}
+              <div
+                className="h-2 rounded-full overflow-hidden flex mb-3"
+                style={{ background: "var(--bg-primary)" }}
+              >
+                {environmentBreakdown.map(({ env, count, color }) => {
+                  const pct = totalSystems > 0 ? (count / totalSystems) * 100 : 0
+                  return (
+                    <div
+                      key={env}
+                      className="h-full"
+                      style={{ width: `${pct}%`, background: color }}
+                      title={`${env}: ${count} (${pct.toFixed(0)}%)`}
+                    />
+                  )
+                })}
+              </div>
+
+              {/* Legend rows */}
+              <div className="space-y-1.5">
+                {environmentBreakdown.map(({ env, count, color }) => {
+                  const pct = totalSystems > 0 ? (count / totalSystems) * 100 : 0
+                  return (
+                    <div key={env} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ background: color }}
+                      />
+                      <span
+                        className="flex-1 truncate"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        {env}
+                      </span>
+                      <span
+                        className="font-mono font-semibold shrink-0"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {count}
+                      </span>
+                      <span
+                        className="w-10 text-right font-mono shrink-0"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* New Systems Modal — shape-mapped from local state (SystemName → systemName) */}
       {showNewSystemsModal && (
         <NewSystemsModal
-          systems={newSystems}
+          newSystems={newSystems.map((s) => ({
+            systemName: s.SystemName,
+            resourceCount: s.resourceCount,
+            resources: s.resources,
+          }))}
           onClose={() => setShowNewSystemsModal(false)}
-          onAddSystem={(sys) => {
-            const newSystem: System = {
-              name: sys.SystemName || "",  // Only SystemName format (capital S, capital N)
-              criticality: 5,
-              criticalityLabel: "5 - MISSION CRITICAL",
-              environment: "Production",
-              health: 0,
-              critical: 0,
-              high: 0,
-              total: 0,
-              lastScan: "Pending",
-              owner: "Unassigned",
-            }
-            setLocalSystems((prev) => [...prev, newSystem])
-            setNewSystems((prev) => prev.filter((s) => s.SystemName !== sys.SystemName))  // Only SystemName format
+          onSuccess={() => {
+            // Refresh local state after tagging
+            fetchSystemsData()
           }}
         />
       )}

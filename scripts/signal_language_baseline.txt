@@ -1,0 +1,22 @@
+components/attack-paths-v2/atlas-inline-section.tsx:              ? "ATLAS v0.1 analyzes attacker chains that start from a compromised workload (EC2 or Lambda). This path is identity-only — the principal already has standing access, no foothold capture needed."
+components/attack-paths-v2/atlas-inline-section.tsx:    added_compromised_workloads: string[]
+components/attack-paths-v2/atlas-inline-section.tsx:    d.added_compromised_workloads[0] ??
+components/attack-paths-v2/attacker-view-v3.tsx:  // LAND — what got compromised
+components/dependency-map/RemovableInfrastructureCallout.tsx: * egress", "Eligible for removal" — never "Suspicious" / "Safe".
+components/dependency-map/attack-path-detail-panel.tsx:                      Potential Breach Impact
+components/dependency-map/attack-path-detail-panel.tsx:                    <p className="text-slate-300">{details.data_impact.breach_impact}</p>
+components/dependency-map/attack-path-detail-panel.tsx:                  {/* Breach Impact */}
+components/dependency-map/attack-path-detail-panel.tsx:            ${details.risk_formula.model || 'Zero-Trust (Assume Breach)'}
+components/dependency-map/attack-path-detail-panel.tsx:            Zero-Trust Model: Assume Breach
+components/dependency-map/attack-path-detail-panel.tsx:          <div style="color: #f87171; font-weight: 600; margin-bottom: 4px;">Potential Breach Impact</div>
+components/dependency-map/attack-path-detail-panel.tsx:          <div style="color: #fca5a5;">${details.data_impact.breach_impact}</div>
+components/dependency-map/attack-path-detail-panel.tsx:  breach_impact: string
+components/dependency-map/attack-simulation-panel.tsx:  breach_impact: string
+components/dependency-map/crown-jewel-exfil-paths.tsx:            {row.readers.length === 1 ? "" : "s"} can reach the internet directly. If any are compromised,
+components/dependency-map/egress-flow-map.tsx:                  ? `${group.exposedReadersCount} of ${group.readers.length} reader${group.readers.length === 1 ? "" : "s"} below has a public-egress gateway — if any are compromised, this jewel's data can exit to the internet in one hop.`
+components/dependency-map/egress-flow-map.tsx:// ---- Signal label/tone (UI vocabulary; never "Suspicious") ------------
+components/dependency-map/flow-map-detail-panel.tsx:// "Review signals", NEVER "Suspicious".
+components/dependency-map/graph-view.tsx:              confidenceReason = 'No evidence of use; internet exposure is suspicious'
+components/dependency-map/top-exposure-hero.tsx:            the internet directly. If any are compromised, this jewel's data
+components/egress-visibility-panel.tsx: * these as "worth a look", not "definitely malicious"):
+components/iam-shared-roles-detail-view.tsx:          If any one of these {count} principals is compromised, the attacker

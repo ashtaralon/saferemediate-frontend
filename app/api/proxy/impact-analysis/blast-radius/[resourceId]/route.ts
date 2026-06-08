@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export const maxDuration = 30
 
@@ -10,7 +10,10 @@ export async function GET(
 ) {
   const { resourceId } = await context.params
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const systemName = url.searchParams.get("systemName")
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+  }
   const depth = url.searchParams.get("depth") ?? "3"
   
   try {

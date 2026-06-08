@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { healthLabel } from "@/lib/utils"
 import { TrendingDown } from "lucide-react"
 import { CriticalFindingsModal } from "./issues/critical-findings-modal"
 import { SimulateFixModal } from "./SimulateFixModal"
@@ -34,15 +35,12 @@ export function SystemHealthSection() {
       return
     }
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
-    const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
-
     try {
       setLoading(true)
-      const res = await fetch(`${API_URL}/simulation/issue/remediate`, {
+      const res = await fetch('/api/proxy/simulate/execute', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId, confirm: true }),
+        body: JSON.stringify({ finding_id: issueId, create_rollback: true, confirm: true }),
       })
 
       if (!res.ok) {
@@ -51,9 +49,11 @@ export function SystemHealthSection() {
       }
 
       const data = await res.json()
-      if (data.status === "success") {
+      if (data.success === true || data.status === "success") {
         alert("Issue fixed successfully! The page will reload to show updated status.")
         window.location.reload()
+      } else {
+        throw new Error(data.error || data.message || "Fix did not complete successfully")
       }
     } catch (err) {
       console.error("Fix failed", err)
@@ -93,11 +93,8 @@ export function SystemHealthSection() {
                 </defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[60px] font-bold leading-none" style={{ color: "var(--text-primary)" }}>
-                  72
-                </span>
-                <span className="text-xl" style={{ color: "var(--text-secondary)" }}>
-                  /100
+                <span className="text-[40px] font-bold leading-none" style={{ color: healthLabel(72).color }}>
+                  {healthLabel(72).label}
                 </span>
               </div>
             </div>
@@ -176,7 +173,7 @@ export function SystemHealthSection() {
 
       {selectedFinding && (
         <SimulateFixModal
-          open={showSimulateModal}
+          isOpen={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedFinding(null)

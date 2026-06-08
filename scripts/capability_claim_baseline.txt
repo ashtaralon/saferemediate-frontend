@@ -1,0 +1,9 @@
+components/attack-paths-v2/damage-panel.tsx:          permission data hasn't been enriched yet.
+components/attack-paths-v2/path-analysis-panel.tsx:                  6-factor severity scorer doesn't yet weight. Surfaces at
+components/attack-paths-v2/path-analysis-panel.tsx:  // scorer doesn't yet boost root paths (see open task — backend +20
+components/iam-permission-analysis-modal.tsx:                      what the engine doesn't yet compute (⊘ Phase 2). */}
+components/iam-permission-analysis-modal.tsx:  //   Without this partial-remediation logic, the entire group was
+components/iam-permission-analysis-modal.tsx:  // about what the engine doesn't yet have.
+components/iam-shared-roles-detail-view.tsx:            - "per-principal attribution is partial" (bullet 3)
+components/iam-shared-roles-detail-view.tsx:            - "the graph hasn't separated per-role attribution yet" (bullet 1)
+components/iam-shared-roles-detail-view.tsx:        resource hasn't been modified in &gt; {thresholdDays} days.

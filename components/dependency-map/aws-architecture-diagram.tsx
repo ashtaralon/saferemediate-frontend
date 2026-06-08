@@ -100,12 +100,12 @@ const AnimatedEdge = ({ edge, src, tgt, selected, time, onClick }: {
 };
 
 interface AWSArchitectureDiagramProps {
-  systemName?: string;
+  systemName: string;
   onNodeClick?: (node: { id: string; type: string; name: string }) => void;
   onRefresh?: () => void;
 }
 
-export default function AWSArchitectureDiagram({ systemName = 'alon-prod', onNodeClick: externalOnNodeClick, onRefresh: externalOnRefresh }: AWSArchitectureDiagramProps) {
+export default function AWSArchitectureDiagram({ systemName, onNodeClick: externalOnNodeClick, onRefresh: externalOnRefresh }: AWSArchitectureDiagramProps) {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [edges, setEdges] = useState<EdgeData[]>([]);
   const [loading, setLoading] = useState(true);

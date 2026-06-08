@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download } from 'lucide-react';
+import { riskLabel } from '@/lib/utils';
+import { useCachedFetch } from '@/lib/use-cached-fetch';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
-import { StackSidebar } from './stack-sidebar';
+import { StackSidebar, type ResourcePathsFilter } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
 import { TimelineSlider } from './timeline-slider';
 import { VPCBoundaries } from './vpc-boundaries';
@@ -12,17 +14,18 @@ import { ExportControls } from './export-controls';
 // ============================================
 // TYPES
 // ============================================
-type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'security_group' | 'nacl' | 'network' | 'api_call';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal' | 'vpc_endpoint';
 
-interface ServiceNode {
+export interface ServiceNode {
   id: string;
   name: string;
   shortName: string;
   type: NodeType;
   instanceId?: string;
+  isCrownJewel?: boolean;
 }
 
-interface SGRule {
+export interface SGRule {
   direction: 'ingress' | 'egress';
   protocol: string;
   fromPort: number | null;
@@ -36,7 +39,7 @@ interface SGRule {
   isPublic: boolean;
 }
 
-interface SecurityCheckpoint {
+export interface SecurityCheckpoint {
   id: string;
   type: 'security_group' | 'iam_role' | 'nacl';
   name: string;
@@ -51,12 +54,18 @@ interface SecurityCheckpoint {
   subnetId?: string;
 }
 
-interface TrafficFlow {
+export interface TrafficFlow {
   sourceId: string;
   targetId: string;
   sgId?: string;
   naclId?: string;
   roleId?: string;
+  // VPC endpoint the packet egresses through to reach an AWS service
+  // (e.g. S3 Gateway VPCE com.amazonaws.<region>.s3). Populated when the
+  // target is an S3/DynamoDB service AND the source compute's VPC has a
+  // matching Gateway endpoint. SG egress doesn't apply to Gateway VPCEs —
+  // this is the missing hop that explains "0-rule SG → S3 still works".
+  vpceId?: string;
   ports: string[];
   protocol: string;
   bytes: number;
@@ -64,12 +73,50 @@ interface TrafficFlow {
   isActive?: boolean;
 }
 
-interface SystemArchitecture {
+// VPC endpoint chip for the "VPC ENDPOINTS" lane. Render-only — full
+// AWS detail (DNS names, policy doc, route-table associations) is not
+// pulled into this view; the lane exists to make the egress path
+// visible, not to replace the endpoint inspector.
+export interface VPCEndpointNode {
+  id: string;            // vpce-xxxxxxxx
+  name: string;
+  shortName: string;
+  vpcId: string | null;
+  serviceName: string | null;     // com.amazonaws.<region>.<service>
+  serviceShort: string;            // "S3", "DynamoDB", "EC2" — derived
+  endpointType: 'Gateway' | 'Interface' | null;
+}
+
+// Subnet posture for the SUBNETS column on the Path Flow Map.
+// `isPublic` semantics:
+//   true  → effective route table has a route to an IGW (per AWS canonical
+//           definition). Renders amber "Public".
+//   false → effective route table has no IGW route. Renders emerald "Private".
+//   null  → no Subnet.public set in Neo4j (subnet_visibility_collector hasn't
+//           classified it, or the workload's IN_SUBNET edge resolves to a
+//           non-:Subnet duplicate). Renders slate "Unknown".
+// Source: backend `subnet_is_public` field on the Subnet path node (see
+// commits a400f79 + 639579c).
+export interface SubnetNode {
+  id: string;
+  name: string;
+  shortName: string;
+  isPublic: boolean | null;
+  vpcId?: string;
+  // Compute node ids that live in this subnet (via IN_SUBNET edges).
+  // Lets the connection-line renderer draw compute→subnet edges so the
+  // path reads "EC2 → Subnet → SG → NACL → IAM" visually.
+  connectedComputeIds: string[];
+}
+
+export interface SystemArchitecture {
   computeServices: ServiceNode[];
   resources: ServiceNode[];
+  subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
   nacls: SecurityCheckpoint[];
   iamRoles: SecurityCheckpoint[];
+  vpcEndpoints: VPCEndpointNode[];
   flows: TrafficFlow[];
   totalBytes: number;
   totalConnections: number;
@@ -100,6 +147,7 @@ interface AttackPath {
   total_cves: number;
   critical_cves: number;
   evidence_type: string;
+  path_kind?: string;
 }
 
 // ============================================
@@ -117,10 +165,12 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
   sqs: { icon: Network, color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/50', text: 'SQS' },
   sns: { icon: Network, color: 'text-violet-400', bg: 'bg-violet-500/20', border: 'border-violet-500/50', text: 'SNS' },
   iam_role: { icon: Key, color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/50', text: 'IAM' },
+  instance_profile: { icon: Layers, color: 'text-amber-300', bg: 'bg-amber-500/15', border: 'border-amber-500/40', text: 'Profile' },
   security_group: { icon: Shield, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/50', text: 'SG' },
   nacl: { icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'NACL' },
   api_call: { icon: Zap, color: 'text-lime-400', bg: 'bg-lime-500/20', border: 'border-lime-500/50', text: 'API' },
   network: { icon: Network, color: 'text-slate-400', bg: 'bg-slate-500/20', border: 'border-slate-500/50', text: 'Network' },
+  principal: { icon: Target, color: 'text-cyan-300', bg: 'bg-cyan-500/20', border: 'border-cyan-400/50', text: 'Principal' },
 };
 
 // ============================================
@@ -171,20 +221,100 @@ function mapNodeType(type: string): NodeType {
   if (t.includes('alb') || t.includes('elb') || t.includes('loadbalancer')) return 'load_balancer';
   if (t.includes('apigateway')) return 'api_gateway';
   if (t === 'iamrole' || t === 'iam_role') return 'iam_role';
+  if (t === 'instanceprofile' || t === 'instance_profile' || t.includes('instanceprofile')) return 'instance_profile';
   if (t === 'securitygroup' || t === 'security_group') return 'security_group';
+  if (t === 'vpcendpoint' || t === 'vpc_endpoint') return 'vpc_endpoint';
   return 'network';
+}
+
+// Pretty-print an AWS service endpoint name. Gateway endpoints carry the
+// canonical "com.amazonaws.<region>.<service>" form; Interface endpoints
+// the same. We want the "S3" / "DynamoDB" suffix as a compact chip label
+// so operators can read the lane at a glance — full name lives in the
+// tooltip.
+function vpceServiceShort(serviceName: string | null | undefined): string {
+  if (!serviceName) return '?';
+  const m = serviceName.match(/com\.amazonaws\.[^.]+\.(.+)$/);
+  const tail = (m ? m[1] : serviceName).split('.').pop() || serviceName;
+  if (tail === 's3') return 'S3';
+  if (tail === 'dynamodb') return 'DynamoDB';
+  if (tail === 'sqs') return 'SQS';
+  if (tail === 'sns') return 'SNS';
+  if (tail === 'ec2') return 'EC2';
+  if (tail === 'sts') return 'STS';
+  if (tail === 'kms') return 'KMS';
+  return tail.toUpperCase();
 }
 
 // ============================================
 // SERVICE NODE COMPONENT
 // ============================================
-function ServiceNodeBox({
+// chunk #1.5: optional exfil-risk summary that compute nodes render
+// as a tier-coded chip in the bottom-right corner. Provided by the
+// attack-paths parent via TrafficFlowMap's exfilByWorkloadId prop.
+// Topology tab passes nothing → no behavior change there.
+export interface NodeExfilSummary {
+  tier: 'high' | 'medium' | 'low' | 'none';
+  unknown_ip: number;
+  internet: number;
+  cloud_service: number;
+  saas: number;
+  cross_system: number;
+  total_bytes_out: number;
+  strong_observations: number;
+}
+
+const EXFIL_CHIP_THEME: Record<NodeExfilSummary['tier'], { label: string; bg: string; border: string; text: string; ring: string; tooltip: string }> = {
+  high: {
+    label: 'HIGH',
+    bg: 'rgba(239,68,68,0.25)',
+    border: 'rgba(239,68,68,0.6)',
+    text: '#fecaca',
+    ring: 'shadow-[0_0_0_2px_rgba(239,68,68,0.35)]',
+    tooltip: 'High exfil risk — heavy unknown-IP traffic and/or strong observation. Click the node to see the External Egress Inventory for this workload.',
+  },
+  medium: {
+    label: 'MED',
+    bg: 'rgba(245,158,11,0.22)',
+    border: 'rgba(245,158,11,0.55)',
+    text: '#fde68a',
+    ring: '',
+    tooltip: 'Moderate exfil risk — internet/SaaS activity needs review.',
+  },
+  low: {
+    label: 'LOW',
+    bg: 'rgba(148,163,184,0.22)',
+    border: 'rgba(148,163,184,0.45)',
+    text: '#e2e8f0',
+    ring: '',
+    tooltip: 'Low exfil risk — mostly cloud-service traffic (expected AWS endpoints).',
+  },
+  none: {
+    label: 'NONE',
+    bg: 'rgba(71,85,105,0.18)',
+    border: 'rgba(71,85,105,0.4)',
+    text: '#94a3b8',
+    ring: '',
+    tooltip: 'No external egress observed.',
+  },
+};
+
+function formatBytesShort(n: number): string {
+  if (!n) return '0 B';
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}MB`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}KB`;
+  return `${n}B`;
+}
+
+export function ServiceNodeBox({
   node,
   position,
   flowInfo,
   isHighlighted,
   onHover,
   onClick,
+  exfilSummary,
 }: {
   node: ServiceNode;
   position: 'left' | 'right';
@@ -192,13 +322,15 @@ function ServiceNodeBox({
   isHighlighted: boolean;
   onHover: (id: string | null) => void;
   onClick?: () => void;
+  exfilSummary?: NodeExfilSummary | null;
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
 
   return (
     <div
-      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200
+        ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? `${config.bg} ${config.border} shadow-lg shadow-${config.color.replace('text-', '')}/20 scale-105` : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${position === 'left' ? 'pr-6' : 'pl-6'}`}
       onMouseEnter={() => onHover(node.id)}
@@ -224,6 +356,43 @@ function ServiceNodeBox({
         </div>
       )}
 
+      {/* Exfil chip — chunk #1.5. Renders on compute nodes when the
+          attack-paths parent has supplied a per-workload summary.
+          Topology tab passes nothing, so this chip is suppressed
+          there. The chip is the operator's at-a-glance signal for
+          "this workload talks to the outside world". */}
+      {exfilSummary && exfilSummary.tier !== 'none' && (() => {
+        const theme = EXFIL_CHIP_THEME[exfilSummary.tier];
+        const totalExt =
+          exfilSummary.unknown_ip +
+          exfilSummary.internet +
+          exfilSummary.saas +
+          exfilSummary.cross_system +
+          exfilSummary.cloud_service;
+        return (
+          <div
+            className={`absolute -bottom-2 -right-2 flex items-center gap-1 px-2 py-0.5 rounded-full border shadow-lg ${theme.ring}`}
+            style={{ background: theme.bg, borderColor: theme.border }}
+            title={`${theme.tooltip}\n\nExternal destinations: ${totalExt.toLocaleString()}\nUnknown IPs: ${exfilSummary.unknown_ip.toLocaleString()}\nBytes out (30d): ${formatBytesShort(exfilSummary.total_bytes_out)}`}
+          >
+            <span
+              className="text-[8px] font-bold tracking-wider uppercase"
+              style={{ color: theme.text }}
+            >
+              ↗ {theme.label}
+            </span>
+            <span className="text-[9px] font-semibold text-white">
+              {totalExt.toLocaleString()}
+            </span>
+            {exfilSummary.unknown_ip > 0 && (
+              <span className="text-[9px] font-semibold text-red-200">
+                · {exfilSummary.unknown_ip.toLocaleString()}?
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Connection point */}
       <div className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-colors
         ${isHighlighted ? 'bg-emerald-500' : 'bg-slate-600'} border-2 border-slate-500
@@ -235,7 +404,7 @@ function ServiceNodeBox({
 // ============================================
 // RULE ROW COMPONENT
 // ============================================
-function RuleRow({ rule }: { rule: SGRule }): JSX.Element {
+function RuleRow({ rule }: { rule: SGRule }) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'used': return { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'USED', icon: '✓' };
@@ -340,7 +509,7 @@ function RuleRow({ rule }: { rule: SGRule }): JSX.Element {
 // ============================================
 // SECURITY GROUP PANEL
 // ============================================
-function SecurityGroupPanel({
+export function SecurityGroupPanel({
   sg,
   isExpanded,
   onToggle,
@@ -488,7 +657,7 @@ function SecurityGroupPanel({
 // ============================================
 // NACL NODE
 // ============================================
-function NACLNode({
+export function NACLNode({
   nacl,
   isHighlighted,
   onHover,
@@ -504,7 +673,8 @@ function NACLNode({
 
   return (
     <div
-      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[160px]
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
+        ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}`}
       onMouseEnter={() => onHover(nacl.id)}
@@ -538,7 +708,7 @@ function NACLNode({
 // ============================================
 // IAM ROLE NODE
 // ============================================
-function IAMRoleNode({
+export function IAMRoleNode({
   role,
   isHighlighted,
   onHover,
@@ -553,6 +723,11 @@ function IAMRoleNode({
   const hasData = role.totalCount > 0;
   const usagePercent = hasData ? Math.round((role.usedCount / role.totalCount) * 100) : 0;
   const blastRadius = role.connectedTargets?.length || role.connectedSources?.length || 0;
+  // Detect InstanceProfile by id/arn pattern — System Map buckets IP into
+  // iam_role (single column), but operators can't distinguish IP from Role
+  // when AWS gives them the same name. Render IP with amber Layers theme
+  // + "Profile" badge so the two are visually disambiguated in this view.
+  const isInstanceProfile = role.id.includes(':instance-profile/') || /instance.?profile/i.test(role.id);
 
   // Determine status color based on usage
   const getStatusColor = () => {
@@ -563,22 +738,37 @@ function IAMRoleNode({
   };
 
   const statusColor = getStatusColor();
+  const accentBgHover = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentBorderHi  = isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
+  const accentShadowHi  = isInstanceProfile ? 'shadow-amber-500/20' : 'shadow-pink-500/20';
+  const accentBgFallback = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentTextFallback = isInstanceProfile ? 'text-amber-300' : 'text-pink-400';
 
   return (
     <div
-      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[160px]
-        ${isHighlighted ? 'bg-pink-500/20 border-pink-500/50 shadow-lg shadow-pink-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
+        ${onClick ? "cursor-pointer" : "cursor-default"}
+        ${isHighlighted ? `${accentBgHover} ${accentBorderHi} shadow-lg ${accentShadowHi} scale-105` : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? statusColor.ring : ''}`}
       onMouseEnter={() => onHover(role.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : 'bg-pink-500/20'}`}>
-        <Key className={`w-5 h-5 ${hasData ? statusColor.text : 'text-pink-400'}`} />
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : accentBgFallback}`}>
+        {isInstanceProfile ? (
+          <Layers className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
+        ) : (
+          <Key className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
+        )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-semibold text-white truncate">
+        <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
           {role.shortName}
+          {isInstanceProfile && (
+            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Profile
+            </span>
+          )}
         </div>
         {hasData ? (
           <>
@@ -1150,7 +1340,7 @@ function ServiceDetailsPopup({
                       riskAssessment.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' :
                       'bg-green-500/20 text-green-400 border border-green-500/50'
                     }`}>
-                      {riskAssessment.risk_level} RISK ({riskAssessment.risk_score}/100)
+                      {riskAssessment.risk_level} RISK ({riskLabel(riskAssessment.risk_score).label})
                     </div>
                   </div>
 
@@ -1641,14 +1831,22 @@ function AnimatedTrafficLine({
 // ============================================
 // CONNECTION LINES SVG
 // ============================================
-function ConnectionLinesSVG({
+// Stable empty-set sentinels — using `= new Set()` defaults on every
+// render created fresh references, which differed across renders, which
+// fired the useEffect with the new Set as a dep, which called setLines,
+// which caused a re-render — "Maximum update depth exceeded" loop. Module
+// scope constants share identity across renders so the deps don't churn.
+const EMPTY_EDGE_SET: ReadonlySet<string> = new Set<string>();
+const EMPTY_NODE_SET: ReadonlySet<string> = new Set<string>();
+
+export function ConnectionLinesSVG({
   architecture,
   hoveredId,
   containerRef,
   animate,
-  attackPathEdges = new Set<string>(),
+  attackPathEdges = EMPTY_EDGE_SET as Set<string>,
   heatmapMode = false,
-  ghostedNodeIds = new Set<string>(),
+  ghostedNodeIds = EMPTY_NODE_SET as Set<string>,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
@@ -1699,13 +1897,29 @@ function ConnectionLinesSVG({
       const newLines: typeof lines = [];
 
       architecture.flows.forEach(flow => {
-        const sourceEl = container.querySelector(`[data-compute-id="${flow.sourceId}"]`);
+        // Source resolution: prefer compute, fall back to IAM role for
+        // IAM-only paths (no workload code ran — e.g. AWS service roles
+        // assumed by AWS itself, like AWSServiceRoleForResourceExplorer
+        // calling GetObject on an S3 bucket). For those paths, the
+        // synthesized flow's sourceId IS the role id; without this
+        // fallback the line-drawing returned early and the operator saw
+        // the IAM/API/Resource columns visually disconnected.
+        let sourceEl = container.querySelector(`[data-compute-id="${flow.sourceId}"]`);
+        if (!sourceEl) {
+          sourceEl = container.querySelector(`[data-role-id="${flow.sourceId}"]`);
+        }
         const targetEl = container.querySelector(`[data-resource-id="${flow.targetId}"]`);
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
         const roleEl = flow.roleId ? container.querySelector(`[data-role-id="${flow.roleId}"]`) : null;
         // Find API call node for this target resource
         const apiEl = container.querySelector(`[data-api-id="${flow.targetId}"]`);
+        // VPC endpoint hop — sits between API/IAM and the target. For an S3
+        // Gateway VPCE, this is the actual egress point from the VPC; the
+        // SG never gates Gateway-VPCE traffic, so showing the VPCE in the
+        // polyline is how the operator sees why a 0-rule SG still permits
+        // S3 access.
+        const vpceEl = flow.vpceId ? container.querySelector(`[data-vpce-id="${flow.vpceId}"]`) : null;
 
         const sourcePos = getNodeCenter(sourceEl, 'right');
         const targetPos = getNodeCenter(targetEl, 'left');
@@ -1746,6 +1960,12 @@ function ConnectionLinesSVG({
           const posL = getNodeCenter(apiEl, 'left');
           const posR = getNodeCenter(apiEl, 'right');
           if (posL && posR) checkpoints.push({ el: apiEl, posL, posR });
+        }
+        // VPC endpoint hop — last gate before the AWS service / bucket.
+        if (vpceEl) {
+          const posL = getNodeCenter(vpceEl, 'left');
+          const posR = getNodeCenter(vpceEl, 'right');
+          if (posL && posR) checkpoints.push({ el: vpceEl, posL, posR });
         }
 
         // Draw lines through all checkpoints
@@ -1795,7 +2015,14 @@ function ConnectionLinesSVG({
   }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges]);
 
   return (
-    <svg className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 1 }}>
+    // width/height="100%" is REQUIRED — SVG's intrinsic default is 300x150
+    // and `inset-0` only zeroes top/right/bottom/left, it does not stretch
+    // the SVG to its container the way it does for divs. Without these
+    // attrs the connection lines render clipped into the top-left 300x150
+    // corner of the container, invisible past the first column. This
+    // manifested in the Egress Flow Map as "SG cards present but no
+    // lines drawn through them."
+    <svg width="100%" height="100%" className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 1 }}>
       {/* Render non-highlighted lines first, then attack paths, then highlighted on top */}
       {lines
         .sort((a, b) => {
@@ -1853,7 +2080,7 @@ function ConnectionLinesSVG({
 // ============================================
 // MAIN UNIFIED ARCHITECTURE DIAGRAM
 // ============================================
-function UnifiedArchitectureDiagram({
+export function UnifiedArchitectureDiagram({
   architecture,
   animate,
   onSelectService,
@@ -1864,10 +2091,15 @@ function UnifiedArchitectureDiagram({
   ghostedNodeIds = new Set<string>(),
   highlightedNodeId,
   showVPCBoundaries = false,
+  pathMode = false,
+  exfilByWorkloadId,
+  innerTitleOverride,
+  innerSubtitleOverride,
+  observedMode = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
-  onSelectService: (service: ServiceNode | SecurityCheckpoint, type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call') => void;
+  onSelectService: (service: ServiceNode | SecurityCheckpoint, type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'instance_profile' | 'api_call') => void;
   attackPaths?: AttackPath[];
   selectedAttackPath?: string | null;
   onSelectAttackPath?: (pathId: string | null) => void;
@@ -1875,6 +2107,22 @@ function UnifiedArchitectureDiagram({
   ghostedNodeIds?: Set<string>;
   highlightedNodeId?: string | null;
   showVPCBoundaries?: boolean;
+  // chunk #1.5: forwarded from TrafficFlowMap so compute ServiceNodeBox
+  // can render the exfil chip. Optional — Topology tab supplies nothing.
+  exfilByWorkloadId?: Record<string, NodeExfilSummary>;
+  // When true (Attack Paths page), single-click on a node should open
+  // the parent's remediation modal instead of the internal "service
+  // details" popup. Compute/resource/iam/nacl already fire onSelectService
+  // on click — only the SG card was using onToggle (expand rules) on click;
+  // in path mode we promote `onDetails` to single-click on the SG card too.
+  pathMode?: boolean;
+  // Inner header overrides — forwarded from TrafficFlowMap. Data Leak
+  // Paths overrides with egress-flavored copy.
+  innerTitleOverride?: string;
+  innerSubtitleOverride?: string;
+  // When true, suppress the "(simulated)" tag and the Gaps badge —
+  // caller is feeding real observed telemetry.
+  observedMode?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -1976,8 +2224,12 @@ function UnifiedArchitectureDiagram({
             <Cloud className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">System Architecture</h3>
-            <p className="text-xs text-slate-400">Live traffic flow based on actual usage</p>
+            <h3 className="text-lg font-bold text-white">
+              {innerTitleOverride ?? "System Architecture"}
+            </h3>
+            <p className="text-xs text-slate-400">
+              {innerSubtitleOverride ?? "Live traffic flow based on actual usage"}
+            </p>
           </div>
           {/* Live indicator */}
           <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 rounded-full ml-4">
@@ -1994,7 +2246,7 @@ function UnifiedArchitectureDiagram({
             <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
             <div className="text-[10px] text-slate-500">Connections</div>
           </div>
-          {architecture.totalGaps > 0 && (
+          {architecture.totalGaps > 0 && !observedMode && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/20 rounded-lg border-l border-slate-700">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               <div>
@@ -2012,21 +2264,41 @@ function UnifiedArchitectureDiagram({
         {showVPCBoundaries && architecture.vpcGroups && (
           <VPCBoundaries
             vpcGroups={architecture.vpcGroups}
-            containerRef={containerRef}
+            containerRef={containerRef as React.RefObject<HTMLDivElement>}
             visible={showVPCBoundaries}
           />
         )}
         <ConnectionLinesSVG
           architecture={architecture}
           hoveredId={effectiveHoveredId}
-          containerRef={containerRef}
+          containerRef={containerRef as React.RefObject<HTMLDivElement>}
           animate={animate}
           attackPathEdges={attackPathEdges}
           heatmapMode={heatmapMode}
           ghostedNodeIds={ghostedNodeIds}
         />
 
-        <div className="relative grid grid-cols-[1fr_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
+        {/* When the path has no network controls at all — no subnets, no
+            SGs, no NACLs — the three middle columns render as three
+            empty cells that crush COMPUTE and IAM ROLES into the
+            corners and make the path look like a bug rather than a
+            real IAM-only attack path (e.g. a Lambda without VpcConfig
+            calling an AWS service over the public API endpoint).
+            Collapse to a single banner in that case so operators read
+            "no network gate" as the security narrative, not as missing
+            UI. The 3-col template gives COMPUTE and IAM ROLES room to
+            breathe; API CALLS / RESOURCES on the row below adapt to
+            whichever column count is active. */}
+        <div
+          className={`relative grid ${
+            (architecture.subnets?.length ?? 0) === 0 &&
+            architecture.securityGroups.length === 0 &&
+            architecture.nacls.length === 0
+              ? "grid-cols-[1fr_2fr_1fr]"
+              : "grid-cols-[1fr_auto_auto_auto_1fr]"
+          } gap-6 items-start`}
+          style={{ zIndex: 2 }}
+        >
           {/* COMPUTE */}
           <div className="flex flex-col gap-3">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -2060,10 +2332,106 @@ function UnifiedArchitectureDiagram({
                     isHighlighted={isNodeHighlighted(node.id)}
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'compute')}
+                    exfilSummary={exfilByWorkloadId?.[node.id] ?? (node.instanceId ? exfilByWorkloadId?.[node.instanceId] : undefined)}
                   />
                 </div>
               );
             })}
+          </div>
+
+          {/* When subnets=0, SGs=0, NACLs=0 we collapse the three
+              network-control columns into a single banner cell so
+              operators read "no network gate" as the security
+              narrative, not as missing data. The banner is rendered
+              once; the three column sections fall back to their
+              normal layout when ANY of subnets/SGs/NACLs is non-empty
+              (i.e. the path genuinely passes through network
+              controls). */}
+          {(architecture.subnets?.length ?? 0) === 0 &&
+          architecture.securityGroups.length === 0 &&
+          architecture.nacls.length === 0 ? (
+            <div className="flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center">
+                  <ShieldOff className="w-6 h-6 text-amber-400" />
+                </div>
+                <div className="text-amber-400 text-lg font-bold uppercase tracking-wider">
+                  No Network Controls
+                </div>
+              </div>
+              <div className="text-slate-200 text-base font-medium text-center mb-2">
+                IAM is the only gate on this path.
+              </div>
+              <div className="text-slate-400 text-sm text-center max-w-md leading-relaxed">
+                This workload reaches its target via the public AWS API
+                endpoint — no VPC, no subnet, no Security Group, no
+                NACL is involved. Network defenses do not apply.
+                Compromising the IAM role on the right grants the role's
+                full permissions on the resources below.
+              </div>
+            </div>
+          ) : (
+            <>
+          {/* SUBNETS */}
+          {/* Renders every subnet that contains a compute on this path,
+              with the public/private/unknown posture from
+              subnet_visibility_collector. Posture coloring matches the
+              egress chip vocabulary (commit 5db6032):
+                Public  → amber  (route table → IGW, can reach internet)
+                Private → emerald (no IGW route)
+                Unknown → slate  (Subnet.public not classified yet — never
+                                  fabricated, three-state contract). */}
+          <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-cyan-400" />
+              Subnets ({architecture.subnets?.length ?? 0})
+            </div>
+            {(architecture.subnets || []).map(subnet => {
+              const postureCls =
+                subnet.isPublic === true
+                  ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+                  : subnet.isPublic === false
+                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+                    : "bg-slate-700/40 border-slate-600 text-slate-300";
+              const postureLabel =
+                subnet.isPublic === true ? "Public" : subnet.isPublic === false ? "Private" : "Unknown";
+              const tooltip =
+                subnet.isPublic === true
+                  ? "Effective route table has a route to an Internet Gateway. Subnet is publicly-routable per AWS canonical definition. Does not include NAT-GW route inspection."
+                  : subnet.isPublic === false
+                    ? "Effective route table has no IGW route. Subnet is private. May still have NAT-GW egress (not inspected by this classifier)."
+                    : "Subnet.public not set in Neo4j — either subnet_visibility_collector hasn't classified this subnet yet, or the workload's IN_SUBNET edge resolves to a duplicate without the :Subnet label. Never fabricated.";
+              return (
+                <div
+                  key={subnet.id}
+                  data-subnet-id={subnet.id}
+                  className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5"
+                  title={tooltip}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span className="text-xs font-semibold text-slate-200 truncate">
+                        {subnet.shortName}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-1.5">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${postureCls}`}>
+                      {postureLabel}
+                    </span>
+                  </div>
+                  {subnet.connectedComputeIds.length > 1 && (
+                    <div className="mt-1 text-[10px] text-slate-500">
+                      {subnet.connectedComputeIds.length} workloads
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {(!architecture.subnets || architecture.subnets.length === 0) && (
+              <div className="text-xs text-slate-500 italic p-4 text-center">No subnets on this path</div>
+            )}
           </div>
 
           {/* SECURITY GROUPS */}
@@ -2077,7 +2445,11 @@ function UnifiedArchitectureDiagram({
                 <SecurityGroupPanel
                   sg={sg}
                   isExpanded={expandedSG === sg.id}
-                  onToggle={() => setExpandedSG(expandedSG === sg.id ? null : sg.id)}
+                  onToggle={() =>
+                    pathMode
+                      ? onSelectService(sg, 'security_group')
+                      : setExpandedSG(expandedSG === sg.id ? null : sg.id)
+                  }
                   isHighlighted={isNodeHighlighted(sg.id)}
                   onHover={setHoveredId}
                   onDetails={() => onSelectService(sg, 'security_group')}
@@ -2109,6 +2481,8 @@ function UnifiedArchitectureDiagram({
               <div className="text-xs text-slate-500 italic p-4 text-center">No NACLs</div>
             )}
           </div>
+            </>
+          )}
 
           {/* IAM ROLES */}
           <div className="flex flex-col gap-3 items-center">
@@ -2116,22 +2490,35 @@ function UnifiedArchitectureDiagram({
               <Key className="w-4 h-4 text-pink-400" />
               IAM Roles ({architecture.iamRoles.length})
             </div>
-            {architecture.iamRoles.map(role => (
-              <div key={role.id} data-role-id={role.id}>
-                <IAMRoleNode
-                  role={role}
-                  isHighlighted={isNodeHighlighted(role.id)}
-                  onHover={setHoveredId}
-                  onClick={() => onSelectService(role, 'iam_role')}
-                />
-              </div>
-            ))}
+            {architecture.iamRoles.map(role => {
+              // Route IP and IAMRole clicks differently. Detection by
+              // ARN — name-based lookup is ambiguous because AWS often
+              // gives InstanceProfile and IAMRole the same name.
+              const isIP = role.id.includes(':instance-profile/') || /instance.?profile/i.test(role.id);
+              return (
+                <div key={role.id} data-role-id={role.id}>
+                  <IAMRoleNode
+                    role={role}
+                    isHighlighted={isNodeHighlighted(role.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(role, isIP ? 'instance_profile' : 'iam_role')}
+                  />
+                </div>
+              );
+            })}
             {architecture.iamRoles.length === 0 && (
               <div className="text-xs text-slate-500 italic p-4 text-center">No Roles</div>
             )}
           </div>
 
-          {/* API CALLS - Simulated from VPC Traffic patterns */}
+          {/* API CALLS - Simulated from VPC Traffic patterns.
+              Suppressed in observedMode (Data Leak Paths): when the
+              caller is feeding real CloudTrail / S3-access-log counts
+              already in the flow + the description copy, the synthetic
+              "totalBytes / 51200" multiplier math reads as a fabricated
+              number alongside the real one and breaks operator trust
+              (per feedback_no_hardcoded_multipliers + feedback_no_mock_numbers_in_ui). */}
+          {!observedMode && (
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Zap className="w-4 h-4 text-lime-400" />
@@ -2225,8 +2612,8 @@ function UnifiedArchitectureDiagram({
                       {apiActions.slice(0, 2).map(a => a.action).join(', ')}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
-                      {totalCalls.toLocaleString()} calls
-                      <span className="text-slate-500 ml-1">(simulated)</span>
+                      {totalCalls.toLocaleString()} {observedMode ? "events" : "calls"}
+                      {!observedMode && <span className="text-slate-500 ml-1">(simulated)</span>}
                     </div>
                   </div>
                 </div>
@@ -2239,6 +2626,54 @@ function UnifiedArchitectureDiagram({
               <div className="text-xs text-slate-500 italic p-4 text-center">No API Calls</div>
             )}
           </div>
+          )}
+
+          {/* VPC ENDPOINTS — the missing egress hop between SG/IAM and
+              the AWS service. Gateway endpoints (S3, DynamoDB) bypass
+              SG egress entirely; this lane is what makes a "0-rule SG
+              still reaches S3" path legible to the operator. Empty
+              state renders a faint "No VPC endpoints" so the lane
+              still occupies grid space when none apply to the path. */}
+          {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-3 items-center">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-violet-400" />
+              VPC Endpoints ({architecture.vpcEndpoints.length})
+            </div>
+            {architecture.vpcEndpoints.map(vpce => {
+              const isInUseForFlow = architecture.flows.some(f => f.vpceId === vpce.id);
+              return (
+                <div
+                  key={vpce.id}
+                  data-vpce-id={vpce.id}
+                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${
+                    isInUseForFlow
+                      ? 'bg-violet-500/15 border-violet-400/70 shadow-lg shadow-violet-500/10'
+                      : 'bg-violet-500/5 border-violet-500/30'
+                  }`}
+                  title={vpce.serviceName ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}` : vpce.id}
+                  onMouseEnter={() => setHoveredId(vpce.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                >
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Cloud className="w-4 h-4 text-violet-300" />
+                    <span className="text-sm font-semibold text-white">{vpce.serviceShort}</span>
+                  </div>
+                  <div className="text-[10px] text-violet-300/90 text-center font-mono truncate max-w-[140px]">
+                    {vpce.shortName}
+                  </div>
+                  {vpce.endpointType && (
+                    <div className="mt-1 text-center">
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded border bg-violet-500/10 border-violet-400/40 text-violet-200">
+                        {vpce.endpointType}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
 
           {/* RESOURCES */}
           <div className="flex flex-col gap-3">
@@ -2252,6 +2687,16 @@ function UnifiedArchitectureDiagram({
               const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
               return (
                 <div key={node.id} data-resource-id={node.id} className="relative">
+                  {/* Crown jewel indicator — set by applyPathFilter when this
+                      resource is the path's target. Renders ABOVE the
+                      legacy attack-path target chip when both apply. */}
+                  {node.isCrownJewel && (
+                    <div className="absolute -top-2 -left-2 z-10" title="Crown jewel — attack-path target">
+                      <div className="w-6 h-6 rounded-full bg-amber-400 flex items-center justify-center shadow-lg ring-2 ring-amber-300/40">
+                        <Crown className="w-3.5 h-3.5 text-amber-900" />
+                      </div>
+                    </div>
+                  )}
                   {/* Attack path target indicator */}
                   {isInAttackPath && isTarget && (
                     <div className="absolute -top-2 -right-2 z-10">
@@ -2457,10 +2902,453 @@ function RefreshStatusBadge({
 // ============================================
 // MAIN COMPONENT
 // ============================================
-export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemName?: string }) {
-  const [architecture, setArchitecture] = useState<SystemArchitecture | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+// Optional filter passed from the Attack-Paths Flow tab. When set, the
+// architecture is reduced to ONLY the nodes in this attack path + the
+// flows connecting them, so each path renders its own real data flow to
+// the specific crown jewel instead of the whole system map.
+//
+// pathNodes/pathEdges are taken from the IdentityAttackPath payload so
+// nodes that don't survive the System Map's "has observed traffic" filter
+// (which is system-scoped) still appear when they're in the attack path,
+// and edges carry the path's real traffic_bytes / hit_count.
+export interface TrafficFlowMapPathFilter {
+  nodeIds: string[];
+  pathNodes?: Array<{ id: string; name: string; type: string; tier?: string; lane?: string }>;
+  pathEdges?: Array<{
+    source: string;
+    target: string;
+    type?: string;
+    label?: string;
+    port?: number | null;
+    protocol?: string | null;
+    bytes?: number;
+    hits?: number;
+    is_observed?: boolean;
+  }>;
+  // IDs of crown-jewel nodes (the path's targets). Resources matching
+  // any of these IDs render with a crown icon overlay in the System Map
+  // RESOURCES bucket so the operator sees which resource is the actual
+  // attack target vs incidental neighbors on the path.
+  crownJewelIds?: string[];
+  jewelName?: string;
+  pathLabel?: string;
+}
+
+function bucketForType(rawType: string): 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'principal' | 'network' | 'unknown' {
+  const t = (rawType || '').toLowerCase();
+  if (t.includes('ec2') || t === 'ec2instance' || t.includes('lambda') || t.includes('fargate') || t.includes('ecs')) return 'compute';
+  if (t.includes('s3') || t.includes('bucket') || t.includes('dynamo') || t.includes('rds') || t.includes('aurora') || t.includes('database')) return 'resource';
+  if (t.includes('securitygroup')) return 'security_group';
+  if (t.includes('nacl') || t.includes('networkacl')) return 'nacl';
+  // InstanceProfile is the AWS attachment container that binds an EC2 to an
+  // IAMRole — bucketed alongside iam_role so the sidebar shows the real
+  // 3-node chain (EC2 → InstanceProfile → IAMRole) instead of collapsing it.
+  if (t.includes('iamrole') || t === 'role' || t.includes('instanceprofile') || t === 'instance_profile') return 'iam_role';
+  if (t.includes('principal')) return 'principal';
+  if (t.includes('vpc') || t.includes('subnet') || t.includes('routetable') || t.includes('igw') || t.includes('gateway')) return 'network';
+  return 'unknown';
+}
+
+function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFilter): SystemArchitecture {
+  const ids = new Set(filter.nodeIds);
+  const inPath = (id: string | undefined | null) => !!id && ids.has(id);
+
+  // Start with arch buckets filtered to path
+  const computeServices: ServiceNode[] = arch.computeServices.filter((c) => inPath(c.id));
+  const resources: ServiceNode[] = arch.resources.filter((r) => inPath(r.id));
+  // Keep subnets whose id is in the path OR that connect to a compute in
+  // the path. The latter catches subnets that aren't BFS path nodes
+  // themselves but are attached to a path compute via IN_SUBNET — operators
+  // want to see the subnet posture even when the subnet isn't a path step.
+  const filteredComputeIds = new Set(computeServices.map((c) => c.id));
+  const subnets: SubnetNode[] = (arch.subnets || []).filter((s) =>
+    inPath(s.id) || s.connectedComputeIds.some((cid) => filteredComputeIds.has(cid)),
+  );
+  const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter((sg) => inPath(sg.id));
+  const nacls: SecurityCheckpoint[] = arch.nacls.filter((n) => inPath(n.id));
+  const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter((r) => inPath(r.id));
+
+  // Seed any path node that didn't survive the System Map's traffic-only
+  // bucketing (e.g. an EC2 with no flow logs but reachable via the attack
+  // path) by classifying from its raw type.
+  const seenIds = new Set<string>([
+    ...computeServices.map((c) => c.id),
+    ...resources.map((r) => r.id),
+    ...securityGroups.map((sg) => sg.id),
+    ...nacls.map((n) => n.id),
+    ...iamRoles.map((r) => r.id),
+  ]);
+  // Build a name → arch-compute index so we can resolve a CloudTrailPrincipal
+  // whose `name` is an instance ID (e.g. "i-0ee29afa0048943e0") back to the
+  // actual EC2 compute node. The IdentityAttackPaths BFS prefers the
+  // observed CloudTrail-session edge over the configured USES_ROLE edge,
+  // so the principal session shows up in the path instead of the EC2 it
+  // belongs to. Resolve here so the operator sees the EC2.
+  const archComputeByInstanceId = new Map<string, ServiceNode>();
+  arch.computeServices.forEach((c) => {
+    const m = c.id.match(/i-[a-f0-9]+/i);
+    if (m) archComputeByInstanceId.set(m[0], c);
+  });
+  const isInstanceIdName = (name: string | undefined): string | null => {
+    if (!name) return null;
+    const m = name.match(/^(i-[a-f0-9]+)$/i);
+    return m ? m[1] : null;
+  };
+
+  (filter.pathNodes ?? []).forEach((pn) => {
+    if (seenIds.has(pn.id)) return;
+    const bucket = bucketForType(pn.type);
+    const sname = shortName(pn.name);
+
+    // CloudTrailPrincipal session named like an instance ID → resolve to
+    // the EC2 instance with that ID (System Map first, then synthesize).
+    if (bucket === 'principal') {
+      const instId = isInstanceIdName(pn.name);
+      if (instId) {
+        const archMatch = archComputeByInstanceId.get(instId);
+        if (archMatch && !seenIds.has(archMatch.id)) {
+          computeServices.push(archMatch);
+          seenIds.add(archMatch.id);
+        } else if (!archMatch) {
+          computeServices.push({
+            id: instId,
+            name: instId,
+            shortName: shortName(instId),
+            type: 'compute',
+            instanceId: instId,
+          });
+          seenIds.add(instId);
+        }
+      }
+      seenIds.add(pn.id);
+      return;
+    }
+
+    if (bucket === 'compute') {
+      const ct = (pn.type || '').toLowerCase();
+      const subtype: NodeType = ct.includes('lambda') ? 'lambda' : 'compute';
+      computeServices.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype, instanceId: pn.id.substring(0, 12) });
+    } else if (bucket === 'resource') {
+      const t = (pn.type || '').toLowerCase();
+      const subtype: NodeType = t.includes('s3') || t.includes('bucket') ? 'storage' : t.includes('dynamo') ? 'dynamodb' : t.includes('rds') || t.includes('aurora') || t.includes('database') ? 'database' : 'storage';
+      resources.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype });
+    } else if (bucket === 'security_group') {
+      // Hydrate from arch.securityGroups when possible — the path node
+      // might use a slightly different id (synthesized stub, cross-system
+      // reference) so name match is the reliable bridge. Without this,
+      // seeded SGs render with "0 rules" even when the real SG has
+      // ingress/egress rules in Neo4j.
+      const archMatch = arch.securityGroups.find(
+        (sg) => sg.id === pn.id || sg.name === pn.name,
+      );
+      if (archMatch) {
+        securityGroups.push(archMatch);
+      } else {
+        securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      }
+    } else if (bucket === 'nacl') {
+      const archMatch = arch.nacls.find(
+        (n) => n.id === pn.id || n.name === pn.name,
+      );
+      if (archMatch) {
+        nacls.push(archMatch);
+      } else {
+        nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      }
+    } else if (bucket === 'iam_role') {
+      const archMatch = arch.iamRoles.find(
+        (r) => r.id === pn.id || r.name === pn.name,
+      );
+      if (archMatch) {
+        iamRoles.push(archMatch);
+      } else {
+        iamRoles.push({ id: pn.id, type: 'iam_role', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      }
+    }
+    // 'network' / 'unknown' — skip (no System Map bucket)
+    seenIds.add(pn.id);
+  });
+
+  // Flows: the System Map renders flows as compute → resource gated by
+  // SG/NACL/IAM checkpoints. Path edges from IdentityAttackPath don't
+  // match that shape directly (they include role→S3, EC2→SG attachments,
+  // etc.). Translate: for each compute/resource pair in the path,
+  // synthesize ONE flow whose bytes are the sum of all path-edge bytes
+  // touching the resource, gated by the SG/role/NACL nodes that are in
+  // the path. This makes the System Map's animated lines render the
+  // path's actual data flow.
+  const computeIds = computeServices.map((c) => c.id);
+  const resourceIds = resources.map((r) => r.id);
+  const sgIdInPath = securityGroups[0]?.id;
+  const naclIdInPath = nacls[0]?.id;
+  const roleIdInPath = iamRoles[0]?.id;
+  const flowKey = (s: string, t: string) => `${s}->${t}`;
+  const flowMap = new Map<string, TrafficFlow>();
+
+  // Aggregate path-edge bytes per resource — any edge ending at the
+  // resource (or starting at the role and ending at the resource) counts.
+  const bytesByResource = new Map<string, { bytes: number; hits: number; observed: boolean; ports: Set<string>; protocols: Set<string> }>();
+  (filter.pathEdges ?? []).forEach((e) => {
+    if (!resourceIds.includes(e.target)) return;
+    const cur = bytesByResource.get(e.target) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+    cur.bytes += e.bytes ?? 0;
+    cur.hits += e.hits ?? 0;
+    if (e.is_observed) cur.observed = true;
+    if (e.port) cur.ports.add(String(e.port));
+    if (e.protocol) cur.protocols.add(e.protocol);
+    bytesByResource.set(e.target, cur);
+  });
+
+  // IAM-only paths (no compute on the path — e.g. AWS service roles
+  // assumed by AWS itself like AWSServiceRoleForResourceExplorer) need
+  // their own flow synthesis here. The compute→resource loop below
+  // produces nothing because computeIds is empty. Without this block,
+  // ConnectionLinesSVG sees zero flows and draws no lines between IAM,
+  // API, and RESOURCE columns — operator sees disconnected boxes.
+  //
+  // Mirrors the same fallback in buildArchitecture but operates on the
+  // path-filtered iamRoles/resources arrays so the flow's source/target
+  // are guaranteed to pass the inPath gate in the merge step below.
+  if (computeIds.length === 0 && iamRoles.length > 0 && resourceIds.length > 0) {
+    iamRoles.forEach((role) => {
+      resourceIds.forEach((rid) => {
+        const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+        flowMap.set(flowKey(role.id, rid), {
+          sourceId: role.id,
+          targetId: rid,
+          sgId: undefined,
+          naclId: undefined,
+          roleId: role.id,
+          ports: [...agg.ports],
+          protocol: [...agg.protocols][0] || 'IAM',
+          bytes: agg.bytes,
+          connections: agg.hits > 0 ? agg.hits : (agg.bytes > 0 ? 1 : 0),
+          isActive: agg.observed && agg.bytes > 0,
+        });
+      });
+    });
+  }
+
+  computeIds.forEach((cid) => {
+    resourceIds.forEach((rid) => {
+      const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+      const bytes = agg.bytes;
+      // Use 1 connection minimum when there's traffic so the animated
+      // line renders. The path data sets hit_count to 0 even when bytes
+      // are present (CloudTrail-derived).
+      const connections = agg.hits > 0 ? agg.hits : (bytes > 0 ? 1 : 0);
+      flowMap.set(flowKey(cid, rid), {
+        sourceId: cid,
+        targetId: rid,
+        sgId: sgIdInPath,
+        naclId: naclIdInPath,
+        roleId: roleIdInPath,
+        ports: [...agg.ports],
+        protocol: [...agg.protocols][0] || (agg.observed ? 'TCP' : 'CONFIGURED'),
+        bytes,
+        connections,
+        isActive: agg.observed && bytes > 0,
+      });
+    });
+  });
+
+  // Also keep any arch flows that match the path (different-shaped
+  // checkpoint info we'd otherwise lose).
+  arch.flows.forEach((f) => {
+    if (!inPath(f.sourceId) || !inPath(f.targetId)) return;
+    if (f.sgId && !inPath(f.sgId)) return;
+    if (f.naclId && !inPath(f.naclId)) return;
+    if (f.roleId && !inPath(f.roleId)) return;
+    const key = flowKey(f.sourceId, f.targetId);
+    const existing = flowMap.get(key);
+    // Prefer the synthesized flow when it has bytes; otherwise fall back
+    // to the arch flow.
+    if (!existing || (existing.bytes === 0 && f.bytes > 0)) {
+      flowMap.set(key, f);
+    }
+  });
+
+  const flows: TrafficFlow[] = [...flowMap.values()];
+
+  // Keep only VPCEs whose VPC contains a compute on the filtered path —
+  // same rule as SGs/NACLs/IAM: don't ghost-render network infra
+  // unrelated to this path. The compute → VPC mapping lives in
+  // arch.vpcGroups[].subnets[].nodeIds (built by buildArchitecture).
+  const pathComputeIds = new Set(computeServices.map(c => c.id));
+  const pathVPCIdsFiltered = new Set<string>();
+  (arch.vpcGroups || []).forEach(vg => {
+    const hasPathCompute = vg.subnets.some(sn => sn.nodeIds.some(nid => pathComputeIds.has(nid)));
+    if (hasPathCompute) pathVPCIdsFiltered.add(vg.vpcId);
+  });
+  // Also keep any VPCE that a flow explicitly routes through, in case
+  // the compute→VPC chain is broken in the dep-map slice but the flow
+  // pickVPCEForTarget already paired them up at build time.
+  const filteredFlowVPCEIds = new Set<string>(flows.map(f => f.vpceId).filter(Boolean) as string[]);
+  const vpcEndpoints = arch.vpcEndpoints.filter(v =>
+    filteredFlowVPCEIds.has(v.id) || (v.vpcId !== null && pathVPCIdsFiltered.has(v.vpcId)),
+  );
+
+  return {
+    computeServices,
+    resources: resources.map((r) =>
+      filter.crownJewelIds && filter.crownJewelIds.includes(r.id) ? { ...r, isCrownJewel: true } : r,
+    ),
+    subnets,
+    securityGroups,
+    nacls,
+    iamRoles,
+    vpcEndpoints,
+    flows,
+    totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
+    totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
+    totalGaps: securityGroups.reduce((s, sg) => s + sg.gapCount, 0) + iamRoles.reduce((s, r) => s + r.gapCount, 0),
+    vpcGroups: arch.vpcGroups,
+  };
+}
+
+// Per-node action callback. When set, clicking a node in path-filter
+// mode short-circuits the internal "service details" popup and routes
+// to the caller — e.g. the Attack Paths page wants SG clicks to open
+// the SG remediation modal, IAM-role clicks to open the IAM modal,
+// resource clicks (S3 jewel) to open the S3 modal.
+//
+// Falls back to the internal popup when this callback is not provided
+// (used by the standalone Topology → System Map view).
+export type PathNodeKind = "compute" | "resource" | "security_group" | "nacl" | "iam_role" | "instance_profile" | "api_call";
+// `via` carries the InstanceProfile wrapper context when the click target
+// is an IP. The parent resolves the wrapped role and routes to the IAM
+// modal with that pedigree — InstanceProfile share names with their
+// IAMRole, so name-based lookup is ambiguous; ARN + via context is the
+// engineering-grade fix.
+export type OnPathNodeAction = (
+  kind: PathNodeKind,
+  node: {
+    id: string;
+    name: string;
+    type?: string;
+    via?: { kind: "InstanceProfile"; id: string; name: string; arn?: string };
+  },
+) => void;
+
+export default function TrafficFlowMap({
+  systemName,
+  pathFilter,
+  onPathNodeAction,
+  exfilByWorkloadId,
+  architectureOverride,
+  titleOverride,
+  pathBadgeOverride,
+  innerTitleOverride,
+  innerSubtitleOverride,
+  observedMode = false,
+}: {
+  systemName: string;
+  pathFilter?: TrafficFlowMapPathFilter;
+  onPathNodeAction?: OnPathNodeAction;
+  // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
+  // Provided by the attack-paths parent; the Topology tab does not
+  // pass this, so the chip is suppressed there.
+  exfilByWorkloadId?: Record<string, NodeExfilSummary>;
+  // When provided, this fully-formed SystemArchitecture is used in place
+  // of the dependency-map fetch. The dep-map fetch is still kicked off
+  // for stale-cache warming, but the override wins the render. This is
+  // how Data Leak Paths feeds its per-path egress architecture through
+  // the same renderer Attack Paths uses, so both pages share the visual
+  // language (header, lanes, ServiceNodeBox, ConnectionLinesSVG).
+  architectureOverride?: SystemArchitecture | null;
+  // Header title + the "PATH → …" pill. Default copy is attack-paths
+  // flavored; Data Leak Paths passes its own.
+  titleOverride?: string;
+  pathBadgeOverride?: string;
+  // Inner canvas header (the "System Architecture / Live traffic flow
+  // based on actual usage" copy). Data Leak Paths overrides both for
+  // egress-flavored copy.
+  innerTitleOverride?: string;
+  innerSubtitleOverride?: string;
+  // When true, the API CALLS lane drops the "(simulated)" tag and the
+  // Gaps badge is suppressed. Use when the architecture carries real
+  // observed telemetry (Data Leak Paths case).
+  observedMode?: boolean;
+}) {
+  // rawArchitecture holds the unfiltered architecture from the most
+  // recent fetch. We derive the displayed `architecture` from it (with
+  // pathFilter applied if set) via useMemo, so switching attack paths
+  // re-renders instantly without refetching and stale fetches can't
+  // race-overwrite the right filter.
+  const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
+  const architecture = useMemo(() => {
+    if (architectureOverride) return architectureOverride;
+    if (!rawArchitecture) return null;
+    return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
+  }, [rawArchitecture, pathFilter, architectureOverride]);
+  const setArchitecture = setRawArchitecture;
+
+  // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips
+  // the fetchInit to cache:'no-store', so retry busts both the
+  // useCachedFetch localStorage layer and the proxy edge cache.
+  const [manualBustEpoch, setManualBustEpoch] = useState(0);
+  // Local error for the "fetch succeeded but returned 0 nodes" case.
+  // Hook-level errors come from useCachedFetch directly; this one only
+  // fires after a valid response with empty payload.
+  const [emptyDataError, setEmptyDataError] = useState<string | null>(null);
+
+  const depMapUrl = useMemo(() => {
+    // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
+    // the backend past the 55s upstream timeout and surfaces 504/502
+    // when the in-memory + edge caches are cold. 300 nodes still
+    // covers all 7 EC2 instances + their SGs/NACLs/Subnets/VPCs + the
+    // top IAM roles, which is what this viz actually renders.
+    const cacheBust = manualBustEpoch > 0 ? `&_t=${manualBustEpoch}` : "";
+    return `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${cacheBust}`;
+  }, [systemName, manualBustEpoch]);
+
+  const depMapFetchInit = useMemo<RequestInit>(() => {
+    return manualBustEpoch > 0
+      ? { cache: "no-store", headers: { "Cache-Control": "no-cache" } }
+      : {};
+  }, [manualBustEpoch]);
+
+  const {
+    data: rawDepMap,
+    loading: depMapLoading,
+    error: depMapError,
+    retry: retryDepMap,
+  } = useCachedFetch<{ nodes?: any[]; edges?: any[]; relationships?: any[] }>(depMapUrl, {
+    cacheKey: `tfm-depmap:${systemName}`,
+    // 5-min freshness — aligns with the proxy's edge cache (s-maxage=120)
+    // with headroom; older cache still renders with isStale=true (up to
+    // the hook's 7d hard cap), keeping the architecture on screen even
+    // when the backend is unreachable. First-visit cold-cache renders
+    // hit the network and wait for the 30-40s backend; every subsequent
+    // visit paints in ~1ms from localStorage.
+    maxStaleMs: 5 * 60 * 1000,
+    fetchInit: depMapFetchInit,
+  });
+
+  // Derived from the hook so the existing render gates ("Building
+  // Architecture..." spinner and red error popup) work unchanged.
+  // loading: only true on first-ever visit (no cache, hook still
+  //   fetching). Subsequent visits paint from cache and skip the spinner.
+  // error: emptyDataError (0-node response) wins over depMapError, which
+  //   the hook only surfaces when there is no cached fallback at all —
+  //   so a 504 during background refresh keeps the stale view rather
+  //   than flashing the red popup.
+  // When the caller passes an architectureOverride we already have the
+  // data — never block the render on the dep-map fetch (which is best-
+  // effort warming only in that mode).
+  const loading = !architectureOverride && depMapLoading && !rawArchitecture;
+  const error = architectureOverride ? null : (emptyDataError ?? depMapError);
+  // Fetch-generation counter. Each runEnrichment call bumps this;
+  // background enrichment closures capture the epoch at start and skip
+  // their setArchitecture if a newer fetch has resolved in the meantime.
+  //
+  // Bug this prevents: operator navigates alon-prod → cyntroprod within
+  // the ~5-10s background-enrichment window. The OLD closure still holds
+  // alon-prod's archForGaps. When its slow IAM fetches complete, the
+  // .then() callback would call setArchitecture({...alonProdArch}) and
+  // silently overwrite the freshly-fetched cyntroprod architecture with
+  // alon-prod data — wrong role counts, wrong SG list, all wrong.
+  const fetchEpochRef = useRef(0);
   const [animate, setAnimate] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -2481,6 +3369,10 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
   const [showVPCBoundaries, setShowVPCBoundaries] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  // Click-to-filter spec bubbled up from StackSidebar when the operator
+  // clicks the Filter icon on a drillable resource or a leaf child. Null
+  // means no filter active. Header chip renders when non-null.
+  const [resourcePathsFilter, setResourcePathsFilter] = useState<ResourcePathsFilter | null>(null);
   const [timelineActive, setTimelineActive] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
   const [timePoint, setTimePoint] = useState(100);
@@ -2582,7 +3474,16 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
     const roleNodeMap = new Map<string, any>();
     const subnetToNACL = new Map<string, string>();
     const nodeToVPC = new Map<string, string>();
-    const nodeToSubnet = new Map<string, { subnetId: string; isPublic: boolean }>();
+    // vpcId → list of VPCEndpoint nodes in that VPC. Populated from
+    // two sources: IN_VPC edges (canonical) and node.vpc_id properties
+    // (fallback, since the dep-map flattens some properties without
+    // emitting the edge for legacy schema reasons).
+    const vpceByVPC = new Map<string, any[]>();
+    // isPublic kept tri-state (boolean | null) so the SUBNETS column can
+    // render the three-state badge (Public / Private / Unknown). Coercing
+    // null→false would silently lie when subnet_visibility_collector hasn't
+    // classified a subnet yet.
+    const nodeToSubnet = new Map<string, { subnetId: string; isPublic: boolean | null }>();
 
     // First pass: collect subnet to NACL mappings
     edges.forEach(edge => {
@@ -2616,7 +3517,18 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       const srcId = edge.source || edge.from;
       const tgtId = edge.target || edge.to;
 
-      if (edgeType === 'HAS_SECURITY_GROUP' || edgeType === 'USES_SECURITY_GROUP') {
+      // SECURED_BY is the canonical edge type written by
+      // collectors/security_group_collector.py and is the only one
+      // actually present in production Neo4j (36 SECURED_BY vs 0
+      // USES_SECURITY_GROUP at the time of writing). HAS_SECURITY_GROUP
+      // and USES_SECURITY_GROUP are kept as legacy aliases so older
+      // graph data still renders, but new code aligning with the
+      // collector should target SECURED_BY.
+      if (
+        edgeType === 'SECURED_BY' ||
+        edgeType === 'HAS_SECURITY_GROUP' ||
+        edgeType === 'USES_SECURITY_GROUP'
+      ) {
         const canonicalSrc = extractInstanceId(srcId);
         computeToSG.set(canonicalSrc, tgtId);
         const sgNode = nodeMap.get(tgtId);
@@ -2640,11 +3552,26 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         if (naclId) {
           computeToNACL.set(canonicalSrc, naclId);
         }
-        // Track subnet membership
+        // Track subnet membership. Read backend's canonical `subnet_is_public`
+        // first (set by subnet_visibility_collector via route-table → IGW
+        // inspection, surfaced through _build_comprehensive_node_detail).
+        // Fall back to legacy fields for partial graphs; never name-match
+        // because "Public-1" / "Private-DB-2" are operator labels, not
+        // routing classifications — they can lie (the alon-prod test VPC
+        // has its Main RT routing 0.0.0.0/0 → IGW, so subnets named
+        // "Private-*" are technically public-by-routing).
         const subnetNode = nodeMap.get(tgtId);
-        const isPublic = subnetNode?.is_public || subnetNode?.map_public_ip_on_launch ||
-                         (subnetNode?.name || '').toLowerCase().includes('public');
-        nodeToSubnet.set(canonicalSrc, { subnetId: tgtId, isPublic: !!isPublic });
+        // null is meaningful — explicitly unknown vs explicitly public/private.
+        // The UI renders three states (Public/Private/Unknown), so preserve null.
+        let isPublic: boolean | null = null;
+        if (subnetNode) {
+          if (subnetNode.subnet_is_public === true) isPublic = true;
+          else if (subnetNode.subnet_is_public === false) isPublic = false;
+          // Pre-backfill fallback: only when subnet_is_public is truly absent
+          // (not just false) do we consult the AWS launch-default flag.
+          else if (subnetNode.is_public === true || subnetNode.map_public_ip_on_launch === true) isPublic = true;
+        }
+        nodeToSubnet.set(canonicalSrc, { subnetId: tgtId, isPublic });
       }
 
       // Track VPC membership
@@ -2652,6 +3579,13 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         const canonicalSrc = extractInstanceId(srcId);
         nodeToVPC.set(canonicalSrc, tgtId);
         nodeToVPC.set(srcId, tgtId);
+        // Index VPCE nodes by their parent VPC, so a compute→S3 flow can
+        // be matched to the right S3 Gateway endpoint at flow-tag time.
+        const srcNode = nodeMap.get(srcId);
+        if (srcNode && (srcNode.type || '').toLowerCase() === 'vpcendpoint') {
+          if (!vpceByVPC.has(tgtId)) vpceByVPC.set(tgtId, []);
+          vpceByVPC.get(tgtId)!.push(srcNode);
+        }
       }
 
       if (edgeType === 'USES_ROLE' || edgeType === 'ASSUMES_ROLE') {
@@ -2671,6 +3605,52 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         }
       }
     });
+
+    // Property-based VPCE→VPC index. Catches VPCEs whose IN_VPC edge
+    // wasn't emitted by the dep-map slice (the backend strips some
+    // structural edges to keep payload size down). serviceName +
+    // endpoint_type come from the node payload; without them the lane
+    // chip falls back to "?" which is honest about data absence.
+    nodes.forEach(n => {
+      const t = (n.type || '').toLowerCase();
+      if (t !== 'vpcendpoint') return;
+      const vpcId = n.vpc_id || n.vpcId || null;
+      if (!vpcId) return;
+      if (!vpceByVPC.has(vpcId)) vpceByVPC.set(vpcId, []);
+      const existing = vpceByVPC.get(vpcId)!;
+      if (!existing.find(v => v.id === n.id)) existing.push(n);
+    });
+
+    // Compute → VPC index. nodeToVPC stores by canonical instance id
+    // for compute, but flows are tagged with the canonical id too, so
+    // a direct .get(canonicalId) works.
+    const resolveComputeVPC = (canonicalSrc: string): string | null => {
+      const direct = nodeToVPC.get(canonicalSrc);
+      if (direct) return direct;
+      const node = nodeByInstanceId.get(canonicalSrc) || nodeMap.get(canonicalSrc);
+      return node?.vpc_id || node?.vpcId || null;
+    };
+
+    // Match flow target to a VPCE service. Gateway endpoints exist for
+    // S3 + DynamoDB only (per AWS); interface endpoints exist for most
+    // services. For the demo path the S3 Gateway is the case that
+    // matters.
+    const pickVPCEForTarget = (canonicalSrc: string, targetType: string): string | undefined => {
+      const vpcId = resolveComputeVPC(canonicalSrc);
+      if (!vpcId) return undefined;
+      const candidates = vpceByVPC.get(vpcId) || [];
+      const needle =
+        targetType === 'storage' || targetType === 's3' ? 's3' :
+        targetType === 'dynamodb' ? 'dynamodb' :
+        targetType === 'sqs' ? 'sqs' :
+        targetType === 'sns' ? 'sns' : null;
+      if (!needle) return undefined;
+      const match = candidates.find(v => {
+        const svc = (v.service_name || v.serviceName || '').toLowerCase();
+        return svc.endsWith(`.${needle}`) || svc === `com.amazonaws.${needle}`;
+      });
+      return match?.id;
+    };
 
     const trafficEdges = edges.filter(e => {
       const type = (e.edge_type || e.type || '').toUpperCase();
@@ -2766,6 +3746,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           sgId: computeToSG.get(canonicalSrc),
           naclId: computeToNACL.get(canonicalSrc),
           roleId: computeToRole.get(canonicalSrc),
+          vpceId: pickVPCEForTarget(canonicalSrc, finalTargetType),
           ports: [],
           protocol: 'TCP',
           bytes: 0,
@@ -2796,14 +3777,26 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       resourcesWithTraffic: resourcesWithTraffic.size,
     });
 
-    // Build compute services
+    // Build compute services. Two-source bucketing:
+    //   (1) `computeWithTraffic` — compute IDs whose ACTUAL_TRAFFIC /
+    //       ACCESSES_RESOURCE / ACTUAL_API_CALL edges target a classified
+    //       resource (S3/DynamoDB/RDS). Historical primary source.
+    //   (2) `nodeByInstanceId` — every compute node returned by the dep-map
+    //       regardless of whether its traffic edges happen to target a
+    //       resource by the narrow `targetIsResource` check.
+    //
+    // (2) is necessary because the System Map on alon-prod-style systems
+    // has compute-to-NetworkEndpoint traffic (egress to external IPs) and
+    // compute-to-other-compute (cross-system) traffic, neither of which
+    // is "compute → resource". The old single-source build returned 0
+    // compute for those systems even with thousands of traffic edges.
+    // Operators saw "0 compute" on a graph that obviously had EC2s and
+    // no flow lines could draw.
     const seenCompute = new Set<string>();
     const computeServices: ServiceNode[] = [];
-    computeWithTraffic.forEach(canonicalId => {
-      if (seenCompute.has(canonicalId)) return;
+    const pushCompute = (canonicalId: string, node: any) => {
+      if (seenCompute.has(canonicalId) || !node) return;
       seenCompute.add(canonicalId);
-      const node = nodeByInstanceId.get(canonicalId);
-      if (!node) return;
       const computeName = (node.name && node.name !== 'Unknown') ? node.name : node.id || canonicalId;
       computeServices.push({
         id: canonicalId,
@@ -2812,6 +3805,18 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         type: mapNodeType(node.type || 'compute'),
         instanceId: canonicalId.substring(0, 12),
       });
+    };
+    // Traffic-derived first (preserves any ordering tied to traffic).
+    computeWithTraffic.forEach(canonicalId => {
+      pushCompute(canonicalId, nodeByInstanceId.get(canonicalId));
+    });
+    // Then every compute node we discovered from the dep-map response.
+    // De-dup happens via seenCompute.
+    nodeByInstanceId.forEach((node, canonicalId) => {
+      const nType = mapNodeType(node.type || '');
+      if (nType === 'compute' || nType === 'lambda') {
+        pushCompute(canonicalId, node);
+      }
     });
 
     // Build resources
@@ -2854,6 +3859,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                 sourceId: cs.id, targetId: node.id,
                 sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
                 roleId: computeToRole.get(cs.id),
+                vpceId: pickVPCEForTarget(cs.id, nType),
                 ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false,
               });
             }
@@ -2899,6 +3905,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
               sourceId: cs.id, targetId: res.id,
               sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
               roleId: computeToRole.get(cs.id),
+              vpceId: pickVPCEForTarget(cs.id, res.type),
               ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: true,
             });
           }
@@ -2906,8 +3913,45 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       });
     }
 
-    // Build security groups (rules will be fetched separately from API)
-    const usedSGIds = new Set(Array.from(flowMap.values()).map(f => f.sgId).filter(Boolean));
+    // Build SUBNETS column data. Every Subnet reachable from a compute on
+    // this path via IN_SUBNET gets its own column entry, with the public/
+    // private/unknown posture from subnet_is_public. Subnets that aren't
+    // connected to any path compute are deliberately omitted — the column
+    // is "subnets ON this path", not "all subnets in the system".
+    const subnets: SubnetNode[] = [];
+    const seenSubnetIds = new Set<string>();
+    computeServices.forEach(cs => {
+      const sub = nodeToSubnet.get(cs.id);
+      if (!sub || seenSubnetIds.has(sub.subnetId)) return;
+      seenSubnetIds.add(sub.subnetId);
+      const subnetNode = nodeMap.get(sub.subnetId);
+      const subnetName = subnetNode?.name || sub.subnetId;
+      const connectedComputeIds = computeServices
+        .filter(c => nodeToSubnet.get(c.id)?.subnetId === sub.subnetId)
+        .map(c => c.id);
+      subnets.push({
+        id: sub.subnetId,
+        name: subnetName,
+        shortName: shortName(subnetName, 18),
+        isPublic: sub.isPublic,
+        vpcId: subnetNode?.vpc_id,
+        connectedComputeIds,
+      });
+    });
+
+    // Build security groups. Combine TWO sources:
+    //   (a) SGs referenced by traffic flows (flowMap.f.sgId) — historical
+    //       behavior; needed for connection-line rendering.
+    //   (b) SGs from sgNodeMap (everything attached via SECURED_BY) — covers
+    //       workloads on a path with no observed traffic edges, e.g. an
+    //       IAM-only path through cyntro-demo-prod-data where the SG is
+    //       attached to the EC2 but the BFS path didn't traverse it.
+    // The column should reflect the operator's mental model ("which SGs
+    // gate this workload?"), not just BFS-path traversal facts.
+    const usedSGIds = new Set<string>([
+      ...Array.from(flowMap.values()).map(f => f.sgId).filter(Boolean) as string[],
+      ...Array.from(sgNodeMap.keys()),
+    ]);
     const securityGroups: SecurityCheckpoint[] = [];
     usedSGIds.forEach(sgId => {
       if (!sgId) return;
@@ -2934,8 +3978,14 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       });
     });
 
-    // Build NACLs
-    const usedNACLIds = new Set(Array.from(flowMap.values()).map(f => f.naclId).filter(Boolean));
+    // Build NACLs. Same dual-source pattern as SGs above: flowMap-driven
+    // (traffic-traversed) PLUS naclNodeMap (attached via USES_NACL/HAS_NACL/
+    // PROTECTED_BY_NACL). Operator wants to see ALL NACLs gating the path
+    // workloads, not just the ones a BFS edge happened to cross.
+    const usedNACLIds = new Set<string>([
+      ...Array.from(flowMap.values()).map(f => f.naclId).filter(Boolean) as string[],
+      ...Array.from(naclNodeMap.keys()),
+    ]);
     const nacls: SecurityCheckpoint[] = [];
     usedNACLIds.forEach(naclId => {
       if (!naclId) return;
@@ -2960,8 +4010,17 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       });
     });
 
-    // Build IAM roles
-    const usedRoleIds = new Set(Array.from(flowMap.values()).map(f => f.roleId).filter(Boolean));
+    // Build IAM roles. Same dual-source pattern as SGs/NACLs/compute:
+    //   (1) flow-driven (roleId on a TrafficFlow — used when compute→
+    //       resource flows exist)
+    //   (2) USES_ROLE/ASSUMES_ROLE edges that populated roleNodeMap
+    //       directly. Catches alon-prod-style systems whose traffic is
+    //       compute→NetworkEndpoint (egress) rather than compute→resource,
+    //       so flowMap never gets the roleId populated.
+    const usedRoleIds = new Set<string>([
+      ...Array.from(flowMap.values()).map(f => f.roleId).filter(Boolean) as string[],
+      ...Array.from(roleNodeMap.keys()),
+    ]);
     const iamRoles: SecurityCheckpoint[] = [];
     usedRoleIds.forEach(roleId => {
       if (!roleId) return;
@@ -2985,6 +4044,41 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         connectedTargets: [],
       });
     });
+
+    // Synthesize IAM-only path flows when there's no compute. Operator-
+    // visible bug this fixes: an attack path through an AWS service role
+    // (e.g. AWSServiceRoleForResourceExplorer → GetObject → S3-prod-data)
+    // has no compute node — flowMap is empty — so ConnectionLinesSVG had
+    // nothing to render. The IAM ROLE, API CALL, and S3 RESOURCE columns
+    // showed as visually disconnected even though they're a real attack
+    // chain in Neo4j.
+    //
+    // Fix: when there are no compute services but there ARE IAM roles
+    // and resources, synthesize a flow per (role, resource) pair using
+    // the role as the source. ConnectionLinesSVG now falls back to
+    // querying [data-role-id] when [data-compute-id] doesn't match, so
+    // these synthesized flows produce real lines from IAM → API →
+    // RESOURCE.
+    if (computeServices.length === 0 && iamRoles.length > 0 && resources.length > 0) {
+      iamRoles.forEach(role => {
+        resources.forEach(res => {
+          const flowKey = `${role.id}->${res.id}`;
+          if (flowMap.has(flowKey)) return;
+          flowMap.set(flowKey, {
+            sourceId: role.id,
+            targetId: res.id,
+            sgId: undefined,
+            naclId: undefined,
+            roleId: role.id,
+            ports: [],
+            protocol: 'IAM',
+            bytes: 0,
+            connections: 0,
+            isActive: false,
+          });
+        });
+      });
+    }
 
     const flows = Array.from(flowMap.values());
     const totalBytes = flows.reduce((sum, f) => sum + f.bytes, 0);
@@ -3022,12 +4116,16 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       if (vpcId) computeVPCMap.set(cs.id, vpcId);
     });
 
-    // Step 2: Add compute nodes to VPC groups
+    // Step 2: Add compute nodes to VPC groups. vpcGroups isPublic is
+    // boolean-typed (pre-existing contract), so coerce null → false here.
+    // The SUBNETS column above preserves the tri-state for its own badges;
+    // vpcGroups only uses isPublic for legacy diagram coloring where the
+    // distinction between false and null doesn't matter.
     computeServices.forEach(cs => {
       const vpcId = computeVPCMap.get(cs.id);
       if (vpcId) {
         const subnet = nodeToSubnet.get(cs.id);
-        allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic });
+        allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic === true });
       }
     });
 
@@ -3110,12 +4208,46 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       subnets: Array.from(vpc.subnets.values()),
     }));
 
+    // Build the VPC ENDPOINTS lane. Only include VPCEs that sit in a VPC
+    // reachable from a compute on this path — otherwise the lane fills
+    // up with VPCEs from unrelated VPCs that have no causal relationship
+    // to the rendered flows.
+    const pathVPCs = new Set<string>();
+    computeServices.forEach(cs => {
+      const v = resolveComputeVPC(cs.id);
+      if (v) pathVPCs.add(v);
+    });
+    const seenVPCEIds = new Set<string>();
+    const vpcEndpoints: VPCEndpointNode[] = [];
+    pathVPCs.forEach(vpcId => {
+      (vpceByVPC.get(vpcId) || []).forEach(v => {
+        if (seenVPCEIds.has(v.id)) return;
+        seenVPCEIds.add(v.id);
+        const serviceName = v.service_name || v.serviceName || null;
+        const epTypeRaw = (v.vpc_endpoint_type || v.endpoint_type || '').toString();
+        const endpointType: 'Gateway' | 'Interface' | null =
+          /gateway/i.test(epTypeRaw) ? 'Gateway' :
+          /interface/i.test(epTypeRaw) ? 'Interface' : null;
+        vpcEndpoints.push({
+          id: v.id,
+          name: v.name || v.id,
+          shortName: shortName(v.name || v.id, 16),
+          vpcId,
+          serviceName,
+          serviceShort: vpceServiceShort(serviceName),
+          endpointType,
+        });
+      });
+    });
+
     return {
       computeServices,
       resources,
+      subnets,
       securityGroups,
       nacls,
       iamRoles,
+      vpcEndpoints,
       flows,
       totalBytes,
       totalConnections,
@@ -3182,135 +4314,217 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
     }
   }, []);
 
-  const loadData = useCallback(async (isManualRefresh = false) => {
-    // Only show loading spinner on initial load
-    if (!architecture) {
-      setLoading(true);
-    }
+  // RFC — dep-map fetch flow (post useCachedFetch migration):
+  //
+  //   useCachedFetch(depMapUrl, { cacheKey: `tfm-depmap:${systemName}` })
+  //        │
+  //        │ synchronous localStorage read on mount
+  //        ▼
+  //   rawDepMap (data) ────► useEffect([rawDepMap]) ─► runEnrichment()
+  //        │                                              │
+  //        │                                              ├─ buildArchitecture
+  //        │                                              ├─ setArchitecture (epoch-guarded)
+  //        │                                              ├─ Promise.all IAM gap-analysis ──► setArchitecture
+  //        │                                              └─ Promise.all SG inspector     ──► setArchitecture
+  //        ▼
+  //   First paint on a cold backend now hits localStorage (1-2 ms) instead
+  //   of waiting 30-40 s for the proxy. Background refresh updates the
+  //   cache. If the refresh 504s, the hook keeps showing the cached
+  //   architecture (error suppressed) — operator never sees the red popup
+  //   unless there is no cache at all.
+  //
+  // Manual refresh (Refresh button) bumps `manualBustEpoch`, which:
+  //   1. Mutates depMapUrl (adds &_t=N) → URL change triggers hook refetch
+  //   2. Sets fetchInit.cache = 'no-store' → bypasses proxy edge cache
+  //   This preserves the previous isManualRefresh semantics: bust BOTH the
+  //   localStorage layer and the proxy edge layer.
+  //
+  // Auto-refresh interval calls retryDepMap() directly — refetches the same
+  //   URL (so proxy edge cache may serve, matching the old loadData(false)).
+  //
+  // Race protection — fetchEpochRef still gates enrichment commits. If the
+  //   operator navigates systems while IAM/SG fan-outs are in flight, the
+  //   captured myEpoch goes stale and the late .then() callback drops its
+  //   setArchitecture call. unchanged from the pre-migration design.
+  //
+  // The function below is now the enrichment runner (called from useEffect
+  // on rawDepMap). It does NOT issue the dep-map HTTP call any more — that
+  // is the hook's job. Kept inside useCallback so the auto-refresh
+  // dependency array stays stable.
+  const runEnrichment = useCallback((rawDepMap: { nodes?: any[]; edges?: any[]; relationships?: any[] }) => {
     setRefreshStatus('fetching');
-    setError(null);
 
-    try {
-      // Add cache-busting timestamp to ensure fresh data from Neo4j
-      const timestamp = Date.now();
-      // systemName comes from props (default: 'alon-prod')
-      const depRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500&_t=${timestamp}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-      });
+    // Bump the epoch BEFORE any async work. Background enrichments
+    // capture this value at start and only commit their setArchitecture
+    // when the captured epoch still matches the ref's current value —
+    // any newer runEnrichment call invalidates older in-flight enrichments.
+    const myEpoch = ++fetchEpochRef.current;
 
-      if (!depRes.ok) {
-        throw new Error(`Failed to fetch dependency map: ${depRes.status}`);
-      }
+    const nodes = rawDepMap.nodes || [];
+    const edges = rawDepMap.edges || rawDepMap.relationships || [];
 
-      const depData = await depRes.json();
+    console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neo4j`);
 
-      const nodes = depData.nodes || [];
-      const edges = depData.edges || depData.relationships || [];
-
-      console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neo4j`);
-
-      if (nodes.length === 0) {
-        setError('No data available');
-        setArchitecture(null);
-        setRefreshStatus('error');
-      } else {
-        // Build architecture without IAM data first (will be fetched per-role)
-        const arch = buildArchitecture(nodes, edges, []);
-
-        // Fetch real SG rules for each security group in parallel
-        if (arch.securityGroups.length > 0) {
-          const sgRulesPromises = arch.securityGroups.map(sg =>
-            fetchSGRules(sg.id).then(rules => ({ sgId: sg.id, rules }))
-          );
-
-          const sgRulesResults = await Promise.all(sgRulesPromises);
-
-          // Update security groups with real rules
-          sgRulesResults.forEach(({ sgId, rules }) => {
-            const sg = arch.securityGroups.find(s => s.id === sgId);
-            if (sg) {
-              sg.rules = rules;
-              sg.totalCount = rules.length;
-              sg.usedCount = rules.filter(r => r.status === 'used').length;
-              sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
-            }
-          });
-        }
-
-        // Fetch IAM role gap analysis for each role in parallel
-        if (arch.iamRoles.length > 0) {
-          console.log(`[TrafficFlowMap] Fetching IAM data for ${arch.iamRoles.length} roles...`);
-          const iamPromises = arch.iamRoles.map(role =>
-            fetchIAMRoleData(role.name).then(data => ({ roleId: role.id, ...data }))
-          );
-
-          const iamResults = await Promise.all(iamPromises);
-
-          // Update IAM roles with real permission counts
-          iamResults.forEach(({ roleId, usedCount, totalCount, gapCount }) => {
-            const role = arch.iamRoles.find(r => r.id === roleId);
-            if (role) {
-              role.usedCount = usedCount;
-              role.totalCount = totalCount;
-              role.gapCount = gapCount;
-              console.log(`[TrafficFlowMap] IAM ${role.shortName}: ${usedCount}/${totalCount} perms, ${gapCount} unused`);
-            }
-          });
-        }
-
-        // Recalculate total gaps after all data is fetched
-        arch.totalGaps = arch.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
-                        arch.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
-
-        // Detect changes from previous architecture
-        const changes = detectChanges(previousArchRef.current, arch);
-        previousArchRef.current = arch;
-
-        // Log changes for debugging
-        if (changes.totalChanges > 0) {
-          console.log(`[TrafficFlowMap] Changes detected:`, changes);
-        }
-
-        setLastChanges(changes);
-        setArchitecture(arch);
-        setLastUpdated(new Date());
-        setRefreshStatus('success');
-
-        // Auto-dismiss success status after 5 seconds
-        if (changes.totalChanges > 0) {
-          setTimeout(() => setRefreshStatus('idle'), 5000);
-        } else {
-          setRefreshStatus('idle');
-        }
-      }
-    } catch (err: any) {
-      console.error('[TrafficFlowMap] Error loading data:', err);
-      setError(err.message);
+    if (nodes.length === 0) {
+      setEmptyDataError('No data available');
+      setArchitecture(null);
       setRefreshStatus('error');
-    } finally {
-      setLoading(false);
+      return;
     }
-  }, [buildArchitecture, fetchSGRules, architecture, systemName]);
+    // Clear any previous "no data" state — fresh fetch returned nodes.
+    setEmptyDataError(null);
 
-  // Initial load + refetch when systemName changes
-  useEffect(() => { loadData(); }, [systemName]);
+    // Build architecture without IAM data first (will be fetched per-role)
+    const arch = buildArchitecture(nodes, edges, []);
 
-  // Auto-refresh with configurable interval
+    // SG rules + IAM gap-analysis are BOTH background-fetched. Earlier
+    // we left SG synchronous because "it's only ~9 SGs", but each
+    // /api/proxy/security-groups/{id}/inspector call is 2-5s and on
+    // path-filtered views with widened bucketing the SG list grew. Net:
+    // a 10-20s wait on "Building Architecture..." even after the IAM
+    // fix. Both enrichments now happen post-render so the operator sees
+    // the architecture immediately and counts fill in as data arrives.
+    //
+    // Role cards render with placeholder counts (0/0) until the IAM
+    // data arrives. No race risk: lookup is by role.id so a late-
+    // arriving result still maps to the right card.
+    const archForGaps = arch;
+
+    // Detect changes from previous architecture (uses arch with
+    // placeholder IAM counts — that's fine, the totalGaps update
+    // below fires its own setArchitecture once IAM data arrives).
+    const changes = detectChanges(previousArchRef.current, arch);
+    previousArchRef.current = arch;
+
+    if (changes.totalChanges > 0) {
+      console.log(`[TrafficFlowMap] Changes detected:`, changes);
+    }
+
+    // Same epoch guard as the enrichment chains below. A slow render
+    // arriving AFTER a newer runEnrichment has fired its own
+    // setArchitecture would otherwise silently overwrite the fresh
+    // data with stale data (e.g. user navigated systems mid-fetch).
+    if (fetchEpochRef.current !== myEpoch) {
+      console.log('[TrafficFlowMap] Initial render skipped — superseded by newer fetch');
+      return;
+    }
+    setLastChanges(changes);
+    // setRawArchitecture stores the unfiltered fetch result; the
+    // displayed `architecture` is derived from it via useMemo so
+    // pathFilter changes never trigger a refetch and stale fetches
+    // can't race-overwrite the wrong filter.
+    setArchitecture(arch);
+    setLastUpdated(new Date());
+    setRefreshStatus('success');
+
+    // Background IAM gap-analysis enrichment. Fires-and-forgets;
+    // does NOT block the architecture render.
+    if (archForGaps.iamRoles.length > 0) {
+      console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
+      Promise.all(
+        archForGaps.iamRoles.map(role =>
+          fetchIAMRoleData(role.name)
+            .then(data => ({ roleId: role.id, ...data }))
+            .catch(err => {
+              console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
+              return null;
+            }),
+        ),
+      ).then(iamResults => {
+        // Guard against stale enrichment: if a newer runEnrichment ran while
+        // these IAM lookups were in flight, the architecture state has
+        // since been replaced. Don't overwrite it with our stale data.
+        if (fetchEpochRef.current !== myEpoch) {
+          console.log('[TrafficFlowMap] IAM enrichment skipped — superseded by newer fetch');
+          return;
+        }
+        iamResults.forEach(result => {
+          if (!result) return;
+          const { roleId, usedCount, totalCount, gapCount } = result;
+          const role = archForGaps.iamRoles.find(r => r.id === roleId);
+          if (role) {
+            role.usedCount = usedCount;
+            role.totalCount = totalCount;
+            role.gapCount = gapCount;
+          }
+        });
+        archForGaps.totalGaps =
+          archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+          archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
+        setArchitecture({ ...archForGaps });
+      });
+    }
+
+    // Background SG rules enrichment (parallel to IAM). Fires-and-
+    // forgets; doesn't block architecture render.
+    if (archForGaps.securityGroups.length > 0) {
+      Promise.all(
+        archForGaps.securityGroups.map(sg =>
+          fetchSGRules(sg.id)
+            .then(rules => ({ sgId: sg.id, rules }))
+            .catch(err => {
+              console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
+              return null;
+            }),
+        ),
+      ).then(sgRulesResults => {
+        if (fetchEpochRef.current !== myEpoch) {
+          console.log('[TrafficFlowMap] SG enrichment skipped — superseded by newer fetch');
+          return;
+        }
+        sgRulesResults.forEach(result => {
+          if (!result) return;
+          const { sgId, rules } = result;
+          const sg = archForGaps.securityGroups.find(s => s.id === sgId);
+          if (sg) {
+            sg.rules = rules;
+            sg.totalCount = rules.length;
+            sg.usedCount = rules.filter(r => r.status === 'used').length;
+            sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
+          }
+        });
+        archForGaps.totalGaps =
+          archForGaps.securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+          archForGaps.iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
+        setArchitecture({ ...archForGaps });
+      });
+    }
+
+    if (changes.totalChanges > 0) {
+      setTimeout(() => setRefreshStatus('idle'), 5000);
+    } else {
+      setRefreshStatus('idle');
+    }
+  }, [buildArchitecture, fetchSGRules, fetchIAMRoleData]);
+
+  // Drive runEnrichment off the cached dep-map data. Fires on initial
+  // mount (when localStorage has cache, this runs synchronously with the
+  // first render → architecture paints from cache in ~1ms instead of a
+  // 30-40s cold backend wait), and again whenever the hook's background
+  // refresh writes new data to its state.
+  useEffect(() => {
+    if (!rawDepMap) return;
+    runEnrichment(rawDepMap);
+  }, [rawDepMap, runEnrichment]);
+
+  // Auto-refresh with configurable interval. retryDepMap refetches the
+  // same URL → proxy edge cache may serve (matches old loadData(false)).
   useEffect(() => {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      loadData(false);
+      retryDepMap();
     }, refreshInterval * 1000);
 
     return () => clearInterval(interval);
-  }, [loadData, autoRefresh, refreshInterval]);
+  }, [retryDepMap, autoRefresh, refreshInterval]);
 
-  // Manual refresh handler with force flag
+  // Manual refresh: bump epoch so depMapUrl changes → hook useEffect
+  // fires a fresh fetch with cache: 'no-store' (busts BOTH localStorage
+  // and the proxy edge cache, matching pre-migration isManualRefresh=true).
   const handleManualRefresh = useCallback(() => {
-    loadData(true);
-  }, [loadData]);
+    setManualBustEpoch(e => e + 1);
+  }, []);
 
   // Load attack paths when enabled
   const loadAttackPaths = useCallback(async () => {
@@ -3324,8 +4538,10 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       const res = await fetch(`/api/proxy/attack-paths/${systemName}`);
       if (res.ok) {
         const data = await res.json();
-        setAttackPaths(data.paths || []);
-        console.log(`[TrafficFlowMap] Loaded ${data.paths?.length || 0} attack paths`);
+        const allPaths = data.paths || [];
+        const vulnerabilityPaths = allPaths.filter((path: AttackPath) => path.total_cves > 0);
+        setAttackPaths(vulnerabilityPaths);
+        console.log(`[TrafficFlowMap] Loaded ${vulnerabilityPaths.length || 0} CVE attack paths (from ${allPaths.length || 0} total paths)`);
       }
     } catch (err) {
       console.error('[TrafficFlowMap] Failed to load attack paths:', err);
@@ -3389,7 +4605,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-6 text-center max-w-sm">
           <p className="text-red-400 font-medium mb-2">Error</p>
           <p className="text-slate-400 text-sm mb-4">{error}</p>
-          <button onClick={loadData} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">
+          <button onClick={() => retryDepMap()} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">
             Retry
           </button>
         </div>
@@ -3415,6 +4631,21 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           highlightedNodeId={highlightedNodeId}
           onHighlightNode={setHighlightedNodeId}
           attackPaths={attackPaths}
+          systemName={systemName}
+          onFilterPaths={(f) => {
+            setResourcePathsFilter(f);
+            if (f && f.parentJewelId) {
+              // Focus the parent jewel: select it for hop highlighting and
+              // scroll it into view. The actual click-to-filter UI on the
+              // map (dimming etc) can hang off resourcePathsFilter in a
+              // later patch — for now we just steer the viewport.
+              setSelectedNodeForHops(f.parentJewelId);
+              const el = mapContainerRef.current?.querySelector(
+                `[data-compute-id="${f.parentJewelId}"], [data-resource-id="${f.parentJewelId}"]`,
+              );
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }}
         />
       )}
 
@@ -3433,7 +4664,49 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           >
             <Layers className="w-4 h-4" />
           </button>
-          <h2 className="text-white font-bold text-lg">Traffic Flow Map</h2>
+          <h2 className="text-white font-bold text-lg">
+            {titleOverride ?? (pathFilter ? 'Path Flow Map' : 'Traffic Flow Map')}
+          </h2>
+          {(pathBadgeOverride || (pathFilter && (pathFilter.jewelName || pathFilter.pathLabel))) && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30">
+              <Target className="w-3.5 h-3.5 text-rose-300" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-200">
+                {pathBadgeOverride
+                  ? pathBadgeOverride
+                  : pathFilter?.pathLabel
+                    ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
+                    : `Path to ${pathFilter?.jewelName}`}
+              </span>
+            </div>
+          )}
+
+          {/* Resource-paths drill-down filter badge — set by StackSidebar
+              click-to-filter. Blue palette so it doesn't get confused with
+              the rose attack-path filter above. */}
+          {resourcePathsFilter && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
+              <Target className="w-3.5 h-3.5 text-blue-300" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-200">
+                {resourcePathsFilter.leafType === 'S3Prefix'
+                  ? 'Prefix → '
+                  : resourcePathsFilter.leafType === 'RDSTable'
+                    ? 'Table → '
+                    : resourcePathsFilter.leafType === 'RDSDatabase'
+                      ? 'DB → '
+                      : 'Filter → '}
+                {resourcePathsFilter.displayName}
+              </span>
+              <button
+                type="button"
+                onClick={() => setResourcePathsFilter(null)}
+                className="flex-shrink-0 -mr-1 p-0.5 rounded hover:bg-blue-500/30 text-blue-200 hover:text-white"
+                aria-label="Clear path filter"
+                title="Clear filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
 
           {/* Live indicator */}
           <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/10 rounded-full">
@@ -3466,7 +4739,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                 ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse'
                 : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-500/10'
             }`}
-            title="Show vulnerability attack paths to sensitive data"
+            title="Show CVE-driven attack paths to crown jewels"
           >
             {loadingAttackPaths ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
@@ -3490,14 +4763,14 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                 ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
                 : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
             }`}
-            title="Inject simulated CVE data into Neo4j nodes for testing"
+            title="Inject simulated CVE data for testing vulnerability-based paths"
           >
             {injectingCVE ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
             ) : (
               <Target className="w-3 h-3" />
             )}
-            Inject CVEs
+            Inject CVE Test Data
           </button>
 
           {/* Auto-refresh toggle */}
@@ -3535,13 +4808,13 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
 
           {/* Export */}
           <ExportControls
-            containerRef={mapContainerRef}
+            containerRef={mapContainerRef as React.RefObject<HTMLDivElement>}
             systemName={systemName}
           />
 
           {/* Manual refresh button */}
           <button
-            onClick={handleManualRefresh}
+            onClick={() => handleManualRefresh()}
             disabled={refreshStatus === 'fetching'}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
               refreshStatus === 'fetching'
@@ -3568,7 +4841,22 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
+            pathMode={!!onPathNodeAction}
+            innerTitleOverride={innerTitleOverride}
+            innerSubtitleOverride={innerSubtitleOverride}
+            observedMode={observedMode}
             onSelectService={(service, type) => {
+              // If the parent registered a path-node action callback
+              // (Attack Paths page), route there — they'll open the
+              // right remediation modal per node type.
+              if (onPathNodeAction) {
+                onPathNodeAction(type as PathNodeKind, {
+                  id: service.id,
+                  name: (service as any).name ?? service.id,
+                  type: (service as any).type,
+                });
+                return;
+              }
               setSelectedService({ service, type });
               setSelectedNodeForHops(service.id);
             }}
@@ -3579,6 +4867,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             ghostedNodeIds={ghostedNodeIds}
             highlightedNodeId={highlightedNodeId}
             showVPCBoundaries={showVPCBoundaries}
+            exfilByWorkloadId={exfilByWorkloadId}
           />
         ) : (
           <div className="text-center py-16">
@@ -3587,7 +4876,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             <p className="text-slate-400 text-sm max-w-md mx-auto">
               Generate traffic between services to see the live architecture diagram.
             </p>
-            <button onClick={loadData} className="mt-6 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm">
+            <button onClick={() => retryDepMap()} className="mt-6 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm">
               Refresh
             </button>
           </div>
@@ -3661,9 +4950,9 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     <Shield className="w-5 h-5 text-green-400" />
                   </div>
                   <div className="text-center">
-                    <div className="text-slate-300 text-xs font-medium mb-1">No Attack Paths Found</div>
+                    <div className="text-slate-300 text-xs font-medium mb-1">No CVE Attack Paths Found</div>
                     <div className="text-slate-500 text-[10px] leading-relaxed">
-                      No active paths from compute to data stores detected. Try injecting CVEs first to simulate an attack scenario.
+                      No current CVE-driven routes to crown jewels were detected. You can still inject CVE test data to simulate vulnerability-based paths.
                     </div>
                   </div>
                   <button
@@ -3671,7 +4960,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
                   >
                     <Target className="w-3 h-3" />
-                    Inject CVE Scenario
+                    Inject CVE Test Data
                   </button>
                   <button
                     onClick={() => loadAttackPaths()}
@@ -3690,7 +4979,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     <div className="bg-red-500/20 rounded-lg p-2 text-center">
                       <div className="text-red-400 text-xl font-bold">{attackPaths.length}</div>
-                      <div className="text-[10px] text-slate-400">Total</div>
+                      <div className="text-[10px] text-slate-400">CVE Paths</div>
                     </div>
                     <div className="bg-orange-500/20 rounded-lg p-2 text-center">
                       <div className="text-orange-400 text-xl font-bold">
@@ -3700,9 +4989,9 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     </div>
                     <div className="bg-yellow-500/20 rounded-lg p-2 text-center">
                       <div className="text-yellow-400 text-xl font-bold">
-                        {attackPaths.reduce((sum, p) => sum + p.total_cves, 0)}
+                        {attackPaths.filter(p => p.total_cves > 0).length}
                       </div>
-                      <div className="text-[10px] text-slate-400">CVEs</div>
+                      <div className="text-[10px] text-slate-400">With CVEs</div>
                     </div>
                   </div>
 
@@ -3735,6 +5024,9 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                           <span>{path.path_length} hops</span>
                           {path.total_cves > 0 && (
                             <span className="text-red-400">{path.total_cves} CVEs</span>
+                          )}
+                          {path.total_cves === 0 && path.path_kind && (
+                            <span className="text-cyan-400 capitalize">{path.path_kind.replace(/-/g, ' ')}</span>
                           )}
                           <span className={path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}>
                             {path.evidence_type}

@@ -1,16 +1,47 @@
 import { NextResponse } from "next/server";
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
 
 // Allow longer execution time on Vercel (60 seconds for Pro tier)
 export const maxDuration = 60;
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  process.env.BACKEND_URL ||
   "https://saferemediate-backend-f.onrender.com";
 
 // In-memory cache for findings (3-minute TTL)
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+
+// Vocabulary normalization at the trust boundary.
+// Backend has two finding emitters (legacy + new) that disagree on severity
+// casing, status casing, and resourceType spacing. Until those converge,
+// canonicalize here so internal frontend code sees one shape:
+//   severity: "critical" | "high" | "medium" | "low" (lowercase — matches
+//             the predominant comparison pattern in components; display
+//             code uppercases via `.toUpperCase()` for badges)
+//   status:   "open" | "resolved" (lowercase, same reasoning)
+//   resourceType: "SecurityGroup" | "IAMRole" | "S3Bucket" (unspaced —
+//             matches what LeastPrivilegeTab and others filter on)
+const RESOURCE_TYPE_CANONICAL: Record<string, string> = {
+  "Security Group": "SecurityGroup",
+  "IAM Role": "IAMRole",
+  "S3 Bucket": "S3Bucket",
+};
+
+function canonicalResourceType(raw: unknown): unknown {
+  if (raw == null) return raw;
+  const s = String(raw).trim();
+  return RESOURCE_TYPE_CANONICAL[s] ?? s;
+}
+
+function normalizeFinding(f: any): any {
+  if (!f || typeof f !== "object") return f;
+  return {
+    ...f,
+    severity: typeof f.severity === "string" ? f.severity.toLowerCase() : f.severity,
+    status: typeof f.status === "string" ? f.status.toLowerCase() : f.status,
+    resourceType: canonicalResourceType(f.resourceType),
+  };
+}
 
 function getCacheKey(systemName: string | null, status: string | null, severity: string | null): string {
   return `findings:${systemName || 'all'}:${status || 'all'}:${severity || 'all'}`;
@@ -74,40 +105,25 @@ export async function GET(request: Request) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn(`[Findings Proxy] Backend returned ${response.status}`);
-
-      // Return stale cache if available
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        console.log(`[Findings Proxy] Returning stale cache due to backend error`);
-        return NextResponse.json({
-          ...cached.data,
-          fromCache: true,
-          stale: true
-        }, {
-          headers: { 'X-Cache': 'STALE' }
-        });
-      }
-
-      return NextResponse.json({
-        success: false,
-        findings: [],
-        total: 0,
-        count: 0,
-        source: "backend",
-        error: `Backend returned ${response.status} status`
-      });
+      const errorText = await response.text().catch(() => "")
+      console.warn(`[Findings Proxy] Backend returned ${response.status}: ${errorText.slice(0, 200)}`);
+      return backendError({
+        status: response.status,
+        message: `Findings backend returned ${response.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await response.json();
     const findings = data.findings || data.recommendations || data || [];
     const total = data.total ?? data.count ?? findings.length;
 
+    const normalized = Array.isArray(findings) ? findings.map(normalizeFinding) : [];
     const result = {
       success: true,
-      findings: Array.isArray(findings) ? findings : [],
-      total: Array.isArray(findings) ? (total || findings.length) : 0,
-      count: Array.isArray(findings) ? findings.length : 0,
+      findings: normalized,
+      total: Array.isArray(findings) ? (total || normalized.length) : 0,
+      count: normalized.length,
       source: "backend"
     };
 
@@ -139,33 +155,9 @@ export async function GET(request: Request) {
         'Cache-Control': 'public, s-maxage=180, stale-while-revalidate=360',
       }
     });
-  } catch (error: any) {
-    // Handle timeout or network errors - return stale cache if available
-    console.error(`[Findings Proxy] Error:`, error.name, error.message);
-
-    // Return stale cache if available
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      console.log(`[Findings Proxy] Returning stale cache due to error`);
-      return NextResponse.json({
-        ...cached.data,
-        fromCache: true,
-        stale: true
-      }, {
-        headers: { 'X-Cache': 'STALE' }
-      });
-    }
-
-    return NextResponse.json({
-      success: false,
-      findings: [],
-      total: 0,
-      count: 0,
-      source: "backend",
-      error: error.message,
-      warning: error.name === 'AbortError'
-        ? 'Backend request timed out after 55 seconds'
-        : `Backend connection failed: ${error.message}`
-    });
+  } catch (error: unknown) {
+    const e = error as Error
+    console.error(`[Findings Proxy] Error:`, e?.name, e?.message);
+    return fromCaughtError(error)
   }
 }

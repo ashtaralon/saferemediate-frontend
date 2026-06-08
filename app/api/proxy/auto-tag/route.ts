@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic"
 
+const backendUrl = "https://saferemediate-backend-f.onrender.com"
+
 export async function POST(request: Request) {
 
   try {

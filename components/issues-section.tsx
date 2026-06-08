@@ -5,12 +5,11 @@ import { AlertTriangle, Shield, RefreshCw, Play, CheckCircle, Loader2, Search } 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { PageHeader } from "@/components/ui/page-header"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { SGInspectorSheet } from "@/components/inspector/SGInspectorSheet"
 import { fetchSecurityFindings, triggerScan, getScanStatus } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
 interface Finding {
   id: string
@@ -144,18 +143,43 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
   }
 
   // Get severity color
+  // Tailwind classes for the severity *badge* (pill). Previous values
+  // bg-[#f9731610]0 / bg-[#eab30810]0 / bg-[#3b82f610]0 were malformed —
+  // looks like a formatter ate "/100" and emitted "10]0". Tailwind treats
+  // those as invalid arbitrary values and renders without a background,
+  // which is why the design review (2026-04-30) saw badges that didn't
+  // match severity.
   const getSeverityColor = (severity: string) => {
     switch (severity?.toLowerCase()) {
       case "critical":
         return "bg-red-600 text-white"
       case "high":
-        return "bg-[#f9731610]0 text-white"
+        return "bg-orange-500 text-white"
       case "medium":
-        return "bg-[#eab30810]0 text-black"
+        return "bg-yellow-500 text-black"
       case "low":
-        return "bg-[#3b82f610]0 text-white"
+        return "bg-blue-500 text-white"
       default:
         return "bg-gray-500 text-white"
+    }
+  }
+
+  // Card-left-border accent so the row's severity is scannable from a
+  // distance, not just from reading the pill. Wiz-style. Per the design
+  // review, the existing convention was correct (red/orange/yellow/blue
+  // 600) but never actually applied to the card class.
+  const getSeverityBorderClass = (severity: string) => {
+    switch (severity?.toLowerCase()) {
+      case "critical":
+        return "border-l-4 border-l-red-600"
+      case "high":
+        return "border-l-4 border-l-orange-500"
+      case "medium":
+        return "border-l-4 border-l-yellow-500"
+      case "low":
+        return "border-l-4 border-l-blue-500"
+      default:
+        return "border-l-4 border-l-gray-400"
     }
   }
 
@@ -240,39 +264,41 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
 
   return (
     <div className="space-y-4">
-      {/* Header with actions */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">Security Findings</h3>
-            <Badge variant="secondary">{findings.length}</Badge>
-          </div>
-          {lastScanTime && (
-            <span className="text-sm text-muted-foreground">
-              Last scan: {lastScanTime.toLocaleTimeString()} ({getTimeAgo(lastScanTime)})
-            </span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading || scanning}>
-            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button variant="default" size="sm" onClick={handleScan} disabled={scanning || loading}>
-            {scanning ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                Scanning...
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 mr-1" />
-                Scan Now
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+      {/* PageHeader — shared across Home / Issues / Systems Overview so
+         the three top-level dashboards have a single header treatment.
+         Per dashboard design review (2026-04-30): trust pill goes here
+         once each page wires its provenance; for now identity + actions
+         only. */}
+      <PageHeader
+        eyebrow={`Cyntro · issues${lastScanTime ? ` · last scan ${getTimeAgo(lastScanTime)}` : ""}`}
+        title="Security Findings"
+        subtitle={
+          findings.length > 0
+            ? `${findings.length} finding${findings.length === 1 ? "" : "s"} in scope`
+            : undefined
+        }
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading || scanning}>
+              <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button variant="default" size="sm" onClick={handleScan} disabled={scanning || loading}>
+              {scanning ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  Scanning...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-1" />
+                  Scan Now
+                </>
+              )}
+            </Button>
+          </>
+        }
+      />
 
       {/* No findings */}
       {findings.length === 0 && (
@@ -316,7 +342,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
         {findings.map((finding) => (
           <div
             key={finding.id || finding.finding_id}
-            className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+            className={`border rounded-lg p-4 hover:bg-muted/50 transition-colors ${getSeverityBorderClass(finding.severity)}`}
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">

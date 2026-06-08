@@ -60,6 +60,28 @@ const REASON_CONFIG: Record<string, { label: string; icon: any; color: string; d
   },
 }
 
+/**
+ * One-sentence plain-English explanation of why the auto-tagger paused
+ * on each resource. Shown both as a `title` tooltip on the reason chip
+ * AND as a small caption under the resource name (so the answer is there
+ * without requiring a hover). Written for a prospect, not an engineer.
+ * `{relationship}` and `{hop}` are interpolated from the PendingTag.
+ */
+function getReasonExplanation(p: PendingTag): string {
+  switch (p.reason) {
+    case "conflict":
+      return "This resource is reachable from multiple tagged systems — assigning it to just one may be wrong."
+    case "shared_infrastructure":
+      return "This is a VPC or subnet shared across systems — tagging it would apply to every consumer."
+    case "low_confidence_relationship":
+      return `"${p.relationship}" is a behavioral edge — we observed traffic, but observation alone isn't proof of ownership.`
+    case "high_hop":
+      return `${p.hop} hops from the nearest tagged resource — the association is indirect and may cross a system boundary.`
+    default:
+      return "Flagged by the auto-tagger for human review."
+  }
+}
+
 export function PendingApprovals({ systemName }: { systemName?: string }) {
   const [pending, setPending] = useState<PendingTag[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,17 +93,28 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
     try {
       setError(null)
       const res = await fetch("/api/proxy/auto-tagger/pending?status=pending", {
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(28000),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // The proxy now always returns 200 with a structured payload — a
+      // non-OK here means the proxy itself failed (network blip, auth)
+      // not the backend.
+      if (!res.ok) throw new Error(`Approvals proxy HTTP ${res.status}`)
       const data = await res.json()
+      // Proxy surfaces backend degradation as `unavailable: true` plus
+      // an operator-readable `message`; treat that as an inline error
+      // distinct from "no pending tags" (empty pending array).
+      if (data?.unavailable) {
+        setError(data.message || "Approvals service unavailable")
+        setPending([])
+        return
+      }
       let items: PendingTag[] = data.pending || []
       if (systemName) {
         items = items.filter((p) => p.system_name === systemName)
       }
       setPending(items)
     } catch (err: any) {
-      setError(err.message || "Failed to load")
+      setError(err?.message || "Approvals service unreachable")
     } finally {
       setLoading(false)
     }
@@ -177,7 +210,26 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
   }
 
   if (pending.length === 0) {
-    return null // Don't show anything if no pending approvals
+    // Explicit empty state — previously `return null`, which made an empty
+    // queue visually indistinguishable from a broken fetch. Operators
+    // couldn't tell "no work to do" from "component silently failed".
+    return (
+      <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-6 text-center" data-testid="pending-approvals-empty">
+        <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+        <p className="text-sm font-medium text-white">No pending tags</p>
+        <p className="text-xs text-slate-400 mt-1">
+          {systemName
+            ? `All auto-tagger decisions for ${systemName} have been reviewed`
+            : "All auto-tagger decisions have been reviewed"}
+        </p>
+        <button
+          onClick={fetchPending}
+          className="mt-3 text-xs text-slate-400 hover:text-white flex items-center gap-1 mx-auto"
+        >
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </button>
+      </div>
+    )
   }
 
   const groupedByReason = pending.reduce<Record<string, PendingTag[]>>((acc, p) => {
@@ -256,8 +308,11 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
 
               return (
                 <div key={reason} className="border-b border-slate-800/30 last:border-b-0">
-                  {/* Reason header */}
-                  <div className="px-5 py-2 bg-slate-800/20 flex items-center gap-2">
+                  {/* Reason header — `title` tooltip explains the category generically. */}
+                  <div
+                    className="px-5 py-2 bg-slate-800/20 flex items-center gap-2"
+                    title={config.description}
+                  >
                     <Icon className={`w-3.5 h-3.5 ${config.color.split(" ")[0]}`} />
                     <span className={`text-xs font-medium ${config.color.split(" ")[0]}`}>
                       {config.label}
@@ -276,6 +331,9 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
                       <div
                         key={key}
                         className="px-5 py-2.5 flex items-center gap-3 hover:bg-slate-800/20 transition-colors"
+                        // Full per-item explanation also surfaces on row hover for
+                        // mouse users — belt-and-suspenders with the caption below.
+                        title={getReasonExplanation(p)}
                       >
                         {/* Resource info */}
                         <div className="flex-1 min-w-0">
@@ -286,6 +344,12 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400">
                               {p.resource_type || "Unknown"}
                             </span>
+                          </div>
+                          {/* Plain-English "why blocked" — always visible, so a
+                              prospect doesn't have to hover to understand. One
+                              sentence, written for non-engineers. */}
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            {getReasonExplanation(p)}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5">
                             <span className="text-xs text-slate-500">

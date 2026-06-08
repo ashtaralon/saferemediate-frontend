@@ -6,6 +6,7 @@ import {
   X,
   AlertTriangle,
   Shield,
+  Crown,
   Database,
   Key,
   Network,
@@ -168,6 +169,24 @@ interface AttackPathDetailPanelProps {
   onClose: () => void
 }
 
+interface AttackPathListItem {
+  id: string
+  nodes: Array<{
+    id: string
+    name: string
+    type: string
+    cve_count: number
+  }>
+  risk_score: number
+  path_length: number
+  source_type: string
+  target_name: string
+  total_cves: number
+  critical_cves: number
+  evidence_type: string
+  path_kind?: string
+}
+
 // Risk Assessment interface for node risk popup
 interface RiskAssessmentData {
   resource_id: string
@@ -200,7 +219,13 @@ interface RiskAssessmentData {
     risk: string
     attached_to: string[]
   }>
-  attack_impacts: string[]
+  attack_impacts: Array<
+    string | {
+      severity?: string
+      description?: string
+      type?: string
+    }
+  >
 }
 
 interface SelectedNodeInfo {
@@ -231,6 +256,180 @@ function getNodeIcon(type: string) {
     default:
       return Server
   }
+}
+
+function formatResourceLabel(name: string) {
+  if (!name) return "Unknown"
+  let formatted = name
+  if (name.includes(":assumed-role/")) {
+    formatted = name.split(":assumed-role/")[1]?.split("/")[0] || name
+  }
+  if (formatted.includes(":role/")) {
+    formatted = formatted.split(":role/")[1] || formatted
+  }
+  if (formatted.includes(":table/")) {
+    formatted = formatted.split(":table/")[1] || formatted
+  }
+  if (formatted.includes(":::")) {
+    formatted = formatted.split(":::")[1] || formatted
+  }
+  if (formatted.includes("/")) {
+    const parts = formatted.split("/").filter(Boolean)
+    if (parts.length > 1) {
+      formatted = parts[parts.length - 1]
+    }
+  }
+  return formatted
+}
+
+function getPathType(details: PathDetails) {
+  const hasIdentityEvidence =
+    details.path_summary.source.type.toLowerCase().includes("principal") ||
+    details.identity_layer.roles.length > 0 ||
+    details.path_nodes.some((node) => node.type === "IAMRole")
+  const hasCves = details.path_summary.total_cves > 0
+
+  if (hasIdentityEvidence && hasCves) return "Hybrid Attack Path"
+  if (hasIdentityEvidence) return "Identity Attack Path"
+  if (hasCves) return "Vulnerability Attack Path"
+  if (details.network_layer.internet_exposed) return "Network Attack Path"
+  return "Behavioral Attack Path"
+}
+
+function getPrimaryIdentity(details: PathDetails) {
+  const roleFromIam = details.identity_layer.roles[0]?.role_name
+  const roleFromNodes = details.path_nodes.find((node) => node.type === "IAMRole")?.name
+  const sourceName = details.path_summary.source.name
+
+  return formatResourceLabel(roleFromIam || roleFromNodes || sourceName)
+}
+
+function summarizeWhyRisky(details: PathDetails, pathType: string, identityUsed: string, crownJewel: string) {
+  if (pathType === "Identity Attack Path") {
+    return `${identityUsed} can directly reach ${crownJewel} through observed identity behavior, even without any CVEs on the path.`
+  }
+  if (pathType === "Hybrid Attack Path") {
+    return `This route combines identity access with vulnerability evidence, which increases the chance of reaching ${crownJewel}.`
+  }
+  if (details.path_summary.total_cves > 0) {
+    return `${details.path_summary.total_cves} CVEs were found on the route to ${crownJewel}, increasing exploitability.`
+  }
+  if (details.network_layer.internet_exposed) {
+    return `${crownJewel} is reachable through an exposed network path, even without CVEs.`
+  }
+  return `${crownJewel} is reachable through observed behavior in the environment.`
+}
+
+function getRiskFactorSeverity(score: number) {
+  if (score >= 2) {
+    return {
+      label: "High",
+      pillClassName: "bg-red-500/15 text-red-200 border border-red-400/30",
+      scoreClassName: "text-red-300"
+    }
+  }
+  if (score >= 1.5) {
+    return {
+      label: "Medium",
+      pillClassName: "bg-amber-500/15 text-amber-200 border border-amber-400/30",
+      scoreClassName: "text-amber-300"
+    }
+  }
+  return {
+    label: "Low",
+    pillClassName: "bg-emerald-500/15 text-emerald-200 border border-emerald-400/30",
+    scoreClassName: "text-emerald-300"
+  }
+}
+
+function getRiskFactorSummary(factor: "reachability" | "privilege" | "data_impact" | "blast_radius", score: number) {
+  const severity = getRiskFactorSeverity(score).label
+
+  if (factor === "reachability") {
+    if (severity === "High") return "This route is easy to reach and stay on."
+    if (severity === "Medium") return "This route is reachable with some existing access."
+    return "This route is comparatively harder to reach."
+  }
+
+  if (factor === "privilege") {
+    if (severity === "High") return "The path carries broad or dangerous access."
+    if (severity === "Medium") return "The path has enough access to be concerning."
+    return "The path shows limited privilege risk so far."
+  }
+
+  if (factor === "data_impact") {
+    if (severity === "High") return "The target data is highly sensitive or business-critical."
+    if (severity === "Medium") return "The target data has meaningful exposure impact."
+    return "The target data impact appears limited."
+  }
+
+  if (severity === "High") return "A compromise here could spread widely."
+  if (severity === "Medium") return "A compromise could affect nearby systems."
+  return "The likely spread from this path appears contained."
+}
+
+function getSelectedNodeRole(
+  node: SelectedNodeInfo,
+  details: PathDetails,
+  entryPoint: string,
+  identityUsed: string,
+  crownJewel: string
+) {
+  if (node.name === details.path_summary.source.name && node.type === details.path_summary.source.type) {
+    return {
+      label: "Entry point",
+      description: `${entryPoint} is the actor at the start of this path. If it is abused, the route to ${crownJewel} opens from here.`
+    }
+  }
+
+  if (node.name === details.path_summary.target.name && node.type === details.path_summary.target.type) {
+    return {
+      label: "Crown jewel target",
+      description: `${crownJewel} is the protected data asset at the end of this path. This is the resource you are trying to keep out of reach.`
+    }
+  }
+
+  if (node.type === "IAMRole") {
+    return {
+      label: "Identity hop",
+      description: `${identityUsed} is the identity used on this route. Tightening its permissions is usually the fastest way to reduce the path.`
+    }
+  }
+
+  if (node.type.includes("SecurityGroup") || node.type.includes("SG")) {
+    return {
+      label: "Network control",
+      description: "This node represents a network control on the path. Review whether it keeps the route open or can be tightened safely."
+    }
+  }
+
+  if (node.type.includes("S3") || node.type.includes("DynamoDB") || node.type.includes("RDS")) {
+    return {
+      label: "Data resource",
+      description: `${node.name} is a data-bearing resource on the route. Review access scope and confirm only the intended principals can reach it.`
+    }
+  }
+
+  return {
+    label: "Path node",
+    description: `${node.name} is part of the route to ${crownJewel}. Use the path context above to understand whether it is the actor, an identity hop, or the protected target.`
+  }
+}
+
+function isDataNodeType(type: string) {
+  return /S3|Bucket|DynamoDB|RDS|Aurora|Database/i.test(type)
+}
+
+function isIdentityNodeType(type: string) {
+  return /IAMRole|Role/i.test(type)
+}
+
+function isSecurityNodeType(type: string) {
+  return /SecurityGroup|SG/i.test(type)
+}
+
+function isNaclNodeType(type: string) {
+  return /NACL|NetworkACL/i.test(type)
 }
 
 // Attack Path Diagram Component
@@ -305,7 +504,12 @@ function AttackPathDiagram({
         is_internal: isInternal,
         zero_trust_risk: zeroTrustRisk,
         details: isLast
-          ? [details.data_impact.classification, `${details.data_impact.estimated_records.toLocaleString()} records`]
+          ? [
+              details.data_impact.classification,
+              details.data_impact.estimated_records > 0
+                ? `${details.data_impact.estimated_records.toLocaleString()} records`
+                : "Record volume unknown"
+            ]
           : node.cve_count > 0
             ? [`${node.cve_count} CVEs`, `${node.critical_cves} Critical`]
             : isInternal
@@ -378,7 +582,7 @@ function AttackPathDiagram({
           <div>
             <h3 className="text-lg font-bold text-white">Attack Path Visualization</h3>
             <p className="text-xs text-slate-400">
-              {details.path_summary.source.name} → {details.path_summary.target.name}
+              {formatResourceLabel(details.path_summary.source.name)} → {formatResourceLabel(details.path_summary.target.name)}
             </p>
           </div>
         </div>
@@ -431,6 +635,7 @@ function AttackPathDiagram({
           const isVulnerable = node.cve_count > 0
           const isInternal = node.is_internal
           const zeroTrustRisk = node.zero_trust_risk || "medium"
+          const isCrownJewel = i === enhancedPath.length - 1
 
           return (
             <div
@@ -454,6 +659,12 @@ function AttackPathDiagram({
                     }`}>
                       {node.cve_count}
                     </div>
+                  </div>
+                )}
+
+                {isCrownJewel && (
+                  <div className="absolute -top-3 right-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 shadow-lg">
+                    <Crown className="h-3.5 w-3.5 text-fuchsia-200" />
                   </div>
                 )}
 
@@ -617,6 +828,8 @@ interface BlockResult {
 }
 
 export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPathDetailPanelProps) {
+  const [currentPathId, setCurrentPathId] = useState(pathId)
+  const [attackPaths, setAttackPaths] = useState<AttackPathListItem[]>([])
   const [details, setDetails] = useState<PathDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -628,8 +841,37 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
   const [showBlockSuccess, setShowBlockSuccess] = useState(false)
   const [showSimulation, setShowSimulation] = useState(false)
   const [selectedNode, setSelectedNode] = useState<SelectedNodeInfo | null>(null)
+  const [simulationFocusNode, setSimulationFocusNode] = useState<SelectedNodeInfo | null>(null)
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentData | null>(null)
   const [riskLoading, setRiskLoading] = useState(false)
+
+  useEffect(() => {
+    setCurrentPathId(pathId)
+  }, [pathId])
+
+  useEffect(() => {
+    const fetchAttackPaths = async () => {
+      try {
+        const res = await fetch(`/api/proxy/attack-paths/${systemName}`)
+        if (!res.ok) return
+        const data = await res.json()
+        const vulnerabilityPaths = (data.paths || []).filter(
+          (path: AttackPathListItem) => Number(path.total_cves || 0) > 0
+        )
+        setAttackPaths(vulnerabilityPaths)
+        if (
+          vulnerabilityPaths.length > 0 &&
+          !vulnerabilityPaths.some((path: AttackPathListItem) => path.id === currentPathId)
+        ) {
+          setCurrentPathId(vulnerabilityPaths[0].id)
+        }
+      } catch (err) {
+        console.error("Error fetching attack paths:", err)
+      }
+    }
+
+    fetchAttackPaths()
+  }, [systemName, currentPathId])
 
   // Fetch risk assessment when a node is selected
   useEffect(() => {
@@ -648,11 +890,13 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
           const data = await res.json()
           setRiskAssessment(data)
         } else {
-          console.error('[AttackPathDetailPanel] Risk assessment fetch failed:', res.status)
+          if (res.status !== 404 && res.status !== 204) {
+            console.warn("[AttackPathDetailPanel] Risk assessment unavailable:", res.status)
+          }
           setRiskAssessment(null)
         }
       } catch (err) {
-        console.error('[AttackPathDetailPanel] Risk assessment error:', err)
+        console.warn("[AttackPathDetailPanel] Risk assessment request failed", err)
         setRiskAssessment(null)
       } finally {
         setRiskLoading(false)
@@ -666,8 +910,11 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
     const fetchDetails = async () => {
       setLoading(true)
       setError(null)
+      setSelectedNode(null)
+      setShowSimulation(false)
+      setSimulationFocusNode(null)
       try {
-        const res = await fetch(`/api/proxy/attack-paths/${systemName}/${pathId}/details`)
+        const res = await fetch(`/api/proxy/attack-paths/${systemName}/${currentPathId}/details`)
         if (!res.ok) {
           throw new Error("Failed to load attack path details")
         }
@@ -682,14 +929,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
     }
 
     fetchDetails()
-  }, [systemName, pathId])
+  }, [systemName, currentPathId])
 
   const handleBlockPath = async () => {
     if (blocking) return
 
     setBlocking(true)
     try {
-      const res = await fetch(`/api/proxy/attack-paths/${systemName}/${pathId}/block`, {
+      const res = await fetch(`/api/proxy/attack-paths/${systemName}/${currentPathId}/block`, {
         method: 'POST',
       })
 
@@ -1447,7 +1694,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-12 h-12 text-red-400 animate-spin" />
-          <span className="text-slate-400 text-lg">Loading Crown Jewel Analysis...</span>
+          <span className="text-slate-400 text-lg">Loading attack path...</span>
         </div>
       </div>
     )
@@ -1458,7 +1705,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-50 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white">Crown Jewel Risk Analysis</h2>
+            <h2 className="text-xl font-bold text-white">Attack Paths</h2>
             <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg">
               <X className="w-6 h-6 text-slate-400" />
             </button>
@@ -1472,6 +1719,22 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
     )
   }
 
+  const pathType = getPathType(details)
+  const entryPoint = formatResourceLabel(details.path_summary.source.name)
+  const crownJewel = formatResourceLabel(details.path_summary.target.name)
+  const identityUsed = getPrimaryIdentity(details)
+  const selectedNodeRole = selectedNode
+    ? getSelectedNodeRole(selectedNode, details, entryPoint, identityUsed, crownJewel)
+    : null
+  const pathExplainer =
+    pathType === "Identity Attack Path"
+      ? `${entryPoint} can reach ${crownJewel} using ${identityUsed}. This route does not depend on CVEs.`
+      : pathType === "Hybrid Attack Path"
+        ? `${entryPoint} can reach ${crownJewel} through identity access and vulnerability evidence.`
+        : details.path_summary.total_cves > 0
+          ? `${entryPoint} can reach ${crownJewel} through exploitable weaknesses on the path.`
+          : `${entryPoint} can reach ${crownJewel} through observed behavior in the environment.`
+
   return (
     <div className="fixed inset-0 bg-slate-950/98 backdrop-blur-sm z-50 overflow-y-auto">
       {/* Header */}
@@ -1483,8 +1746,18 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                 <Skull className="w-6 h-6 text-red-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Crown Jewel Risk Analysis</h1>
-                <p className="text-sm text-slate-400">{details.path_id} • {details.system_name}</p>
+                <h1 className="text-2xl font-bold text-white">Attack Paths</h1>
+                <p className="text-sm text-slate-400">
+                  {details.system_name} • {attackPaths.length || 1} mapped paths • open a service to remediate it across identity, network, and data
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-xs">
+                    Entry: {entryPoint}
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-xs">
+                    Target: {crownJewel}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1496,7 +1769,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <div>
                     <div className="text-sm font-semibold uppercase">{details.path_summary.risk_level} RISK</div>
                     <div className="text-xs opacity-75">
-                      {details.path_summary.path_length} hops • {details.path_summary.total_cves} CVEs
+                      {details.path_summary.path_length} hops • {details.path_summary.total_cves > 0 ? `${details.path_summary.total_cves} CVEs` : "No CVEs required"}
                     </div>
                   </div>
                 </div>
@@ -1515,11 +1788,129 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 pb-8 space-y-6">
+        <div className="bg-slate-900/60 rounded-2xl border border-slate-700 p-5">
+          <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-bold text-white">All CVE Attack Paths</h2>
+              <p className="text-sm text-slate-400">
+                Start with the exact CVE-driven route to the crown jewel. Pick a path, inspect it end to end, then open any service to remediate it.
+              </p>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-slate-200">
+              {attackPaths.length > 0 ? attackPaths.length : details.path_summary.total_cves > 0 ? 1 : 0} paths
+            </div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {(attackPaths.length > 0 ? attackPaths : (details.path_summary.total_cves > 0 ? [{
+              id: details.path_id,
+              nodes: details.path_nodes.map((node) => ({ id: node.id, name: node.name, type: node.type, cve_count: node.cve_count })),
+              risk_score: details.path_summary.risk_score,
+              path_length: details.path_summary.path_length,
+              source_type: details.path_summary.source.type,
+              target_name: details.path_summary.target.name,
+              total_cves: details.path_summary.total_cves,
+              critical_cves: details.path_summary.critical_cves,
+              evidence_type: details.path_summary.evidence_type,
+              path_kind: details.path_summary.total_cves > 0 ? "hybrid" : "identity",
+            }] : [])).map((path, index) => {
+              const entryNode = formatResourceLabel(path.nodes[0]?.name || details.path_summary.source.name)
+              const targetNode = formatResourceLabel(path.target_name || details.path_summary.target.name)
+              const pathLabel =
+                path.path_kind === "hybrid" ? "Hybrid" :
+                path.path_kind === "identity" ? "Identity" :
+                path.total_cves > 0 ? "Vulnerability" :
+                "Behavioral"
+              const isSelected = path.id === currentPathId
+
+              return (
+                <button
+                  key={path.id}
+                  onClick={() => setCurrentPathId(path.id)}
+                  className={`rounded-2xl border p-4 text-left transition-all ${
+                    isSelected
+                      ? "border-cyan-400 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.2)]"
+                      : "border-slate-700 bg-slate-950/60 hover:border-slate-500 hover:bg-slate-900/80"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Path {index + 1}</div>
+                      <div className="mt-1 text-base font-semibold text-white">
+                        {entryNode} <span className="text-slate-500">→</span> {targetNode}
+                      </div>
+                    </div>
+                    <div className={`rounded-xl px-3 py-2 text-right ${isSelected ? "bg-cyan-500/10" : "bg-slate-800/80"}`}>
+                      <div className="text-xl font-bold text-white">{path.risk_score}</div>
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">{pathLabel}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                      {path.path_length} hops
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                      {path.total_cves > 0 ? `${path.total_cves} CVEs` : "No CVEs required"}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                      {path.evidence_type === "observed" ? "Observed" : "Configured"}
+                    </span>
+                    {isSelected && (
+                      <span className="px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs border border-cyan-400/30">
+                        Selected path
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/60 rounded-2xl border border-cyan-500/20 p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <Target className="w-5 h-5 text-cyan-400" />
+            <h2 className="text-lg font-bold text-white">Selected Path</h2>
+          </div>
+          <p className="text-sm text-slate-300 mb-4">{pathExplainer}</p>
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Path Type</div>
+              <div className="text-sm font-semibold text-cyan-300">{pathType}</div>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Entry Point</div>
+              <div className="text-sm font-semibold text-white">{entryPoint}</div>
+              <div className="mt-1 text-xs text-slate-500">{details.path_summary.source.type}</div>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Identity Used</div>
+              <div className="text-sm font-semibold text-yellow-300">{identityUsed}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {details.identity_layer.roles.length > 0 ? "IAM role found on the path" : "Identity inferred from the path"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Crown Jewel</div>
+              <div className="text-sm font-semibold text-purple-300">{crownJewel}</div>
+              <div className="mt-1 text-xs text-slate-500">{details.data_impact.type}</div>
+            </div>
+          </div>
+          <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-red-300">Why This Is Critical</div>
+            <p className="mt-2 text-sm text-slate-300">
+              {summarizeWhyRisky(details, pathType, identityUsed, crownJewel)}
+            </p>
+          </div>
+        </div>
+
         {/* Attack Path Diagram - Full Width */}
         <AttackPathDiagram
           details={details}
           selectedNodeId={selectedNode?.id || null}
-          onSelectNode={setSelectedNode}
+          onSelectNode={(node) => {
+            setSimulationFocusNode(node)
+            setShowSimulation(true)
+          }}
         />
 
         {/* Node Risk Assessment Popup - Shows when a node is clicked */}
@@ -1529,7 +1920,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               <div className="flex items-center gap-3">
                 <Target className="w-5 h-5 text-cyan-400" />
                 <div>
-                  <h3 className="text-white font-bold">Risk Assessment</h3>
+                  <h3 className="text-white font-bold">{riskAssessment ? "Risk Assessment" : "Node Details"}</h3>
                   <p className="text-xs text-slate-400">{selectedNode.name} ({selectedNode.type})</p>
                 </div>
               </div>
@@ -1707,10 +2098,34 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   )}
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <AlertTriangle className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                  <p className="text-slate-500">No risk assessment data available</p>
-                  <p className="text-xs text-slate-600 mt-1">This resource may not have enough data for assessment</p>
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+                    <div className="text-sm font-medium text-cyan-300 mb-2">Node role on this path</div>
+                    <div className="text-lg font-semibold text-white">{selectedNodeRole?.label || "Path node"}</div>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {selectedNodeRole?.description || "This service is part of the selected attack path."}
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Service</div>
+                      <div className="text-sm font-semibold text-white break-words">{selectedNode.name}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Type</div>
+                      <div className="text-sm font-semibold text-white">{selectedNode.type}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Path Context</div>
+                      <div className="text-sm font-semibold text-white">{pathType}</div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+                    <div className="text-sm font-medium text-white">Why you do not see a risk score here</div>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Detailed per-node risk data is not available for every service type yet. This is not a runtime error. The path view above is still valid and shows how this service participates in the route to the crown jewel.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -1722,6 +2137,9 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
           <div className="flex items-center gap-3 mb-6">
             <Zap className="w-6 h-6 text-yellow-400" />
             <h2 className="text-xl font-bold text-white">Risk Formula</h2>
+          </div>
+          <div className="mb-4 rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-sm text-slate-300">
+            Higher levels are worse. We keep the raw score for reference, but the main signal is the plain-language risk level.
           </div>
           <div className="text-center mb-4">
             <code className="text-lg text-slate-300 bg-slate-800 px-6 py-2 rounded-lg">
@@ -1735,10 +2153,23 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </div>
             )}
           </div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div className="bg-blue-500/10 border border-[#3b82f6]/30 rounded-xl p-4 text-center">
-              <div className="text-3xl font-bold text-blue-400 mb-2">{details.risk_formula.reachability.score}</div>
-              <div className="text-sm text-slate-400 mb-3">Reachability</div>
+              {(() => {
+                const severity = getRiskFactorSeverity(details.risk_formula.reachability.score)
+                return (
+                  <>
+                    <div className="text-sm text-slate-400 mb-3">Reachability</div>
+                    <div className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold mb-3 ${severity.pillClassName}`}>
+                      {severity.label}
+                    </div>
+                    <div className="text-sm text-slate-300 mb-2">
+                      {getRiskFactorSummary("reachability", details.risk_formula.reachability.score)}
+                    </div>
+                    <div className={`text-xs mb-3 ${severity.scoreClassName}`}>Score {details.risk_formula.reachability.score}</div>
+                  </>
+                )
+              })()}
               <div className="space-y-1">
                 {details.risk_formula.reachability.factors.slice(0, 3).map((f, i) => (
                   <div key={i} className="text-[10px] text-slate-500">{f}</div>
@@ -1746,8 +2177,21 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </div>
             </div>
             <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 text-center">
-              <div className="text-3xl font-bold text-orange-400 mb-2">{details.risk_formula.privilege.score}</div>
-              <div className="text-sm text-slate-400 mb-3">Privilege</div>
+              {(() => {
+                const severity = getRiskFactorSeverity(details.risk_formula.privilege.score)
+                return (
+                  <>
+                    <div className="text-sm text-slate-400 mb-3">Privilege</div>
+                    <div className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold mb-3 ${severity.pillClassName}`}>
+                      {severity.label}
+                    </div>
+                    <div className="text-sm text-slate-300 mb-2">
+                      {getRiskFactorSummary("privilege", details.risk_formula.privilege.score)}
+                    </div>
+                    <div className={`text-xs mb-3 ${severity.scoreClassName}`}>Score {details.risk_formula.privilege.score}</div>
+                  </>
+                )
+              })()}
               <div className="space-y-1">
                 {details.risk_formula.privilege.factors.map((f, i) => (
                   <div key={i} className="text-[10px] text-slate-500">{f}</div>
@@ -1755,8 +2199,21 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </div>
             </div>
             <div className="bg-[#8b5cf6]/10 border border-purple-500/30 rounded-xl p-4 text-center">
-              <div className="text-3xl font-bold text-purple-400 mb-2">{details.risk_formula.data_impact.score}</div>
-              <div className="text-sm text-slate-400 mb-3">Data Impact</div>
+              {(() => {
+                const severity = getRiskFactorSeverity(details.risk_formula.data_impact.score)
+                return (
+                  <>
+                    <div className="text-sm text-slate-400 mb-3">Data Impact</div>
+                    <div className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold mb-3 ${severity.pillClassName}`}>
+                      {severity.label}
+                    </div>
+                    <div className="text-sm text-slate-300 mb-2">
+                      {getRiskFactorSummary("data_impact", details.risk_formula.data_impact.score)}
+                    </div>
+                    <div className={`text-xs mb-3 ${severity.scoreClassName}`}>Score {details.risk_formula.data_impact.score}</div>
+                  </>
+                )
+              })()}
               <div className="space-y-1">
                 {details.risk_formula.data_impact.factors.slice(0, 3).map((f, i) => (
                   <div key={i} className="text-[10px] text-slate-500">{f}</div>
@@ -1765,8 +2222,21 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             </div>
             {details.risk_formula.blast_radius && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-center">
-                <div className="text-3xl font-bold text-red-400 mb-2">{details.risk_formula.blast_radius.score}</div>
-                <div className="text-sm text-slate-400 mb-3">Blast Radius</div>
+                {(() => {
+                  const severity = getRiskFactorSeverity(details.risk_formula.blast_radius.score)
+                  return (
+                    <>
+                      <div className="text-sm text-slate-400 mb-3">Blast Radius</div>
+                      <div className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold mb-3 ${severity.pillClassName}`}>
+                        {severity.label}
+                      </div>
+                      <div className="text-sm text-slate-300 mb-2">
+                        {getRiskFactorSummary("blast_radius", details.risk_formula.blast_radius.score)}
+                      </div>
+                      <div className={`text-xs mb-3 ${severity.scoreClassName}`}>Score {details.risk_formula.blast_radius.score}</div>
+                    </>
+                  )
+                })()}
                 <div className="space-y-1">
                   {details.risk_formula.blast_radius.factors.map((f, i) => (
                     <div key={i} className="text-[10px] text-slate-500">{f}</div>
@@ -1884,11 +2354,15 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   {/* Open Ports */}
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-slate-400">Open Ports:</span>
-                    {details.network_layer.open_ports.map((port) => (
-                      <span key={port} className="px-3 py-1 bg-blue-500/20 text-blue-400 text-sm rounded-lg font-mono">
-                        {port}/{details.network_layer.protocols[0] || "TCP"}
-                      </span>
-                    ))}
+                    {details.network_layer.open_ports.length > 0 ? (
+                      details.network_layer.open_ports.map((port) => (
+                        <span key={port} className="px-3 py-1 bg-blue-500/20 text-blue-400 text-sm rounded-lg font-mono">
+                          {port}/{details.network_layer.protocols[0] || "TCP"}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-500">No port-level exposure was needed for this path</span>
+                    )}
                   </div>
 
                   {/* Security Groups */}
@@ -1928,9 +2402,9 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                       {details.network_layer.network_path.map((hop, i) => (
                         <div key={i} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
                           <div className="w-2 h-2 rounded-full bg-green-500" />
-                          <span className="text-sm text-slate-300 flex-1 truncate">{hop.from}</span>
+                          <span className="text-sm text-slate-300 flex-1 truncate">{formatResourceLabel(hop.from)}</span>
                           <ArrowRight className="w-4 h-4 text-slate-500" />
-                          <span className="text-sm text-slate-300 flex-1 truncate">{hop.to}</span>
+                          <span className="text-sm text-slate-300 flex-1 truncate">{formatResourceLabel(hop.to)}</span>
                           {hop.port && (
                             <span className="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded font-mono">
                               :{hop.port}
@@ -1973,12 +2447,25 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </button>
               {expandedSections.has("identity") && (
                 <div className="p-5 pt-0 space-y-4">
+                  <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
+                    <div className="text-sm font-medium text-yellow-300 mb-2">Identity path summary</div>
+                    <p className="text-sm text-slate-300">
+                      The actor <span className="font-medium text-white">{entryPoint}</span> reaches the crown jewel using{" "}
+                      <span className="font-medium text-white">{identityUsed}</span>.
+                    </p>
+                    {details.identity_layer.roles.length === 0 && (
+                      <p className="text-xs text-slate-400 mt-2">
+                        No deeper IAM gap details were stitched into this path yet, but the identity hop is visible in the path itself.
+                      </p>
+                    )}
+                  </div>
+
                   {/* IAM Roles */}
                   {details.identity_layer.roles.map((role) => (
                     <div key={role.role_id} className="bg-slate-800/50 rounded-xl p-4">
                       <div className="flex items-center gap-2 mb-3">
                         <Lock className="w-5 h-5 text-yellow-400" />
-                        <span className="font-medium text-white">{role.role_name}</span>
+                        <span className="font-medium text-white">{formatResourceLabel(role.role_name)}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <div className="p-3 bg-slate-900/50 rounded-lg text-center">
@@ -2045,7 +2532,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               >
                 <div className="flex items-center gap-3">
                   <Database className="w-6 h-6 text-purple-400" />
-                  <span className="text-lg font-semibold text-white">Crown Jewel</span>
+                  <span className="text-lg font-semibold text-white">Crown Jewel Target</span>
                   <span className={`px-3 py-1 text-sm rounded-full ${
                     details.data_impact.sensitivity === "Critical"
                       ? "bg-red-500/20 text-red-400"
@@ -2081,7 +2568,9 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                       <div className="p-3 bg-slate-900/50 rounded-lg text-center">
                         <div className="text-sm text-slate-400">Records at Risk</div>
                         <div className="text-lg font-medium text-white">
-                          {details.data_impact.estimated_records.toLocaleString()}
+                          {details.data_impact.estimated_records > 0
+                            ? details.data_impact.estimated_records.toLocaleString()
+                            : "Unknown"}
                         </div>
                       </div>
                     </div>
@@ -2114,11 +2603,11 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                     <div className="flex gap-6">
                       <div className={`flex items-center gap-2 ${details.data_impact.contains_pii ? "text-red-400" : "text-slate-500"}`}>
                         {details.data_impact.contains_pii ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                        <span className="text-sm">Contains PII</span>
+                        <span className="text-sm">PII: {details.data_impact.contains_pii ? "Yes" : "No"}</span>
                       </div>
                       <div className={`flex items-center gap-2 ${details.data_impact.contains_financial ? "text-red-400" : "text-slate-500"}`}>
                         {details.data_impact.contains_financial ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                        <span className="text-sm">Financial Data</span>
+                        <span className="text-sm">Financial: {details.data_impact.contains_financial ? "Yes" : "No"}</span>
                       </div>
                     </div>
                   </div>
@@ -2147,7 +2636,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               <CheckCircle2 className="w-6 h-6 text-green-400" />
               <span className="text-lg font-semibold text-white">Remediation Actions</span>
               <span className="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">
-                {details.remediations.length} actions
+                {details.remediations.length > 0 ? `${details.remediations.length} actions` : "LP plan"}
               </span>
             </div>
             {expandedSections.has("remediation") ? (
@@ -2156,11 +2645,54 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               <ChevronRight className="w-5 h-5 text-slate-400" />
             )}
           </button>
-          {expandedSections.has("remediation") && (
-            <div className="p-5 pt-0">
-              <div className="grid grid-cols-2 gap-4">
-                {details.remediations.map((rem, i) => (
-                  <div key={i} className="bg-slate-800/50 rounded-xl p-4">
+	          {expandedSections.has("remediation") && (
+	            <div className="p-5 pt-0">
+		              {details.remediations.length === 0 ? (
+		                <div className="space-y-4">
+                      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-5">
+                        <div className="text-sm font-medium text-cyan-300">Open LP simulation</div>
+                        <p className="mt-2 text-sm text-slate-300">
+                          The service-by-service remediation flow lives in the simulation panel. Open it to see exactly which least-privilege changes will block this path.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                            choose one service
+                          </span>
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                            or the whole chain
+                          </span>
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                            apply with rollback
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSimulationFocusNode({
+                              id: details.path_summary.target.name,
+                              name: details.path_summary.target.name,
+                              type: details.path_summary.target.type,
+                            })
+                            setShowSimulation(true)
+                          }}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-cyan-700"
+                        >
+                          <Zap className="w-4 h-4" />
+                          Open LP Simulation
+                        </button>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-5">
+                        <div className="text-sm font-medium text-white">Recommended first control</div>
+                        <p className="mt-2 text-sm text-slate-400">
+                          Start with <span className="font-medium text-white">{identityUsed}</span> and the data services it can reach, especially{" "}
+                          <span className="font-medium text-white">{crownJewel}</span>. This route already proves reachability without a CVE-driven exploit chain.
+                        </p>
+                      </div>
+                    </div>
+		              ) : (
+	              <div className="grid grid-cols-2 gap-4">
+	                {details.remediations.map((rem, i) => (
+	                  <div key={i} className="bg-slate-800/50 rounded-xl p-4">
                     <div className="flex items-start gap-4">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold ${
                         rem.priority === 1 ? "bg-red-500 text-white" :
@@ -2195,12 +2727,13 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                           <span className="text-slate-500">Risk Reduction: <span className="text-green-400">{rem.risk_reduction}</span></span>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+	                    </div>
+	                  </div>
+	                ))}
+	              </div>
+	              )}
+	            </div>
+	          )}
         </div>
 
         {/* Block Success Modal */}
@@ -2301,13 +2834,20 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </>
             )}
           </button>
-          <button
-            onClick={() => setShowSimulation(true)}
-            className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
-          >
-            <Zap className="w-5 h-5" />
-            Run Simulation
-          </button>
+	          <button
+	            onClick={() => {
+                setSimulationFocusNode({
+                  id: details.path_summary.target.name,
+                  name: details.path_summary.target.name,
+                  type: details.path_summary.target.type,
+                })
+                setShowSimulation(true)
+              }}
+	            className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
+	          >
+	            <Zap className="w-5 h-5" />
+	            Open LP Simulation
+	          </button>
           <button
             onClick={handleExportReport}
             className="px-8 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
@@ -2328,13 +2868,33 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       {showSimulation && (
         <AttackSimulationPanel
           isOpen={showSimulation}
-          onClose={() => setShowSimulation(false)}
+          onClose={() => {
+            setShowSimulation(false)
+            setSimulationFocusNode(null)
+          }}
           systemName={systemName}
-          pathId={pathId}
+          pathId={currentPathId}
           pathName={details?.path_summary?.source?.name && details?.path_summary?.target?.name
             ? `${details.path_summary.source.name} → ${details.path_summary.target.name}`
             : undefined
           }
+          pathContext={{
+            pathType,
+            entryPoint,
+            crownJewel,
+            identityUsed,
+            pathNodes: details.path_nodes.map((node) => ({
+              id: node.id,
+              name: node.name,
+              type: node.type,
+              is_internet_exposed: node.is_internet_exposed,
+            })),
+            networkLayer: details.network_layer,
+            identityLayer: details.identity_layer,
+            dataImpact: details.data_impact,
+          }}
+          initialSelectedServiceId={simulationFocusNode?.id || null}
+          initialSelectedServiceName={simulationFocusNode?.name || details.path_summary.target.name}
         />
       )}
     </div>

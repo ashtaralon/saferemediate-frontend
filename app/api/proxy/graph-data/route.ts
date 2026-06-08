@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache with 15-minute TTL for SWR (Stale-While-Revalidate)
 const cache = new Map<string, { data: any; timestamp: number }>()
@@ -72,26 +73,11 @@ export async function GET() {
     clearTimeout(timeoutId)
 
     if (!nodesResponse.ok || !edgesResponse.ok) {
+      const failingStatus = !nodesResponse.ok ? nodesResponse.status : edgesResponse.status
       console.error("[v0] Graph data fetch failed - nodes:", nodesResponse.status, "edges:", edgesResponse.status)
-      
-      // SWR: Return stale cache if available
-      if (cached) {
-        const staleAge = Math.round((now - cached.timestamp) / 1000)
-        console.log(`[v0] Returning stale cache due to backend error (age: ${staleAge}s)`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            'X-Cache': 'STALE',
-            'X-Cache-Age': String(staleAge),
-            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=900',
-          }
-        })
-      }
-      
-      return NextResponse.json({
-        success: false,
-        error: `Backend returned nodes:${nodesResponse.status} edges:${edgesResponse.status}`,
-        nodes: [],
-        relationships: [],
+      return backendError({
+        status: failingStatus,
+        message: `Graph backend returned nodes:${nodesResponse.status} edges:${edgesResponse.status}`,
       })
     }
 
@@ -131,34 +117,16 @@ export async function GET() {
         'X-Cache': 'MISS',
       }
     })
-  } catch (error: any) {
-    console.error("[v0] Graph data fetch error:", error.name === 'AbortError' ? 'Request timed out' : error)
-    
-    // SWR: Return stale cache if available (even if very old)
-    if (cached) {
-      console.log(`[v0] Returning stale cache due to error (age: ${cacheAge}s)`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          'X-Cache': 'STALE',
-          'X-Cache-Age': String(cacheAge),
-          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=900',
-        }
-      })
-    }
-    
-    // Return empty data instead of error to prevent frontend hanging
-    return NextResponse.json({
-      success: false,
-      error: error.name === 'AbortError' ? 'Request timed out' : (error.message || "Failed to fetch graph data"),
-      nodes: [],
-      relationships: [],
-    })
+  } catch (error: unknown) {
+    const e = error as Error
+    console.error("[v0] Graph data fetch error:", e?.name === 'AbortError' ? 'Request timed out' : e)
+    return fromCaughtError(error)
   }
 }
 
 // Background cache update function for SWR
 async function updateCacheInBackground(cacheKey: string) {
-  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
   
   try {
     const controller = new AbortController()

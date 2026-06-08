@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(req: NextRequest) {
@@ -116,9 +115,15 @@ export async function GET(req: NextRequest) {
       const unifiedData = await unifiedSnapshotsResponse.json()
       const unifiedSnapshots = unifiedData.snapshots || []
 
-      // Transform to match snapshot format and filter out duplicates
+      // Transform to match snapshot format for all IAM/unified snapshots.
+      // Older/live IAM remediations can produce IAMRole-* IDs, not only SNAP-*.
       const transformedUnified = unifiedSnapshots
-        .filter((snap: any) => snap.snapshot_id?.startsWith('SNAP-'))
+        .filter((snap: any) =>
+          snap.snapshot_id?.startsWith('SNAP-') ||
+          snap.snapshot_id?.startsWith('IAMRole-') ||
+          snap.resource_type === 'IAMRole' ||
+          !!snap.original_role
+        )
         .map((snap: any) => ({
           snapshot_id: snap.snapshot_id,
           id: snap.snapshot_id,

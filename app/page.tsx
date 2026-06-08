@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useSearchParams } from "next/navigation"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
@@ -17,18 +18,38 @@ import { PerResourceAnalysis } from "@/components/per-resource-analysis"
 import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
 import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
+import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
+import { IdentityAttackPaths } from "@/components/identity-attack-paths/identity-attack-paths"
+// AttackerMap is consumed by system-detail-dashboard.tsx (Risk → Attacker Map
+// sub-tab), not as a top-level section. The top-level case below was removed
+// when we discovered the (selectedSystem, activeSection) routing can't hold
+// both at once — see system-detail-dashboard.tsx for the canonical entry.
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
+import { DataLeakPathsPage } from "@/components/data-leak-paths/data-leak-paths-page"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
+import { EvidenceHealthCard } from "@/components/dashboard/evidence-health-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
+import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
+import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+// V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
+// roll back to the legacy home without a code redeploy.
+const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 !== "false"
+// V3 is opt-in while we build it out. Set NEXT_PUBLIC_DASHBOARD_V3 to any
+// truthy value (true, 1, yes — case-insensitive) on Vercel to preview.
+// Takes precedence over V2 when enabled. Will become the default once
+// Phases B/C/D land real-data cards in every section.
+const DASHBOARD_V3_RAW = (process.env.NEXT_PUBLIC_DASHBOARD_V3 ?? "").trim().toLowerCase()
+const DASHBOARD_V3_ENABLED =
+  DASHBOARD_V3_RAW === "true" || DASHBOARD_V3_RAW === "1" || DASHBOARD_V3_RAW === "yes"
+
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
 // Helper function to fetch with timeout
@@ -107,11 +128,35 @@ function setCachedData(key: string, data: any): void {
 }
 
 export default function HomePage() {
-  const [activeSection, setActiveSection] = useState("home")
-  const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const systemFromUrl = searchParams.get('system')
+  // Refresh now always lands on Home (matches the 2026-04-30 rollback
+  // intent). Reading ?section= on mount was masking the fact that
+  // dashboard "View all" buttons + a stale V3 link were quietly
+  // pinning users to /?section=attack-paths — once that param landed
+  // in the URL, every refresh re-seeded activeSection back to that
+  // section and the operator was stuck. The fix has two parts:
+  //   1. Drop the URL seed here (this change).
+  //   2. Stop dashboard cards from putting ?section= into the URL —
+  //      v2 IdentityAttackPathsQueue and v3 attack-paths-card now
+  //      drive section changes via the onNavigateToSection callback.
+  // Tradeoff: deep links like /?section=attack-paths no longer
+  // auto-route. That's an explicit choice — refresh-stickiness has
+  // burned operators (see this commit's ticket); shareable section
+  // links never had a tested operator workflow.
+  const [activeSection, setActiveSection] = useState<string>("home")
+  // Initial selection is URL-driven; we don't hardcode any system here.
+  // When ?system= is absent we auto-pick the first system from /api/systems
+  // in a useEffect below — data-driven, not "alon-prod"-driven. That keeps
+  // sidebar sections (Attack Paths, Vulnerabilities, etc.) populated for
+  // fresh visits while the home page still renders the org-wide aggregate.
+  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl)
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
+  // Pending-tag queue count for the sidebar badge. Polled on mount + every 60s
+  // so operators see new pending items without a hard refresh.
+  const [pendingTagsCount, setPendingTagsCount] = useState<number>(0)
   const [gapData, setGapData] = useState<GapAnalysisData>({
     allowed: 0,
     used: 0,
@@ -138,7 +183,7 @@ export default function HomePage() {
 
   const fetchGapAnalysis = useCallback(() => {
     // Fetch from issues-summary which has aggregated permission data from all roles
-    fetchWithTimeout("/api/proxy/issues-summary?systemName=alon-prod", {}, 30000)
+    fetchWithTimeout(`/api/proxy/issues-summary?systemName=${encodeURIComponent(selectedSystem || '')}`, {}, 30000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -211,6 +256,49 @@ export default function HomePage() {
         // Keep existing data on error
       })
   }, [])
+
+  // Auto-pick a default system when the operator navigates AWAY from home
+  // and we have no system selected. The home page itself MUST stay null so
+  // HomeDashboardV2 renders the org-wide aggregate (commit 7650d03).
+  // Sidebar sections (Attack Paths, Vulnerabilities, Per-resource, etc.)
+  // need a selected system or they render "No system selected".
+  //
+  // Pick by lowest health_score then highest resourceCount — the worst /
+  // largest system is the one with actual security work to do, which
+  // matches the Top Accounts list ordering on the home page. Data-driven,
+  // not "alon-prod" hardcoded.
+  //
+  // If /api/systems is empty or fails, leave selectedSystem null and the
+  // sidebar sections will show their honest empty-state copy.
+  useEffect(() => {
+    if (activeSection === 'home') return // home renders aggregate; do not pick
+    if (systemFromUrl) return // URL wins
+    if (selectedSystem) return // already picked
+    let aborted = false
+    fetch('/api/proxy/systems', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (aborted || !data) return
+        const list: any[] = Array.isArray(data?.systems) ? data.systems : []
+        const candidates = list
+          .filter((s) => typeof s?.name === 'string' && s.name.length > 0)
+          .sort((a, b) => {
+            const sa = typeof a.health_score === 'number' ? a.health_score : 100
+            const sb = typeof b.health_score === 'number' ? b.health_score : 100
+            if (sa !== sb) return sa - sb // lowest score wins
+            const ra = typeof a.resourceCount === 'number' ? a.resourceCount : 0
+            const rb = typeof b.resourceCount === 'number' ? b.resourceCount : 0
+            return rb - ra // tiebreak: largest resource count
+          })
+        if (candidates.length > 0) setSelectedSystem(candidates[0].name)
+      })
+      .catch(() => {
+        // Silent — keep null and sidebar empty-states surface the gap.
+      })
+    return () => {
+      aborted = true
+    }
+  }, [activeSection, systemFromUrl, selectedSystem])
 
   const loadData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading spinner on initial load when no cached data exists
@@ -314,6 +402,31 @@ export default function HomePage() {
     return () => clearInterval(interval)
   }, [autoRefresh, loadData, fetchGapAnalysis, fetchSecurityHub])
 
+  // Pending-tag count for the sidebar badge. On-mount + 60s poll. Isolated
+  // from the main data fetch so a pending-endpoint failure doesn't break
+  // the rest of the dashboard.
+  useEffect(() => {
+    let cancelled = false
+    const fetchPendingCount = async () => {
+      try {
+        const res = await fetch("/api/proxy/auto-tagger/pending?status=pending", {
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setPendingTagsCount(typeof data?.count === "number" ? data.count : 0)
+      } catch {
+        // Silent — the nav just shows no badge if we can't fetch.
+      }
+    }
+    fetchPendingCount()
+    const interval = setInterval(fetchPendingCount, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
   // Compute security stats from actual findings when backend returns zeros
   const computeStatsFromFindings = (findings: SecurityFinding[]) => {
     const counts = { critical: 0, high: 0, medium: 0, low: 0 }
@@ -376,6 +489,21 @@ export default function HomePage() {
   const hasUnifiedSummary = issuesSummary && issuesSummary.total > 0
   const hasBackendStats = backendStats.critical > 0 || backendStats.high > 0 || backendStats.medium > 0 || backendStats.low > 0
 
+  // Fallback chain for the sidebar Issues badge + the overview cards.
+  // Per dashboard design review (2026-04-30), the sidebar showed "4"
+  // while Systems Overview rows totalled 27 critical findings. Root
+  // cause: the third-tier fallback used securityFindings.length — the
+  // count of findings the PAGE happened to fetch into local state —
+  // and called it "totalIssues." That number depends on local fetch
+  // race conditions, not on org-wide aggregates.
+  //
+  // New fallback chain:
+  //   Tier 1: data.issuesSummary.total          (canonical, org-wide)
+  //   Tier 2: data.securityIssues.totalIssues   (backend per-severity)
+  //   Tier 3: don't fabricate a number         — surface as undefined so
+  //                                              the sidebar omits the badge
+  //                                              instead of showing a misleading
+  //                                              local-array length.
   const securityIssuesData = hasUnifiedSummary ? {
     critical: issuesSummary.by_severity?.critical || 0,
     high: issuesSummary.by_severity?.high || 0,
@@ -389,7 +517,9 @@ export default function HomePage() {
     high: computedFindingsStats.high,
     medium: computedFindingsStats.medium,
     low: computedFindingsStats.low,
-    totalIssues: securityFindings.length,
+    // Intentional: leave totalIssues at backendStats's default (0). The
+    // sidebar badge code treats 0/undefined as "no badge" so the user
+    // sees an absence rather than a wrong number.
   })
 
   const complianceSystems = data?.complianceSystems || []
@@ -402,17 +532,48 @@ export default function HomePage() {
   const securityHubHighlights = Object.entries(securityHubData.byProduct).slice(0, 3)
 
   const handleSystemSelect = (systemName: string) => {
+    // Selecting a system means "show me this system's detail view".
+    // The detail-view short-circuit below only fires when activeSection
+    // is "home", so we switch there too. Without this, clicking "View"
+    // on the Systems tab leaves activeSection="systems" and the case
+    // statement re-renders the systems list — operator's click does
+    // nothing visible.
     setSelectedSystem(systemName)
+    setActiveSection("home")
   }
 
   const handleBackFromSystem = () => {
     setSelectedSystem(null)
   }
 
-  if (selectedSystem) {
+  // Sidebar click handler — needs to do more than just setActiveSection,
+  // because clicking "Home" while a system is selected was bouncing to
+  // the alon-prod system detail dashboard (the home short-circuit below
+  // fires whenever selectedSystem is set AND activeSection === "home").
+  // Now: Home click also clears selectedSystem so the actual home
+  // dashboard renders. Other sections leave selectedSystem alone — they
+  // need it to scope their content (e.g. Attack Paths / LP / etc.).
+  const handleSidebarClick = (id: string) => {
+    if (id === "home") {
+      setSelectedSystem(null)
+    }
+    setActiveSection(id)
+  }
+
+  // Short-circuit to SystemDetailDashboard ONLY from the home tab — that's
+  // the "operator clicked a Top Accounts row" flow. Sidebar tabs (Attack
+  // Paths, Vulnerabilities, etc.) MUST fall through to their own case
+  // handlers below; this short-circuit used to fire whenever selectedSystem
+  // was set, which made every sidebar click bounce back to the system-
+  // detail page (the user reported "every click pushes me to alon-prod").
+  if (selectedSystem && activeSection === "home") {
     return (
       <ErrorBoundary componentName="System Dashboard">
-        <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
+        <SystemDetailDashboard
+          systemName={selectedSystem}
+          onBack={handleBackFromSystem}
+          onNavigateToSection={handleSidebarClick}
+        />
       </ErrorBoundary>
     )
   }
@@ -420,7 +581,7 @@ export default function HomePage() {
   if (loading) {
     return (
       <div className="flex min-h-screen bg-gray-50">
-        <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={0} />
+        <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={0} pendingTagsCount={pendingTagsCount} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2D51DA] mx-auto mb-4"></div>
@@ -449,7 +610,7 @@ export default function HomePage() {
         operations: "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
       })
 
-      const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, { method: 'POST' })
+      const response = await fetch(`/api/proxy/debug/simulate-traffic?${params}`, { method: 'POST' })
       const data = await response.json()
 
       if (data.success) {
@@ -477,6 +638,16 @@ export default function HomePage() {
   const renderContent = () => {
     switch (activeSection) {
       case "home":
+        if (DASHBOARD_V3_ENABLED) {
+          return <HomeDashboardV3 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
+        }
+        if (DASHBOARD_V2_ENABLED) {
+          // No system in URL → render with empty system; V2's SystemInput
+          // at the top of HomeDashboardV2 prompts the operator to pick.
+          // Previously defaulted to "alon-prod", which silently routed every
+          // fresh visit into one specific demo system's data.
+          return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
+        }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0
         const gapUnused = gapData?.unused ?? 0
@@ -586,7 +757,11 @@ export default function HomePage() {
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-8">
-                <MicroEnforcementScore systemName={selectedSystem || "alon-prod"} />
+                {selectedSystem ? (
+                  <MicroEnforcementScore systemName={selectedSystem} />
+                ) : (
+                  <div className="text-center py-8 text-gray-500">No system selected</div>
+                )}
               </div>
               <div className="xl:col-span-4 space-y-6">
                 <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
@@ -701,6 +876,8 @@ export default function HomePage() {
                     </CardContent>
                   </Card>
                 )}
+
+                <EvidenceHealthCard />
               </div>
             </div>
 
@@ -709,7 +886,7 @@ export default function HomePage() {
                 <InfrastructureOverview stats={infrastructureStats} />
               </div>
               <div className="xl:col-span-5 space-y-6">
-                <PostureScoreCard systemName="Eltro" />
+                {selectedSystem ? <PostureScoreCard systemName={selectedSystem} /> : null}
                 <Card className="rounded-[24px] border-slate-200 bg-white shadow-[0_18px_45px_-35px_rgba(15,23,42,0.4)]">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg font-semibold text-[var(--foreground,#111827)]">
@@ -776,6 +953,15 @@ export default function HomePage() {
         )
 
       case "issues":
+        // IssuesSection is the single source of truth for findings on this
+        // page. It does its own fetchSecurityFindings() call AND renders
+        // both the empty state ("No Findings Loaded — Click Scan Now") and
+        // the findings list. The previous render also stacked a separate
+        // <SecurityFindingsList> that read from page-level state populated
+        // by ITS OWN fetchSecurityFindings() call — when the two fetches
+        // disagreed (race / cache / one failed), users saw the empty state
+        // above a populated list. Per the dashboard design review, that
+        // contradiction was visible at every page load.
         return (
           <div className="space-y-6">
             <IssuesSection
@@ -789,10 +975,6 @@ export default function HomePage() {
               totalCritical={securityIssuesData.critical}
               missionCriticalCount={0}
             />
-            <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
-              <h2 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-4">All Security Findings</h2>
-              <SecurityFindingsList findings={securityFindings} />
-            </div>
           </div>
         )
 
@@ -816,8 +998,29 @@ export default function HomePage() {
       case "per-resource":
         return <PerResourceAnalysis systemName={selectedSystem} />
 
+      case "copilot":
+        return <SavedQuestionGallery systemName={selectedSystem} />
+
       case "least-privilege":
         return <LeastPrivilegeTab systemName={selectedSystem} />
+
+      case "attack-paths":
+        return (
+          <ErrorBoundary componentName="Attack Paths">
+            {selectedSystem ? <IdentityAttackPaths systemName={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+          </ErrorBoundary>
+        )
+
+      case "data-leak-paths":
+        return (
+          <ErrorBoundary componentName="Data Leak Paths">
+            {selectedSystem ? (
+              <DataLeakPathsPage systemName={selectedSystem} />
+            ) : (
+              <div className="text-center py-8 text-gray-500">No system selected</div>
+            )}
+          </ErrorBoundary>
+        )
 
       case "vulnerabilities":
         return <BehavioralVulnerabilitiesView systemName={selectedSystem} />
@@ -839,7 +1042,7 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={statsData.totalIssues} />
+      <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
       <div className="flex-1 p-8">{renderContent()}</div>
 
       {/* Traffic Simulator Modal */}

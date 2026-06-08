@@ -5,7 +5,6 @@ export const fetchCache = "force-no-store"
 export const maxDuration = 300 // 5 minutes for CloudTrail ingestion
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(req: NextRequest) {

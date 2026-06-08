@@ -363,10 +363,10 @@ function LayerRow({ layer, config }: {
 // ── Main Component ──────────────────────────────────────────────────
 
 interface MicroEnforcementScoreProps {
-  systemName?: string
+  systemName: string
 }
 
-export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforcementScoreProps) {
+export function MicroEnforcementScore({ systemName }: MicroEnforcementScoreProps) {
   const [data, setData] = useState<EnforcementData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

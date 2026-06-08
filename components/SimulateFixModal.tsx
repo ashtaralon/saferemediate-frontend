@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { toRoutingDecision } from '@/lib/decision-routing';
 
 interface Finding {
   id?: string;
@@ -42,6 +43,15 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
   const [decision, setDecision] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Map the legacy 6-state decision.action coming from /api/proxy/simulate
+  // onto the v4.4 §11E canonical 4-state via the shared mapper. Returns
+  // null when decision is absent (the live API doesn't populate this
+  // field today; the display block below is gated on `decision &&`).
+  const routedDecision = useMemo(
+    () => toRoutingDecision(decision?.action),
+    [decision]
+  );
 
   // Handle simulate - called when user clicks "Run Simulation" button
   const handleSimulate = async () => {
@@ -361,21 +371,75 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
             <div className="space-y-4">
               <h3 className="text-lg font-semibold">Simulation Results</h3>
 
-              <div className="rounded border p-3 space-y-2">
-                <div className="text-sm">
-                  <strong>Decision:</strong> <span className="font-mono">{decision.action}</span>
+              {/* Three distinct concepts, displayed separately so
+                  operators stop reading "95% confidence + BLOCKED"
+                  as a contradiction:
+                    1. Execution decision — what the engine routed it to
+                       (AUTO_EXECUTE / CANARY_FIRST / REQUIRE_APPROVAL /
+                       MANUAL_REVIEW / BLOCK / EXCLUDE)
+                    2. Remediation confidence — how well we understand
+                       the finding (the multiplicative formula output)
+                    3. Telemetry coverage — what real data backs the
+                       confidence; missing telemetry can lower the
+                       routing without lowering confidence
+                  Per memory feedback_decision_enum_convergence.md,
+                  unified.DecisionOutcome is the canonical decision
+                  enum. */}
+              <div className="rounded-lg border border-slate-200 divide-y divide-slate-200 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Execution decision
+                  </span>
+                  <span
+                    className={`text-xs font-mono font-semibold px-2 py-0.5 rounded ${
+                      routedDecision === "INSUFFICIENT_DATA"
+                        ? "bg-rose-100 text-rose-700"
+                        : routedDecision === "AUTO"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : routedDecision === "STAGED_AUTO"
+                            ? "bg-sky-100 text-sky-700"
+                            : routedDecision === "SUGGEST"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {routedDecision ?? decision.action ?? "—"}
+                  </span>
                 </div>
-                <div className="text-sm">
-                  <strong>Confidence:</strong> {typeof decision.confidence === "number"
-                    ? `${(decision.confidence * 100).toFixed(1)}%`
-                    : "—"}
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Remediation confidence
+                  </span>
+                  <span className="text-sm font-semibold tabular-nums text-slate-900">
+                    {typeof decision.confidence === "number"
+                      ? `${(decision.confidence * 100).toFixed(1)}%`
+                      : "—"}
+                  </span>
                 </div>
-                <div className="text-sm">
-                  <strong>Safety:</strong> {typeof decision.safety === "number"
-                    ? `${(decision.safety * 100).toFixed(1)}%`
-                    : "—"}
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Telemetry coverage
+                  </span>
+                  <span className="text-sm font-semibold tabular-nums text-slate-900">
+                    {typeof decision.safety === "number"
+                      ? `${(decision.safety * 100).toFixed(1)}%`
+                      : "—"}
+                  </span>
                 </div>
               </div>
+              {/* Plain-English line for the case the audit explicitly
+                  flagged: high confidence + BLOCK looks contradictory
+                  unless the disjunction is named. */}
+              {routedDecision === "INSUFFICIENT_DATA" &&
+                typeof decision.confidence === "number" &&
+                decision.confidence >= 0.7 ? (
+                <p className="text-xs text-slate-600 italic px-1">
+                  Engine understands the finding (high confidence) but
+                  blocks execution — usually because telemetry coverage
+                  is below the gate threshold or a hard safety
+                  invariant fired. See reasons below.
+                </p>
+              ) : null}
 
               {Array.isArray(decision.reasons) && decision.reasons.length > 0 && (
                 <div className="rounded-lg border p-3">
@@ -424,7 +488,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                 <Button variant="outline" onClick={handleClose}>
                   Close
                 </Button>
-                {decision.action !== "BLOCK" && (
+                {routedDecision !== "INSUFFICIENT_DATA" && (
                   <Button 
                     className="bg-green-600 hover:bg-green-700"
                     onClick={handleApplyFix}

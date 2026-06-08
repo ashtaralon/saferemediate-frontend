@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+  "https://saferemediate-backend-f.onrender.com"
 
 const FETCH_TIMEOUT = 30000 // 30 second timeout (behavioral analysis may take time)
 

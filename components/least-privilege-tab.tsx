@@ -2,10 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { SGGapCard } from './sg-gap-card';
+import { SGRemediationCard } from './sg-remediation-card';
 import { IAMPermissionAnalysisModal } from './iam-permission-analysis-modal';
 
-// Use environment variable for backend URL
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+// Feature flag: render the new IAM-modal-style SG remediation card by
+// default. Flip to false to fall back to the legacy SGGapCard inline
+// flow during the transition. ?legacy_sg_card=1 in the URL also forces
+// fallback for quick visual A/B during demos.
+const USE_NEW_SG_CARD = true;
 
 // ============================================================================
 // Types & Interfaces
@@ -371,7 +375,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
           protocol: simProtocol,
         });
 
-        const response = await fetch(`${BACKEND_URL}/api/debug/simulate-network-traffic?${params}`, {
+        const response = await fetch(`/api/proxy/debug/simulate-network-traffic?${params}`, {
           method: 'POST',
         });
 
@@ -398,7 +402,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
           operations: simApiOperations.join(','),
         });
 
-        const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, {
+        const response = await fetch(`/api/proxy/debug/simulate-traffic?${params}`, {
           method: 'POST',
         });
 
@@ -1236,17 +1240,38 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                 </div>
               )}
               
-              {/* Detailed SG Cards */}
+              {/* Detailed SG Cards — new IAM-modal-style card by default
+                  (USE_NEW_SG_CARD flag at the top of this file); legacy
+                  SGGapCard kept available for fallback / A/B. The new
+                  card mirrors the IAM v4.4 §11E design language:
+                  confidence card + per-rule action partition + one-click
+                  bulk-select by confidence band + demo-safe labels. */}
               {securityGroups
                 .filter(sgId => expandedSGs.size === 0 || expandedSGs.has(sgId))
                 .map((sgId) => (
-                  <SGGapCard
-                    key={sgId}
-                    sgId={sgId}
-                    systemName={systemName}
-                    onSimulate={handleSimulate}
-                    onRemediate={handleRemediate}
-                  />
+                  USE_NEW_SG_CARD ? (
+                    <SGRemediationCard
+                      key={sgId}
+                      sgId={sgId}
+                      onSimulate={(sgId, ruleId, action) => handleSimulate(sgId, ruleId, action)}
+                      onApplied={(sgId, summary) => {
+                        // The card now owns the full apply lifecycle —
+                        // including the override modal on BLOCK and the
+                        // force=true + override_lineage retry path.
+                        // Parent's job is just to surface the outcome
+                        // (toast / refresh sidebar counts / etc).
+                        console.log(`[LP-tab] SG ${sgId} apply complete: removed=${summary.removed} snapshot=${summary.snapshot_id}`);
+                      }}
+                    />
+                  ) : (
+                    <SGGapCard
+                      key={sgId}
+                      sgId={sgId}
+                      systemName={systemName}
+                      onSimulate={handleSimulate}
+                      onRemediate={handleRemediate}
+                    />
+                  )
                 ))}
               
               {/* Show more button if there are hidden SGs */}
@@ -1298,4 +1323,3 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
 };
 
 export default LeastPrivilegeTab;
-

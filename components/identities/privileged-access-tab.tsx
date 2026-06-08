@@ -107,7 +107,7 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
   })
 
   const handleReviewFix = (identity: PrivilegedIdentity) => {
-    setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "" })
+    setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "", identityType: identity.sub_type || "IAMRole" })
     setShowPermissionModal(true)
   }
 
@@ -316,6 +316,7 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
           onClose={() => { setShowPermissionModal(false); setSelectedIdentity(null) }}
           roleName={selectedIdentity.roleName}
           systemName={selectedIdentity.systemName}
+          identityType={selectedIdentity.identityType}
           onSuccess={() => { fetchPrivileged() }}
           onRemediationSuccess={() => { fetchPrivileged() }}
         />

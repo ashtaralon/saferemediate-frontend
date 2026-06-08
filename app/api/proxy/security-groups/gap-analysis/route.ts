@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { fromCaughtError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(req: NextRequest) {
@@ -69,19 +69,9 @@ export async function GET(req: NextRequest) {
         "Content-Type": "application/json",
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[proxy] security-groups/gap-analysis error:", error)
-    
-    // Return empty fallback on timeout or error
-    return NextResponse.json({
-      security_groups: [],
-      total: 0,
-      used_rules: 0,
-      unused_rules: 0,
-      timeout: error.name === "AbortError",
-      error: true,
-      message: error.name === "AbortError" ? "Request timed out" : error.message
-    }, { status: 200 })
+    return fromCaughtError(error)
   }
 }
 

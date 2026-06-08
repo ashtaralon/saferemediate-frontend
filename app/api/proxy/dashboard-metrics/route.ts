@@ -8,7 +8,7 @@ export const maxDuration = 30 // Maximum execution time in seconds (Vercel Pro t
 
 export async function GET() {
   // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  const backendUrl = "https://saferemediate-backend-f.onrender.com"
 
   try {
     // Add timeout to prevent hanging - 28 seconds for slow backend (safe under Vercel 30s limit)

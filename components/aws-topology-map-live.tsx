@@ -52,29 +52,29 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
       let trafficTimeline: any = null
       let confidence = 75
       
-      // If target is a Security Group, fetch REAL gap analysis from backend
+      // If target is a Security Group, fetch REAL gap analysis from backend.
+      // SG id resolution (2026-05-30 — removed hardcoded customer-specific
+      // sgNameToId table that only matched the 5 SafeRemediate-Test demo SGs
+      // and silently no-op'd on any other customer). The graph node carries
+      // the real id in one of three places:
+      //   1. targetNode.sgId — set by the consumer when known.
+      //   2. targetNode.id — when the node id IS the sg-XXX id.
+      //   3. targetNode.awsId / targetNode.aws_id — generic AWS-id slot some
+      //      callers populate.
+      // If none are present, we skip — silently inventing an id would be
+      // worse than rendering an empty gap-analysis section.
       if (targetNode?.type === "SecurityGroup") {
-        // Known SG name to ID mapping (from AWS)
-        const sgNameToId: Record<string, string> = {
-          'saferemediate-test-app-sg': 'sg-02a2ccfe185765527',
-          'saferemediate-test-alb-sg': 'sg-06a6f52b72976da16',
-          'saferemediate-test-db-sg': 'sg-0f8fadc0579ff6845',
-          'AlonTest': 'sg-001295b4de50b389d',
-          'default': 'sg-0212ab87005f59737',
-        }
-        
-        // Try to get sgId from node data, or look up by name
-        let sgId = targetNode.sgId
+        let sgId: string | undefined = targetNode.sgId
         if (!sgId && targetNode.id?.startsWith('sg-')) {
           sgId = targetNode.id
         }
-        if (!sgId && sgNameToId[targetNode.id]) {
-          sgId = sgNameToId[targetNode.id]
+        if (!sgId && (targetNode as any).awsId?.startsWith?.('sg-')) {
+          sgId = (targetNode as any).awsId
         }
-        if (!sgId && sgNameToId[targetNode.label]) {
-          sgId = sgNameToId[targetNode.label]
+        if (!sgId && (targetNode as any).aws_id?.startsWith?.('sg-')) {
+          sgId = (targetNode as any).aws_id
         }
-        
+
         if (sgId) {
           try {
             const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis`)

@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import AWSTopologyMapLive from '@/components/aws-topology-map-live'
 import { ResourceImpactPanel } from '@/components/resource-impact-panel'
-
-// Use environment variable or fallback to production
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+import { SystemGuard } from '@/components/system-guard'
+import { useSystem } from '@/lib/system-context'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // Predefined simulation scenarios for demo
 const DEMO_SCENARIOS = [
@@ -16,6 +16,7 @@ const DEMO_SCENARIOS = [
 ]
 
 export default function ArchitecturePage() {
+  const { systemName } = useSystem()
   const [isLoading, setIsLoading] = useState(false)
   const [isSimulating, setIsSimulating] = useState(false)
   const [showSimulator, setShowSimulator] = useState(false)
@@ -29,12 +30,12 @@ export default function ArchitecturePage() {
     setIsLoading(true)
     console.log('='.repeat(60))
     console.log('FETCHING TRAFFIC DATA FROM NEO4J')
-    console.log(`Backend URL: ${BACKEND_URL}`)
+    console.log('Using internal debug proxy route')
     console.log('='.repeat(60))
 
     try {
       // Fetch all traffic data
-      const response = await fetch(`${BACKEND_URL}/api/debug/traffic`)
+      const response = await fetch('/api/proxy/debug/traffic')
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -70,7 +71,7 @@ export default function ArchitecturePage() {
       console.log(data.summary || 'No summary')
 
       // Also fetch EC2 to S3 specific traffic
-      const ec2S3Response = await fetch(`${BACKEND_URL}/api/debug/traffic/ec2-s3`)
+      const ec2S3Response = await fetch('/api/proxy/debug/traffic/ec2-s3')
       const ec2S3Data = await ec2S3Response.json()
 
       console.log('\n--- EC2 TO S3 TRAFFIC ---')
@@ -94,7 +95,7 @@ export default function ArchitecturePage() {
 
     } catch (error) {
       console.error('Error fetching traffic data:', error)
-      alert(`Error fetching traffic data: ${error}\n\nMake sure backend is running on ${BACKEND_URL}`)
+      alert(`Error fetching traffic data: ${error}\n\nMake sure the internal debug proxy can reach the backend`)
     } finally {
       setIsLoading(false)
     }
@@ -111,7 +112,7 @@ export default function ArchitecturePage() {
         operations: "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
       })
 
-      const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, {
+      const response = await fetch(`/api/proxy/debug/simulate-traffic?${params}`, {
         method: 'POST'
       })
 
@@ -142,15 +143,19 @@ export default function ArchitecturePage() {
   }
 
   return (
+    <SystemGuard>
     <div className="min-h-screen bg-slate-50 p-6">
       {/* Header */}
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mb-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">AWS Architecture Graph</h1>
-            <p className="text-slate-600 mt-1">
-              Real-time topology from Neo4j • Live resource discovery
-            </p>
+          <div className="flex items-center gap-3">
+            <BackToDashboard />
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">AWS Architecture Graph</h1>
+              <p className="text-slate-600 mt-1">
+                Real-time topology from Neo4j • Live resource discovery
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -198,8 +203,8 @@ export default function ArchitecturePage() {
       <div className="flex gap-6 h-[calc(100vh-200px)]">
         {/* Topology Map - Left Side */}
         <div className="flex-1 min-w-0">
-          <AWSTopologyMapLive 
-            systemName="alon-prod"
+          <AWSTopologyMapLive
+            systemName={systemName!}
             autoRefreshInterval={30}
             height="100%"
             showLegend={true}
@@ -209,7 +214,7 @@ export default function ArchitecturePage() {
 
         {/* Resource Impact Panel - Right Side */}
         <div className="w-[380px] flex-shrink-0">
-          <ResourceImpactPanel />
+          <ResourceImpactPanel systemName={systemName!} />
         </div>
       </div>
 
@@ -333,6 +338,7 @@ export default function ArchitecturePage() {
         </div>
       )}
     </div>
+    </SystemGuard>
   )
 }
 // Deploy trigger: 1767362733

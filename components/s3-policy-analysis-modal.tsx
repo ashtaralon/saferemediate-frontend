@@ -7,6 +7,10 @@ import {
   FileText, Lock, Users, Eye, Activity, Play, Zap
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
+import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
+import type { ConfidenceScore } from "@/lib/types"
 
 interface PolicyAnalysis {
   policy_name: string
@@ -16,6 +20,9 @@ interface PolicyAnalysis {
   access_count: number
   last_accessed?: string
   is_public?: boolean
+  principal?: string
+  actions?: string[]
+  actions_used?: string[]
 }
 
 interface S3GapAnalysisData {
@@ -72,10 +79,17 @@ interface S3PolicyAnalysisModalProps {
   resourceData?: any
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
-  onRemediationSuccess?: (bucketName: string) => void
+  onRemediationSuccess?: (result: {
+    bucketName: string
+    snapshotId?: string | null
+    eventId?: string | null
+    rollbackAvailable?: boolean
+    afterTotal?: number | null
+    removedCount?: number | null
+  }) => void
 }
 
-type TabType = 'analysis' | 'policies' | 'evidence' | 'access' | 'simulate'
+type TabType = 'analysis' | 'policies' | 'evidence' | 'access' | 'remediation'
 
 interface AccessData {
   dataEventsStatus: string
@@ -90,6 +104,24 @@ interface AccessData {
       lastSeen: string | null
     }>
   }>
+}
+
+function formatObservedAccessLabel(count: number, observationDays: number) {
+  return `${count.toLocaleString()} observed accesses in ${observationDays}-day window`
+}
+
+function getS3UsedLabel(usedCount: number, usedPercent: number, hasPublicAccess: boolean) {
+  if (hasPublicAccess && usedCount > 0) {
+    return `Policy In Use (${usedPercent}%)`
+  }
+  return `Actually Used (${usedPercent}%)`
+}
+
+function getS3UnusedLabel(unusedCount: number, unusedPercent: number, hasPublicAccess: boolean) {
+  if (hasPublicAccess && unusedCount === 0) {
+    return `LP Removable (0%)`
+  }
+  return `Unused (${unusedPercent}%)`
 }
 
 export function S3PolicyAnalysisModal({
@@ -113,8 +145,13 @@ export function S3PolicyAnalysisModal({
   const [error, setError] = useState<string | null>(null)
   const [showSimulation, setShowSimulation] = useState(false)
   const [simulating, setSimulating] = useState(false)
+  const [simulationPreview, setSimulationPreview] = useState<any>(null)
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
+  const [selectedPoliciesToRemove, setSelectedPoliciesToRemove] = useState<Set<string>>(new Set())
+  const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
+  const [confidenceLoading, setConfidenceLoading] = useState(false)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -122,47 +159,84 @@ export function S3PolicyAnalysisModal({
       fetchGapAnalysis()
       fetchBucketPolicy()
       fetchAccessData()
+      fetchConfidenceScore()
     }
   }, [isOpen, bucketName])
+
+  const fetchConfidenceScore = async () => {
+    setConfidenceLoading(true)
+    setConfidenceScore(null)
+    try {
+      const res = await fetch('/api/proxy/confidence/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource_type: 's3_bucket',
+          resource_id: bucketName,
+          changes: [],
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (typeof data?.confidence === 'number') {
+        setConfidenceScore(data as ConfidenceScore)
+      }
+    } catch (e) {
+      console.warn('[S3-Modal] confidence fetch failed:', e)
+    } finally {
+      setConfidenceLoading(false)
+    }
+  }
 
   // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
       setActiveTab('analysis')
       setShowSimulation(false)
+      setSimulationPreview(null)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const defaults = new Set(
+      (gapData?.policies_analysis ?? [])
+        .filter(p => p.policy_type === 'unused' || p.policy_type === 'overly_permissive')
+        .map(p => p.policy_name)
+    )
+    setSelectedPoliciesToRemove(defaults)
+  }, [gapData, isOpen])
 
   const fetchGapAnalysis = async () => {
     setLoading(true)
     setError(null)
     try {
       console.log('[S3-Modal] Fetching gap analysis for:', bucketName)
-      
-      const response = await fetch(`/api/proxy/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=365`)
-      
-      if (response.ok) {
-        const data = await response.json()
+
+      try {
+        const env = await fetchWithEnvelope<any>(
+          `/api/proxy/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=365`
+        )
+        setProvenance(env.provenance)
+        const data = env.result
         console.log('[S3-Modal] Got data from API:', data)
-        // Check if it's a not_found response
-        if (data.not_found) {
+        if (data?.not_found) {
           console.log('[S3-Modal] Backend returned not_found flag')
           setGapData(null)
         } else {
           setGapData(data)
         }
-      } else {
-        // 404 or other error - don't throw, just set empty data
-        console.log(`[S3-Modal] API returned ${response.status}, setting empty data`)
+      } catch (envErr: any) {
+        const statusMatch = /\((\d+)\)/.exec(envErr?.message || '')
+        const status = statusMatch ? parseInt(statusMatch[1], 10) : 0
+        console.log(`[S3-Modal] fetchWithEnvelope failed (${status}), setting empty data`)
         setGapData(null)
-        // Only set error for non-404 errors
-        if (response.status !== 404) {
-          setError(`S3 gap analysis not available (${response.status})`)
+        if (status && status !== 404) {
+          setError(`S3 gap analysis not available (${status})`)
         }
       }
     } catch (err: any) {
       console.error('[S3-Modal] Error:', err)
-      // Don't set error on 404 - just show empty state
       if (!err.message?.includes('404')) {
         setError(err.message || 'Failed to fetch gap analysis')
       } else {
@@ -225,33 +299,79 @@ export function S3PolicyAnalysisModal({
 
   const handleClose = () => {
     setShowSimulation(false)
+    setSimulationPreview(null)
     setGapData(null)
     setPolicyData(null)
     setError(null)
     setActiveTab('analysis')
+    setSelectedPoliciesToRemove(new Set())
     onClose()
   }
 
   const handleSimulate = async () => {
+    if (selectedPoliciesToRemove.size === 0) {
+      toast({
+        title: "Select statements first",
+        description: "Choose at least one S3 policy statement to include in the remediation preview.",
+        variant: "destructive"
+      })
+      return
+    }
     setSimulating(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setSimulating(false)
-    setShowSimulation(true)
-  }
-
-  const handleApplyFix = async () => {
-    if (!gapData) return
-    
-    setApplying(true)
     try {
+      const selectedPolicies = Array.from(selectedPoliciesToRemove)
       const response = await fetch('/api/proxy/s3-buckets/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bucket_name: bucketName,
-          policies_to_remove: unusedPolicies.map(p => p.policy_name),
-          create_snapshot: createSnapshot,
-          snapshot_reason: `Pre-remediation backup - removing ${unusedCount} policies`
+          policies_to_remove: selectedPolicies,
+          create_snapshot: true,
+          dry_run: true,
+          snapshot_reason: `Dry-run preview for ${selectedPolicies.length} S3 policy statements`
+        })
+      })
+
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to run S3 remediation preview')
+      }
+
+      setSimulationPreview(result)
+      setShowSimulation(true)
+    } catch (err: any) {
+      toast({
+        title: "Preview failed",
+        description: err.message || 'Could not generate the S3 remediation preview.',
+        variant: "destructive"
+      })
+    } finally {
+      setSimulating(false)
+    }
+  }
+
+  const handleApplyFix = async () => {
+    if (!gapData) return
+    if (selectedPoliciesToRemove.size === 0) {
+      toast({
+        title: "No statements selected",
+        description: "Select at least one policy statement to remediate.",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    setApplying(true)
+    try {
+      const selectedPolicies = Array.from(selectedPoliciesToRemove)
+      const response = await fetch('/api/proxy/s3-buckets/remediate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bucket_name: bucketName,
+          policies_to_remove: selectedPolicies,
+          create_snapshot: true,
+          snapshot_reason: `Pre-remediation backup - removing ${selectedPolicies.length} S3 policy statements`
         })
       })
       
@@ -268,7 +388,7 @@ export function S3PolicyAnalysisModal({
           onApplyFix({
             bucketName,
             systemName,
-            policiesToRemove: gapData.unused_policies,
+            policiesToRemove: selectedPolicies,
             createSnapshot,
             confidence: calculateSafetyScore(),
             result
@@ -276,7 +396,14 @@ export function S3PolicyAnalysisModal({
         }
         
         if (onRemediationSuccess) {
-          onRemediationSuccess(bucketName)
+          onRemediationSuccess({
+            bucketName,
+            snapshotId: result.snapshot_id ?? null,
+            eventId: result.event_id ?? null,
+            rollbackAvailable: result.rollback_available ?? !!result.snapshot_id,
+            afterTotal: result.statements_remaining ?? null,
+            removedCount: result.policies_removed ?? selectedPolicies.length,
+          })
         }
         
         onSuccess?.()
@@ -335,7 +462,39 @@ export function S3PolicyAnalysisModal({
     return Math.max(80, Math.min(100, score))
   }
 
-  const safetyScore = calculateSafetyScore()
+  const legacySafetyScore = calculateSafetyScore()
+
+  // One-score rule: prefer Agent 5 confidence when loaded. Legacy client-side
+  // score remains as a fallback only while Agent 5 is loading or failed.
+  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore
+
+  const previewWouldBlock = !!simulationPreview?.safety_gate?.would_block
+  const previewWarnings: string[] = simulationPreview?.safety_gate?.warnings ?? []
+
+  // Verdict bucket — Agent 5 routing overrides the legacy would_block preview.
+  // If the safety gate preview says block OR Agent 5 routes to blocked/manual,
+  // we degrade the verdict regardless of numeric score.
+  const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
+    confidenceScore?.routing === 'blocked' ? 'blocked'
+    : previewWouldBlock ? 'human_approval'
+    : (confidenceScore?.routing ?? 'auto_execute')
+  const toggleSelectedPolicy = (policyName: string) => {
+    setSelectedPoliciesToRemove(prev => {
+      const next = new Set(prev)
+      if (next.has(policyName)) {
+        next.delete(policyName)
+      } else {
+        next.add(policyName)
+      }
+      return next
+    })
+  }
+  const selectAllPolicies = () => {
+    setSelectedPoliciesToRemove(new Set(unusedPolicies.map(policy => policy.policy_name)))
+  }
+  const clearSelectedPolicies = () => {
+    setSelectedPoliciesToRemove(new Set())
+  }
 
   // Loading state
   if (loading) {
@@ -425,7 +584,7 @@ export function S3PolicyAnalysisModal({
           <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between bg-gray-50">
             <div>
               <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
-              <p className="text-[var(--muted-foreground,#6b7280)]">Policy Removal Analysis</p>
+              <p className="text-[var(--muted-foreground,#6b7280)]">S3 bucket policy remediation preview</p>
             </div>
             <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
               <X className="w-6 h-6" />
@@ -434,15 +593,68 @@ export function S3PolicyAnalysisModal({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Safety Score Banner */}
-            <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
-              <div className="flex items-center justify-center gap-3">
-                <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
-                <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
-              </div>
-              <p className="text-[#22c55e] mt-2">No applications will be affected</p>
-            </div>
+            {/* Safety Score Banner — single source via Agent 5 when available */}
+            {(() => {
+              const suffix = confidenceScore ? '' : '%'
+              const reason = simulationPreview?.safety_gate?.would_block_reason
+
+              if (verdictBucket === 'blocked') {
+                return (
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <XCircle className="w-10 h-10 text-[#ef4444]" />
+                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">BLOCKED</span>
+                    </div>
+                    <p className="text-[#ef4444] mt-2 font-semibold">
+                      {confidenceScore?.gates_failed?.[0]?.detail ?? reason ?? 'Hard block — see confidence panel for details.'}
+                    </p>
+                  </div>
+                )
+              }
+              if (verdictBucket === 'human_approval' || previewWouldBlock) {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f59e0b66] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f59e0b]" />
+                      <span className="text-5xl font-bold text-[#f59e0b]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f59e0b]">
+                        {confidenceScore ? 'NEEDS APPROVAL' : 'REVIEW BEFORE APPLY'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[#b45309]">
+                      {reason || 'The safety gate would block this exact change set during execution.'}
+                    </p>
+                  </div>
+                )
+              }
+              if (verdictBucket === 'manual_review') {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">REVIEW REQUIRED</span>
+                    </div>
+                    <p className="text-[#f97316] mt-2">
+                      Agent 5 flagged this change for manual review — see confidence panel.
+                    </p>
+                  </div>
+                )
+              }
+              return (
+                <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
+                  <div className="flex items-center justify-center gap-3">
+                    <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                    <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}{suffix}</span>
+                    <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
+                  </div>
+                  <p className="text-[#22c55e] mt-2">
+                    {confidenceScore ? 'Confidence ≥ 95, AI reviewer agrees — no applications will be affected.' : 'No applications will be affected'}
+                  </p>
+                </div>
+              )
+            })()}
 
             {/* What Will Change */}
             <div>
@@ -450,11 +662,11 @@ export function S3PolicyAnalysisModal({
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Remove {unusedCount} unused policies from {bucketName}</span>
+                  <span>Remove {selectedPoliciesToRemove.size} selected policy statements from {bucketName}</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Reduce attack surface by {unusedPercent}%</span>
+                  <span>Reduce attack surface by {unusedCount > 0 ? Math.round((selectedPoliciesToRemove.size / unusedCount) * unusedPercent) : 0}%</span>
                 </div>
                 {hasPublicAccess && (
                   <div className="flex items-center gap-3 p-3 bg-[#ef444410] rounded-lg">
@@ -464,26 +676,46 @@ export function S3PolicyAnalysisModal({
                 )}
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Improve LP score to 100%</span>
+                  <span>Apply an explicit rollback-backed S3 remediation change set</span>
                 </div>
               </div>
             </div>
 
             {/* Policies to Remove */}
             <div>
-              <h3 className="font-bold text-lg text-[var(--foreground,#111827)] mb-3">Policies to Remove ({unusedCount}):</h3>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="font-bold text-lg text-[var(--foreground,#111827)]">Policies to Remove ({selectedPoliciesToRemove.size} of {unusedCount} selected)</h3>
+                <div className="flex items-center gap-3 text-sm">
+                  <button onClick={selectAllPolicies} className="text-[#16a34a] font-medium hover:text-[#15803d]">Select All</button>
+                  <span className="text-[var(--border,#d1d5db)]">|</span>
+                  <button onClick={clearSelectedPolicies} className="text-[var(--muted-foreground,#6b7280)] font-medium hover:text-[var(--foreground,#111827)]">Clear All</button>
+                </div>
+              </div>
               <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-48 overflow-y-auto">
                 <div className="grid grid-cols-2 gap-2">
                   {unusedPolicies.map((policy, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <XCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                    <button
+                      type="button"
+                      key={i}
+                      onClick={() => toggleSelectedPolicy(policy.policy_name)}
+                      className={`flex items-center gap-2 text-sm rounded-lg border px-3 py-2 text-left transition ${
+                        selectedPoliciesToRemove.has(policy.policy_name)
+                          ? 'border-[#ef4444] bg-white'
+                          : 'border-transparent bg-transparent opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      {selectedPoliciesToRemove.has(policy.policy_name) ? (
+                        <CheckSquare className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                      )}
                       <span className="font-mono text-[var(--foreground,#374151)] truncate">{policy.policy_name}</span>
                       {policy.is_public && (
                         <span className="px-1.5 py-0.5 bg-red-600 text-white text-xs rounded font-medium">
                           PUBLIC
                         </span>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -499,7 +731,9 @@ export function S3PolicyAnalysisModal({
                       <div key={i} className="flex items-center gap-2">
                         <Check className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
                         <span className="font-mono text-sm text-[var(--foreground,#374151)]">{policy.policy_name}</span>
-                        <span className="text-[#22c55e] text-sm">{policy.access_count || 0} accesses/day</span>
+                        <span className="text-[#22c55e] text-sm">
+                          {formatObservedAccessLabel(policy.access_count || 0, observationDays)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -531,6 +765,20 @@ export function S3PolicyAnalysisModal({
                 ))}
               </div>
             </div>
+
+            {previewWarnings.length > 0 && (
+              <div className="p-4 bg-[#fff7ed] border border-[#fdba74] rounded-xl">
+                <h3 className="font-bold text-[var(--foreground,#111827)] mb-3">Safety Gate Warnings</h3>
+                <div className="space-y-2">
+                  {previewWarnings.map((warning, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-[#9a3412]">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -543,20 +791,13 @@ export function S3PolicyAnalysisModal({
               ← BACK
             </button>
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={createSnapshot}
-                  onChange={(e) => setCreateSnapshot(e.target.checked)}
-                  disabled={applying}
-                  className="rounded border-[var(--border,#d1d5db)] text-[#22c55e] focus:ring-green-500"
-                />
-                <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Create rollback checkpoint first</span>
-              </label>
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
+                Rollback checkpoint will be created automatically before the bucket policy is changed
+              </div>
               <button 
                 onClick={handleApplyFix}
-                disabled={applying}
-                className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                disabled={applying || selectedPoliciesToRemove.size === 0 || previewWouldBlock}
+                className="px-6 py-2.5 bg-[#16a34a] text-white rounded-lg font-bold hover:bg-[#15803d] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {applying ? (
                   <>
@@ -582,23 +823,29 @@ export function S3PolicyAnalysisModal({
         {/* Header */}
         <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">S3 Bucket Analysis</h2>
-            <p className="text-[var(--muted-foreground,#6b7280)]">{bucketName} - S3Bucket - {systemName}</p>
+            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">S3 Policy Analysis</h2>
+            <p className="text-[var(--muted-foreground,#6b7280)]">{bucketName} - S3 bucket - {systemName}</p>
           </div>
           <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
             <X className="w-6 h-6" />
           </button>
         </div>
 
+        {provenance && (
+          <div className="px-6 py-2 border-b border-[var(--border,#e5e7eb)]">
+            <TrustEnvelopeBadge provenance={provenance} />
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="border-b border-[var(--border,#e5e7eb)] px-6">
           <div className="flex gap-1">
             {[
-              { id: 'analysis' as const, label: 'Usage Analysis', icon: Eye },
+              { id: 'analysis' as const, label: 'Summary', icon: Eye },
               { id: 'access' as const, label: 'Who Accessed', icon: Users },
-              { id: 'policies' as const, label: 'Policies', icon: FileText },
-              { id: 'evidence' as const, label: 'Evidence', icon: Shield },
-              { id: 'simulate' as const, label: 'Simulate', icon: Zap }
+              { id: 'policies' as const, label: 'Policy', icon: FileText },
+              { id: 'evidence' as const, label: 'Context', icon: Shield },
+              { id: 'remediation' as const, label: 'Remediation', icon: Zap }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -623,10 +870,23 @@ export function S3PolicyAnalysisModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
+          {activeTab === 'analysis' && confidenceLoading && (
+            <div className="mx-6 mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
+              <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
+              Agent 5 scoring remediation safety…
+            </div>
+          )}
+          {activeTab === 'analysis' && confidenceScore && (
+            <div className="mx-6 mt-4">
+              <ConfidenceExplanationPanel score={confidenceScore} />
+            </div>
+          )}
           {activeTab === 'analysis' && (
             <AnalysisTab
               bucketName={bucketName}
               gapData={gapData}
+              accessData={accessData}
+              policyData={policyData}
               usedCount={usedCount}
               unusedCount={unusedCount}
               usedPercent={usedPercent}
@@ -661,42 +921,65 @@ export function S3PolicyAnalysisModal({
               confidence={gapData?.confidence || 'MEDIUM'}
             />
           )}
-          {activeTab === 'simulate' && (
+          {activeTab === 'remediation' && (
             <div className="p-8 text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#22c55e20] flex items-center justify-center">
                 <Zap className="w-8 h-8 text-[#22c55e]" />
               </div>
-              <h3 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Remediation Simulation</h3>
+              <h3 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Remediation Process</h3>
               <p className="text-[var(--muted-foreground,#4b5563)] max-w-md mx-auto mb-6">
                 {unusedCount > 0
-                  ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy' : 'policies'} that can be safely removed. Click the REMEDIATE button below to preview the changes before applying.`
-                  : 'No unused policies detected. This bucket is following least privilege principles.'
+                  ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy statement' : 'policy statements'} that can be safely removed. Review the exact change set, create a rollback checkpoint, and preview the result before applying it.`
+                  : hasPublicAccess
+                    ? 'No unused policy statements were found, but this bucket still has active public exposure. Least-privilege removal is not available for the current statement set.'
+                    : 'No unused policies detected. No least-privilege remediation is currently needed for this bucket policy.'
                 }
               </p>
               {unusedCount > 0 ? (
-                <div className="bg-white border border-[#ef444440] rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-[#ef4444] mb-2">Remediation Preview:</h4>
-                  <ul className="text-sm text-[#ef4444] text-left space-y-1">
-                    <li>• Remove {unusedCount} unused {unusedCount === 1 ? 'policy' : 'policies'}</li>
-                    <li>• Reduce attack surface by ~{Math.round((unusedCount / Math.max(totalPolicies, 1)) * 100)}%</li>
-                    <li>• Create rollback checkpoint before changes</li>
-                    <li>• Improve LP score to 100%</li>
+                <div className="bg-white border border-[#ef444440] rounded-lg p-5 max-w-2xl mx-auto text-left">
+                  <h4 className="font-semibold text-[#ef4444] mb-3">Remediation Plan</h4>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="rounded-lg bg-[#f8fafc] border border-slate-200 p-4">
+                      <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Statements selected</div>
+                      <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{selectedPoliciesToRemove.size}</div>
+                    </div>
+                    <div className="rounded-lg bg-[#f8fafc] border border-slate-200 p-4">
+                      <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Rollback protection</div>
+                      <div className="text-base font-semibold text-[#16a34a]">Checkpoint before apply</div>
+                    </div>
+                  </div>
+                  <ul className="text-sm text-[var(--foreground,#374151)] text-left space-y-2">
+                    <li>1. Review the selected public or unused bucket policy statements.</li>
+                    <li>2. Run a preview against the same selected statement set.</li>
+                    <li>3. Create a rollback checkpoint automatically before the bucket policy changes.</li>
+                    <li>4. Apply the remediation only if the preview and safety checks pass.</li>
                   </ul>
                   <button
                     onClick={handleSimulate}
-                    className="mt-4 px-6 py-2.5 bg-white hover:from-red-700 hover:to-orange-700 text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
+                    className="mt-5 px-6 py-2.5 bg-[#16a34a] hover:bg-[#15803d] text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
                   >
                     <Zap className="w-4 h-4" />
-                    START SIMULATION
+                    PREVIEW REMEDIATION
                   </button>
                 </div>
               ) : (
-                <div className="bg-[#22c55e10] border border-[#22c55e40] rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-[#22c55e] mb-2">Bucket Status:</h4>
-                  <ul className="text-sm text-[#22c55e] text-left space-y-1">
-                    <li>✓ All policies are actively used</li>
-                    <li>✓ No remediation needed</li>
-                    <li>✓ Following least privilege principles</li>
+                <div className={`rounded-lg p-4 max-w-md mx-auto ${hasPublicAccess ? 'bg-[#fff7ed] border border-[#fdba74]' : 'bg-[#22c55e10] border border-[#22c55e40]'}`}>
+                  <h4 className={`font-semibold mb-2 ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`}>
+                    {hasPublicAccess ? 'Bucket Status' : 'Bucket Status'}
+                  </h4>
+                  <ul className={`text-sm text-left space-y-1 ${hasPublicAccess ? 'text-[#9a3412]' : 'text-[#22c55e]'}`}>
+                    <li>✓ All configured bucket policy statements are actively used</li>
+                    {hasPublicAccess ? (
+                      <>
+                        <li>• No least-privilege removal is available for the current policy</li>
+                        <li>• Public exposure remains and should be reviewed separately</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>✓ No least-privilege remediation needed</li>
+                        <li>✓ Bucket policy is aligned with observed usage</li>
+                      </>
+                    )}
                   </ul>
                 </div>
               )}
@@ -713,16 +996,16 @@ export function S3PolicyAnalysisModal({
             CLOSE
           </button>
           <button
-            onClick={handleSimulate}
+            onClick={() => setActiveTab('remediation')}
             disabled={!gapData || unusedCount === 0}
             className={`px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-all ${
               gapData && unusedCount > 0
-                ? 'bg-white hover:from-red-700 hover:to-orange-700 text-white shadow-lg hover:shadow-xl'
+                ? 'bg-[#16a34a] hover:bg-[#15803d] text-white shadow-lg hover:shadow-xl'
                 : 'bg-slate-400 text-white cursor-not-allowed'
             }`}
           >
             <Zap className="w-4 h-4" />
-            {unusedCount > 0 ? `REMEDIATE (${unusedCount})` : 'NO ISSUES'}
+            {unusedCount > 0 ? `OPEN REMEDIATION (${unusedCount})` : hasPublicAccess ? 'NO LP GAP' : 'NO ISSUES'}
           </button>
         </div>
       </div>
@@ -734,6 +1017,8 @@ export function S3PolicyAnalysisModal({
 function AnalysisTab({
   bucketName,
   gapData,
+  accessData,
+  policyData,
   usedCount,
   unusedCount,
   usedPercent,
@@ -750,6 +1035,8 @@ function AnalysisTab({
 }: {
   bucketName: string
   gapData: S3GapAnalysisData | null
+  accessData: AccessData | null
+  policyData: BucketPolicyData | null
   usedCount: number
   unusedCount: number
   usedPercent: number
@@ -764,6 +1051,22 @@ function AnalysisTab({
   startDate: Date
   endDate: Date
 }) {
+  const publicUsedPolicies = usedPolicies.filter(policy => policy.is_public)
+  const observedPrincipals = (accessData?.topPrincipals ?? []).map(principal => principal.principal).filter(Boolean)
+  const observedActions = Array.from(new Set(
+    (accessData?.topPrincipals ?? []).flatMap(principal =>
+      (principal.actionCounts ?? []).map(action => action.action)
+    )
+  ))
+  const publicPolicyActions = Array.from(new Set(
+    publicUsedPolicies.flatMap(policy => policy.actions_used?.length ? policy.actions_used : (policy.actions ?? []))
+  ))
+  const publicAccessBlockDisabled = policyData?.public_access_block
+    ? Object.entries(policyData.public_access_block)
+        .filter(([, enabled]) => !enabled)
+        .map(([key]) => key)
+    : []
+
   return (
     <>
       {/* Recording Period Banner */}
@@ -773,7 +1076,7 @@ function AnalysisTab({
           <span className="font-semibold text-[var(--foreground,#111827)]">{observationDays}-Day Recording Period</span>
         </div>
         <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
-          Tracked from {formatDate(startDate)} to {formatDate(endDate)} - CloudTrail S3 events analyzed
+          Tracked from {formatDate(startDate)} to {formatDate(endDate)} - object-store events analyzed
         </p>
       </div>
 
@@ -785,22 +1088,35 @@ function AnalysisTab({
         </div>
         <div className="border-2 border-[#22c55e40] bg-[#22c55e10] rounded-xl p-4 text-center">
           <div className="text-4xl font-bold text-[#22c55e]">{usedCount}</div>
-          <div className="text-[#22c55e] mt-1">Actually Used ({usedPercent}%)</div>
+          <div className="text-[#22c55e] mt-1">{getS3UsedLabel(usedCount, usedPercent, hasPublicAccess)}</div>
         </div>
         <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4 text-center">
           <div className="text-4xl font-bold text-[#ef4444]">{unusedCount}</div>
-          <div className="text-[#ef4444] mt-1">Unused ({unusedPercent}%)</div>
+          <div className="text-[#ef4444] mt-1">{getS3UnusedLabel(unusedCount, unusedPercent, hasPublicAccess)}</div>
         </div>
       </div>
 
-      {/* Security Issue Alert */}
+      {/* Security finding alert.
+          - hasPublicAccess: KEEP red. Public S3 bucket is a real
+            critical security issue, not an LP finding -- red is the
+            correct severity signal.
+          - No public access, just unused policies: amber finding-tone
+            (matches the IAM modal). */}
       {(unusedCount > 0 || hasPublicAccess) ? (
-        <div className="mx-6 p-5 bg-[#ef444410] border-2 border-[#ef444440] rounded-xl">
+        <div className={`mx-6 p-5 rounded-xl border-2 ${
+          hasPublicAccess
+            ? 'bg-[#ef444410] border-[#ef444440]'
+            : 'bg-[#fffbeb] border-[#fde68a]'
+        }`}>
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-7 h-7 text-[#ef4444] flex-shrink-0 mt-0.5" />
+            <AlertTriangle className={`w-7 h-7 flex-shrink-0 mt-0.5 ${
+              hasPublicAccess ? 'text-[#ef4444]' : 'text-[#d97706]'
+            }`} />
             <div>
-              <h3 className="text-xl font-bold text-[#ef4444]">
-                {hasPublicAccess ? 'Security Issue Detected' : 'Least Privilege Violation Detected'}
+              <h3 className={`text-xl font-bold ${
+                hasPublicAccess ? 'text-[#ef4444]' : 'text-[#b45309]'
+              }`}>
+                {hasPublicAccess ? 'Public-access security issue' : 'Least-privilege finding'}
               </h3>
               <p className="mt-2 text-[var(--foreground,#374151)]">
                 {hasPublicAccess && <>This bucket has <strong>public access enabled</strong>. </>}
@@ -853,6 +1169,60 @@ function AnalysisTab({
         </div>
       )}
 
+      {hasPublicAccess && (
+        <div className="mx-6 mt-4 p-5 bg-[#fff7ed] border-2 border-[#fdba74] rounded-xl">
+          <div className="flex items-start gap-3">
+            <Shield className="w-7 h-7 text-[#c2410c] flex-shrink-0 mt-0.5" />
+            <div className="w-full">
+              <h3 className="text-xl font-bold text-[#c2410c]">Evidence-Based Public Access Recommendation</h3>
+              <p className="mt-2 text-[var(--foreground,#374151)]">
+                This bucket is public because its policy grants access to <strong>principal <code>*</code></strong> and/or Block Public Access is disabled.
+                S3 does <strong>not</strong> use <code>0.0.0.0/0</code> rules like a security group. The equivalent exposure here is a public principal or disabled public-access protections.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="rounded-xl border border-amber-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-[#92400e] mb-2">Observed Evidence</div>
+                  <ul className="space-y-2 text-sm text-[var(--foreground,#374151)]">
+                    <li><strong>{gapData?.summary?.s3_events?.toLocaleString() || 0}</strong> object-store events observed in the 365-day least-privilege window</li>
+                    <li><strong>{accessData?.totalRequests?.toLocaleString() || 0}</strong> requests observed in the 90-day access view</li>
+                    <li>
+                      Observed principals:
+                      <strong>{observedPrincipals.length > 0 ? ` ${observedPrincipals.join(', ')}` : ' no tracked principals in the 90-day access view'}</strong>
+                    </li>
+                    <li>
+                      Observed actions:
+                      <strong>{observedActions.length > 0 ? ` ${observedActions.join(', ')}` : ' no tracked actions in the 90-day access view'}</strong>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-[#92400e] mb-2">Recommended Hardening</div>
+                  <ul className="space-y-2 text-sm text-[var(--foreground,#374151)]">
+                    <li>
+                      Replace public principal <code>*</code> with only the principals that actually need access
+                      {observedPrincipals.length > 0 ? `: ${observedPrincipals.join(', ')}` : ''}.
+                    </li>
+                    <li>
+                      Scope the bucket policy to the observed S3 actions
+                      {publicPolicyActions.length > 0 ? `: ${publicPolicyActions.join(', ')}` : observedActions.length > 0 ? `: ${observedActions.join(', ')}` : ''}.
+                    </li>
+                    <li>
+                      Re-enable all S3 Block Public Access settings
+                      {publicAccessBlockDisabled.length > 0 ? ` (currently disabled: ${publicAccessBlockDisabled.join(', ')})` : ''}.
+                    </li>
+                    <li>
+                      If public internet delivery is intentional, prefer CloudFront with OAC or another controlled edge instead of a directly public bucket.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Policy Usage Breakdown */}
       <div className="p-6 space-y-4">
         <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Policy Usage Breakdown</h3>
@@ -873,7 +1243,9 @@ function AnalysisTab({
               <div key={i} className="flex items-center gap-2 text-sm">
                 <span className="text-[#22c55e]">✓</span>
                 <span className="font-mono text-[var(--foreground,#1f2937)]">{policy.policy_name}</span>
-                <span className="text-[var(--muted-foreground,#9ca3af)]">- {policy.access_count || 0} accesses/day</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)]">
+                  - {formatObservedAccessLabel(policy.access_count || 0, observationDays)}
+                </span>
               </div>
             )) : (
               <p className="text-[var(--muted-foreground,#9ca3af)] text-sm italic">No policies currently in use</p>
@@ -918,13 +1290,18 @@ function AnalysisTab({
             </p>
           </div>
         ) : (
-          <div className="border-2 border-[#22c55e40] bg-[#22c55e10] rounded-xl p-4">
+          <div className={`border-2 rounded-xl p-4 ${hasPublicAccess ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#22c55e40] bg-[#22c55e10]'}`}>
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-[#22c55e]" />
-              <span className="font-semibold text-[#22c55e]">No Issues Found</span>
+              <CheckCircle className={`w-5 h-5 ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`} />
+              <span className={`font-semibold ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`}>
+                {hasPublicAccess ? 'No LP Removal Available' : 'No Issues Found'}
+              </span>
             </div>
-            <p className="mt-2 text-sm text-[#22c55e]">
-              All bucket policies are actively used. No remediation needed.
+            <p className={`mt-2 text-sm ${hasPublicAccess ? 'text-[#9a3412]' : 'text-[#22c55e]'}`}>
+              {hasPublicAccess
+                ? 'All bucket policy statements are actively used, so least-privilege removal is not recommended. Public exposure is still present and should be reviewed as a separate security concern.'
+                : 'All bucket policies are actively used. No least-privilege remediation is needed.'
+              }
             </p>
           </div>
         )}
@@ -951,10 +1328,24 @@ function AnalysisTab({
           </p>
         </div>
       ) : (
-        <div className="mx-6 mb-6 p-4 border border-[#22c55e40] bg-[#22c55e10] rounded-xl">
-          <h3 className="font-bold text-[#22c55e]">No Action Required</h3>
-          <p className="text-[#22c55e] mt-1">
-            This bucket is already following least privilege principles. All configured policies are being actively used.
+        <div className={`mx-6 mb-6 p-4 border rounded-xl ${hasPublicAccess ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#22c55e40] bg-[#22c55e10]'}`}>
+          <h3 className={`font-bold ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`}>
+            {hasPublicAccess ? 'No LP Remediation Available' : 'No Action Required'}
+          </h3>
+          <p className={`mt-1 ${hasPublicAccess ? 'text-[#9a3412]' : 'text-[#22c55e]'}`}>
+            {hasPublicAccess
+              ? 'All configured bucket policy statements are actively used in the 365-day observation window. Least-privilege removal is not appropriate here, but the bucket still has public exposure that should be reviewed separately.'
+              : 'This bucket policy is aligned with observed usage in the 365-day observation window.'
+            }
+          </p>
+        </div>
+      )}
+
+      {hasPublicAccess && unusedCount === 0 && (
+        <div className="mx-6 mb-6 p-4 border border-[#fecaca] bg-[#fef2f2] rounded-xl">
+          <h3 className="font-bold text-[#b91c1c]">Public Exposure Still Requires Action</h3>
+          <p className="text-[#991b1b] mt-1">
+            `0` removable statements here means Cyntro did not find an unused bucket-policy statement to delete. It does not mean the bucket is safe. The current public statement is actively used and should be hardened, not ignored.
           </p>
         </div>
       )}
@@ -1002,11 +1393,11 @@ function PoliciesTab({
         )}
       </div>
 
-      {/* Public Access Block Settings */}
+      {/* Public exposure controls */}
       <div className="space-y-4">
         <h3 className="font-bold text-lg flex items-center gap-2">
           <Lock className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
-          Public Access Block
+          Public exposure controls
         </h3>
         
         {policyData?.public_access_block ? (
@@ -1031,7 +1422,7 @@ function PoliciesTab({
         ) : (
           <div className="bg-[#f9731610] border border-[#f9731640] rounded-lg p-4 text-[#f97316] flex items-center gap-2">
             <AlertTriangle className="w-5 h-5" />
-            Public access block settings not configured - bucket may be publicly accessible
+            Public exposure controls not configured - object store may be publicly accessible
           </div>
         )}
       </div>
@@ -1260,7 +1651,7 @@ function AccessTab({
           <div>
             <h4 className="font-medium text-[#3b82f6]">Observed Access Patterns</h4>
             <p className="text-sm text-[#3b82f6] mt-1">
-              These principals have actively accessed this bucket. This data helps identify which permissions are actually being used for safe remediation.
+              These principals were observed accessing this bucket in the 90-day analysis view. The Summary tab uses the 365-day least-privilege window, so counts can differ between tabs while still being accurate.
             </p>
           </div>
         </div>
@@ -1375,7 +1766,7 @@ function EvidenceTab({
           </div>
           <div className="border rounded-lg p-4">
             <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Data Source</div>
-            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">CloudTrail</div>
+            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">Data-plane telemetry</div>
           </div>
         </div>
       </div>
@@ -1386,7 +1777,7 @@ function EvidenceTab({
         <div className="bg-gray-50 rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Check className="w-5 h-5 text-[#22c55e]" />
-            <span>CloudTrail S3 data events enabled</span>
+            <span>Data-plane telemetry enabled</span>
           </div>
           <div className="flex items-center gap-2">
             <Check className="w-5 h-5 text-[#22c55e]" />

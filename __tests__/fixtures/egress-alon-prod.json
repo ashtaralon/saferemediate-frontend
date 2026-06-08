@@ -1,0 +1,412 @@
+{
+  "system_name": "alon-prod",
+  "workload_count": 45,
+  "total_destinations": 1125,
+  "total_signaled_destinations": 85,
+  "lookback_days": 30,
+  "workloads": [
+    {
+      "workload": {
+        "id": "i-03c72e120ff96216c",
+        "name": "SafeRemediate-Test-Frontend-2",
+        "labels": [
+          "Resource",
+          "EC2Instance"
+        ],
+        "node_type": "EC2Instance",
+        "region": "eu-west-1",
+        "subnet_is_public": null
+      },
+      "totals": {
+        "destinations": 581,
+        "aws_destinations": 214,
+        "external_destinations": 355,
+        "internal_destinations": 12,
+        "total_bytes": 331649749,
+        "total_hits": 58287,
+        "signaled_destinations": 46,
+        "signals_breakdown": {
+          "cross_region_aws": 46
+        }
+      },
+      "top_destinations": [
+        {
+          "ip": "3.5.0.75",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 6036,
+          "hits": 2,
+          "last_seen": "2026-04-04T23:53:24.689Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "3.5.25.244",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 3115,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:36.961Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "16.15.217.111",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 3060,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:37.026Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "16.15.187.250",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 3023,
+          "hits": 1,
+          "last_seen": "2026-05-12T07:27:45.079Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "52.217.42.220",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 2900,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:37.571Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        }
+      ]
+    },
+    {
+      "workload": {
+        "id": "i-0f51b8b7ad29a359b",
+        "name": "SafeRemediate-Test-Frontend-1",
+        "labels": [
+          "Resource",
+          "EC2Instance"
+        ],
+        "node_type": "EC2Instance",
+        "region": "eu-west-1",
+        "subnet_is_public": null
+      },
+      "totals": {
+        "destinations": 537,
+        "aws_destinations": 198,
+        "external_destinations": 326,
+        "internal_destinations": 13,
+        "total_bytes": 388522322,
+        "total_hits": 340643,
+        "signaled_destinations": 39,
+        "signals_breakdown": {
+          "cross_region_aws": 39
+        }
+      },
+      "top_destinations": [
+        {
+          "ip": "3.5.27.33",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 3563,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:30.404Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "3.5.0.102",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 3526,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:30.679Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "54.231.137.185",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 2913,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:37.505Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "16.15.199.204",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 1902,
+          "hits": 1,
+          "last_seen": "2026-04-04T23:53:40.516Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        },
+        {
+          "ip": "16.15.193.195",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "us-east-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 1892,
+          "hits": 1,
+          "last_seen": "2026-04-24T19:29:46.142Z",
+          "signals": [
+            "cross_region_aws"
+          ]
+        }
+      ]
+    },
+    {
+      "workload": {
+        "id": "i-0e9b891793b5b2dbd",
+        "name": "SafeRemediate-Test-App-2",
+        "labels": [
+          "Resource",
+          "EC2Instance"
+        ],
+        "node_type": "EC2Instance",
+        "region": "eu-west-1",
+        "subnet_is_public": null
+      },
+      "totals": {
+        "destinations": 7,
+        "aws_destinations": 5,
+        "external_destinations": 0,
+        "internal_destinations": 2,
+        "total_bytes": 2417518,
+        "total_hits": 8939,
+        "signaled_destinations": 0,
+        "signals_breakdown": {}
+      },
+      "top_destinations": [
+        {
+          "ip": "10.0.10.200",
+          "kind": "internal",
+          "aws_service": null,
+          "aws_region": null,
+          "org": "Internal (RFC1918)",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 2138400,
+          "hits": 8818,
+          "last_seen": "2026-04-04T22:37:59.02Z",
+          "signals": []
+        },
+        {
+          "ip": "10.0.10.185",
+          "kind": "internal",
+          "aws_service": null,
+          "aws_region": null,
+          "org": "Internal (RFC1918)",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "9384"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 277018,
+          "hits": 92,
+          "last_seen": "2026-04-04T22:37:59.875Z",
+          "signals": []
+        },
+        {
+          "ip": "3.5.66.28",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "eu-west-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 720,
+          "hits": 6,
+          "last_seen": "2026-05-06T11:09:37.037Z",
+          "signals": []
+        },
+        {
+          "ip": "3.5.71.115",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "eu-west-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 360,
+          "hits": 6,
+          "last_seen": "2026-04-24T16:41:32.596Z",
+          "signals": []
+        },
+        {
+          "ip": "52.218.117.194",
+          "kind": "aws",
+          "aws_service": "S3",
+          "aws_region": "eu-west-1",
+          "org": "AWS S3",
+          "asn": null,
+          "country": null,
+          "hostname": null,
+          "ports": [
+            "443"
+          ],
+          "protocols": [
+            "TCP"
+          ],
+          "bytes": 360,
+          "hits": 6,
+          "last_seen": "2026-04-24T10:58:34.975Z",
+          "signals": []
+        }
+      ]
+    }
+  ],
+  "domain_visibility": {
+    "available": false,
+    "reason": "Route 53 Resolver Query Logs collector not wired (planned for Phase 2)"
+  }
+}

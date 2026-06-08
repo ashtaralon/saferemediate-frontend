@@ -91,10 +91,10 @@ interface TopRemoval {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function LeastPrivilegeTabEnterprise({ 
-  systemName = 'alon-prod' 
-}: { 
-  systemName?: string 
+export default function LeastPrivilegeTabEnterprise({
+  systemName
+}: {
+  systemName: string
 }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -428,6 +428,7 @@ export default function LeastPrivilegeTabEnterprise({
         <ComponentDetail
           component={selectedComponent}
           timeWindow={timeWindow}
+          systemName={systemName}
           onClose={() => setSelectedComponent(null)}
         />
       </div>
@@ -752,10 +753,12 @@ function ComponentList({
 function ComponentDetail({
   component,
   timeWindow,
+  systemName,
   onClose
 }: {
   component: GapItem | null
   timeWindow: number
+  systemName: string
   onClose: () => void
 }) {
   const [activeTab, setActiveTab] = useState<'iam' | 'network' | 'resource'>('iam')
@@ -950,7 +953,7 @@ function ComponentDetail({
 
     try {
       // Query dependency graph for affected paths
-      const response = await fetch(`/api/proxy/dependency-map/path/${component.componentId}/${component.componentId}?systemName=alon-prod`)
+      const response = await fetch(`/api/proxy/dependency-map/path/${component.componentId}/${component.componentId}?systemName=${systemName}`)
       if (response.ok) {
         const data = await response.json()
         setSimulationResult({

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { healthLabel } from "@/lib/utils"
 import { CreateCheckpointModal } from "./create-checkpoint-modal"
 import { RestoreCheckpointModal } from "./restore-checkpoint-modal"
 
@@ -224,7 +225,7 @@ export function CheckpointTimeline({
                         Status: {getStatusLabel(cp.status)}
                       </text>
                       <text x={cp.x} y="120" textAnchor="middle" fontSize="11" fill="#9CA3AF">
-                        Health: {cp.healthScore}/100
+                        Health: {healthLabel(cp.healthScore).label}
                       </text>
                     </g>
                   )}
@@ -253,7 +254,7 @@ export function CheckpointTimeline({
                     {cp.date}, {cp.time} • {cp.changes} changes
                   </div>
                   <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                    {getStatusLabel(cp.status)} • Health: {cp.healthScore}/100 • By {cp.author}
+                    {getStatusLabel(cp.status)} • Health: {healthLabel(cp.healthScore).label} • By {cp.author}
                   </div>
                 </div>
               </div>

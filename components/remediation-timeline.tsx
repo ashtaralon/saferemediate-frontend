@@ -31,10 +31,146 @@ import {
   Key,
   RefreshCw,
 } from "lucide-react"
+import { dispatchRemediationChanged } from "@/lib/remediation-events"
+import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+// Structured safety_signals — written by the backend (build_safety_signals)
+// and rendered as the per-event SafetyPipelineStrip. Surfaces what safety
+// machinery actually ran on this remediation so operators see the moat,
+// not just a "completed" badge.
+type CheckStatus = "passed" | "skipped" | "failed"
+
+interface SafetySignals {
+  force_override: boolean
+  force_override_reason?: string | null
+  snapshot: {
+    id: string | null
+    captured: boolean
+    phase: string | null
+  }
+  confidence: {
+    score: number  // 0..1
+    tier: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN"
+  }
+  scope_restricted: boolean
+  restrictions_applied: string[]
+  drift_detected: boolean
+  evidence_quality: "high" | "medium" | "low" | "unknown"
+  checks: Partial<Record<
+    | "view_parity"
+    | "preflight_invariants"
+    | "confidence_gate"
+    | "implicit_dependencies"
+    | "drift_guard"
+    | "snapshot"
+    | "snapshot_loaded",
+    CheckStatus
+  >>
+}
+
+const CHECK_LABELS: Record<string, string> = {
+  view_parity: "view parity",
+  preflight_invariants: "invariants",
+  confidence_gate: "confidence",
+  implicit_dependencies: "implicit deps",
+  drift_guard: "drift guard",
+  snapshot: "snapshot",
+  snapshot_loaded: "snapshot",
+}
+
+const CHECK_TOOLTIPS: Record<string, string> = {
+  view_parity: "Graph policy hash matched live AWS at preflight time",
+  preflight_invariants: "Hard safety invariants (protected perms, etc.) checked",
+  confidence_gate: "Confidence scoring gate (visibility + trust ramp + evidence)",
+  implicit_dependencies: "S3→KMS Class-H dependency check",
+  drift_guard: "AWS state was unchanged between snapshot and rollback",
+  snapshot: "Pre-mutation snapshot written to S3 + DynamoDB + Neo4j",
+  snapshot_loaded: "Snapshot loaded and validated for rollback",
+}
+
+const checkPillStyle = (status: CheckStatus): string => {
+  // Tailwind-style classes the rest of the file uses
+  if (status === "passed")
+    return "bg-emerald-900/40 text-emerald-300 border-emerald-700/50"
+  if (status === "failed")
+    return "bg-red-900/40 text-red-300 border-red-700/50"
+  return "bg-zinc-800/50 text-zinc-400 border-zinc-700/40"
+}
+
+interface SafetyPipelineStripProps {
+  signals?: SafetySignals
+  legacyConfidenceScore?: number
+}
+
+// Renders the per-event safety pipeline strip. When `signals` is absent
+// (events written before the schema change), falls back to the legacy
+// confidence-only display so the UI stays consistent across history.
+const SafetyPipelineStrip: React.FC<SafetyPipelineStripProps> = ({
+  signals,
+  legacyConfidenceScore,
+}) => {
+  if (!signals) {
+    if (!legacyConfidenceScore || legacyConfidenceScore <= 0) return null
+    return (
+      <span className="text-emerald-400 ml-2">
+        {Math.round(legacyConfidenceScore * 100)}% confidence
+      </span>
+    )
+  }
+
+  const checkEntries = Object.entries(signals.checks) as [string, CheckStatus][]
+  const confidencePct = Math.round((signals.confidence?.score || 0) * 100)
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 ml-2 align-middle">
+      {confidencePct > 0 && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-md border border-emerald-700/50 bg-emerald-900/30 text-emerald-300 font-medium"
+          title={`Decision confidence: ${signals.confidence.tier}`}
+        >
+          {confidencePct}% · {signals.confidence.tier}
+        </span>
+      )}
+      {checkEntries.map(([name, status]) => (
+        <span
+          key={name}
+          className={`text-[10px] px-1.5 py-0.5 rounded-md border font-medium whitespace-nowrap ${checkPillStyle(status)}`}
+          title={CHECK_TOOLTIPS[name] || name}
+        >
+          {CHECK_LABELS[name] || name}
+          {status === "failed" && " ✗"}
+          {status === "skipped" && " —"}
+        </span>
+      ))}
+      {signals.scope_restricted && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-md border border-amber-700/50 bg-amber-900/30 text-amber-300 font-medium whitespace-nowrap"
+          title={
+            signals.restrictions_applied.length
+              ? `Scope narrowed: ${signals.restrictions_applied.join("; ")}`
+              : "Scope narrowed by safety invariants"
+          }
+        >
+          scope narrowed
+        </span>
+      )}
+      {signals.drift_detected && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-md border border-rose-700/50 bg-rose-900/30 text-rose-300 font-medium whitespace-nowrap"
+          title="AWS drifted from snapshot before this action"
+        >
+          drift detected
+        </span>
+      )}
+    </span>
+  )
+}
+
 
 interface RemediationEvent {
   event_id: string
@@ -53,6 +189,7 @@ interface RemediationEvent {
     reason?: string
     rules_count?: { inbound: number; outbound: number }
     removed_permissions?: string[]
+    safety_signals?: SafetySignals
     [key: string]: any
   }
   before_state: Record<string, any>
@@ -135,6 +272,8 @@ const getActionIcon = (actionType: string) => {
     case "ROLLBACK":
       return <RotateCcw className="w-4 h-4" />
     case "SG_RULE_REMOVED":
+    case "SG_RULE_TIGHTENED":
+    case "SG_RULE_REMEDIATED":
       return <Shield className="w-4 h-4" />
     case "S3_POLICY_REMOVED":
       return <Database className="w-4 h-4" />
@@ -162,11 +301,25 @@ const getResourceIcon = (resourceType: string) => {
 
 // Custom dot component for checkpoints
 const CheckpointDot = (props: any) => {
-  const { cx, cy, payload } = props
+  const { cx, cy, payload, onPointClick } = props
   const hasEvents = payload?.events > 0
+  // Skip rendering when security_score is null — that's an "empty day" per
+  // the honesty fix in commit a8e0dba; without this guard Recharts still
+  // calls the dot renderer with cy = chart-area top, which produced the
+  // top-edge dots the operator saw on every day in the screenshot.
+  if (payload?.security_score == null || cy == null || isNaN(cy)) {
+    return null
+  }
 
   return (
-    <g>
+    <g
+      style={{ cursor: hasEvents ? "pointer" : "default" }}
+      onClick={(e) => {
+        if (!hasEvents) return
+        e.stopPropagation()
+        onPointClick?.(payload?.date)
+      }}
+    >
       {/* Base dot for all points */}
       <circle
         cx={cx}
@@ -175,7 +328,6 @@ const CheckpointDot = (props: any) => {
         fill={hasEvents ? "#8B5CF6" : "#10B981"}
         stroke={hasEvents ? "#A78BFA" : "#34D399"}
         strokeWidth={2}
-        style={{ cursor: hasEvents ? "pointer" : "default" }}
       />
       {/* Inner dot for events (checkpoint indicator) */}
       {hasEvents && (
@@ -493,6 +645,76 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             </div>
           </div>
 
+          {/* Force-override alert — surfaces actions that ran past safety
+              gates so operators / auditors can see exactly which
+              remediations bypassed approval and why. Critical-severity
+              banner because forced actions are the highest-risk class. */}
+          {(event.metadata?.force_override === true ||
+            event.metadata?.drift_detected) && (
+            <div className="rounded-lg p-4 border border-amber-700/60 bg-amber-950/30">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-400 shrink-0" />
+                <div className="flex-1">
+                  <div className="text-amber-300 text-sm font-medium mb-1">
+                    {event.action_type === "ROLLBACK"
+                      ? "Rollback ran with force override"
+                      : "Remediation executed past safety approval"}
+                  </div>
+                  <div className="text-xs text-amber-200/80 space-y-1">
+                    {event.metadata?.drift_detected && (
+                      <p>
+                        <span className="font-medium">AWS state drifted:</span>{" "}
+                        {event.metadata.drift_detected}
+                      </p>
+                    )}
+                    {event.metadata?.force_override === true && (
+                      <p>
+                        <span className="font-medium">force_override=true</span>{" "}
+                        — operator explicitly bypassed the safety gate. Review
+                        whether the action was necessary and whether the gate
+                        rule should be tuned.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Structured safety pipeline — what machinery actually ran */}
+          {event.metadata?.safety_signals && (
+            <div className="rounded-lg p-4 border border-zinc-700/60 bg-zinc-900/40">
+              <div className="text-xs uppercase tracking-wide text-zinc-400 mb-2">
+                Safety pipeline
+              </div>
+              <SafetyPipelineStrip signals={event.metadata.safety_signals} />
+              {event.metadata.safety_signals.snapshot.captured && (
+                <div className="text-xs text-zinc-300 mt-3">
+                  <span className="text-zinc-500">Snapshot:</span>{" "}
+                  <span className="font-mono">{event.metadata.safety_signals.snapshot.id}</span>
+                  {event.metadata.safety_signals.snapshot.phase && (
+                    <span className="text-zinc-500 ml-2">
+                      · phase {event.metadata.safety_signals.snapshot.phase}
+                    </span>
+                  )}
+                </div>
+              )}
+              {event.metadata.safety_signals.scope_restricted &&
+                event.metadata.safety_signals.restrictions_applied.length > 0 && (
+                  <div className="text-xs text-amber-300 mt-2">
+                    <span className="text-zinc-500">Scope restrictions:</span>{" "}
+                    {event.metadata.safety_signals.restrictions_applied.join("; ")}
+                  </div>
+              )}
+              {event.metadata.safety_signals.force_override_reason && (
+                <div className="text-xs text-amber-300 mt-2">
+                  <span className="text-zinc-500">Force reason:</span>{" "}
+                  {event.metadata.safety_signals.force_override_reason}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Metadata */}
           {event.metadata && Object.keys(event.metadata).length > 0 && (
             <div
@@ -733,19 +955,22 @@ export function RemediationTimeline({
   systemId,
   resourceId,
   onRollback,
-  apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com",
 }: RemediationTimelineProps) {
   const [events, setEvents] = useState<RemediationEvent[]>([])
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
   const [summary, setSummary] = useState<TimelineSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
 
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "90d" | "1y">("30d")
   const [selectedEvent, setSelectedEvent] = useState<RemediationEvent | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
   const [eventFilter, setEventFilter] = useState<"actionable" | "all">("actionable")
+  // Click on a chart point → focus recap panel for that day's events.
+  // null means no day is focused (events list shows all).
+  const [selectedChartDate, setSelectedChartDate] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Filter events based on selected filter
@@ -848,13 +1073,53 @@ export function RemediationTimeline({
 
         summary = `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
       } else {
-        // Same-role remediation or older format (SNAP-* with original_role but no new_role, or IAMRole-*)
-        let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name || parsedBefore.role_name
+        // Same-role remediation or older format (SNAP-* with original_role but
+        // no new_role, or IAMRole-*).
+        //
+        // Aggressive role-name resolution — the previous chain stopped at four
+        // fields and missed snapshots whose role-name only appears in
+        // resource_id or in role_arn. Try every plausible source in order from
+        // most-specific to least, falling back to ARN parsing and then
+        // snapshot_id parsing before giving up with "Unknown Role".
+        let roleName: string | undefined =
+          snapshot.original_role ||
+          snapshot.role_name ||
+          snapshot.resource_id ||
+          snapshot.current_state?.role_name ||
+          snapshot.current_state?.resource_id ||
+          parsedBefore.role_name ||
+          parsedBefore.resource_id ||
+          parsedAfter.role_name
+
+        // ARN extraction: arn:aws:iam::1234:role/<name>
+        if (!roleName) {
+          const arn =
+            parsedBefore.role_arn ||
+            parsedAfter.role_arn ||
+            snapshot.role_arn ||
+            snapshot.current_state?.role_arn
+          if (arn && typeof arn === 'string') {
+            const lastSegment = arn.split('/').pop()
+            if (lastSegment) roleName = lastSegment
+          }
+        }
+
+        // snapshot_id parsing: IAMRole-<role-name>-<8-char-suffix>
         if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
           const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
           parts.pop()
-          roleName = parts.join('-') || 'Unknown Role'
+          const parsed = parts.join('-')
+          if (parsed) roleName = parsed
         }
+
+        // snapshot_id parsing: iam-<role-name>-<...> (older format)
+        if (!roleName && snapshot.snapshot_id?.startsWith('iam-')) {
+          const parts = snapshot.snapshot_id.replace('iam-', '').split('-')
+          if (parts.length > 1) parts.pop()
+          const parsed = parts.join('-')
+          if (parsed) roleName = parsed
+        }
+
         resourceId = roleName || 'Unknown Role'
 
         // Use permissions_removed count from snapshot, or calculate from before/after states
@@ -904,11 +1169,17 @@ export function RemediationTimeline({
       resource_type: resourceType,
       resource_id: resourceId,
       action_type: actionType,
-      status: snapshot.restored_at ? 'rolled_back' : 'completed',
-      confidence_score: 0.95,
+      status: (snapshot.rolled_back_at || snapshot.restored_at || snapshot.status === 'RESTORED' || snapshot.status === 'restored')
+        ? 'rolled_back'
+        : 'completed',
+      // Snapshot rows don't carry per-row confidence — only the originating
+      // remediation event does. Previously hardcoded to 0.95, which made the
+      // timeline summary's avg_confidence look authoritative. Use null so
+      // consumers can render "—" or skip these rows in the average.
+      confidence_score: null as number | null,
       approved_by: snapshot.triggered_by || 'system',
       snapshot_id: snapshot.snapshot_id,
-      rollback_available: true,
+      rollback_available: snapshot.rollback_available !== false,
       metadata: {
         reason: snapshot.reason || 'Least-privilege remediation',
         rules_count: snapshot.rules_count,
@@ -942,10 +1213,12 @@ export function RemediationTimeline({
         const today = new Date()
 
         // Fetch from both sources in parallel
-        const [neo4jRes, sgRes, iamRes] = await Promise.all([
+        setProvenance(null)
+        const [neo4jEnvResult, sgRes, iamRes] = await Promise.all([
           // 1. Neo4j Timeline API (primary source for recorded events) - use proxy to avoid CORS
-          fetch(`/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200`)
-            .catch(() => null),
+          fetchWithEnvelope<any>(
+            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200${systemId ? `&system=${encodeURIComponent(systemId)}` : ''}`
+          ).catch(() => null),
           // 2. Snapshots (to include any checkpoints not yet in Neo4j)
           fetch('/api/proxy/snapshots', { cache: 'no-store' }).catch(() => null),
           fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
@@ -956,15 +1229,16 @@ export function RemediationTimeline({
         let neo4jSummary: TimelineSummary | null = null
 
         // Process Neo4j timeline data (primary)
-        if (neo4jRes && neo4jRes.ok) {
-          const neo4jData = await neo4jRes.json()
-          const neo4jEvents = (neo4jData.events || []).map((e: any) => ({
+        if (neo4jEnvResult) {
+          setProvenance(neo4jEnvResult.provenance)
+          const neo4jData = neo4jEnvResult.result
+          const neo4jEvents = (neo4jData?.events || []).map((e: any) => ({
             ...e,
             source: 'neo4j' as const
           }))
           allEvents.push(...neo4jEvents)
-          neo4jChartData = neo4jData.chart_data || []
-          neo4jSummary = neo4jData.summary || null
+          neo4jChartData = neo4jData?.chart_data || []
+          neo4jSummary = neo4jData?.summary || null
         }
 
         // Process snapshots (secondary - fill in any missing)
@@ -1018,8 +1292,6 @@ export function RemediationTimeline({
             // Also check if any snapshot_id in kept events contains this SG ID
             if (e.sg_id && [...neo4jSnapshotIds].some(sid => sid.includes(e.sg_id))) return false
           }
-          // Skip IAM snapshots if we already have events for that role
-          if (e.resource_type === 'IAMRole' && neo4jResourceIds.has(`IAMRole:${e.resource_id}`)) return false
           return true
         })
         allEvents.push(...uniqueSnapshotEvents)
@@ -1047,7 +1319,11 @@ export function RemediationTimeline({
               date: dateKey,
               events: 0,
               permissions_removed: 0,
-              security_score: 60 + ((periodDays[selectedPeriod] - i) / periodDays[selectedPeriod]) * 35,
+              // Honest signal: empty days have no security_score. The previous
+              // 60 + (...) * 35 formula faked a steady 60→95 ramp regardless
+              // of real measurements. Chart consumers should render gaps for
+              // null instead of an invented trend line.
+              security_score: null as number | null,
               score_delta: 0,
             })
           }
@@ -1065,14 +1341,25 @@ export function RemediationTimeline({
           finalChartData = Array.from(chartDataMap.values())
         }
 
-        // Calculate summary if Neo4j didn't provide it
+        // Calculate summary if Neo4j didn't provide it.
+        // avg_confidence: events whose confidence_score is null (snapshot
+        // rows after the honesty fix that removed the hardcoded 0.95 — see
+        // commit a8e0dba) MUST NOT pollute the average. Filter to numeric
+        // values, then compute. Empty filtered set → 0.
+        const eventsWithConfidence = allEvents.filter(
+          e => typeof e.confidence_score === 'number'
+        )
         const finalSummary: TimelineSummary = neo4jSummary || {
           total_events: allEvents.length,
           total_permissions_removed: allEvents.reduce((acc, e) => acc + (e.metadata.permissions_removed || 0), 0),
           completed_events: allEvents.filter(e => e.status === 'completed').length,
           rollback_events: allEvents.filter(e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK').length,
-          avg_confidence: allEvents.length > 0
-            ? Math.round(allEvents.reduce((acc, e) => acc + e.confidence_score * 100, 0) / allEvents.length)
+          avg_confidence: eventsWithConfidence.length > 0
+            ? Math.round(
+                eventsWithConfidence.reduce(
+                  (acc, e) => acc + (e.confidence_score as number) * 100, 0
+                ) / eventsWithConfidence.length
+              )
             : 0,
           period_start: startDate.toISOString().split('T')[0],
           period_end: today.toISOString().split('T')[0],
@@ -1094,7 +1381,7 @@ export function RemediationTimeline({
     }
 
     fetchTimeline()
-  }, [selectedPeriod, systemId, resourceId, apiBaseUrl, refreshKey])
+  }, [selectedPeriod, systemId, resourceId, refreshKey])
 
   // Handle rollback - uses correct endpoint based on source and resource type
   const handleRollback = async (eventId: string, selectedItems?: string[]) => {
@@ -1149,10 +1436,27 @@ export function RemediationTimeline({
           ...(isPartial && { selected_items: selectedItems })
         }
       } else {
+        // Two SG snapshot formats coexist in production:
+        //   "sg-snap-{sg_id}-{ts}" — written by api/sg_least_privilege.py
+        //     rollback: POST /api/sg-least-privilege/{sg_id}/rollback
+        //   "snap-{sg_id}-{ts}"   — written by api/sg_gap_analysis.py
+        //     rollback: POST /api/security-groups/{sg_id}/rollback
+        // Each format needs its OWN endpoint; the generic legacy
+        // /api/snapshots/{sid}/rollback dispatcher only returns a
+        // "use the SG-specific endpoint" hint message for SGSnapshots,
+        // which the frontend was swallowing as "Rollback failed".
         const isSgLpSnapshot = snapshotId?.startsWith('sg-snap-')
+        const isSgGapSnapshot = snapshotId?.startsWith('snap-sg-') ||
+          (event.resource_type === 'SecurityGroup' && snapshotId?.startsWith('snap-'))
+        const sgId = event.sg_id || event.resource_id || ''
         if (isSgLpSnapshot) {
-          const sgId = event.sg_id || event.resource_id || ''
           endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+          bodyContent = {
+            snapshot_id: snapshotId,
+            ...(isPartial && { selected_items: selectedItems })
+          }
+        } else if (isSgGapSnapshot) {
+          endpoint = `/api/proxy/security-groups/${sgId}/rollback`
           bodyContent = {
             snapshot_id: snapshotId,
             ...(isPartial && { selected_items: selectedItems })
@@ -1179,6 +1483,14 @@ export function RemediationTimeline({
       if (result.success !== false) {
         const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || (isPartial ? selectedItems.length : 'all')
         alert(`✅ Restored Successfully!\n\n${resourceType}: ${resourceName}\nRestored: ${restoredCount} items\n\nThe selected items have been restored.`)
+        // Cross-component broadcast — see lib/remediation-events.ts.
+        dispatchRemediationChanged({
+          action: "rollback",
+          resource_type: resourceType,
+          resource_id: resourceName,
+          partial: isPartial,
+          source_id: eventId,
+        })
       } else {
         throw new Error(result.error || 'Rollback failed')
       }
@@ -1233,6 +1545,11 @@ export function RemediationTimeline({
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
               Complete audit trail with one-click rollback
             </p>
+            {provenance && (
+              <div className="mt-3">
+                <TrustEnvelopeBadge provenance={provenance} />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1315,8 +1632,22 @@ export function RemediationTimeline({
             <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: "var(--action-primary)" }} />
           </div>
         ) : chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart
+              data={chartData}
+              margin={{ top: 16, right: 10, left: 0, bottom: 0 }}
+              onClick={(e: any) => {
+                // Recharts calls onClick with { activeLabel, activePayload }.
+                // activeLabel is the X-axis value (date) of the clicked
+                // point. Setting selectedChartDate opens the recap panel.
+                const date = e?.activeLabel
+                if (typeof date === 'string' && date) {
+                  // Toggle: clicking the same day clears the selection.
+                  setSelectedChartDate(prev => (prev === date ? null : date))
+                }
+              }}
+            >
               <defs>
                 <linearGradient id="securityGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
@@ -1331,7 +1662,10 @@ export function RemediationTimeline({
                 axisLine={{ stroke: "#374151" }}
               />
               <YAxis
-                domain={[0, 100]}
+                // Headroom above 100 so dots sitting at score=100 aren't
+                // visually clipped at the top edge of the chart area.
+                domain={[0, 110]}
+                ticks={[0, 25, 50, 75, 100]}
                 tick={{ fill: "#9CA3AF", fontSize: 11 }}
                 axisLine={{ stroke: "#374151" }}
               />
@@ -1343,22 +1677,101 @@ export function RemediationTimeline({
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#securityGradient)"
-                dot={<CheckpointDot />}
+                dot={<CheckpointDot onPointClick={(date: string) => setSelectedChartDate(prev => prev === date ? null : date)} />}
                 activeDot={{ r: 6, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
               />
-              {/* Vertical lines for events */}
+              {/* Vertical lines for events — emphasize the selected day. */}
               {chartData.filter(d => d.events > 0).map((point, idx) => (
                 <ReferenceLine
                   key={idx}
                   x={point.date}
                   stroke="#8B5CF6"
                   strokeDasharray="5 5"
-                  strokeWidth={2}
-                  opacity={0.7}
+                  strokeWidth={selectedChartDate === point.date ? 3 : 2}
+                  opacity={selectedChartDate === point.date ? 1 : 0.7}
                 />
               ))}
             </AreaChart>
           </ResponsiveContainer>
+
+          {/* Recap panel — opens when a chart point is clicked. */}
+          {selectedChartDate && (() => {
+            const dayEvents = events.filter(e =>
+              e.timestamp.split('T')[0] === selectedChartDate
+            )
+            const totalPerms = dayEvents.reduce(
+              (acc, e) => acc + (e.metadata.permissions_removed || 0), 0
+            )
+            const rollbacks = dayEvents.filter(
+              e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+            ).length
+            const uniqueResources = new Set(
+              dayEvents.map(e => `${e.resource_type}:${e.resource_id}`)
+            )
+            return (
+              <div
+                className="mt-3 rounded-lg border p-4"
+                style={{
+                  borderColor: 'var(--border, #e5e7eb)',
+                  background: 'var(--surface, rgba(139, 92, 246, 0.05))',
+                }}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Events on {formatDate(selectedChartDate)}
+                      </p>
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-purple-600 text-white">
+                        {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                      {totalPerms} permissions removed · {rollbacks} rollback{rollbacks === 1 ? '' : 's'} · {uniqueResources.size} unique resource{uniqueResources.size === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedChartDate(null)}
+                    className="text-xs px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                    style={{ color: 'var(--text-secondary)' }}
+                    aria-label="Clear day selection"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {dayEvents.length === 0 ? (
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    No events on this day in the current view.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {dayEvents.slice(0, 8).map((e) => (
+                      <li
+                        key={e.event_id}
+                        className="text-xs flex items-center gap-2"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${
+                            e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                        />
+                        <span className="truncate">{e.summary || `${e.action_type} on ${e.resource_id}`}</span>
+                      </li>
+                    ))}
+                    {dayEvents.length > 8 && (
+                      <li className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>
+                        … and {dayEvents.length - 8} more — see full list below
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )
+          })()}
+          </>
         ) : (
           <div className="h-[200px] flex items-center justify-center">
             <p style={{ color: "var(--text-secondary)" }}>No data available for this period</p>
@@ -1450,17 +1863,30 @@ export function RemediationTimeline({
                            event.resource_type === 'S3Bucket' ? 'S3 Bucket' :
                            event.resource_type}
                         </span>
+                        {(event.metadata?.force_override === true ||
+                          event.metadata?.drift_detected) && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-bold whitespace-nowrap bg-amber-700/80 text-amber-100 border border-amber-500/40"
+                            title={
+                              event.metadata?.drift_detected
+                                ? `AWS state drifted: ${event.metadata.drift_detected}`
+                                : 'Operator forced execution past safety gate'
+                            }
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            FORCED
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         {formatDateTime(event.timestamp)} • {event.approved_by}
                         {event.source === 'neo4j' && (
                           <span className="text-purple-400 ml-2">● Neo4j</span>
                         )}
-                        {event.confidence_score > 0 && (
-                          <span className="text-emerald-400 ml-2">
-                            {Math.round(event.confidence_score * 100)}% confidence
-                          </span>
-                        )}
+                        <SafetyPipelineStrip
+                          signals={event.metadata?.safety_signals}
+                          legacyConfidenceScore={event.confidence_score}
+                        />
                       </p>
                     </div>
                   </div>

@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache for the v2 response (1 minute TTL)
@@ -12,9 +11,12 @@ let cache: { data: any; timestamp: number; key: string } | null = null
 const CACHE_TTL_MS = 60 * 1000 // 1 minute
 
 export async function GET(req: NextRequest) {
+  const url = new URL(req.url)
+  const systemId = url.searchParams.get("systemId")
+  if (!systemId) {
+    return NextResponse.json({ error: "systemId query parameter is required" }, { status: 400 })
+  }
   try {
-    const url = new URL(req.url)
-    const systemId = url.searchParams.get("systemId") || "alon-prod"
     const window = url.searchParams.get("window") || "7d"
     const mode = url.searchParams.get("mode") || "observed"
 

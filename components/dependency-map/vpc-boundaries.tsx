@@ -40,39 +40,70 @@ interface VPCRect extends BoundingRect {
   subnetRects: SubnetRect[];
 }
 
-const PADDING = 32;
+// 2026-05-31 — primitive replacement. See pattern_recurring_cosmetic_fix_
+// signals_wrong_primitive (memory). Three patches in seven days
+// (5/24 + 5/25 + 5/30) failed to stop the boundary from visually
+// engulfing IAM Roles + S3 Bucket cards. Each cosmetic patch narrowed
+// the failure surface — exclusion list extension, padding clip — but
+// the underlying primitive (bounding-box-of-card-DOM-elements + padding)
+// was wrong: card heights vary with content (number of SG rules, badge
+// count, role permission summary), so the bounding box drifts every
+// time the data shifts.
+//
+// New primitive: lane-based. The Flow Map's grid has a row of named
+// columns: COMPUTE, SUBNETS, ROUTE TABLES, SECURITY GROUPS, NACLS,
+// EGRESS GATEWAYS, VPC ENDPOINTS — all VPC-scoped — and IDENTITY,
+// RESOURCES — global. Each VPC-scoped column carries
+// `data-vpc-scoped-column="true"` on its wrapper div (set in
+// traffic-flow-map.tsx). Column positions are determined by the grid
+// definition, NOT by card content, so they don't drift when SG rules
+// change or NACL badges expand. The VPC boundary is the bounding box
+// of those column wrappers, plus a small margin.
+//
+// Multi-VPC: the producer (attacker-view-panel.tsx::vpcsById) can
+// supply multiple VPCs but the renderer currently bundles all VPCs'
+// cards into the same set of system-wide column lanes. Until cards
+// gain per-VPC anchors, multi-VPC renders as a single combined
+// boundary covering all VPC-scoped lanes. Visually correct for the
+// single-VPC case (the reported bug); multi-VPC layout redesign is a
+// separate Sprint.
+const PADDING_X = 12;
+const PADDING_TOP = 8;
+const PADDING_BOTTOM = 8;
 const VPC_LABEL_HEIGHT = 32;
 const SUBNET_LABEL_HEIGHT = 20;
 
-function findNodeElements(
+// New primitive: find every VPC-scoped column wrapper. This replaces
+// the old findNodeElements + findAllArchitectureNodes pair — both used
+// the wrong primitive (DOM bounding box of individual cards). Lane
+// positions are stable, structural, and independent of card content.
+function findVpcScopedLaneElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>('[data-vpc-scoped-column="true"]')
+  );
+}
+
+// Subnet-level: kept element-based because subnets ARE per-card visual
+// groups (each subnet card has a data-subnet-id). The inner subnet
+// boundary's failure mode wasn't the recurring one — it's the OUTER
+// VPC box that was wrapping IAM/S3. Use the same selectors that the
+// old code carefully restricted to VPC-scoped types.
+function findSubnetCardElements(
   container: HTMLElement,
-  nodeIds: string[]
+  subnetId: string
 ): HTMLElement[] {
-  const elements: HTMLElement[] = [];
-  for (const nodeId of nodeIds) {
-    const selectors = [
-      `[data-node-id="${nodeId}"]`,
-      `[data-compute-id="${nodeId}"]`,
-      `[data-sg-id="${nodeId}"]`,
-      `[data-nacl-id="${nodeId}"]`,
-      `[data-role-id="${nodeId}"]`,
-      `[data-resource-id="${nodeId}"]`,
-      `[data-api-id="${nodeId}"]`,
-    ];
-    for (const selector of selectors) {
-      const el = container.querySelector<HTMLElement>(selector);
-      if (el) {
-        elements.push(el);
-        break;
-      }
-    }
-  }
-  return elements;
+  const el = container.querySelector<HTMLElement>(
+    `[data-subnet-id="${subnetId}"]`
+  );
+  return el ? [el] : [];
 }
 
 function computeBoundingBox(
   elements: HTMLElement[],
-  containerRect: DOMRect
+  containerRect: DOMRect,
+  paddingX = PADDING_X,
+  paddingTop = PADDING_TOP,
+  paddingBottom = PADDING_BOTTOM
 ): BoundingRect | null {
   if (elements.length === 0) return null;
 
@@ -86,7 +117,6 @@ function computeBoundingBox(
     const relX = rect.left - containerRect.left;
     const relY = rect.top - containerRect.top;
 
-    // Skip elements that are not visible or have zero dimensions
     if (rect.width === 0 || rect.height === 0) continue;
 
     minX = Math.min(minX, relX);
@@ -98,28 +128,19 @@ function computeBoundingBox(
   if (!isFinite(minX)) return null;
 
   return {
-    x: minX - PADDING,
-    y: minY - PADDING,
-    width: maxX - minX + PADDING * 2,
-    height: maxY - minY + PADDING * 2,
+    x: minX - paddingX,
+    y: minY - paddingTop,
+    width: maxX - minX + paddingX * 2,
+    height: maxY - minY + paddingTop + paddingBottom,
   };
 }
 
-// Fallback: find ALL architecture nodes in container
-function findAllArchitectureNodes(container: HTMLElement): HTMLElement[] {
-  const selectors = [
-    '[data-compute-id]',
-    '[data-sg-id]',
-    '[data-nacl-id]',
-    '[data-role-id]',
-    '[data-resource-id]',
-    '[data-api-id]',
-  ];
-  const elements: HTMLElement[] = [];
-  for (const sel of selectors) {
-    container.querySelectorAll<HTMLElement>(sel).forEach(el => elements.push(el));
-  }
-  return elements;
+// Truncate a VPC ID for the boundary label. "vpc-086bcc2186fa42c96"
+// becomes "vpc-086bcc21…" — first 12 chars + ellipsis. Full ID lives
+// in the SVG <title> so hover shows it.
+function truncateVpcId(vpcName: string): string {
+  if (vpcName.length <= 13) return vpcName;
+  return vpcName.slice(0, 12) + '…';
 }
 
 export function VPCBoundaries({
@@ -143,32 +164,31 @@ export function VPCBoundaries({
 
     const rects: VPCRect[] = [];
 
+    // Lane-based VPC bounding rect — computed ONCE from the column
+    // structure, then shared across all VPCs in vpcGroups (see
+    // multi-VPC caveat in the file header).
+    const laneElements = findVpcScopedLaneElements(container);
+    const laneBox = computeBoundingBox(laneElements, containerRect);
+
     for (const vpc of vpcGroups) {
-      const allNodeIds = vpc.subnets.flatMap((s) => s.nodeIds);
-      let allElements = findNodeElements(container, allNodeIds);
+      if (!laneBox) continue;
 
-      // Fallback: if we found very few elements but have many nodeIds,
-      // the IDs might not match DOM attributes. Use all architecture nodes instead.
-      if (allElements.length < 2 && allNodeIds.length >= 2) {
-        allElements = findAllArchitectureNodes(container);
-      }
-      const vpcBox = computeBoundingBox(allElements, containerRect);
-
-      if (!vpcBox) continue;
-
-      // Add extra top padding for the VPC label
-      vpcBox.y -= VPC_LABEL_HEIGHT;
-      vpcBox.height += VPC_LABEL_HEIGHT;
+      // Each VPC gets its own rect; in single-VPC mode they're
+      // identical. Clone to keep the per-VPC label intact.
+      const vpcBox: BoundingRect = {
+        x: laneBox.x,
+        y: laneBox.y - VPC_LABEL_HEIGHT,
+        width: laneBox.width,
+        height: laneBox.height + VPC_LABEL_HEIGHT,
+      };
 
       const subnetRects: SubnetRect[] = [];
 
       for (const subnet of vpc.subnets) {
-        const subnetElements = findNodeElements(container, subnet.nodeIds);
+        const subnetElements = findSubnetCardElements(container, subnet.subnetId);
         const subnetBox = computeBoundingBox(subnetElements, containerRect);
-
         if (!subnetBox) continue;
 
-        // Add extra top padding for subnet label
         subnetBox.y -= SUBNET_LABEL_HEIGHT;
         subnetBox.height += SUBNET_LABEL_HEIGHT;
 
@@ -191,12 +211,10 @@ export function VPCBoundaries({
     setVpcRects(rects);
   }, [vpcGroups, containerRef]);
 
-  // Recalculate on vpcGroups change
   useEffect(() => {
     recalculate();
   }, [recalculate]);
 
-  // Track container dimensions with ResizeObserver
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -221,7 +239,6 @@ export function VPCBoundaries({
     };
   }, [containerRef, recalculate]);
 
-  // Recalculate on window resize
   useEffect(() => {
     const handleResize = () => {
       if (rafRef.current !== null) {
@@ -242,7 +259,6 @@ export function VPCBoundaries({
     };
   }, [recalculate]);
 
-  // Also recalculate after a short delay to catch layout shifts
   useEffect(() => {
     if (!visible) return;
     const timer = setTimeout(recalculate, 100);
@@ -251,6 +267,7 @@ export function VPCBoundaries({
 
   return (
     <svg
+      data-vpc-boundary-svg="true"
       className="absolute top-0 left-0 pointer-events-none"
       style={{
         width: containerSize.width || '100%',
@@ -270,91 +287,124 @@ export function VPCBoundaries({
         </filter>
       </defs>
 
-      {vpcRects.map((vpc) => (
-        <g key={vpc.vpcId}>
-          {/* VPC boundary rect - bright border */}
-          <rect
-            x={vpc.x}
-            y={vpc.y}
-            width={vpc.width}
-            height={vpc.height}
-            rx={16}
-            ry={16}
-            fill="rgba(59, 130, 246, 0.04)"
-            stroke="#3b82f6"
-            strokeWidth={2.5}
-            strokeDasharray="12,6"
-            opacity={0.8}
-          />
-
-          {/* VPC label with colored background pill */}
-          <rect
-            x={vpc.x + 12}
-            y={vpc.y + 6}
-            width={Math.min(vpc.vpcName.length * 7.5 + 40, vpc.width - 24)}
-            height={22}
-            rx={11}
-            ry={11}
-            fill="#1e40af"
-            opacity={0.9}
-          />
-          <text
-            x={vpc.x + 24}
-            y={vpc.y + 21}
-            fill="#ffffff"
-            fontSize={11}
-            fontFamily="system-ui, -apple-system, sans-serif"
-            fontWeight={600}
+      {vpcRects.map((vpc) => {
+        const labelText = truncateVpcId(vpc.vpcName);
+        // Width of the label pill — proportional to truncated text.
+        // Using a monospace-ish 7.5 px-per-char heuristic; tighter than
+        // before because the truncated label is short.
+        const labelPillWidth = Math.min(
+          labelText.length * 7.5 + 56,
+          vpc.width - 24
+        );
+        return (
+          <g
+            key={vpc.vpcId}
+            data-vpc-boundary-id={vpc.vpcId}
           >
-            🌐 {vpc.vpcName}
-          </text>
+            {/* VPC boundary rect.
+                rx 12 (down from 16) for a tighter corner that reads as
+                "lane group" rather than "container card". */}
+            <rect
+              x={vpc.x}
+              y={vpc.y}
+              width={vpc.width}
+              height={vpc.height}
+              rx={12}
+              ry={12}
+              fill="rgba(59, 130, 246, 0.04)"
+              stroke="#3b82f6"
+              strokeWidth={2.5}
+              strokeDasharray="12,6"
+              opacity={0.8}
+            />
 
-          {/* Subnet boundaries */}
-          {vpc.subnetRects.map((subnet) => (
-            <g key={subnet.subnetId}>
+            {/* VPC label pill — top-left of the boundary. Truncated id;
+                full id in <title> for hover. */}
+            <g>
               <rect
-                x={subnet.x}
-                y={subnet.y}
-                width={subnet.width}
-                height={subnet.height}
-                rx={8}
-                ry={8}
-                fill={subnet.isPublic ? '#f59e0b08' : '#22c55e08'}
-                stroke={subnet.isPublic ? '#f59e0b' : '#22c55e'}
-                strokeWidth={1.5}
-                strokeDasharray={subnet.isPublic ? '8,4' : 'none'}
-              />
-
-              {/* Subnet label */}
-              <rect
-                x={subnet.x + 8}
-                y={subnet.y + 4}
-                width={
-                  Math.min(
-                    subnet.subnetName.length * 6 + 12,
-                    subnet.width - 16
-                  )
-                }
-                height={16}
-                rx={8}
-                ry={8}
-                fill={subnet.isPublic ? '#78350f' : '#14532d'}
-                opacity={0.8}
+                x={vpc.x + 12}
+                y={vpc.y + 6}
+                width={labelPillWidth}
+                height={22}
+                rx={11}
+                ry={11}
+                fill="#1e40af"
+                opacity={0.9}
               />
               <text
-                x={subnet.x + 14}
-                y={subnet.y + 16}
-                fill={subnet.isPublic ? '#fbbf24' : '#86efac'}
-                fontSize={10}
+                x={vpc.x + 24}
+                y={vpc.y + 21}
+                fill="#ffffff"
+                fontSize={11}
                 fontFamily="system-ui, -apple-system, sans-serif"
-                fontWeight={500}
+                fontWeight={600}
               >
-                {subnet.subnetName}
+                <title>VPC &middot; {vpc.vpcName}</title>
+                VPC &middot; {labelText}
               </text>
             </g>
-          ))}
-        </g>
-      ))}
+
+            {vpc.subnetRects.map((subnet) => (
+              <g key={subnet.subnetId}>
+                <rect
+                  x={subnet.x}
+                  y={subnet.y}
+                  width={subnet.width}
+                  height={subnet.height}
+                  rx={8}
+                  ry={8}
+                  fill={subnet.isPublic ? '#f59e0b08' : '#22c55e08'}
+                  stroke={subnet.isPublic ? '#f59e0b' : '#22c55e'}
+                  strokeWidth={1.5}
+                  strokeDasharray={subnet.isPublic ? '8,4' : 'none'}
+                />
+
+                {/* Subnet label. V2-6 (2026-06-01): prefix "Public · " on
+                    public subnets so the orange-dashed boundary's semantic
+                    is unambiguous. Without the prefix the label is just the
+                    subnet ID, which doesn't tell the operator WHY the boundary
+                    is colored orange + dashed.
+                    Private subnets keep the bare id — green solid carries the
+                    "private" meaning unambiguously in AWS visual convention. */}
+                {(() => {
+                  const labelText = subnet.isPublic
+                    ? `Public · ${subnet.subnetName}`
+                    : subnet.subnetName
+                  return (
+                    <>
+                      <rect
+                        x={subnet.x + 8}
+                        y={subnet.y + 4}
+                        width={
+                          Math.min(
+                            labelText.length * 6 + 12,
+                            subnet.width - 16
+                          )
+                        }
+                        height={16}
+                        rx={8}
+                        ry={8}
+                        fill={subnet.isPublic ? '#78350f' : '#14532d'}
+                        opacity={0.8}
+                      />
+                      <text
+                        x={subnet.x + 14}
+                        y={subnet.y + 16}
+                        fill={subnet.isPublic ? '#fbbf24' : '#86efac'}
+                        fontSize={10}
+                        fontFamily="system-ui, -apple-system, sans-serif"
+                        fontWeight={500}
+                      >
+                        {labelText}
+                      </text>
+                    </>
+                  )
+                })()}
+              </g>
+            ))}
+          </g>
+        );
+      })}
     </svg>
   );
 }

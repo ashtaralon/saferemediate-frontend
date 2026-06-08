@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 /**
  * Security Group Inspector Frontend Tests
  * ========================================

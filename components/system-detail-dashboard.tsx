@@ -34,13 +34,36 @@ import {
   Wrench,
   Bug,
   Unplug,
+  Target,
+  MoreHorizontal,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
+import { DecisionRoutingCard } from "./dashboard/v3/decision-routing-card"
+import { LiveNowStrip } from "./live-now-strip"
+import { PendingDecisionsPanel } from "./pending-decisions-panel"
 import { fetchSecurityFindings } from "@/lib/api-client"
-import type { SecurityFinding } from "@/lib/types"
+import type { SecurityFinding, BlastRadiusScore } from "@/lib/types"
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+import { CoveragePill } from "@/components/brss/coverage-pill"
+import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -50,7 +73,7 @@ const CloudGraphTab = dynamic(
     loading: () => (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <span className="ml-3 text-slate-600">טוען גרף ענן...</span>
+        <span className="ml-3 text-slate-600">Loading cloud graph…</span>
       </div>
     ),
   }
@@ -61,7 +84,7 @@ const LeastPrivilegeTab = dynamic(() => import("./LeastPrivilegeTab"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען ניתוח הרשאות...</span>
+      <span className="ml-3 text-slate-600">Loading permission analysis…</span>
     </div>
   ),
 })
@@ -105,6 +128,26 @@ const AutomationSectionTab = dynamic(
   }
 )
 
+const CrownJewelProtection = dynamic(() => import("./crown-jewel-protection"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">Loading crown jewel protection...</span>
+    </div>
+  ),
+})
+
+const GuidedSystemMap = dynamic(() => import("./guided-system-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-950 rounded-[28px]">
+      <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+      <span className="ml-3 text-slate-300">Loading guided map...</span>
+    </div>
+  ),
+})
+
 const VulnerabilitiesSection = dynamic(
   () => import("./vulnerabilities-section").then((mod) => ({ default: mod.VulnerabilitiesSection })),
   {
@@ -118,12 +161,11 @@ const VulnerabilitiesSection = dynamic(
   }
 )
 
-const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
+const SystemMapPreview = dynamic(() => import("./system-map-preview"), {
   ssr: false,
   loading: () => (
-    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען מפת קשרים...</span>
+    <div className="flex items-center justify-center h-[400px]">
+      <RefreshCw className="w-8 h-8 text-[#2D51DA] animate-spin" />
     </div>
   ),
 })
@@ -133,17 +175,298 @@ const SystemDependencyMap = dynamic(() => import("./system-dependency-map"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען מפת תלויות...</span>
+      <span className="ml-3 text-slate-600">Loading dependency map…</span>
     </div>
   ),
 })
+
+const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">Loading dependency map...</span>
+    </div>
+  ),
+})
+
+// Per-system Attack Paths now reuses the same rich identity-attack-paths
+// visualization rendered on the home dashboard sidebar (dark theme,
+// severity hero, attack-chain strip, hop-by-hop graph viz, crown-jewel
+// list panel). The component already takes a ``systemName`` prop and
+// hits ``/api/proxy/identity-attack-paths/<systemName>`` so the data
+// scope is the same set of resources tagged into this system.
+//
+// WAIVER_active_filter: the URL mention above is documentation only —
+// this dashboard does not fetch IAP itself; it dynamically imports
+// IdentityAttackPaths, which has its own filterActivePaths gate. Replaced
+// the legacy AttackPathsTab — operators were getting two different
+// visual languages for the same concept across the org-level and
+// per-system views.
+const SystemAttackPaths = dynamic(
+  () =>
+    import("./identity-attack-paths/identity-attack-paths").then(
+      (m) => ({ default: m.IdentityAttackPaths }),
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-rose-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+
+// New Attacker Map tab — Phase 1 canonical attacker view + Phase 2
+// all-paths fan-in DAG. Lives alongside the legacy "Attack Paths" tab
+// during transition; both consume the same /api/proxy/identity-
+// attack-paths/{system} endpoint. Dynamic import for the same reason
+// SystemAttackPaths uses it: reactflow + dagre bundle is non-trivial
+// and only needed when the operator drills into this view.
+const SystemAttackerMap = dynamic(
+  () =>
+    import("./attacker-map/attacker-map").then((m) => ({ default: m.AttackerMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+
+// Egress Visibility panel — per-workload outbound traffic + signals.
+// Dynamic import keeps the dashboard's initial bundle lean; this tab
+// is opt-in and operators won't pay for it until they click it.
+//
+// Two views ship in this tab: the new flat "External Egress Inventory"
+// (primary, answers "what's leaving the system") and the legacy
+// per-workload card view (secondary, "drill into one service"). The
+// inventory is the default; the operator can toggle to cards.
+const EgressExternalInventory = dynamic(
+  () => import("./egress-external-inventory").then((m) => ({ default: m.EgressExternalInventory })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+const EgressVisibilityPanel = dynamic(
+  () => import("./egress-visibility-panel").then((m) => ({ default: m.EgressVisibilityPanel })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+
+// Owns the view-mode toggle for the Egress tab. Defaults to the new
+// flat External Egress Inventory; operator can switch to the legacy
+// per-workload cards for drill ("what is this one service doing?").
+// Clicking a workload name in the inventory auto-switches to cards
+// so the deep dive lands on the right workload.
+// chunk #2a: deep-link entry point for the Traffic tab. The Attack
+// Path exfil chip dispatches a CustomEvent("cyntro:traffic:deep-link",
+// {detail:{workload_id, direction}}) which this component listens for
+// and uses to preset the Inventory filters.
+interface TrafficDeepLink {
+  workloadId?: string
+  direction?: "outbound" | "inbound"
+}
+
+// Lazy-load EgressFlowMap — it's the third Traffic view ("Flow map")
+// and only used when an operator clicks the toggle. Keeps the initial
+// Traffic-tab bundle lean (no chunks fetched until needed).
+const EgressFlowMap = dynamic(
+  () => import("./dependency-map/egress-flow-map").then((m) => ({ default: m.EgressFlowMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center min-h-[400px] rounded-xl bg-slate-900">
+        <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    ),
+  },
+)
+
+// Trust Boundary Map — the killer demo view. Renders VPC + subnets +
+// workloads colored by 4-bucket classification + gates + destinations.
+// Default view on the Egress tab so operators land on the headline
+// visualization. Detail panel + LivePipelineModal are co-lazy-loaded.
+const TrustBoundaryMap = dynamic(
+  () => import("./dependency-map/trust-boundary-map").then((m) => ({ default: m.TrustBoundaryMap })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center min-h-[500px] rounded-xl bg-slate-900">
+        <div className="w-10 h-10 border-3 border-violet-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    ),
+  },
+)
+const TrustBoundaryDetailPanel = dynamic(
+  () => import("./dependency-map/trust-boundary-detail-panel").then((m) => ({ default: m.TrustBoundaryDetailPanel })),
+  { ssr: false },
+)
+const LivePipelineModal = dynamic(
+  () => import("./dependency-map/live-pipeline-modal").then((m) => ({ default: m.LivePipelineModal })),
+  { ssr: false },
+)
+
+function EgressTabContainer({
+  systemName,
+  deepLink,
+  onDeepLinkConsumed,
+  onNavigateToSection,
+}: {
+  systemName: string
+  deepLink: TrafficDeepLink | null
+  onDeepLinkConsumed: () => void
+  onNavigateToSection?: (section: string) => void
+}) {
+  // Trust Boundary Map is the new default — the killer-demo headline
+  // visualization. Other views (inventory/by-workload/flow-map) stay
+  // accessible via the toggle for power-user drill-down.
+  const [view, setView] = useState<"trust-boundary" | "inventory" | "by-workload" | "flow-map">(
+    "trust-boundary",
+  )
+  const [pendingDrillWorkload, setPendingDrillWorkload] = useState<{
+    id: string
+    name: string | null
+  } | null>(null)
+
+  // Trust Boundary Map state — selected workload triggers the detail
+  // panel; preview-pipeline trigger opens the LivePipelineModal.
+  const [selectedTbmWorkload, setSelectedTbmWorkload] = useState<any>(null)
+  const [pipelineWorkload, setPipelineWorkload] = useState<any>(null)
+
+  // When the parent passes a deep-link, switch to inventory view so the
+  // operator lands on the row table immediately. The deep-link itself
+  // is owned by the dashboard so it survives this container's mount/
+  // unmount (the container isn't mounted until the Traffic tab is
+  // active, which happens AFTER the chip click fires the events).
+  useEffect(() => {
+    if (deepLink) setView("inventory")
+  }, [deepLink])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 text-[10px]">
+        <span className="uppercase tracking-wider text-slate-500 mr-2">View</span>
+        <button
+          onClick={() => setView("trust-boundary")}
+          aria-pressed={view === "trust-boundary"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "trust-boundary"
+              ? "bg-violet-600 text-white border-violet-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          Trust Boundary
+        </button>
+        <button
+          onClick={() => setView("inventory")}
+          aria-pressed={view === "inventory"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "inventory"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          Traffic Inventory
+        </button>
+        <button
+          onClick={() => setView("by-workload")}
+          aria-pressed={view === "by-workload"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "by-workload"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          By workload
+        </button>
+        <button
+          onClick={() => setView("flow-map")}
+          aria-pressed={view === "flow-map"}
+          className={`px-2 py-1 rounded border font-semibold ${
+            view === "flow-map"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          Flow map
+        </button>
+        {pendingDrillWorkload && view === "by-workload" && (
+          <span className="ml-2 text-[10px] text-slate-500">
+            Drilled into <span className="font-semibold">{pendingDrillWorkload.name ?? pendingDrillWorkload.id}</span>
+            <button
+              onClick={() => setPendingDrillWorkload(null)}
+              className="ml-1 underline hover:text-slate-800"
+            >
+              clear
+            </button>
+          </span>
+        )}
+      </div>
+      {view === "trust-boundary" ? (
+        <div className="flex gap-4">
+          <div className="flex-1 min-w-0">
+            <TrustBoundaryMap
+              systemName={systemName}
+              selectedWorkloadId={selectedTbmWorkload?.workload?.id ?? null}
+              onSelectWorkload={(w) => setSelectedTbmWorkload(w)}
+              onNavigateToSection={onNavigateToSection}
+            />
+          </div>
+          {selectedTbmWorkload && (
+            <TrustBoundaryDetailPanel
+              workload={selectedTbmWorkload}
+              onClose={() => setSelectedTbmWorkload(null)}
+              onPreviewPipeline={(w) => setPipelineWorkload(w)}
+            />
+          )}
+          {pipelineWorkload && (
+            <LivePipelineModal
+              workload={pipelineWorkload}
+              onClose={() => setPipelineWorkload(null)}
+            />
+          )}
+        </div>
+      ) : view === "inventory" ? (
+        <EgressExternalInventory
+          key={deepLink ? `dl-${deepLink.workloadId}-${deepLink.direction}` : "default"}
+          systemName={systemName}
+          initialWorkloadId={deepLink?.workloadId ?? null}
+          initialDirection={deepLink?.direction}
+          onSelectWorkload={(id, name) => {
+            setPendingDrillWorkload({ id, name })
+            setView("by-workload")
+          }}
+        />
+      ) : view === "by-workload" ? (
+        <EgressVisibilityPanel systemName={systemName} />
+      ) : (
+        <EgressFlowMap systemName={systemName} />
+      )}
+    </div>
+  )
+}
 
 const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען ארכיטקטורה...</span>
+      <span className="ml-3 text-slate-600">Loading architecture…</span>
     </div>
   ),
 })
@@ -153,7 +476,7 @@ const RealDataArchitectureMap = dynamic(() => import("./real-data-architecture-m
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען מפת ארכיטקטורה...</span>
+      <span className="ml-3 text-slate-600">Loading architecture map…</span>
     </div>
   ),
 })
@@ -173,7 +496,7 @@ const AWSTopologyMapLive = dynamic(() => import("./aws-topology-map-live"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען טופולוגיית AWS...</span>
+      <span className="ml-3 text-slate-600">Loading topology…</span>
     </div>
   ),
 })
@@ -185,7 +508,7 @@ const AllServicesTab = dynamic(
     loading: () => (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <span className="ml-3 text-slate-600">טוען רשימת שירותים...</span>
+        <span className="ml-3 text-slate-600">Loading service list…</span>
       </div>
     ),
   }
@@ -209,7 +532,7 @@ const SnapshotsRecoveryTab = dynamic(() => import("./snapshots-recovery-tab"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען גיבויים ושחזור...</span>
+      <span className="ml-3 text-slate-600">Loading backups and recovery…</span>
     </div>
   ),
 })
@@ -241,17 +564,20 @@ const BehavioralIntelligence = dynamic(
   }
 )
 // =============================================================================
-// API CONFIGURATION
-// =============================================================================
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://your-ngrok-url.ngrok-free.dev"
-
-// =============================================================================
 // TYPES
 // =============================================================================
 
 interface SystemDetailDashboardProps {
   systemName: string
   onBack: () => void
+  // Optional navigation callback so embedded views (Trust Boundary Map's
+  // "Show the path" CTA) can deep-link into other sections without
+  // imperative router calls.
+  onNavigateToSection?: (section: string) => void
+  // Optional leaf tab id to pre-select on mount. Used by URL deep-links
+  // (e.g. /systems?systemName=X&tab=orphan-services from the IAM
+  // Quarantine-candidates flow).
+  initialTab?: string
 }
 
 interface CriticalIssue {
@@ -277,7 +603,13 @@ interface TagResults {
 }
 
 interface AutoTagStatus {
-  status: "running" | "stopped" | "error"
+  // `wired === false` means the backend genuinely doesn't have the
+  // /api/auto-tag/status endpoint, so all counters are zero by
+  // construction (not because nothing happened). The header strip
+  // suppresses auto-tag indicators in this state — see render at the
+  // header `* {autoTagStatus.totalCycles > 0 ? ...}` site below.
+  wired: boolean
+  status: "running" | "stopped" | "error" | "not_wired"
   totalCycles: number
   actualTrafficCaptured: number
   lastSync: string
@@ -289,6 +621,14 @@ interface GapAnalysis {
   gap: number
   gapPercent: number
   confidence: number
+  // Scope of the gap-analysis numbers. The proxy currently resolves
+  // each system to a primary IAM role (see app/api/proxy/gap-analysis/
+  // route.ts SYSTEM_TO_ROLE_MAP) — so the numbers describe one role's
+  // posture, not the system's full IAM surface. Surfaced explicitly
+  // on the Access Exposure card so operators don't read "1 unused"
+  // as a system-wide claim. When system-aggregated gap analysis lands
+  // (post-Findings-Reconciliation sprint) this field becomes optional.
+  roleName?: string
   relationshipBreakdown?: Record<string, number>
 }
 
@@ -314,16 +654,57 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
-  const [activeTab, setActiveTab] = useState("overview")
-  const [highlightPath, setHighlightPath] = useState<{ source: string; target: string; port?: string } | null>(null)
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>('architectural')
+export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab }: SystemDetailDashboardProps) {
+  const [activeTab, setActiveTab] = useState(initialTab ?? "overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
-  // System metadata (criticality + environment) from backend
-  const [systemMeta, setSystemMeta] = useState<{ criticality: string; environment: string }>({
+  // chunk #2a: cross-tab navigation + deep-link. The Attack Path
+  // exfil chip's "View in Traffic" link dispatches two events:
+  //   cyntro:navigate-tab    -> switches activeTab to the Traffic tab
+  //   cyntro:traffic:deep-link -> carries {workload_id, direction}
+  // Both are captured HERE (not in EgressTabContainer) because the
+  // container isn't mounted until activeTab === "egress", so its own
+  // useEffect would register too late and miss the event. The deep-
+  // link payload is passed down as a prop instead.
+  const [trafficDeepLink, setTrafficDeepLink] = useState<{
+    workloadId?: string
+    direction?: "outbound" | "inbound"
+  } | null>(null)
+  useEffect(() => {
+    const navHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string }>).detail
+      if (detail?.tabId) setActiveTab(detail.tabId)
+    }
+    const deepLinkHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        workloadId?: string
+        direction?: "outbound" | "inbound"
+      }>).detail
+      if (detail) setTrafficDeepLink(detail)
+    }
+    window.addEventListener("cyntro:navigate-tab", navHandler)
+    window.addEventListener("cyntro:traffic:deep-link", deepLinkHandler)
+    return () => {
+      window.removeEventListener("cyntro:navigate-tab", navHandler)
+      window.removeEventListener("cyntro:traffic:deep-link", deepLinkHandler)
+    }
+  }, [])
+
+  // System metadata from backend (criticality + environment + the
+  // real account_id and region derived from resource ARNs by
+  // /api/systems). account_id and region are nullable — when the
+  // collector hasn't surfaced them yet, the System Context card
+  // renders "—" rather than fabricating "eu-west-1" / "745783559495".
+  const [systemMeta, setSystemMeta] = useState<{
+    criticality: string
+    environment: string
+    accountId: string | null
+    region: string | null
+  }>({
     criticality: "",
     environment: "",
+    accountId: null,
+    region: null,
   })
 
   // Initialize severityCounts with default values
@@ -334,8 +715,35 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     passing: 0,
   })
 
-  // Enforcement score from issues summary API
+  // Enforcement score from issues summary API (legacy, preserved during migration)
   const [healthScoreFromApi, setHealthScore] = useState<number | null>(null)
+
+  // Blast Radius System Score — replaces enforcement score as canonical posture number.
+  const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
+  // BRSS snapshot history — powers the trend chart; each entry is a persisted
+  // point-in-time score. Newest-first from the API.
+  const [brssHistory, setBrssHistory] = useState<Array<{
+    timestamp: string
+    score: number
+    score_raw: number
+    coverage_ratio: number
+    resource_count: number
+  }>>([])
+
+  // Per-system posture score (live = no .error + numeric overall_score).
+  const [postureScore, setPostureScore] = useState<{
+    overall_score: number
+    grade: string
+    dimensions?: Record<string, { score: number; weight: number }>
+    timestamp?: string
+    error?: string
+  } | null>(null)
+  // Posture-score 30d trend — used for the header delta arrow.
+  const [postureTrend, setPostureTrend] = useState<{
+    current: number
+    previous: number | null
+    delta: number | null
+  } | null>(null)
 
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
@@ -360,6 +768,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [gapError, setGapError] = useState<string | null>(null)
   const [loadingAutoTag, setLoadingAutoTag] = useState(true)
   const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>({
+    wired: false,
     status: "stopped",
     totalCycles: 0,
     actualTrafficCaptured: 0,
@@ -416,22 +825,61 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchIssuesSummary = async () => {
     try {
-      // Fetch summary and detailed issues in parallel
-      const [summaryRes, issuesRes] = await Promise.all([
+      // Fetch summary, detailed issues, AND the canonical severity-summary
+      // in parallel. severity-summary reads from the SecurityFinding store
+      // (the canonical findings entity); issues-summary recomputes from
+      // raw resource properties (r.gap_count > 0 / r.exposed_count > 0).
+      // The two can disagree on the same system — alon-prod showed 28
+      // SecurityFindings vs 0 issues-summary issues. We keep
+      // issues-summary for BRSS / avg_health_score / infrastructure
+      // counts, but Findings Pressure now reads severity-summary so it
+      // matches Decision Routing on the same page.
+      const [summaryRes, issuesRes, severityRes] = await Promise.all([
         fetch(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`),
-        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
+        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`),
+        fetch(`/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`)
       ])
+
+      // SecurityFinding-derived severity counts win — issues-summary's
+      // resource-property counts are kept only as a fallback when the
+      // canonical endpoint errors.
+      let canonicalSeverity: { critical: number; high: number; medium: number; total: number } | null = null
+      if (severityRes.ok) {
+        try {
+          const sd = await severityRes.json()
+          if (!sd?.error && typeof sd?.total === "number") {
+            canonicalSeverity = {
+              critical: Number(sd.critical) || 0,
+              high: Number(sd.high) || 0,
+              medium: Number(sd.medium) || 0,
+              total: Number(sd.total) || 0,
+            }
+          }
+        } catch {
+          // fall through to issues-summary fallback
+        }
+      }
 
       if (summaryRes.ok) {
         const data = await summaryRes.json()
         console.log("[v0] Issues summary:", data)
 
         if (data.success !== false) {
+          // Prefer canonical SecurityFinding-derived counts when present
+          const sev = canonicalSeverity ?? {
+            critical: Number(data.critical) || 0,
+            high: Number(data.high) || 0,
+            medium: Number(data.medium) || 0,
+            total:
+              (Number(data.critical) || 0) +
+              (Number(data.high) || 0) +
+              (Number(data.medium) || 0),
+          }
           setSeverityCounts({
-            critical: data.critical || 0,
-            high: data.high || 0,
-            medium: data.medium || 0,
-            passing: 100 - (data.critical || 0) - (data.high || 0) - (data.medium || 0),
+            critical: sev.critical,
+            high: sev.high,
+            medium: sev.medium,
+            passing: Math.max(0, 100 - sev.critical - sev.high - sev.medium),
           })
           const checksCount = Number(data.resources?.total || data.total || 0)
           setTotalChecks(checksCount)
@@ -439,6 +887,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             setHealthScore(Number(data.avg_health_score))
           } else {
             setHealthScore(null)
+          }
+          // Blast Radius Score — only set when backend composed it successfully.
+          if (data.blast_radius_score && !data.blast_radius_score.error) {
+            setBrss(data.blast_radius_score as BlastRadiusScore)
+          } else {
+            setBrss(null)
           }
         }
       }
@@ -515,12 +969,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       const gap = Number(data.summary?.unused_count || data.unused_actions || data.unused_count) || 0
       const confidence = Number(data.summary?.lp_score || data.confidence || data.statistics?.confidence) || 75
 
+      // Capture the resolved role name from the proxy response so the
+      // Access Exposure card can surface its scope honestly. The proxy
+      // resolves each systemName → a single IAM role; without surfacing
+      // that, "1 unused permission" reads as a system-wide claim when
+      // it's actually about one role.
+      const roleName: string | undefined =
+        data.role_name || data.roleName || data.summary?.role_name
       setGapAnalysis({
         allowed,
         actual,
         gap,
         gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
         confidence,
+        roleName,
       })
 
       // Handle new format: unused_permissions array instead of unused_actions_list
@@ -552,13 +1014,17 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchAutoTagStatus = async () => {
     try {
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
+      const response = await fetch(
+        `/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`,
+        { cache: 'no-store' },
+      )
       const data = await response.json()
 
       if (!response.ok || data.error) {
         console.log("[v0] Auto-tag status backend error")
         setAutoTagStatus({
-          status: "stopped",
+          wired: false,
+          status: "error",
           totalCycles: 0,
           actualTrafficCaptured: 0,
           lastSync: "Error",
@@ -566,12 +1032,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         return
       }
 
-      const statusValue: "running" | "stopped" | "error" = 
-        (data.status === "running" || data.status === "stopped" || data.status === "error")
-          ? data.status
-          : "stopped"
-      
+      // The proxy returns `wired: false` when the backend endpoint
+      // doesn't exist (currently /api/auto-tag/status returns 404).
+      // Render that as the explicit "not_wired" state instead of
+      // pretending the auto-tagger is "stopped" with fake zeros.
+      const wired = data.wired !== false
+      const statusValue: AutoTagStatus["status"] =
+        !wired
+          ? "not_wired"
+          : (data.status === "running" || data.status === "stopped" || data.status === "error")
+            ? data.status
+            : "stopped"
+
       setAutoTagStatus({
+        wired,
         status: statusValue,
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
@@ -580,7 +1054,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     } catch (error) {
       console.error("[v0] Error fetching auto-tag status:", error)
       setAutoTagStatus({
-        status: "stopped",
+        wired: false,
+        status: "error",
         totalCycles: 0,
         actualTrafficCaptured: 0,
         lastSync: "Error",
@@ -723,6 +1198,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           setSystemMeta({
             criticality: match.criticality || "",
             environment: match.environment || "",
+            accountId: match.account_id || match.accountId || null,
+            region: match.region || null,
           })
         }
       }
@@ -731,8 +1208,53 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }
   }
 
+  // BRSS history fetch — fire-and-forget; chart gracefully handles empty state.
+  const fetchBrssHistory = async () => {
+    if (!systemName) return
+    try {
+      const res = await fetch(`/api/proxy/brss/history?systemName=${encodeURIComponent(systemName)}&limit=30`)
+      if (!res.ok) return
+      const payload = await res.json()
+      const snapshots = Array.isArray(payload?.snapshots) ? payload.snapshots : []
+      // API returns newest-first; flip for chart-friendly left-to-right chronology.
+      setBrssHistory([...snapshots].reverse())
+    } catch {
+      // Empty-state is the fallback; no user-facing error.
+    }
+  }
+
+  const fetchPostureScore = async () => {
+    try {
+      const res = await fetch(`/api/proxy/posture-score/${encodeURIComponent(systemName)}`)
+      if (!res.ok) { setPostureScore(null); return }
+      const data = await res.json()
+      setPostureScore(data)
+    } catch {
+      setPostureScore(null)
+    }
+  }
+
+  const fetchPostureTrend = async () => {
+    try {
+      const res = await fetch(`/api/proxy/posture-score/trend?days=30&systemName=${encodeURIComponent(systemName)}`)
+      if (!res.ok) { setPostureTrend(null); return }
+      const data = await res.json()
+      if (typeof data?.current === 'number') {
+        setPostureTrend({
+          current: data.current,
+          previous: typeof data.previous === 'number' ? data.previous : null,
+          delta: typeof data.delta === 'number' ? data.delta : null,
+        })
+      } else {
+        setPostureTrend(null)
+      }
+    } catch {
+      setPostureTrend(null)
+    }
+  }
+
   const fetchAllData = async () => {
-    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary()])
+    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory(), fetchPostureScore(), fetchPostureTrend()])
   }
 
   useEffect(() => {
@@ -792,44 +1314,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           throw new Error(`Proxy returned ${proxyResponse.status}`)
         }
       } catch (proxyErr: any) {
-        // If proxy fails (404, timeout, network error), try direct backend call as fallback
         if (proxyErr.name === 'AbortError') {
-          console.warn('[SystemDetail] ⚠️ Proxy request timed out, trying direct backend call...')
+          console.warn('[SystemDetail] ⚠️ Proxy request timed out')
+          error = 'Diagnostic request timed out through the internal proxy'
         } else {
-          console.warn('[SystemDetail] ⚠️ Proxy failed:', proxyErr.message || proxyErr, '- trying direct backend call...')
-        }
-        
-        try {
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-          console.log(`[SystemDetail] 🔄 Calling backend directly: ${backendUrl}/api/auto-tagger/diagnostic`)
-          
-          const directResponse = await fetch(`${backendUrl}/api/auto-tagger/diagnostic`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            mode: 'cors',
-            cache: 'no-store',
-            signal: AbortSignal.timeout(35000) // 35 second timeout for Render cold start
-          })
-          
-          if (directResponse.ok) {
-            data = await directResponse.json()
-            console.log('[SystemDetail] ✅ Diagnostic from direct backend:', data)
-          } else {
-            const errorText = await directResponse.text().catch(() => '')
-            error = `Backend returned ${directResponse.status}${errorText ? ': ' + errorText.substring(0, 100) : ''}`
-            console.error(`[SystemDetail] ❌ Direct backend failed: ${directResponse.status}`, errorText.substring(0, 200))
-          }
-        } catch (directErr: any) {
-          if (directErr.name === 'AbortError') {
-            error = 'Backend request timed out (Render may be sleeping - cold start takes ~30s)'
-          } else if (directErr.message?.includes('CORS')) {
-            error = 'CORS error: Backend may not allow direct browser requests'
-          } else {
-            error = `Direct backend failed: ${directErr instanceof Error ? directErr.message : 'Unknown error'}`
-          }
-          console.error('[SystemDetail] ❌ Direct backend call error:', directErr)
+          console.warn('[SystemDetail] ⚠️ Proxy failed:', proxyErr.message || proxyErr)
+          error = `Diagnostic proxy failed: ${proxyErr.message || 'Unknown error'}`
         }
       }
       
@@ -837,11 +1327,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         // Add metadata about which source was used
         setAutoTaggerDiagnostic({
           ...data,
-          _source: usedProxy ? 'proxy' : 'direct_backend'
+          _source: usedProxy ? 'proxy' : 'proxy'
         })
       } else {
         setAutoTaggerDiagnostic({ 
-          error: error || 'Failed to fetch diagnostic (both proxy and direct backend failed)',
+          error: error || 'Failed to fetch diagnostic through the internal proxy',
           tagged_count: 0,
           untagged_count: 0,
           potential_connections: 0,
@@ -1042,19 +1532,70 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setIssues(issues.map((issue) => ({ ...issue, selected: !allSelected })))
   }
 
-  // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture + Behavioral Intelligence
-  const tabs = [
-    { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "identities", label: "Identities", icon: Users },
-    { id: "resource", label: "Shared Resource", icon: Wrench },
-    { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
-    { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
-    { id: "all-services", label: "All Services", icon: Server },
-    { id: "orphan-services", label: "Orphan Services", icon: Unplug },
-    { id: "dependency-map", label: "Dependency Map", icon: Map },
-    { id: "automation", label: "Automation", icon: Zap },
-    { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
+  // Tabs grouped to fit one line cleanly. Was 12 flat tabs that wrapped
+  // into two rows on standard widths and destroyed the visual anchor.
+  // Five groups, each holding the leaves users actually pivot between.
+  // ``activeTab`` still holds the LEAF id (e.g. "least-privilege") so
+  // every existing `{activeTab === "..."}` block below renders unchanged.
+  type TabLeaf = { id: string; label: string }
+  type TabGroup = {
+    id: string
+    label: string
+    icon: any
+    // leaf set when the group is itself a single page (no sub-tabs).
+    leaf?: string
+    children?: TabLeaf[]
+  }
+  const tabGroups: TabGroup[] = [
+    { id: "overview", label: "Overview", icon: BarChart3, leaf: "overview" },
+    {
+      id: "inventory",
+      label: "Inventory",
+      icon: Server,
+      children: [
+        { id: "all-services", label: "All Services" },
+        { id: "orphan-services", label: "Orphan" },
+        { id: "identities", label: "Identities" },
+        { id: "resource", label: "Shared Resources" },
+      ],
+    },
+    {
+      id: "risk",
+      label: "Risk",
+      icon: ShieldAlert,
+      children: [
+        { id: "least-privilege", label: "Least Privilege" },
+        { id: "vulnerabilities", label: "Vulnerabilities" },
+        { id: "attack-paths", label: "Attack Paths" },
+        { id: "attacker-map", label: "Attacker Map" },
+        { id: "crown-jewels", label: "Crown Jewels" },
+        { id: "egress", label: "Traffic" },
+      ],
+    },
+    { id: "topology", label: "Topology", icon: Map, leaf: "dependency-map" },
+    {
+      id: "history",
+      label: "History",
+      icon: History,
+      children: [
+        { id: "history", label: "Remediation Events" },
+        { id: "automation", label: "Automation" },
+      ],
+    },
   ]
+  const activeGroup =
+    tabGroups.find(
+      (g) => g.leaf === activeTab || g.children?.some((c) => c.id === activeTab),
+    ) ?? tabGroups[0]
+  const handleGroupClick = (g: TabGroup) => {
+    if (g.leaf) {
+      setActiveTab(g.leaf)
+    } else if (g.children?.length) {
+      // First child becomes the active sub-tab on group click. Operators
+      // can still pick a different sub-tab below.
+      setActiveTab(g.children[0].id)
+    }
+  }
 
   const resourceTypes = [
     { name: "Compute", count: 8, icon: Server, color: "bg-[#3b82f620] text-[#3b82f6]", description: "EC2, Lambda, ECS" },
@@ -1091,76 +1632,60 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // }
 
   const totalFindings = severityCounts.critical + severityCounts.high + severityCounts.medium
+  // Legacy enforcement-score scaffolding — retained for non-Overview consumers
+  // until we audit each usage site. The Overview card below is now BRSS-driven.
   const hasEnforcementTelemetry = totalChecks > 0 && healthScoreFromApi !== null
   const healthScore = hasEnforcementTelemetry ? healthScoreFromApi : null
-  const enforcementAccent = !hasEnforcementTelemetry
+
+  // Blast Radius Score presentation scaffolding (replaces Enforcement Score card).
+  // Operator-facing score: prefer the convergence-adjusted overlay
+  // when the backend computed one. Falls back to the base BRSS score
+  // when overlay computation failed or hasn't deployed yet — the
+  // overlay is enrichment, not a hard dependency. The base score is
+  // still tracked separately for the "raw BRSS" sub-pill below.
+  const brssOverlay = brss?.overlay && !brss.overlay.error ? brss.overlay : null
+  const brssScore = brss ? (brssOverlay?.score ?? brss.score) : null
+  const brssBaseScore = brss ? brss.score : null
+  const brssTopDriver = brss && brss.top_drivers && brss.top_drivers.length > 0 ? brss.top_drivers[0] : null
+  const brssCoveragePercent = brss ? Math.round(brss.coverage_ratio * 100) : null
+  const brssAccent = brssScore === null
     ? "#94A3B8"
-    : healthScore >= 80
-      ? "#10B981"
-      : healthScore >= 60
-        ? "#F59E0B"
+    : brssScore >= 80 ? "#10B981"
+      : brssScore >= 60 ? "#F59E0B"
         : "#EF4444"
-  const enforcementSurface = !hasEnforcementTelemetry
+  const brssSurface = brssScore === null
     ? "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100"
-    : healthScore >= 80
-      ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50"
-      : healthScore >= 60
-        ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50"
+    : brssScore >= 80 ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50"
+      : brssScore >= 60 ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50"
         : "border-rose-200 bg-gradient-to-br from-rose-50 via-white to-orange-50"
-  const enforcementPill = !hasEnforcementTelemetry
-    ? "text-slate-600 bg-slate-200/70"
-    : healthScore >= 80
-      ? "text-emerald-700 bg-emerald-100"
-      : healthScore >= 60
-        ? "text-amber-700 bg-amber-100"
-        : "text-rose-700 bg-rose-100"
-  const enforcementTitle = !hasEnforcementTelemetry
-    ? "Telemetry not available"
-    : healthScore >= 80
-      ? "Strong system enforcement"
-      : healthScore >= 60
-        ? "Needs stronger enforcement"
-        : "High enforcement gap"
+  const brssTitle = brssScore === null
+    ? "Awaiting first scan"
+    : brssScore >= 80 ? "Strong posture — low damage potential"
+      : brssScore >= 60 ? "Meaningful damage potential present"
+        : "High damage potential — urgent review"
+  // Confidence pill derived from top-drivers' usage_confidence + exposure penalty.
+  const brssConfidence: { label: string; cls: string } = (() => {
+    if (!brss || !brss.top_drivers || brss.top_drivers.length === 0) {
+      return { label: "Unknown", cls: "text-slate-600 bg-slate-100" }
+    }
+    const avgUsage = brss.top_drivers.reduce((s, d) => s + (d.factors?.usage_confidence ?? 1), 0) / brss.top_drivers.length
+    const maxExposure = brss.top_drivers.reduce((m, d) => Math.max(m, d.factors?.exposure_uncertainty_penalty ?? 0), 0)
+    const cov = brss.coverage_ratio
+    if (cov < 0.3 || avgUsage < 0.7 || maxExposure > 8) return { label: "Low", cls: "text-rose-700 bg-rose-100" }
+    if (avgUsage >= 0.9 && cov >= 0.7 && maxExposure === 0) return { label: "High", cls: "text-emerald-700 bg-emerald-100" }
+    return { label: "Medium", cls: "text-amber-700 bg-amber-100" }
+  })()
+  // Delta: "Baseline established" on first-ever snapshot, signed delta thereafter.
+  const brssDeltaText: string = (() => {
+    if (!brss || !brss.delta) return ""
+    if (brss.delta.previous_score === null) return "Baseline established"
+    const d = brss.delta.score_delta
+    if (d > 0) return `+${d} since last snapshot`
+    if (d < 0) return `${d} since last snapshot`
+    return "No change since last snapshot"
+  })()
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
   const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
-  const topPriorityItems = [
-    severityCounts.critical > 0 ? {
-      title: `${severityCounts.critical} critical findings`,
-      detail: "Immediate investigation required to reduce active exposure.",
-      tone: "critical",
-      action: () => setActiveTab("vulnerabilities"),
-      cta: "Open vulnerabilities",
-    } : null,
-    severityCounts.high > 0 ? {
-      title: `${severityCounts.high} high-severity issues`,
-      detail: "High-risk issues are still open and should be remediated next.",
-      tone: "high",
-      action: () => setActiveTab("least-privilege"),
-      cta: "Review access gaps",
-    } : null,
-    gapAnalysis.gap > 0 ? {
-      title: `${gapAnalysis.gap} unused permissions`,
-      detail: `${gapAnalysis.gapPercent}% of granted access appears removable from observed usage.`,
-      tone: "warning",
-      action: () => setActiveTab("least-privilege"),
-      cta: "Inspect least privilege",
-    } : null,
-    cveSummary.totalCves > 0 ? {
-      title: `${cveSummary.totalCves} CVEs on exposed paths`,
-      detail: "Open vulnerable services are contributing to system risk.",
-      tone: "warning",
-      action: () => setActiveTab("vulnerabilities"),
-      cta: "View CVEs",
-    } : null,
-  ].filter(Boolean) as Array<{
-    title: string
-    detail: string
-    tone: "critical" | "high" | "warning"
-    action: () => void
-    cta: string
-  }>
-  const overviewIssuePreview = issues.slice(0, 3)
-  const overviewFindingsPreview = securityFindings.slice(0, 5)
 
   // =============================================================================
   // RENDER
@@ -1183,6 +1708,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </button>
               <div>
                 <div className="flex items-center gap-3">
+                  {/* IDENTITY zone — what this system IS (stable, not state). */}
                   <h1 className="text-2xl font-bold text-[var(--foreground,#111827)]">{systemName}</h1>
                   {systemMeta.environment && (
                     <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">
@@ -1199,21 +1725,67 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       {systemMeta.criticality}
                     </span>
                   )}
-                  {severityCounts.critical > 0 && ( // Conditionally render critical alert
+                  {/* Visual divider — separates STABLE identity (left) from LIVE posture (right). */}
+                  {(severityCounts.critical > 0 || (postureScore && !postureScore.error)) && (
+                    <div className="h-6 w-px bg-slate-300 mx-1" aria-hidden />
+                  )}
+                  {/* LIVE posture zone — current state, refreshes with data. */}
+                  {severityCounts.critical > 0 && (
                     <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
-                      {severityCounts.critical} CRITICAL
+                      {severityCounts.critical} CRITICAL FINDING{severityCounts.critical === 1 ? '' : 'S'}
                     </span>
                   )}
+                  {postureScore && !postureScore.error && typeof postureScore.overall_score === 'number' && (() => {
+                    const score = postureScore.overall_score
+                    const accent = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626'
+                    const delta = postureTrend?.delta
+                    let deltaEl: React.ReactNode = null
+                    if (typeof delta === 'number' && delta !== 0) {
+                      const up = delta > 0
+                      const sign = up ? '+' : ''
+                      // For posture, UP is good (higher score = better)
+                      const deltaColor = up ? '#16a34a' : '#dc2626'
+                      deltaEl = (
+                        <span className="text-[11px] font-semibold ml-1" style={{ color: deltaColor }} title="Change vs 30 days ago">
+                          {up ? '↑' : '↓'} {sign}{delta}
+                        </span>
+                      )
+                    }
+                    return (
+                      <div className="flex items-baseline gap-2 ml-1">
+                        <span className="text-3xl font-bold leading-none" style={{ color: accent }}>
+                          {Math.round(score)}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                          Posture · {postureScore.grade}
+                        </span>
+                        {deltaEl}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                  AWS eu-west-1 • {systemMeta.environment || "Production"} environment{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                  {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"}
+                  {lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                  {postureScore?.timestamp ? ` • Posture computed: ${new Date(postureScore.timestamp).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                  {autoTagStatus.totalCycles > 0 ? ` • ${autoTagStatus.totalCycles} auto-tag cycles` : ""}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* 1. Sync from AWS → Neo4j */}
+            {/* Header actions hierarchy:
+                  Primary  — Sync from AWS    (operator's daily action;
+                                               the only large branded
+                                               button)
+                  Compact  — Refresh           (icon-only; daily but
+                                               cheap to surface)
+                  Overflow — Tag / Auto-Tag /
+                             Schedule          (rare; behind ⋯ menu)
+                Was five peer-weight buttons that all looked equally
+                important. Operators reported scanning past Sync to
+                find the action they actually wanted. */}
+            <div className="flex items-center gap-2">
               <SyncFromAWSButton
                 onSyncComplete={() => {
                   setLastSyncedAt(new Date().toISOString())
@@ -1222,148 +1794,132 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 className="flex-shrink-0"
               />
 
-              {/* 2. Refresh from Neo4j (re-read existing data) */}
               <button
                 onClick={() => {
                   setRefreshKey((k) => k + 1)
                 }}
-                className="flex items-center gap-2 px-4 py-2 border border-[var(--border,#e5e7eb)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                title="Refresh from Neo4j (re-read existing data)"
+                aria-label="Refresh"
+                className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                Refresh
               </button>
 
-              <button
-                onClick={() => setShowTagModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-              >
-                <Tag className="w-4 h-4" />
-                Tag All Resources
-              </button>
-
-              <button
-                onClick={handleManualAutoTag}
-                disabled={autoTaggerLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-              >
-                {autoTaggerLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Tagging...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    Auto-Tag Connected Resources
-                  </>
-                )}
-              </button>
-              <button className="flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] transition-colors">
-                <Calendar className="w-4 h-4" />
-                Schedule Maintenance
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label="More actions"
+                    title="More actions"
+                    className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setShowTagModal(true)}>
+                    <Tag className="w-4 h-4 mr-2" />
+                    Tag all resources
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleManualAutoTag}
+                    disabled={autoTaggerLoading}
+                  >
+                    {autoTaggerLoading ? (
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Zap className="w-4 h-4 mr-2" />
+                    )}
+                    {autoTaggerLoading ? "Tagging…" : "Auto-tag connected resources"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      // Schedule Maintenance was a no-op label-only
+                      // button before; preserving the not-yet-wired
+                      // behavior here — wiring it is a follow-up.
+                    }}
+                  >
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Schedule maintenance
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
-          {/* Tabs */}
+          {/* Top-level tab groups — five-wide row that no longer wraps. */}
           <div className="flex items-center gap-1 mt-6 border-b border-[var(--border,#e5e7eb)] -mb-px">
-            {tabs.map((tab) => {
-              const IconComponent = tab.icon
+            {tabGroups.map((g) => {
+              const IconComponent = g.icon
+              const isActive = g.id === activeGroup.id
               return (
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  key={g.id}
+                  onClick={() => handleGroupClick(g)}
                   className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
+                    isActive
                       ? "border-[#2D51DA] text-[#2D51DA]"
                       : "border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
                   }`}
                 >
                   <IconComponent className="w-4 h-4" />
-                  {tab.label}
+                  {g.label}
                 </button>
               )
             })}
           </div>
+          {/* Sub-tabs strip — shown only when the active group has
+              children. Compact, no icons; the group icon already
+              identifies the section. */}
+          {activeGroup.children?.length ? (
+            <div className="flex items-center gap-1 px-1 pt-2 text-xs">
+              {activeGroup.children.map((c) => {
+                const isActive = c.id === activeTab
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setActiveTab(c.id)}
+                    className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                      isActive
+                        ? "bg-[#2D51DA15] text-[#2D51DA]"
+                        : "text-[var(--muted-foreground,#6b7280)] hover:bg-[var(--bg-secondary,#f3f4f6)] hover:text-[var(--foreground,#374151)]"
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
 
       {activeTab === "overview" && (
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] ${enforcementSurface}`}>
-                <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
-                <div className="absolute bottom-0 left-0 h-20 w-20 rounded-full bg-white/30 blur-2xl" />
-                <div className="relative">
-                  <div className="flex items-start justify-between gap-4 mb-5">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">
-                        Enforcement Score
-                      </p>
-                      <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-                        Calculated for this system only
-                      </p>
-                    </div>
-                    <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${enforcementPill}`}>
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      {hasEnforcementTelemetry ? "Live telemetry" : "No telemetry"}
-                    </div>
-                  </div>
+            {/* All four hero cards stretch to a uniform height (default
+                grid behavior — items-stretch). Each card is `flex
+                flex-col` so its content distributes top-to-bottom; the
+                action link at the bottom uses `mt-auto` so it always
+                anchors to the card's lower edge regardless of content
+                length. Combined with the densification work, the
+                hero row reads as four equal-weight peers. */}
+            {/* Blast Radius Score — full-width editorial hero scoped to
+                this system. Mirrors the global hero pattern (big number +
+                grade + trend + weak planes) with the per-plane breakdown
+                rendered as three sibling cards underneath. Replaced the
+                single circle-+-family-pills card with this layout because
+                operators learned the editorial pattern on Home and asked
+                for parity on system pages. The remaining three operational
+                cards (Findings Pressure, Access Exposure, System Footprint)
+                drop down into a 3-col grid below. */}
+            <SystemBlastRadiusHero
+              brss={brss}
+              brssHistory={brssHistory}
+              systemName={systemName}
+              resourceCount={totalResourcesCount}
+            />
 
-                  <div className="flex items-center gap-5">
-                    <div className="relative w-24 h-24 flex-shrink-0">
-                      <svg className="w-24 h-24 -rotate-90">
-                        <circle cx="48" cy="48" r="38" stroke="rgba(255,255,255,0.72)" strokeWidth="10" fill="none" />
-                        <circle
-                          cx="48"
-                          cy="48"
-                          r="38"
-                          stroke={enforcementAccent}
-                          strokeWidth="10"
-                          fill="none"
-                          strokeDasharray={`${2 * Math.PI * 38}`}
-                          strokeDashoffset={`${2 * Math.PI * 38 * (1 - ((healthScore ?? 0) / 100))}`}
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="flex items-end gap-0.5 leading-none">
-                          <span className="text-[32px] font-bold tracking-tight text-[var(--foreground,#111827)]">
-                            {healthScore ?? "—"}
-                          </span>
-                          {hasEnforcementTelemetry && (
-                            <span className="mb-1 text-sm font-semibold text-[var(--muted-foreground,#6b7280)]">%</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="text-base font-semibold text-[var(--foreground,#111827)]">
-                        {enforcementTitle}
-                      </p>
-                      <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
-                        {hasEnforcementTelemetry
-                          ? `${totalChecks} current checks contributing to this score`
-                          : "We need current checks to calculate this system's enforcement score"}
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
-                          System scoped
-                        </span>
-                        {hasEnforcementTelemetry && (
-                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
-                            {totalChecks} active checks
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
                   <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
@@ -1372,16 +1928,92 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <span className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalFindings}</span>
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">open findings</span>
                 </div>
-                <div className="mt-4 flex items-center gap-2 text-xs">
-                  <span className="px-2 py-1 rounded-full bg-[#ef444410] text-[#ef4444]">{severityCounts.critical} critical</span>
-                  <span className="px-2 py-1 rounded-full bg-[#f9731610] text-[#f97316]">{severityCounts.high} high</span>
-                  <span className="px-2 py-1 rounded-full bg-[#eab30810] text-[#a16207]">{severityCounts.medium} medium</span>
-                </div>
+                {/* Severity distribution bar — visual proportion of
+                    critical/high/medium/low. Was three pills with no
+                    visual weight; this gives the eye a density signal
+                    in one horizontal strip alongside the count. */}
+                {totalFindings > 0 ? (
+                  <div className="mt-4">
+                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      {severityCounts.critical > 0 ? (
+                        <div
+                          className="bg-[#ef4444]"
+                          style={{ width: `${(severityCounts.critical / totalFindings) * 100}%` }}
+                          title={`${severityCounts.critical} critical`}
+                        />
+                      ) : null}
+                      {severityCounts.high > 0 ? (
+                        <div
+                          className="bg-[#f97316]"
+                          style={{ width: `${(severityCounts.high / totalFindings) * 100}%` }}
+                          title={`${severityCounts.high} high`}
+                        />
+                      ) : null}
+                      {severityCounts.medium > 0 ? (
+                        <div
+                          className="bg-[#eab308]"
+                          style={{ width: `${(severityCounts.medium / totalFindings) * 100}%` }}
+                          title={`${severityCounts.medium} medium`}
+                        />
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 text-xs flex-wrap">
+                      {severityCounts.critical > 0 ? (
+                        <span className="text-[#ef4444] tabular-nums">{severityCounts.critical} critical</span>
+                      ) : null}
+                      {severityCounts.high > 0 ? (
+                        <span className="text-[#f97316] tabular-nums">{severityCounts.high} high</span>
+                      ) : null}
+                      {severityCounts.medium > 0 ? (
+                        <span className="text-[#a16207] tabular-nums">{severityCounts.medium} medium</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {/* Top contributing finding from BRSS drivers — surfaced
+                    here so the operator can scan severity + the worst
+                    offender in one glance. */}
+                {brssTopDriver ? (
+                  <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Top driver
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[var(--foreground,#111827)] truncate" title={brssTopDriver.resource_id}>
+                      {brssTopDriver.resource_id}
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
+                      {(brssTopDriver.severity ?? '').toString().toUpperCase()} · {brssTopDriver.resource_type ?? 'Resource'}
+                    </p>
+                  </div>
+                ) : null}
+                <button
+                  onClick={() => setActiveTab("vulnerabilities")}
+                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                >
+                  Review findings →
+                </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
-                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Access Exposure</p>
+                  <div className="flex flex-col">
+                    <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">
+                      Access Exposure
+                    </p>
+                    {/* Scope qualifier: the gap-analysis numbers in this
+                        card describe ONE primary IAM role (resolved by
+                        the proxy's SYSTEM_TO_ROLE_MAP), not the system's
+                        full IAM surface. Surfacing the role name keeps
+                        the card from reading as a system-wide claim. */}
+                    {gapAnalysis.roleName ? (
+                      <p
+                        className="mt-0.5 text-[10px] text-[var(--muted-foreground,#9ca3af)] truncate"
+                        title={`Numbers below are for IAM role ${gapAnalysis.roleName}, not the full system`}
+                      >
+                        Role: {gapAnalysis.roleName}
+                      </p>
+                    ) : null}
+                  </div>
                   <Zap className="w-4 h-4 text-[#8b5cf6]" />
                 </div>
                 <div className="flex items-end gap-2">
@@ -1389,15 +2021,70 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">unused permissions</span>
                 </div>
                 <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">{gapAnalysis.gapPercent}% removable from observed usage</p>
-                <div className="mt-4 h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Granted
+                    </p>
+                    <p className="mt-0.5 text-base font-semibold text-[var(--foreground,#111827)]">
+                      {gapAnalysis.allowed || "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Observed used
+                    </p>
+                    <p className="mt-0.5 text-base font-semibold text-[var(--foreground,#111827)]">
+                      {gapAnalysis.actual || "—"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
                   <div className="h-full rounded-full bg-[#8b5cf6]" style={{ width: `${Math.min(100, actualPercent)}%` }} />
                 </div>
-                <button onClick={() => setActiveTab("least-privilege")} className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline">
+                {/* Top unused permissions, surfaced from the same
+                    /api/iam-roles/.../gap-analysis call that produced
+                    the count. Operators don't have to click through to
+                    "what specifically is unused" — the answer is the
+                    next 3 lines. */}
+                {Array.isArray(unusedActionsList) && unusedActionsList.length > 0 ? (
+                  <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Top unused {unusedActionsList.length > 3 ? `(${unusedActionsList.length} total)` : ""}
+                    </p>
+                    <div className="mt-1.5 space-y-0.5">
+                      {unusedActionsList.slice(0, 3).map((p) => (
+                        <p
+                          key={typeof p === "string" ? p : JSON.stringify(p)}
+                          className="text-xs font-mono text-[var(--foreground,#111827)] truncate"
+                          title={typeof p === "string" ? p : JSON.stringify(p)}
+                        >
+                          {typeof p === "string" ? p : (p as any).action || (p as any).name || JSON.stringify(p)}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {/* Telemetry confidence backing the gap. A 1-of-N
+                    "removable" claim with 40% confidence is a wildly
+                    different action than the same claim with 90%. */}
+                {gapAnalysis.confidence ? (
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="text-[var(--muted-foreground,#6b7280)]">Telemetry confidence</span>
+                    <span className="font-medium tabular-nums text-[var(--foreground,#111827)]">
+                      {gapAnalysis.confidence}%
+                    </span>
+                  </div>
+                ) : null}
+                <button
+                  onClick={() => setActiveTab("least-privilege")}
+                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                >
                   Open access workflow →
                 </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">System Footprint</p>
                   <Server className="w-4 h-4 text-[#3b82f6]" />
@@ -1409,201 +2096,423 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 <div className="mt-4 space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-[var(--muted-foreground,#6b7280)]">Environment</span>
-                    <span className="font-medium text-[var(--foreground,#111827)]">{systemMeta.environment || "Production"}</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">
+                      {systemMeta.environment || "—"}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[var(--muted-foreground,#6b7280)]">Criticality</span>
-                    <span className="font-medium text-[var(--foreground,#111827)]">{systemMeta.criticality || "Standard"}</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">
+                      {systemMeta.criticality || "—"}
+                    </span>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-              <div className="xl:col-span-4 space-y-6">
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <ShieldAlert className="w-5 h-5 text-[#ef4444]" />
-                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Immediate Priorities</h3>
-                  </div>
-                  {topPriorityItems.length === 0 ? (
-                    <div className="rounded-lg border border-[#22c55e30] bg-[#22c55e08] p-4">
-                      <div className="flex items-start gap-3">
-                        <CheckCircle className="w-5 h-5 text-[#22c55e] mt-0.5" />
-                        <div>
-                          <p className="text-sm font-semibold text-[#166534]">No urgent drivers detected</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                            This system currently looks stable from the summary signals we track here.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {topPriorityItems.map((item) => (
-                        <div key={item.title} className={`rounded-lg border p-4 ${item.tone === "critical" ? "border-[#ef444430] bg-[#ef444408]" : item.tone === "high" ? "border-[#f9731630] bg-[#f9731608]" : "border-[#eab30830] bg-[#eab30808]"}`}>
-                          <p className="text-sm font-semibold text-[var(--foreground,#111827)]">{item.title}</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{item.detail}</p>
-                          <button onClick={item.action} className="mt-3 text-sm font-medium text-[#2D51DA] hover:underline">
-                            {item.cta} →
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Activity className="w-5 h-5 text-[#3b82f6]" />
-                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Context</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Account</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">745783559495</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Region</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">eu-west-1</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Last behavioral sync</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">{autoTagStatus.lastSync}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Auto-tag cycles</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">{autoTagStatus.totalCycles}</span>
-                    </div>
-                  </div>
-                  <div className="mt-5 pt-5 border-t border-[var(--border,#eef2f7)] space-y-3">
-                    {resourceTypes.map((resource) => (
-                      <div key={resource.name} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${resource.color}`}>
-                            <resource.icon className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-[var(--foreground,#111827)]">{resource.name}</p>
-                            <p className="text-xs text-[var(--muted-foreground,#6b7280)]">{resource.description}</p>
-                          </div>
-                        </div>
-                        <span className="text-sm font-semibold text-[var(--foreground,#111827)]">{resource.count}</span>
+                {/* Resource family breakdown — same data the System
+                    Context card has lower on the page, surfaced here
+                    so the hero row also tells you WHAT 63 resources
+                    actually means (compute-heavy vs network-heavy vs
+                    data-heavy). Shown as compact dot+label rows to
+                    keep the card scannable at the same height. */}
+                {resourceTypes && resourceTypes.length > 0 ? (
+                  <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)] space-y-1.5">
+                    {resourceTypes.slice(0, 5).map((r) => (
+                      <div key={r.name} className="flex items-center justify-between text-xs">
+                        <span className="text-[var(--muted-foreground,#6b7280)]">{r.name}</span>
+                        <span className="font-medium text-[var(--foreground,#111827)] tabular-nums">
+                          {r.count}
+                        </span>
                       </div>
                     ))}
                   </div>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Decision routing — system-scoped variant of the home V3
+                card. Same backend endpoint with ?system_name=X. Surfaces
+                family verdicts (Auto / Approval / Manual / Block) and
+                "Why Cyntro is not acting yet" buckets (low telemetry,
+                short observation, evidence conflict, drift, …) for THIS
+                system's findings. Operator's first question on a system
+                page is "can Cyntro act here?" — this answers it. */}
+            <DecisionRoutingCard systemName={systemName} />
+
+            {/* Live Now strip — slim full-width "what just happened on
+                this system" line. Reads the most recent RemediationEvent
+                joined to a resource carrying this SystemName (real Neo4j
+                data, not fabricated). Three-state aware: loading,
+                has-event, idle, error. Operator's daily question
+                ("did anything happen here?") now has an answer above
+                the fold. */}
+            <LiveNowStrip
+              systemName={systemName}
+              onOpenHistory={() => setActiveTab("history")}
+            />
+
+            {/* Drivers + Trend — combined into a single 12-col row so
+                the supporting "what's pulling the score down" content
+                lives in one band instead of two stacked full-width
+                sections. Each child stays self-conditional so either
+                renders independently when the other has no data. */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            {brss && brss.top_drivers && brss.top_drivers.length > 0 && (
+              <div
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] xl:col-span-8"
+                data-testid="blast-radius-drivers"
+              >
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">
+                      Top Blast Radius Drivers
+                    </h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      Resources pulling the score down the most. Each row shows which factors pushed its weight up and approximately how many points a clean remediation would restore.
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                    Top {brss.top_drivers.length} · {brss.resource_count} total
+                  </span>
                 </div>
+
+                <div className="space-y-3">
+                  {brss.top_drivers.map((d, i) => {
+                    const f = d.factors
+                    // Authoritative lift — computed server-side by recomputing
+                    // the system score with this resource's adjusted_risk set
+                    // to zero (accounts for tail promotion, coverage ceiling,
+                    // saturation curve).
+                    const scoreLiftIfFixed = d.lift_if_fixed ?? 0
+                    const weight = Math.round(f.adjusted_risk)
+                    const barPercent = Math.min(100, (f.adjusted_risk / 50) * 100)
+
+                    const sevColor =
+                      d.severity === 'CRITICAL' ? '#ef4444'
+                      : d.severity === 'HIGH'   ? '#f97316'
+                      : d.severity === 'MEDIUM' ? '#eab308'
+                      : '#94A3B8'
+
+                    // Derive factor chips — only multipliers that exceed
+                    // baseline (1.0) get called out so the operator sees the
+                    // real drivers, not noise.
+                    type Chip = { label: string; reason: string }
+                    const chips: Chip[] = []
+                    chips.push({
+                      label: `Severity ${d.severity}`,
+                      reason: `Severity weight ${f.severity_weight}`,
+                    })
+                    if (f.data_criticality > 1.0) {
+                      chips.push({
+                        label: `Crown jewel ×${f.data_criticality.toFixed(1)}`,
+                        reason: 'Crown-jewel / sensitive data tag',
+                      })
+                    }
+                    if (f.reachability >= 2.0) {
+                      chips.push({
+                        label: `Public exposure ×${f.reachability.toFixed(1)}`,
+                        reason: 'Direct public reachability (network or trust)',
+                      })
+                    } else if (f.reachability >= 1.5) {
+                      chips.push({
+                        label: `External reachable ×${f.reachability.toFixed(1)}`,
+                        reason: 'Cross-account or externally reachable',
+                      })
+                    }
+                    if (f.privilege_capability >= 2.0) {
+                      chips.push({
+                        label: `Admin-like ×${f.privilege_capability.toFixed(1)}`,
+                        reason: 'Broad or admin-equivalent privilege',
+                      })
+                    } else if (f.privilege_capability >= 1.5) {
+                      chips.push({
+                        label: `Broad privilege ×${f.privilege_capability.toFixed(1)}`,
+                        reason: 'Broad scope of authority',
+                      })
+                    }
+                    if (f.likelihood >= 2.0) {
+                      chips.push({
+                        label: `Active path ×${f.likelihood.toFixed(1)}`,
+                        reason: 'Public + externally reachable — active attack surface',
+                      })
+                    } else if (f.likelihood >= 1.5) {
+                      chips.push({
+                        label: `Exposure signal ×${f.likelihood.toFixed(1)}`,
+                        reason: 'Public OR external — elevated likelihood',
+                      })
+                    }
+                    if (f.exposure_uncertainty_penalty > 5) {
+                      chips.push({
+                        label: `Low visibility +${f.exposure_uncertainty_penalty.toFixed(0)}`,
+                        reason: 'Exposure uncertainty penalty — missing telemetry on high-impact axes',
+                      })
+                    }
+                    if (f.usage_confidence < 0.8) {
+                      chips.push({
+                        label: `Usage conf ${Math.round(f.usage_confidence * 100)}%`,
+                        reason: 'Short observation window or sparse events — gap inference is discounted',
+                      })
+                    }
+                    if (f.base_risk >= 50) {
+                      chips.push({
+                        label: 'Capped at 50',
+                        reason: 'Per-resource risk cap applied — raw factor product exceeded PER_RESOURCE_CAP',
+                      })
+                    }
+
+                    return (
+                      <div
+                        key={d.resource_id}
+                        className="rounded-lg border border-[var(--border,#e5e7eb)] p-4 hover:border-slate-300 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4 mb-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-bold text-[var(--muted-foreground,#6b7280)]">#{i + 1}</span>
+                              <span className="text-sm font-semibold text-[var(--foreground,#111827)] truncate">
+                                {d.resource_name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+                                style={{ background: `${sevColor}20`, color: sevColor }}
+                              >
+                                {d.severity}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 uppercase tracking-wider">
+                                {d.family}
+                              </span>
+                              <span className="text-[10px] text-slate-500">{d.resource_type}</span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-2xl font-bold" style={{ color: sevColor }}>
+                              {weight}
+                            </div>
+                            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                              risk weight
+                            </div>
+                            {scoreLiftIfFixed > 0 && (
+                              <div className="text-[11px] font-semibold text-emerald-700 mt-1">
+                                +{scoreLiftIfFixed} if fixed
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-3">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${barPercent}%`, background: sevColor }}
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {chips.map((c, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-50 text-slate-700 border border-slate-200 cursor-help"
+                              title={c.reason}
+                            >
+                              {c.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {brss.coverage_excluded_types?.length ? (
+                  <p className="mt-4 text-[11px] text-[var(--muted-foreground,#6b7280)]">
+                    Not in scan scope: {brss.coverage_excluded_types.join(', ')}. Score cannot account for risk in these resource types.
+                  </p>
+                ) : null}
+              </div>
+            )}
+
+            {/* Trend chart shares the row with Drivers (col-span-4 of
+                the same 12-col grid opened above). Reads the persisted
+                BRSS snapshot series — snapshots are written on first
+                scan, score delta ≥ 2, or every 1 hour even if stable.
+                Empty/single-point states are expected on fresh systems
+                and degrade gracefully. */}
+            {brss && (
+              <div
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] xl:col-span-4"
+                data-testid="blast-radius-trend"
+              >
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">
+                      Score Trend
+                    </h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      Persisted snapshots over time. Movement attributable to remediation, not scope shifts.
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                      Last {brssHistory.length || '—'} snapshot{brssHistory.length === 1 ? '' : 's'}
+                    </p>
+                    {/* Delta over the visible window. Operators couldn't
+                        read movement from the chart alone — at fixed
+                        0-100 axis, a 2-point change looks like a flat
+                        line. The signed delta makes "stable, slow
+                        improvement" legible without staring at the y. */}
+                    {brssHistory.length >= 2 ? (() => {
+                      const first = brssHistory[0]?.score ?? 0
+                      const last = brssHistory[brssHistory.length - 1]?.score ?? 0
+                      const delta = last - first
+                      const sign = delta > 0 ? "+" : ""
+                      // BRSS direction: HIGHER is healthier (≥80 green
+                      // hero, <60 red hero — see brssAccent above). So
+                      // a positive delta means posture improved.
+                      const tone =
+                        delta > 0.5
+                          ? "text-emerald-700"
+                          : delta < -0.5
+                            ? "text-rose-700"
+                            : "text-slate-500"
+                      return (
+                        <p className={`mt-1 text-sm font-semibold tabular-nums ${tone}`}>
+                          Δ {sign}{delta.toFixed(1)} pts
+                        </p>
+                      )
+                    })() : null}
+                  </div>
+                </div>
+
+                {brssHistory.length < 2 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center rounded-lg border border-dashed border-[var(--border,#e5e7eb)] bg-slate-50/60">
+                    <p className="text-sm font-medium text-[var(--foreground,#111827)]">
+                      {brssHistory.length === 1 ? 'Baseline captured — trend builds as posture changes' : 'Trend will appear after the first remediation'}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)] max-w-md">
+                      Snapshots are persisted when the score moves by ≥ 2 points or at least once per hour. Remediate a top driver to produce the next point.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="w-full h-[220px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={brssHistory.map((pt) => ({
+                          ...pt,
+                          // Short-format timestamp for the X-axis
+                          label: new Date(pt.timestamp).toLocaleString('en-US', {
+                            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                          }),
+                        }))}
+                        margin={{ top: 10, right: 20, left: -10, bottom: 0 }}
+                      >
+                        <defs>
+                          <linearGradient id="brss-trend-fill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={brssAccent} stopOpacity={0.35} />
+                            <stop offset="100%" stopColor={brssAccent} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis
+                          dataKey="label"
+                          stroke="#94a3b8"
+                          tick={{ fontSize: 11 }}
+                          minTickGap={24}
+                        />
+                        {/* Autofit Y to the data band with comfortable
+                            padding, clamped to [0, 100]. The fixed 0-100
+                            scale was making any change look flat — at
+                            ~45 score, a 2-point swing was invisible.
+                            Autofit makes movement legible; the inline
+                            Δ callout above the chart preserves the
+                            absolute-reference signal. */}
+                        <YAxis
+                          domain={[
+                            (dataMin: number) => Math.max(0, Math.floor(dataMin - 5)),
+                            (dataMax: number) => Math.min(100, Math.ceil(dataMax + 5)),
+                          ]}
+                          stroke="#94a3b8"
+                          tick={{ fontSize: 11 }}
+                          width={38}
+                        />
+                        {/* Reference lines render only when the autofit
+                            window includes them — Recharts clips them
+                            silently when out of range, which is what we
+                            want (no clutter when the score band is far
+                            from the threshold). */}
+                        <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="3 3" label={{ value: 'Coverage floor', fontSize: 10, fill: '#64748b', position: 'insideTopRight' }} />
+                        <ReferenceLine y={80} stroke="#bbf7d0" strokeDasharray="3 3" label={{ value: 'Healthy', fontSize: 10, fill: '#16a34a', position: 'insideTopRight' }} />
+                        <RechartsTooltip
+                          contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                          labelStyle={{ color: '#475569', fontWeight: 600 }}
+                          formatter={(value: any, name: any, props: any) => {
+                            if (name === 'score') return [`${value} / 100`, 'Blast Radius']
+                            if (name === 'resource_count') return [value, 'Resources scored']
+                            return [value, name]
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="score"
+                          stroke={brssAccent}
+                          strokeWidth={2}
+                          fill="url(#brss-trend-fill)"
+                          dot={{ r: 3, fill: brssAccent, stroke: '#ffffff', strokeWidth: 1.5 }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
+            </div>
+            {/* end Drivers + Trend row */}
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-4 space-y-6">
+                <PendingDecisionsPanel
+                  systemName={systemName}
+                  findings={securityFindings}
+                  onOpenFullQueue={() => setActiveTab("vulnerabilities")}
+                />
+
+                {/* System Context block was deleted in this commit:
+                    Account/Region were duplicates of the page header
+                    sub-text; Last sync is also in the header now;
+                    auto-tag cycles folded into the header sub-text
+                    (only renders when > 0). The resource family
+                    breakdown that lived here is identical to the one
+                    inside the System Footprint hero card above. Net
+                    result: zero unique signal lost. */}
               </div>
 
               <div className="xl:col-span-8 space-y-6">
                 <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] overflow-hidden">
                   <div className="px-6 py-5 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Map</h3>
+                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Map Preview</h3>
                       <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
                         Static architecture snapshot of how identity, network, and data resources connect in this system.
                       </p>
                     </div>
                     <button onClick={() => setActiveTab("dependency-map")} className="text-sm font-medium text-[#2D51DA] hover:underline">
-                      Open full dependency map →
+                      Open dependency map →
                     </button>
                   </div>
                   <div className="p-4">
-                    <SystemDependencyMap systemName={systemName} variant="compact" />
+                    <SystemMapPreview systemName={systemName} />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-[#8b5cf6]" />
-                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Access Posture</h3>
-                      </div>
-                      <span className="text-xs px-2 py-1 rounded-full bg-[#8b5cf615] text-[#7c3aed]">
-                        {loadingGap ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
-                      </span>
-                    </div>
-                    {gapError ? (
-                      <div className="rounded-lg border border-[#ef444430] bg-[#ef444408] p-4">
-                        <p className="text-sm font-medium text-[#ef4444]">Unable to load access posture</p>
-                        <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{gapError}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="space-y-4">
-                          <div>
-                            <div className="flex items-center justify-between text-sm mb-1">
-                              <span className="text-[var(--muted-foreground,#6b7280)]">Granted</span>
-                              <span className="font-medium text-[var(--foreground,#111827)]">{gapAnalysis.allowed}</span>
-                            </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-gray-300 rounded-full w-full" />
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex items-center justify-between text-sm mb-1">
-                              <span className="text-[var(--muted-foreground,#6b7280)]">Observed used</span>
-                              <span className="font-medium text-[#8b5cf6]">{gapAnalysis.actual}</span>
-                            </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-[#8b5cf6] rounded-full" style={{ width: `${Math.min(100, actualPercent)}%` }} />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-4 rounded-lg border border-[#ef444430] bg-[#ef444408] p-4">
-                          <p className="text-sm font-semibold text-[#ef4444]">{gapAnalysis.gap} permissions remain unused</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                            {gapAnalysis.gapPercent}% of current grants look removable based on observed behavior.
-                          </p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Issue Preview</h3>
-                      </div>
-                      <button onClick={() => setActiveTab("vulnerabilities")} className="text-sm font-medium text-[#2D51DA] hover:underline">
-                        Open full workflow →
-                      </button>
-                    </div>
-                    {overviewIssuePreview.length > 0 ? (
-                      <div className="space-y-3">
-                        {overviewIssuePreview.map((issue) => (
-                          <div key={issue.id} className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
-                            <p className="text-sm font-semibold text-[var(--foreground,#111827)]">{issue.title}</p>
-                            <p className="text-xs text-[#ef4444] mt-1">{issue.impact}</p>
-                            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{issue.affected}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : overviewFindingsPreview.length > 0 ? (
-                      <div className="space-y-3">
-                        {overviewFindingsPreview.map((finding) => (
-                          <div key={finding.id} className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-semibold text-[var(--foreground,#111827)] line-clamp-1">{finding.title}</p>
-                              <span className="text-[10px] px-2 py-1 rounded-full bg-[#ef444410] text-[#ef4444]">{finding.severity}</span>
-                            </div>
-                            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2 line-clamp-2">{finding.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-[#22c55e30] bg-[#22c55e08] p-5 text-center">
-                        <CheckCircle className="w-8 h-8 text-[#22c55e] mx-auto mb-2" />
-                        <p className="text-sm font-semibold text-[#166534]">No urgent issues in preview</p>
-                        <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                          The system summary is currently not surfacing urgent findings here.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                {/* Access Posture and Issue Preview were deleted in this
+                    commit. Access Posture rendered the same four numbers
+                    (Granted / Observed used / N unused / confidence)
+                    already in the Access Exposure hero card above —
+                    pure duplicate. Issue Preview rendered the same 3
+                    findings as the Security Findings list further down
+                    the page, just in a different card style. Both
+                    consolidated into existing surfaces; the Security
+                    Findings list at the bottom of the Overview is now
+                    the single canonical findings render. */}
               </div>
             </div>
 
@@ -1633,630 +2542,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             </div>
           </div>
-
-          {false && (
-          <>
-          {/* Main Content - Overview Tab */}
-          <div className="max-w-[1800px] mx-auto px-8 py-6">
-            {/* Stats Row - Updated with real severity counts */}
-            <div className="grid grid-cols-5 gap-4 mb-6">
-              {/* System Health */}
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide mb-4">System Health</p>
-                <div className="flex items-center justify-center">
-                  <div className="relative w-24 h-24">
-                    <svg className="w-24 h-24 transform -rotate-90">
-                      <circle cx="48" cy="48" r="40" stroke="#E5E7EB" strokeWidth="8" fill="none" />
-                      <circle
-                        cx="48"
-                        cy="48"
-                        r="40"
-                        stroke={healthScore >= 80 ? "#10B981" : healthScore >= 60 ? "#F59E0B" : "#EF4444"}
-                        strokeWidth="8"
-                        fill="none"
-                        strokeDasharray={`${2 * Math.PI * 40}`}
-                        strokeDashoffset={`${2 * Math.PI * 40 * (1 - healthScore / 100)}`}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-2xl font-bold text-[var(--foreground,#111827)]">{healthScore}</span>
-                      <span className="text-xs text-[var(--muted-foreground,#6b7280)]">Score</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-center mt-3">
-                  <span
-                    className={`text-sm font-medium ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-yellow-600" : "text-[#ef4444]"}`}
-                  >
-                    {healthScore >= 80 ? "HEALTHY" : healthScore >= 60 ? "WARNING" : "CRITICAL"}
-                  </span>
-                  <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">{totalChecks} checks</p>{" "}
-                  {/* totalChecks was used in original code */}
-                </div>
-              </div>
-
-              {/* Critical */}
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                <p className="text-xs font-medium text-[#ef4444] uppercase tracking-wide mb-2">Critical</p>
-                <p className="text-4xl font-bold text-[#ef4444]">{severityCounts.critical}</p>
-                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Immediate action required</p>
-                <p className="text-xs text-[#22c55e] mt-1">No critical issues</p> {/* Placeholder text */}
-              </div>
-
-              {/* High */}
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                <p className="text-xs font-medium text-orange-500 uppercase tracking-wide mb-2">High</p>
-                {/* Make HIGH card clickable */}
-                <button
-                  onClick={() => setShowHighFindingsModal(true)}
-                  className="text-4xl font-bold text-orange-500 hover:text-orange-600 cursor-pointer transition-colors"
-                  title="Click to view unused permissions"
-                >
-                  {severityCounts.high}
-                </button>
-                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Fix within 24 hours</p>
-                {/* Update placeholder text */}
-                <p className="text-xs text-orange-500 mt-2">Click to view details</p>
-              </div>
-
-              {/* Medium */}
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                <p className="text-xs font-medium text-yellow-500 uppercase tracking-wide mb-2">Medium</p>
-                <p className="text-4xl font-bold text-yellow-500">{severityCounts.medium}</p>
-                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Fix within 7 days</p>
-                <p className="text-xs text-yellow-500 mt-2">-1 from last scan</p> {/* Placeholder text */}
-              </div>
-
-              {/* Passing */}
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                <p className="text-xs font-medium text-[#22c55e] uppercase tracking-wide mb-2">Passing</p>
-                <p className="text-4xl font-bold text-[#22c55e]">{severityCounts.passing}</p>
-                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">All checks passed</p>
-                <p className="text-xs text-[#22c55e] mt-2">+5 from last scan</p> {/* Placeholder text */}
-              </div>
-            </div>
-            {/* Two Column Layout */}
-            <div className="grid grid-cols-3 gap-6">
-              {/* Left Column - System Info */}
-              <div className="space-y-6">
-                {/* GAP Analysis Card - Now uses live data */}
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-[#8b5cf6]" />
-                      <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">GAP Analysis</h3>
-                    </div>
-                    {gapError ? (
-                      <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded-full">Error</span>
-                    ) : (
-                      <span className="px-2 py-1 bg-[#8b5cf615] text-[#7c3aed] text-xs font-medium rounded-full">
-                        {loadingGap ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
-                      </span>
-                    )}
-                  </div>
-
-                  {loadingGap ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-purple-600 border-t-transparent"></div>
-                    </div>
-                  ) : gapError ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <div className="w-12 h-12 bg-[#ef444420] rounded-full flex items-center justify-center mb-3">
-                        <AlertTriangle className="w-6 h-6 text-[#ef4444]" />
-                      </div>
-                      <p className="text-sm font-medium text-[var(--foreground,#111827)] mb-1">Unable to load GAP Analysis</p>
-                      <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-3">{gapError}</p>
-                      <button
-                        onClick={() => {
-                          setLoadingGap(true)
-                          fetchGapAnalysis()
-                        }}
-                        className="flex items-center gap-1 px-3 py-1 border border-[var(--border,#d1d5db)] rounded-lg text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50"
-                      >
-                        <RefreshCw className="w-3 h-3 mr-1" />
-                        Retry
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      {/* ALLOWED Bar */}
-                      <div className="mb-4">
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ALLOWED (IAM Policies)</span>
-                          <span className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">{gapAnalysis.allowed} permissions</span>
-                        </div>
-                        <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-gray-400 rounded-full" style={{ width: "100%" }}></div>
-                        </div>
-                      </div>
-
-                      {/* ACTUAL Bar */}
-                      <div className="mb-4">
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium" style={{ color: "#8B5CF6" }}>
-                            ACTUAL (Used)
-                          </span>
-                          <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
-                            {gapAnalysis.actual} permissions
-                          </span>
-                        </div>
-                        <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${actualPercent}%`, backgroundColor: "#8B5CF6" }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      {/* GAP Highlight */}
-                      <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-3">
-                        {" "}
-                        {/* Changed bg and border color */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-[#ef4444]">GAP (Attack Surface)</span>
-                          <span className="text-sm font-bold text-[#ef4444]">{gapAnalysis.gap} unused permissions</span>
-                        </div>
-                        <p className="text-xs text-[#ef4444] mt-1">
-                          {gapAnalysis.gapPercent}% reduction possible by removing unused permissions
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Server className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
-                    <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">System Info</h3>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Account</span>
-                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">745783559495</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Region</span>
-                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">eu-west-1</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Environment</span>
-                      <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">
-                        Production
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Provider</span>
-                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">AWS</span>
-                    </div>
-                    <div className="border-t border-[var(--border,#f3f4f6)] pt-3 mt-3">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Graph Nodes</span>
-                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">60</span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Relationships</span>
-                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">73</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ACTUAL Behavior</span>
-                      <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
-                        {gapAnalysis.actual || 15}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Database className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
-                    <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">Resource Types</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {resourceTypes.map((resource) => (
-                      <div key={resource.name} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${resource.color}`}>
-                            <resource.icon className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <span className="text-sm text-[var(--foreground,#374151)]">{resource.name}</span>
-                            <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">{resource.description}</p>
-                          </div>
-                        </div>
-                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">{resource.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Auto-Tag Service Card - Now uses live data */}
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
-                      <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">Auto-Tag Service</h3>
-                    </div>
-                    <span
-                      className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        autoTagStatus.status === "running"
-                          ? "bg-[#22c55e20] text-[#22c55e]"
-                          : autoTagStatus.status === "error"
-                            ? "bg-[#ef444420] text-[#ef4444]"
-                            : "bg-gray-100 text-[var(--foreground,#374151)]"
-                      }`}
-                    >
-                      {loadingAutoTag
-                        ? "Loading..."
-                        : autoTagStatus.status === "running"
-                          ? "Running"
-                          : autoTagStatus.status === "error"
-                            ? "Error"
-                            : "Stopped"}
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Total Cycles</span>
-                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">{autoTagStatus.totalCycles}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ACTUAL Traffic Captured</span>
-                      <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
-                        {autoTagStatus.actualTrafficCaptured}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Last Sync</span>
-                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">{autoTagStatus.lastSync}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Compliance Status Card */}
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide mb-4">
-                    Compliance Status
-                  </h3>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm text-[var(--foreground,#374151)]">PCI-DSS</span>
-                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">93%</span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#22c55e10]0 rounded-full" style={{ width: "93%" }}></div>
-                      </div>
-                      <button className="text-xs text-[#3b82f6] hover:underline mt-1">View gaps & remediate →</button>
-                    </div>
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm text-[var(--foreground,#374151)]">SOC 2</span>
-                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">89%</span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#eab30810]0 rounded-full" style={{ width: "89%" }}></div>
-                      </div>
-                      <button className="text-xs text-[#3b82f6] hover:underline mt-1">View gaps & remediate →</button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* CVE Summary Card */}
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Bug className="w-4 h-4 text-[#ef4444]" />
-                      <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">CVE Exposure</h3>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab('vulnerabilities')}
-                      className="text-xs text-[#3b82f6] hover:underline"
-                    >
-                      View all →
-                    </button>
-                  </div>
-
-                  {cveSummary.loading ? (
-                    <div className="flex items-center justify-center py-6">
-                      <RefreshCw className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)] animate-spin" />
-                    </div>
-                  ) : cveSummary.totalCves === 0 ? (
-                    <div className="text-center py-4">
-                      <ShieldCheck className="w-8 h-8 text-[#22c55e] mx-auto mb-2" />
-                      <p className="text-sm text-[#22c55e] font-medium">No CVE Exposure</p>
-                      <p className="text-xs text-[var(--muted-foreground,#6b7280)]">All ports are secure</p>
-                    </div>
-                  ) : (
-                    <>
-                      {/* CVE Counts */}
-                      <div className="grid grid-cols-3 gap-2 mb-4">
-                        <div className="text-center p-2 bg-[#ef444410] rounded-lg">
-                          <p className="text-xl font-bold text-[#ef4444]">{cveSummary.critical}</p>
-                          <p className="text-xs text-[#ef4444]">Critical</p>
-                        </div>
-                        <div className="text-center p-2 bg-[#f9731610] rounded-lg">
-                          <p className="text-xl font-bold text-orange-600">{cveSummary.high}</p>
-                          <p className="text-xs text-orange-500">High</p>
-                        </div>
-                        <div className="text-center p-2 bg-[#eab30810] rounded-lg">
-                          <p className="text-xl font-bold text-yellow-600">{cveSummary.medium}</p>
-                          <p className="text-xs text-yellow-500">Medium</p>
-                        </div>
-                      </div>
-
-                      {/* Services at Risk */}
-                      {cveSummary.servicesAtRisk.length > 0 && (
-                        <div>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-2">Services at Risk:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {cveSummary.servicesAtRisk.map((service) => (
-                              <span
-                                key={service}
-                                className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded"
-                              >
-                                {service}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Quick Action */}
-                      <button
-                        onClick={() => setActiveTab('vulnerabilities')}
-                        className="w-full mt-4 py-2 px-3 bg-[#ef444410] hover:bg-[#ef444420] border border-[#ef444440] rounded-lg text-sm font-medium text-[#ef4444] transition-colors flex items-center justify-center gap-2"
-                      >
-                        <ShieldAlert className="w-4 h-4" />
-                        View & Remediate CVEs
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Column - Critical Issues */}
-              <div className="col-span-2">
-                <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)]">
-                  <div className="p-6 border-b border-[var(--border,#e5e7eb)]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">
-                          {severityCounts.critical > 0 ? "CRITICAL" : "HIGH"} ISSUES ({severityCounts.critical > 0 ? severityCounts.critical : severityCounts.high})
-                        </h3>
-                      </div>
-                      <label className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
-                        <input
-                          type="checkbox"
-                          checked={issues.length > 0 && issues.every((i) => i.selected)}
-                          onChange={selectAllIssues}
-                          className="rounded border-[var(--border,#d1d5db)]"
-                        />
-                        Select All
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="p-6">
-                    {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="w-16 h-16 bg-[#22c55e20] rounded-full flex items-center justify-center mx-auto mb-4">
-                          <CheckCircle className="w-8 h-8 text-[#22c55e]" />
-                        </div>
-                        <h4 className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">No Security Issues</h4>
-                        <p className="text-sm text-[var(--muted-foreground,#6b7280)] max-w-md">
-                          Great news! This system has no security issues. Run a security scan to check for new
-                          vulnerabilities.
-                        </p>
-                        <button
-                          onClick={handleTriggerAutoTag}
-                          disabled={triggeringAutoTag}
-                          className="mt-4 flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] disabled:opacity-50"
-                        >
-                          {triggeringAutoTag ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                              Running...
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-4 h-4" />
-                              Run Security Scan
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    ) : issues.length === 0 && (severityCounts.high > 0 || unusedActionsList.length > 0) ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="w-16 h-16 bg-[#f9731620] rounded-full flex items-center justify-center mx-auto mb-4">
-                          <AlertTriangle className="w-8 h-8 text-orange-500" />
-                        </div>
-                        <h4 className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">
-                          {severityCounts.high} High Severity Issues Found
-                        </h4>
-                        <p className="text-sm text-[var(--muted-foreground,#6b7280)] max-w-md mb-4">
-                          {unusedActionsList.length > 0 
-                            ? `${unusedActionsList.length} unused IAM permissions detected. Click the HIGH card above to view details.`
-                            : `${severityCounts.high} high severity issues detected. Click the HIGH card above to view details.`}
-                        </p>
-                        <button
-                          onClick={() => setShowHighFindingsModal(true)}
-                          className="mt-4 flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
-                        >
-                          <Eye className="w-4 h-4" />
-                          View {unusedActionsList.length > 0 ? unusedActionsList.length : severityCounts.high} Issues
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {issues.map((issue) => (
-                          <div key={issue.id} className="border border-[var(--border,#e5e7eb)] rounded-lg overflow-hidden">
-                            <div className="p-4">
-                              <div className="flex items-start gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={issue.selected}
-                                  onChange={() => toggleIssueSelected(issue.id)}
-                                  className="mt-1 rounded border-[var(--border,#d1d5db)]"
-                                />
-                                <div className="flex-1">
-                                  <h4 className="font-medium text-[var(--foreground,#111827)]">{issue.title}</h4>
-                                  <p className="text-sm text-[#ef4444] mt-1">
-                                    <span className="font-medium">Impact:</span> {issue.impact}
-                                  </p>
-                                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
-                                    <span className="font-medium">Affected:</span> {issue.affected}
-                                  </p>
-                                  <div className="flex items-center gap-4 mt-2">
-                                    <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs rounded-full">
-                                      ✓ SAFE TO FIX • {issue.safeToFix}%
-                                    </span>
-                                    <span className="px-2 py-1 bg-gray-100 text-[var(--muted-foreground,#4b5563)] text-xs rounded-full">
-                                      ⏱ {issue.fixTime}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {issue.expanded && (
-                                <div className="mt-4 p-3 bg-[#8b5cf610] rounded-lg border border-purple-100">
-                                  <p className="text-xs font-semibold text-[#7c3aed] uppercase mb-1">
-                                    Temporal Analysis
-                                  </p>
-                                  <p className="text-sm text-purple-800">{issue.temporalAnalysis}</p>
-                                </div>
-                              )}
-
-                              <button
-                                onClick={() => toggleIssueExpanded(issue.id)}
-                                className="mt-3 text-sm text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)] flex items-center gap-1"
-                              >
-                                {issue.expanded ? "Hide" : "View"} Current vs Desired State
-                                <span className={`transition-transform ${issue.expanded ? "rotate-180" : ""}`}>▼</span>
-                              </button>
-                            </div>
-
-                            <div className="flex border-t border-[var(--border,#e5e7eb)]">
-                              <button
-                                onClick={async () => {
-                                  setSelectedPermissionForSimulation(issue.id)
-                                  setSimulatingIssueId(issue.id)
-                                  try {
-                                    // Extract permission from issue title or ID
-                                    const permission = issue.title.includes(':') 
-                                      ? issue.title.split(':')[1]?.trim() 
-                                      : issue.id.replace('high-', '').replace(/-/g, ':')
-                                    
-                                    const issueId = issue.id
-                                    
-                                    const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({
-                                        finding_id: issueId,
-                                        resource_type: 'IAMRole',
-                                        resource_id: issue.affected.replace('IAM Role: ', ''),
-                                        proposed_change: {
-                                          action: 'remediate',
-                                          items: [permission],
-                                          reason: `Remove unused permission: ${permission}`
-                                        }
-                                      })
-                                    })
-                                    
-                                    if (response.ok) {
-                                      const result = await response.json()
-                                      setSimulationResult(result)
-                                      setShowSimulateModal(true)
-                                    } else {
-                                      const errorData = await response.json().catch(() => ({}))
-                                      if (response.status === 504 || response.status === 408) {
-                                        setSimulationResult({
-                                          status: 'BLOCKED',
-                                          confidence: {
-                                            level: 'BLOCKED',
-                                            numeric: 0.0,
-                                            criteria_failed: ['simulation_timeout'],
-                                            summary: 'Simulation incomplete - timeout occurred'
-                                          },
-                                          recommendation: '⚠️ REVIEW REQUIRED: Simulation timed out. Manual review required.'
-                                        })
-                                        setShowSimulateModal(true)
-                                      } else {
-                                        alert(`Simulation failed: ${errorData.error || response.statusText}`)
-                                      }
-                                    }
-                                  } catch (err) {
-                                    console.error('Simulation error:', err)
-                                    alert('Failed to run simulation. Check console for details.')
-                                  } finally {
-                                    setSimulatingIssueId(null)
-                                  }
-                                }}
-                                disabled={simulatingIssueId !== null}
-                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50"
-                              >
-                                {simulatingIssueId === issue.id ? (
-                                  <>
-                                    <RefreshCw className="w-4 h-4 animate-spin" />
-                                    Simulating...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Play className="w-4 h-4" />
-                                    SIMULATE FIX
-                                  </>
-                                )}
-                              </button>
-                              <button className="flex-1 py-3 text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50 border-l border-[var(--border,#e5e7eb)] flex items-center justify-center gap-2">
-                                ✨ AUTO-FIX
-                              </button>
-                              <button className="flex-1 py-3 text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50 border-l border-[var(--border,#e5e7eb)] flex items-center justify-center gap-2">
-                                👥 REQUEST
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Pending Tag Approvals */}
-            <div className="mt-6">
-              <PendingApprovals systemName={systemName} />
-            </div>
-
-            {/* Security Findings Section */}
-            {activeTab === "overview" && (
-              <div className="mt-6">
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Shield className="w-5 h-5 text-blue-500" />
-                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Security Findings</h3>
-                    </div>
-                    {loadingFindings && (
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-                    )}
-                  </div>
-                  {securityFindings.length > 0 ? (
-                    <SecurityFindingsList findings={securityFindings} />
-                  ) : (
-                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
-                      <p>No security findings found for this system.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          </>
-          )}
         </>
       )}
 
@@ -2264,6 +2549,40 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <LeastPrivilegeTab key={refreshKey} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "crown-jewels" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <CrownJewelProtection
+            key={`${systemName}-${refreshKey}`}
+            systemName={systemName}
+            onOpenLeastPrivilege={() => setActiveTab("least-privilege")}
+          />
+        </div>
+      )}
+
+      {activeTab === "attack-paths" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "attacker-map" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <SystemAttackerMap key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "egress" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <EgressTabContainer
+            key={`${systemName}-${refreshKey}`}
+            systemName={systemName}
+            deepLink={trafficDeepLink}
+            onDeepLinkConsumed={() => setTrafficDeepLink(null)}
+            onNavigateToSection={onNavigateToSection}
+          />
         </div>
       )}
 
@@ -2299,14 +2618,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab
-            key={refreshKey}
-            systemName={systemName}
-            highlightPath={highlightPath || undefined}
-            defaultGraphEngine={graphEngine}
-            onGraphEngineChange={setGraphEngine}
-            onHighlightPathClear={() => setHighlightPath(null)}
-          />
+          <DependencyMapTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
@@ -3075,3 +3387,4 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     </div>
   )
 }
+

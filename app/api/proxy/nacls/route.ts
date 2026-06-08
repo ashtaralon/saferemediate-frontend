@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 export const dynamic = "force-dynamic"
@@ -9,7 +8,10 @@ export const runtime = "nodejs"
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const systemName = url.searchParams.get("systemName")
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+  }
 
   console.log(`[NACLs Proxy] Fetching NACLs for ${systemName}`)
 

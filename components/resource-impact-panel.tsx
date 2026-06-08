@@ -65,7 +65,11 @@ const severityColors: Record<string, string> = {
 
 const HISTORY_KEY = "saferemediate_analysis_history"
 
-export function ResourceImpactPanel() {
+interface ResourceImpactPanelProps {
+  systemName: string
+}
+
+export function ResourceImpactPanel({ systemName }: ResourceImpactPanelProps) {
   const [activeTab, setActiveTab] = useState<"resources" | "impact" | "history">("resources")
   const [resources, setResources] = useState<Resource[]>([])
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
@@ -111,7 +115,7 @@ export function ResourceImpactPanel() {
     async function fetchResources() {
       setResourcesLoading(true)
       try {
-        const res = await fetch("/api/proxy/impact-analysis/resources?system_name=alon-prod")
+        const res = await fetch(`/api/proxy/impact-analysis/resources?system_name=${systemName}`)
         if (res.ok) {
           const data = await res.json()
           setResources(data.resources || [])
@@ -125,7 +129,7 @@ export function ResourceImpactPanel() {
       }
     }
     fetchResources()
-  }, [])
+  }, [systemName])
 
   const fetchSGImpact = useCallback(async (resource: Resource) => {
     if (resource.type !== "SecurityGroup") return
@@ -134,15 +138,11 @@ export function ResourceImpactPanel() {
     setSgImpact(null)
     setShowPath(false)
     
-    const sgNameToId: Record<string, string> = {
-      'saferemediate-test-app-sg': 'sg-02a2ccfe185765527',
-      'saferemediate-test-alb-sg': 'sg-06a6f52b72976da16',
-      'saferemediate-test-db-sg': 'sg-0f8fadc0579ff6845',
-      'AlonTest': 'sg-001295b4de50b389d',
-      'default': 'sg-0212ab87005f59737',
-    }
-    
-    const sgId = resource.id.startsWith('sg-') ? resource.id : sgNameToId[resource.id] || resource.id
+    // 2026-05-30 — removed hardcoded customer-specific sgNameToId table
+    // (only matched the 5 SafeRemediate-Test demo SGs). The resource node
+    // carries its real id; if it's not an sg-XXX shape we pass through
+    // the raw id and let the backend resolve or error honestly.
+    const sgId = resource.id
     
     try {
       const res = await fetch(`/api/proxy/impact-analysis/sg-impact/${sgId}`)

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 // Use Node.js runtime for longer timeout (60s on Pro, 10s on Hobby)
 // Edge Runtime has 30s limit which is too short for slow backend queries
@@ -7,7 +8,6 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Maximum execution time in seconds (Vercel Pro tier)
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache for gap analysis (5-minute TTL)
@@ -28,7 +28,10 @@ function getRoleName(systemName: string): string {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const systemName = url.searchParams.get("systemName")
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+  }
   const roleName = getRoleName(systemName)
   const forceRefresh = url.searchParams.get("refresh") === "true"
 
@@ -75,34 +78,13 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[proxy] gap-analysis backend returned ${res.status}: ${errorText}`)
-
-      // Return stale cache if available
-      const cached = cache.get(cacheKey)
-      if (cached) {
-        console.log(`[proxy] gap-analysis returning stale cache due to backend error`)
-        return NextResponse.json({
-          ...cached.data,
-          fromCache: true,
-          stale: true
-        }, {
-          headers: { 'X-Cache': 'STALE' }
-        })
-      }
-
-      // Return 200 with empty data to prevent UI crashes
-      return NextResponse.json({
-        allowed_actions: 0,
-        used_actions: 0,
-        unused_actions: 0,
-        allowed_count: 0,
-        used_count: 0,
-        unused_count: 0,
-        backend_error: true,
-        backend_status: res.status,
-        message: `Backend returned ${res.status} - using cached data`
-      }, { status: 200 }) // Always 200 to prevent UI errors
+      const errorText = await res.text().catch(() => "")
+      console.error(`[proxy] gap-analysis backend returned ${res.status}: ${errorText.slice(0, 200)}`)
+      return backendError({
+        status: res.status,
+        message: `gap-analysis backend returned ${res.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await res.json()
@@ -146,37 +128,10 @@ export async function GET(req: NextRequest) {
         'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
       }
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId)
-    console.error(`[proxy] gap-analysis error:`, error.name, error.message)
-
-    // Return stale cache if available
-    const cached = cache.get(cacheKey)
-    if (cached) {
-      console.log(`[proxy] gap-analysis returning stale cache due to error`)
-      return NextResponse.json({
-        ...cached.data,
-        fromCache: true,
-        stale: true
-      }, {
-        headers: { 'X-Cache': 'STALE' }
-      })
-    }
-
-    // ALWAYS return 200 with empty data to prevent UI crashes
-    // This handles: AbortError (timeout), network errors, etc.
-    return NextResponse.json({
-      allowed_actions: 0,
-      used_actions: 0,
-      unused_actions: 0,
-      allowed_count: 0,
-      used_count: 0,
-      unused_count: 0,
-      timeout: error.name === 'AbortError',
-      error: true,
-      message: error.name === 'AbortError'
-        ? "Analysis is taking longer than expected - data will refresh shortly"
-        : "Backend temporarily unavailable - please refresh"
-    }, { status: 200 }) // Always 200 to prevent UI errors
+    const e = error as Error
+    console.error(`[proxy] gap-analysis error:`, e?.name, e?.message)
+    return fromCaughtError(error)
   }
 }
