@@ -27,6 +27,7 @@ import { isPrincipalNodeType, PRINCIPAL_NODE_TYPES } from "@/components/identity
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
+import { PotentialDamageSection } from "./risk-potential-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 
 interface PathAnalysisPanelProps {
@@ -643,9 +644,12 @@ export function PathAnalysisPanel({
         <IdentityPlanePanel path={path} />
         <DataPlanePanel path={path} />
 
-        {/* Slice 3 — plain-English damage projection (iam-action-to-english
-            lookup + LLM damage_narrative + damage_capability counts). */}
-        <DamagePanel path={path} />
+        {/* Slice 3 — Risk Potential when chain-aware backend findings
+            are available (CYNTRO_EXPOSURE_FINDINGS_ENABLED=true on
+            Render), falls back to legacy DamagePanel (iam-action-to-
+            english + LLM damage_narrative + damage_capability counts)
+            when flag is off, backend is down, or path has no SG. */}
+        <PotentialDamageSection path={path} DamagePanelFallback={DamagePanel} />
 
         {/* Slice 4 — live hardening recommendations */}
         <HardeningPanel path={path} systemName={systemName} />
