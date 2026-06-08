@@ -19,6 +19,7 @@ import TrafficFlowMap, {
   type TrafficFlowMapPathFilter,
   type SystemArchitecture,
 } from "@/components/dependency-map/traffic-flow-map"
+import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
@@ -590,30 +591,48 @@ export function PathAnalysisPanel({
                 credibility bug. Real action counts surface in the
                 DataPlanePanel below via damage_capability +
                 ACTUAL_S3_ACCESS edge data, which IS observed truth. */}
-            <TrafficFlowMap
-              systemName={systemName}
-              architectureOverride={architecture ?? null}
-              titleOverride=""
-              innerTitleOverride="Flow Map"
-              innerSubtitleOverride="On-path chain + lateral pivots"
-              pathBadgeOverride={pathFilter.pathLabel}
-              observedMode={true}
-              jewelEmphasis={canvasV2}
-              jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
-              canvasV2={canvasV2}
-              entryNodeId={canvasV2 ? start?.id : undefined}
-              fullscreenContainerRef={damageScopePortalContainerRef}
-              onDamageScopeDataNode={(node) => {
-                setDamageScopeTarget({
-                  nodeId: node.id,
-                  nodeName: node.name,
-                  nodeType: node.type,
-                  systemName,
-                  pathId: path.id,
-                })
-                setDamageScopeOpen(true)
-              }}
-            />
+            {/* AttackerCanvasV2 renders the rich edge-proven DTO with
+                EVERY entity type the V1 TrafficFlowMap dropped (Route
+                Tables, IGW, VPCE, IAM Policies, dedicated InstanceProfile
+                lane). The pathFilter prop dims off-path nodes/edges to
+                40%/25% so the on-path chain pops out — full architectural
+                context + path-focus narrative in one canvas.
+                Falls back to TrafficFlowMap when path.id is unset
+                (defensive — AttackerCanvasV2 needs a stable pathId). */}
+            {path.id ? (
+              <AttackerCanvasV2
+                systemName={systemName}
+                pathId={path.id}
+                path={path}
+                jewel={jewel}
+                pathFilter={{ onPathNodeIds: pathFilter.nodeIds }}
+              />
+            ) : (
+              <TrafficFlowMap
+                systemName={systemName}
+                architectureOverride={architecture ?? null}
+                titleOverride=""
+                innerTitleOverride="Flow Map"
+                innerSubtitleOverride="On-path chain + lateral pivots"
+                pathBadgeOverride={pathFilter.pathLabel}
+                observedMode={true}
+                jewelEmphasis={canvasV2}
+                jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
+                canvasV2={canvasV2}
+                entryNodeId={canvasV2 ? start?.id : undefined}
+                fullscreenContainerRef={damageScopePortalContainerRef}
+                onDamageScopeDataNode={(node) => {
+                  setDamageScopeTarget({
+                    nodeId: node.id,
+                    nodeName: node.name,
+                    nodeType: node.type,
+                    systemName,
+                    pathId: path.id,
+                  })
+                  setDamageScopeOpen(true)
+                }}
+              />
+            )}
           </div>
           {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
               chain search for this path. Sits in the empty space under

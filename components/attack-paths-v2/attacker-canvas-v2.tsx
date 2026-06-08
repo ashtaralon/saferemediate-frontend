@@ -55,6 +55,24 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { AtlasInlineSection } from "./atlas-inline-section"
 
+/** Path-focus filter. When supplied, the canvas still renders every
+ *  node from the DTO (the rich V2 surface) but dims nodes and edges
+ *  that are NOT on the supplied attack path. The on-path chain stays
+ *  bright so the operator's eye locks onto the specific traversal
+ *  without losing the surrounding context (Route Tables, IGW, VPCE,
+ *  IAM Policies, etc. — node types the legacy path-filter
+ *  TrafficFlowMap dropped entirely).
+ *
+ *  This does NOT violate the v2 architectural invariant: filtering
+ *  is a caller-supplied prop, not an inference inside the renderer.
+ *  The DTO is rendered verbatim; the prop only changes opacity. */
+export interface AttackerCanvasV2PathFilter {
+  /** AWS ids of nodes that lie on the active attack path. Off-path
+   *  nodes still render but get opacity-40; on-path nodes stay
+   *  bright. Empty / missing = no dim treatment (legacy behavior). */
+  onPathNodeIds: ReadonlyArray<string> | ReadonlySet<string>
+}
+
 interface AttackerCanvasV2Props {
   systemName: string
   pathId: string
@@ -62,9 +80,11 @@ interface AttackerCanvasV2Props {
    *  canvas with deterministic catalog-driven chains for this path. */
   path?: IdentityAttackPath | null
   jewel?: CrownJewelSummary | null
+  /** Optional path-focus filter — see AttackerCanvasV2PathFilter. */
+  pathFilter?: AttackerCanvasV2PathFilter
 }
 
-export function AttackerCanvasV2({ systemName, pathId, path, jewel }: AttackerCanvasV2Props) {
+export function AttackerCanvasV2({ systemName, pathId, path, jewel, pathFilter }: AttackerCanvasV2Props) {
   const [canvas, setCanvas] = useState<AttackCanvas | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -107,7 +127,7 @@ export function AttackerCanvasV2({ systemName, pathId, path, jewel }: AttackerCa
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 min-h-0">
-        <CanvasBody canvas={canvas} />
+        <CanvasBody canvas={canvas} pathFilter={pathFilter} />
       </div>
       {/* ATLAS — Phase 3.2.5 (2026-05-27). Inline catalog-driven chain
           search for this path. Only renders when parent passes path +
@@ -162,7 +182,7 @@ function ContractErrorState({ received, expected }: { received: string; expected
 
 // ─── Canvas body ────────────────────────────────────────────────────
 
-function CanvasBody({ canvas }: { canvas: AttackCanvas }) {
+function CanvasBody({ canvas, pathFilter }: { canvas: AttackCanvas; pathFilter?: AttackerCanvasV2PathFilter }) {
   // Lane buckets (pure layout — node.type → lane is static,
   // declarative). Each node only appears in exactly one lane.
   const lanes = useMemo(() => bucketByLane(canvas.nodes), [canvas.nodes])
@@ -177,6 +197,17 @@ function CanvasBody({ canvas }: { canvas: AttackCanvas }) {
     for (const n of canvas.nodes) m.set(n.aws_id, n)
     return m
   }, [canvas.nodes])
+
+  // Path-focus set: normalize the prop's array | Set into a Set for
+  // O(1) lookups in the per-node / per-edge dim decisions below.
+  // null when no filter supplied → "no dim, everything bright"
+  // (legacy behavior preserved exactly when prop is omitted).
+  const onPathSet = useMemo<ReadonlySet<string> | null>(() => {
+    if (!pathFilter) return null
+    const ids = pathFilter.onPathNodeIds
+    if (ids instanceof Set) return ids
+    return new Set(ids)
+  }, [pathFilter])
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -193,23 +224,23 @@ function CanvasBody({ canvas }: { canvas: AttackCanvas }) {
             EDGE_ENDPOINT_NOT_RENDERED at debug level. */}
         <div ref={containerRef} className="relative">
           <div className="flex gap-6 min-w-max">
-            <Lane title="Principals" icon={Target} iconColor="text-cyan-300" nodes={lanes.principals} hoveredId={hoveredId} onHover={setHoveredId} />
+            <Lane title="Principals" icon={Target} iconColor="text-cyan-300" nodes={lanes.principals} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
             <LaneStack>
-              <Lane title="Compute" icon={Server} iconColor="text-blue-400" nodes={lanes.compute} hoveredId={hoveredId} onHover={setHoveredId} />
-              <Lane title="Egress Gateways" icon={Globe} iconColor="text-amber-300" nodes={lanes.egressGateways} hoveredId={hoveredId} onHover={setHoveredId} />
+              <Lane title="Compute" icon={Server} iconColor="text-blue-400" nodes={lanes.compute} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
+              <Lane title="Egress Gateways" icon={Globe} iconColor="text-amber-300" nodes={lanes.egressGateways} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
             </LaneStack>
-            <Lane title="Subnets" icon={Globe} iconColor="text-cyan-400" nodes={lanes.subnets} canvas={canvas} hoveredId={hoveredId} onHover={setHoveredId} />
-            <Lane title="Security Groups" icon={Shield} iconColor="text-orange-400" nodes={lanes.securityGroups} hoveredId={hoveredId} onHover={setHoveredId} />
-            <Lane title="NACLs" icon={Lock} iconColor="text-cyan-400" nodes={lanes.nacls} hoveredId={hoveredId} onHover={setHoveredId} />
+            <Lane title="Subnets" icon={Globe} iconColor="text-cyan-400" nodes={lanes.subnets} canvas={canvas} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
+            <Lane title="Security Groups" icon={Shield} iconColor="text-orange-400" nodes={lanes.securityGroups} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
+            <Lane title="NACLs" icon={Lock} iconColor="text-cyan-400" nodes={lanes.nacls} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
             {hasInstanceProfiles && (
-              <Lane title="Instance Profiles" icon={Layers} iconColor="text-amber-300" nodes={lanes.instanceProfiles} hoveredId={hoveredId} onHover={setHoveredId} />
+              <Lane title="Instance Profiles" icon={Layers} iconColor="text-amber-300" nodes={lanes.instanceProfiles} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
             )}
-            <Lane title="IAM Roles" icon={Key} iconColor="text-pink-400" nodes={lanes.iamRoles} hoveredId={hoveredId} onHover={setHoveredId} />
+            <Lane title="IAM Roles" icon={Key} iconColor="text-pink-400" nodes={lanes.iamRoles} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
             {hasIamPolicies && (
-              <Lane title="IAM Policies" icon={FileText} iconColor="text-rose-400" nodes={lanes.iamPolicies} hoveredId={hoveredId} onHover={setHoveredId} />
+              <Lane title="IAM Policies" icon={FileText} iconColor="text-rose-400" nodes={lanes.iamPolicies} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
             )}
             <LaneStack>
-              <Lane title="Resources" icon={Database} iconColor="text-green-400" nodes={lanes.resources} hoveredId={hoveredId} onHover={setHoveredId} />
+              <Lane title="Resources" icon={Database} iconColor="text-green-400" nodes={lanes.resources} hoveredId={hoveredId} onHover={setHoveredId} onPathSet={onPathSet} />
               {hasRemediationTargets && (
                 <Lane
                   title="Remediation Targets"
@@ -219,6 +250,7 @@ function CanvasBody({ canvas }: { canvas: AttackCanvas }) {
                   subtitle="Sibling resources covered by the same grant"
                   hoveredId={hoveredId}
                   onHover={setHoveredId}
+                  onPathSet={onPathSet}
                 />
               )}
             </LaneStack>
@@ -228,6 +260,7 @@ function CanvasBody({ canvas }: { canvas: AttackCanvas }) {
             nodesByAwsId={nodesByAwsId}
             containerRef={containerRef}
             hoveredId={hoveredId}
+            onPathSet={onPathSet}
           />
         </div>
       </div>
@@ -289,9 +322,12 @@ interface LaneProps {
   canvas?: AttackCanvas
   hoveredId: string | null
   onHover: (id: string | null) => void
+  /** Path-focus set. When non-null, NodeCards whose aws_id is NOT in
+   *  the set render with opacity-40. null = no dim (legacy). */
+  onPathSet?: ReadonlySet<string> | null
 }
 
-function Lane({ title, icon: Icon, iconColor, nodes, subtitle, canvas, hoveredId, onHover }: LaneProps) {
+function Lane({ title, icon: Icon, iconColor, nodes, subtitle, canvas, hoveredId, onHover, onPathSet }: LaneProps) {
   if (nodes.length === 0) {
     return (
       <div className="flex flex-col gap-2 min-w-[150px]">
@@ -330,7 +366,13 @@ function Lane({ title, icon: Icon, iconColor, nodes, subtitle, canvas, hoveredId
             )
           })}
         {nodes.map((node) => (
-          <NodeCard key={node.aws_id} node={node} hoveredId={hoveredId} onHover={onHover} />
+          <NodeCard
+            key={node.aws_id}
+            node={node}
+            hoveredId={hoveredId}
+            onHover={onHover}
+            isOffPath={onPathSet ? !onPathSet.has(node.aws_id) : false}
+          />
         ))}
       </div>
     </div>
@@ -352,14 +394,22 @@ function NodeCard({
   node,
   hoveredId,
   onHover,
+  isOffPath = false,
 }: {
   node: CanvasNode
   hoveredId: string | null
   onHover: (id: string | null) => void
+  /** Path-focus dim: when true, render this card at reduced opacity
+   *  so the active on-path chain stands out. Hover still un-dims
+   *  via the existing ring treatment. */
+  isOffPath?: boolean
 }) {
   const visual = visualForType(node.type)
   const isRemediationTarget = node.included_reason === "REMEDIATION_TARGET"
   const isHovered = hoveredId === node.aws_id
+  // Off-path nodes dim to 40% so the on-path chain stays bright;
+  // hover always returns the card to full opacity for inspection.
+  const offPathClass = isOffPath && !isHovered ? "opacity-40" : ""
   return (
     <div
       data-canvas-node-id={node.aws_id}
@@ -367,8 +417,8 @@ function NodeCard({
       onMouseLeave={() => onHover(null)}
       className={`relative rounded-lg border-2 px-3 py-2 transition-all duration-150 ${visual.cardBg} ${visual.cardBorder} ${
         isRemediationTarget ? "border-dashed" : ""
-      } ${isHovered ? "ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/20" : ""}`}
-      title={`${node.aws_id} · included_reason=${node.included_reason}`}
+      } ${isHovered ? "ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/20" : ""} ${offPathClass}`}
+      title={`${node.aws_id} · included_reason=${node.included_reason}${isOffPath ? " · off-path" : ""}`}
     >
       <div className="flex items-center gap-2">
         <visual.Icon className={`w-4 h-4 shrink-0 ${visual.iconColor}`} />
@@ -719,6 +769,10 @@ interface RenderedLine {
   x2: number
   y2: number
   style: LineStyle
+  /** Path-focus: true when BOTH endpoints are in the active path
+   *  filter. When false (off-path), the line renders at reduced
+   *  opacity so the on-path polyline pops out of the rich V2 canvas. */
+  isOnPath: boolean
 }
 
 /**
@@ -744,11 +798,15 @@ function CanvasEdgesSVG({
   nodesByAwsId,
   containerRef,
   hoveredId,
+  onPathSet,
 }: {
   edges: CanvasEdge[]
   nodesByAwsId: Map<string, CanvasNode>
   containerRef: React.RefObject<HTMLDivElement | null>
   hoveredId: string | null
+  /** Path-focus set: edges whose endpoints aren't BOTH on-path
+   *  render with reduced opacity so the chain polyline stands out. */
+  onPathSet?: ReadonlySet<string> | null
 }) {
   const [lines, setLines] = useState<RenderedLine[]>([])
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -789,10 +847,18 @@ function CanvasEdgesSVG({
       const y2 = dr.top + dr.height / 2 - cRect.top
       const srcNode = nodesByAwsId.get(edge.source_aws_id)
       const dstNode = nodesByAwsId.get(edge.target_aws_id)
+      // Path-focus: only edges whose BOTH endpoints are on the
+      // active path render bright. Anything else gets dimmed so
+      // the polyline through the chain pops out of the rich V2
+      // canvas surface.
+      const isOnPath = onPathSet
+        ? onPathSet.has(edge.source_aws_id) && onPathSet.has(edge.target_aws_id)
+        : true
       result.push({
         edge,
         x1, y1, x2, y2,
         style: lineStyleForEdge(edge, srcNode, dstNode),
+        isOnPath,
       })
     }
     if (dropped > 0 && process.env.NODE_ENV !== "production") {
@@ -800,7 +866,7 @@ function CanvasEdgesSVG({
       console.debug(`[canvas v2] ${dropped}/${edges.length} edges skipped (endpoints not rendered)`)
     }
     setLines(result)
-  }, [edges, nodesByAwsId, containerRef])
+  }, [edges, nodesByAwsId, containerRef, onPathSet])
 
   // Recalculate on mount + when edges/nodes change + on container
   // resize. ResizeObserver covers layout reflow from window resize,
@@ -846,8 +912,21 @@ function CanvasEdgesSVG({
           hoveredId !== null &&
           (hoveredId === line.edge.source_aws_id || hoveredId === line.edge.target_aws_id)
         const isDimmed = hoveredId !== null && !isOnHovered
-        const opacity = isDimmed ? 0.1 : isOnHovered ? 1.0 : line.style.opacity
-        const width = isOnHovered ? line.style.width + 1 : line.style.width
+        // Three opacity tiers stacked, in priority order:
+        //   1. Hover-dim    (hover wins over everything else)
+        //   2. Path-focus   (off-path lines dim to 0.25× of their
+        //                    natural opacity when a path filter is set)
+        //   3. Natural      (line.style.opacity from edge type)
+        // Width gets a slight reduction off-path so the chain
+        // polyline visually leads the eye.
+        const pathDimMultiplier = line.isOnPath ? 1.0 : 0.25
+        const baseOpacity = line.style.opacity * pathDimMultiplier
+        const opacity = isDimmed ? 0.1 : isOnHovered ? 1.0 : baseOpacity
+        const width = isOnHovered
+          ? line.style.width + 1
+          : line.isOnPath
+            ? line.style.width
+            : Math.max(1, line.style.width - 0.5)
 
         // Midpoint for label placement
         const mx = (line.x1 + line.x2) / 2
