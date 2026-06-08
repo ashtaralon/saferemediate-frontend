@@ -16,6 +16,7 @@ import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-rem
 import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-remediation-modal'
 import type { BlastRadiusScore } from '@/lib/types'
 import { CoveragePill } from '@/components/brss/coverage-pill'
+import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // ---------- Safe helpers ----------
@@ -136,7 +137,10 @@ interface GapResource {
       resources_checked?: number
     }> | null
   }
-  severity: 'critical' | 'high' | 'medium' | 'low'
+  // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
+  // in this file still write lowercase. Severity rendering goes through
+  // lib/lp-severity.ts which normalises case before mapping.
+  severity: string
   confidence: number
   observationDays: number
   title: string
@@ -1428,31 +1432,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (type === 'S3Bucket') return Database
     return AlertTriangle
   }
+  // Severity badge mirrors the backend `severity` field verbatim
+  // (case-insensitive). The frontend must not re-derive severity from
+  // gapPercent — a bucket flagged CRITICAL for a public-read policy has
+  // gapPercent=0 yet must render CRITICAL, not Low.
   const getSeverityColor = (resource: GapResource) => {
     if (isRemediated(resource)) return '#10b981'
-    const pct = resource.gapPercent ?? 0
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      const s = (resource.severity || '').toUpperCase()
-      if (s === 'CRITICAL') return '#ef4444'
-      if (s === 'HIGH') return '#f97316'
-      if (s === 'MEDIUM') return '#eab308'
-      return '#22c55e'
-    }
-    if (pct >= 80) return '#ef4444'
-    if (pct >= 50) return '#f97316'
-    if (pct >= 20) return '#eab308'
-    return '#22c55e'
+    return lpSeverityColor(resource.severity)
   }
   const getSeverityLabel = (resource: GapResource) => {
     if (isRemediated(resource)) return 'Remediated'
-    const pct = resource.gapPercent ?? 0
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      return (resource.severity || 'low').toUpperCase()
-    }
-    if (pct >= 80) return 'Critical'
-    if (pct >= 50) return 'High'
-    if (pct >= 20) return 'Medium'
-    return 'Low'
+    return lpSeverityLabel(resource.severity)
   }
   // ── Blast Radius (v1.1) colour + confidence helpers ──
   const getBRSColor = (band?: string) => {
