@@ -590,29 +590,20 @@ export function PathAnalysisPanel({
                 credibility bug. Real action counts surface in the
                 DataPlanePanel below via damage_capability +
                 ACTUAL_S3_ACCESS edge data, which IS observed truth. */}
-            {/* 2026-06-09 fix: switched from architectureOverride=
-                (stripped per-path synthesis from buildAttackerArchitecture)
-                to architectureOverride=null + pathFilter prop.
+            {/* Canvas data source (2026-06-09 corrected):
+                attack-path-panel.tsx synthesizes the rich 9-lane
+                architecture via buildAttackerArchitecture (egressGateways,
+                ROUTE TABLES, partition bars, principals, VPCE/IGW negation).
+                TrafficFlowMap uses architectureOverride when set — pathFilter
+                only scopes badges/pathMode, it does NOT replace the arch.
 
-                Why: the stripped synthesis didn't include the data
-                StackSidebar / AWS-Backbone-vs-Public-Internet partitions
-                / VPCE chip / IGW "AVAILABLE · NOT SELECTED" treatment
-                need. Letting TrafficFlowMap self-fetch the full system
-                dependency-map (the same payload the standalone
-                /dependency-map page uses) + applying pathFilter at the
-                renderer layer gives the operator the same rich Flow
-                Map view they get on the standalone page — Stack
-                Components sidebar + partitions + edge labels — but
-                path-scoped to the current path's nodes via
-                applyPathFilter (traffic-flow-map.tsx:2952).
-
-                Same pattern the dependency-map-tab.tsx:652 uses —
-                just `<TrafficFlowMap systemName={X} />` and let
-                TrafficFlowMap do the rest. The pathFilter prop is the
-                additive piece. */}
+                architectureOverride=null + pathFilter was wrong: self-fetch
+                + applyPathFilter renders the stripped linear lane view (no
+                EGRESS GATEWAYS, no Backbone partitions). Fall back to that
+                only when the parent didn't supply architecture. */}
             <TrafficFlowMap
               systemName={systemName}
-              architectureOverride={null}
+              architectureOverride={architecture ?? null}
               pathFilter={pathFilter}
               titleOverride=""
               innerTitleOverride="Flow Map"

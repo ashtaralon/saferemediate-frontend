@@ -5,8 +5,10 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  FileText,
   Filter,
   HardDrive,
+  IdCard,
   Key,
   KeyRound,
   Loader2,
@@ -15,6 +17,7 @@ import {
   Server,
   Shield,
   Table2,
+  Target,
   X,
   Zap,
 } from 'lucide-react';
@@ -76,6 +79,10 @@ interface Architecture {
   securityGroups: SecurityGroup[];
   nacls: Nacl[];
   iamRoles: IamRole[];
+  principals?: ComputeService[];
+  instanceProfiles?: IamRole[];
+  iamPolicies?: IamRole[];
+  apiCalls?: Resource[];
   flows: Flow[];
   totalBytes: number;
   totalConnections: number;
@@ -266,10 +273,13 @@ interface GroupConfig {
 }
 
 const GROUP_CONFIGS: GroupConfig[] = [
+  { key: 'principals', label: 'Principals', icon: Target, iconColor: 'text-cyan-300' },
   { key: 'compute', label: 'Compute', icon: Server, iconColor: 'text-blue-400' },
   { key: 'securityGroups', label: 'Security Groups', icon: Shield, iconColor: 'text-orange-400' },
   { key: 'nacls', label: 'NACLs', icon: Lock, iconColor: 'text-cyan-400' },
   { key: 'iamRoles', label: 'IAM Roles', icon: Key, iconColor: 'text-pink-400' },
+  { key: 'instanceProfiles', label: 'Instance Profiles', icon: IdCard, iconColor: 'text-fuchsia-400' },
+  { key: 'iamPolicies', label: 'IAM Policies', icon: FileText, iconColor: 'text-rose-400' },
   { key: 'databases', label: 'Databases', icon: Database, iconColor: 'text-purple-400' },
   { key: 'storage', label: 'Storage', icon: HardDrive, iconColor: 'text-green-400' },
   { key: 'apiCalls', label: 'API Calls', icon: Zap, iconColor: 'text-lime-400' },
@@ -341,6 +351,9 @@ export function StackSidebar({
       );
 
     return {
+      principals: (architecture.principals ?? []).filter((p) =>
+        matchesSearch(p.name, p.shortName),
+      ),
       compute: architecture.computeServices.filter((c) =>
         matchesSearch(c.name, c.shortName),
       ),
@@ -349,9 +362,17 @@ export function StackSidebar({
       ),
       nacls: architecture.nacls.filter((n) => matchesSearch(n.name, n.shortName)),
       iamRoles: architecture.iamRoles.filter((r) => matchesSearch(r.name, r.shortName)),
+      instanceProfiles: (architecture.instanceProfiles ?? []).filter((p) =>
+        matchesSearch(p.name, p.shortName),
+      ),
+      iamPolicies: (architecture.iamPolicies ?? []).filter((p) =>
+        matchesSearch(p.name, p.shortName),
+      ),
       databases: filterResources((r) => /database|rds|dynamodb/i.test(r.type)),
       storage: filterResources((r) => /storage|s3/i.test(r.type)),
-      apiCalls: filterResources((r) => /api_call|lambda/i.test(r.type)),
+      apiCalls: architecture.apiCalls
+        ? architecture.apiCalls.filter((r) => matchesSearch(r.name, r.shortName))
+        : filterResources((r) => /api_call|lambda/i.test(r.type)),
     };
   }, [architecture, searchQuery]);
 
@@ -384,10 +405,13 @@ export function StackSidebar({
   // Total count across all groups
   const totalCount = useMemo(() => {
     return (
+      (architecture.principals?.length ?? 0) +
       architecture.computeServices.length +
       architecture.securityGroups.length +
       architecture.nacls.length +
       architecture.iamRoles.length +
+      (architecture.instanceProfiles?.length ?? 0) +
+      (architecture.iamPolicies?.length ?? 0) +
       architecture.resources.length
     );
   }, [architecture]);
@@ -800,6 +824,8 @@ export function StackSidebar({
                     status = getNaclStatus(item);
                     break;
                   case 'iamRoles':
+                  case 'instanceProfiles':
+                  case 'iamPolicies':
                     status = getIamStatus(item);
                     break;
                   default:
