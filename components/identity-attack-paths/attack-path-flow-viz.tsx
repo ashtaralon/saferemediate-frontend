@@ -4,10 +4,18 @@ import React, { useState, useRef, useMemo, useCallback, useEffect } from "react"
 import {
   Server, Shield, Lock, Key, Database, Zap, Globe,
   AlertTriangle, Crown, Target, UserCheck, ArrowRight,
-  Maximize2, Minimize2, X, Layers,
+  Maximize2, Minimize2, X, Layers, Table2, KeyRound, ShieldOff,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
-import type { IdentityAttackPath, PathNodeDetail, PathEdgeDetail, RiskReduction } from "./types"
+import type { ActivePathList } from "@/lib/active-filters"
+import type {
+  IdentityAttackPath,
+  PathNodeDetail,
+  PathEdgeDetail,
+  RiskReduction,
+  NodeFinding,
+  SystemPosture,
+} from "./types"
 import {
   ServiceNodeBox,
   IAMRoleNode,
@@ -20,13 +28,238 @@ import type {
   SystemArchitecture,
   NodeType,
 } from "@/components/dependency-map/traffic-flow-map"
+import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 
 // ── Props ───────────────────────────────────────────────────────────
 interface AttackPathFlowVizProps {
-  paths: IdentityAttackPath[]
+  // ActivePathList enforces at compile time that filterActivePaths
+  // ran on this array. See lib/active-filters.ts.
+  paths: ActivePathList<IdentityAttackPath>
   selectedPathIndex: number
   onNodeClick: (nodeId: string) => void
   selectedNodeId: string | null
+  // Tier-1 enrichment: system-wide posture summary, used to colour the
+  // per-node ring (red / amber / green). Same data for every node on
+  // every path inside the response — PostureRecord is system-level.
+  systemPosture?: SystemPosture | null
+}
+
+// ── Tier-1 enrichment helpers (MFA badge, finding chip, posture ring) ──
+
+// `overall_score` thresholds match the SecurityFinding severity bands:
+//   >=75  → green ("good posture")
+//   55-75 → amber ("risk emerging")
+//    <55  → red   ("urgent")
+// Returns a Tailwind classname for ring colour, or empty string when no
+// posture data is available (not-wired three-state — no ring).
+function postureRingClass(score: number | null | undefined): string {
+  if (score == null) return ""
+  if (score >= 75) return "ring-2 ring-emerald-400/40"
+  if (score >= 55) return "ring-2 ring-amber-400/50"
+  return "ring-2 ring-red-500/60"
+}
+
+// MFA pill — three-state per memory `feedback_no_mock_numbers_in_ui`.
+// Vendor-neutral label "Login MFA" (not "AWS MFA") per memory
+// `feedback_demo_safe_source_labels`. Signal language is neutral —
+// "MFA off" describes the configuration, not the user.
+function MfaBadge({ hasMfa }: { hasMfa: boolean | null | undefined }) {
+  if (hasMfa === true) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+        title="Identity protection: MFA enabled on this user"
+      >
+        <Shield className="w-2.5 h-2.5" />
+        MFA on
+      </span>
+    )
+  }
+  if (hasMfa === false) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-500/20 text-red-200 border border-red-500/40"
+        title="Identity protection: MFA disabled on this user — credential compromise grants direct API access"
+      >
+        <ShieldOff className="w-2.5 h-2.5" />
+        MFA off
+      </span>
+    )
+  }
+  // null / undefined = collector hasn't observed this user → unknown
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-700/40 text-slate-400 border border-slate-600"
+      title="Identity protection: MFA state unknown — no recent collector observation for this user"
+    >
+      <Shield className="w-2.5 h-2.5" />
+      MFA unknown
+    </span>
+  )
+}
+
+// Top severity wins the colour of the chip; tooltip lists each finding's
+// title + remediation summary. Backend already caps at 10 findings per
+// node, so the rendering cost stays bounded.
+function FindingBadge({ findings }: { findings: NodeFinding[] }) {
+  if (!findings || findings.length === 0) return null
+  const order = ["critical", "high", "medium", "low"] as const
+  const worst = order.find((s) => findings.some((f) => f.severity === s)) ?? "low"
+  const palette: Record<string, string> = {
+    critical: "bg-red-500/25 text-red-100 border-red-500/50",
+    high: "bg-orange-500/20 text-orange-200 border-orange-500/40",
+    medium: "bg-amber-500/15 text-amber-200 border-amber-500/30",
+    low: "bg-slate-700/40 text-slate-300 border-slate-600",
+  }
+  const tip = findings
+    .slice(0, 5)
+    .map((f) => `• [${f.severity.toUpperCase()}] ${f.title}${f.remediation ? `\n    fix: ${f.remediation}` : ""}`)
+    .join("\n")
+  const moreSuffix = findings.length > 5 ? `\n+${findings.length - 5} more` : ""
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${palette[worst]}`}
+      title={`${findings.length} finding${findings.length === 1 ? "" : "s"} on this node:\n${tip}${moreSuffix}`}
+    >
+      <AlertTriangle className="w-2.5 h-2.5" />
+      {findings.length} {findings.length === 1 ? "finding" : "findings"}
+    </span>
+  )
+}
+
+// Tier-1 wrapper around the lane card cells — adds the posture ring +
+// optional badge strip directly under the card, sharing a single
+// pattern across IAM / Compute / Crown Jewel lanes.
+function NodeBadgeStrip({
+  hasMfa,
+  showMfa,
+  findings,
+}: {
+  hasMfa?: boolean | null
+  showMfa: boolean
+  findings?: NodeFinding[]
+}) {
+  const hasContent = showMfa || (findings && findings.length > 0)
+  if (!hasContent) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1 mt-1">
+      {showMfa && <MfaBadge hasMfa={hasMfa} />}
+      {findings && findings.length > 0 && <FindingBadge findings={findings} />}
+    </div>
+  )
+}
+
+// Assume-role chain summary — extracts ASSUMES_ROLE / USED_IDENTITY
+// edges from the path and renders them as a left-to-right chain with
+// an animated dashed arrow between hops. Backend now batch-fetches
+// these edges in a post-pass so the chain appears even when the BFS
+// path didn't traverse it explicitly. Empty when no chain edges exist.
+function AssumeRoleChainStrip({ path }: { path: IdentityAttackPath }) {
+  const chain = useMemo(() => {
+    const edges = path.edges ?? []
+    const chainTypes = new Set(["ASSUMES_ROLE", "ASSUMES_ROLE_ACTUAL", "USED_IDENTITY"])
+    const links = edges.filter((e) => chainTypes.has(String(e.type ?? "")))
+    if (links.length === 0) return null
+    const nodeById = new Map((path.nodes ?? []).map((n) => [n.id, n]))
+    return links.map((e) => ({
+      source: nodeById.get(e.source),
+      target: nodeById.get(e.target),
+      type: String(e.type ?? ""),
+      observed: Boolean((e as any).is_observed ?? true),
+    }))
+  }, [path])
+
+  if (!chain || chain.length === 0) return null
+
+  return (
+    <div
+      className="flex items-center flex-wrap gap-2 px-4 py-2 border-b"
+      style={{
+        background: "rgba(99, 102, 241, 0.08)",
+        borderColor: "rgba(148, 163, 184, 0.18)",
+      }}
+      title="Assume-role chain — principal/session → role → role observed via CloudTrail. Each AssumedRole link is a credential pivot the attacker can replay."
+    >
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-300">
+        <Key className="w-3 h-3" />
+        AssumedRole chain
+      </div>
+      <span className="text-[10px] text-slate-500">·</span>
+      {chain.map((link, i) => {
+        const srcName = shortName(link.source?.name || link.source?.id || "?", 18)
+        const tgtName = shortName(link.target?.name || link.target?.id || "?", 18)
+        const tgtType = String(link.target?.type ?? "")
+        const isAdmin = (() => {
+          const hr = link.target?.permissions?.high_risk ?? []
+          return Array.isArray(hr) && hr.length > 0
+        })()
+        return (
+          <div key={i} className="inline-flex items-center gap-2 text-[10px]">
+            {i === 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-slate-200">
+                <UserCheck className="w-2.5 h-2.5 text-pink-300" />
+                {srcName}
+              </span>
+            )}
+            <span
+              className={`inline-flex items-center gap-1 text-[9px] font-mono ${
+                link.observed ? "text-indigo-300" : "text-slate-500"
+              }`}
+              title={
+                link.observed
+                  ? `${link.type} — observed via CloudTrail`
+                  : `${link.type} — configured only, no recent CloudTrail event`
+              }
+            >
+              <span
+                className={`inline-block w-8 border-t border-dashed ${
+                  link.observed ? "border-indigo-400 animate-pulse" : "border-slate-600"
+                }`}
+              />
+              <span>AssumedRole</span>
+              <ArrowRight className="w-2.5 h-2.5" />
+            </span>
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
+                isAdmin
+                  ? "bg-red-500/15 border-red-500/40 text-red-200"
+                  : "bg-slate-800/80 border-slate-700 text-slate-200"
+              }`}
+            >
+              <Key className="w-2.5 h-2.5" />
+              {tgtName}
+              {isAdmin && <span className="ml-1 text-[8px] font-bold uppercase">admin</span>}
+              {tgtType && (
+                <span className="text-[8px] opacity-60">· {tgtType}</span>
+              )}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Crown-jewel icon dispatcher. Distinct icons per data-store type so
+// the operator immediately reads "S3 bucket" vs "DynamoDB table" vs
+// "RDS database" vs "KMS key" — Tier-1 ask: KMS = key, DynamoDB =
+// table, RDS = database. S3 stays on the existing Database icon (with
+// green tint) to match the System Map convention.
+function jewelIcon(type: string) {
+  const t = (type || "").toLowerCase()
+  if (t.includes("kms") || t === "kmskey") {
+    return <KeyRound className="w-4 h-4 text-amber-300" />
+  }
+  if (t.includes("dynamo") || t === "dynamodbtable") {
+    return <Table2 className="w-4 h-4 text-cyan-300" />
+  }
+  if (t.includes("rds") || t.includes("aurora") || t.includes("redshift") || t.includes("database")) {
+    return <Database className="w-4 h-4 text-violet-300" />
+  }
+  if (t.includes("secret")) {
+    return <Lock className="w-4 h-4 text-rose-300" />
+  }
+  return <Database className="w-4 h-4 text-emerald-300" />
 }
 
 // ── Badge data for SG/NACL context on compute nodes ──────────────
@@ -381,9 +614,16 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
       flows.push({
         sourceId: entry.id,
         targetId: jewel.id,
-        sgId: computeId,
-        naclId: identityId,
-        roleId: pivotId,
+        // Phase 4 (2026-05-25): checkpoint-bundle fields removed. The
+        // prior synthesis routed one entry→jewel polyline THROUGH
+        // sgId/naclId/roleId waypoints — but those fields were
+        // repurposed (sgId=computeId, naclId=identityId, roleId=
+        // pivotId), mixing identity-plane + network-plane + data-plane
+        // checkpoints onto a single SVG line. Cross-plane drawing bug
+        // that the audit caught for attacker-view-panel applies here
+        // too. Rendering now driven by `architecture.edges[]` — the
+        // real graph edges, one plane-colored line per edge. Flow
+        // stays for header math (totalBytes / totalConnections).
         ports: [],
         protocol: "TCP",
         bytes,
@@ -396,14 +636,11 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
   // Fallback: if no flows and we have computes, treat them as entries
   if (flows.length === 0 && actualComputes.length > 0 && jewels.length > 0) {
     for (const compute of actualComputes) {
-      const identityId = findConnected(compute.id, identityIdSet, identityEdgeTypes) ?? identities[0]?.id
       for (const jewel of jewels) {
         flows.push({
           sourceId: compute.id,
           targetId: jewel.id,
-          sgId: undefined as any,
-          naclId: identityId,
-          roleId: pivots[0]?.id,
+          // See note above — checkpoint waypoint bundle removed.
           ports: [],
           protocol: "TCP",
           bytes: 0,
@@ -454,14 +691,65 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     type: "instance_profile" as NodeType,
   }))
 
+  // ── Step 6: Build explicit edges (Phase 4 — 2026-05-25) ──────────
+  //
+  // One CanvasEdge per real graph relationship between rendered cards.
+  // ConnectionLinesSVG short-circuits to plane-colored 1:1 lines when
+  // architecture.edges is non-empty, bypassing the legacy zigzag.
+  //
+  // Rendered card ids — anything getting a data-* attribute in the
+  // architecture below. InstanceProfiles get data-ip-id via the
+  // _instanceProfiles extra metadata. Edges to/from sgNaclNodes (the
+  // network-control badges) are intentionally dropped because those
+  // render as compute-card chips, not standalone cards.
+  const renderedIds = new Set<string>([
+    ...entries.map((e) => e.id),
+    ...actualComputes.map((c) => c.id),
+    ...identities.map((i) => i.id),
+    ...pivots.map((p) => p.id),
+    ...jewels.map((j) => j.id),
+    ...instanceProfiles.map((ip) => ip.id),
+  ])
+  const builtEdges: CanvasEdge[] = []
+  const edgeKeys = new Set<string>()
+  for (const e of edges) {
+    if (!e.source || !e.target) continue
+    if (!renderedIds.has(e.source) || !renderedIds.has(e.target)) continue
+    const rel = (e.type ?? "").toUpperCase()
+    if (!rel) continue
+    const id = `${e.source}|${rel}|${e.target}`
+    if (edgeKeys.has(id)) continue
+    edgeKeys.add(id)
+    builtEdges.push({
+      id,
+      source_aws_id: e.source,
+      target_aws_id: e.target,
+      relationship: rel as CanvasRelationshipType,
+      observed: e.is_observed ?? null,
+      hit_count: e.hit_count ?? null,
+      bytes: e.traffic_bytes ?? null,
+      first_seen: null,
+      last_seen: null,
+      port: e.port ?? null,
+      protocol: e.protocol ?? null,
+    })
+  }
+
   return {
     // SystemArchitecture fields (repurposed for ConnectionLinesSVG)
     computeServices: entries,               // data-compute-id → Entry Points
+    subnets: [],                             // lateral view doesn't use the subnets lane
     securityGroups: computeCheckpoints,      // data-sg-id → Compute
     nacls: identities,                       // data-nacl-id → Identity (IAM)
     iamRoles: pivotCheckpoints,              // data-role-id → Pivot Services
     resources: jewels,                       // data-resource-id → Crown Jewels
+    vpcEndpoints: [],                        // lateral view doesn't render VPCEs
+    egressGateways: [],                      // lateral view doesn't render egress gateways
     flows,
+    // Phase 4: explicit edges drive rendering. Real graph relationships
+    // only — no synthesized entry→jewel summary lines through unrelated
+    // waypoints. Plane-colored, curved, animation strict to data plane.
+    edges: builtEdges,
     totalBytes,
     totalConnections,
     totalGaps: identities.reduce((s, r) => s + r.gapCount, 0),
@@ -718,7 +1006,7 @@ function RiskReductionBar({ riskReduction }: { riskReduction: RiskReduction }) {
 }
 
 // ── Main Component ──────────────────────────────────────────────────
-export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selectedNodeId }: AttackPathFlowVizProps) {
+export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selectedNodeId, systemPosture }: AttackPathFlowVizProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   // Fullscreen toggle (matches the system-map graph-view-v2 pattern)
@@ -881,6 +1169,13 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
         </div>
       </div>
 
+      {/* Assume-role chain summary — surfaces the principal → role-A →
+          role-B(admin) chain inline when the path includes any
+          ASSUMES_ROLE / USED_IDENTITY edges. Backend batch-fetches
+          these edges in a post-pass; this strip reads them straight off
+          `path.edges`. Empty when no chain edges are present. */}
+      <AssumeRoleChainStrip path={path} />
+
       {/* ── Lateral Movement Diagram ── */}
       <div className="flex-1 p-6">
         <div className="relative bg-slate-900/50 rounded-2xl border border-slate-700 p-6 overflow-hidden">
@@ -1012,8 +1307,10 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                   const ipMeta = original?.ip_metadata as
                     | { kind?: string; org?: string; isp?: string; asn?: string; country?: string; country_name?: string; city?: string; aws?: { service?: string; region?: string } }
                     | undefined
+                  const findings = (original?.findings as NodeFinding[] | undefined) ?? []
+                  const ring = postureRingClass(systemPosture?.overall_score ?? null)
                   return (
-                    <div key={node.id} data-compute-id={node.id} className="relative">
+                    <div key={node.id} data-compute-id={node.id} className={`relative rounded-xl ${ring}`.trim()}>
                       {node.type === "principal" && (
                         <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-red-500 animate-pulse z-10" />
                       )}
@@ -1025,6 +1322,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                         onHover={setHoveredId}
                         onClick={() => onNodeClick(node.id)}
                       />
+                      <NodeBadgeStrip showMfa={false} findings={findings} />
                       {/* IP metadata badge — renders directly under the
                           NetworkEndpoint card so the CISO sees the org name
                           inline ("ASIERA TECHNOLOGY · IE") instead of just
@@ -1086,8 +1384,10 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                     const sn: ServiceNode = { id: cp.id, name: cp.name, shortName: cp.shortName, type: cp.type as NodeType }
                     const nodeBadges = badgeMap.get(cp.id) ?? []
                     const original = path.nodes?.find((n) => n.id === cp.id) as any
+                    const findings = (original?.findings as NodeFinding[] | undefined) ?? []
+                    const ring = postureRingClass(systemPosture?.overall_score ?? null)
                     return (
-                      <div key={cp.id} data-sg-id={cp.id} className="flex flex-col gap-1.5">
+                      <div key={cp.id} data-sg-id={cp.id} className={`flex flex-col gap-1.5 rounded-xl ${ring}`.trim()}>
                         <ComputeNodeCard
                           node={sn}
                           badges={nodeBadges}
@@ -1097,6 +1397,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           onBadgeClick={(badgeId) => onNodeClick(badgeId)}
                           flowInfo={computeFlowInfo.get(cp.id)}
                         />
+                        <NodeBadgeStrip showMfa={false} findings={findings} />
                         {original?.infra_context && (
                           <InfraContextChips ctx={original.infra_context} />
                         )}
@@ -1149,14 +1450,20 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                       (rn) => rn.role_id === role.id
                     )
                     const original = path.nodes?.find((n) => n.id === role.id) as any
+                    const findings = (original?.findings as NodeFinding[] | undefined) ?? []
+                    const rawType = String(original?.type || "")
+                    const isUser = rawType === "IAMUser"
+                    const hasMfa = isUser ? (original?.has_mfa as boolean | null | undefined) : undefined
+                    const ring = postureRingClass(systemPosture?.overall_score ?? null)
                     return (
-                      <div key={role.id} data-nacl-id={role.id} className="flex flex-col gap-1.5">
+                      <div key={role.id} data-nacl-id={role.id} className={`flex flex-col gap-1.5 rounded-xl ${ring}`.trim()}>
                         <IAMRoleNode
                           role={role}
                           isHighlighted={isNodeHighlighted(role.id)}
                           onHover={setHoveredId}
                           onClick={() => onNodeClick(role.id)}
                         />
+                        <NodeBadgeStrip showMfa={isUser} hasMfa={hasMfa} findings={findings} />
                         {original?.infra_context && (
                           <InfraContextChips ctx={original.infra_context} />
                         )}
@@ -1200,8 +1507,30 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                 </div>
                 {jewels.map((node) => {
                   const original = path.nodes?.find((n) => n.id === node.id) as any
+                  const findings = (original?.findings as NodeFinding[] | undefined) ?? []
+                  const rawType = String(original?.type || node.type || "")
+                  const ring = postureRingClass(systemPosture?.overall_score ?? null)
+                  // Type label sits ABOVE the card so KMS/DDB/RDS are
+                  // visually distinct from S3 (which the ServiceNodeBox
+                  // groups under "storage" with the others). Drives the
+                  // CISO ask "I want different icons for KMS vs DDB vs
+                  // RDS vs S3" without forking ServiceNodeBox.
+                  const typeLabel = (() => {
+                    const t = rawType.toLowerCase()
+                    if (t.includes("kms")) return "KMS key"
+                    if (t.includes("dynamo")) return "DynamoDB table"
+                    if (t.includes("rds") || t.includes("aurora")) return "RDS database"
+                    if (t.includes("redshift")) return "Redshift cluster"
+                    if (t.includes("secret")) return "Secret"
+                    if (t.includes("s3") || t.includes("bucket")) return "S3 bucket"
+                    return rawType || "Resource"
+                  })()
                   return (
-                    <div key={node.id} data-resource-id={node.id} className="flex flex-col gap-1.5">
+                    <div key={node.id} data-resource-id={node.id} className={`flex flex-col gap-1.5 rounded-xl ${ring}`.trim()}>
+                      <div className="flex items-center gap-1.5 px-1 pt-1 text-[10px] uppercase tracking-wider text-slate-300">
+                        {jewelIcon(rawType)}
+                        <span className="font-semibold">{typeLabel}</span>
+                      </div>
                       <div className="relative">
                         <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-red-500/50 animate-pulse" />
                         <ServiceNodeBox
@@ -1213,6 +1542,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           onClick={() => onNodeClick(node.id)}
                         />
                       </div>
+                      <NodeBadgeStrip showMfa={false} findings={findings} />
                       {original?.infra_context && (
                         <InfraContextChips ctx={original.infra_context} />
                       )}

@@ -1,20 +1,29 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
+import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
 import { TimelineSlider } from './timeline-slider';
 import { VPCBoundaries } from './vpc-boundaries';
 import { ExportControls } from './export-controls';
+import {
+  type CanvasEdge,
+  type EdgePlane,
+  planeForString,
+  PLANE_COLOR,
+  PLANE_GLOW,
+} from '@/lib/types/attack-canvas';
 
 // ============================================
 // TYPES
 // ============================================
-export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal' | 'vpc_endpoint';
 
 export interface ServiceNode {
   id: string;
@@ -23,6 +32,13 @@ export interface ServiceNode {
   type: NodeType;
   instanceId?: string;
   isCrownJewel?: boolean;
+  /** Attached ENIs (NetworkInterfaces) for EC2 / workload nodes.
+   *  Rendered as compact chips on the workload card so the SG-ENI-EC2
+   *  binding is visible without taking up a separate Compute row.
+   *  Added 2026-05-23 after the audit flagged "ENI as its own COMPUTE
+   *  row" as a UI clutter issue — the ENI is conceptually part of
+   *  the EC2, not a peer workload. */
+  enis?: Array<{ id: string; name: string; shortName: string }>;
 }
 
 export interface SGRule {
@@ -52,6 +68,101 @@ export interface SecurityCheckpoint {
   rules?: SGRule[];
   vpcId?: string;
   subnetId?: string;
+  /** SG-only: collector's authoritative "this SG accepts 0.0.0.0/0
+   *  inbound traffic" flag. Read from has_public_ingress on the
+   *  SecurityGroup node. Drives a red "PUBLIC" badge on the chip
+   *  WITHOUT needing the full rules[] array (which is expensive to
+   *  pass on lateral neighbors). When `rules[]` IS available, the
+   *  existing rules-based path counts public rules directly; this
+   *  flag is the fallback so lateral SGs still surface the badge. */
+  hasPublicIngress?: boolean;
+  /** NACL-only: collector's authoritative "default NACL — 0.0.0.0/0
+   *  ALLOW ALL on both inbound and outbound by AWS default" flag.
+   *  Read from is_default on the NetworkACL node. */
+  isDefault?: boolean;
+  /** NACL-only: collector's authoritative "has at least one
+   *  high-risk rule" flag. Read from has_high_risk. */
+  hasHighRisk?: boolean;
+  /** NACL-only: collector's authoritative "at least one inbound
+   *  rule allows 0.0.0.0/0" flag. Read from
+   *  has_public_inbound_allow. */
+  hasPublicInboundAllow?: boolean;
+  /** NACL-only: number of subnets this NACL is ASSOCIATED_WITH.
+   *  Distinct count (label-set duplicates de-duped). Drives the
+   *  "M subnets" pill on the chip. */
+  subnetCount?: number;
+  /** SG / NACL — true when this checkpoint sits ON the current path
+   *  (has a real attachment edge to a path node: SECURED_BY for SG,
+   *  ASSOCIATED_WITH / HAS_NACL for NACL). False when the checkpoint
+   *  is lateral surface (same VPC, but no direct attachment to the
+   *  path's workloads). Drives a visual dim + "LATERAL" badge so the
+   *  operator reads at a glance which SG/NACL is the gate on this
+   *  chain vs which are pivot opportunities. Undefined falls back
+   *  to "treat as on-path" (back-compat for callers that don't yet
+   *  surface this signal). */
+  onPath?: boolean;
+  /** SG — display names of the workload(s) this SG is attached to
+   *  via SECURED_BY / HAS_SECURITY_GROUP. Populated by the Exfil
+   *  view for multi-reader exfil paths so the operator can map each
+   *  SG to the specific compute card to remediate (e.g. "default ·
+   *  on cyntro-web-server" vs "alon-demo-app-sg · on alon-demo-app2").
+   *  Undefined / empty → chip omitted (back-compat). */
+  attachedWorkloads?: string[];
+  /** IAM Role — observed-activity evidence from CloudTrail
+   *  ACCESSES_RESOURCE edges. liveObservedTotalHits is the
+   *  per-resource max-then-sum count of distinct API calls.
+   *  liveObservedResourceCount is the count of distinct resources hit.
+   *  When > 0 the role HAS been used in the observation window,
+   *  regardless of what the scalar used_actions_count claims. Backend
+   *  emits these via _enrich_live_usage. Drives the amber "live-
+   *  evidence" chip on the role card that surfaces the
+   *  "0/7 perms" ↔ "975K hits" data contradiction. */
+  liveObservedTotalHits?: number;
+  liveObservedResourceCount?: number;
+  /** IAM Role — true when the collector-written scalar
+   *  used_actions_count > 0 BUT zero corresponding :USED_ACTION edges
+   *  exist (the inverse of the original "stale" condition). The
+   *  scalar claims usage that the action-level edges don't back. The
+   *  frontend renders a small "scalar=N · 0 edges" chip so operators
+   *  see ingestion drift instead of a silent mismatch. */
+  usageScalarEdgesDisagree?: boolean;
+  /** IAM Role — sum of `count` properties across :USED_ACTION edges.
+   *  Distinct from liveObservedTotalHits (which counts
+   *  ACCESSES_RESOURCE hits). Distinct from the usedCount itself
+   *  (which counts distinct edges). This is the event-volume
+   *  metric — "the role used 3 distinct actions across 1,247
+   *  CloudTrail events". Optional render below the main chip. */
+  liveUsedActionEventCount?: number;
+  /** IAM Role — BLAST RADIUS lateral surfaces (2026-05-27, Alon's
+   *  "killer solution" framing). Both lists answer "what ELSE does
+   *  this role unlock?" — surfaced as badges on the role chip in
+   *  the EXFIL canvas so the operator sees in one glance:
+   *    1. ALSO REACHES — same role → other crown jewels
+   *       (cross-bucket lateral)
+   *    2. SHARED WITH  — other workloads → same role
+   *       (cross-workload lateral)
+   *  Sorted hottest-jewel-first / most-recently-used-workload-first
+   *  by the backend (_attach_accessor_blast_radius). */
+  alsoReaches?: Array<{ id: string; name: string; type: string; hits: number }>;
+  sharedWith?: Array<{ id: string; name: string; type: string; system_name: string | null }>;
+  // ── Stack-components surfacing on the role chip — 2026-05-27 ─────
+  // Inline ON THE CANVAS what previously hid in the collapsed sidebar
+  // for the EXFIL view. Alon: "u change nothing - is the same" when
+  // the canvas itself didn't get richer. Each field maps to one
+  // section under the existing LateralFanOut, colored to match the
+  // sidebar lane icon.
+  assumedBy?: Array<{
+    id: string
+    session_name: string
+    calls: number
+    last_seen: string | null
+  }>;
+  policiesAttached?: Array<{
+    name: string
+    attachment_type: string | null
+    is_aws_managed: boolean | null
+  }>;
+  actionsUsed?: Array<{ action: string; calls: number }>;
 }
 
 export interface TrafficFlow {
@@ -59,12 +170,134 @@ export interface TrafficFlow {
   targetId: string;
   sgId?: string;
   naclId?: string;
+  // InstanceProfile is the AWS binding between EC2 and IAMRole. When
+  // set, ConnectionLinesSVG routes the polyline through the
+  // [data-ip-id="..."] card so it sits BEFORE the role hop. Without
+  // this checkpoint, the IP lane card renders but no flow points at
+  // it → orphan card visually disconnected from the chain (2026-05-24
+  // user report on SafeRemediate-Test-App-2 → cyntro-demo-prod-data).
+  instanceProfileId?: string;
   roleId?: string;
+  // VPC endpoint the packet egresses through to reach an AWS service
+  // (e.g. S3 Gateway VPCE com.amazonaws.<region>.s3). Populated when the
+  // target is an S3/DynamoDB service AND the source compute's VPC has a
+  // matching Gateway endpoint. SG egress doesn't apply to Gateway VPCEs —
+  // this is the missing hop that explains "0-rule SG → S3 still works".
+  vpceId?: string;
+  // Egress gateway the packet exits the VPC through when there's NO
+  // Gateway VPCE for the target service — IGW for internet-routed
+  // traffic (default S3 endpoint), NAT for outbound IPv4, etc.
+  // ConnectionLinesSVG inserts this checkpoint between the role hop
+  // and the target resource so the EGRESS GATEWAYS lane chip is
+  // visually wired into the chain instead of floating as an orphan
+  // box while the header reports observed bytes through it (the
+  // 2026-05-23 audit caught this inconsistency).
+  egressGatewayId?: string;
   ports: string[];
   protocol: string;
   bytes: number;
   connections: number;
   isActive?: boolean;
+  // 2026-05-28 — Phase 2 V1 slice 2. Forensic provenance carried
+  // through from the underlying graph edge. Surfaces in the hover
+  // detail panel as a "Last seen … · First seen …" freshness pill,
+  // making Cyntro's temporal-intelligence patent claim visible on
+  // the canvas. Both fields are ISO 8601 strings (UTC) or null.
+  // Optional — flows synthesized to fill chain gaps (no underlying
+  // observed edge) leave them null.
+  firstSeen?: string | null;
+  lastSeen?: string | null;
+  // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states). When
+  // true, this flow represents an observed AWS-required relationship
+  // the operator CAN'T remove (e.g. HAS_INSTANCE_PROFILE,
+  // ASSUMES_ROLE). The renderer paints it solid green / static —
+  // distinct from observed + remediable (animated bright) and from
+  // config-derived (gray dotted). Gives the operator's eye a clear
+  // signal of what's actionable vs what's AWS plumbing.
+  // Optional — non-attacker consumers leave undefined and the
+  // 3-state encoding doesn't activate.
+  isLocked?: boolean;
+}
+
+// VPC endpoint chip for the "VPC ENDPOINTS" lane. Render-only — full
+// AWS detail (DNS names, policy doc, route-table associations) is not
+// pulled into this view; the lane exists to make the egress path
+// visible, not to replace the endpoint inspector.
+export interface VPCEndpointNode {
+  id: string;            // vpce-xxxxxxxx
+  name: string;
+  shortName: string;
+  vpcId: string | null;
+  serviceName: string | null;     // com.amazonaws.<region>.<service>
+  serviceShort: string;            // "S3", "DynamoDB", "EC2" — derived
+  endpointType: 'Gateway' | 'Interface' | null;
+}
+
+// Chip item 10: explicit InternetGateway / NATGateway / Egress-only IGW
+// rendering in the EGRESS lane. Previously the map showed IGW only
+// implicitly (Subnet "Public" amber badge) — operators could read
+// "this subnet has an IGW route" but couldn't see *which* IGW or how
+// many. Per memory `project_pilot_decommissioned_2026_05_19` IGW typed
+// labels were fixed 2026-05-19, so :InternetGateway label-keyed
+// queries now resolve both production IGWs in alon-prod.
+//
+// kind discriminates the icon + chip palette; `kindLabel` is the
+// operator-facing short name shown beneath the icon ("IGW", "NAT GW",
+// "Egress-only IGW", "Transit GW").
+export interface EgressGatewayNode {
+  id: string;            // igw-xxxxxxxx / nat-xxxxxxxx / vpce-xxxxxxxx / etc.
+  name: string;
+  shortName: string;
+  vpcId: string | null;
+  // VPCEndpoint added 2026-05-29: gateway VPCEs (S3, DynamoDB) are
+  // egress gateways too — AWS most-specific-route sends service-specific
+  // traffic through them instead of via IGW. Surfacing them in the same
+  // lane as IGW lets the operator see "S3 reads go via VPCE; everything
+  // else via IGW" at a glance. Path-scoped on the backend (only the VPCE
+  // whose service matches the path's target jewel surfaces).
+  kind: 'InternetGateway' | 'NATGateway' | 'EgressOnlyInternetGateway' | 'TransitGateway' | 'VPCEndpoint';
+  kindLabel: string;     // "IGW" | "NAT GW" | "Egress-only IGW" | "Transit GW" | "VPCE"
+  // Optional service hint (e.g. "s3", "dynamodb") for VPCEndpoint kinds.
+  // Lets the lane chip distinguish "VPCE · s3" vs "VPCE · dynamodb" when
+  // multiple gateway endpoints attach to the same RT.
+  serviceHint?: string;
+  // Route provenance (2026-05-30) — when populated, the chip displays
+  // "via 0.0.0.0/0" for IGW/NAT default routes or
+  // "via com.amazonaws.eu-west-1.s3" for Gateway VPCEs. Backend emits
+  // these so the canvas can show the AUTHORITATIVE path (subnet's
+  // route table actually points here) vs the wrong-sibling-IGW that
+  // just happens to live in the same VPC.
+  routed?: boolean;
+  routeDestinationCidr?: string | null;
+  routeTargetService?: string | null;
+}
+
+// EXFIL view: items in the named EGRESS GATE lane (between IDENTITY and
+// RESOURCES). Includes virtual gates (AWS service plane, S3 CRR rule,
+// snapshot share, log subscription) that have no AWS resource backing
+// them — these are the gates the design called out as "must be named,
+// not hidden behind 'service plane · not tracked' in the destination".
+// Border color is driven by gateStrength so the operator can scan-
+// distinguish controllable gates (emerald) from unobservable ones
+// (amber). The `hint` string is a one-line description of what control
+// the gate is enforced by (e.g. "IAM policy + VPC Endpoint policy").
+export interface ExfilGateNode {
+  id: string;
+  kind:
+    | 'AWSServicePlane'
+    | 'VPCEndpoint'
+    | 'NATGateway'
+    | 'InternetGateway'
+    | 'CRRRule'
+    | 'SnapshotShare'
+    | 'SNSTopic'
+    | 'CWLogsSubscription';
+  kindLabel: string;     // "Service plane" | "VPC Endpoint" | etc.
+  name: string;
+  shortName: string;
+  gateStrength: 'strong' | 'weak_observable' | 'weak_unobservable';
+  /** One-liner — what control the gate is enforced by, if any. */
+  hint?: string;
 }
 
 // Subnet posture for the SUBNETS column on the Path Flow Map.
@@ -87,20 +320,144 @@ export interface SubnetNode {
   // Lets the connection-line renderer draw compute→subnet edges so the
   // path reads "EC2 → Subnet → SG → NACL → IAM" visually.
   connectedComputeIds: string[];
+  /** Effective route table for this subnet — chip on the subnet card
+   *  carrying the "Allowed − Actual = Blast Radius" closure narrative
+   *  onto the network plane. Sourced from the backend's RouteTable
+   *  enrichment join (graph-view feat: join RouteTable into Subnet). */
+  routeTableId?: string;
+  routeTableCount?: number;
+  routeTableIsMain?: boolean;
 }
 
 export interface SystemArchitecture {
   computeServices: ServiceNode[];
+  /** Principals (AWSPrincipal, CloudTrailPrincipal, IAMUser, root). The
+   *  actor making the API call. Rendered in a dedicated leftmost lane,
+   *  not in Compute — operators correctly read Compute as "EC2 / Lambda
+   *  / ECS workloads" and conflating it with API callers caused
+   *  visual misclassification (e.g. `root` rendering as a Compute card
+   *  on the SafeRemediate-Test-App-2 → S3 chain). Optional for back-
+   *  compat with consumers that don't render the lane yet. */
+  principals?: ServiceNode[];
+  /** ENTRY lane (Phase 2 — 2026-05-25): explicit attacker-entry-point
+   *  nodes. Surfaces the question "how does the attacker reach the
+   *  workload?" before the chain proceeds. Includes network entry
+   *  (Internet → IGW / ALB / NLB / APIGateway) and identity entry
+   *  (root / IAMUser / federated principals). Optional for back-compat;
+   *  the lane is hidden when empty so paths without a meaningful
+   *  entry-point (e.g. internal lateral movement) don't grow a dead
+   *  column. Cards carry `data-entry-id` for ConnectionLinesSVG. */
+  entryPoints?: ServiceNode[];
+  /** Override the ENTRY lane header text. Defaults to "Entry" which
+   *  reads correctly for the per-path / attacker views (where the
+   *  lane represents the attacker's entry point — Internet / IGW /
+   *  IAMUser / federated principal). The EXFIL view passes "Source"
+   *  because in that direction-inverted view the lane card IS the
+   *  jewel itself (the data origin), not an attacker. Optional for
+   *  back-compat. */
+  entryLaneLabel?: string;
+  /** What data the totalBytes / totalConnections counters were derived
+   *  from. Drives label honesty in the inner canvas header:
+   *    "vpc_flow_logs" (default) → "Traffic" + "Connections" (real
+   *      TCP/UDP bytes + connection count from VPC Flow Logs).
+   *    "cloudtrail"              → "Bytes" hidden (CloudTrail
+   *      doesn't carry payload size; rendering "0 B Traffic"
+   *      reads as "we saw no traffic" instead of the truth: "this
+   *      data source can't tell us bytes"). Connection label
+   *      becomes "API calls" (the counter is hit_count, not a
+   *      TCP connection count).
+   *  Optional; back-compat default is "vpc_flow_logs". */
+  metricsBasis?: "vpc_flow_logs" | "cloudtrail";
   resources: ServiceNode[];
   subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
   nacls: SecurityCheckpoint[];
   iamRoles: SecurityCheckpoint[];
+  /** InstanceProfile is AWS's "binding object" between an EC2 instance
+   *  and an IAM role. Semantically distinct from a role — having three
+   *  cards labeled "IAM Roles" when one is a role, one is the profile
+   *  that binds it to EC2, and one is the attached policy is a count
+   *  bug + a semantic bug. Kept optional so consumers that haven't
+   *  updated still compile (they'll just not show the dedicated lane).
+   *  Added 2026-05-22 to fix the "IAM ROLES (3)" miscount on the
+   *  Attacker view. */
+  instanceProfiles?: SecurityCheckpoint[];
+  /** IAMPolicy nodes are the actual permission grants — the docstring
+   *  finding the operator must see (e.g. S3OverPermissiveAccess on
+   *  alon-prod). Previously rendered with a 📜 emoji prefix into the
+   *  iamRoles bucket; now its own first-class array. Kept optional
+   *  for back-compat. */
+  iamPolicies?: SecurityCheckpoint[];
+  vpcEndpoints: VPCEndpointNode[];
+  /** Chip item 10: explicit IGW / NAT / Egress-only IGW / Transit GW
+   * nodes for the EGRESS lane. Filtered to gateways attached to a VPC
+   * that contains at least one compute on the current path. */
+  egressGateways: EgressGatewayNode[];
+  /** Optional API CALLS lane data — 2026-05-27. Surfaces the
+   *  per-action breakdown of ACTUAL_API_CALL edges for the selected
+   *  path's role. Populated by EXFIL view from stack_components.
+   *  api_calls; absent on other consumers (sidebar falls back to
+   *  regex-filtering resources). */
+  apiCalls?: ServiceNode[];
+  /** EXFIL view (2026-05-25): named EGRESS GATE lane that sits
+   *  between IDENTITY and RESOURCES per the 5-stage exfil model
+   *  (CJ → Reader → Handler → Gate → Destination). Unlike
+   *  `egressGateways` which is filtered to real AWS gateway resources
+   *  (IGW/NAT/etc), this lane includes VIRTUAL gates that have no
+   *  AWS resource backing them — the "AWS service plane" for serverless
+   *  paths, "S3 CRR rule" for replication paths, "Snapshot share + KMS
+   *  grant" for share paths. The lane only renders when populated, so
+   *  attacker / per-path / system-map views (which don't set it) keep
+   *  their existing layout. Each gate carries a `gateStrength` for the
+   *  color of its border (strong=emerald, weak_observable=blue,
+   *  weak_unobservable=amber). */
+  exfilGate?: ExfilGateNode[];
   flows: TrafficFlow[];
+  /** EXPLICIT EDGES (2026-05-25) — when set, ConnectionLinesSVG draws
+   *  one SVG line per entry, 1:1 with the data. Each edge carries its
+   *  conceptual plane (identity / network / data) so colors stay
+   *  honest and a single observed call can't be drawn as if it
+   *  serially traversed Role AND IGW on one line. When `edges` is
+   *  populated, the legacy `flows[]` synthesis is bypassed entirely
+   *  — callers that have been migrated provide edges and leave flows
+   *  empty (or for compat). The legacy path remains for unmigrated
+   *  callers (System Map, exfil-view, attacker-view-v3, etc.). */
+  edges?: CanvasEdge[];
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
   vpcGroups?: Array<{ vpcId: string; vpcName: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
+  /** EXFIL view authoritative VPC posture for the selected path's
+   *  workload(s). Resolved on the backend by direct RUNS_IN_VPC /
+   *  IN_SUBNET / SECURED_BY traversal. Drives the evidence-backed
+   *  "No Network Controls" banner — previously the banner fired from
+   *  "all 4 arrays empty" which was ambiguous between "verified non-
+   *  VPC workload" and "this view didn't query network data."
+   *  When present, the banner becomes:
+   *    is_vpc_attached === false → real finding, evidence-cited
+   *    is_vpc_attached === true  → suppressed, render real subnets/SGs
+   *  When undefined/null → no banner (we didn't query). */
+  workloadNetwork?: {
+    is_vpc_attached: boolean;
+    vpc_id: string | null;
+    vpc_name: string | null;
+    evidence: string;
+    workload_count_queried: number;
+    workload_count_in_sample: number;
+  } | null;
+  // V2-3 (2026-05-31): set of CanvasEdge.id values that belong to the
+  // on-path chain. Computed at synthesis time from the same path /
+  // lateral distinction the backend already returns (path edges
+  // populated from `path.edges`; lateral edges populated from
+  // `graph.laterals_by_node`). Pure passthrough — no FE inference,
+  // matches the attack-canvas invariant. Optional for back-compat
+  // with consumers that don't compute it (TFM falls back to "treat
+  // all edges as path" when undefined — same as legacy behavior).
+  onPathEdgeIds?: Set<string>;
+  // V2-3: same idea for nodes — the set of ServiceNode/SecurityCheckpoint
+  // ids that are on the chain (vs lateral pivots). Drives lateral
+  // dimming on the node cards. Optional; legacy callers undefined.
+  onPathNodeIds?: Set<string>;
 }
 
 // Attack Path types
@@ -171,17 +528,63 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
+// Relative-time formatter for forensic provenance display.
+// Used by the hover detail panel to render edge timestamps as
+// "3h ago" / "2d ago" / "May 8" depending on age. Real data only —
+// returns "—" for null/undefined/invalid input so the operator
+// sees the missing-data signal honestly rather than a "0s ago"
+// fabrication.
+//
+// 2026-05-28 — Phase 2 V1 slice 2 (temporal-intelligence
+// surfacing). No mock data, no synthesized fallback.
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  const deltaMs = Date.now() - t;
+  if (deltaMs < 0) return 'just now';
+  const sec = Math.floor(deltaMs / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  // Beyond 30 days: surface a calendar date so the operator sees
+  // the staleness clearly (no compressed "2mo ago" — Cyntro's
+  // freshness story is precise, not approximate).
+  try {
+    return new Date(t).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: deltaMs > 365 * 24 * 3600 * 1000 ? 'numeric' : undefined,
+    });
+  } catch {
+    return new Date(t).toISOString().slice(0, 10);
+  }
+}
+
 function shortName(name: string, maxLen = 18): string {
+  // 2026-05-30 — removed customer/demo prefix replacements
+  // (SafeRemediate-Test-, cyntro-demo-, hardcoded account 745783559495,
+  // hardcoded region eu-west-1). They only shortened the demo data and
+  // silently no-op'd for every other customer.
+  //
+  // Service-agnostic substitutions only:
+  //   1. Generic ARN prefix strip (matches any service + account +
+  //      region + resource type) — preserves the resource id tail.
+  //   2. Slash-path tail extraction (matches AWS ARN sub-paths like
+  //      `role/foo` → `foo`).
+  //   3. Length-based truncation as the final fallback.
   let short = name
-    .replace('SafeRemediate-Test-', '')
-    .replace('SafeRemediate-', '')
-    .replace('saferemediate-test-', '')
-    .replace('saferemediate-', '')
-    .replace('arn:aws:rds:eu-west-1:745783559495:db:', '')
-    .replace('arn:aws:s3:::', '')
-    .replace('arn:aws:', '')
-    .replace('cyntro-demo-', '')
-    .replace('-745783559495', '');
+    // arn:aws:<service>:<region>:<account>:<resource-type>/<resource-id>
+    // or                                  :<resource-type>:<resource-id>
+    .replace(/^arn:aws:[^:]+:[^:]*:[^:]*:[^:/]+[:/]/, '')
+    // arn:aws:s3:::<bucket-name>
+    .replace(/^arn:aws:s3:::/, '')
+    // arn:aws:<service>:<region>:<account>:<resource-id> (no type prefix)
+    .replace(/^arn:aws:[^:]+:[^:]*:[^:]*:/, '');
 
   if (short.includes('/')) short = short.split('/').pop() || short;
   if (short.length > maxLen) short = short.substring(0, maxLen) + '...';
@@ -202,7 +605,27 @@ function mapNodeType(type: string): NodeType {
   if (t === 'iamrole' || t === 'iam_role') return 'iam_role';
   if (t === 'instanceprofile' || t === 'instance_profile' || t.includes('instanceprofile')) return 'instance_profile';
   if (t === 'securitygroup' || t === 'security_group') return 'security_group';
+  if (t === 'vpcendpoint' || t === 'vpc_endpoint') return 'vpc_endpoint';
   return 'network';
+}
+
+// Pretty-print an AWS service endpoint name. Gateway endpoints carry the
+// canonical "com.amazonaws.<region>.<service>" form; Interface endpoints
+// the same. We want the "S3" / "DynamoDB" suffix as a compact chip label
+// so operators can read the lane at a glance — full name lives in the
+// tooltip.
+function vpceServiceShort(serviceName: string | null | undefined): string {
+  if (!serviceName) return '?';
+  const m = serviceName.match(/com\.amazonaws\.[^.]+\.(.+)$/);
+  const tail = (m ? m[1] : serviceName).split('.').pop() || serviceName;
+  if (tail === 's3') return 'S3';
+  if (tail === 'dynamodb') return 'DynamoDB';
+  if (tail === 'sqs') return 'SQS';
+  if (tail === 'sns') return 'SNS';
+  if (tail === 'ec2') return 'EC2';
+  if (tail === 'sts') return 'STS';
+  if (tail === 'kms') return 'KMS';
+  return tail.toUpperCase();
 }
 
 // ============================================
@@ -305,6 +728,25 @@ export function ServiceNodeBox({
           <div className="text-[10px] text-slate-500 font-mono">{node.instanceId}</div>
         )}
         <div className={`text-[10px] ${config.color} uppercase tracking-wider`}>{config.text}</div>
+        {/* ENI chips — attached NetworkInterface(s) folded onto the
+            workload card so the SG-ENI-EC2 binding is visible
+            without taking up a separate Compute row. Compact chip
+            list; full ENI detail lives in the workload drill-down. */}
+        {node.enis && node.enis.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {node.enis.map((eni) => (
+              <span
+                key={eni.id}
+                data-eni-id={eni.id}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/80 text-[9px] font-mono text-slate-300"
+                title={`Attached ENI: ${eni.name}`}
+              >
+                <Network className="w-2.5 h-2.5 text-slate-400" />
+                <span className="truncate max-w-[100px]">{eni.shortName}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Live traffic indicator */}
@@ -491,17 +933,32 @@ export function SecurityGroupPanel({
   const publicRules = sg.rules?.filter(r => r.isPublic) || [];
   const usedRules = sg.rules?.filter(r => r.status === 'used') || [];
   const unusedRules = sg.rules?.filter(r => r.status === 'unused') || [];
-  const hasPublicAccess = publicRules.length > 0;
+  // 2026-05-25 user feedback: hasPublicIngress flag on the SG node is
+  // authoritative even when rules[] is empty (lateral SGs only carry
+  // counts + flags, not raw rules). Fall back to the flag so e.g. a
+  // DB SG with public ingress still surfaces the red badge.
+  const hasPublicAccess = publicRules.length > 0 || sg.hasPublicIngress === true;
+  // 2026-05-26 user feedback: when an SG isn't on the current path
+  // (lateral surface — in the same VPC but no SECURED_BY edge to the
+  // path's compute), dim the chip and show a "LATERAL" badge so the
+  // operator reads at a glance which SG is the gate vs which are
+  // pivot opportunities. onPath===undefined treats as on-path
+  // (back-compat for callers that don't supply the signal yet).
+  const isLateral = sg.onPath === false;
 
   return (
     <div
       className={`relative rounded-xl border-2 transition-all duration-200 overflow-hidden
         ${isHighlighted ? 'bg-orange-500/20 border-orange-500/50 shadow-lg shadow-orange-500/20' : 'bg-slate-800/50 border-slate-700'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}
-        ${hasPublicAccess ? 'ring-2 ring-red-400/30' : ''}`}
+        ${hasPublicAccess ? 'ring-2 ring-red-400/30' : ''}
+        ${isLateral ? 'opacity-50' : ''}`}
       onMouseEnter={() => onHover(sg.id)}
       onMouseLeave={() => onHover(null)}
       onDoubleClick={onDetails}
+      title={isLateral
+        ? "Lateral SG — in the same VPC as the path's compute but no SECURED_BY edge from the path's workload. Pivot surface, not a gate on this chain."
+        : undefined}
     >
       {/* Header */}
       <div
@@ -526,8 +983,29 @@ export function SecurityGroupPanel({
               <span className="text-emerald-400">↑{outboundRules.length} out</span>
             )}
             {hasPublicAccess && (
-              <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[9px] font-semibold">
-                {publicRules.length} PUBLIC
+              <span
+                className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[9px] font-semibold"
+                title="Security Group accepts inbound traffic from 0.0.0.0/0 — verified by has_public_ingress on the SecurityGroup node"
+              >
+                {publicRules.length > 0 ? `${publicRules.length} PUBLIC` : "PUBLIC"}
+              </span>
+            )}
+            {isLateral && (
+              <span
+                className="px-1.5 py-0.5 bg-slate-700/60 text-slate-400 rounded text-[9px] font-semibold uppercase tracking-wider"
+                title="Lateral SG — not attached to the path's workload. Pivot surface only."
+              >
+                Lateral
+              </span>
+            )}
+            {sg.attachedWorkloads && sg.attachedWorkloads.length > 0 && (
+              <span
+                className="px-1.5 py-0.5 bg-orange-500/15 text-orange-300 rounded text-[9px] font-semibold"
+                title={`Attached to: ${sg.attachedWorkloads.join(", ")}`}
+              >
+                on {sg.attachedWorkloads.length === 1
+                  ? sg.attachedWorkloads[0]
+                  : `${sg.attachedWorkloads.length} workloads`}
               </span>
             )}
           </div>
@@ -629,16 +1107,56 @@ export function NACLNode({
 }) {
   const hasGap = nacl.gapCount > 0;
   const blastRadius = nacl.connectedTargets?.length || nacl.connectedSources?.length || 0;
+  // Subnets covered by this NACL. Pulled from Neo4j into SecurityCheckpoint
+  // via the addAsNACL helper. The "0 affected" label this card used to
+  // show was meaningless on chains where the NACL had only allow rules
+  // (gapCount=0 by design); the operator's real question is "what does
+  // this NACL apply to" — which is rule count + subnet attachment.
+  const subnetCount = nacl.subnetCount ?? 0;
+  // 2026-05-25 user feedback: surface the collector's authoritative
+  // risk flags on the chip. is_default + has_public_inbound_allow on
+  // an NACL is the AWS-default "0.0.0.0/0 ALLOW ALL on both directions"
+  // posture — high-signal for the operator. has_high_risk wraps both.
+  const isDefault = nacl.isDefault === true;
+  const hasPublicInbound = nacl.hasPublicInboundAllow === true;
+  const hasHighRisk = nacl.hasHighRisk === true;
+  // On-path vs lateral. Same treatment as SG: NACLs without an
+  // ASSOCIATED_WITH / HAS_NACL edge to a path-node subnet render
+  // dimmed + "LATERAL" badged. onPath===undefined treats as
+  // on-path (back-compat).
+  const isLateral = nacl.onPath === false;
+  // 2026-05-26 (Phase 1.6): distinguish VPC-WIDE default NACL from
+  // chain-specific high-risk. A default NACL applied to >1 subnet is
+  // AWS's catchall — every subnet has it whether attacked or not.
+  // Red ring + red badge makes it look like a chain-specific finding;
+  // it isn't. Reserve red for genuine chain-specific gaps (high-risk
+  // rule on a non-default NACL, or non-default NACL with public allow).
+  // Default-public NACLs covering multiple subnets get the slate/blue
+  // "VPC-WIDE" treatment — context, not alert.
+  const isVpcWideDefault = isDefault && hasPublicInbound && (nacl.subnetCount ?? 0) > 1;
+  const ringClass = isVpcWideDefault
+    ? "ring-2 ring-slate-400/40"
+    : (isDefault && hasPublicInbound)
+      ? "ring-2 ring-red-400/60"
+      : hasHighRisk
+        ? "ring-2 ring-amber-400/60"
+        : hasGap
+          ? "ring-2 ring-amber-400/50"
+          : "";
 
   return (
     <div
       className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
         ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
-        ${hasGap ? 'ring-2 ring-amber-400/50' : ''}`}
+        ${ringClass}
+        ${isLateral ? 'opacity-50' : ''}`}
       onMouseEnter={() => onHover(nacl.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
+      title={isLateral
+        ? "Lateral NACL — in the same VPC as the path's subnets but no ASSOCIATED_WITH edge to the path. Pivot surface only."
+        : undefined}
     >
       <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
         <Lock className="w-5 h-5 text-cyan-400" />
@@ -650,10 +1168,77 @@ export function NACLNode({
         <div className="text-[10px] text-slate-400">
           Network ACL
         </div>
-        <div className="flex items-center gap-2 mt-1">
-          <span className={`text-[9px] px-1.5 py-0.5 rounded ${blastRadius > 0 ? 'bg-orange-500/20 text-amber-400' : 'bg-slate-600/50 text-slate-400'}`}>
-            {blastRadius} affected
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {/* Rule count — the actionable signal for an attacker view.
+              Replaces the old "{blastRadius} affected" label which was
+              always 0 on NACLs with only allow rules (no denies =
+              gapCount 0). N rules tells the operator what's enforceable
+              here. */}
+          <span className={`text-[9px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-600/50 text-slate-400'}`}>
+            {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
           </span>
+          {/* Deny count — only when there ARE denies. Coloured amber
+              because explicit denies are what catch unintended egress. */}
+          {nacl.gapCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-400">
+              {nacl.gapCount} {nacl.gapCount === 1 ? 'deny' : 'denies'}
+            </span>
+          )}
+          {/* Subnet attachment count — shows the NACL's blast surface
+              ("this NACL applies to N subnets"). Hidden when 0 (orphan
+              NACL — operator should look elsewhere). */}
+          {subnetCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
+              {subnetCount} {subnetCount === 1 ? 'subnet' : 'subnets'}
+            </span>
+          )}
+          {/* Default NACL handling. AWS default NACL has 0.0.0.0/0
+              ALLOW ALL on both inbound and outbound. Two visual cases:
+              (a) when it applies to >1 subnet — it's VPC-WIDE context,
+                  not a chain-specific finding. Slate "VPC-WIDE
+                  DEFAULT" chip + slate ring. Operator reads it as
+                  "context: every subnet in this VPC has this NACL".
+              (b) when it applies to 1 subnet (rare; e.g. NACL pinned
+                  to a single isolated subnet) — chain-specific gap.
+                  Red "DEFAULT · NO FILTERING" chip + red ring.
+              The audit's "DEFAULT · NO FILTERING in red on the path"
+              was case (a) being rendered as case (b). Fixed via
+              isVpcWideDefault gate. */}
+          {isVpcWideDefault && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-slate-600/40 text-slate-200 border border-slate-400/40 font-semibold uppercase tracking-wider"
+              title={`AWS-default NACL applied to all ${nacl.subnetCount} subnets in this VPC. Context, not a chain-specific finding. Every workload in this VPC sees the same NACL.`}
+            >
+              VPC-wide default
+            </span>
+          )}
+          {isDefault && hasPublicInbound && !isVpcWideDefault && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/25 text-red-300 font-semibold uppercase tracking-wider"
+              title="Default NACL with 0.0.0.0/0 ALLOW ALL on inbound + outbound. Pinned to this chain's subnet — no filtering applied."
+            >
+              Default · No filtering
+            </span>
+          )}
+          {/* High-risk catch-all when NOT a default-public NACL but
+              the collector still flagged a high-risk rule (e.g. a
+              wide-open custom rule on a non-default NACL). */}
+          {hasHighRisk && !(isDefault && hasPublicInbound) && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 font-semibold uppercase tracking-wider"
+              title="NACL has a high-risk rule. Verified by has_high_risk on the NetworkACL node."
+            >
+              High risk
+            </span>
+          )}
+          {isLateral && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 font-semibold uppercase tracking-wider"
+              title="Lateral NACL — not associated with the path's subnet. Pivot surface only."
+            >
+              Lateral
+            </span>
+          )}
         </div>
       </div>
 
@@ -665,6 +1250,316 @@ export function NACLNode({
 }
 
 // ============================================
+// LATERAL FAN-OUT — visible lateral surface for an IAM role
+// Alon feedback 2026-05-27: previous chips were invisible. Each row
+// is now a first-class clickable target. Jewel rows navigate to that
+// jewel's EXFIL view. Workload rows surface the full name (drill-in
+// deferred — clicking a workload would show its specific path within
+// the same view, which requires a per-workload path index that's not
+// wired yet).
+// ============================================
+function LateralFanOut({
+  alsoReaches,
+  sharedWith,
+  assumedBy = [],
+  policiesAttached = [],
+  actionsUsed = [],
+}: {
+  alsoReaches: Array<{ id: string; name: string; type: string; hits: number }>;
+  sharedWith: Array<{ id: string; name: string; type: string; system_name: string | null }>;
+  assumedBy?: Array<{
+    id: string;
+    session_name: string;
+    calls: number;
+    last_seen: string | null;
+  }>;
+  policiesAttached?: Array<{
+    name: string;
+    attachment_type: string | null;
+    is_aws_managed: boolean | null;
+  }>;
+  actionsUsed?: Array<{ action: string; calls: number }>;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Best-effort system inference: EXFIL view URL has ?system=...
+  // When absent (other consumers of the chip), navigation falls back
+  // to a system-less route which renders the jewel selector first.
+  const systemName = searchParams?.get("system") ?? null;
+
+  const onJewelClick = useCallback(
+    (jewelId: string) => {
+      const params = new URLSearchParams();
+      if (systemName) params.set("system", systemName);
+      params.set("jewel", jewelId);
+      params.set("view", "exfil");
+      router.push(`/attack-paths-v2?${params.toString()}`);
+    },
+    [router, systemName],
+  );
+
+  const workloadIcon = (t: string) =>
+    t === "EC2Instance" ? "EC2" :
+    t === "LambdaFunction" ? "λ" :
+    t === "IAMUser" ? "User" :
+    t === "ECSTask" || t === "ECSService" ? "ECS" :
+    t;
+
+  return (
+    <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-700/60">
+      {alsoReaches.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-fuchsia-300">
+              Also reaches
+            </span>
+            <span className="text-[10px] text-fuchsia-300/80">
+              {alsoReaches.length} {alsoReaches.length === 1 ? "jewel" : "jewels"} — click to inspect
+            </span>
+          </div>
+          {alsoReaches.map((j) => (
+            <button
+              key={j.id}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onJewelClick(j.id);
+              }}
+              className="group flex items-center gap-1.5 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 hover:border-fuchsia-400/60 px-2 py-1 text-left transition-colors cursor-pointer"
+              title={`Switch to EXFIL view for ${j.name}`}
+            >
+              <span className="text-fuchsia-300 font-bold text-[10px]">→</span>
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {j.name}
+              </span>
+              {j.hits > 0 && (
+                <span className="text-[9px] text-fuchsia-300/90 font-mono tabular-nums shrink-0">
+                  {j.hits >= 1000 ? `${(j.hits / 1000).toFixed(0)}K` : String(j.hits)} hits
+                </span>
+              )}
+              <span className="text-[8px] uppercase tracking-wider text-fuchsia-300/60 group-hover:text-fuchsia-300 shrink-0 font-semibold">
+                Inspect
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {sharedWith.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-amber-300">
+              Shared with
+            </span>
+            <span className="text-[10px] text-amber-300/80">
+              {sharedWith.length} other{" "}
+              {sharedWith.length === 1 ? "workload" : "workloads"} — same role, alt foothold
+            </span>
+          </div>
+          {sharedWith.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1"
+              title={`${c.type}: ${c.name}${c.system_name ? ` (system: ${c.system_name})` : ""}`}
+            >
+              <span className="text-[8px] uppercase tracking-wider text-amber-300 font-bold shrink-0">
+                {workloadIcon(c.type)}
+              </span>
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {c.name}
+              </span>
+              {c.system_name && (
+                <span className="text-[9px] text-amber-300/70 truncate max-w-[100px]">
+                  {c.system_name}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {/* ASSUMED BY — observed sessions that called this role
+          (Principal nodes via ACTUAL_API_CALL). Cyan to match the
+          sidebar Principals lane. */}
+      {assumedBy.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-300">
+              Assumed by
+            </span>
+            <span className="text-[10px] text-cyan-300/80">
+              {assumedBy.length}{" "}
+              {assumedBy.length === 1 ? "session" : "sessions"} observed
+            </span>
+          </div>
+          {assumedBy.slice(0, 4).map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center gap-1.5 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1"
+              title={`Session ${s.session_name}${s.last_seen ? ` — last seen ${s.last_seen}` : ""}`}
+            >
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {s.session_name}
+              </span>
+              <span className="text-[9px] text-cyan-300/90 font-mono tabular-nums shrink-0">
+                {s.calls} call{s.calls === 1 ? "" : "s"}
+              </span>
+            </div>
+          ))}
+          {assumedBy.length > 4 && (
+            <span className="text-[9px] text-cyan-300/60 pl-1">
+              +{assumedBy.length - 4} more sessions
+            </span>
+          )}
+        </div>
+      )}
+      {/* POLICIES ATTACHED — managed + inline policies on this role.
+          Rose to match the sidebar IAM Policies lane. */}
+      {policiesAttached.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-rose-300">
+              Policies attached
+            </span>
+            <span className="text-[10px] text-rose-300/80">
+              {policiesAttached.length}{" "}
+              {policiesAttached.length === 1 ? "policy" : "policies"}
+            </span>
+          </div>
+          {policiesAttached.slice(0, 4).map((p, idx) => (
+            <div
+              key={`${p.name}:${idx}`}
+              className="flex items-center gap-1.5 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1"
+              title={`${p.name} (${p.attachment_type ?? "attached"})${p.is_aws_managed ? " · AWS-managed" : ""}`}
+            >
+              <span className="text-[10px] text-slate-200 font-mono truncate flex-1">
+                {p.name}
+              </span>
+              {p.attachment_type && (
+                <span className="text-[8px] uppercase tracking-wider text-rose-300/80 shrink-0">
+                  {p.attachment_type === "HAS_INLINE_POLICY"
+                    ? "inline"
+                    : p.is_aws_managed
+                      ? "AWS-managed"
+                      : "attached"}
+                </span>
+              )}
+            </div>
+          ))}
+          {policiesAttached.length > 4 && (
+            <span className="text-[9px] text-rose-300/60 pl-1">
+              +{policiesAttached.length - 4} more policies
+            </span>
+          )}
+        </div>
+      )}
+      {/* ACTIONS USED — distinct iam_action observed on
+          ACTUAL_API_CALL edges. Lime to match the sidebar API Calls
+          lane. Capped at top 6 visible; the rest collapse. */}
+      {actionsUsed.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-lime-300">
+              Actions used
+            </span>
+            <span className="text-[10px] text-lime-300/80">
+              {actionsUsed.length}{" "}
+              {actionsUsed.length === 1 ? "distinct action" : "distinct actions"} observed
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {actionsUsed.slice(0, 6).map((a) => (
+              <div
+                key={a.action}
+                className="flex items-center gap-1 rounded border border-lime-500/30 bg-lime-500/10 px-1.5 py-0.5"
+                title={`${a.action} — ${a.calls} call${a.calls === 1 ? "" : "s"} observed`}
+              >
+                <span className="text-[10px] text-slate-200 font-mono">
+                  {a.action}
+                </span>
+                <span className="text-[9px] text-lime-300/80 font-mono tabular-nums">
+                  ·{a.calls}
+                </span>
+              </div>
+            ))}
+            {actionsUsed.length > 6 && (
+              <span className="text-[9px] text-lime-300/60 self-center">
+                +{actionsUsed.length - 6}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ============================================
+// ROLE COMPACT SUMMARY — 2026-05-27
+// Single-line summary line at the bottom of the role chip. Tells the
+// operator at a glance "this role has X lateral reach, Y sessions,
+// Z policies, N actions observed" and prompts them to click for the
+// full breakdown in the side panel. Replaces the prior 5-section
+// stacked fan-out that Alon flagged as overwhelming.
+// ============================================
+function RoleCompactSummary({ role }: { role: SecurityCheckpoint }) {
+  const lateralCount =
+    (role.alsoReaches?.length ?? 0) + (role.sharedWith?.length ?? 0)
+  const sessionsCount = role.assumedBy?.length ?? 0
+  const policiesCount = role.policiesAttached?.length ?? 0
+  const actionsCount = role.actionsUsed?.length ?? 0
+
+  const facts: Array<{ count: number; label: string; tone: string }> = []
+  if (lateralCount > 0)
+    facts.push({
+      count: lateralCount,
+      label: lateralCount === 1 ? "lateral reach" : "lateral reaches",
+      tone: "text-fuchsia-300/90",
+    })
+  if (sessionsCount > 0)
+    facts.push({
+      count: sessionsCount,
+      label: sessionsCount === 1 ? "session" : "sessions",
+      tone: "text-cyan-300/90",
+    })
+  if (policiesCount > 0)
+    facts.push({
+      count: policiesCount,
+      label: policiesCount === 1 ? "policy" : "policies",
+      tone: "text-rose-300/90",
+    })
+  if (actionsCount > 0)
+    facts.push({
+      count: actionsCount,
+      label: actionsCount === 1 ? "action" : "actions",
+      tone: "text-lime-300/90",
+    })
+
+  if (facts.length === 0) return null
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-700/60 flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap text-[10px]">
+        {facts.map((f, i) => (
+          <span key={f.label} className="flex items-center gap-1">
+            <span className={`font-bold tabular-nums ${f.tone}`}>
+              {f.count}
+            </span>
+            <span className="text-slate-400">{f.label}</span>
+            {i < facts.length - 1 && (
+              <span className="text-slate-700 ml-1">·</span>
+            )}
+          </span>
+        ))}
+      </div>
+      <span className="text-[9px] uppercase tracking-wider font-bold text-violet-300 ml-auto px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/30">
+        Click for details →
+      </span>
+    </div>
+  )
+}
+
+
+// ============================================
 // IAM ROLE NODE
 // ============================================
 export function IAMRoleNode({
@@ -672,11 +1567,23 @@ export function IAMRoleNode({
   isHighlighted,
   onHover,
   onClick,
+  forceInstanceProfile = false,
+  forceIAMPolicy = false,
 }: {
   role: SecurityCheckpoint;
   isHighlighted: boolean;
   onHover: (id: string | null) => void;
   onClick?: () => void;
+  // Callers that already know the node is an InstanceProfile (e.g.
+  // Attacker view renders architecture.instanceProfiles[] in the IAM
+  // Roles lane where the id is the role's ARN, not :instance-profile/)
+  // can flip this to force amber Layers/Profile-badge styling.
+  forceInstanceProfile?: boolean;
+  // Same idea for IAMPolicy — when the caller passes a policy
+  // checkpoint into this Role-shaped component, the icon + badge
+  // colors switch to violet so the operator can scan-distinguish
+  // Role cards from Policy cards in the IDENTITY column.
+  forceIAMPolicy?: boolean;
 }) {
   const hasGap = role.gapCount > 0;
   const hasData = role.totalCount > 0;
@@ -686,7 +1593,14 @@ export function IAMRoleNode({
   // iam_role (single column), but operators can't distinguish IP from Role
   // when AWS gives them the same name. Render IP with amber Layers theme
   // + "Profile" badge so the two are visually disambiguated in this view.
-  const isInstanceProfile = role.id.includes(':instance-profile/') || /instance.?profile/i.test(role.id);
+  const isInstanceProfile =
+    forceInstanceProfile ||
+    role.id.includes(':instance-profile/') ||
+    /instance.?profile/i.test(role.id);
+  // IAMPolicy detection — caller-driven only. We don't auto-detect from id
+  // because IAM policy ARNs can look like other IAM resources; the caller
+  // passing forceIAMPolicy is the authoritative signal.
+  const isIAMPolicy = forceIAMPolicy;
 
   // Determine status color based on usage
   const getStatusColor = () => {
@@ -697,11 +1611,14 @@ export function IAMRoleNode({
   };
 
   const statusColor = getStatusColor();
-  const accentBgHover = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentBorderHi  = isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
-  const accentShadowHi  = isInstanceProfile ? 'shadow-amber-500/20' : 'shadow-pink-500/20';
-  const accentBgFallback = isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentTextFallback = isInstanceProfile ? 'text-amber-300' : 'text-pink-400';
+  // Three-way palette: policy (violet) > profile (amber) > role (pink).
+  // Order matters: an IAMPolicy might match the InstanceProfile heuristic
+  // if a caller wrongly passes a policy id, but explicit force flags win.
+  const accentBgHover = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentBorderHi  = isIAMPolicy ? 'border-violet-500/50' : isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
+  const accentShadowHi  = isIAMPolicy ? 'shadow-violet-500/20' : isInstanceProfile ? 'shadow-amber-500/20' : 'shadow-pink-500/20';
+  const accentBgFallback = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentTextFallback = isIAMPolicy ? 'text-violet-300' : isInstanceProfile ? 'text-amber-300' : 'text-pink-400';
 
   return (
     <div
@@ -714,7 +1631,9 @@ export function IAMRoleNode({
       onClick={onClick}
     >
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : accentBgFallback}`}>
-        {isInstanceProfile ? (
+        {isIAMPolicy ? (
+          <FileText className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
+        ) : isInstanceProfile ? (
           <Layers className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
         ) : (
           <Key className={`w-5 h-5 ${hasData ? statusColor.text : accentTextFallback}`} />
@@ -728,6 +1647,11 @@ export function IAMRoleNode({
               Profile
             </span>
           )}
+          {isIAMPolicy && (
+            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/40">
+              Policy
+            </span>
+          )}
         </div>
         {hasData ? (
           <>
@@ -737,7 +1661,7 @@ export function IAMRoleNode({
               </span>
               <span className="text-[9px] text-slate-500">perms</span>
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               {hasGap ? (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-400">
                   {role.gapCount} unused
@@ -752,12 +1676,102 @@ export function IAMRoleNode({
                   {blastRadius} linked
                 </span>
               )}
+              {/* Live-evidence chip — 2026-05-26 audit follow-up.
+                  When CloudTrail shows real ACCESSES_RESOURCE hits
+                  from this role but the scalar used_actions_count
+                  says 0, the "0/7 perms · 7 unused" card reads as
+                  "role is dormant" — which is the opposite of the
+                  truth. This chip surfaces the contradiction so the
+                  CISO sees the live evidence next to the static
+                  counters. Numbers come from Phase-0 backend
+                  enrichment (live_observed_total_hits +
+                  live_observed_resource_count), per-resource
+                  max-then-sum (not the inflated naive sum). */}
+              {typeof role.liveObservedTotalHits === "number" &&
+                role.liveObservedTotalHits > 0 && (
+                  <span
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-500/40 font-semibold"
+                    title={`Live evidence: ${role.liveObservedTotalHits.toLocaleString()} observed CloudTrail hits across ${role.liveObservedResourceCount ?? 0} resource(s). Independent of the collector-written used_actions_count scalar.`}
+                  >
+                    ⚡{" "}
+                    {role.liveObservedTotalHits >= 1_000_000
+                      ? `${(role.liveObservedTotalHits / 1_000_000).toFixed(1)}M`
+                      : role.liveObservedTotalHits >= 1_000
+                        ? `${(role.liveObservedTotalHits / 1_000).toFixed(0)}K`
+                        : String(role.liveObservedTotalHits)}{" "}
+                    hits · {role.liveObservedResourceCount ?? 0} res
+                  </span>
+                )}
+              {/* Data-quality chip — 2026-05-26 (revised plan after
+                  reviewer pushback on strict-vs-fallback). The
+                  collector-written scalar `used_actions_count` and the
+                  canonical :USED_ACTION edges disagree when the scalar
+                  was written by iam_usage_sync/behavioral_sync but
+                  cloudtrail_silver hasn't yet materialized the
+                  action-level edges. Rather than silently fall back
+                  (which masks the ingestion drift) we render the
+                  scalar's claim visibly so the operator KNOWS the
+                  graph is incomplete here. */}
+              {role.usageScalarEdgesDisagree && (
+                <span
+                  className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/70 text-slate-300 border border-slate-500/50 font-semibold"
+                  title={`Data quality: scalar used_actions_count=${role.usedCount} but no :USED_ACTION edges exist in the graph. The action-level evidence is missing — silver-layer ingestion may not have run for this role. Check cloudtrail_silver.py / iam_usage_sync.py.`}
+                >
+                  ⚠ scalar · no edges
+                </span>
+              )}
+              {typeof role.liveUsedActionEventCount === "number" &&
+                role.liveUsedActionEventCount > 0 && (
+                  <span
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                    title={`Event-volume: ${role.liveUsedActionEventCount.toLocaleString()} :USED_ACTION events across ${role.usedCount} distinct actions. Source: silver-layer USED_ACTION edges, sum of .count property.`}
+                  >
+                    {role.liveUsedActionEventCount >= 1_000_000
+                      ? `${(role.liveUsedActionEventCount / 1_000_000).toFixed(1)}M`
+                      : role.liveUsedActionEventCount >= 1_000
+                        ? `${(role.liveUsedActionEventCount / 1_000).toFixed(0)}K`
+                        : String(role.liveUsedActionEventCount)}{" "}
+                    events
+                  </span>
+                )}
             </div>
+            {/* BLAST RADIUS strip — 2026-05-27 (Alon: "this is our
+                killer solution!!"). The chip above shows ONE chain's
+                read. These badges surface what ELSE the same role
+                unlocks: other crown jewels (ALSO REACHES) + other
+                workloads carrying the same key (SHARED WITH). Both
+                lists come from the backend's _attach_accessor_blast_
+                radius pass — real graph edges, no synthesis. Hidden
+                when both lists are empty so the chip stays compact
+                on roles with no lateral surface. */}
+            {/* COMPACT SUMMARY — 2026-05-27, Alon feedback "i cant
+                understand nothing." The stacked 5-section fan-out
+                was too dense to read at a glance. Replaced with a
+                one-line summary chip + "Details" CTA. Detail panel
+                slides in from the right via the EXFIL view (the
+                shared TFM stays generic; EXFIL view subscribes to
+                role-chip clicks). */}
+            {((role.alsoReaches?.length ?? 0) > 0 ||
+              (role.sharedWith?.length ?? 0) > 0 ||
+              (role.assumedBy?.length ?? 0) > 0 ||
+              (role.policiesAttached?.length ?? 0) > 0 ||
+              (role.actionsUsed?.length ?? 0) > 0) && (
+              <RoleCompactSummary role={role} />
+            )}
           </>
         ) : (
-          <div className="text-[10px] text-slate-500 mt-1">
-            Analyzing...
-          </div>
+          // 2026-05-25 user feedback: "Analyzing..." was a misleading
+          // placeholder — it fired whenever totalCount=0, which covers
+          // principals (root has no allowed_actions_count) and AWS-
+          // managed service-linked roles (their perms aren't ingested
+          // into Neo4j). The operator read it as "something's loading"
+          // when in reality nothing more will arrive for that node.
+          //
+          // Honest empty state: render nothing — the role's name +
+          // optional Profile badge already convey the full info we
+          // have. The TFM card's height adjusts cleanly without the
+          // placeholder line.
+          null
         )}
       </div>
 
@@ -1617,6 +2631,14 @@ function AnimatedTrafficLine({
   heatmapMode = false,
   heatmapRatio = 0,
   ghosted = false,
+  planeColor,
+  planeGlow,
+  edgeData,
+  canvasV2 = false,
+  isOnPath = true,
+  dim = false,
+  routePrecedence = null,
+  waypoint = null,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -1628,9 +2650,175 @@ function AnimatedTrafficLine({
   heatmapMode?: boolean;
   heatmapRatio?: number;
   ghosted?: boolean;
+  // V2-3 (2026-05-31): canvas-v2 visual layer flags forwarded from
+  // ConnectionLinesSVG. canvasV2 enables the polish layer; isOnPath
+  // is computed from architecture.onPathEdgeIds; dim is the resolved
+  // "should this edge render at ~30% opacity" boolean. All three are
+  // no-ops when canvasV2 is false (legacy unchanged).
+  canvasV2?: boolean;
+  isOnPath?: boolean;
+  dim?: boolean;
+  /** When set (explicit-edges mode), overrides the default
+   *  "active=blue / default=slate" color so identity edges read purple,
+   *  network edges read teal, and data edges read warm orange. Attack-
+   *  path red still wins (operators need to spot live attacks first).
+   *  Heatmap still wins too. */
+  planeColor?: string;
+  planeGlow?: string;
+  /** Backing edge in explicit-edges mode. Used for the hover label so
+   *  operators see relationship type + port/protocol in the tooltip. */
+  edgeData?: CanvasEdge;
+  /** Canvas v3 — route-precedence anchored on this edge when it
+   *  represents a data-plane access (role → bucket via a resolved
+   *  egress gateway). When set, the verb chip on the edge midpoint
+   *  carries the route-precedence suffix ("reads · via VPCE · private")
+   *  so the operator reads the routing answer from the FLOW LINE, not
+   *  from a chip floating beside the destination card. Drives
+   *  data-chip-anchored-on-edge + data-route-precedence-via stamps on
+   *  the edge group. Per pattern_geometry_must_match_label —
+   *  the label REINFORCES the geometry of the edge. */
+  routePrecedence?: RoutePrecedence | null;
+  /** Canvas v3 Slice B — waypoint that the edge must geometrically
+   *  pass through (the resolved egress gateway's center). When set,
+   *  the source→target line becomes piecewise: source → waypoint →
+   *  target, so the operator's eye follows the actual route. Per
+   *  pattern_geometry_must_match_label — chip + geometry both say
+   *  "via VPCE", reinforcing each other. ConnectionLinesSVG resolves
+   *  the waypoint coords from the gateway's DOM rect; this component
+   *  just consumes them. */
+  waypoint?: { x: number; y: number } | null;
 }) {
   const pathId = useMemo(() => `path-${Math.random().toString(36).substr(2, 9)}`, []);
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+
+  // ─── Curved path geometry (explicit-edges mode only) ───────────────
+  //
+  // Lane-based layout means a direct edge between non-adjacent lanes
+  // (e.g. Subnet → NACL crossing Route Tables + SG columns) bisects
+  // unrelated cards visually. Curving the line gracefully arches it
+  // away from the straight path so it bends OVER the intermediate
+  // cards instead of through them. Legacy flow mode keeps straight
+  // segments (those are already short checkpoint-to-checkpoint hops).
+  //
+  // Curve: cubic Bezier with control points offset along the line
+  // perpendicular by an archAmount proportional to line length.
+  // For long lines (EC2 → IGW across the canvas) the arch is bigger,
+  // bending the line clearly out of the way; for short edges
+  // (EC2 → Subnet adjacent column) the curve is barely perceptible.
+  //
+  // Plane gives the arch its DIRECTION:
+  //   identity  → arch upward (negative perpendicular Y)
+  //   network   → arch downward (positive perpendicular Y)
+  //   data      → arch downward, larger amount (more pronounced for
+  //               observed traffic so the eye tracks them as the
+  //               event lines rather than config plumbing)
+  // This stacks parallel edges from one source/target pair instead of
+  // collapsing them onto the same straight line.
+  const useCurve = !!edgeData;
+  const plane: EdgePlane | undefined = (() => {
+    if (!edgeData) return undefined;
+    // Inferred service-plane edges (VPCE → S3/DynamoDB/etc) carry
+    // relationship="ROUTES_VIA" for semantic honesty (the edge IS a
+    // route), but visually they represent the data-plane traversal —
+    // bytes physically transit the VPCE to reach the bucket. Per the
+    // Greenlight constraint #1, color them like data-flow edges
+    // (orange) so the read direction is consistent with the
+    // surrounding observed flows. Dash style still distinguishes them
+    // from real observed edges.
+    if (edgeData.inferred) return 'data';
+    // Re-derive plane from relationship — passed-in planeColor reflects
+    // the same logic, but we need the discrete plane label for arch
+    // direction. Cheap; could also be threaded through as a prop later.
+    const r = edgeData.relationship.toUpperCase();
+    if (r === 'USES_ROLE' || r === 'ASSUMES_ROLE' || r === 'ASSUMES_ROLE_ACTUAL' ||
+        r === 'HAS_INSTANCE_PROFILE' || r === 'HAS_POLICY') return 'identity';
+    if (r === 'ACCESSES_RESOURCE' || r === 'ACTUAL_API_CALL' || r === 'ACTUAL_S3_ACCESS' ||
+        r === 'READS_FROM' || r === 'WRITES_TO' || r === 'RUNTIME_CALLS') return 'data';
+    return 'network';
+  })();
+  const archDir = plane === 'identity' ? -1 : 1; // -1 = up, +1 = down
+  const archMultiplier = plane === 'data' ? 0.18 : 0.12;
+  // For very short edges (adjacent-column hops) the arch is tiny — don't
+  // distort what's already a clean line.
+  const archAmount = useCurve ? Math.min(45, length * archMultiplier) : 0;
+
+  // Cubic Bezier control points. Perpendicular vector = (-dy, dx)/len,
+  // then scaled by archDir * archAmount and added to the 1/3 and 2/3
+  // points along the source→target line.
+  const dxBz = x2 - x1;
+  const dyBz = y2 - y1;
+  const lenBz = Math.max(1, length);
+  const perpX = (-dyBz / lenBz) * archDir * archAmount;
+  const perpY = (dxBz / lenBz) * archDir * archAmount;
+  const cx1 = x1 + dxBz * 0.3 + perpX;
+  const cy1 = y1 + dyBz * 0.3 + perpY;
+  const cx2 = x1 + dxBz * 0.7 + perpX;
+  const cy2 = y1 + dyBz * 0.7 + perpY;
+  // Canvas v3 Slice B — when a waypoint is supplied (the resolved
+  // egress gateway's center), the edge becomes piecewise: source →
+  // waypoint → target. Two quadratic Bezier segments per the
+  // pattern_geometry_must_match_label discipline — the chip claims
+  // "via VPCE", the geometry must show the line passing through the
+  // VPCE node. Control points for each segment are pulled toward the
+  // straight midpoint, giving each half a gentle arch that converges
+  // at the waypoint. Falls back to single-Bezier (or straight) when
+  // no waypoint is supplied (legacy behavior, no regression for
+  // non-route-precedence edges).
+  const hasWaypoint = !!waypoint && useCurve;
+  // Segment 1 (source → waypoint) control point: midpoint perp-offset.
+  const seg1MidX = hasWaypoint ? (x1 + waypoint!.x) / 2 : 0;
+  const seg1MidY = hasWaypoint ? (y1 + waypoint!.y) / 2 : 0;
+  const seg1Len = hasWaypoint
+    ? Math.sqrt(
+        Math.pow(waypoint!.x - x1, 2) + Math.pow(waypoint!.y - y1, 2),
+      )
+    : 0;
+  const seg1Arch = hasWaypoint ? Math.min(30, seg1Len * 0.12) : 0;
+  const seg1PerpX = hasWaypoint
+    ? ((-(waypoint!.y - y1)) / Math.max(1, seg1Len)) * archDir * seg1Arch
+    : 0;
+  const seg1PerpY = hasWaypoint
+    ? ((waypoint!.x - x1) / Math.max(1, seg1Len)) * archDir * seg1Arch
+    : 0;
+  const seg1Cx = seg1MidX + seg1PerpX;
+  const seg1Cy = seg1MidY + seg1PerpY;
+  // Segment 2 (waypoint → target) control point: midpoint perp-offset.
+  const seg2MidX = hasWaypoint ? (waypoint!.x + x2) / 2 : 0;
+  const seg2MidY = hasWaypoint ? (waypoint!.y + y2) / 2 : 0;
+  const seg2Len = hasWaypoint
+    ? Math.sqrt(
+        Math.pow(x2 - waypoint!.x, 2) + Math.pow(y2 - waypoint!.y, 2),
+      )
+    : 0;
+  const seg2Arch = hasWaypoint ? Math.min(30, seg2Len * 0.12) : 0;
+  const seg2PerpX = hasWaypoint
+    ? ((-(y2 - waypoint!.y)) / Math.max(1, seg2Len)) * archDir * seg2Arch
+    : 0;
+  const seg2PerpY = hasWaypoint
+    ? ((x2 - waypoint!.x) / Math.max(1, seg2Len)) * archDir * seg2Arch
+    : 0;
+  const seg2Cx = seg2MidX + seg2PerpX;
+  const seg2Cy = seg2MidY + seg2PerpY;
+  const pathD = hasWaypoint
+    ? `M ${x1} ${y1} Q ${seg1Cx} ${seg1Cy}, ${waypoint!.x} ${waypoint!.y} Q ${seg2Cx} ${seg2Cy}, ${x2} ${y2}`
+    : useCurve
+      ? `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
+      : `M ${x1} ${y1} L ${x2} ${y2}`;
+  // Arrow rotation = tangent at the endpoint. For the piecewise path,
+  // segment 2's endpoint tangent is (x2-seg2Cx, y2-seg2Cy). For cubic
+  // Bezier at t=1 the tangent is along (P3 - P2). For straight lines
+  // it's (y2-y1, x2-x1).
+  const arrowDx = hasWaypoint
+    ? x2 - seg2Cx
+    : useCurve
+      ? x2 - cx2
+      : x2 - x1;
+  const arrowDy = hasWaypoint
+    ? y2 - seg2Cy
+    : useCurve
+      ? y2 - cy2
+      : y2 - y1;
+  const arrowAngleDeg = (Math.atan2(arrowDy, arrowDx) * 180) / Math.PI;
 
   // Speed based on intensity - faster = more traffic (slower base for better visibility)
   // Attack paths animate faster (2x speed) to draw attention
@@ -1653,12 +2841,61 @@ function AnimatedTrafficLine({
     return '#ef4444'; // red - critical risk
   };
 
-  // Colors based on state - attack paths use red, heatmap overrides normal colors
+  // Colors based on state - attack paths use red, heatmap overrides normal colors.
+  // Plane color (when set) overrides the default "active=blue / default=slate"
+  // — it's only consulted in explicit-edges mode (Phase 1 refactor). Attack
+  // path red + heatmap still win; operators need attack signals to read first.
+  const planeLine = planeColor; // may be undefined
+  const planeP = planeGlow ?? planeColor;
+
+  // 2026-05-28 — Phase 2 V1 slice 3 (edge semantic states). When the
+  // consumer flagged this flow as locked (AWS-required relationship
+  // the operator can't remove — HAS_INSTANCE_PROFILE, ASSUMES_ROLE,
+  // USES_ROLE), render it as observed-but-static: lower-saturation
+  // slate-emerald, no particle animation, slightly thinner. Distinct
+  // from observed-remediable (animated bright) and from config-derived
+  // (gray dotted, already handled by ghosted/inactive branches).
+  // Cross-consumer safe: non-attacker callers leave flowData.isLocked
+  // undefined; the override is then no-op.
+  //
+  // 2026-05-30 (FE follow-up #7): in explicit-edges mode (the active
+  // canvas path for ATTACKER VIEW) the producer hands the renderer a
+  // CanvasEdge instead of a TrafficFlow, and CanvasEdge has no
+  // `isLocked` field — that was only on TrafficFlow. To keep PR #77's
+  // 3-state encoding from being dead code on the new render path,
+  // mirror the producer's isLockedEdgeType locally: derive lock from
+  // the relationship name. List MUST stay in sync with the producer at
+  // components/attack-paths-v2/attacker-view-panel.tsx::isLockedEdgeType.
+  const isLockedRelationship = (rel: string | null | undefined): boolean => {
+    if (!rel) return false;
+    const R = rel.toUpperCase();
+    return (
+      R === 'HAS_INSTANCE_PROFILE' ||
+      R === 'USES_ROLE' ||
+      R === 'ASSUMES_ROLE' ||
+      R === 'ASSUMES_ROLE_ACTUAL' ||
+      R === 'USED_IDENTITY' ||
+      R === 'HAS_POLICY'
+    );
+  };
+  const isLockedFlow =
+    (!!flowData?.isLocked || (!!edgeData && isLockedRelationship(edgeData.relationship)))
+    && isActive && !isAttackPath && !heatmapMode;
   const lineColor = heatmapMode && !isAttackPath
     ? getHeatmapColor(heatmapRatio)
-    : isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : isActive ? '#3b82f6' : '#475569';
-  const particleColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#3b82f6';
-  const glowColor = isAttackPath ? '#f87171' : isHighlighted ? '#34d399' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#60a5fa';
+    : isAttackPath ? '#ef4444'
+      : isHighlighted ? '#10b981'
+      : planeLine ?? (isActive ? '#3b82f6' : '#475569');
+  const particleColor = isAttackPath ? '#ef4444'
+    : isHighlighted ? '#10b981'
+    : heatmapMode ? getHeatmapColor(heatmapRatio)
+    : isLockedFlow ? '#64748b'  // slate-500 — observed but locked (AWS-required)
+    : planeP ?? '#3b82f6';
+  const glowColor = isAttackPath ? '#f87171'
+    : isHighlighted ? '#34d399'
+    : heatmapMode ? getHeatmapColor(heatmapRatio)
+    : isLockedFlow ? '#94a3b8'  // slate-400 — softer glow for locked
+    : planeP ?? '#60a5fa';
 
   // Heatmap stroke width - thicker = higher risk
   const heatmapStrokeWidth = heatmapMode && !isAttackPath ? 2 + (heatmapRatio * 8) : undefined;
@@ -1672,12 +2909,199 @@ function AnimatedTrafficLine({
     );
   }
 
+  // V2-3 (2026-05-31): top-level opacity for the dim layer + DOM data
+  // attributes for empirical verification (DOM-probe pattern). When
+  // canvasV2=false the data attribute defaults to "v1" so spot-checks
+  // can distinguish legacy from V2 render without trusting CSS pixel
+  // diffs.
+  //
+  // V2-6 (2026-06-01): multi-channel lateral differentiation. See memory
+  // pattern_multi_channel_visual_differentiation. The previous single-
+  // channel fix (stroke #64748b only) blended with on-path cyan because
+  // slate-500 has cool-blue undertones — operators read laterals as
+  // visually equivalent to on-path. New encoding: lateral edges differ
+  // from on-path in FOUR channels (hue + width + dash pattern + opacity)
+  // always. The dim/bright toggle (showLaterals) now moves opacity + dash
+  // rhythm WITHIN the lateral class, never spanning the class boundary.
+  //
+  // Lateral state — three-valued:
+  //   'on-path'  : edge is on the highlighted attack path (or canvasV2
+  //                is off entirely). planeColor + solid + width 2 + full opacity.
+  //   'dim'      : lateral edge with showLaterals=false (default).
+  //                Maximally demoted; visible but clearly subordinate.
+  //   'bright'   : lateral edge with showLaterals=true (operator opted
+  //                in to see laterals). Still visually a lateral —
+  //                different hue / width / pattern from on-path — but
+  //                higher opacity + denser dash rhythm than 'dim'.
+  // lateralState is derivable from the existing (canvasV2, isOnPath, dim)
+  // props — no new prop needed. The producer (ConnectionLinesSVG) already
+  // computes `dim = canvasV2 && !isOnPath && !showLaterals`, so:
+  //   on-path  : !canvasV2 OR isOnPath
+  //   dim      : canvasV2 + !isOnPath + dim (showLaterals=false default)
+  //   bright   : canvasV2 + !isOnPath + !dim (showLaterals=true)
+  const lateralState: 'on-path' | 'dim' | 'bright' =
+    !canvasV2 || isOnPath
+      ? 'on-path'
+      : (dim ? 'dim' : 'bright')
+
+  // Channel 1: hue. Lateral neutral zinc-400 (no cool-blue undertone that
+  // collides with cyan on-path). On-path keeps planeColor.
+  // Channel 2: stroke-opacity (applied on the group element via
+  // v2GroupOpacity so it multiplies cleanly through inferred-edge dashes
+  // and other path treatments).
+  // Channel 3: stroke-width.
+  // Channel 4: stroke-dasharray. attack-path's "10,5" and inferred's
+  // "6,4" still win (set in the <path> element directly); lateral dash
+  // applies when neither override is active.
+  // Canvas v3 Slice C — crossing-internet edges (IGW/NAT route) get a
+  // rose stroke override so they read as "this edge exits the AWS
+  // backbone to the public internet" without text. Stays-private (VPCE
+  // route) keeps the on-path planeColor so the contrast carries the
+  // security signal. Per pattern_partition_boundaries_carry_security_state
+  // — the boundary lives on the edge color when no explicit boundary
+  // line is drawn (Slice C minimal version; full layout repartition is
+  // a follow-up).
+  const crossesInternet =
+    routePrecedence ? !routePrecedence.isPrivate : false
+  const crossingStrokeOverride = crossesInternet ? '#fb7185' : undefined
+  const v2StrokeOverride =
+    crossingStrokeOverride ??
+    (lateralState === 'on-path' ? undefined : '#a1a1aa')
+  const v2GroupOpacity =
+    lateralState === 'dim'    ? 0.25
+    : lateralState === 'bright' ? 0.65
+    : 1
+  const v2LateralStrokeWidth =
+    lateralState === 'dim'    ? 1
+    : lateralState === 'bright' ? 1.5
+    : undefined
+  const v2LateralDasharray =
+    lateralState === 'dim'    ? '4 4'
+    : lateralState === 'bright' ? '6 3'
+    : undefined
+  // V2-4: verb chip mapping for on-path edges (canvasV2 + isOnPath).
+  // 1-3 word labels at edge midpoint so the chain reads like a
+  // sentence. Falls back to a lowercased rel name when no specific
+  // mapping is defined. Lateral edges get NO chip (user's discipline:
+  // chips on the eye's primary read, dim everything else).
+  const verbForRelationship = (rel?: string): string | null => {
+    if (!rel) return null
+    const R = rel.toUpperCase()
+    const map: Record<string, string> = {
+      ASSUMES_ROLE: "assumes",
+      ASSUMES_ROLE_ACTUAL: "assumes",
+      USES_ROLE: "uses",
+      HAS_INSTANCE_PROFILE: "via profile",
+      HAS_POLICY: "has policy",
+      ACCESSES_RESOURCE: "accesses",
+      ACTUAL_S3_ACCESS: "reads",
+      ACTUAL_API_CALL: "calls API",
+      ACTUAL_TRAFFIC: "sends traffic to",
+      READS_FROM: "reads",
+      WRITES_TO: "writes",
+      RUNTIME_CALLS: "calls",
+      ROUTES_VIA: "via VPCE",
+      IN_VPC: "in VPC",
+      RUNS_IN_VPC: "in VPC",
+      IN_SUBNET: "in subnet",
+      ATTACHED_TO_SG: "uses SG",
+      APPLIES_TO: "applies",
+      // V2-4.1: USED_IDENTITY semantically describes the API call's
+      // authenticated identity (CloudTrail "the call was made AS this
+      // role"). "assumes" reads more naturally in the chain sentence
+      // than the previous "as" — operators parse "X assumes Y" as the
+      // pivot, not "X as Y" which reads like a label.
+      USED_IDENTITY: "assumes",
+      SECURED_BY: "secured by",
+    }
+    if (map[R]) return map[R]
+    // Fallback: lowercase + space-separated, capped at 18 chars
+    const friendly = R.toLowerCase().replace(/_/g, " ")
+    return friendly.length > 18 ? friendly.slice(0, 17) + "…" : friendly
+  }
+  // Canvas v3 Slice A: extend the verb-chip with the route-precedence
+  // suffix when this edge carries data-plane access to a destination
+  // whose route resolved to a specific gateway. Example label transform:
+  //   "reads"  →  "reads · via VPCE · s3 · private"
+  //   "calls API"  →  "calls API · via IGW · public"
+  // The chip becomes the EDGE'S label, not a separate annotation beside
+  // the destination card. Per pattern_geometry_must_match_label, the
+  // label reinforces the flow line — it sits on the line itself via the
+  // existing Bezier-at-t=0.5 midpoint math.
+  //
+  // De-dup discipline: gateway.kindLabel sometimes already carries the
+  // service hint (e.g. "VPCE · s3" from build-attacker-architecture.ts
+  // assemblers), so appending serviceHint a second time would produce
+  // "VPCE · s3 · s3". Only add the serviceHint suffix when kindLabel
+  // doesn't already contain it.
+  const baseVerb =
+    canvasV2 && isOnPath && !dim && edgeData
+      ? verbForRelationship(edgeData.relationship)
+      : null
+  const precedenceSuffix = routePrecedence
+    ? (() => {
+        const klabel = routePrecedence.gateway.kindLabel
+        const hint = routePrecedence.gateway.serviceHint
+        const serviceSegment =
+          hint && !klabel.toLowerCase().includes(hint.toLowerCase())
+            ? ` · ${hint}`
+            : ""
+        const privacy = routePrecedence.isPrivate ? "private" : "public"
+        return ` · via ${klabel}${serviceSegment} · ${privacy}`
+      })()
+    : ""
+  const verbChipLabel = baseVerb
+    ? `${baseVerb}${precedenceSuffix}`
+    : null
   return (
-    <g>
-      {/* Glow effect for active lines and attack paths */}
-      {(isActive || isAttackPath) && (
-        <line
-          x1={x1} y1={y1} x2={x2} y2={y2}
+    <g
+      data-canvas-mode={canvasV2 ? "v2" : "v1"}
+      data-edge-onpath={canvasV2 ? (isOnPath ? "true" : "false") : undefined}
+      // data-edge-dim kept for backward compat with any existing e2e probes
+      // (PR #82-era). data-laterals is the canonical attribute going forward
+      // — tri-state, distinguishes 'dim' vs 'bright' vs 'on-path' for DOM-probe
+      // verification of the multi-channel encoding (PR for V2-6).
+      data-edge-dim={canvasV2 && lateralState === 'dim' ? "true" : undefined}
+      data-laterals={canvasV2 ? lateralState : undefined}
+      // Canvas v3 Slice A — route-precedence anchored on edge (not card).
+      // Stamped on the SVG group wrapping the edge + its chip so DOM
+      // probes can verify "the chip is on the flow line."
+      data-route-precedence-via={
+        routePrecedence
+          ? routePrecedence.isPrivate ? "private" : "public"
+          : undefined
+      }
+      data-route-precedence-gateway-id={routePrecedence?.gateway.id}
+      data-chip-anchored-on-edge={routePrecedence ? "true" : undefined}
+      // Canvas v3 Slice B — when this edge has a waypoint resolved, the
+      // path geometrically passes through the gateway node. The stamp
+      // lets DOM probes confirm geometry (not just label) matches the
+      // route-precedence claim per pattern_geometry_must_match_label.
+      data-edge-via-gateway={
+        waypoint && routePrecedence ? routePrecedence.gateway.id : undefined
+      }
+      // Canvas v3 Slice C — Internet-partition crossing classification.
+      // true  → traffic exits via IGW/NAT/EIGW (public internet)
+      // false → traffic stays on AWS backbone via VPCE
+      // undefined → no route-precedence resolved (chip absent)
+      // Drives the rose-stroke + crossing chip per pattern_partition_
+      // boundaries_carry_security_state. Operators can DOM-probe for
+      // [data-crosses-internet="true"] to find public-egress edges.
+      data-crosses-internet={
+        routePrecedence
+          ? routePrecedence.isPrivate ? "false" : "true"
+          : undefined
+      }
+      style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
+    >
+      {/* Glow effect for active lines and attack paths.
+       *  Uses pathD so curves get glowed along their actual shape.
+       *  Locked observed flows (Phase 2 V1 slice 3) skip the glow —
+       *  they read as static observed presence, not animated traffic. */}
+      {(isActive || isAttackPath) && !isLockedFlow && (
+        <path
+          d={pathD}
+          fill="none"
           stroke={glowColor}
           strokeWidth={isAttackPath ? 14 : isHighlighted ? 12 : 6}
           opacity={isAttackPath ? 0.5 : isHighlighted ? 0.4 : 0.2}
@@ -1691,26 +3115,143 @@ function AnimatedTrafficLine({
               repeatCount="indefinite"
             />
           )}
-        </line>
+        </path>
       )}
 
-      {/* Main line - dashed for attack paths */}
-      <line
-        x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke={lineColor}
-        strokeWidth={heatmapStrokeWidth ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)}
+      {/* Main line — straight in legacy flow mode, Bezier curve in
+       *  explicit-edges mode so lines bend around unrelated cards
+       *  rather than bisecting them.
+       *
+       *  Stroke style precedence (most-specific first):
+       *    1. attack path → red dashed (operator-critical signal)
+       *    2. inferred service-plane edge (e.g. VPCE→S3 derived from
+       *       VPCE.service_name) → dashed, same color as solid so the
+       *       direction stays readable; provenance via line style not
+       *       palette (Greenlight 2026-05-30 constraint #1). Hover
+       *       tooltip shows inferred_reason.
+       *    3. observed/config edge → solid.
+       */}
+      <path
+        d={pathD}
+        fill="none"
+        stroke={v2StrokeOverride ?? lineColor}
+        strokeWidth={
+          heatmapStrokeWidth
+            ?? v2LateralStrokeWidth
+            ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)
+        }
         strokeLinecap="round"
-        strokeDasharray={isAttackPath ? "10,5" : undefined}
+        strokeDasharray={
+          // Precedence (most-specific first):
+          //   1. attack path → red dashed "10,5" (operator-critical signal)
+          //   2. inferred edge → "6,4" (provenance via line style not palette)
+          //   3. lateral edge → "4 4" dim / "6 3" bright (V2-6 multi-channel)
+          //   4. observed/config on-path → solid
+          isAttackPath
+            ? "10,5"
+            : edgeData?.inferred
+              ? "6,4"
+              : v2LateralDasharray ?? undefined
+        }
         className="transition-all duration-300"
-      />
+      >
+        {edgeData?.inferred && edgeData.inferred_reason && (
+          <title>Inferred edge — {edgeData.inferred_reason}</title>
+        )}
+        {/*
+          2026-05-30 (FE follow-up #7): when the producer threaded
+          first_seen / last_seen onto the CanvasEdge (PR #76's feature),
+          surface them as a native browser <title> tooltip on the SVG
+          path. The legacy TrafficFlow hover-panel (line ~4586) carries
+          a richer pill UI; that fires only in flow-mode. Explicit-edges
+          mode has no equivalent pill — a <title> is the lightest
+          honest path to make the temporal evidence visible. Skips when
+          the inferred-edge title already claimed the slot OR neither
+          timestamp is populated.
+        */}
+        {!edgeData?.inferred && edgeData && (edgeData.first_seen || edgeData.last_seen) && (
+          <title>
+            {[
+              edgeData.last_seen ? `Last seen ${edgeData.last_seen}` : null,
+              edgeData.first_seen ? `First seen ${edgeData.first_seen}` : null,
+            ].filter(Boolean).join(' · ')}
+          </title>
+        )}
+      </path>
 
-      {/* Animated particles - always show when animate is true */}
-      {animate && (
+      {/* V2-4 (2026-05-31): verb chip at edge midpoint, on-path
+       *  edges only. Reads like a sentence when the operator scans
+       *  left-to-right: "root assumes alon-demo-ec2-role accesses
+       *  cyntro-demo-prod-data". Lateral edges intentionally get no
+       *  chip (user discipline: chips on the eye's primary read).
+       *
+       *  Midpoint math: for curved edges use the cubic Bezier value
+       *  at t=0.5 (B(0.5) = 0.125 P0 + 0.375 P1 + 0.375 P2 + 0.125 P3).
+       *  For straight legacy lines fall back to the simple midpoint.
+       *  Background rect renders behind the text so the chip stays
+       *  readable on top of other lines / canvas chrome. */}
+      {verbChipLabel && (() => {
+        const midX = useCurve
+          ? 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
+          : (x1 + x2) / 2
+        const midY = useCurve
+          ? 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
+          : (y1 + y2) / 2
+        // Approximate text width from char count (no canvas
+        // measurement available in SSR-safe SVG). 6px per char at
+        // font-size 9 is conservative.
+        const labelW = verbChipLabel.length * 6 + 10
+        return (
+          <g
+            data-verb-chip="true"
+            data-verb-chip-text={verbChipLabel}
+            pointerEvents="none"
+          >
+            <rect
+              x={midX - labelW / 2}
+              y={midY - 8}
+              width={labelW}
+              height={14}
+              rx={4}
+              ry={4}
+              fill="#0f172a"
+              stroke="#475569"
+              strokeWidth={0.5}
+              opacity={0.92}
+            />
+            <text
+              x={midX}
+              y={midY + 2}
+              textAnchor="middle"
+              fontSize={9}
+              fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif"
+              fill="#e2e8f0"
+              letterSpacing={0.2}
+            >
+              {verbChipLabel}
+            </text>
+          </g>
+        )
+      })()}
+
+      {/* Animated particles - always show when animate is true.
+       *  Suppressed for inferred service-plane edges — those are
+       *  derived, not observed, and animating them would lie about
+       *  having traffic evidence we don't have.
+       *
+       *  V2-6: also suppressed for lateral edges (dim OR bright).
+       *  Lateral edges represent context, not the chain's primary
+       *  traffic — animating them would compete with the on-path
+       *  particles for the operator's eye and contradict the
+       *  multi-channel demotion (lower opacity + dashed pattern
+       *  signals "not the primary read"). */}
+      {animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && (
         <>
-          {/* Define the path for animation */}
+          {/* Define the path for animation — same shape as the visible
+           *  line so the particles follow the curve. */}
           <path
             id={pathId}
-            d={`M ${x1} ${y1} L ${x2} ${y2}`}
+            d={pathD}
             fill="none"
             stroke="transparent"
           />
@@ -1753,35 +3294,62 @@ function AnimatedTrafficLine({
         </>
       )}
 
-      {/* Port/Protocol label */}
-      {isHighlighted && flowData && flowData.ports.length > 0 && (
-        <g>
-          <rect
-            x={(x1 + x2) / 2 - 35}
-            y={(y1 + y2) / 2 - 14}
-            width="70"
-            height="28"
-            rx="6"
-            fill="#0f172a"
-            stroke={particleColor}
-            strokeWidth="2"
-          />
-          <text
-            x={(x1 + x2) / 2}
-            y={(y1 + y2) / 2 + 5}
-            textAnchor="middle"
-            className="text-[11px] fill-white font-mono font-bold"
-          >
-            {flowData.ports[0] || 'TCP'}
-          </text>
-        </g>
+      {/* Hover label.
+       *  Legacy flow mode: shows the first port (or "TCP").
+       *  Explicit-edges mode: shows the relationship type (e.g.
+       *  "ACTUAL_S3_ACCESS"), or port if it's a network-plane edge with
+       *  a port populated. The relationship type is the most honest
+       *  signal an operator wants when hovering — it tells them WHICH
+       *  graph edge this is, not just an inferred protocol.
+       */}
+      {isHighlighted && (flowData || edgeData) && (
+        (() => {
+          let label = 'TCP';
+          if (edgeData) {
+            // Prefer port for network-plane edges, relationship for the rest
+            if (edgeData.port != null) label = String(edgeData.port);
+            else label = edgeData.relationship;
+          } else if (flowData && flowData.ports.length > 0) {
+            label = flowData.ports[0] || 'TCP';
+          }
+          // Width scales with label length so long relationship strings
+          // ("HAS_INSTANCE_PROFILE") don't overflow the pill.
+          const padX = 8;
+          const charW = 7;
+          const w = Math.max(60, label.length * charW + padX * 2);
+          return (
+            <g>
+              <rect
+                x={(x1 + x2) / 2 - w / 2}
+                y={(y1 + y2) / 2 - 14}
+                width={w}
+                height="28"
+                rx="6"
+                fill="#0f172a"
+                stroke={particleColor}
+                strokeWidth="2"
+              />
+              <text
+                x={(x1 + x2) / 2}
+                y={(y1 + y2) / 2 + 5}
+                textAnchor="middle"
+                className="text-[11px] fill-white font-mono font-bold"
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })()
       )}
 
-      {/* Arrow at end */}
+      {/* Arrow at end — rotation follows the curve tangent at (x2,y2)
+       *  in explicit-edges mode (so the arrow points along the curve's
+       *  end direction, not along the straight source→target chord)
+       *  and matches the straight chord in legacy flow mode. */}
       <polygon
         points={`${x2},${y2} ${x2 - 12},${y2 - 6} ${x2 - 12},${y2 + 6}`}
         fill={lineColor}
-        transform={`rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI}, ${x2}, ${y2})`}
+        transform={`rotate(${arrowAngleDeg}, ${x2}, ${y2})`}
       />
     </g>
   );
@@ -1806,6 +3374,8 @@ export function ConnectionLinesSVG({
   attackPathEdges = EMPTY_EDGE_SET as Set<string>,
   heatmapMode = false,
   ghostedNodeIds = EMPTY_NODE_SET as Set<string>,
+  canvasV2 = false,
+  showLaterals = false,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
@@ -1814,20 +3384,49 @@ export function ConnectionLinesSVG({
   attackPathEdges?: Set<string>;
   heatmapMode?: boolean;
   ghostedNodeIds?: Set<string>;
+  // V2-3 (2026-05-31): when canvasV2 is true and showLaterals is
+  // false, edges whose CanvasEdge.id is NOT in architecture.
+  // onPathEdgeIds render at ~30% opacity (path is the hero). When
+  // showLaterals flips true, all edges render at full opacity. When
+  // canvasV2 is false (legacy), both flags are no-ops.
+  canvasV2?: boolean;
+  showLaterals?: boolean;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
-    flow: TrafficFlow;
+    /** Legacy flow-synthesized line. Present when this segment came from
+     *  the `architecture.flows[]` zigzag path. Mutually exclusive with
+     *  `edge` — exactly one of the two is set per line. */
+    flow?: TrafficFlow;
+    /** Explicit-edges line. Present when this segment came from
+     *  `architecture.edges[]` (Phase 1 contract). Carries the original
+     *  CanvasEdge so the renderer can color by plane and label with the
+     *  relationship type on hover. */
+    edge?: CanvasEdge;
+    /** Plane classification (only set in explicit-edges mode). Drives
+     *  line color in AnimatedTrafficLine. */
+    plane?: EdgePlane;
+    /** Endpoint ids for the original edge (so isHighlighted can match
+     *  the hoveredId against source/target without re-deriving from
+     *  flow.sourceId / edge.source_aws_id). */
+    sourceId: string;
+    targetId: string;
     isHighlighted: boolean;
     isActive: boolean;
     trafficIntensity: 'low' | 'medium' | 'high';
     isAttackPath: boolean;
   }>>([]);
 
-  // Calculate traffic intensity thresholds
+  // Calculate traffic intensity thresholds. In explicit-edges mode,
+  // intensity is driven by per-edge bytes/hit_count (only data-plane
+  // edges carry these); legacy flow mode keeps the prior behavior.
   const maxBytes = useMemo(() => {
+    if (architecture.edges && architecture.edges.length > 0) {
+      const all = architecture.edges.map(e => (e.bytes ?? 0));
+      return Math.max(...all, 1);
+    }
     return Math.max(...architecture.flows.map(f => f.bytes), 1);
-  }, [architecture.flows]);
+  }, [architecture.flows, architecture.edges]);
 
   const getTrafficIntensity = useCallback((bytes: number): 'low' | 'medium' | 'high' => {
     const ratio = bytes / maxBytes;
@@ -1855,6 +3454,123 @@ export function ConnectionLinesSVG({
 
       const newLines: typeof lines = [];
 
+      // ─── EXPLICIT-EDGES MODE ─────────────────────────────────────────
+      // Phase 1 (2026-05-25): when the caller provides `architecture.edges`,
+      // bypass the legacy flow-synthesis zigzag entirely. Each edge becomes
+      // ONE line (1:1 with the data), colored by its conceptual plane so a
+      // single observed call can't be drawn through both Role and IGW on
+      // the same polyline. The fabrication-class bug this fixes is
+      // attacker-view-panel.tsx routing every flow through pathCheckpoints,
+      // which bundled identity + network checkpoints onto one SVG path.
+      // See feedback_test_both_sides_of_a_partition.md.
+      if (architecture.edges && architecture.edges.length > 0) {
+        // Generic node lookup — try every data-*-id selector the lane
+        // renderers attach. Order doesn't matter for correctness; densest
+        // selectors first shortens the hot path.
+        const findCardForId = (awsId: string): Element | null => {
+          if (!container) return null;
+          const selectors = [
+            'data-compute-id',
+            'data-resource-id',
+            'data-role-id',
+            'data-ip-id',
+            'data-sg-id',
+            'data-nacl-id',
+            'data-gateway-id',
+            'data-vpce-id',
+            'data-api-id',
+            'data-subnet-id',
+            'data-entry-id',
+            'data-canvas-node-id',
+          ];
+          for (const attr of selectors) {
+            const el = container.querySelector(`[${attr}="${CSS.escape(awsId)}"]`);
+            if (el) return el;
+          }
+          return null;
+        };
+
+        // Track endpoint-not-rendered drops for the debug log — keeps
+        // the canvas honest by surfacing edges that point at nodes the
+        // layout chose not to render. Counted, not invented.
+        let droppedEndpoints = 0;
+
+        for (const edge of architecture.edges) {
+          const sourceEl = findCardForId(edge.source_aws_id);
+          const targetEl = findCardForId(edge.target_aws_id);
+          if (!sourceEl || !targetEl) {
+            droppedEndpoints++;
+            continue;
+          }
+          const sourcePos = getNodeCenter(sourceEl, 'right');
+          const targetPos = getNodeCenter(targetEl, 'left');
+          if (!sourcePos || !targetPos) {
+            droppedEndpoints++;
+            continue;
+          }
+
+          // Inferred service-plane edges (VPCE→S3 etc) override
+          // plane to data so the line color matches the surrounding
+          // observed data-flow edges (Greenlight constraint #1).
+          const plane: EdgePlane = edge.inferred ? 'data' : planeForString(edge.relationship);
+          const isHighlighted =
+            hoveredId === edge.source_aws_id || hoveredId === edge.target_aws_id;
+          // Animation gate: ONLY data-plane edges animate, AND only when
+          // they carry actual observation (observed=true and bytes>0 or
+          // hit_count>0). Identity- and network-plane edges never
+          // animate — config relationships don't carry packets and
+          // animating them was the visual misread that made operators
+          // think Role/IGW lines were "live traffic".
+          const isActive =
+            plane === 'data' &&
+            edge.observed === true &&
+            ((edge.bytes ?? 0) > 0 || (edge.hit_count ?? 0) > 0);
+          const trafficIntensity = getTrafficIntensity(edge.bytes ?? 0);
+          const isAttackPath =
+            attackPathEdges.has(`${edge.source_aws_id}->${edge.target_aws_id}`) ||
+            attackPathEdges.has(`${edge.target_aws_id}->${edge.source_aws_id}`);
+
+          newLines.push({
+            x1: sourcePos.x,
+            y1: sourcePos.y,
+            x2: targetPos.x,
+            y2: targetPos.y,
+            edge,
+            plane,
+            sourceId: edge.source_aws_id,
+            targetId: edge.target_aws_id,
+            isHighlighted,
+            isActive,
+            trafficIntensity,
+            isAttackPath,
+          });
+        }
+
+        // Plane-breakdown log — operators can correlate "I see N purple
+        // lines / M teal / K orange" against the data via the console.
+        const byPlane = newLines.reduce(
+          (acc, ln) => {
+            const p = ln.plane ?? 'unknown';
+            acc[p] = (acc[p] ?? 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>
+        );
+        console.log(
+          `[ConnectionLinesSVG] explicit-edges: ${newLines.length} lines drawn, ${droppedEndpoints} dropped. Breakdown:`,
+          byPlane
+        );
+        setLines(newLines);
+        return; // Skip legacy flow synthesis entirely.
+      }
+
+      // ─── LEGACY FLOW MODE (synthesized zigzag) ───────────────────────
+      // Fallback path for callers that haven't been migrated to the
+      // explicit-edges contract (System Map, exfil-view, attacker-view-v3,
+      // path-analysis-panel, identity-attack-paths). They still pass
+      // architecture.flows with sgId/naclId/.../egressGatewayId, and we
+      // route a polyline through those checkpoints in order. This block
+      // will be removed once all callers migrate.
       architecture.flows.forEach(flow => {
         // Source resolution: prefer compute, fall back to IAM role for
         // IAM-only paths (no workload code ran — e.g. AWS service roles
@@ -1863,16 +3579,68 @@ export function ConnectionLinesSVG({
         // synthesized flow's sourceId IS the role id; without this
         // fallback the line-drawing returned early and the operator saw
         // the IAM/API/Resource columns visually disconnected.
+        //
+        // 2026-05-25: also accept egress gateways as flow sources for
+        // the EXFIL view (gateway → Internet destination flows). The
+        // target-side gateway fallback already existed; mirror it on
+        // the source side so the destination card isn't left orphaned
+        // when the gateway is the upstream end of a synthesized flow.
         let sourceEl = container.querySelector(`[data-compute-id="${flow.sourceId}"]`);
         if (!sourceEl) {
           sourceEl = container.querySelector(`[data-role-id="${flow.sourceId}"]`);
         }
-        const targetEl = container.querySelector(`[data-resource-id="${flow.targetId}"]`);
+        if (!sourceEl) {
+          sourceEl = container.querySelector(`[data-gateway-id="${flow.sourceId}"]`);
+        }
+        if (!sourceEl) {
+          sourceEl = container.querySelector(`[data-entry-id="${flow.sourceId}"]`);
+        }
+        // Target lookup — primary is data-resource-id (the lane that holds
+        // the crown-jewel / S3 / RDS cards). 2026-05-24 extension:
+        // gateway-targeted flows (Internet → IGW) need
+        // data-gateway-id as a target option too, otherwise the line
+        // drawing returns early on a gateway terminus and the Internet
+        // card stays orphaned even after we synthesize the source.
+        let targetEl = container.querySelector(`[data-resource-id="${flow.targetId}"]`);
+        if (!targetEl) {
+          targetEl = container.querySelector(`[data-gateway-id="${flow.targetId}"]`);
+        }
+        // 2026-05-25: also accept IAM role + InstanceProfile cards as
+        // flow targets. The EXFIL view synthesizes jewel → accessor
+        // flows where the accessor is an IAMRole; without this
+        // fallback ConnectionLinesSVG returned early on those flows
+        // and the operator saw the jewel + accessors disconnected.
+        if (!targetEl) {
+          targetEl = container.querySelector(`[data-role-id="${flow.targetId}"]`);
+        }
+        if (!targetEl) {
+          targetEl = container.querySelector(`[data-ip-id="${flow.targetId}"]`);
+        }
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
+        // IP card carries both data-ip-id (preferred, new) and data-role-id
+        // (back-compat). Query data-ip-id first so the IP checkpoint can
+        // be distinguished from the role checkpoint even when both share
+        // an underlying SecurityCheckpoint type.
+        const ipEl = flow.instanceProfileId
+          ? container.querySelector(`[data-ip-id="${flow.instanceProfileId}"]`)
+          : null;
         const roleEl = flow.roleId ? container.querySelector(`[data-role-id="${flow.roleId}"]`) : null;
         // Find API call node for this target resource
         const apiEl = container.querySelector(`[data-api-id="${flow.targetId}"]`);
+        // VPC endpoint hop — sits between API/IAM and the target. For an S3
+        // Gateway VPCE, this is the actual egress point from the VPC; the
+        // SG never gates Gateway-VPCE traffic, so showing the VPCE in the
+        // polyline is how the operator sees why a 0-rule SG still permits
+        // S3 access.
+        const vpceEl = flow.vpceId ? container.querySelector(`[data-vpce-id="${flow.vpceId}"]`) : null;
+        // Egress gateway hop — IGW / NAT / EgressOnlyIGW / TGW. Routed
+        // AFTER the role hop and BEFORE the VPCE/target so the
+        // polyline reads EC2 → SG → NACL → Role → IGW → S3.
+        // Without this, the IGW chip renders as an orphan box even when
+        // the path header reports observed bytes that genuinely flowed
+        // through it (the 2026-05-23 audit's "egress orphan" issue).
+        const igwEl = flow.egressGatewayId ? container.querySelector(`[data-gateway-id="${flow.egressGatewayId}"]`) : null;
 
         const sourcePos = getNodeCenter(sourceEl, 'right');
         const targetPos = getNodeCenter(targetEl, 'left');
@@ -1881,9 +3649,21 @@ export function ConnectionLinesSVG({
 
         const isHighlighted = hoveredId === flow.sourceId || hoveredId === flow.targetId ||
           hoveredId === flow.sgId || hoveredId === flow.naclId || hoveredId === flow.roleId ||
+          hoveredId === flow.egressGatewayId ||
           hoveredId === `api-${flow.targetId}`;
-        // All flows from traffic edges are active
-        const isActive = true;
+        // Respect the per-flow isActive flag rather than hardcoding true.
+        //
+        // 2026-05-22 credibility audit fix: previously isActive was
+        // hardcoded to true for every line, meaning a compute→resource
+        // flow we synthesized with bytes=0 (because no direct
+        // compute→resource edge exists in the path) STILL rendered as
+        // an animated live blue line. Operator saw fake activity.
+        //
+        // Now we respect flow.isActive — applyPathFilter sets it
+        // explicitly per (source, target) based on whether a direct
+        // observed edge exists. Default-true preserves legacy flows
+        // that don't set the field (System Map / Topology view).
+        const isActive = flow.isActive !== false;
         const trafficIntensity = getTrafficIntensity(flow.bytes);
 
         // Check if this edge is part of an attack path
@@ -1903,6 +3683,15 @@ export function ConnectionLinesSVG({
           const posR = getNodeCenter(naclEl, 'right');
           if (posL && posR) checkpoints.push({ el: naclEl, posL, posR });
         }
+        // InstanceProfile sits BEFORE the role hop. AWS chain shape:
+        // EC2 → SG → NACL → IP → Role → resource. Drawing it here makes
+        // the polyline pass through the IP card instead of bypassing it
+        // and leaving the IP visually disconnected.
+        if (ipEl) {
+          const posL = getNodeCenter(ipEl, 'left');
+          const posR = getNodeCenter(ipEl, 'right');
+          if (posL && posR) checkpoints.push({ el: ipEl, posL, posR });
+        }
         if (roleEl) {
           const posL = getNodeCenter(roleEl, 'left');
           const posR = getNodeCenter(roleEl, 'right');
@@ -1914,23 +3703,47 @@ export function ConnectionLinesSVG({
           const posR = getNodeCenter(apiEl, 'right');
           if (posL && posR) checkpoints.push({ el: apiEl, posL, posR });
         }
+        // VPC endpoint hop — last gate before the AWS service / bucket.
+        if (vpceEl) {
+          const posL = getNodeCenter(vpceEl, 'left');
+          const posR = getNodeCenter(vpceEl, 'right');
+          if (posL && posR) checkpoints.push({ el: vpceEl, posL, posR });
+        }
+        // Egress gateway hop — IGW / NAT / etc. when traffic exits the
+        // VPC to a public-endpoint service (S3 without a Gateway VPCE,
+        // any non-AWS internet destination). Sits at the END of the
+        // checkpoint chain so the line draws Role → IGW → target.
+        // The 2026-05-23 audit specifically called this the single
+        // biggest UI inconsistency: orphan IGW card while the path
+        // header showed 771 KB observed bytes through it.
+        if (igwEl) {
+          const posL = getNodeCenter(igwEl, 'left');
+          const posR = getNodeCenter(igwEl, 'right');
+          if (posL && posR) checkpoints.push({ el: igwEl, posL, posR });
+        }
+
+        // Endpoint ids attached to every segment of this flow so the
+        // new line state shape (which requires sourceId/targetId) is
+        // satisfied for legacy callers too.
+        const flowSourceId = flow.sourceId;
+        const flowTargetId = flow.targetId;
 
         // Draw lines through all checkpoints
         if (checkpoints.length > 0) {
           // Source to first checkpoint
-          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: checkpoints[0].posL.x, y2: checkpoints[0].posL.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: checkpoints[0].posL.x, y2: checkpoints[0].posL.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
 
           // Between checkpoints
           for (let i = 0; i < checkpoints.length - 1; i++) {
-            newLines.push({ x1: checkpoints[i].posR.x, y1: checkpoints[i].posR.y, x2: checkpoints[i + 1].posL.x, y2: checkpoints[i + 1].posL.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+            newLines.push({ x1: checkpoints[i].posR.x, y1: checkpoints[i].posR.y, x2: checkpoints[i + 1].posL.x, y2: checkpoints[i + 1].posL.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
           }
 
           // Last checkpoint to target
           const lastCheckpoint = checkpoints[checkpoints.length - 1];
-          newLines.push({ x1: lastCheckpoint.posR.x, y1: lastCheckpoint.posR.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+          newLines.push({ x1: lastCheckpoint.posR.x, y1: lastCheckpoint.posR.y, x2: targetPos.x, y2: targetPos.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
         } else {
           // Direct line if no checkpoints
-          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
+          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: targetPos.x, y2: targetPos.y, flow, sourceId: flowSourceId, targetId: flowTargetId, isHighlighted, isActive, trafficIntensity, isAttackPath });
         }
       });
 
@@ -1980,30 +3793,97 @@ export function ConnectionLinesSVG({
         })
         .map((line, i) => {
           const isGhosted = ghostedNodeIds.size > 0 && (
-            ghostedNodeIds.has(line.flow.sourceId) || ghostedNodeIds.has(line.flow.targetId)
+            ghostedNodeIds.has(line.sourceId) || ghostedNodeIds.has(line.targetId)
           );
-          // Risk-based heatmap ratio: calculate risk score per flow
+          // Risk-based heatmap ratio. In explicit-edges mode the flow
+          // bundle isn't available, so heatmap falls back to a lighter
+          // attack-path-only scoring — heatmap remains a feature of the
+          // System Map / legacy flow callers; explicit-edges mode prefers
+          // honest plane colors over a synthetic risk gradient.
           let riskRatio = 0;
           if (heatmapMode) {
             let riskScore = 0;
-            // Attack path = critical risk
             if (line.isAttackPath) riskScore += 0.4;
-            // SG with public rules = high risk
-            const sg = line.flow.sgId ? architecture.securityGroups.find(s => s.id === line.flow.sgId) : null;
-            if (sg?.rules?.some(r => r.isPublic)) riskScore += 0.3;
-            // SG with gaps (unused/unobserved rules) = medium risk
-            if (sg && sg.gapCount > 0) riskScore += 0.2;
-            // No NACL protection = additional risk
-            if (!line.flow.naclId) riskScore += 0.1;
-            // No IAM role = additional risk
-            if (!line.flow.roleId) riskScore += 0.1;
-            // High traffic amplifies risk (small factor)
-            riskScore += (line.flow.bytes / maxBytes) * 0.1;
+            if (line.flow) {
+              const sg = line.flow.sgId ? architecture.securityGroups.find(s => s.id === line.flow!.sgId) : null;
+              if (sg?.rules?.some(r => r.isPublic)) riskScore += 0.3;
+              if (sg && sg.gapCount > 0) riskScore += 0.2;
+              if (!line.flow.naclId) riskScore += 0.1;
+              if (!line.flow.roleId) riskScore += 0.1;
+              riskScore += (line.flow.bytes / maxBytes) * 0.1;
+            } else if (line.edge) {
+              // Edge-mode heatmap: only data-plane edges contribute traffic
+              // weight; identity/network edges add a flat 0.1 if not on the
+              // attack path (no SG/NACL bundle to read).
+              const b = line.edge.bytes ?? 0;
+              riskScore += (b / maxBytes) * 0.1;
+            }
             riskRatio = Math.min(1, riskScore);
+          }
+          // Plane-driven color in explicit-edges mode. Undefined for legacy
+          // flow lines — AnimatedTrafficLine falls back to its prior
+          // active/default color resolution.
+          const planeColor = line.plane ? PLANE_COLOR[line.plane] : undefined;
+          const planeGlow = line.plane ? PLANE_GLOW[line.plane] : undefined;
+          // V2-3: derive on-path-ness from architecture.onPathEdgeIds.
+          // When canvasV2 + !showLaterals + not-on-path → dim.
+          // When canvasV2 is off, isOnPath stays true (no dimming).
+          const isOnPath = !canvasV2
+            ? true
+            : line.edge && architecture.onPathEdgeIds
+              ? architecture.onPathEdgeIds.has(line.edge.id)
+              : true
+          const dim = canvasV2 && !isOnPath && !showLaterals
+          // Canvas v3 Slice A — anchor the route-precedence chip on the
+          // edge whose target is the destination. Look up by the line's
+          // targetId against architecture.resources (which carries the
+          // NodeType the precedence function needs). Only on-path data-
+          // plane edges carry the chip; lateral / context edges stay
+          // unannotated. Per pattern_geometry_must_match_label — the
+          // chip lives on the edge that represents the access, not on
+          // the destination card.
+          const isDataPlaneAccess =
+            line.edge?.relationship === "ACCESSES_RESOURCE" ||
+            line.edge?.relationship === "ACTUAL_S3_ACCESS" ||
+            line.edge?.relationship === "ACTUAL_API_CALL" ||
+            line.edge?.relationship === "ACTUAL_TRAFFIC" ||
+            line.edge?.relationship === "READS_FROM" ||
+            line.edge?.relationship === "WRITES_TO" ||
+            line.edge?.relationship === "RUNTIME_CALLS"
+          const targetResource = isDataPlaneAccess
+            ? architecture.resources.find((r) => r.id === line.targetId)
+            : undefined
+          const linePrecedence =
+            isOnPath && targetResource && architecture.egressGateways.length > 0
+              ? derivePrecedenceForDestination(
+                  targetResource,
+                  architecture.egressGateways,
+                )
+              : null
+          // Canvas v3 Slice B — when the edge has a resolved gateway,
+          // look up the gateway's DOM center so AnimatedTrafficLine can
+          // route the path geometrically through it. The lookup uses
+          // the existing data-gateway-id stamps in the lane render. Per
+          // pattern_geometry_must_match_label — chip claims "via VPCE",
+          // geometry must show line passing through the VPCE node.
+          let lineWaypoint: { x: number; y: number } | null = null;
+          if (linePrecedence && containerRef.current) {
+            const containerEl = containerRef.current;
+            const gatewayEl = containerEl.querySelector(
+              `[data-gateway-id="${linePrecedence.gateway.id}"]`,
+            );
+            if (gatewayEl) {
+              const gRect = gatewayEl.getBoundingClientRect();
+              const cRect = containerEl.getBoundingClientRect();
+              lineWaypoint = {
+                x: gRect.left + gRect.width / 2 - cRect.left,
+                y: gRect.top + gRect.height / 2 - cRect.top,
+              };
+            }
           }
           return (
             <AnimatedTrafficLine
-              key={`line-${i}-${line.flow.sourceId}-${line.flow.targetId}`}
+              key={`line-${i}-${line.sourceId}-${line.targetId}`}
               x1={line.x1}
               y1={line.y1}
               x2={line.x2}
@@ -2012,11 +3892,19 @@ export function ConnectionLinesSVG({
               isHighlighted={line.isHighlighted}
               isAttackPath={line.isAttackPath}
               flowData={line.flow}
+              edgeData={line.edge}
+              planeColor={planeColor}
+              planeGlow={planeGlow}
               animate={heatmapMode ? false : animate}
               trafficIntensity={line.trafficIntensity}
               heatmapMode={heatmapMode}
               heatmapRatio={riskRatio}
               ghosted={isGhosted}
+              canvasV2={canvasV2}
+              isOnPath={isOnPath}
+              dim={dim}
+              routePrecedence={linePrecedence}
+              waypoint={lineWaypoint}
             />
           );
         })}
@@ -2027,7 +3915,7 @@ export function ConnectionLinesSVG({
 // ============================================
 // MAIN UNIFIED ARCHITECTURE DIAGRAM
 // ============================================
-function UnifiedArchitectureDiagram({
+export function UnifiedArchitectureDiagram({
   architecture,
   animate,
   onSelectService,
@@ -2040,6 +3928,15 @@ function UnifiedArchitectureDiagram({
   showVPCBoundaries = false,
   pathMode = false,
   exfilByWorkloadId,
+  innerTitleOverride,
+  innerSubtitleOverride,
+  observedMode = false,
+  onRoleClick,
+  jewelEmphasis = false,
+  jewelSeverity,
+  canvasV2 = false,
+  showLaterals = false,
+  entryNodeId,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -2060,6 +3957,43 @@ function UnifiedArchitectureDiagram({
   // on click — only the SG card was using onToggle (expand rules) on click;
   // in path mode we promote `onDetails` to single-click on the SG card too.
   pathMode?: boolean;
+  // Inner header overrides — forwarded from TrafficFlowMap. Data Leak
+  // Paths overrides with egress-flavored copy.
+  innerTitleOverride?: string;
+  innerSubtitleOverride?: string;
+  // When true, suppress the "(simulated)" tag and the Gaps badge —
+  // caller is feeding real observed telemetry.
+  observedMode?: boolean;
+  // 2026-05-27 — forwarded from TrafficFlowMap. When set, role chip
+  // clicks fire this instead of the existing service-selection
+  // modal. Lets the EXFIL view render its own role detail panel.
+  onRoleClick?: (role: SecurityCheckpoint) => void;
+  // 2026-05-28 — Phase 2 V1 slice 1. When true, resource nodes flagged
+  // as crown jewels render visibly heavier (scale + persistent
+  // emerald glow). Opt-in per consumer; ATTACKER VIEW turns it on.
+  // System Map, Per-Path View, Exfil View leave it off (default) so
+  // their visual stays unchanged. No layout change, no new lanes —
+  // pure visual weight emphasis on the existing jewel card.
+  jewelEmphasis?: boolean;
+  // V2-2 (2026-05-31): severity-driven halo color for the crown jewel
+  // card. Undefined → emerald (legacy). CRITICAL/HIGH/MEDIUM → red /
+  // orange / amber. See TrafficFlowMap.jewelSeverity for the full
+  // rationale. The forward through here is just plumbing.
+  jewelSeverity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  // V2-3 (2026-05-31): canvas-v2 visual layer master switch + the
+  // "Show laterals" toggle state. When canvasV2 is true and
+  // showLaterals is false, lateral edges/nodes render at ~30%
+  // opacity (path is hero). When showLaterals is true, laterals
+  // brighten to full opacity. When canvasV2 is false (legacy), both
+  // flags are no-ops. Forward from TrafficFlowMap.
+  canvasV2?: boolean;
+  showLaterals?: boolean;
+  // V2-2b (2026-05-31): the id of the chain's hop[0] node — the
+  // attacker's entry point. When canvasV2 is on AND a card with
+  // matching id renders, an "ENTRY POINT" chip overlays the top-
+  // right corner so the eye lands on the start of the story before
+  // following edges to the jewel. Undefined → no overlay.
+  entryNodeId?: string;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -2161,25 +4095,46 @@ function UnifiedArchitectureDiagram({
             <Cloud className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">System Architecture</h3>
-            <p className="text-xs text-slate-400">Live traffic flow based on actual usage</p>
+            <h3 className="text-lg font-bold text-white">
+              {innerTitleOverride ?? "System Architecture"}
+            </h3>
+            <p className="text-xs text-slate-400">
+              {innerSubtitleOverride ?? "Traffic flow from observed CloudTrail and VPC Flow Log events"}
+            </p>
           </div>
-          {/* Live indicator */}
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 rounded-full ml-4">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-            <span className="text-xs font-medium text-emerald-400">LIVE</span>
-          </div>
+          {/* LIVE indicator removed per the 2026-05-22 credibility audit.
+              The badge was always rendered with an animated green pulse
+              regardless of actual data age — combined with cached data
+              and slow backend sync windows it could read LIVE when the
+              graph was 30+ minutes stale. The outer TrafficFlowMap
+              header already shows "Last sync: HH:MM:SS PM" and
+              PAUSED/AUTO state, which conveys freshness honestly.
+              Adding a separate inner "LIVE" badge with no freshness
+              gating was misleading visual noise. */}
         </div>
         <div className="flex items-center gap-4 text-sm">
-          <div className="text-center px-3">
-            <div className="text-emerald-400 font-bold">{formatBytes(architecture.totalBytes)}</div>
-            <div className="text-[10px] text-slate-500">Traffic</div>
-          </div>
-          <div className="text-center px-3 border-l border-slate-700">
-            <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
-            <div className="text-[10px] text-slate-500">Connections</div>
-          </div>
-          {architecture.totalGaps > 0 && (
+          {architecture.metricsBasis === "cloudtrail" ? (
+            // CloudTrail data: bytes panel hidden (data source can't
+            // observe payload size — rendering "0 B Traffic" lies by
+            // implying "we saw no traffic"). Connections label is
+            // "API calls" since the counter is CloudTrail hit_count.
+            <div className="text-center px-3">
+              <div className="text-blue-400 font-bold">{architecture.totalConnections.toLocaleString()}</div>
+              <div className="text-[10px] text-slate-500">API calls</div>
+            </div>
+          ) : (
+            <>
+              <div className="text-center px-3">
+                <div className="text-emerald-400 font-bold">{formatBytes(architecture.totalBytes)}</div>
+                <div className="text-[10px] text-slate-500">Traffic</div>
+              </div>
+              <div className="text-center px-3 border-l border-slate-700">
+                <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
+                <div className="text-[10px] text-slate-500">Connections</div>
+              </div>
+            </>
+          )}
+          {architecture.totalGaps > 0 && !observedMode && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/20 rounded-lg border-l border-slate-700">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               <div>
@@ -2190,6 +4145,68 @@ function UnifiedArchitectureDiagram({
           )}
         </div>
       </div>
+
+      {/* Canvas v3 Slice C — Internet partition banner. Visible header
+          showing the security boundary between AWS-backbone-routed
+          traffic and public-internet-routed traffic. Renders the
+          security claim's home (per pattern_partition_boundaries_carry_
+          security_state) without requiring a full layout repartition.
+          Counts of edges per side are computed from architecture.edges
+          when present + the resolved route precedence for each.
+          Banner suppressed when no destinations on path have route
+          precedence (e.g. identity-only paths) — honest empty rather
+          than rendering a meaningless boundary. */}
+      {(() => {
+        const resources = architecture.resources ?? []
+        const gateways = architecture.egressGateways ?? []
+        if (resources.length === 0 || gateways.length === 0) return null
+        let privCount = 0
+        let pubCount = 0
+        for (const r of resources) {
+          const rp = derivePrecedenceForDestination(r, gateways)
+          if (!rp) continue
+          if (rp.isPrivate) privCount++; else pubCount++;
+        }
+        if (privCount === 0 && pubCount === 0) return null
+        return (
+          <div
+            className="mb-4 flex items-stretch gap-2 text-[10px] font-bold uppercase tracking-wider"
+            data-internet-partition="true"
+            data-internet-partition-private-count={privCount}
+            data-internet-partition-public-count={pubCount}
+          >
+            <div
+              className={`flex-1 flex items-center justify-between px-3 py-1.5 rounded-lg border ${
+                privCount > 0
+                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300"
+                  : "bg-slate-700/30 border-slate-600/40 text-slate-500"
+              }`}
+              title="Traffic that stays inside the AWS backbone (VPCE-routed). Bytes never traverse the public internet."
+            >
+              <span className="flex items-center gap-1.5">
+                <Lock className="w-3 h-3" />
+                AWS Backbone · private
+              </span>
+              <span className="font-mono text-[10px] opacity-80">{privCount} edge{privCount === 1 ? "" : "s"}</span>
+            </div>
+            <div className="self-center text-slate-500 px-1">|</div>
+            <div
+              className={`flex-1 flex items-center justify-between px-3 py-1.5 rounded-lg border ${
+                pubCount > 0
+                  ? "bg-rose-500/10 border-rose-500/40 text-rose-300"
+                  : "bg-slate-700/30 border-slate-600/40 text-slate-500"
+              }`}
+              title="Traffic that exits via IGW/NAT/Egress-only IGW to the public internet. Bytes traverse the open internet."
+            >
+              <span className="flex items-center gap-1.5">
+                <Globe className="w-3 h-3" />
+                Public Internet · public
+              </span>
+              <span className="font-mono text-[10px] opacity-80">{pubCount} edge{pubCount === 1 ? "" : "s"}</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Main diagram */}
       <div ref={containerRef} className="relative min-h-[450px]">
@@ -2209,6 +4226,8 @@ function UnifiedArchitectureDiagram({
           attackPathEdges={attackPathEdges}
           heatmapMode={heatmapMode}
           ghostedNodeIds={ghostedNodeIds}
+          canvasV2={canvasV2}
+          showLaterals={showLaterals}
         />
 
         {/* When the path has no network controls at all — no subnets, no
@@ -2228,12 +4247,96 @@ function UnifiedArchitectureDiagram({
             architecture.securityGroups.length === 0 &&
             architecture.nacls.length === 0
               ? "grid-cols-[1fr_2fr_1fr]"
-              : "grid-cols-[1fr_auto_auto_auto_1fr]"
+              : pathMode
+                // Path-filter mode: 8-col template so the Phase 1+2
+                // lane set fits on one row — ENTRY (conditional,
+                // leftmost) | COMPUTE | SUBNETS | ROUTE TABLES
+                // (conditional) | SG | NACL | IDENTITY | RESOURCES.
+                // When ENTRY isn't rendered the auto-col collapses
+                // to zero width, so paths without an entry point
+                // don't get a phantom gap at the left.
+                //
+                // History: original 7-col template predates the
+                // ENTRY lane (Phase 2 — 2026-05-25 user feedback)
+                // and the ROUTE TABLES promotion (Phase 1). 2026-05-
+                // 24's `pathFilter` undefined bug fixed in the same
+                // branch.
+                ? "grid-cols-[auto_1fr_auto_auto_auto_auto_auto_1fr]"
+                : "grid-cols-[1fr_auto_auto_auto_1fr]"
           } gap-6 items-start`}
           style={{ zIndex: 2 }}
         >
-          {/* COMPUTE */}
-          <div className="flex flex-col gap-3">
+          {/* ENTRY lane (Phase 2 — 2026-05-25). Leftmost column.
+              Surfaces the attacker's entry point — Internet / IGW /
+              ALB / APIGateway on the network side, root / IAMUser /
+              federated principal on the identity side. Hidden when
+              the path has no meaningful entry-point (lateral-only
+              movement), so the grid doesn't grow a dead column on
+              every chain.
+              Principals are sourced from architecture.principals
+              when entryPoints is unset (back-compat for older builds
+              that haven't started populating entryPoints yet). */}
+          {(() => {
+            const entries = (architecture.entryPoints && architecture.entryPoints.length > 0)
+              ? architecture.entryPoints
+              : (architecture.principals || []);
+            if (entries.length === 0) return null;
+            return (
+              <div className="flex flex-col gap-3">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Target className="w-4 h-4 text-cyan-300" />
+                  {architecture.entryLaneLabel ?? "Entry"} ({entries.length})
+                </div>
+                {entries.map((node) => {
+                  const isInAttackPath = attackPathNodeIds.has(node.id);
+                  const isChainEntry = canvasV2 && entryNodeId && node.id === entryNodeId
+                  return (
+                    <div
+                      key={`entry:${node.id}`}
+                      data-entry-id={node.id}
+                      data-compute-id={node.id}
+                      data-chain-entry={isChainEntry ? "true" : undefined}
+                      className="relative mb-3"
+                    >
+                      {isInAttackPath && (
+                        <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-cyan-400/50" />
+                      )}
+                      {/* V2-2b: ENTRY POINT chip on hop[0]. Pinned to the
+                          top-right corner so it doesn't fight the crown-jewel
+                          marker (which lives top-left of the resource card).
+                          Only renders when canvasV2 is on AND this node matches
+                          the chain's hop[0] id passed via entryNodeId. */}
+                      {isChainEntry && (
+                        <div className="absolute -top-2 -right-2 z-10 pointer-events-none">
+                          <div className="px-1.5 py-0.5 rounded bg-cyan-500/90 text-cyan-950 text-[8px] font-bold uppercase tracking-wider shadow-md ring-1 ring-cyan-300/60">
+                            Entry
+                          </div>
+                        </div>
+                      )}
+                      <ServiceNodeBox
+                        node={node}
+                        position="left"
+                        flowInfo={computeFlowInfo.get(node.id)}
+                        isHighlighted={isNodeHighlighted(node.id)}
+                        onHover={setHoveredId}
+                        onClick={() => onSelectService(node, 'compute')}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* COMPUTE column.
+              Workloads only — EC2/Lambda/ECS. Principals moved to the
+              dedicated ENTRY lane above 2026-05-25.
+              data-vpc-scoped-column anchors the VPC boundary's lane-based
+              math (vpc-boundaries.tsx) — replaces the previous DOM-bounding-
+              box-of-cards primitive that recurrently engulfed IAM/S3 cards
+              when SG card heights grew. See pattern_recurring_cosmetic_fix_
+              signals_wrong_primitive. */}
+          <div className="flex flex-col gap-3" data-vpc-scoped-column="true" data-lane="compute">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-400" />
               Compute ({architecture.computeServices.length})
@@ -2241,8 +4344,14 @@ function UnifiedArchitectureDiagram({
             {architecture.computeServices.map(node => {
               const vuln = nodeVulnerabilities.get(node.id);
               const isInAttackPath = attackPathNodeIds.has(node.id);
+              const isChainEntry = canvasV2 && entryNodeId && node.id === entryNodeId
               return (
-                <div key={node.id} data-compute-id={node.id} className="relative">
+                <div
+                  key={node.id}
+                  data-compute-id={node.id}
+                  data-chain-entry={isChainEntry ? "true" : undefined}
+                  className="relative"
+                >
                   {/* Attack path vulnerability indicator */}
                   {isInAttackPath && vuln && (
                     <div className="absolute -top-2 -left-2 z-10">
@@ -2257,6 +4366,16 @@ function UnifiedArchitectureDiagram({
                     <div className={`absolute inset-0 rounded-xl pointer-events-none ${
                       vuln?.critical_cves ? 'ring-2 ring-red-500 animate-pulse' : 'ring-2 ring-orange-500/50'
                     }`} />
+                  )}
+                  {/* V2-2b: ENTRY POINT chip — same overlay as in the
+                      entry/principals lane (some chains start in COMPUTE
+                      with an EC2/Lambda hop[0] instead of root). */}
+                  {isChainEntry && (
+                    <div className="absolute -top-2 -right-2 z-10 pointer-events-none">
+                      <div className="px-1.5 py-0.5 rounded bg-cyan-500/90 text-cyan-950 text-[8px] font-bold uppercase tracking-wider shadow-md ring-1 ring-cyan-300/60">
+                        Entry
+                      </div>
+                    </div>
                   )}
                   <ServiceNodeBox
                     node={node}
@@ -2279,42 +4398,76 @@ function UnifiedArchitectureDiagram({
               once; the three column sections fall back to their
               normal layout when ANY of subnets/SGs/NACLs is non-empty
               (i.e. the path genuinely passes through network
-              controls). */}
-          {(architecture.subnets?.length ?? 0) === 0 &&
-          architecture.securityGroups.length === 0 &&
-          architecture.nacls.length === 0 ? (
+              controls).
+
+              2026-05-25: also suppress the banner when egressGateways
+              is non-empty. The EXFIL view leaves subnets/SGs/NACLs
+              empty by design (it focuses on identity → exit-point,
+              not workload-side controls), but has IGW/NAT/VPCE cards
+              in egressGateways. The "IAM is the only gate" narrative
+              is specifically about direct-API-call paths with no
+              network involvement at all — surfacing it on an EXFIL
+              path that clearly has IGWs/VPCEs reads as a bug. */}
+          {/* Banner gating, rewritten 2026-05-25 — see SystemArchitecture.
+              workloadNetwork docstring above. Operator complaint that
+              triggered the rewrite: this banner used to fire from
+              absence-of-data on every "Serverless · Direct" EXFIL path,
+              with no way to distinguish "verified non-VPC Lambda" from
+              "we never queried." Now:
+                - workloadNetwork.is_vpc_attached === false → evidence-
+                  cited "Non-VPC Workload" banner (real finding).
+                - workloadNetwork.is_vpc_attached === true → no banner
+                  (real subnets/SGs render from real edges).
+                - workloadNetwork absent → legacy empty-array fallback. */}
+          {(() => {
+            const wn = architecture.workloadNetwork
+            if (wn) return !wn.is_vpc_attached
+            return (
+              (architecture.subnets?.length ?? 0) === 0 &&
+              architecture.securityGroups.length === 0 &&
+              architecture.nacls.length === 0 &&
+              architecture.egressGateways.length === 0
+            )
+          })() ? (
             <div className="flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center">
                   <ShieldOff className="w-6 h-6 text-amber-400" />
                 </div>
                 <div className="text-amber-400 text-lg font-bold uppercase tracking-wider">
-                  No Network Controls
+                  {architecture.workloadNetwork ? "Non-VPC Workload" : "No Network Controls"}
                 </div>
               </div>
               <div className="text-slate-200 text-base font-medium text-center mb-2">
                 IAM is the only gate on this path.
               </div>
               <div className="text-slate-400 text-sm text-center max-w-md leading-relaxed">
-                This workload reaches its target via the public AWS API
-                endpoint — no VPC, no subnet, no Security Group, no
-                NACL is involved. Network defenses do not apply.
-                Compromising the IAM role on the right grants the role's
-                full permissions on the resources below.
+                {architecture.workloadNetwork
+                  ? "This workload is not VPC-attached. It reaches AWS services via the public API endpoint, so VPC, subnet, Security Group and NACL defenses do not apply. Compromising the IAM role grants its full permissions on the resources below."
+                  : "This workload reaches its target via the public AWS API endpoint — no VPC, no subnet, no Security Group, no NACL is involved. Network defenses do not apply. Compromising the IAM role on the right grants the role's full permissions on the resources below."}
               </div>
+              {architecture.workloadNetwork && (
+                <div className="mt-3 text-amber-300/80 text-[11px] text-center max-w-md font-mono">
+                  Evidence: {architecture.workloadNetwork.evidence}
+                  {architecture.workloadNetwork.workload_count_in_sample > 1 && (
+                    <> · {architecture.workloadNetwork.workload_count_queried}/{architecture.workloadNetwork.workload_count_in_sample} workloads queried</>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <>
-          {/* SUBNETS */}
-          {/* Renders every subnet that contains a compute on this path,
-              with the public/private/unknown posture from
-              subnet_visibility_collector. Posture coloring matches the
-              egress chip vocabulary (commit 5db6032):
-                Public  → amber  (route table → IGW, can reach internet)
-                Private → emerald (no IGW route)
-                Unknown → slate  (Subnet.public not classified yet — never
-                                  fabricated, three-state contract). */}
-          <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets">
+          {/* SUBNETS — Phase 1 cleanup (2026-05-25 user feedback):
+              - VPC card dropped (was redundant with the dashed
+                VPCBoundaries header).
+              - Public/Private posture moved inline next to the
+                subnet name as a chip (was awkwardly on its own row
+                below).
+              - Route Table promoted to its own sibling card in the
+                ROUTE TABLES lane (next column) — the user wants it
+                as a separated service in the flow, not nested
+                inside the subnet card. */}
+          <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets" data-vpc-scoped-column="true" data-lane="subnets">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Globe className="w-4 h-4 text-cyan-400" />
               Subnets ({architecture.subnets?.length ?? 0})
@@ -2341,16 +4494,17 @@ function UnifiedArchitectureDiagram({
                   className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5"
                   title={tooltip}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                       <span className="text-xs font-semibold text-slate-200 truncate">
                         {subnet.shortName}
                       </span>
                     </div>
-                  </div>
-                  <div className="mt-1.5">
-                    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${postureCls}`}>
+                    {/* Posture chip — inline with the subnet name so
+                        operators see "subnet-xxx · Public" at a glance
+                        instead of having to scan to the next row. */}
+                    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${postureCls} shrink-0`}>
                       {postureLabel}
                     </span>
                   </div>
@@ -2367,8 +4521,50 @@ function UnifiedArchitectureDiagram({
             )}
           </div>
 
+          {/* ROUTE TABLES — Phase 1 user feedback: route table is
+              crucial (it's what makes a subnet public/private) and
+              should be a separated service in the flow, not buried
+              inside the subnet card. Renders one chip per subnet
+              that has a route_table_id, surfacing the rtb-id +
+              route count + main-flag. The card carries data-rtb-id
+              so future flow routing can zigzag through it. */}
+          {(architecture.subnets ?? []).some(s => s.routeTableId) && (
+            <div className="flex flex-col gap-3 min-w-[160px]" data-vpc-scoped-column="true" data-lane="route-tables">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <ArrowRight className="w-4 h-4 text-slate-300" />
+                Route Tables ({(architecture.subnets ?? []).filter(s => s.routeTableId).length})
+              </div>
+              {(architecture.subnets ?? [])
+                .filter(s => s.routeTableId)
+                .map(s => (
+                  <div
+                    key={`rtb:${s.id}`}
+                    data-rtb-id={s.routeTableId!}
+                    className="rounded-lg border border-slate-700/80 bg-slate-800/60 p-2.5"
+                    title={`Effective route table for ${s.shortName}: ${s.routeTableId}${typeof s.routeTableCount === 'number' ? ` · ${s.routeTableCount} routes` : ''}${s.routeTableIsMain ? ' · main' : ''}`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="text-xs font-semibold text-slate-200 truncate font-mono">
+                        {s.routeTableId}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                      {typeof s.routeTableCount === 'number' && (
+                        <span className="text-slate-300">{s.routeTableCount} {s.routeTableCount === 1 ? 'route' : 'routes'}</span>
+                      )}
+                      {s.routeTableIsMain && (
+                        <span className="px-1 py-px text-[8px] uppercase tracking-wider rounded bg-slate-700 text-slate-300 border border-slate-600">main</span>
+                      )}
+                      <span className="ml-auto text-slate-500">for {s.shortName}</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+
           {/* SECURITY GROUPS */}
-          <div className="flex flex-col gap-3 min-w-[180px]">
+          <div className="flex flex-col gap-3 min-w-[180px]" data-vpc-scoped-column="true" data-lane="security-groups">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Shield className="w-4 h-4 text-orange-400" />
               Security Groups ({architecture.securityGroups.length})
@@ -2394,57 +4590,304 @@ function UnifiedArchitectureDiagram({
             )}
           </div>
 
-          {/* NACLS */}
-          <div className="flex flex-col gap-3 min-w-[140px]">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Lock className="w-4 h-4 text-cyan-400" />
-              NACLs ({architecture.nacls.length})
-            </div>
-            {architecture.nacls.map(nacl => (
-              <div key={nacl.id} data-nacl-id={nacl.id}>
-                <NACLNode
-                  nacl={nacl}
-                  isHighlighted={isNodeHighlighted(nacl.id)}
-                  onHover={setHoveredId}
-                  onClick={() => onSelectService(nacl, 'nacl')}
-                />
+          {/* NACLS — only render lane when at least one NACL is on
+              the path. "No NACLs" placeholder was always-on noise
+              (most paths have zero NACLs because NACLs are typically
+              pass-through). Per 2026-05-25 user feedback: "If I don't
+              have X, don't present it — I need to understand what we
+              have, not what we don't." Other lanes that legitimately
+              empty (SGs, IGW) still render their placeholders because
+              their absence is itself a meaningful security signal. */}
+          {architecture.nacls.length > 0 && (
+            <div className="flex flex-col gap-3 min-w-[140px]" data-vpc-scoped-column="true" data-lane="nacls">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-cyan-400" />
+                NACLs ({architecture.nacls.length})
               </div>
-            ))}
-            {architecture.nacls.length === 0 && (
-              <div className="text-xs text-slate-500 italic p-4 text-center">No NACLs</div>
-            )}
-          </div>
+              {architecture.nacls.map(nacl => (
+                <div key={nacl.id} data-nacl-id={nacl.id}>
+                  <NACLNode
+                    nacl={nacl}
+                    isHighlighted={isNodeHighlighted(nacl.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(nacl, 'nacl')}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
             </>
           )}
 
-          {/* IAM ROLES */}
-          <div className="flex flex-col gap-3 items-center">
+          {/* EGRESS GATEWAYS — chip item 10. Renders explicit
+              InternetGateway / NATGateway / EgressOnlyIGW / TransitGW
+              nodes when the path's VPCs have them. Previously this was
+              implicit (Subnet "Public" amber badge meant "route table →
+              IGW") which left operators guessing WHICH IGW or how many.
+              The label-keyed extraction lives in buildArchitecture and
+              filterArchitectureToPath. Empty array → lane hidden so the
+              grid doesn't grow a dead column for IGW-less paths.
+
+              2026-05-25 column-order swap: this lane used to sit AFTER
+              IDENTITY (between Identity and Resources). That layout
+              put IGW physically between the Role card and the S3
+              card, so the Role → S3 data-plane Bezier curve naturally
+              passed THROUGH the IGW card region — operators read the
+              arc as a serial "Role → IGW → S3" chain even though no
+              such edge exists in the graph (only Role → S3 and
+              EC2 → IGW are real). Moving EGRESS to BEFORE Identity
+              puts Identity adjacent to Resources, so Role → S3 is a
+              short hop with no card between them; EC2 → IGW
+              terminates the network plane on the left of Identity.
+              The two planes converge at the S3 bucket from different
+              sides instead of overlapping. */}
+          {architecture.egressGateways.length > 0 && (
+            <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="egress-gateways">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Globe className="w-4 h-4 text-amber-400" />
+                Egress Gateways ({architecture.egressGateways.length})
+              </div>
+              {/* Canvas v3 Slice A — visualize-by-negation on the gateway
+                  lane. Compute the set of gateways that win SOMETHING on
+                  this path (any destination's route resolves to them).
+                  Gateways NOT in this winning set are rendered grayed
+                  with a "Not used" annotation — the gap between full-
+                  color (active) and grayed (alternative) IS the security
+                  signal. Per pattern_visualize_by_negation. */}
+              {architecture.egressGateways.map(gw => {
+                const isWinningForAnyDestination =
+                  architecture.resources.some(r => {
+                    const rp = derivePrecedenceForDestination(
+                      r,
+                      architecture.egressGateways,
+                    )
+                    return rp?.gateway.id === gw.id
+                  })
+                // Some paths have no resources (identity-only paths) —
+                // in that case no gateway "wins" anything; render at full
+                // color since the canvas isn't making a routing claim.
+                const noDestinationsAtAll = architecture.resources.length === 0
+                const isGateUnused =
+                  !noDestinationsAtAll && !isWinningForAnyDestination
+                const palette =
+                  isGateUnused ? 'bg-slate-700/30 border-slate-600/40' :
+                  gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
+                  gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
+                  gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
+                  'bg-violet-500/10 border-violet-500/40';
+                const iconColor =
+                  isGateUnused ? 'text-slate-500' :
+                  gw.kind === 'InternetGateway' ? 'text-amber-300' :
+                  gw.kind === 'NATGateway' ? 'text-sky-300' :
+                  gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-300' :
+                  'text-violet-300';
+                // Route subtitle — shows the AUTHORITATIVE answer to
+                // "where does this gateway send traffic?":
+                //   IGW / NAT default route → "via 0.0.0.0/0"
+                //   Gateway VPCE for S3     → "via com.amazonaws.<region>.s3"
+                // Empty when route provenance is missing (older API
+                // response or in-vpc-only sibling gateway).
+                const routeLine = gw.routeTargetService
+                  ? `via ${gw.routeTargetService}`
+                  : gw.routeDestinationCidr
+                  ? `via ${gw.routeDestinationCidr}`
+                  : null;
+                const titleParts = [
+                  `${gw.kindLabel} · ${gw.name}`,
+                  gw.vpcId ? gw.vpcId : null,
+                  routeLine,
+                  gw.routed === false ? "sibling gateway — no route points here" : null,
+                ].filter(Boolean);
+                return (
+                  <div
+                    key={gw.id}
+                    data-gateway-id={gw.id}
+                    // Canvas v3 — gateway state stamp. "available-not-selected"
+                    // is the descriptive replacement for "unused" (per
+                    // feedback_signal_language — descriptive, not accusative).
+                    // Operators read "this gateway exists in the path's VPC
+                    // but route precedence didn't pick it for any destination
+                    // on this path." Still backwards-compatible: the
+                    // data-gateway-unused stamp is kept for any existing DOM
+                    // probes that key off it.
+                    data-gateway-state={isGateUnused ? "available-not-selected" : undefined}
+                    data-gateway-unused={isGateUnused ? "true" : undefined}
+                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette} ${
+                      isGateUnused ? "opacity-50" : ""
+                    }`}
+                    title={
+                      isGateUnused
+                        ? `${titleParts.join(' · ')} — Available in this VPC but route precedence picked a different gateway for the destinations on this path.`
+                        : titleParts.join(' · ')
+                    }
+                    onMouseEnter={() => setHoveredId(gw.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <Globe className={`w-4 h-4 ${iconColor}`} />
+                      <span className={`text-sm font-semibold ${isGateUnused ? "text-slate-400" : "text-white"}`}>{gw.kindLabel}</span>
+                    </div>
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
+                      {gw.shortName}
+                    </div>
+                    {routeLine && (
+                      <div
+                        className="text-[9px] text-center text-slate-400 mt-1 truncate max-w-[140px]"
+                        title={routeLine}
+                      >
+                        {routeLine}
+                      </div>
+                    )}
+                    {isGateUnused && (
+                      <div
+                        className="mt-1.5 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full border border-slate-600/60 bg-slate-800/70 text-[9px] font-bold uppercase tracking-wider text-slate-400 mx-auto w-fit"
+                        title="This gateway exists in the path's VPC but route precedence didn't select it for any destination on this path."
+                      >
+                        Available · Not selected
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* IDENTITY — consolidates InstanceProfile + IAMRole into
+              one lane (Phase 1 user feedback 2026-05-25). Previously
+              IPs and Roles rendered in separate columns; the canvas
+              grid put them on opposite ends of the chain, so an
+              operator looking at "INSTANCE PROFILES (1)" next to
+              the NACL column reasonably asked "is the IP attached
+              to the NACL?". AWS semantics: IP and Role are both
+              identity-plane and AWS BINDS them — IP wraps Role.
+              Rendering both card stacks inside one column with the
+              IP above the Role visually conveys the bind. The IP
+              counts and Role counts are still surfaced separately
+              in the header so the chain's hop count stays honest.
+              data-lane-global signals to the VPC boundary renderer that
+              this column lives OUTSIDE any VPC enclosure — IAM is a
+              regional/global service, not VPC-scoped. The GLOBAL chip
+              in the header makes the semantic explicit so operators
+              don't read the VPC boundary's absence around this column
+              as a bug. */}
+          <div className="flex flex-col gap-3 items-center" data-lane-global="true" data-lane="identity">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Key className="w-4 h-4 text-pink-400" />
-              IAM Roles ({architecture.iamRoles.length})
+              Identity
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-700/60 text-slate-300 border border-slate-600/60"
+                title="IAM is a regional/global service. IAM Roles, Instance Profiles, and Policies are not VPC-scoped and therefore sit outside any VPC enclosure on this canvas."
+              >
+                Global
+              </span>
+              {(architecture.instanceProfiles?.length ?? 0) > 0 && (
+                <span className="text-amber-300/80">
+                  IP {architecture.instanceProfiles?.length ?? 0}
+                </span>
+              )}
+              <span className="text-pink-300/80">
+                Roles {architecture.iamRoles.length}
+              </span>
+              {(architecture.iamPolicies?.length ?? 0) > 0 && (
+                <span className="text-violet-300/80">
+                  Policies {architecture.iamPolicies?.length ?? 0}
+                </span>
+              )}
             </div>
-            {architecture.iamRoles.map(role => {
-              // Route IP and IAMRole clicks differently. Detection by
-              // ARN — name-based lookup is ambiguous because AWS often
-              // gives InstanceProfile and IAMRole the same name.
-              const isIP = role.id.includes(':instance-profile/') || /instance.?profile/i.test(role.id);
+            {/* Instance Profiles (rendered ABOVE roles to mirror the AWS
+                attachment shape: EC2 → IP → Role). Each card carries
+                data-ip-id so ConnectionLinesSVG routes the polyline
+                through it as a flow checkpoint between NACL and Role. */}
+            {(architecture.instanceProfiles ?? []).map((ip) => (
+              <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id}>
+                <IAMRoleNode
+                  role={ip}
+                  isHighlighted={isNodeHighlighted(ip.id)}
+                  onHover={setHoveredId}
+                  onClick={() => onSelectService(ip, 'instance_profile')}
+                  forceInstanceProfile={true}
+                />
+              </div>
+            ))}
+            {/* IAM Roles — the actual permission carriers. Rendered
+                BELOW their binding IP so the visual order reads
+                top-to-bottom as the AWS attachment chain. */}
+            {architecture.iamRoles.map((role) => {
+              // ARN-pattern auto-detect remains as a fallback for cases
+              // where a proper :instance-profile/ id snuck into the
+              // iamRoles[] array via some upstream miscategorization.
+              const isIP =
+                role.id.includes(':instance-profile/') ||
+                /instance.?profile/i.test(role.id);
               return (
-                <div key={role.id} data-role-id={role.id}>
+                <div key={`role:${role.id}`} data-role-id={role.id}>
                   <IAMRoleNode
                     role={role}
                     isHighlighted={isNodeHighlighted(role.id)}
                     onHover={setHoveredId}
-                    onClick={() => onSelectService(role, isIP ? 'instance_profile' : 'iam_role')}
+                    onClick={() => {
+                      // EXFIL view subscribes via onRoleClick to open
+                      // the RoleDetailPanel slide-in. When the prop
+                      // isn't set (Attacker view, System Map, etc.)
+                      // we fall through to the existing generic
+                      // service-selection behavior.
+                      if (onRoleClick && !isIP) {
+                        onRoleClick(role);
+                      } else {
+                        onSelectService(role, isIP ? 'instance_profile' : 'iam_role');
+                      }
+                    }}
                   />
                 </div>
               );
             })}
-            {architecture.iamRoles.length === 0 && (
-              <div className="text-xs text-slate-500 italic p-4 text-center">No Roles</div>
-            )}
+            {/* IAM Policies — the actual permission grant documents
+                attached to the path's role. Added 2026-05-29 after the
+                user's audit caught "2 Policies missing from canvas":
+                the policies were already in iamPolicies[] (via
+                addAsPolicy on path-node iteration + lateral
+                HAS_POLICY expansion) but never rendered as cards.
+                The sidebar showed "IAM POLICIES (N)" but the lane
+                stayed silent — a credibility gap. Rendering them
+                below the role in the same Identity column reflects
+                the AWS attachment chain (EC2 → IP → Role → Policy).
+                forceIAMPolicy gives them distinct styling so the
+                operator can scan-distinguish Role vs Policy. */}
+            {(architecture.iamPolicies ?? []).map((policy) => (
+              <div key={`policy:${policy.id}`} data-policy-id={policy.id}>
+                <IAMRoleNode
+                  role={policy}
+                  isHighlighted={isNodeHighlighted(policy.id)}
+                  onHover={setHoveredId}
+                  onClick={() => onSelectService(policy, 'iam_role')}
+                  forceIAMPolicy={true}
+                />
+              </div>
+            ))}
+            {architecture.iamRoles.length === 0 &&
+              (architecture.instanceProfiles?.length ?? 0) === 0 &&
+              (architecture.iamPolicies?.length ?? 0) === 0 && (
+                <div className="text-xs text-slate-500 italic p-4 text-center">
+                  No identity on this path
+                </div>
+              )}
           </div>
 
-          {/* API CALLS - Simulated from VPC Traffic patterns */}
+          {/* API CALLS — synthetic-multiplier lane (totalBytes / 1024,
+              totalBytes / 51200, totalBytes / 512). These are FABRICATED
+              counts derived from byte aggregates × hardcoded divisors,
+              not real CloudTrail / access-log data. Per the 2026-05-22
+              credibility audit, fabricating numbers — even with a
+              "(simulated)" tag next to them — is a hard credibility
+              loss on a security platform. Stripped from production
+              entirely; kept in dev for testing the lane visuals. The
+              real fix is to wire actual CloudTrail action counts from
+              the backend (separate slice).
+              Existing observedMode flag still applies — Attack Paths v2
+              and Data Leak Paths set it true → lane was already hidden
+              there. This new NODE_ENV gate covers the Topology view
+              that previously rendered the synthetic lane in prod. */}
+          {process.env.NODE_ENV !== 'production' && !observedMode && (
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Zap className="w-4 h-4 text-lime-400" />
@@ -2538,8 +4981,8 @@ function UnifiedArchitectureDiagram({
                       {apiActions.slice(0, 2).map(a => a.action).join(', ')}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
-                      {totalCalls.toLocaleString()} calls
-                      <span className="text-slate-500 ml-1">(simulated)</span>
+                      {totalCalls.toLocaleString()} {observedMode ? "events" : "calls"}
+                      {!observedMode && <span className="text-slate-500 ml-1">(simulated)</span>}
                     </div>
                   </div>
                 </div>
@@ -2552,19 +4995,202 @@ function UnifiedArchitectureDiagram({
               <div className="text-xs text-slate-500 italic p-4 text-center">No API Calls</div>
             )}
           </div>
+          )}
 
-          {/* RESOURCES */}
-          <div className="flex flex-col gap-3">
+          {/* VPC ENDPOINTS — the missing egress hop between SG/IAM and
+              the AWS service. Gateway endpoints (S3, DynamoDB) bypass
+              SG egress entirely; this lane is what makes a "0-rule SG
+              still reaches S3" path legible to the operator. Empty
+              state renders a faint "No VPC endpoints" so the lane
+              still occupies grid space when none apply to the path. */}
+          {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="vpc-endpoints">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-violet-400" />
+              VPC Endpoints ({architecture.vpcEndpoints.length})
+            </div>
+            {architecture.vpcEndpoints.map(vpce => {
+              const isInUseForFlow = architecture.flows.some(f => f.vpceId === vpce.id);
+              return (
+                <div
+                  key={vpce.id}
+                  data-vpce-id={vpce.id}
+                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${
+                    isInUseForFlow
+                      ? 'bg-violet-500/15 border-violet-400/70 shadow-lg shadow-violet-500/10'
+                      : 'bg-violet-500/5 border-violet-500/30'
+                  }`}
+                  title={vpce.serviceName ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}` : vpce.id}
+                  onMouseEnter={() => setHoveredId(vpce.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                >
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Cloud className="w-4 h-4 text-violet-300" />
+                    <span className="text-sm font-semibold text-white">{vpce.serviceShort}</span>
+                  </div>
+                  <div className="text-[10px] text-violet-300/90 text-center font-mono truncate max-w-[140px]">
+                    {vpce.shortName}
+                  </div>
+                  {vpce.endpointType && (
+                    <div className="mt-1 text-center">
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded border bg-violet-500/10 border-violet-400/40 text-violet-200">
+                        {vpce.endpointType}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
+
+          {/* EGRESS GATE — EXFIL view's 5-stage model: CJ → Reader →
+              Handler → GATE → Destination. Sits between IDENTITY and
+              RESOURCES so the operator reads "data leaves through this
+              named gate to that destination" instead of the prior cop-
+              out where "AWS service plane · not tracked" occupied the
+              destination slot and there was no gate at all. Virtual
+              gates (Service Plane, CRR Rule, Snapshot Share, etc.)
+              render here just like real gateways — gateStrength drives
+              the border color (emerald=strong, blue=weak-observable,
+              amber=weak-unobservable). Lane only renders when populated
+              (exfilGate is optional on SystemArchitecture) so attacker
+              / per-path / system-map views keep their layout unchanged. */}
+          {(architecture.exfilGate?.length ?? 0) > 0 && (
+            <div className="flex flex-col gap-3 items-center">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <ShieldOff className="w-4 h-4 text-amber-400" />
+                Egress Gate ({architecture.exfilGate!.length})
+              </div>
+              {architecture.exfilGate!.map(gate => {
+                // Border color from gate strength — strong=emerald,
+                // weak_observable=blue, weak_unobservable=amber.
+                const strengthBorder =
+                  gate.gateStrength === 'strong'
+                    ? 'border-emerald-500/50 bg-emerald-500/5'
+                    : gate.gateStrength === 'weak_observable'
+                    ? 'border-blue-500/50 bg-blue-500/5'
+                    : 'border-amber-500/50 bg-amber-500/5';
+                const strengthIconColor =
+                  gate.gateStrength === 'strong'
+                    ? 'text-emerald-300'
+                    : gate.gateStrength === 'weak_observable'
+                    ? 'text-blue-300'
+                    : 'text-amber-300';
+                const strengthLabel =
+                  gate.gateStrength === 'strong'
+                    ? 'STRONG'
+                    : gate.gateStrength === 'weak_observable'
+                    ? 'WEAK · OBSERVABLE'
+                    : 'WEAK · UNOBSERVABLE';
+                return (
+                  <div
+                    key={gate.id}
+                    data-exfil-gate-id={gate.id}
+                    className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[170px] ${strengthBorder}`}
+                    title={`${gate.kindLabel} · ${gate.name}${gate.hint ? ` — ${gate.hint}` : ''}`}
+                    onMouseEnter={() => setHoveredId(gate.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <ShieldOff className={`w-4 h-4 ${strengthIconColor}`} />
+                      <span className="text-sm font-semibold text-white">{gate.kindLabel}</span>
+                    </div>
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[160px] ${strengthIconColor}`}>
+                      {gate.shortName}
+                    </div>
+                    <div className={`mt-1.5 text-center text-[8px] font-bold uppercase tracking-wider ${strengthIconColor}`}>
+                      {strengthLabel}
+                    </div>
+                    {gate.hint && (
+                      <div className="mt-1 text-[9px] text-center text-slate-300/80 leading-tight">
+                        {gate.hint}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* RESOURCES.
+              data-lane-global: S3, DynamoDB, KMS — all regional services,
+              not VPC-scoped. The GLOBAL chip makes the semantic explicit
+              so the VPC boundary's exclusion of this column reads as
+              correct AWS semantics, not a missing-data bug. */}
+          <div className="flex flex-col gap-3" data-lane-global="true" data-lane="resources">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <Database className="w-4 h-4 text-purple-400" />
               Resources ({architecture.resources.length})
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-700/60 text-slate-300 border border-slate-600/60"
+                title="S3, DynamoDB, KMS and other AWS data services are regional, not VPC-scoped. They sit outside any VPC enclosure on this canvas — traffic from inside a VPC reaches them via the VPC Endpoint or NAT/IGW gateway shown to the left."
+              >
+                Global
+              </span>
             </div>
             {architecture.resources.map(node => {
               const vuln = nodeVulnerabilities.get(node.id);
               const isInAttackPath = attackPathNodeIds.has(node.id);
               const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
+              // Route-precedence chip — answers the operator's "does
+              // this destination's traffic exit via the public IGW or
+              // the private VPCE?" question without making them
+              // mentally apply AWS most-specific-prefix routing to
+              // the EGRESS GATEWAYS lane inventory. Pure derivation
+              // from architecture.egressGateways (path-scoped on the
+              // backend). Returns null when the lane has no gateway
+              // that could carry this destination's traffic — chip
+              // is omitted rather than fabricated. Anchor:
+              // pattern_render_the_answer_not_the_inventory.
+              const routePrecedence = derivePrecedenceForDestination(
+                node,
+                architecture.egressGateways,
+              );
+              // 2026-05-28 — emphasize crown jewels in attacker view.
+              // jewelEmphasis is opt-in per consumer (ATTACKER VIEW turns it
+              // on; System Map, Per-Path, Exfil leave it off so their
+              // visual is unchanged). When on AND this resource is a crown
+              // jewel, scale 1.15× and paint a persistent emerald glow.
+              // The scale is intentionally moderate — bigger than 1.2 makes
+              // the card overflow the resource lane on narrow viewports.
+              const emphasizeJewel = jewelEmphasis && !!node.isCrownJewel;
+              // V2-2: jewel halo color is severity-driven when jewelSeverity is
+              // provided. Default (no prop, or LOW) keeps the legacy emerald
+              // glow that signals "this is the crown jewel" regardless of
+              // attacker reachability. Higher severities take over with their
+              // own palette so the eye lands on the jewel weighted by risk:
+              //   CRITICAL → red (rgba(239,68,68,…))
+              //   HIGH     → orange (rgba(249,115,22,…))
+              //   MEDIUM   → amber (rgba(234,179,8,…))
+              //   LOW/none → emerald (rgba(16,185,129,…)) — legacy fallback
+              const jewelSev = (jewelSeverity || "").toUpperCase()
+              const jewelHaloFilter = (() => {
+                if (jewelSev === "CRITICAL")
+                  return "drop-shadow(0 0 14px rgba(239, 68, 68, 0.65)) drop-shadow(0 0 28px rgba(239, 68, 68, 0.3))"
+                if (jewelSev === "HIGH")
+                  return "drop-shadow(0 0 14px rgba(249, 115, 22, 0.65)) drop-shadow(0 0 28px rgba(249, 115, 22, 0.3))"
+                if (jewelSev === "MEDIUM")
+                  return "drop-shadow(0 0 14px rgba(234, 179, 8, 0.55)) drop-shadow(0 0 28px rgba(234, 179, 8, 0.25))"
+                // LOW / UNKNOWN / no prop → legacy emerald (back-compat)
+                return "drop-shadow(0 0 14px rgba(16, 185, 129, 0.55)) drop-shadow(0 0 28px rgba(16, 185, 129, 0.25))"
+              })()
               return (
-                <div key={node.id} data-resource-id={node.id} className="relative">
+                <div
+                  key={node.id}
+                  data-resource-id={node.id}
+                  data-jewel-severity={emphasizeJewel ? jewelSev || "LOW" : undefined}
+                  data-route-precedence-via={
+                    routePrecedence ? (routePrecedence.isPrivate ? "private" : "public") : undefined
+                  }
+                  data-route-precedence-gateway-id={routePrecedence?.gateway.id}
+                  className={`relative transition-transform duration-200 ${
+                    emphasizeJewel ? 'scale-[1.15] z-20' : ''
+                  }`}
+                  style={emphasizeJewel ? {
+                    filter: jewelHaloFilter,
+                  } : undefined}
+                >
                   {/* Crown jewel indicator — set by applyPathFilter when this
                       resource is the path's target. Renders ABOVE the
                       legacy attack-path target chip when both apply. */}
@@ -2596,6 +5222,15 @@ function UnifiedArchitectureDiagram({
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'resource')}
                   />
+                  {/* Canvas v3 Slice A — destination-card chip from PR #93
+                      removed. The route-precedence chip now lives on the
+                      EDGE MIDPOINT (rendered by AnimatedTrafficLine via
+                      verbChipLabel) so the chip labels the flow line,
+                      not a floating annotation beside the bucket. The
+                      data-route-precedence-via attribute on this wrapper
+                      div is kept for spot-checks of "did precedence
+                      resolve for this destination" (independent of where
+                      the chip renders). Per pattern_geometry_must_match_label. */}
                 </div>
               );
             })}
@@ -2631,11 +5266,54 @@ function UnifiedArchitectureDiagram({
                     </div>
                     <div className="flex items-center gap-2 text-[10px] text-slate-500">
                       <span>{flow.connections} conn</span>
-                      <span className="flex items-center gap-1 text-emerald-400">
-                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                        active
-                      </span>
+                      {/*
+                        Gate the "active" badge on the flow's actual state.
+                        Previously rendered unconditionally — appeared on rows
+                        with 0 connections, which read as "live traffic
+                        observed" when there was none. Both legs (isActive
+                        AND connections > 0) must hold so an upstream bug in
+                        isActive can't silently re-introduce the issue.
+                      */}
+                      {flow.isActive && flow.connections > 0 && (
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                          active
+                        </span>
+                      )}
                     </div>
+                    {/*
+                      2026-05-28 — Phase 2 V1 slice 2. Forensic provenance
+                      surfaced on hover: "Last seen 3h ago · First seen 2d
+                      ago". Renders only when at least one timestamp is
+                      present on the underlying graph edge (synthesized
+                      chain-completion flows leave both null). Makes the
+                      temporal-intelligence patent claim visible on the
+                      canvas without requiring an export or an admin click.
+                    */}
+                    {(flow.lastSeen || flow.firstSeen) && (
+                      <div
+                        className="mt-1.5 pt-1.5 border-t border-slate-700/60 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-slate-400"
+                        title={[
+                          flow.firstSeen ? `First seen ${flow.firstSeen}` : null,
+                          flow.lastSeen ? `Last seen ${flow.lastSeen}` : null,
+                        ].filter(Boolean).join('\n')}
+                      >
+                        {flow.lastSeen && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5 text-slate-500" />
+                            <span className="text-slate-300">last</span>
+                            <span className="font-mono text-emerald-300">{formatRelativeTime(flow.lastSeen)}</span>
+                          </span>
+                        )}
+                        {flow.lastSeen && flow.firstSeen && <span className="text-slate-600">·</span>}
+                        {flow.firstSeen && (
+                          <span className="flex items-center gap-1">
+                            <span className="text-slate-500">first</span>
+                            <span className="font-mono text-slate-300">{formatRelativeTime(flow.firstSeen)}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2815,13 +5493,45 @@ export interface TrafficFlowMapPathFilter {
 function bucketForType(rawType: string): 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'principal' | 'network' | 'unknown' {
   const t = (rawType || '').toLowerCase();
   if (t.includes('ec2') || t === 'ec2instance' || t.includes('lambda') || t.includes('fargate') || t.includes('ecs')) return 'compute';
-  if (t.includes('s3') || t.includes('bucket') || t.includes('dynamo') || t.includes('rds') || t.includes('aurora') || t.includes('database')) return 'resource';
+  // 2026-05-23: extended resource bucketing for the AttackChain hop
+  // graph. KMSKey, SecretsManagerSecret, and SSMParameter are first-
+  // class targets in the v0.3 attack-chain materialization — chains
+  // walk through KMS for crypto envelopes and Secrets/SSM for
+  // credential sources. Previously they bucketed as 'unknown' and
+  // were dropped from the flow map, hiding entire hops.
+  if (
+    t.includes('s3') ||
+    t.includes('bucket') ||
+    t.includes('dynamo') ||
+    t.includes('rds') ||
+    t.includes('aurora') ||
+    t.includes('database') ||
+    t.includes('kmskey') ||
+    t === 'kms' ||
+    t.includes('secret') ||
+    t.includes('ssmparameter') ||
+    t.includes('parameterstore')
+  ) return 'resource';
   if (t.includes('securitygroup')) return 'security_group';
   if (t.includes('nacl') || t.includes('networkacl')) return 'nacl';
   // InstanceProfile is the AWS attachment container that binds an EC2 to an
   // IAMRole — bucketed alongside iam_role so the sidebar shows the real
   // 3-node chain (EC2 → InstanceProfile → IAMRole) instead of collapsing it.
-  if (t.includes('iamrole') || t === 'role' || t.includes('instanceprofile') || t === 'instance_profile') return 'iam_role';
+  //
+  // 2026-05-23: IAMPolicy + IAMUser + IAMGroup added. IAMPolicy is the
+  // actual permission grant operators must remediate (e.g.
+  // S3OverPermissiveAccess) — without this it dropped silently from
+  // AttackChain hops and the "what to fix" anchor disappeared.
+  if (
+    t.includes('iamrole') ||
+    t === 'role' ||
+    t.includes('instanceprofile') ||
+    t === 'instance_profile' ||
+    t.includes('iampolicy') ||
+    t === 'policy' ||
+    t.includes('iamuser') ||
+    t.includes('iamgroup')
+  ) return 'iam_role';
   if (t.includes('principal')) return 'principal';
   if (t.includes('vpc') || t.includes('subnet') || t.includes('routetable') || t.includes('igw') || t.includes('gateway')) return 'network';
   return 'unknown';
@@ -2842,9 +5552,56 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
   const subnets: SubnetNode[] = (arch.subnets || []).filter((s) =>
     inPath(s.id) || s.connectedComputeIds.some((cid) => filteredComputeIds.has(cid)),
   );
-  const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter((sg) => inPath(sg.id));
-  const nacls: SecurityCheckpoint[] = arch.nacls.filter((n) => inPath(n.id));
-  const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter((r) => inPath(r.id));
+
+  // 2026-05-23 regression fix: applyPathFilter used to strict-filter
+  // securityGroups / nacls / iamRoles by inPath(id) only. The path's
+  // BFS (IdentityAttackPath) frequently produces a node list that only
+  // contains the chain's identity + resource hops (e.g. principal →
+  // role → S3), NOT the network gates attached to the workload (SG,
+  // NACL, subnet, IGW) or the instance-profile binding. Strict-filter
+  // therefore stripped every gate out → the embedded TrafficFlowMap
+  // collapsed to the 3-column "NO NETWORK CONTROLS" banner with
+  // COMPUTE 0 / SG 0 / NACL 0 / IAM ROLES 0, contradicting both the
+  // chain card and the Neo4j graph.
+  //
+  // Mirror the subnet rescue above: keep any checkpoint whose
+  // connectedSources / connectedTargets intersects the path's compute
+  // or resource set. SecurityCheckpoint.connectedSources is populated
+  // upstream from flowMap.sourceId (compute IDs that flow through this
+  // gate) + role/SG/NACL attachment edges — so the overlap test
+  // surfaces every gate that genuinely protects a workload on this
+  // path, even when the BFS didn't enumerate it as a path step.
+  const filteredResourceIds = new Set(resources.map((r) => r.id));
+  const touchesPath = (cp: SecurityCheckpoint): boolean => {
+    if (inPath(cp.id)) return true;
+    const src = cp.connectedSources || [];
+    const tgt = cp.connectedTargets || [];
+    return (
+      src.some((cid) => filteredComputeIds.has(cid) || filteredResourceIds.has(cid)) ||
+      tgt.some((cid) => filteredComputeIds.has(cid) || filteredResourceIds.has(cid))
+    );
+  };
+  // Strict path-only filter (2026-05-29 — operator audit):
+  //   onPath === false ⇒ lateral surface (same VPC, no attach edge to
+  //   any path workload). Lateral chips were previously surfaced with
+  //   a dim + "LATERAL" badge as "pivot context", but the audit called
+  //   them out as noise — the Attack Surface view is meant to be the
+  //   modelled path, not "every SG / NACL in the VPC". Drop them here
+  //   in addition to the upstream filter in attacker-view-panel.tsx so
+  //   no future code path can resurrect them.
+  //
+  // Service-agnostic: gates only on the `onPath` flag (derived upstream
+  // from edge types — SECURED_BY / HAS_SECURITY_GROUP / etc — not from
+  // SG name patterns).
+  const isOnPathOrUnknown = (cp: SecurityCheckpoint): boolean =>
+    cp.onPath !== false;
+  const securityGroups: SecurityCheckpoint[] = arch.securityGroups
+    .filter(touchesPath)
+    .filter(isOnPathOrUnknown);
+  const nacls: SecurityCheckpoint[] = arch.nacls
+    .filter(touchesPath)
+    .filter(isOnPathOrUnknown);
+  const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter(touchesPath);
 
   // Seed any path node that didn't survive the System Map's traffic-only
   // bucketing (e.g. an EC2 with no flow logs but reachable via the attack
@@ -2916,21 +5673,27 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       // reference) so name match is the reliable bridge. Without this,
       // seeded SGs render with "0 rules" even when the real SG has
       // ingress/egress rules in Neo4j.
+      //
+      // Strict path-only gate (2026-05-29): if the matched arch SG was
+      // tagged onPath===false (lateral surface, no SECURED_BY edge to a
+      // path workload), skip it. Without this gate filter.pathNodes
+      // would resurrect lateral SGs that the upstream filter dropped.
       const archMatch = arch.securityGroups.find(
         (sg) => sg.id === pn.id || sg.name === pn.name,
       );
-      if (archMatch) {
+      if (archMatch && archMatch.onPath !== false) {
         securityGroups.push(archMatch);
-      } else {
+      } else if (!archMatch) {
         securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
       }
     } else if (bucket === 'nacl') {
+      // Same strict path-only gate for NACLs.
       const archMatch = arch.nacls.find(
         (n) => n.id === pn.id || n.name === pn.name,
       );
-      if (archMatch) {
+      if (archMatch && archMatch.onPath !== false) {
         nacls.push(archMatch);
-      } else {
+      } else if (!archMatch) {
         nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
       }
     } else if (bucket === 'iam_role') {
@@ -2963,45 +5726,70 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
   const flowKey = (s: string, t: string) => `${s}->${t}`;
   const flowMap = new Map<string, TrafficFlow>();
 
-  // Aggregate path-edge bytes per resource — any edge ending at the
-  // resource (or starting at the role and ending at the resource) counts.
-  const bytesByResource = new Map<string, { bytes: number; hits: number; observed: boolean; ports: Set<string>; protocols: Set<string> }>();
+  // Aggregate path-edge bytes per (source, target) pair.
+  //
+  // 2026-05-21 credibility audit fix: previously we aggregated all
+  // bytes by target_id only, then attributed them to the synthesized
+  // compute→resource flow regardless of which node actually carried
+  // the bytes on the original edge. That's how the EC2 card ended up
+  // showing 771.3 KB on a path where the EC2 has zero direct traffic
+  // edges — those bytes actually lived on a downstream IAMRole→S3
+  // ACCESSES_RESOURCE edge.
+  //
+  // Now we key per-pair so each synthesized flow only inherits bytes
+  // from a path edge with matching (source, target). The compute→
+  // resource flow gets 0 bytes when there's no direct compute→resource
+  // edge; the role→resource flow inherits the role's actual observed
+  // bytes. Operator sees the truth: bytes painted on the lane where
+  // they actually were observed.
+  type ByteAgg = { bytes: number; hits: number; observed: boolean; ports: Set<string>; protocols: Set<string> };
+  const bytesBySrcTgt = new Map<string, ByteAgg>();
+  // Keep the per-resource aggregate for the resource lane (which is
+  // honest — total inbound bytes to a resource = sum of all edges
+  // landing on it, regardless of source).
+  const bytesByResource = new Map<string, ByteAgg>();
   (filter.pathEdges ?? []).forEach((e) => {
     if (!resourceIds.includes(e.target)) return;
-    const cur = bytesByResource.get(e.target) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
-    cur.bytes += e.bytes ?? 0;
-    cur.hits += e.hits ?? 0;
-    if (e.is_observed) cur.observed = true;
-    if (e.port) cur.ports.add(String(e.port));
-    if (e.protocol) cur.protocols.add(e.protocol);
-    bytesByResource.set(e.target, cur);
+    const pairKey = `${e.source}->${e.target}`;
+    const pair = bytesBySrcTgt.get(pairKey) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+    pair.bytes += e.bytes ?? 0;
+    pair.hits += e.hits ?? 0;
+    if (e.is_observed) pair.observed = true;
+    if (e.port) pair.ports.add(String(e.port));
+    if (e.protocol) pair.protocols.add(e.protocol);
+    bytesBySrcTgt.set(pairKey, pair);
+
+    const resAgg = bytesByResource.get(e.target) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+    resAgg.bytes += e.bytes ?? 0;
+    resAgg.hits += e.hits ?? 0;
+    if (e.is_observed) resAgg.observed = true;
+    if (e.port) resAgg.ports.add(String(e.port));
+    if (e.protocol) resAgg.protocols.add(e.protocol);
+    bytesByResource.set(e.target, resAgg);
   });
 
-  // IAM-only paths (no compute on the path — e.g. AWS service roles
-  // assumed by AWS itself like AWSServiceRoleForResourceExplorer) need
-  // their own flow synthesis here. The compute→resource loop below
-  // produces nothing because computeIds is empty. Without this block,
-  // ConnectionLinesSVG sees zero flows and draws no lines between IAM,
-  // API, and RESOURCE columns — operator sees disconnected boxes.
-  //
-  // Mirrors the same fallback in buildArchitecture but operates on the
-  // path-filtered iamRoles/resources arrays so the flow's source/target
-  // are guaranteed to pass the inPath gate in the merge step below.
-  if (computeIds.length === 0 && iamRoles.length > 0 && resourceIds.length > 0) {
+  // IAM role→resource flow synthesis. Now ALWAYS runs (was previously
+  // gated to "computeIds.length === 0" only). Role→resource bytes are
+  // the truth signal on EC2-rooted paths too — when the EC2 has no
+  // direct traffic but the role does, the bytes belong on the role
+  // edge, not the compute edge.
+  if (iamRoles.length > 0 && resourceIds.length > 0) {
     iamRoles.forEach((role) => {
       resourceIds.forEach((rid) => {
-        const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+        // Look for a direct role→resource edge in the path data
+        const direct = bytesBySrcTgt.get(`${role.id}->${rid}`);
+        if (!direct || (direct.bytes === 0 && !direct.observed)) return;
         flowMap.set(flowKey(role.id, rid), {
           sourceId: role.id,
           targetId: rid,
           sgId: undefined,
           naclId: undefined,
           roleId: role.id,
-          ports: [...agg.ports],
-          protocol: [...agg.protocols][0] || 'IAM',
-          bytes: agg.bytes,
-          connections: agg.hits > 0 ? agg.hits : (agg.bytes > 0 ? 1 : 0),
-          isActive: agg.observed && agg.bytes > 0,
+          ports: [...direct.ports],
+          protocol: [...direct.protocols][0] || 'IAM',
+          bytes: direct.bytes,
+          connections: direct.hits > 0 ? direct.hits : (direct.bytes > 0 ? 1 : 0),
+          isActive: direct.observed && direct.bytes > 0,
         });
       });
     });
@@ -3009,7 +5797,11 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   computeIds.forEach((cid) => {
     resourceIds.forEach((rid) => {
-      const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+      // STRICT: only include bytes if there's a DIRECT compute→resource
+      // edge in the path. No more "inherit aggregate bytes from any
+      // edge touching this resource."
+      const direct = bytesBySrcTgt.get(`${cid}->${rid}`);
+      const agg = direct ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
       const bytes = agg.bytes;
       // Use 1 connection minimum when there's traffic so the animated
       // line renders. The path data sets hit_count to 0 even when bytes
@@ -3048,6 +5840,75 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   const flows: TrafficFlow[] = [...flowMap.values()];
 
+  // VPCE rendering rule — STRICT after 2026-05-21 credibility audit.
+  //
+  // VPCEs render ONLY when there's actual evidence the path's traffic
+  // uses them:
+  //   (a) BFS path includes the VPCE as a node (filter.nodeIds), OR
+  //   (b) A flow explicitly carries flow.vpceId from route-table-driven
+  //       dep-map matching (filteredFlowVPCEIds).
+  //
+  // The old rule — "VPCE exists in the same VPC as a path compute" —
+  // was fabrication-by-implication. Across all 48 paths on alon-prod,
+  // ZERO have VPCEndpoint as a BFS node. The "same VPC" rule was
+  // painting the S3 Gateway VPCE on every EC2-rooted path even though
+  // we had no route table data to prove the traffic uses it. CISOs
+  // would (rightly) ask "how do you know it goes via VPCE?" and we
+  // had no answer.
+  //
+  // Per feedback_verify_against_sources — Neo4j is the single source
+  // of truth. If the BFS didn't include the VPCE, and no flow has
+  // route-table-driven evidence binding it, the VPCE lane stays empty.
+  // Honest empty > fake placement.
+  //
+  // egressGateways (IGW/NAT) gets the same treatment for the same reason.
+  const filteredFlowVPCEIds = new Set<string>(flows.map(f => f.vpceId).filter(Boolean) as string[]);
+  const vpcEndpoints = arch.vpcEndpoints.filter(v =>
+    inPath(v.id) || filteredFlowVPCEIds.has(v.id),
+  );
+
+  // Egress gateways — same evidence standard. Either the BFS includes
+  // the gateway, or a flow explicitly carries gateway routing
+  // evidence.
+  //
+  // Canvas v3 Slice C — relaxation for visualize-by-negation: we ALSO
+  // include same-VPC sibling gateways (typically the IGW that lives in
+  // the workload's VPC but isn't the winning route for the on-path
+  // S3 destination). The renderer (Slice A) grays these as "Not used"
+  // so the operator sees the unused alternative — the security claim
+  // "VPCE wins, IGW exists but doesn't carry this traffic" becomes
+  // palpable as the gap between full-color and grayed.
+  //
+  // Per pattern_visualize_by_negation. Without this relaxation, the
+  // lane would only show the winning gateway and the negation half of
+  // the security story stays invisible.
+  const filteredFlowGatewayIds = new Set<string>(
+    flows.map(f => (f as any).egressGatewayId).filter(Boolean) as string[],
+  );
+  // Collect VPCs that any path node lives in so we can include their
+  // sibling gateways as visible-but-grayed alternatives.
+  const pathVPCIds = new Set<string>();
+  arch.subnets?.forEach(s => { if (s.vpcId) pathVPCIds.add(s.vpcId); });
+  arch.vpcGroups?.forEach(g => { if (g.vpcId) pathVPCIds.add(g.vpcId); });
+  const egressGateways = arch.egressGateways.filter(
+    g =>
+      inPath(g.id) ||
+      filteredFlowGatewayIds.has(g.id) ||
+      (g.vpcId !== null && g.vpcId !== undefined && pathVPCIds.has(g.vpcId)) ||
+      // Trust-backend-inclusion: when the backend returns a gateway node
+      // in canvas.nodes but the gateway has no vpc_id direct property
+      // (IGW nodes in Neo4j carry their VPC via IN_VPC edges, not as a
+      // property), the assembler stores it with vpcId=null. Empirically
+      // verified 2026-06-01 on path-5203dfee3012: igw-0d1dd1d08b071f5cf
+      // appears in canvas.nodes with key_properties.vpc_id missing — the
+      // backend's inclusion is itself the signal that the gateway is
+      // path-relevant. Don't reject the empirical truth because of a
+      // property-shape gap. Surface it grayed (Slice A renderer) so the
+      // operator sees the unused alternative.
+      g.vpcId === null ||
+      g.vpcId === undefined,
+  );
+
   return {
     computeServices,
     resources: resources.map((r) =>
@@ -3057,6 +5918,8 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     securityGroups,
     nacls,
     iamRoles,
+    vpcEndpoints,
+    egressGateways,
     flows,
     totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
@@ -3089,19 +5952,127 @@ export type OnPathNodeAction = (
   },
 ) => void;
 
+const DAMAGE_SCOPE_DATA_TYPES = new Set([
+  'S3Bucket',
+  'DynamoDBTable',
+  'RDSInstance',
+  'KMSKey',
+  'SecretsManagerSecret',
+]);
+
+/** Canvas ServiceNode.type is NodeType (storage/database); backend expects S3Bucket etc. */
+function resolveDamageScopeNodeType(
+  service: { id?: string; type?: string },
+  laneType: string,
+): string | null {
+  if (laneType !== 'resource') return null
+  const t = String(service.type || '')
+  const id = String(service.id || '').toLowerCase()
+  if (DAMAGE_SCOPE_DATA_TYPES.has(t)) return t
+  if (t === 'storage' || id.includes(':s3:') || id.includes('s3:::')) return 'S3Bucket'
+  if (t === 'dynamodb' || id.includes('dynamodb')) return 'DynamoDBTable'
+  if (t === 'database' || id.includes(':rds:')) return 'RDSInstance'
+  if (id.includes('kms') || t.includes('kms')) return 'KMSKey'
+  if (id.includes('secretsmanager')) return 'SecretsManagerSecret'
+  return null
+}
+
 export default function TrafficFlowMap({
   systemName,
   pathFilter,
   onPathNodeAction,
+  onDamageScopeDataNode,
   exfilByWorkloadId,
+  architectureOverride,
+  titleOverride,
+  pathBadgeOverride,
+  innerTitleOverride,
+  innerSubtitleOverride,
+  observedMode = false,
+  defaultShowVPCBoundaries = false,
+  headerSlot,
+  onRoleClick,
+  jewelEmphasis = false,
+  jewelSeverity,
+  canvasV2 = false,
+  entryNodeId,
+  fullscreenContainerRef,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
   onPathNodeAction?: OnPathNodeAction;
+  /** Data-plane nodes (S3, DDB, RDS, KMS, Secrets) → damage-scope drawer */
+  onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
   exfilByWorkloadId?: Record<string, NodeExfilSummary>;
+  // Optional ReactNode rendered inline in the TFM top toolbar, right
+  // after the title + pathBadge. Used by the EXFIL view to inject its
+  // per-path selector pills so they stay visible when TFM is in
+  // full-screen mode (where the outer panel chrome is hidden).
+  // 2026-05-25: shipped after the selector strip ended up unreachable
+  // in fullscreen.
+  headerSlot?: React.ReactNode;
+  // When provided, this fully-formed SystemArchitecture is used in place
+  // of the dependency-map fetch. The dep-map fetch is still kicked off
+  // for stale-cache warming, but the override wins the render. This is
+  // how Data Leak Paths feeds its per-path egress architecture through
+  // the same renderer Attack Paths uses, so both pages share the visual
+  // language (header, lanes, ServiceNodeBox, ConnectionLinesSVG).
+  architectureOverride?: SystemArchitecture | null;
+  // Header title + the "PATH → …" pill. Default copy is attack-paths
+  // flavored; Data Leak Paths passes its own.
+  titleOverride?: string;
+  pathBadgeOverride?: string;
+  // Inner canvas header (the "System Architecture / Live traffic flow
+  // based on actual usage" copy). Data Leak Paths overrides both for
+  // egress-flavored copy.
+  innerTitleOverride?: string;
+  innerSubtitleOverride?: string;
+  // When true, the API CALLS lane drops the "(simulated)" tag and the
+  // Gaps badge is suppressed. Use when the architecture carries real
+  // observed telemetry (Data Leak Paths case).
+  observedMode?: boolean;
+  // When true, the VPC-boundary overlay is on by default (operator can
+  // still toggle it off via the header VPC checkbox). Attacker view
+  // turns this on so the VPC container hop on the path is visible
+  // without requiring an extra click — the VPC is genuinely part of
+  // the chain (EC2 → SG → VPC → Subnet → Role), not a layered overlay.
+  defaultShowVPCBoundaries?: boolean;
+  // Optional click hook on the IAM role chip. When provided, the EXFIL
+  // view subscribes so clicking a role opens the RoleDetailPanel
+  // (slides in from the right) instead of the existing generic
+  // service-selection modal. Lets the canvas chip stay COMPACT —
+  // the 5 stack-component sections live in the panel, not stacked on
+  // the chip itself. 2026-05-27, Alon "i cant understand nothing".
+  onRoleClick?: (role: SecurityCheckpoint) => void;
+  // 2026-05-28 — Phase 2 V1 slice 1. Forwarded to
+  // UnifiedArchitectureDiagram. When true, resource nodes flagged as
+  // crown jewels render visibly heavier (1.15x scale + persistent
+  // emerald glow). ATTACKER VIEW opts in; other consumers (System
+  // Map, Per-Path View, Exfil View) leave the default off.
+  jewelEmphasis?: boolean;
+  // V2-2 (2026-05-31): when provided, the crown jewel's halo color
+  // is driven by chain severity instead of the default emerald. Used
+  // by the Attack Path tab's ?canvas=v2 visual layer so the eye
+  // lands on the jewel weighted by attacker reachability:
+  //   CRITICAL → red, HIGH → orange, MEDIUM → amber, LOW → emerald.
+  // Pure visual — no behavior change. When undefined or LOW, the
+  // existing emerald glow renders (back-compat preserved).
+  jewelSeverity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  // V2-3 (2026-05-31): visual v2 master switch. When true, the canvas
+  // applies the lateral-dimming + verb-chips + 3-color palette layer
+  // on top of the existing render. When undefined/false, the canvas
+  // renders identically to its pre-V2 behavior (back-compat). Driven
+  // by the ?canvas=v2 URL flag in PathAnalysisPanel.
+  canvasV2?: boolean;
+  // V2-2b (2026-05-31): id of the chain's hop[0] node. Drives the
+  // "ENTRY" chip overlay on the matching card. When canvasV2 is off
+  // or the prop is undefined, no chip renders.
+  entryNodeId?: string;
+  /** Set to the canvas root while in browser fullscreen (for Radix portal container). */
+  fullscreenContainerRef?: React.MutableRefObject<HTMLDivElement | null>;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -3110,9 +6081,10 @@ export default function TrafficFlowMap({
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
   const architecture = useMemo(() => {
+    if (architectureOverride) return architectureOverride;
     if (!rawArchitecture) return null;
     return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
-  }, [rawArchitecture, pathFilter]);
+  }, [rawArchitecture, pathFilter, architectureOverride]);
   const setArchitecture = setRawArchitecture;
 
   // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips
@@ -3123,6 +6095,29 @@ export default function TrafficFlowMap({
   // Hook-level errors come from useCachedFetch directly; this one only
   // fires after a valid response with empty payload.
   const [emptyDataError, setEmptyDataError] = useState<string | null>(null);
+
+  // V2-3 (2026-05-31): "Show laterals" toggle for canvas-v2 mode.
+  // Default is FALSE → lateral edges + nodes render dimmed at ~30%
+  // opacity (path is the hero). Toggle to TRUE → laterals at full
+  // opacity (operator pivots to see the lateral story). State
+  // persists in localStorage scoped per-user (not per-chain) so the
+  // operator's preference sticks across navigation.
+  const [showLaterals, setShowLateralsState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false
+    try {
+      return window.localStorage.getItem("cyntro:canvasV2:showLaterals") === "true"
+    } catch {
+      return false
+    }
+  })
+  const setShowLaterals = useCallback((next: boolean) => {
+    setShowLateralsState(next)
+    try {
+      window.localStorage.setItem("cyntro:canvasV2:showLaterals", String(next))
+    } catch {
+      /* private mode / quota */
+    }
+  }, [])
 
   const depMapUrl = useMemo(() => {
     // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
@@ -3165,8 +6160,11 @@ export default function TrafficFlowMap({
   //   the hook only surfaces when there is no cached fallback at all —
   //   so a 504 during background refresh keeps the stale view rather
   //   than flashing the red popup.
-  const loading = depMapLoading && !rawArchitecture;
-  const error = emptyDataError ?? depMapError;
+  // When the caller passes an architectureOverride we already have the
+  // data — never block the render on the dep-map fetch (which is best-
+  // effort warming only in that mode).
+  const loading = !architectureOverride && depMapLoading && !rawArchitecture;
+  const error = architectureOverride ? null : (emptyDataError ?? depMapError);
   // Fetch-generation counter. Each runEnrichment call bumps this;
   // background enrichment closures capture the epoch at start and skip
   // their setArchitecture if a newer fetch has resolved in the meantime.
@@ -3191,13 +6189,41 @@ export default function TrafficFlowMap({
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
-  // New killer map features
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // New killer map features.
+  //
+  // Default sidebar state is driven by the rendering mode:
+  //   - Path-filter mode (Attack Paths v2, attack-paths drill-in): closed
+  //     by default. The map shows only the path's nodes, the lane chips
+  //     are the navigation, and the Stack Components tree just duplicates
+  //     what the map already renders. Sidebar wastes ~280px of
+  //     horizontal space the operator wants for the flow itself.
+  //   - Unfiltered System Map (Topology tab): open by default. Operator
+  //     uses the sidebar tree to navigate the full system inventory.
+  //
+  // A toggle button stays available either way so the operator can
+  // re-open the sidebar on demand (per the 2026-05-21 design review:
+  // "collapse by default, don't permanently hide").
+  const [sidebarOpen, setSidebarOpen] = useState(!pathFilter);
   const [heatmapMode, setHeatmapMode] = useState(false);
   const [hopDepth, setHopDepth] = useState(3);
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
-  const [showVPCBoundaries, setShowVPCBoundaries] = useState(false);
+  const [showVPCBoundaries, setShowVPCBoundaries] = useState(defaultShowVPCBoundaries);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  // Resource-path filter — set when the user clicks a leaf in the
+  // Stack Components sidebar drill-down (S3 prefix, RDS table, DDB
+  // table). Shape: { resourceId, parentJewelId, accessorIds, ... }.
+  // Used to highlight matching map nodes + show the active filter
+  // banner. null = no filter.
+  const [resourcePathsFilter, setResourcePathsFilter] = useState<{
+    resourceId: string;
+    resolvedTargetId: string;
+    parentJewelId: string;
+    resolvedTargetType: string | null;
+    accessorIds: string[];
+    sourceIps: string[];
+    filter: { database?: string; table?: string } | null;
+    leafType: string | null;
+  } | null>(null);
   const [timelineActive, setTimelineActive] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
   const [timePoint, setTimePoint] = useState(100);
@@ -3299,6 +6325,18 @@ export default function TrafficFlowMap({
     const roleNodeMap = new Map<string, any>();
     const subnetToNACL = new Map<string, string>();
     const nodeToVPC = new Map<string, string>();
+    // vpcId → list of VPCEndpoint nodes in that VPC. Populated from
+    // two sources: IN_VPC edges (canonical) and node.vpc_id properties
+    // (fallback, since the dep-map flattens some properties without
+    // emitting the edge for legacy schema reasons).
+    const vpceByVPC = new Map<string, any[]>();
+    // vpcId → list of InternetGateway / NATGateway / EgressOnlyIGW /
+    // TransitGateway nodes attached to this VPC. Mirrors `vpceByVPC`:
+    // two sources of truth, IN_VPC edge (canonical) and node.vpc_id
+    // property fallback (since the dep-map flattens some properties
+    // without emitting the IN_VPC edge for legacy schema reasons).
+    // Drives the EGRESS GATEWAYS lane (chip item 10).
+    const gatewayByVPC = new Map<string, any[]>();
     // isPublic kept tri-state (boolean | null) so the SUBNETS column can
     // render the three-state badge (Public / Private / Unknown). Coercing
     // null→false would silently lie when subnet_visibility_collector hasn't
@@ -3311,20 +6349,59 @@ export default function TrafficFlowMap({
       const srcId = edge.source || edge.from;
       const tgtId = edge.target || edge.to;
 
-      // NACL is associated with subnet or directly with compute
-      if (edgeType === 'HAS_NACL' || edgeType === 'USES_NACL' || edgeType === 'PROTECTED_BY_NACL') {
-        subnetToNACL.set(srcId, tgtId);
+      // NACL is associated with a subnet (canonical AWS pattern) or
+      // attached directly to a compute (legacy fallback).
+      //
+      // 2026-05-22 credibility audit fix: the canonical AWS edge type
+      // is ASSOCIATED_WITH going (NACL)->(Subnet), matching AWS's
+      // describe-network-acls Associations[].SubnetId field. The
+      // legacy matcher only accepted (Subnet)->(NACL) edges named
+      // HAS_NACL / USES_NACL / PROTECTED_BY_NACL — none of which the
+      // collector actually writes for the alon-prod graph. Result:
+      // every path subnet showed "No NACLs" while a real NACL was
+      // associated. Verified against Neo4j for subnet-0ac239d3cb...
+      // where acl-07e8be9e7f719df3e exists as a (:NACL)-[ASSOCIATED_WITH]->(:Subnet)
+      // edge.
+      //
+      // Now accept ASSOCIATED_WITH and handle either direction —
+      // when the edge starts on the NACL and ends on the subnet,
+      // the canonical "subnet -> nacl" mapping needs the reverse
+      // direction lookup.
+      const sourceType = (nodeMap.get(srcId)?.type || '').toLowerCase();
+      const targetType = (nodeMap.get(tgtId)?.type || '').toLowerCase();
+      const sourceIsNACL = sourceType.includes('nacl') || sourceType.includes('networkacl');
+      const targetIsNACL = targetType.includes('nacl') || targetType.includes('networkacl');
+      const sourceIsSubnet = sourceType === 'subnet';
+      const targetIsSubnet = targetType === 'subnet';
+      const isNACLEdge =
+        edgeType === 'HAS_NACL' ||
+        edgeType === 'USES_NACL' ||
+        edgeType === 'PROTECTED_BY_NACL' ||
+        (edgeType === 'ASSOCIATED_WITH' && (sourceIsNACL || targetIsNACL));
+      if (isNACLEdge) {
+        // Normalize so subnetId is always srcId and naclId is always tgtId
+        // for the rest of the existing wiring.
+        let subnetId = srcId;
+        let naclId = tgtId;
+        if (sourceIsNACL && targetIsSubnet) {
+          subnetId = tgtId;
+          naclId = srcId;
+        }
+        subnetToNACL.set(subnetId, naclId);
         // Also directly map compute to NACL for EC2 -> NACL edges
-        const canonicalSrc = extractInstanceId(srcId);
-        computeToNACL.set(canonicalSrc, tgtId);
-        const naclNode = nodeMap.get(tgtId);
+        const canonicalSrc = extractInstanceId(subnetId);
+        computeToNACL.set(canonicalSrc, naclId);
+        const naclNode = nodeMap.get(naclId);
         if (naclNode) {
-          naclNodeMap.set(tgtId, naclNode);
+          naclNodeMap.set(naclId, naclNode);
         } else {
-          // Create placeholder for NACL
-          naclNodeMap.set(tgtId, {
-            id: tgtId,
-            name: tgtId.includes('acl-') ? tgtId : `NACL-${tgtId.slice(-8)}`,
+          // Create placeholder for NACL — only used when the dep-map
+          // gave an edge but no node. Properties stay null (not
+          // fabricated) so the UI honestly shows "not collected" for
+          // the missing fields.
+          naclNodeMap.set(naclId, {
+            id: naclId,
+            name: naclId.includes('acl-') ? naclId : `NACL-${naclId.slice(-8)}`,
             type: 'NetworkAcl',
             vpc_id: null,
           });
@@ -3399,6 +6476,29 @@ export default function TrafficFlowMap({
         const canonicalSrc = extractInstanceId(srcId);
         nodeToVPC.set(canonicalSrc, tgtId);
         nodeToVPC.set(srcId, tgtId);
+        // Index VPCE nodes by their parent VPC, so a compute→S3 flow can
+        // be matched to the right S3 Gateway endpoint at flow-tag time.
+        const srcNode = nodeMap.get(srcId);
+        if (srcNode && (srcNode.type || '').toLowerCase() === 'vpcendpoint') {
+          if (!vpceByVPC.has(tgtId)) vpceByVPC.set(tgtId, []);
+          vpceByVPC.get(tgtId)!.push(srcNode);
+        }
+        // Chip item 10: index IGW / NATGateway / EgressOnlyIGW /
+        // TransitGateway by parent VPC. Tolerant of label casing —
+        // labels are written by the IGW collector (commit 88983a9)
+        // and historically lower-cased some types.
+        if (srcNode) {
+          const sty = String(srcNode.type || '').toLowerCase();
+          if (
+            sty === 'internetgateway' ||
+            sty === 'natgateway' ||
+            sty === 'egressonlyinternetgateway' ||
+            sty === 'transitgateway'
+          ) {
+            if (!gatewayByVPC.has(tgtId)) gatewayByVPC.set(tgtId, []);
+            gatewayByVPC.get(tgtId)!.push(srcNode);
+          }
+        }
       }
 
       if (edgeType === 'USES_ROLE' || edgeType === 'ASSUMES_ROLE') {
@@ -3418,6 +6518,70 @@ export default function TrafficFlowMap({
         }
       }
     });
+
+    // Property-based VPCE→VPC index. Catches VPCEs whose IN_VPC edge
+    // wasn't emitted by the dep-map slice (the backend strips some
+    // structural edges to keep payload size down). serviceName +
+    // endpoint_type come from the node payload; without them the lane
+    // chip falls back to "?" which is honest about data absence.
+    nodes.forEach(n => {
+      const t = (n.type || '').toLowerCase();
+      if (t !== 'vpcendpoint') return;
+      const vpcId = n.vpc_id || n.vpcId || null;
+      if (!vpcId) return;
+      if (!vpceByVPC.has(vpcId)) vpceByVPC.set(vpcId, []);
+      const existing = vpceByVPC.get(vpcId)!;
+      if (!existing.find(v => v.id === n.id)) existing.push(n);
+    });
+
+    // Property-based gateway→VPC index for chip item 10. Same fallback
+    // pattern as VPCE: dep-map sometimes drops IN_VPC edges for
+    // IGW/NAT/Transit; the node payload carries vpc_id / vpcId.
+    nodes.forEach(n => {
+      const t = (n.type || '').toLowerCase();
+      const isGateway =
+        t === 'internetgateway' ||
+        t === 'natgateway' ||
+        t === 'egressonlyinternetgateway' ||
+        t === 'transitgateway';
+      if (!isGateway) return;
+      const vpcId = n.vpc_id || n.vpcId || null;
+      if (!vpcId) return;
+      if (!gatewayByVPC.has(vpcId)) gatewayByVPC.set(vpcId, []);
+      const existing = gatewayByVPC.get(vpcId)!;
+      if (!existing.find(v => v.id === n.id)) existing.push(n);
+    });
+
+    // Compute → VPC index. nodeToVPC stores by canonical instance id
+    // for compute, but flows are tagged with the canonical id too, so
+    // a direct .get(canonicalId) works.
+    const resolveComputeVPC = (canonicalSrc: string): string | null => {
+      const direct = nodeToVPC.get(canonicalSrc);
+      if (direct) return direct;
+      const node = nodeByInstanceId.get(canonicalSrc) || nodeMap.get(canonicalSrc);
+      return node?.vpc_id || node?.vpcId || null;
+    };
+
+    // Match flow target to a VPCE service. Gateway endpoints exist for
+    // S3 + DynamoDB only (per AWS); interface endpoints exist for most
+    // services. For the demo path the S3 Gateway is the case that
+    // matters.
+    const pickVPCEForTarget = (canonicalSrc: string, targetType: string): string | undefined => {
+      const vpcId = resolveComputeVPC(canonicalSrc);
+      if (!vpcId) return undefined;
+      const candidates = vpceByVPC.get(vpcId) || [];
+      const needle =
+        targetType === 'storage' || targetType === 's3' ? 's3' :
+        targetType === 'dynamodb' ? 'dynamodb' :
+        targetType === 'sqs' ? 'sqs' :
+        targetType === 'sns' ? 'sns' : null;
+      if (!needle) return undefined;
+      const match = candidates.find(v => {
+        const svc = (v.service_name || v.serviceName || '').toLowerCase();
+        return svc.endsWith(`.${needle}`) || svc === `com.amazonaws.${needle}`;
+      });
+      return match?.id;
+    };
 
     const trafficEdges = edges.filter(e => {
       const type = (e.edge_type || e.type || '').toUpperCase();
@@ -3513,6 +6677,7 @@ export default function TrafficFlowMap({
           sgId: computeToSG.get(canonicalSrc),
           naclId: computeToNACL.get(canonicalSrc),
           roleId: computeToRole.get(canonicalSrc),
+          vpceId: pickVPCEForTarget(canonicalSrc, finalTargetType),
           ports: [],
           protocol: 'TCP',
           bytes: 0,
@@ -3625,6 +6790,7 @@ export default function TrafficFlowMap({
                 sourceId: cs.id, targetId: node.id,
                 sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
                 roleId: computeToRole.get(cs.id),
+                vpceId: pickVPCEForTarget(cs.id, nType),
                 ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false,
               });
             }
@@ -3670,6 +6836,7 @@ export default function TrafficFlowMap({
               sourceId: cs.id, targetId: res.id,
               sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
               roleId: computeToRole.get(cs.id),
+              vpceId: pickVPCEForTarget(cs.id, res.type),
               ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: true,
             });
           }
@@ -3726,18 +6893,38 @@ export default function TrafficFlowMap({
         .filter(f => f.sgId === sgId)
         .map(f => f.sourceId);
 
-      // Rules will be populated by fetchSGRules() - no mock data
+      // Rules will be populated by fetchSGRules() — no mock data. But
+      // seed totalCount from whatever rule-count signal the dep-map
+      // node carries, so the chip doesn't read "0 rules" between
+      // build-time and the async inspector fetch completing.
+      // Precedence: total_rules → (inbound+outbound) → gap_count.
+      // Last fallback is `gap_count`, which is technically "rules with
+      // gaps" but on every real SG it correlates with "has rules" and
+      // gives the operator a non-zero floor. The fetchSGRules
+      // completion later replaces this with the accurate rule list +
+      // breakdown.
+      //
+      // This fixes the path screenshot from 2026-05-21 where the
+      // 'default' SG (3 actual rules, including 0.0.0.0/0:0-65535)
+      // rendered as "default · 0 rules" — a credibility bug that
+      // contradicted the closure footer's "review ingress rules"
+      // recommendation.
+      const seedTotalCount =
+        (typeof sgNode.total_rules === 'number' && sgNode.total_rules) ||
+        ((sgNode.inbound_rule_count || 0) + (sgNode.outbound_rule_count || 0)) ||
+        (typeof sgNode.gap_count === 'number' && sgNode.gap_count) ||
+        0;
       securityGroups.push({
         id: sgId,
         type: 'security_group',
         name: sgNode.name || sgId,
         shortName: shortName(sgNode.name || sgId, 14),
         usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
+        totalCount: seedTotalCount,
+        gapCount: typeof sgNode.gap_count === 'number' ? sgNode.gap_count : 0,
         connectedSources,
         connectedTargets: [],
-        rules: [], // Will be populated with real data from API
+        rules: [], // Replaced by real data from /security-groups/{id}/inspector
         vpcId: sgNode.vpc_id,
       });
     });
@@ -3972,6 +7159,73 @@ export default function TrafficFlowMap({
       subnets: Array.from(vpc.subnets.values()),
     }));
 
+    // Build the VPC ENDPOINTS lane. Only include VPCEs that sit in a VPC
+    // reachable from a compute on this path — otherwise the lane fills
+    // up with VPCEs from unrelated VPCs that have no causal relationship
+    // to the rendered flows.
+    const pathVPCs = new Set<string>();
+    computeServices.forEach(cs => {
+      const v = resolveComputeVPC(cs.id);
+      if (v) pathVPCs.add(v);
+    });
+    const seenVPCEIds = new Set<string>();
+    const vpcEndpoints: VPCEndpointNode[] = [];
+    pathVPCs.forEach(vpcId => {
+      (vpceByVPC.get(vpcId) || []).forEach(v => {
+        if (seenVPCEIds.has(v.id)) return;
+        seenVPCEIds.add(v.id);
+        const serviceName = v.service_name || v.serviceName || null;
+        const epTypeRaw = (v.vpc_endpoint_type || v.endpoint_type || '').toString();
+        const endpointType: 'Gateway' | 'Interface' | null =
+          /gateway/i.test(epTypeRaw) ? 'Gateway' :
+          /interface/i.test(epTypeRaw) ? 'Interface' : null;
+        vpcEndpoints.push({
+          id: v.id,
+          name: v.name || v.id,
+          shortName: shortName(v.name || v.id, 16),
+          vpcId,
+          serviceName,
+          serviceShort: vpceServiceShort(serviceName),
+          endpointType,
+        });
+      });
+    });
+
+    // Chip item 10: collect egress gateways (IGW / NAT / Egress-only
+    // IGW / Transit GW) per path VPC. Mirrors the VPCE pass above —
+    // dedup by id since both IN_VPC edge and node.vpc_id property can
+    // push the same gateway twice. Order: deterministic by id so the
+    // lane doesn't reshuffle between renders.
+    const seenGatewayIds = new Set<string>();
+    const egressGateways: EgressGatewayNode[] = [];
+    pathVPCs.forEach(vpcId => {
+      (gatewayByVPC.get(vpcId) || []).forEach(g => {
+        if (seenGatewayIds.has(g.id)) return;
+        seenGatewayIds.add(g.id);
+        const rawType = String(g.type || '');
+        const kind =
+          /internetgateway/i.test(rawType) && !/egress/i.test(rawType) ? 'InternetGateway' :
+          /egressonly/i.test(rawType) ? 'EgressOnlyInternetGateway' :
+          /natgateway/i.test(rawType) ? 'NATGateway' :
+          /transitgateway/i.test(rawType) ? 'TransitGateway' :
+          'InternetGateway';
+        const kindLabel =
+          kind === 'InternetGateway' ? 'IGW' :
+          kind === 'NATGateway' ? 'NAT GW' :
+          kind === 'EgressOnlyInternetGateway' ? 'Egress-only IGW' :
+          'Transit GW';
+        egressGateways.push({
+          id: g.id,
+          name: g.name || g.id,
+          shortName: shortName(g.name || g.id, 18),
+          vpcId,
+          kind,
+          kindLabel,
+        });
+      });
+    });
+    egressGateways.sort((a, b) => a.id.localeCompare(b.id));
+
     return {
       computeServices,
       resources,
@@ -3979,6 +7233,8 @@ export default function TrafficFlowMap({
       securityGroups,
       nacls,
       iamRoles,
+      vpcEndpoints,
+      egressGateways,
       flows,
       totalBytes,
       totalConnections,
@@ -3987,18 +7243,12 @@ export default function TrafficFlowMap({
     };
   }, []);
 
-  // Fetch real SG rules from inspector API
-  const fetchSGRules = useCallback(async (sgId: string): Promise<SGRule[]> => {
-    try {
-      const res = await fetch(`/api/proxy/security-groups/${sgId}/inspector?window=30d`);
-      if (!res.ok) return [];
-
-      const data = await res.json();
-      const configuredRules = data.configured_rules || [];
-
-      // Transform API response to our SGRule interface
-      return configuredRules.map((rule: any) => ({
-        direction: rule.direction === 'ingress' ? 'ingress' : 'egress',
+  // Transform inspector API configured_rules → SGRule (shared by per-SG and bulk).
+  const mapInspectorRulesToSGRules = useCallback((configuredRules: any[]): SGRule[] => {
+    return configuredRules.map((rule: any) => {
+      const isInbound = rule.direction === 'inbound' || rule.direction === 'ingress';
+      return {
+        direction: isInbound ? 'ingress' : 'egress',
         protocol: rule.protocol || rule.proto || 'tcp',
         fromPort: rule.from_port,
         toPort: rule.to_port,
@@ -4009,12 +7259,23 @@ export default function TrafficFlowMap({
         flowCount: rule.flow_count || 0,
         lastSeen: rule.last_seen || null,
         isPublic: rule.is_public || (rule.source_cidr === '0.0.0.0/0'),
-      }));
+      };
+    });
+  }, []);
+
+  // Fetch real SG rules from inspector API
+  const fetchSGRules = useCallback(async (sgId: string): Promise<SGRule[]> => {
+    try {
+      const res = await fetch(`/api/proxy/security-groups/${sgId}/inspector?window=30d`);
+      if (!res.ok) return [];
+
+      const data = await res.json();
+      return mapInspectorRulesToSGRules(data.configured_rules || []);
     } catch (err) {
       console.error(`Failed to fetch rules for SG ${sgId}:`, err);
       return [];
     }
-  }, []);
+  }, [mapInspectorRulesToSGRules]);
 
   // Fetch IAM role gap analysis data
   const fetchIAMRoleData = useCallback(async (roleName: string): Promise<{
@@ -4152,16 +7413,43 @@ export default function TrafficFlowMap({
     // does NOT block the architecture render.
     if (archForGaps.iamRoles.length > 0) {
       console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
-      Promise.all(
-        archForGaps.iamRoles.map(role =>
-          fetchIAMRoleData(role.name)
-            .then(data => ({ roleId: role.id, ...data }))
-            .catch(err => {
-              console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
-              return null;
-            }),
-        ),
-      ).then(iamResults => {
+      const loadIamEnrichment = async () => {
+        const roleNames = archForGaps.iamRoles.map(r => r.name);
+        try {
+          const bulkRes = await fetch('/api/proxy/iam-roles/gap-analysis/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role_names: roleNames, days: 365 }),
+          });
+          if (!bulkRes.ok) throw new Error(`bulk IAM ${bulkRes.status}`);
+          const bulk = await bulkRes.json();
+          return archForGaps.iamRoles.map(role => {
+            const data = bulk.results?.[role.name];
+            if (!data) return null;
+            const summary = data.summary || {};
+            return {
+              roleId: role.id,
+              usedCount: summary.used_count || data.used_count || 0,
+              totalCount: summary.total_permissions || summary.allowed_count || data.allowed_count || 0,
+              gapCount: summary.unused_count || data.unused_count || 0,
+              lpScore: summary.lp_score || 0,
+            };
+          });
+        } catch (bulkErr) {
+          console.warn('[TrafficFlowMap] IAM bulk fetch failed, falling back to per-role:', bulkErr);
+          return Promise.all(
+            archForGaps.iamRoles.map(role =>
+              fetchIAMRoleData(role.name)
+                .then(data => ({ roleId: role.id, ...data }))
+                .catch(err => {
+                  console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
+                  return null;
+                }),
+            ),
+          );
+        }
+      };
+      loadIamEnrichment().then(iamResults => {
         // Guard against stale enrichment: if a newer runEnrichment ran while
         // these IAM lookups were in flight, the architecture state has
         // since been replaced. Don't overwrite it with our stale data.
@@ -4189,16 +7477,37 @@ export default function TrafficFlowMap({
     // Background SG rules enrichment (parallel to IAM). Fires-and-
     // forgets; doesn't block architecture render.
     if (archForGaps.securityGroups.length > 0) {
-      Promise.all(
-        archForGaps.securityGroups.map(sg =>
-          fetchSGRules(sg.id)
-            .then(rules => ({ sgId: sg.id, rules }))
-            .catch(err => {
-              console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
-              return null;
-            }),
-        ),
-      ).then(sgRulesResults => {
+      const loadSgEnrichment = async () => {
+        const sgIds = archForGaps.securityGroups.map(sg => sg.id);
+        try {
+          const bulkRes = await fetch('/api/proxy/security-groups/inspector/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sg_ids: sgIds, window: '30d' }),
+          });
+          if (!bulkRes.ok) throw new Error(`bulk SG ${bulkRes.status}`);
+          const bulk = await bulkRes.json();
+          return archForGaps.securityGroups.map(sg => {
+            const data = bulk.results?.[sg.id];
+            if (!data) return null;
+            const rules = mapInspectorRulesToSGRules(data.configured_rules || []);
+            return { sgId: sg.id, rules };
+          });
+        } catch (bulkErr) {
+          console.warn('[TrafficFlowMap] SG bulk fetch failed, falling back to per-SG:', bulkErr);
+          return Promise.all(
+            archForGaps.securityGroups.map(sg =>
+              fetchSGRules(sg.id)
+                .then(rules => ({ sgId: sg.id, rules }))
+                .catch(err => {
+                  console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
+                  return null;
+                }),
+            ),
+          );
+        }
+      };
+      loadSgEnrichment().then(sgRulesResults => {
         if (fetchEpochRef.current !== myEpoch) {
           console.log('[TrafficFlowMap] SG enrichment skipped — superseded by newer fetch');
           return;
@@ -4209,7 +7518,18 @@ export default function TrafficFlowMap({
           const sg = archForGaps.securityGroups.find(s => s.id === sgId);
           if (sg) {
             sg.rules = rules;
-            sg.totalCount = rules.length;
+            // Only overwrite totalCount when the inspector returned a
+            // non-zero count. Otherwise keep the build-time seed
+            // (gap_count fallback from buildArchitecture) so the chip
+            // doesn't drop back to "0 rules" when the inspector returns
+            // empty (cold, no policy parsed yet, or the endpoint
+            // omits config-only rules). The 2026-05-21 demo bug:
+            // alon-prod default SG has 3 real rules but inspector
+            // returned empty array → chip read "0 rules" while the
+            // closure footer said "review ingress rules."
+            if (rules.length > 0) {
+              sg.totalCount = rules.length;
+            }
             sg.usedCount = rules.filter(r => r.status === 'used').length;
             sg.gapCount = rules.filter(r => r.status === 'unused' || r.status === 'unobserved').length;
           }
@@ -4226,7 +7546,7 @@ export default function TrafficFlowMap({
     } else {
       setRefreshStatus('idle');
     }
-  }, [buildArchitecture, fetchSGRules, fetchIAMRoleData]);
+  }, [buildArchitecture, fetchSGRules, fetchIAMRoleData, mapInspectorRulesToSGRules]);
 
   // Drive runEnrichment off the cached dep-map data. Fires on initial
   // mount (when localStorage has cache, this runs synchronously with the
@@ -4249,6 +7569,80 @@ export default function TrafficFlowMap({
 
     return () => clearInterval(interval);
   }, [retryDepMap, autoRefresh, refreshInterval]);
+
+  // Resource-path focus: when a leaf was clicked in the Stack
+  // Components sidebar (S3 prefix / RDS table / DDB), dim every map
+  // node whose id is NOT in the active set (parent jewel, accessor
+  // principals, source IPs) so the path context jumps out visually.
+  //
+  // Implementation choice — DOM walker via classList rather than a
+  // React-state opacity prop on every node. The renderer is 5K LOC
+  // with many node-render branches (compute, resource, sg, nacl,
+  // role, instance_profile, api_call); threading an `isDimmed`
+  // boolean through every branch would touch dozens of files and
+  // risk subtle regressions in unrelated render paths. A one-shot
+  // post-render DOM pass keyed on the existing `data-*-id`
+  // attributes is surgical and reverts cleanly on cleanup.
+  //
+  // The CSS rule for `.focus-dimmed` lives in app/globals.css so
+  // the transition is consistent with the rest of the design system.
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+    const dimClass = 'focus-dimmed';
+
+    // No filter → strip any leftover class and bail.
+    if (!resourcePathsFilter) {
+      container
+        .querySelectorAll(`.${dimClass}`)
+        .forEach((el) => el.classList.remove(dimClass));
+      return;
+    }
+
+    const activeIds = new Set<string>(
+      [
+        resourcePathsFilter.parentJewelId,
+        resourcePathsFilter.resolvedTargetId,
+        resourcePathsFilter.resourceId,
+        ...resourcePathsFilter.accessorIds,
+        ...resourcePathsFilter.sourceIps,
+      ].filter(Boolean) as string[],
+    );
+
+    // Selector covers every data-*-id attribute the map renders.
+    // Keep this list in sync with the data attributes used on node
+    // wrappers in this component (search for `data-resource-id=` /
+    // `data-compute-id=` etc. to confirm coverage).
+    const selector =
+      '[data-resource-id], [data-compute-id], [data-sg-id], [data-nacl-id], [data-role-id]';
+    const allNodes = container.querySelectorAll(selector);
+
+    allNodes.forEach((n) => {
+      const id =
+        n.getAttribute('data-resource-id') ||
+        n.getAttribute('data-compute-id') ||
+        n.getAttribute('data-sg-id') ||
+        n.getAttribute('data-nacl-id') ||
+        n.getAttribute('data-role-id');
+      if (id && !activeIds.has(id)) {
+        n.classList.add(dimClass);
+      } else {
+        n.classList.remove(dimClass);
+      }
+    });
+
+    // Cleanup on filter change / unmount.
+    return () => {
+      container
+        .querySelectorAll(`.${dimClass}`)
+        .forEach((el) => el.classList.remove(dimClass));
+    };
+    // architecture in deps so an auto-refresh that swaps node DOM
+    // (new nodes appear) re-runs the dim pass and the fresh DOM
+    // gets the right state. Without this, a refresh-during-active-
+    // filter window would show all nodes bright until the user
+    // toggles the filter.
+  }, [resourcePathsFilter, architecture]);
 
   // Manual refresh: bump epoch so depMapUrl changes → hook useEffect
   // fires a fresh fetch with cache: 'no-store' (busts BOTH localStorage
@@ -4319,6 +7713,34 @@ export default function TrafficFlowMap({
     }
   }, []);
 
+  useEffect(() => {
+    if (!fullscreenContainerRef) return;
+    if (isFullscreen && containerRef.current) {
+      fullscreenContainerRef.current = containerRef.current;
+    } else if (!document.fullscreenElement) {
+      fullscreenContainerRef.current = null;
+    }
+  }, [isFullscreen, fullscreenContainerRef]);
+
+  useEffect(() => {
+    if (!fullscreenContainerRef) return;
+    const onFullscreenChange = () => {
+      if (
+        document.fullscreenElement instanceof HTMLElement &&
+        containerRef.current &&
+        document.fullscreenElement === containerRef.current
+      ) {
+        fullscreenContainerRef.current = containerRef.current;
+        setIsFullscreen(true);
+      } else {
+        fullscreenContainerRef.current = null;
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [fullscreenContainerRef]);
+
   if (loading && !architecture) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-slate-900">
@@ -4351,6 +7773,20 @@ export default function TrafficFlowMap({
         <StackSidebar
           architecture={architecture}
           onSelectResource={(resource, type) => {
+            // Attack Paths v2: Storage/DDB/RDS row click opens damage-scope
+            // drawer (same as clicking the canvas node on the right).
+            const damageScopeType = resolveDamageScopeNodeType(
+              resource as { id?: string; type?: string },
+              'resource',
+            );
+            if (onDamageScopeDataNode && damageScopeType) {
+              onDamageScopeDataNode({
+                id: resource.id,
+                name: (resource as { name?: string }).name ?? resource.id,
+                type: damageScopeType,
+              });
+              return;
+            }
             setSelectedService({ service: resource, type: type as any });
             setSelectedNodeForHops(resource.id);
             // Scroll to node on map
@@ -4362,6 +7798,23 @@ export default function TrafficFlowMap({
           highlightedNodeId={highlightedNodeId}
           onHighlightNode={setHighlightedNodeId}
           attackPaths={attackPaths}
+          systemName={systemName}
+          onFilterPaths={(filter) => {
+            // Resource drill-down filter (S3 prefix / RDS table / DDB
+            // table). The active filter is stored on local state so we
+            // can highlight matching map nodes + show the active banner
+            // in the sidebar. Defer the actual node-dimming overlay to
+            // the follow-up commit — for now we scroll to the parent
+            // jewel + select it so the path-context becomes visible.
+            setResourcePathsFilter(filter);
+            if (filter) {
+              setSelectedNodeForHops(filter.parentJewelId);
+              const el = mapContainerRef.current?.querySelector(
+                `[data-resource-id="${filter.parentJewelId}"]`
+              );
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }}
         />
       )}
 
@@ -4381,16 +7834,44 @@ export default function TrafficFlowMap({
             <Layers className="w-4 h-4" />
           </button>
           <h2 className="text-white font-bold text-lg">
-            {pathFilter ? 'Path Flow Map' : 'Traffic Flow Map'}
+            {titleOverride ?? (pathFilter ? 'Path Flow Map' : 'Traffic Flow Map')}
           </h2>
-          {pathFilter && (pathFilter.jewelName || pathFilter.pathLabel) && (
+          {(pathBadgeOverride || (pathFilter && (pathFilter.jewelName || pathFilter.pathLabel))) && (
             <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30">
               <Target className="w-3.5 h-3.5 text-rose-300" />
               <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-200">
-                {pathFilter.pathLabel
-                  ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
-                  : `Path to ${pathFilter.jewelName}`}
+                {pathBadgeOverride
+                  ? pathBadgeOverride
+                  : pathFilter?.pathLabel
+                    ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
+                    : `Path to ${pathFilter?.jewelName}`}
               </span>
+            </div>
+          )}
+          {/* Optional inline slot for parent-supplied chrome (EXFIL
+              path selector pills). Renders in the same row as the
+              title + path badge so it stays visible in TFM's
+              full-screen mode where the outer panel header is hidden. */}
+          {headerSlot}
+
+          {/* Resource drill-down filter banner — set when the operator
+              clicked a leaf (S3 prefix / RDS table) in the sidebar. */}
+          {resourcePathsFilter && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
+              <Target className="w-3.5 h-3.5 text-blue-300" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-200">
+                {resourcePathsFilter.leafType === 'S3Prefix' && 'Prefix → '}
+                {resourcePathsFilter.leafType === 'RDSTable' && 'Table → '}
+                {!resourcePathsFilter.leafType && 'Resource → '}
+                {resourcePathsFilter.resourceId.split('/').pop()?.split('::').pop() ?? resourcePathsFilter.resourceId}
+              </span>
+              <button
+                onClick={() => setResourcePathsFilter(null)}
+                className="text-blue-300 hover:text-blue-100 text-[11px] font-medium"
+                title="Clear resource filter"
+              >
+                ×
+              </button>
             </div>
           )}
 
@@ -4440,24 +7921,35 @@ export default function TrafficFlowMap({
             )}
           </button>
 
-          {/* Inject CVE Scenario */}
-          <button
-            onClick={injectAttackScenario}
-            disabled={injectingCVE}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
-              injectingCVE
-                ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
-                : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
-            }`}
-            title="Inject simulated CVE data for testing vulnerability-based paths"
-          >
-            {injectingCVE ? (
-              <RefreshCw className="w-3 h-3 animate-spin" />
-            ) : (
-              <Target className="w-3 h-3" />
-            )}
-            Inject CVE Test Data
-          </button>
+          {/* Inject CVE Scenario — DEV-ONLY.
+              This button writes SYNTHETIC CVE nodes into Neo4j. It's a
+              developer test tool for exercising vulnerability-based
+              paths and must NEVER ship to production. Per
+              feedback_no_mock_numbers_in_ui + the 2026-05-21
+              credibility audit — operators / customers / design
+              partners can never see a "Inject Test Data" button on a
+              security platform; that's instant credibility loss.
+              Gated by NODE_ENV; Next.js inlines this at build time so
+              the button code is dead-stripped from prod bundles. */}
+          {process.env.NODE_ENV !== 'production' && (
+            <button
+              onClick={injectAttackScenario}
+              disabled={injectingCVE}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+                injectingCVE
+                  ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
+                  : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
+              }`}
+              title="DEV ONLY — inject synthetic CVE data for testing vulnerability-based paths"
+            >
+              {injectingCVE ? (
+                <RefreshCw className="w-3 h-3 animate-spin" />
+              ) : (
+                <Target className="w-3 h-3" />
+              )}
+              [DEV] Inject CVE Test Data
+            </button>
+          )}
 
           {/* Auto-refresh toggle */}
           <button
@@ -4492,6 +7984,31 @@ export default function TrafficFlowMap({
             onToggleVPC={() => setShowVPCBoundaries(!showVPCBoundaries)}
           />
 
+          {/* V2-3 (2026-05-31): "Show laterals" toggle. Visible only
+              when canvasV2 is on (the polish layer is opt-in via the
+              ?canvas=v2 flag). Default false → laterals dim at ~30%;
+              true → laterals at full opacity. Persists in localStorage
+              per-user, not per-chain. */}
+          {canvasV2 && (
+            <button
+              onClick={() => setShowLaterals(!showLaterals)}
+              data-canvas-v2-toggle="show-laterals"
+              data-show-laterals={showLaterals ? "true" : "false"}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                showLaterals
+                  ? "bg-amber-500/20 text-amber-300"
+                  : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-slate-300"
+              }`}
+              title={
+                showLaterals
+                  ? "Laterals at full opacity. Click to dim non-path edges/nodes."
+                  : "Laterals dimmed to 30%. Click to surface them at full opacity."
+              }
+            >
+              Laterals: {showLaterals ? "bright" : "dim"}
+            </button>
+          )}
+
           {/* Export */}
           <ExportControls
             containerRef={mapContainerRef as React.RefObject<HTMLDivElement>}
@@ -4514,7 +8031,10 @@ export default function TrafficFlowMap({
 
           {/* Fullscreen toggle */}
           <button
+            type="button"
             onClick={toggleFullscreen}
+            data-testid="canvas-fullscreen-toggle"
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium"
           >
             {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
@@ -4523,12 +8043,48 @@ export default function TrafficFlowMap({
       </div>
 
       <div ref={mapContainerRef} className="flex-1 overflow-y-auto p-4 relative">
-        {architecture && (architecture.computeServices.length > 0 || architecture.resources.length > 0) ? (
+        {architecture && (
+          architecture.computeServices.length > 0 ||
+          architecture.resources.length > 0 ||
+          // EXFIL view (2026-05-25 user report) — the jewel-on-left
+          // case has its only card in entryPoints + accessors in
+          // iamRoles. The original guard only checked compute/resources,
+          // so an architecture with 5 accessors and 0 network egress
+          // fell through to the "No Active Traffic" empty state instead
+          // of rendering the identity plane. Widen the guard so any
+          // renderable lane keeps us on the diagram path.
+          (architecture.entryPoints?.length ?? 0) > 0 ||
+          architecture.iamRoles.length > 0 ||
+          (architecture.principals?.length ?? 0) > 0
+        ) ? (
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
-            pathMode={!!onPathNodeAction}
+            // pathMode is true whenever the caller has filtered the
+            // architecture down to a single attack path (Attack Paths v2)
+            // OR has registered a per-node action callback (legacy
+            // attack-paths drill-in). Both surfaces want the path-
+            // specific UI: 7-col grid template, click-to-modal SG card.
+            pathMode={!!pathFilter || !!onPathNodeAction}
+            innerTitleOverride={innerTitleOverride}
+            innerSubtitleOverride={innerSubtitleOverride}
+            observedMode={observedMode}
+            onRoleClick={onRoleClick}
+            jewelEmphasis={jewelEmphasis}
+            jewelSeverity={jewelSeverity}
+            canvasV2={canvasV2}
+            showLaterals={showLaterals}
+            entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
+              const damageScopeType = resolveDamageScopeNodeType(service, type);
+              if (onDamageScopeDataNode && damageScopeType) {
+                onDamageScopeDataNode({
+                  id: service.id,
+                  name: (service as { name?: string }).name ?? service.id,
+                  type: damageScopeType,
+                });
+                return;
+              }
               // If the parent registered a path-node action callback
               // (Attack Paths page), route there — they'll open the
               // right remediation modal per node type.
@@ -4635,16 +8191,21 @@ export default function TrafficFlowMap({
                   <div className="text-center">
                     <div className="text-slate-300 text-xs font-medium mb-1">No CVE Attack Paths Found</div>
                     <div className="text-slate-500 text-[10px] leading-relaxed">
-                      No current CVE-driven routes to crown jewels were detected. You can still inject CVE test data to simulate vulnerability-based paths.
+                      No current CVE-driven routes to crown jewels were detected.
+                      {process.env.NODE_ENV !== 'production' && ' You can still inject CVE test data to simulate vulnerability-based paths.'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => { setShowAttackPaths(false); injectAttackScenario(); }}
-                    className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
-                  >
-                    <Target className="w-3 h-3" />
-                    Inject CVE Test Data
-                  </button>
+                  {/* DEV-only — see comment on the primary inject button.
+                      This is the empty-state fallback inject; same gating. */}
+                  {process.env.NODE_ENV !== 'production' && (
+                    <button
+                      onClick={() => { setShowAttackPaths(false); injectAttackScenario(); }}
+                      className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
+                    >
+                      <Target className="w-3 h-3" />
+                      [DEV] Inject CVE Test Data
+                    </button>
+                  )}
                   <button
                     onClick={() => loadAttackPaths()}
                     className="px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 border border-slate-600/30 rounded-lg text-slate-400 text-[10px] font-medium flex items-center gap-1.5 transition-colors"

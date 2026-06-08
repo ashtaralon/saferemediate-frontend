@@ -28,7 +28,6 @@ import {
   Clock,
   Calendar,
   XCircle,
-  BellOff,
   Filter,
   ShieldAlert,
   ShieldCheck,
@@ -73,6 +72,9 @@ interface OrphanResource {
   isInternetFacing: boolean
   hasEncryption: boolean | null
   totalPermissions: number
+  evidenceSources?: Array<"cloudtrail" | "flow_logs" | "access_advisor" | "graph_only">
+  telemetryConfidence?: "confirmed" | "probable" | "assumed"
+  missingEvidenceSources?: string[]
 }
 
 interface ConfidenceSignal {
@@ -199,6 +201,38 @@ const CONFIDENCE_COLORS = {
   LOW: "text-[#6b7280]",
 }
 
+const TELEMETRY_CONFIDENCE_CHIP = {
+  confirmed: { label: "Confirmed", className: "bg-[#22c55e15] text-[#22c55e] border-[#22c55e30]" },
+  probable: { label: "Probable", className: "bg-[#eab30815] text-[#ca8a04] border-[#eab30830]" },
+  assumed: { label: "Assumed", className: "bg-[#eab30815] text-[#ca8a04] border-[#eab30830]" },
+} as const
+
+const EVIDENCE_SOURCE_LABELS: Record<string, string> = {
+  cloudtrail: "CloudTrail",
+  flow_logs: "Flow Logs",
+  access_advisor: "Access Advisor",
+  graph_only: "Graph only",
+}
+
+function awsConsoleUrl(orphan: OrphanResource): string {
+  const region = orphan.region || "eu-west-1"
+  switch (orphan.type) {
+    case "S3":
+    case "S3Bucket":
+      return `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(orphan.name)}?region=${region}`
+    case "Lambda":
+    case "LambdaFunction":
+      return `https://${region}.console.aws.amazon.com/lambda/home?region=${region}#/functions/${encodeURIComponent(orphan.name)}`
+    case "RDS":
+    case "RDSInstance":
+      return `https://${region}.console.aws.amazon.com/rds/home?region=${region}#database:id=${encodeURIComponent(orphan.name)}`
+    case "SecurityGroup":
+      return `https://${region}.console.aws.amazon.com/ec2/home?region=${region}#SecurityGroup:`
+    default:
+      return `https://${region}.console.aws.amazon.com/console/home?region=${region}`
+  }
+}
+
 const RECOMMENDATION_CONFIG = {
   DELETE: { icon: Trash2, color: "bg-[#ef4444] text-white", label: "Delete" },
   DECOMMISSION: { icon: XCircle, color: "bg-[#f97316] text-white", label: "Decommission" },
@@ -240,6 +274,38 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [preCheckModal, setPreCheckModal] = useState<{ orphan: OrphanResource; safetyScore: SafetyScore | null; loading: boolean; error: string | null } | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null) // record ID or orphan ID being acted on
   const [activityModal, setActivityModal] = useState<{ recordId: string; activity: any[]; loading: boolean } | null>(null)
+
+  // Just-moved highlight: ids handed off via sessionStorage from the IAM
+  // shared-roles "Move to Orphan" button. We pop the storage on mount,
+  // render the rows with a yellow ring, and clear after 6 seconds so
+  // the operator gets unmistakable feedback that the action landed
+  // (the prior implementation was invisible — operator clicked, page
+  // navigated, but the row blended in with the existing orphan list).
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("cyntro:just-moved-orphan-ids")
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+          setHighlightIds(new Set(parsed as string[]))
+        }
+        sessionStorage.removeItem("cyntro:just-moved-orphan-ids")
+      }
+    } catch {
+      // sessionStorage may be unavailable / parse failed — silently
+      // skip; the rows still appear (filter-bypass fix below) but
+      // without the visual highlight.
+    }
+  }, [])
+
+  // Fade the highlight after 6 seconds so it doesn't persist.
+  useEffect(() => {
+    if (highlightIds.size === 0) return
+    const t = setTimeout(() => setHighlightIds(new Set()), 6000)
+    return () => clearTimeout(t)
+  }, [highlightIds])
 
   useEffect(() => {
     fetchOrphanServices()
@@ -414,9 +480,75 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     }
   }
 
+  // Quarantine records that came from outside the orphan-services
+  // pipeline (e.g. operator clicked "Move to Orphan" on the IAM
+  // shared-roles view). They have a real quarantine record but no
+  // matching row in `orphans[]`, so without synthesis they'd be
+  // invisible here — which is exactly the "they don't move to the
+  // orphan" bug the operator reported. Synthesize an OrphanResource-
+  // shaped placeholder so the existing rendering picks them up.
+  const orphansFromQuarantine = useMemo<OrphanResource[]>(() => {
+    if (quarantineRecords.length === 0) return []
+    const knownNames = new Set(orphans.map((o) => o.name))
+    const seenNames = new Set<string>()
+    return quarantineRecords
+      .filter((r) => !["DELETED", "RESTORED"].includes(r.phase))
+      .filter((r) => !knownNames.has(r.resourceName))
+      .filter((r) => {
+        // Same name can have multiple records — keep the newest only.
+        if (seenNames.has(r.resourceName)) return false
+        seenNames.add(r.resourceName)
+        return true
+      })
+      .map<OrphanResource>((r) => ({
+        id: `qrec-${r.id}`,
+        name: r.resourceName,
+        type: r.resourceType || "IAMConsumer",
+        region: "—",
+        status: "quarantined",
+        lastSeen: r.createdAt || "",
+        lastUsedBy: null,
+        idleDays: 0,
+        attachedResources: 0,
+        riskLevel: "HIGH",
+        confidence: "HIGH",
+        recommendation: "DECOMMISSION",
+        recommendationReason:
+          "Quarantined from the IAM shared-roles view — backed up; restore or delete from here.",
+        estimatedMonthlyCost: 0,
+        isSeasonal: false,
+        seasonalPattern: null,
+        nextExpectedRun: null,
+        properties: {},
+        securityRiskScore: 0,
+        securityFactors: [],
+        isInternetFacing: false,
+        hasEncryption: null,
+        totalPermissions: 0,
+      }))
+  }, [quarantineRecords, orphans])
+
+  // Set of synth-row ids (rows that came from a quarantine pre-check
+  // initiated by the operator, e.g. via IAM "Move to Orphan"). These
+  // bypass the riskFilter / typeFilter / searchQuery — when an operator
+  // explicitly clicks "Move", they MUST see the row land here. Filtering
+  // it out behind a typeFilter the operator forgot they set is the
+  // "Navigates but row not there" bug (2026-05-26).
+  const synthIds = useMemo(
+    () => new Set(orphansFromQuarantine.map((o) => o.id)),
+    [orphansFromQuarantine],
+  )
+
   const filteredOrphans = useMemo(() => {
-    return orphans.filter((o) => {
+    // Synth rows (from IAM "Move to Orphan") render FIRST so the
+    // operator sees their just-clicked Lambda at the top, not buried
+    // under the orphan-services pipeline output. The Pre-Check badge
+    // also makes them visually distinct.
+    return [...orphansFromQuarantine, ...orphans].filter((o) => {
       if (dismissedIds.has(o.id)) return false
+      // Synth rows from explicit operator action bypass filters.
+      // dismiss is the only way to hide them — that's an explicit action too.
+      if (synthIds.has(o.id)) return true
       if (riskFilter !== "ALL" && o.riskLevel !== riskFilter) return false
       if (typeFilter !== "ALL") {
         const typeUpper = o.type.toUpperCase()
@@ -429,7 +561,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       }
       return true
     })
-  }, [orphans, dismissedIds, riskFilter, typeFilter, searchQuery])
+  }, [orphans, orphansFromQuarantine, synthIds, dismissedIds, riskFilter, typeFilter, searchQuery])
 
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
@@ -627,9 +759,25 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                   const isExpanded = expandedCards.has(orphan.id)
                   const qRecord = getQuarantineStatus(orphan.name)
                   const qPhase = qRecord ? PHASE_CONFIG[qRecord.phase] : null
+                  // Just-moved highlight (PG-1, 2026-05-26): ring +
+                  // amber background fades after 6s, plus auto-scroll
+                  // into view so the operator can't miss it.
+                  const isJustMoved = highlightIds.has(orphan.id)
 
                   return (
-                    <div key={orphan.id} className="hover:bg-gray-50/50 transition-colors">
+                    <div
+                      key={orphan.id}
+                      ref={(el) => {
+                        if (isJustMoved && el) {
+                          el.scrollIntoView({ behavior: "smooth", block: "center" })
+                        }
+                      }}
+                      className={`hover:bg-gray-50/50 transition-colors ${
+                        isJustMoved
+                          ? "ring-2 ring-amber-500 ring-offset-2 bg-amber-50/60 dark:bg-amber-950/30 rounded-lg"
+                          : ""
+                      }`}
+                    >
                       {/* Card Header */}
                       <div
                         className="flex items-center gap-4 p-4 cursor-pointer"
@@ -650,7 +798,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--muted-foreground,#6b7280)]">
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : `${orphan.idleDays}d idle (no activity ever)`}</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : "no telemetry — assumed idle (verify in AWS console)"}</span>
                             <span>{orphan.region}</span>
                             {orphan.lastUsedBy && <span>Last used by: {orphan.lastUsedBy}</span>}
                           </div>
@@ -669,6 +817,19 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                           {orphan.estimatedMonthlyCost > 0 && (
                             <span className="text-xs font-medium text-[#22c55e] bg-[#22c55e10] px-2 py-1 rounded">
                               ${orphan.estimatedMonthlyCost}/mo
+                            </span>
+                          )}
+                          {orphan.telemetryConfidence && (
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border flex items-center gap-1 ${TELEMETRY_CONFIDENCE_CHIP[orphan.telemetryConfidence].className}`}
+                              title={
+                                orphan.evidenceSources?.length
+                                  ? `Sources: ${orphan.evidenceSources.map(s => EVIDENCE_SOURCE_LABELS[s] || s).join(", ")}`
+                                  : "No Cyntro telemetry — verify in AWS console before deleting"
+                              }
+                            >
+                              {orphan.telemetryConfidence === "assumed" && <AlertTriangle className="w-3 h-3" />}
+                              {TELEMETRY_CONFIDENCE_CHIP[orphan.telemetryConfidence].label}
                             </span>
                           )}
                           <span className={`text-[10px] font-semibold px-2 py-1 rounded border ${riskClass}`}>
@@ -694,7 +855,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Idle Duration</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? `${orphan.idleDays} days since last activity` : 'No activity ever recorded'}</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? `${orphan.idleDays} days since last activity` : 'No telemetry — idle duration assumed'}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Connections</div>
@@ -702,11 +863,29 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Evidence Sources</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? 'CloudTrail · Flow Logs · Access Advisor' : 'No evidence found in any source'}</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">
+                                  {orphan.evidenceSources?.length
+                                    ? orphan.evidenceSources.map(s => EVIDENCE_SOURCE_LABELS[s] || s).join(" · ")
+                                    : "No telemetry sources"}
+                                </div>
+                                {orphan.missingEvidenceSources && orphan.missingEvidenceSources.length > 0 && (
+                                  <div className="text-[10px] text-[#ca8a04] mt-0.5">Missing: {orphan.missingEvidenceSources.join(", ")}</div>
+                                )}
                               </div>
                               <div>
-                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Confidence</div>
-                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {!orphan.lastSeen ? 'No activity across any evidence plane' : orphan.idleDays >= 180 ? `${Math.floor(orphan.idleDays / 30)}+ months since last activity` : `${orphan.idleDays} days since last observed activity`}</div>
+                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Telemetry Confidence</div>
+                                <div className={`font-medium flex items-center gap-1 ${orphan.telemetryConfidence === "confirmed" ? "text-[#22c55e]" : "text-[#ca8a04]"}`}>
+                                  {orphan.telemetryConfidence === "assumed" && <AlertTriangle className="w-3.5 h-3.5" />}
+                                  {orphan.telemetryConfidence
+                                    ? TELEMETRY_CONFIDENCE_CHIP[orphan.telemetryConfidence].label
+                                    : orphan.confidence}
+                                  {" — "}
+                                  {!orphan.lastSeen
+                                    ? "No Cyntro telemetry; verify in AWS console"
+                                    : orphan.idleDays >= 180
+                                      ? `${Math.floor(orphan.idleDays / 30)}+ months since last activity`
+                                      : `${orphan.idleDays} days since last observed activity`}
+                                </div>
                               </div>
                             </div>
 
@@ -780,23 +959,32 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             </div>
 
                             {/* Quarantine Actions — Phase-Aware */}
+                            {/* Entry state surfaces just two options
+                                (Quarantine | Delete). Both open the
+                                pre-check safety modal where the
+                                operator confirms with the safety
+                                score visible. The modal carries the
+                                final Quarantine + Delete Now buttons
+                                so the choice can be re-pivoted there
+                                without backing out. */}
                             <div className="flex items-center gap-2 pt-1">
                               {!qRecord ? (
                                 <>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); runPreCheck(orphan) }}
                                     disabled={actionLoading === orphan.id}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                                   >
-                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldAlert className="w-3 h-3" />}
-                                    Start Quarantine
+                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
+                                    Quarantine
                                   </button>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                                    onClick={(e) => { e.stopPropagation(); runPreCheck(orphan) }}
+                                    disabled={actionLoading === orphan.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#ef4444] text-[#ef4444] rounded-lg hover:bg-[#ef444410] transition-colors disabled:opacity-50"
                                   >
-                                    <BellOff className="w-3 h-3" />
-                                    Dismiss
+                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    Delete
                                   </button>
                                 </>
                               ) : qRecord.phase === "PRE_CHECK" || qRecord.phase === "MONITOR" ? (
@@ -1138,6 +1326,27 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                       </div>
                     ))}
                   </div>
+
+                  {/* Assumed-confidence telemetry warning */}
+                  {preCheckModal.orphan.telemetryConfidence === "assumed" && (
+                    <div className="flex items-start gap-2 p-3 bg-[#eab30815] border border-[#eab30840] rounded-lg">
+                      <AlertTriangle className="w-4 h-4 text-[#ca8a04] mt-0.5 shrink-0" />
+                      <div className="text-xs text-[#92400e] space-y-1">
+                        <p className="font-semibold">No Cyntro telemetry for this resource — verify in AWS console first.</p>
+                        {preCheckModal.orphan.missingEvidenceSources && preCheckModal.orphan.missingEvidenceSources.length > 0 && (
+                          <p>Missing sources: {preCheckModal.orphan.missingEvidenceSources.join(", ")}</p>
+                        )}
+                        <a
+                          href={awsConsoleUrl(preCheckModal.orphan)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[#b45309] underline font-medium"
+                        >
+                          Open in AWS Console
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Warnings */}
                   {preCheckModal.safetyScore.warnings.length > 0 && (

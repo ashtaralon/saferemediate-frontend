@@ -3,10 +3,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { filterActivePaths, narrowActivePaths } from "@/lib/active-filters"
+import type { ActivePathList } from "@/lib/active-filters"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
+import { AttackTreePanel } from "./attack-tree-panel"
 import { PathListPanel } from "./path-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
+import { PathKillerMap } from "./path-killer-map"
 // Reuse the actual System Map (traffic-flow-map.tsx) — the Traffic Flow Map
 // rendered behind the "System Map" tab in Topology. Same component, same
 // data, same Stack Components sidebar / IAM / SG / NACL / API-Calls /
@@ -74,9 +78,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [pathView, setPathView] = useState<"list" | "detail">("list")
 
   const [showFlowViz, setShowFlowViz] = useState(true)
-  // "clean" = new reactflow DAG (default, the polished CISO view).
-  // "lanes" = legacy 5-column lane view (kept for back-compat).
-  const [graphMode, setGraphMode] = useState<"clean" | "lanes">("clean")
+  // "killer" = PathKillerMap (default 2026-05-20) — hero + chain +
+  //            findings + actions + lateral, the operator-facing story.
+  // "clean"  = TrafficFlowMap (legacy CISO view, topology + traffic).
+  // "lanes"  = AttackPathFlowViz (legacy 5-column lane diagram).
+  const [graphMode, setGraphMode] = useState<"killer" | "clean" | "lanes">("killer")
   // Maximize the attack graph: hides the hero + Damage Reduction Plan
   // so the graph gets the full viewport. Per operator feedback the
   // static analysis takes too much screen — the dynamic graph is the
@@ -106,6 +112,14 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // resources confirmed absent from AWS during the last successful scan).
   // Default off — live view hides zombies.
   const [includeDeleted, setIncludeDeleted] = useState(false)
+  // Enriched-evidence toggle (2026-05-20). When on, the proxy passes
+  // enriched=true so the backend's Tier-1 Part 2 supplements attach
+  // extra fields per path node — egress destinations, ENI count,
+  // mitigation history, target groups, S3 prefixes, route tables,
+  // LB targets, lambda invocation counts. Additive only — path graph
+  // shape unchanged. Default off so the lighter payload stays the
+  // norm and operators opt in when they want the deeper drill.
+  const [enriched, setEnriched] = useState(false)
 
   // Stale-while-revalidate via useCachedFetch (localStorage SWR).
   // Replaced the raw fetch + AbortController + useState pattern because
@@ -126,7 +140,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // independently — without that, the two snapshots would clobber
   // each other.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${includeStale ? "&include_stale=true" : ""}${includeDeleted ? "&include_deleted=true" : ""}${enriched ? "&enriched=true" : ""}`
     : null
   const {
     data: rawData,
@@ -134,7 +148,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     error,
     retry,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}`,
+    cacheKey: `iap:${systemName}:${includeStale}:${includeDeleted}:${enriched}`,
   })
 
   // Envelope unwrap. Backend optionally wraps responses in a
@@ -163,16 +177,29 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     retry()
   }, [retry])
 
-  const jewelPaths = useMemo(() => {
-    if (!data || !selectedJewelId) return []
-    return (data.paths ?? []).filter((p) => p.crown_jewel_id === selectedJewelId)
-  }, [data, selectedJewelId])
+  // Client-side stale-node gate. See lib/active-filters.ts —
+  // drops paths where any node carries is_active=false. Applied at the
+  // single read site so EVERY downstream useMemo / render gets a
+  // pre-filtered array. Catches localStorage-SWR-cached responses
+  // from before backend hardening landed.
+  const activePaths: ActivePathList<IdentityAttackPath> = useMemo(
+    () => filterActivePaths(data?.paths ?? []),
+    [data?.paths],
+  )
+
+  // narrowActivePaths preserves the ActivePathList brand through the
+  // crown-jewel filter so downstream components requiring the brand
+  // type-check correctly.
+  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
+    if (!selectedJewelId) return filterActivePaths([])
+    return narrowActivePaths(activePaths, (p) => p.crown_jewel_id === selectedJewelId)
+  }, [activePaths, selectedJewelId])
 
   // ── Partition jewels + paths by "safe" definition: no actionable remediation ──
   const { atRiskJewels, safeJewels, atRiskPathCount, safePathCount } = useMemo(() => {
     if (!data) return { atRiskJewels: [], safeJewels: [], atRiskPathCount: 0, safePathCount: 0 }
     const jewels = data.crown_jewels ?? []
-    const paths = data.paths ?? []
+    const paths = activePaths
     const pathHasAction = (p: IdentityAttackPath) =>
       (p.risk_reduction?.top_actions?.length ?? 0) > 0
 
@@ -897,6 +924,40 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                 {includeDeleted ? "● Show deleted" : "○ Hide deleted"}
               </span>
             </button>
+            {/* Enriched-evidence toggle (2026-05-20): when ON, each path
+                node carries the Tier-1 Part 2 supplement fields (egress
+                destinations, ENI count, mitigation history, target
+                groups, S3 prefixes, route tables, LB targets, lambda
+                invocations). The node detail panel renders these as
+                additional evidence sections — additive only, never
+                changes the path graph. Default off so the lighter
+                payload stays the norm. */}
+            <button
+              onClick={() => setEnriched((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-semibold transition-colors"
+              style={
+                enriched
+                  ? {
+                      background: "rgba(56, 189, 248, 0.15)",
+                      color: "#7dd3fc",
+                      border: "1px solid rgba(56, 189, 248, 0.35)",
+                    }
+                  : {
+                      background: "rgba(15, 23, 42, 0.8)",
+                      color: "#94a3b8",
+                      border: "1px solid rgba(148, 163, 184, 0.15)",
+                    }
+              }
+              title={
+                enriched
+                  ? "Enriched evidence ON — showing route tables, egress destinations, ENI counts, target groups, prior mitigations, and more per node. Click to switch to the standard view."
+                  : "Standard view — click to attach Tier-1 evidence (route tables, egress destinations, ENI counts, target groups, prior mitigations) to each path node."
+              }
+            >
+              <span className="text-[10px]">
+                {enriched ? "● Enriched" : "○ Standard"}
+              </span>
+            </button>
             <button
               onClick={() => fetchData()}
               className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
@@ -927,6 +988,26 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           {selectedJewelId && (
             <CrownJewelSurfaceCard systemName={systemName} jewelId={selectedJewelId} />
           )}
+
+          {/* Attack Tree — structural "every door to this bucket" view for
+              S3 jewels. Sits between the surface card and the per-path list
+              so the operator gets the cross-path picture (which roles +
+              workloads reach this bucket, multi-role pivots, default-SG
+              exposure) before drilling into any single path. Suppressed for
+              non-S3 jewels until the backend Cypher generalises. */}
+          {selectedJewelId && (() => {
+            const sel = (data?.crown_jewels ?? []).find((j) => j.id === selectedJewelId)
+            if (!sel) return null
+            const isS3 =
+              (sel.type || "").toLowerCase().includes("s3") ||
+              sel.id.includes(":s3:::") ||
+              sel.id.startsWith("arn:aws:s3:")
+            if (!isS3) return null
+            // Prefer the bucket name (matches Neo4j b.name); fall back to ARN.
+            // Backend accepts name / id / arn — name is the most readable.
+            const identifier = sel.name || sel.id
+            return <AttackTreePanel bucketIdentifier={identifier} bucketLabel={sel.name || sel.id} />
+          })()}
 
           {/* PATH LIST — default landing per jewel. Operator picks one
               path's risk/damage to drill into. Skip in detail mode. */}
@@ -1015,8 +1096,23 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {/* View toggle: clean DAG (default) vs legacy 5-lane columns */}
+                  {/* View toggle: Story (default) | Flow | Lanes.
+                      Story is the operator-facing PathKillerMap — hero +
+                      chain + findings + actions + lateral. Flow is the
+                      shared TrafficFlowMap topology view. Lanes is the
+                      5-column lateral diagram with enrichment badges. */}
                   <div className="inline-flex items-center bg-slate-800/60 rounded p-0.5 border border-slate-700">
+                    <button
+                      onClick={() => setGraphMode("killer")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                        graphMode === "killer"
+                          ? "bg-emerald-500/20 text-emerald-200"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                      title="Story view — severity, attack chain, every active finding, and the prioritized fix queue, on one screen."
+                    >
+                      Story
+                    </button>
                     <button
                       onClick={() => setGraphMode("clean")}
                       className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
@@ -1064,7 +1160,38 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               </div>
 
               {showFlowViz && (
-                graphMode === "clean" ? (
+                graphMode === "killer" ? (
+                  // Story view (default 2026-05-20). Hero + chain +
+                  // findings + actions + lateral. The chain section
+                  // embeds the *Lanes* view (AttackPathFlowViz, the
+                  // 5-column attack-aware diagram) — the one that
+                  // carries the Tier-1 enrichments: AssumedRole chain
+                  // strip, finding pills, MFA badges, KMS/DDB/RDS
+                  // type labels, posture ring, ALSO REACHES.
+                  // Swapped from TrafficFlowMap (2026-05-20 #2) per
+                  // operator feedback: Flow has no Tier-1 badges; the
+                  // narrative wrapper deserves the lane-aware diagram.
+                  // mapNode is just JSX; PathKillerMap renders it in
+                  // a fixed-height container.
+                  <PathKillerMap
+                    path={currentPath}
+                    systemPosture={data?.system_posture ?? null}
+                    systemName={systemName}
+                    onRemediateNode={(nodeId, dryRun) =>
+                      handleNodeRemediate(nodeId, dryRun)
+                    }
+                    onRemediateAll={handleRemediateAll}
+                    mapNode={
+                      <AttackPathFlowViz
+                        paths={jewelPaths}
+                        selectedPathIndex={selectedPathIndex}
+                        onNodeClick={handleNodeClick}
+                        selectedNodeId={selectedNodeId}
+                        systemPosture={data?.system_posture ?? null}
+                      />
+                    }
+                  />
+                ) : graphMode === "clean" ? (
                   // Reuse the actual System Map (TrafficFlowMap), but
                   // pass it the CURRENT path's nodes as a filter so each
                   // crown jewel renders its own real data flow — not the
@@ -1145,6 +1272,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     selectedPathIndex={selectedPathIndex}
                     onNodeClick={handleNodeClick}
                     selectedNodeId={selectedNodeId}
+                    systemPosture={data?.system_posture ?? null}
                   />
                 )
               )}

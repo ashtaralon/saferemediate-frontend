@@ -154,3 +154,15 @@
     background-position: 20px 0;
   }
 }
+
+/* System Map resource-path focus filter. Set by a useEffect in
+   traffic-flow-map.tsx when the operator clicks a leaf in the Stack
+   Components sidebar (S3 prefix, RDS table). Dims every node except
+   the matching set (parent jewel + accessor principals + source
+   IPs). 200ms transition so the visual cue feels intentional, not
+   abrupt. */
+.focus-dimmed {
+  opacity: 0.28;
+  filter: grayscale(80%);
+  transition: opacity 200ms ease-out, filter 200ms ease-out;
+}

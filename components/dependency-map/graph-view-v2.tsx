@@ -1,11 +1,28 @@
 'use client'
 
+/**
+ * GraphViewV2 — Observed-First Map (custom SVG, container/component hierarchy).
+ *
+ * This is a pure DTO renderer:
+ *   ❌ no regex on aws_id / arn
+ *   ❌ no fuzzy name matching
+ *   ❌ no "if missing, derive it from this other field" fallbacks
+ *   ❌ no visual-proximity grouping (groups come from dto.containers + node.vpc_id only)
+ *   ❌ no frontend-invented relationships
+ *
+ * "Public-facing only" filter trusts `node.is_internet_exposed` verbatim from the
+ * producer. If a node's exposure flag is wrong, fix it in the producer, NOT here.
+ */
+
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
-  RefreshCw, ZoomIn, ZoomOut, Search, Shield, Server, Database, Globe,
-  Key, HardDrive, Lock, Layers, Activity, Maximize2, Minimize2, X, Focus, XCircle
+  RefreshCw, ZoomIn, ZoomOut, Search, Server, Database, Globe,
+  HardDrive, Lock, Layers, Activity, Maximize2, Minimize2, X, Focus, XCircle,
+  EyeOff
 } from 'lucide-react'
 import { CoverageBanner } from './coverage-banner'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 // ============================================================================
 // TYPES
@@ -116,13 +133,16 @@ const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 })
 
 const getColors = (t: string) => AWS_COLORS[t] || AWS_COLORS.Default
 const getLane = (t: string) => LANE_ORDER[t] ?? 3
-const truncate = (s: string, m = 20) => !s ? 'Unknown' : s.length <= m ? s : s.slice(0, m - 2) + '..'
 const formatType = (t: string) => ({
   InternetGateway: "Internet Gateway",
   NATGateway: "NAT Gateway",
   S3Bucket: "S3",
   VPCE: "VPC Endpoint"
 }[t] || t)
+
+// Account-level types live outside any VPC (per AWS architecture).
+// Don't fabricate a VPC for them and don't render them inside a VPC frame.
+const ACCOUNT_LEVEL_TYPES = new Set(['S3', 'S3Bucket', 'InternetGateway', 'DynamoDB'])
 
 // ============================================================================
 // ANIMATED EDGE COMPONENT
@@ -189,7 +209,7 @@ export default function GraphViewV2({
     notes: []
   })
   const [mode, setMode] = useState<'observed' | 'observed+potential'>('observed')
-  const [timeWindow, setTimeWindow] = useState('7d')
+  const [timeWindow] = useState('7d')
   const [isLoading, setIsLoading] = useState(true)
   const [selected, setSelected] = useState<ComponentNode | null>(null)
   const [focusedNode, setFocusedNode] = useState<string | null>(null) // For focus mode
@@ -199,6 +219,8 @@ export default function GraphViewV2({
   const [dragging, setDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [isFullscreen, setIsFullscreen] = useState(false)
+  // Public-facing-only filter. Default OFF — operators see everything until they opt in.
+  const [publicOnly, setPublicOnly] = useState(false)
 
   // Fetch v2 data
   const fetchData = useCallback(async () => {
@@ -253,7 +275,8 @@ export default function GraphViewV2({
     return neighbors
   }, [focusedNode, edges])
 
-  // Filter data
+  // Filter data (search). Public-facing filter dims rather than removes, so it's
+  // not applied here — we keep every node positioned and lower opacity downstream.
   const filtered = useMemo(() => {
     let filteredNodes = nodes
     if (search) {
@@ -357,6 +380,77 @@ export default function GraphViewV2({
     }
   }, [filtered])
 
+  // ----------------------------------------------------------------------------
+  // VPC container frames + public-facing membership
+  //
+  // The producer provides `containers` (VPCs/Subnets) and every component node
+  // carries a `vpc_id` (or null for account-level resources like S3/IGW). We
+  // group ALREADY-POSITIONED components by their vpc_id, compute a bounding
+  // box per VPC, and use it to render a frame AND to decide whether the VPC
+  // is "all-dimmed under the public-facing filter."
+  //
+  // No proximity inference — membership comes from `node.vpc_id` verbatim.
+  // ----------------------------------------------------------------------------
+  const vpcFrames = useMemo(() => {
+    const FRAME_PAD_X = 16
+    const FRAME_PAD_TOP = 22
+    const FRAME_PAD_BOTTOM = 12
+
+    // Build VPC id → name map from the explicit container DTO.
+    const vpcMeta = new Map<string, { name: string }>()
+    containers.forEach(c => {
+      if (c.type === 'VPC') vpcMeta.set(c.id, { name: c.name })
+    })
+
+    // Bucket every positioned, non-account-level node by its declared vpc_id.
+    const byVpc = new Map<string, ComponentNode[]>()
+    filtered.nodes.forEach(n => {
+      if (!layout.positions.has(n.id)) return
+      if (ACCOUNT_LEVEL_TYPES.has(n.type)) return
+      const vpc = n.vpc_id
+      if (!vpc) return
+      if (!byVpc.has(vpc)) byVpc.set(vpc, [])
+      byVpc.get(vpc)!.push(n)
+    })
+
+    return Array.from(byVpc.entries()).map(([vpcId, members]) => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      members.forEach(n => {
+        const p = layout.positions.get(n.id)!
+        minX = Math.min(minX, p.x)
+        minY = Math.min(minY, p.y)
+        maxX = Math.max(maxX, p.x + layout.NODE_WIDTH)
+        maxY = Math.max(maxY, p.y + layout.NODE_HEIGHT)
+      })
+
+      // Test BOTH sides of the partition: VPCs may have zero public members,
+      // and the dimmed/empty state must read correctly for that case too.
+      const publicCount = members.filter(n => n.is_internet_exposed).length
+      const hiddenCount = members.length - publicCount
+
+      return {
+        vpcId,
+        name: vpcMeta.get(vpcId)?.name || vpcId,
+        memberIds: new Set(members.map(n => n.id)),
+        memberCount: members.length,
+        publicCount,
+        hiddenCount,
+        x: minX - FRAME_PAD_X,
+        y: minY - FRAME_PAD_TOP,
+        width: (maxX - minX) + FRAME_PAD_X * 2,
+        height: (maxY - minY) + FRAME_PAD_TOP + FRAME_PAD_BOTTOM,
+      }
+    })
+  }, [containers, filtered.nodes, layout])
+
+  // How many public components exist across the whole filtered view? Used to
+  // render an honest empty-state banner when the toggle is on but the producer
+  // has zero internet-exposed nodes in this system.
+  const publicCount = useMemo(
+    () => filtered.nodes.filter(n => n.is_internet_exposed).length,
+    [filtered.nodes],
+  )
+
   // Count stats
   const stats = useMemo(() => {
     // Only count edges where both nodes have positions (are rendered)
@@ -412,82 +506,166 @@ export default function GraphViewV2({
 
   const containerStyle = isFullscreen ? {} : { height: '650px' }
 
+  // Empty state for the filter: the toggle is ON but no internet-exposed nodes
+  // exist anywhere in the producer output. Render an honest banner instead of
+  // a misleading "everything is dimmed" view (which reads as a render bug).
+  const showNoPublicBanner = publicOnly && publicCount === 0
+
   return (
     <div className={containerClass} style={containerStyle}>
       {/* Coverage Banner */}
       <CoverageBanner coverage={coverage} mode={mode} onModeChange={handleModeChange} />
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-800/90 border-b border-slate-700" style={{ height: '44px', flexShrink: 0 }}>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-white font-semibold text-sm">Observed-First Map</span>
-          </div>
-          <span className="text-slate-400 text-xs">
-            Nodes: {stats.renderedNodes}{stats.hiddenNodes > 0 && <span className="text-amber-400/80"> (+{stats.hiddenNodes})</span>} | Edges: {stats.total}
-          </span>
-          {stats.observed > 0 && (
-            <span className="text-green-400 text-xs flex items-center gap-1">
-              <Activity className="w-3 h-3" />
-              {stats.observed} observed
-            </span>
-          )}
-          {stats.allowed > 0 && mode === 'observed+potential' && (
-            <span className="text-violet-400 text-xs flex items-center gap-1">
-              {stats.allowed} potential
-            </span>
-          )}
+      {/* Header — two-row editorial layout.
+          Row 1: title only (clean focal point).
+          Row 2: stats on the left (with · separators), controls on the right.
+          No more single-row cram-and-wrap. */}
+      <div className="bg-slate-800/90 border-b border-slate-700 px-3 py-2.5 flex flex-col gap-2" style={{ flexShrink: 0 }}>
+        {/* Row 1 — title */}
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+          <span className="text-white font-semibold text-sm">Observed-First Map</span>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* Focus Mode Indicator */}
-          {focusedNode && (
-            <button
-              onClick={clearFocus}
-              className="flex items-center gap-1.5 px-2 py-1 bg-amber-600 rounded text-xs font-medium text-white hover:bg-amber-700"
-            >
-              <Focus className="w-3 h-3" />
-              Focus Mode
-              <XCircle className="w-3 h-3" />
-            </button>
-          )}
-
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search..."
-              className="pl-7 pr-3 py-1 bg-slate-700 border border-slate-600 rounded text-white text-xs w-28 focus:outline-none focus:ring-1 focus:ring-[#8b5cf6]"
-            />
+        {/* Row 2 — stats (left) + controls (right) */}
+        <div className="flex items-center justify-between gap-3">
+          {/* Stats — uses middle-dot separators per editorial token. */}
+          <div className="flex items-center gap-2 text-xs flex-wrap min-w-0">
+            <span className="text-slate-400">
+              Nodes: <span className="text-slate-200 font-mono">{stats.renderedNodes}</span>
+              {stats.hiddenNodes > 0 && (
+                <span className="text-amber-400/80 font-mono"> +{stats.hiddenNodes}</span>
+              )}
+            </span>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-400">
+              Edges: <span className="text-slate-200 font-mono">{stats.total}</span>
+            </span>
+            {stats.observed > 0 && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="text-green-400 flex items-center gap-1">
+                  <Activity className="w-3 h-3" />
+                  <span className="font-mono">{stats.observed}</span> observed
+                </span>
+              </>
+            )}
+            {stats.allowed > 0 && mode === 'observed+potential' && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="text-violet-400">
+                  <span className="font-mono">{stats.allowed}</span> potential
+                </span>
+              </>
+            )}
+            {publicOnly && publicCount > 0 && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="text-amber-400 flex items-center gap-1">
+                  <Globe className="w-3 h-3" />
+                  <span className="font-mono">{publicCount}</span> public-facing
+                </span>
+              </>
+            )}
           </div>
 
-          <button onClick={() => { fetchData(); onRefresh?.() }} className="p-1.5 bg-blue-600 rounded hover:bg-blue-700" title="Refresh">
-            <RefreshCw className="w-3.5 h-3.5 text-white" />
-          </button>
+          {/* Controls — toggle, search, refresh, zoom, fullscreen. */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Public-facing-only filter (shadcn Switch + Tooltip). */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <label
+                  htmlFor="public-only-toggle"
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] uppercase tracking-wider font-medium cursor-pointer select-none transition-colors whitespace-nowrap ${
+                    publicOnly
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                      : 'bg-slate-700/60 text-slate-300 border border-slate-600/60 hover:bg-slate-700'
+                  }`}
+                >
+                  <Globe className="w-3 h-3" />
+                  Public-facing only
+                  <Switch
+                    id="public-only-toggle"
+                    checked={publicOnly}
+                    onCheckedChange={setPublicOnly}
+                    aria-label="Show public-facing components only"
+                    className="ml-1"
+                  />
+                </label>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Dim every component that the producer marked
+                {' '}<span className="font-mono">is_internet_exposed: false</span>.
+                Layout is preserved; nothing is removed from the graph.
+              </TooltipContent>
+            </Tooltip>
 
-          <div className="flex items-center gap-0.5 bg-slate-700 rounded p-0.5">
-            <button onClick={() => setZoom(z => Math.max(0.2, z - 0.1))} className="p-1 hover:bg-slate-600 rounded">
-              <ZoomOut className="w-3.5 h-3.5 text-white" />
+            {/* Focus Mode Indicator */}
+            {focusedNode && (
+              <button
+                onClick={clearFocus}
+                className="flex items-center gap-1.5 px-2 py-1 bg-amber-600 rounded text-xs font-medium text-white hover:bg-amber-700 whitespace-nowrap"
+              >
+                <Focus className="w-3 h-3" />
+                Focus Mode
+                <XCircle className="w-3 h-3" />
+              </button>
+            )}
+
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="pl-7 pr-3 py-1 bg-slate-700 border border-slate-600 rounded text-white text-xs w-28 focus:outline-none focus:ring-1 focus:ring-[#8b5cf6]"
+              />
+            </div>
+
+            <button onClick={() => { fetchData(); onRefresh?.() }} className="p-1.5 bg-blue-600 rounded hover:bg-blue-700" title="Refresh">
+              <RefreshCw className="w-3.5 h-3.5 text-white" />
             </button>
-            <span className="text-white text-xs w-10 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="p-1 hover:bg-slate-600 rounded">
-              <ZoomIn className="w-3.5 h-3.5 text-white" />
+
+            <div className="flex items-center gap-0.5 bg-slate-700 rounded p-0.5">
+              <button onClick={() => setZoom(z => Math.max(0.2, z - 0.1))} className="p-1 hover:bg-slate-600 rounded">
+                <ZoomOut className="w-3.5 h-3.5 text-white" />
+              </button>
+              <span className="text-white text-xs w-10 text-center font-mono">{Math.round(zoom * 100)}%</span>
+              <button onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="p-1 hover:bg-slate-600 rounded">
+                <ZoomIn className="w-3.5 h-3.5 text-white" />
+              </button>
+            </div>
+
+            <button onClick={toggleFullscreen} className="p-1.5 bg-slate-700 rounded hover:bg-slate-600" title="Fullscreen">
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-white" /> : <Maximize2 className="w-3.5 h-3.5 text-white" />}
             </button>
+
+            {isFullscreen && (
+              <button onClick={() => setIsFullscreen(false)} className="p-1.5 bg-red-600 rounded hover:bg-red-700">
+                <X className="w-3.5 h-3.5 text-white" />
+              </button>
+            )}
           </div>
-
-          <button onClick={toggleFullscreen} className="p-1.5 bg-slate-700 rounded hover:bg-slate-600" title="Fullscreen">
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-white" /> : <Maximize2 className="w-3.5 h-3.5 text-white" />}
-          </button>
-
-          {isFullscreen && (
-            <button onClick={() => setIsFullscreen(false)} className="p-1.5 bg-red-600 rounded hover:bg-red-700">
-              <X className="w-3.5 h-3.5 text-white" />
-            </button>
-          )}
         </div>
       </div>
+
+      {/* Honest empty-state banner when filter is on but producer returned no public nodes.
+          Dashed border + as-of date matches the editorial empty-state token. */}
+      {showNoPublicBanner && (
+        <div className="mx-3 mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-900/60 px-3 py-2 text-xs">
+          <div className="flex items-center gap-2">
+            <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+            <span className="font-medium uppercase tracking-wider text-slate-300">
+              No public-facing components in this view
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            The producer marked every rendered component as{' '}
+            <span className="font-mono">is_internet_exposed: false</span>. Turn the filter
+            off to see the full map, or verify exposure data in the upstream collector.
+          </div>
+        </div>
+      )}
 
       {/* Graph Container */}
       <div
@@ -504,7 +682,7 @@ export default function GraphViewV2({
         onMouseLeave={() => setDragging(false)}
         onWheel={e => setZoom(z => Math.max(0.2, Math.min(2, z + (e.deltaY > 0 ? -0.05 : 0.05))))}
       >
-        {/* SVG Layer - Edges */}
+        {/* SVG Layer - VPC frames + edges */}
         <svg className="absolute inset-0 w-full h-full" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
           <defs>
             <marker id="arrow-active" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
@@ -515,13 +693,51 @@ export default function GraphViewV2({
             </marker>
           </defs>
 
+          {/* VPC frames — drawn UNDER edges and component cards so they read as containers. */}
+          {vpcFrames.map(v => {
+            // A VPC is "all-dimmed" when the public-only filter is on AND it
+            // has zero internet-exposed members of its own.
+            const allDimmed = publicOnly && v.publicCount === 0
+            const stroke = allDimmed ? '#475569' : '#7B3FE4'
+            const fillOpacity = allDimmed ? 0.04 : 0.06
+            const strokeOpacity = allDimmed ? 0.45 : 0.6
+            return (
+              <g key={`vpc-frame-${v.vpcId}`}>
+                <rect
+                  x={v.x}
+                  y={v.y}
+                  width={v.width}
+                  height={v.height}
+                  rx={10}
+                  ry={10}
+                  fill={stroke}
+                  fillOpacity={fillOpacity}
+                  stroke={stroke}
+                  strokeOpacity={strokeOpacity}
+                  strokeWidth={1.5}
+                  strokeDasharray={allDimmed ? '6 4' : 'none'}
+                />
+              </g>
+            )
+          })}
+
           {filtered.edges.map(e => {
             const s = layout.positions.get(e.source)
             const t = layout.positions.get(e.target)
             if (!s || !t) return null
 
             // Focus mode: dim edges not connected to focused node
-            const dimmed = focusedNode && focusNeighbors && !focusNeighbors.has(e.source) && !focusNeighbors.has(e.target)
+            const focusDimmed = focusedNode && focusNeighbors && !focusNeighbors.has(e.source) && !focusNeighbors.has(e.target)
+
+            // Public-only filter: dim any edge with a non-public endpoint, so
+            // the visual weight follows the public-facing surface only.
+            const sourceNode = filtered.nodes.find(n => n.id === e.source)
+            const targetNode = filtered.nodes.find(n => n.id === e.target)
+            const filterDimmed =
+              publicOnly &&
+              !(sourceNode?.is_internet_exposed && targetNode?.is_internet_exposed)
+
+            const dimmed = focusDimmed || filterDimmed
 
             const startX = s.x + layout.NODE_WIDTH
             const startY = s.y + layout.NODE_HEIGHT / 2
@@ -534,6 +750,42 @@ export default function GraphViewV2({
           })}
         </svg>
 
+        {/* Overlay layer — VPC labels + "n hidden" chips, drawn in HTML on top
+            of the SVG frame but BELOW component cards so card hover still wins. */}
+        <div className="absolute inset-0 pointer-events-none" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+          {vpcFrames.map(v => {
+            const allDimmed = publicOnly && v.publicCount === 0
+            return (
+              <div
+                key={`vpc-label-${v.vpcId}`}
+                className="absolute"
+                style={{ left: v.x + 10, top: v.y + 4 }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[10px] uppercase tracking-wider font-medium ${allDimmed ? 'text-slate-500' : 'text-violet-300/90'}`}>
+                    VPC · {v.name}
+                  </span>
+                  {/* Hidden-count chip — only meaningful when the filter is on.
+                      For all-dimmed VPCs the count is the full member count. */}
+                  {publicOnly && v.hiddenCount > 0 && (
+                    <span
+                      className={`pointer-events-auto inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${
+                        allDimmed
+                          ? 'bg-slate-800/80 border-slate-600 text-slate-400'
+                          : 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                      }`}
+                      title={`${v.hiddenCount} non-public component${v.hiddenCount === 1 ? '' : 's'} dimmed in this VPC`}
+                    >
+                      <EyeOff className="w-2.5 h-2.5" />
+                      {v.hiddenCount} hidden
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
         {/* Nodes Layer */}
         <div className="absolute inset-0" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
           {/* Lane Headers */}
@@ -541,7 +793,6 @@ export default function GraphViewV2({
             const p = layout.positions.get(nodes[0]?.id)
             if (!p) return null
             const hidden = layout.hiddenCounts.get(lane) || 0
-            const totalInLane = nodes.length + hidden
             return (
               <div key={`lane-${lane}`} className="absolute"
                 style={{ left: p.x, top: 8, minWidth: layout.NODE_WIDTH * 2 }}>
@@ -562,13 +813,20 @@ export default function GraphViewV2({
             const c = getColors(n.type)
 
             // Focus mode: dim nodes not in neighborhood
-            const dimmed = focusedNode && focusNeighbors && !focusNeighbors.has(n.id)
+            const focusDimmed = focusedNode && focusNeighbors && !focusNeighbors.has(n.id)
             const isFocused = focusedNode === n.id
+
+            // Public-only filter: dim every non-public component. Layout stays
+            // the same; only opacity changes — operators see WHERE the public
+            // surface sits inside the broader map.
+            const filterDimmed = publicOnly && !n.is_internet_exposed
+
+            const dimmed = focusDimmed || filterDimmed
 
             return (
               <div
                 key={n.id}
-                className={`absolute cursor-pointer transition-all duration-150 ${dimmed ? 'opacity-20' : 'hover:scale-105 hover:z-10'} ${isFocused ? 'ring-2 ring-amber-400 scale-110 z-20' : ''}`}
+                className={`absolute cursor-pointer transition-all duration-150 ${dimmed ? 'opacity-25 saturate-50' : 'hover:scale-105 hover:z-10'} ${isFocused ? 'ring-2 ring-amber-400 scale-110 z-20' : ''}`}
                 style={{ left: p.x, top: p.y, width: layout.NODE_WIDTH, height: layout.NODE_HEIGHT }}
                 onClick={() => { setSelected(n); onNodeClick?.(n) }}
                 onDoubleClick={() => setFocusedNode(focusedNode === n.id ? null : n.id)}
@@ -626,6 +884,12 @@ export default function GraphViewV2({
             <div className="w-5 h-px bg-slate-500 border-dashed border-t border-slate-500" />
             <span className="text-slate-300 text-[10px]">Potential (SG Allowed)</span>
           </div>
+          {publicOnly && (
+            <div className="flex items-center gap-2">
+              <Globe className="w-3 h-3 text-amber-400" />
+              <span className="text-slate-300 text-[10px]">Public-facing only · others dimmed</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-1 pt-1 border-t border-slate-700">
             <Focus className="w-3 h-3 text-amber-400" />
             <span className="text-slate-300 text-[10px]">Double-click to focus</span>
@@ -671,7 +935,7 @@ export default function GraphViewV2({
               </div>
             )}
             {selected.is_internet_exposed && (
-              <div className="flex items-center gap-1.5 text-red-400 text-[10px]">
+              <div className="flex items-center gap-1.5 text-amber-400 text-[10px]">
                 <Globe className="w-3 h-3" /> Internet Exposed
               </div>
             )}

@@ -3,9 +3,12 @@
 import React from "react"
 import { ChevronRight } from "lucide-react"
 import type { IdentityAttackPath } from "./types"
+import type { ActivePathList } from "@/lib/active-filters"
 
 interface PathListPanelProps {
-  paths: IdentityAttackPath[]
+  // ActivePathList enforces at compile time that filterActivePaths
+  // ran on this array. See lib/active-filters.ts.
+  paths: ActivePathList<IdentityAttackPath>
   onSelectPath: (index: number) => void
   jewelName?: string
 }

@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react'
 import { ResourceInspectorSheet } from '@/components/inspector'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 // Test resources for each type
 const TEST_RESOURCES = [
@@ -52,12 +53,17 @@ export default function TestInspectorPage() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Resource Inspector Test Page
-        </h1>
-        <p className="text-gray-600 mb-8">
-          Click on any resource to test the unified inspector UI
-        </p>
+        <div className="flex items-start gap-3 mb-2">
+          <BackToDashboard className="p-2 -ml-2 rounded-lg hover:bg-gray-200 transition-colors mt-1 shrink-0" />
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Resource Inspector Test Page
+            </h1>
+            <p className="text-gray-600 mt-1 mb-8">
+              Click on any resource to test the unified inspector UI
+            </p>
+          </div>
+        </div>
 
         {/* Test Resources Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">

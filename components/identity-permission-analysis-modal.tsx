@@ -1,7 +1,167 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { X, TrendingDown, AlertTriangle, CheckCircle2, Calendar, Shield, Activity, RefreshCw } from "lucide-react"
+import { X, TrendingDown, AlertTriangle, CheckCircle2, Calendar, Shield, Activity, RefreshCw, ChevronDown, ChevronRight } from "lucide-react"
+
+type RemediationHint = {
+  summary: string
+  gain_points: number
+  gain_tier?: string | null
+  action_type: string
+  action_detail: string
+  docs_url?: string | null
+  cost_estimate?: string | null
+}
+
+type EvidenceSourceScore = {
+  source_id: string
+  source_name: string
+  weight: number
+  earned: number
+  status: string
+  classification: string
+  narrative: string
+  remediation_hint?: RemediationHint | null
+}
+
+type EvidenceDimensionScore = {
+  dimension_id: string
+  dimension_name: string
+  weight: number
+  earned: number
+  status: string
+  sources: EvidenceSourceScore[]
+  narrative: string
+  recommendation?: string | null
+}
+
+type EvidenceBreakdown = {
+  total_score: number
+  tier: string
+  thresholds: Record<string, number>
+  dimensions: EvidenceDimensionScore[]
+  hard_blockers: string[]
+  summary: string
+  actionable_upgrades: RemediationHint[]
+  generated_at: string
+}
+
+function EvidenceBreakdownPanel({ breakdown }: { breakdown: EvidenceBreakdown }) {
+  const [expandedDims, setExpandedDims] = useState<Record<string, boolean>>({})
+  const [expandedHint, setExpandedHint] = useState<number | null>(null)
+
+  const toggleDim = (id: string) =>
+    setExpandedDims((prev) => ({ ...prev, [id]: !prev[id] }))
+
+  const dimIcon = (earned: number, weight: number, status: string) => {
+    if (status === "present" || earned >= weight) return "✓"
+    if (status === "partial" || earned > 0) return "⚠"
+    return "✗"
+  }
+
+  return (
+    <div className="mb-6 rounded-xl border p-5" style={{ borderColor: "#e5e7eb", background: "#f8fafc" }}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: "#111827" }}>
+          <Shield className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+          Evidence quality breakdown
+        </h3>
+        <div className="text-right">
+          <div className="text-2xl font-bold tabular-nums" style={{ color: "#111827" }}>
+            {breakdown.total_score} / 100
+          </div>
+          <div className="text-xs uppercase tracking-wide" style={{ color: "#64748b" }}>
+            {breakdown.tier.replace(/_/g, " ")}
+          </div>
+        </div>
+      </div>
+      <p className="text-sm mb-4" style={{ color: "#475569" }}>{breakdown.summary}</p>
+
+      <div className="space-y-2 mb-4">
+        {breakdown.dimensions.map((dim) => (
+          <div
+            key={dim.dimension_id}
+            className="rounded-lg border bg-white"
+            style={{ borderColor: "#e2e8f0" }}
+          >
+            <button
+              type="button"
+              onClick={() => toggleDim(dim.dimension_id)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium" style={{ color: "#1e293b" }}>
+                {expandedDims[dim.dimension_id] ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+                <span>{dimIcon(dim.earned, dim.weight, dim.status)}</span>
+                {dim.dimension_name}
+              </span>
+              <span className="font-mono text-sm tabular-nums" style={{ color: dim.earned < dim.weight ? "#d97706" : "#059669" }}>
+                {dim.earned}/{dim.weight}
+              </span>
+            </button>
+            {dim.recommendation && (
+              <p className="px-4 pb-2 text-xs" style={{ color: "#b45309" }}>{dim.recommendation}</p>
+            )}
+            {expandedDims[dim.dimension_id] && (
+              <div className="px-4 pb-3 space-y-2 border-t" style={{ borderColor: "#f1f5f9" }}>
+                {dim.sources.map((src) => (
+                  <div key={src.source_id} className="pt-2 text-xs" style={{ color: "#64748b" }}>
+                    <div className="flex justify-between">
+                      <span style={{ color: "#334155" }}>
+                        {src.source_name}
+                        {src.classification === "HARD" && (
+                          <span className="ml-1 text-[10px] uppercase text-rose-600">hard</span>
+                        )}
+                      </span>
+                      <span className="font-mono">{src.earned}/{src.weight}</span>
+                    </div>
+                    <p className="mt-0.5">{src.narrative}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {breakdown.actionable_upgrades.length > 0 && (
+        <div className="rounded-lg border p-4 bg-white" style={{ borderColor: "#c7d2fe" }}>
+          <h4 className="text-sm font-semibold mb-2" style={{ color: "#3730a3" }}>
+            To reach AUTO ({breakdown.thresholds.AUTO ?? 85}+)
+          </h4>
+          <ol className="space-y-2 list-decimal list-inside">
+            {breakdown.actionable_upgrades.slice(0, 5).map((hint, idx) => (
+              <li key={idx} className="text-sm" style={{ color: "#334155" }}>
+                <button
+                  type="button"
+                  className="text-left hover:underline"
+                  onClick={() => setExpandedHint(expandedHint === idx ? null : idx)}
+                >
+                  {hint.summary}
+                  <span className="ml-2 font-mono text-xs text-violet-700">+{hint.gain_points} pts</span>
+                  {hint.cost_estimate && (
+                    <span className="ml-1 text-xs text-slate-500">({hint.cost_estimate})</span>
+                  )}
+                </button>
+                {expandedHint === idx && (
+                  <pre
+                    className="mt-2 p-2 rounded text-xs whitespace-pre-wrap overflow-x-auto"
+                    style={{ background: "#f1f5f9", color: "#1e293b" }}
+                  >
+                    {hint.action_detail}
+                  </pre>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface PermissionAnalysis {
   permission: string
@@ -24,6 +184,7 @@ interface GapAnalysisData {
   role_name: string
   role_arn: string
   observation_days: number
+  evidence_breakdown?: EvidenceBreakdown | null
   summary: {
     lp_score: number
     total_permissions: number
@@ -713,6 +874,10 @@ export function IdentityPermissionAnalysisModal({
             </div>
           </div>
         </div>
+
+        {gapData?.evidence_breakdown && (
+          <EvidenceBreakdownPanel breakdown={gapData.evidence_breakdown} />
+        )}
 
         {/* Risk badge from API */}
         {gapData && (

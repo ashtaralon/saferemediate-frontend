@@ -749,3 +749,439 @@ export async function fetchPostureScore(systemName: string): Promise<PostureScor
     return null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Attack Chains v2 (v0.2 §3 hop-reified attack paths)
+// ---------------------------------------------------------------------------
+
+import type { AttackChainsResponse } from "@/lib/types"
+
+/**
+ * Fetch all AttackChain objects targeting a crown jewel. The backend
+ * returns materialized Phase-3 AttackPath data with the full hop list
+ * per chain — the v0.3 Attacker View renderer iterates `chain.hops` to
+ * draw connections directly from real graph edges.
+ *
+ * Empty response (`note: "crown_jewel_not_resolved"`) means the cj id
+ * didn't match any graph node. Empty `chains[]` with successful
+ * response means Phase 3 hasn't materialized any paths yet — UI can
+ * offer the `triggerAttackChainsMaterialization()` admin CTA.
+ *
+ * Errors return an object with `error` populated and `chains: []` so
+ * callers can render an empty-state without try/catch boilerplate.
+ */
+export async function fetchChainsForCJ(
+  cjId: string,
+  opts?: {
+    include_blocked?: boolean
+    rank_by?: "severity" | "freshness" | "foothold"
+  },
+): Promise<AttackChainsResponse & { error?: string }> {
+  const qs = new URLSearchParams({ cj_id: cjId })
+  if (opts?.include_blocked) qs.set("include_blocked", "true")
+  if (opts?.rank_by) qs.set("rank_by", opts.rank_by)
+  try {
+    const res = await fetch(`/api/proxy/attack-chain/chains-for-cj?${qs.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      return {
+        cj: { id: cjId, name: cjId, type: "Unknown" },
+        chains: [],
+        stats: { total: 0, by_status: {}, total_hops: 0, avg_hop_count: 0 },
+        error: `proxy ${res.status}: ${text.slice(0, 200)}`,
+      }
+    }
+    return await res.json()
+  } catch (e: any) {
+    return {
+      cj: { id: cjId, name: cjId, type: "Unknown" },
+      chains: [],
+      stats: { total: 0, by_status: {}, total_hops: 0, avg_hop_count: 0 },
+      error: String(e?.message ?? e),
+    }
+  }
+}
+
+/**
+ * Admin trigger: re-run Phase 3 materialization. Useful when sync-all
+ * is failing on flow_logs (Phase 3 doesn't depend on flow_logs) or
+ * when the operator wants fresh AttackPath data without a full sync.
+ */
+export async function triggerAttackChainsMaterialization(): Promise<{
+  success: boolean
+  result?: any
+  error?: string
+}> {
+  try {
+    const res = await fetch(`/api/proxy/attack-chain/chains-for-cj`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      return { success: false, error: `proxy ${res.status}: ${text.slice(0, 200)}` }
+    }
+    return await res.json()
+  } catch (e: any) {
+    return { success: false, error: String(e?.message ?? e) }
+  }
+}
+
+// ─── Shared IAM Roles (discovery — step 1) ─────────────────────────
+import type { SharedRolesResponse } from "./types"
+
+export interface FetchSharedRolesParams {
+  minPrincipals?: number
+  systemName?: string | null
+  crossSystemOnly?: boolean
+  includeStale?: boolean
+  includeInactive?: boolean
+}
+
+export async function fetchSharedRoles(
+  params: FetchSharedRolesParams = {}
+): Promise<SharedRolesResponse> {
+  const qs = new URLSearchParams()
+  if (params.minPrincipals !== undefined) qs.set("min_principals", String(params.minPrincipals))
+  if (params.systemName) qs.set("system_name", params.systemName)
+  if (params.crossSystemOnly) qs.set("cross_system_only", "true")
+  if (params.includeStale) qs.set("include_stale", "true")
+  if (params.includeInactive) qs.set("include_inactive", "true")
+  const url = `/api/proxy/iam/shared-roles${qs.toString() ? `?${qs}` : ""}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`shared-roles fetch ${res.status}: ${text.slice(0, 200)}`)
+  }
+  return await res.json()
+}
+
+// ─── Split plan (step 2 + 5) ───────────────────────────────────────
+import type { SplitPlan, ApprovePlanResponse } from "./types"
+
+export async function postSplitPlan(
+  roleRef: string,
+  requestedBy: string
+): Promise<SplitPlan> {
+  // role_ref travels as a query param (Next.js can't put [...catchall]
+  // before a static segment, see proxy route header for the why).
+  const qs = new URLSearchParams({ role_ref: roleRef })
+  const res = await fetch(`/api/proxy/iam/shared-roles/split-plan?${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requested_by: requestedBy }),
+    cache: "no-store",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`split-plan POST ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSplitPlan(planId: string): Promise<SplitPlan> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/split-plans/${encodeURIComponent(planId)}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`split-plan GET ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function approveSplitPlan(
+  planId: string,
+  approvedBy: string,
+  note?: string
+): Promise<ApprovePlanResponse> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/split-plans/${encodeURIComponent(planId)}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved_by: approvedBy, note: note || undefined }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`approve ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+// ─── Shared Security Groups (SG-9 frontend — discovery only for v1) ──
+
+import type { SharedSGsResponse } from "./types"
+
+export interface FetchSharedSGsParams {
+  minConsumers?: number
+  includeInactive?: boolean
+}
+
+export async function fetchSharedSGs(
+  params: FetchSharedSGsParams = {}
+): Promise<SharedSGsResponse> {
+  const qs = new URLSearchParams()
+  if (params.minConsumers !== undefined) qs.set("min_consumers", String(params.minConsumers))
+  if (params.includeInactive) qs.set("include_inactive", "true")
+  const url = `/api/proxy/sg/shared-sgs${qs.toString() ? `?${qs}` : ""}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`shared-sgs fetch ${res.status}: ${text.slice(0, 200)}`)
+  }
+  return await res.json()
+}
+
+export interface SGSplitPlanMintedResponse {
+  plan_id: string
+  plan_hash: string
+  state: string
+  created_at: string
+  expires_at: string
+  plan_body: any
+}
+
+export async function postSGSplitPlan(
+  sgRef: string,
+  requestedBy: string
+): Promise<SGSplitPlanMintedResponse> {
+  const qs = new URLSearchParams({ sg_ref: sgRef })
+  const res = await fetch(`/api/proxy/sg/shared-sgs/split-plan?${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requested_by: requestedBy }),
+    cache: "no-store",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg split-plan POST ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGSplitPlan(planId: string): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg split-plan GET ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function approveSGSplitPlan(
+  planId: string, approvedBy: string, note?: string
+): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved_by: approvedBy, note: note || undefined }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg approve ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function executeSGSplitPlan(
+  planId: string, mode: "CREATE_ONLY", requestedBy: string, force = false
+): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/execute`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, requested_by: requestedBy, force }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg execute ${res.status}: ${text.slice(0, 500)}`)
+  }
+  return await res.json()
+}
+
+export async function rollbackSGSplitPlan(
+  planId: string, rolledBackBy: string, force = false
+): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/rollback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rolled_back_by: rolledBackBy,
+        mode: "CREATE_ONLY",
+        force,
+      }),
+      cache: "no-store",
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg rollback ${res.status}: ${text.slice(0, 500)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGPlanHistory(planId: string): Promise<any> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/history`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg history ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGGateReadiness(
+  planId: string, mode = "CREATE_ONLY"
+): Promise<any> {
+  const qs = new URLSearchParams({ mode })
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/gate-readiness?${qs}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg gate-readiness ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSGStagePreview(
+  planId: string, groupId: string
+): Promise<any> {
+  const qs = new URLSearchParams({ group_id: groupId })
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/split-plans/${encodeURIComponent(planId)}/stage-preview?${qs}`,
+    { cache: "no-store" }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg stage-preview ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+
+// ─── SG-9h: per-SG STAGED enable / disable / read ────────────────────
+
+
+export interface SGStagedState {
+  sg_id: string
+  enabled: boolean
+  enabled_by?: string | null
+  enabled_at?: string | null
+  enabled_note?: string | null
+  disabled_by?: string | null
+  disabled_at?: string | null
+  disabled_note?: string | null
+}
+
+export async function fetchSGStagedState(sgId: string): Promise<SGStagedState> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/${encodeURIComponent(sgId)}/staged-state`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg staged-state ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function enableSGStaged(
+  sgId: string, enabledBy: string, note: string = "",
+): Promise<SGStagedState> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/${encodeURIComponent(sgId)}/enable-staged`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled_by: enabledBy, note }),
+      cache: "no-store",
+    },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg enable-staged ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function disableSGStaged(
+  sgId: string, disabledBy: string, note: string = "",
+): Promise<SGStagedState> {
+  const res = await fetch(
+    `/api/proxy/sg/shared-sgs/${encodeURIComponent(sgId)}/disable-staged`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disabled_by: disabledBy, note }),
+      cache: "no-store",
+    },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`sg disable-staged ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+
+// ─── Layer D — split-plan simulate (Phase 2/3) ──────────────────────
+// Two-step polling pattern. postSimulate returns 202 + sim_id; UI
+// polls fetchSimulationRun every ~1.5s until status terminal.
+import type { SimulationManifest, SimulationRun } from "./types/atlas-simulate"
+
+export async function postSimulate(
+  planId: string,
+  requestedBy?: string,
+): Promise<SimulationManifest> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/split-plans/${encodeURIComponent(planId)}/simulate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested_by: requestedBy || "self@cyntro.io" }),
+      cache: "no-store",
+    },
+  )
+  // 202 is success here — passthrough proxy keeps the status code.
+  if (res.status !== 202 && !res.ok) {
+    const text = await res.text()
+    throw new Error(`simulate POST ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}
+
+export async function fetchSimulationRun(simId: string): Promise<SimulationRun> {
+  const res = await fetch(
+    `/api/proxy/iam/shared-roles/simulate/${encodeURIComponent(simId)}`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`simulate GET ${res.status}: ${text.slice(0, 300)}`)
+  }
+  return await res.json()
+}

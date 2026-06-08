@@ -8,6 +8,17 @@
       "port": 3000,
       "autoPort": true,
       "cwd": "/Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend"
+    },
+    {
+      "name": "frontend-dlp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "3010"],
+      "port": 3010,
+      "autoPort": true,
+      "cwd": "/Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend-dlp",
+      "env": {
+        "BACKEND_URL_OVERRIDE": "http://127.0.0.1:8765"
+      }
     }
   ]
 }

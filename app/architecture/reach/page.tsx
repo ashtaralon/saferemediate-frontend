@@ -21,6 +21,7 @@
 
 import { useEffect, useState } from 'react'
 import { useSystem } from '@/lib/system-context'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 interface ReachNode {
   id: string
@@ -191,7 +192,10 @@ export default function ReachPage() {
   if (!systemName) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-semibold mb-2">Reach</h1>
+        <div className="flex items-center gap-3 mb-2">
+          <BackToDashboard />
+          <h1 className="text-2xl font-semibold">Reach</h1>
+        </div>
         <p className="text-sm text-zinc-600">Select a system from the sidebar to view its reach graph.</p>
       </div>
     )
@@ -199,14 +203,17 @@ export default function ReachPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <header className="mb-4 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Reach — {systemName}</h1>
-          <p className="text-sm text-zinc-600 mt-1">
-            How an attacker reaches the crown jewel in this system.
-            Nodes grouped by subnet-tier zone; edges carry the
-            ADR-001 UDE-02 envelope (provenance, confidence, freshness).
-          </p>
+      <header className="mb-4 flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <BackToDashboard className="p-2 -ml-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mt-0.5" />
+          <div>
+            <h1 className="text-2xl font-semibold">Reach — {systemName}</h1>
+            <p className="text-sm text-zinc-600 mt-1">
+              How an attacker reaches the crown jewel in this system.
+              Nodes grouped by subnet-tier zone; edges carry the
+              ADR-001 UDE-02 envelope (provenance, confidence, freshness).
+            </p>
+          </div>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input

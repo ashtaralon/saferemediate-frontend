@@ -20,9 +20,14 @@ import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabi
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
 import { IdentityAttackPaths } from "@/components/identity-attack-paths/identity-attack-paths"
+// AttackerMap is consumed by system-detail-dashboard.tsx (Risk → Attacker Map
+// sub-tab), not as a top-level section. The top-level case below was removed
+// when we discovered the (selectedSystem, activeSection) routing can't hold
+// both at once — see system-detail-dashboard.tsx for the canonical entry.
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
+import { DataLeakPathsPage } from "@/components/data-leak-paths/data-leak-paths-page"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -564,7 +569,11 @@ export default function HomePage() {
   if (selectedSystem && activeSection === "home") {
     return (
       <ErrorBoundary componentName="System Dashboard">
-        <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
+        <SystemDetailDashboard
+          systemName={selectedSystem}
+          onBack={handleBackFromSystem}
+          onNavigateToSection={handleSidebarClick}
+        />
       </ErrorBoundary>
     )
   }
@@ -995,6 +1004,17 @@ export default function HomePage() {
         return (
           <ErrorBoundary componentName="Attack Paths">
             {selectedSystem ? <IdentityAttackPaths systemName={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+          </ErrorBoundary>
+        )
+
+      case "data-leak-paths":
+        return (
+          <ErrorBoundary componentName="Data Leak Paths">
+            {selectedSystem ? (
+              <DataLeakPathsPage systemName={selectedSystem} />
+            ) : (
+              <div className="text-center py-8 text-gray-500">No system selected</div>
+            )}
           </ErrorBoundary>
         )
 

@@ -493,6 +493,185 @@ export interface SimulateFixResponse {
   safety: SimulateFixSafety
 }
 
+// ============================================================================
+// DATA LEAK PATHS — backed by GET /api/data-leak-paths?systemName=<>
+// ============================================================================
+//
+// One path per (internet-capable workload → accessible crown jewel) pair.
+// Each path carries dual-plane state (data-plane access + network-plane reach)
+// and the four available mitigations. Mutation flows through the existing
+// UnifiedPipeline endpoints listed in `availableMitigations[].execution`.
+
+export type DataLeakInternetDependencyLevel = "NONE" | "MIN" | "MOD" | "FULL"
+export type DataLeakRiskBand = "low" | "moderate" | "high" | "critical"
+export type DataLeakBucket =
+  | "ISOLATED"
+  | "AWS_REDIRECTABLE"
+  | "ACTIVE_INTERNET"
+  | "LATENT_EXPOSURE"
+
+export type DataLeakMitigationType =
+  | "vpc_endpoint"
+  | "remove_iam_permission"
+  | "tighten_sg_egress"
+  | "move_to_private_subnet"
+
+export type DataLeakFieldState = "wired" | "partial" | "loading" | "not_wired"
+
+export interface DataLeakEgressGate {
+  kind: string                 // "InternetGateway" | "NATGateway" | ...
+  id: string | null
+  name?: string | null
+  cidr?: string | null
+  routeTableId?: string | null
+}
+
+export interface DataLeakWorkloadSnapshot {
+  id: string
+  name: string
+  type: string                 // EC2Instance | Lambda | ECSTask | ...
+  subnet: { id: string | null; name?: string | null; isPublic?: boolean | null }
+  securityGroup: {
+    id: string | null
+    name?: string | null
+    hasPublicEgress?: boolean | null
+    additionalCount?: number
+  }
+  nacl: { id?: string | null; isDefault?: boolean | null } | null
+  routeTable: { id: string | null; egressGate: DataLeakEgressGate | null }
+  iamRole: { id: string | null; name: string | null }
+  instanceProfile: { name?: string | null } | null
+  bucket: DataLeakBucket
+}
+
+export interface DataLeakStoreSnapshot {
+  id: string
+  name: string
+  arn?: string | null
+  type: string                  // Neo4j label: S3Bucket | RDSInstance | ...
+  crownJewelClass: string       // vendor-neutral: "Object storage" | "Managed database" | ...
+}
+
+export interface DataLeakObservedApiCalls {
+  _state: DataLeakFieldState
+  copy?: string                 // shown when _state === "not_wired"
+  totalEvents?: number
+  totalBytes?: number
+  lastSeen?: string | null
+  edgeTypes?: string[]
+  actions?: string[]
+}
+
+export interface DataLeakIamPermissions {
+  _state: DataLeakFieldState
+  observedActions?: string[]
+  deeplinkSuggestion?: string
+}
+
+export interface DataLeakInternetDestinations {
+  _state: DataLeakFieldState
+  totalDistinct: number
+  byClass: { aws: number; external: number; unknown: number }
+  signals: string[]
+  topDestinations: Array<{
+    ip?: string | null
+    kind?: string | null
+    org?: string | null
+    service?: string | null
+    country?: string | null
+    bytes?: number | null
+    hits?: number | null
+    firstSeen?: string | null
+    signals?: string[]
+  }>
+}
+
+export interface DataLeakMitigationExecutionEndpoint {
+  method: "POST" | "GET"
+  path: string
+  body?: Record<string, unknown>
+}
+
+export interface DataLeakMitigation {
+  type: DataLeakMitigationType
+  title: string
+  explanation: string
+  applicable: boolean
+  requiresPlanning?: boolean
+  requiresOverrideLineage?: boolean
+  blockingReason?: string
+  manualReason?: string
+  params?: Record<string, unknown>
+  execution: {
+    simulate?: DataLeakMitigationExecutionEndpoint
+    stage?: DataLeakMitigationExecutionEndpoint
+    full?: DataLeakMitigationExecutionEndpoint
+  } | null
+  safetySignals?: {
+    canRemediate: boolean
+    confidenceQualitative?: "high" | "medium" | "low" | "n/a"
+    evidence?: string
+  }
+}
+
+export interface DataLeakPath {
+  pathId: string
+  riskScore: number             // 0-100
+  riskBand: DataLeakRiskBand
+  riskExplanation: string       // plain English, backend-composed
+  workload: DataLeakWorkloadSnapshot
+  dataStore: DataLeakStoreSnapshot
+  dataPlane: {
+    iamPermissions: DataLeakIamPermissions
+    observedApiCalls: DataLeakObservedApiCalls
+  }
+  networkPlane: {
+    bucket: DataLeakBucket
+    egressGate: DataLeakEgressGate | null
+    internetDestinations: DataLeakInternetDestinations
+  }
+  availableMitigations: DataLeakMitigation[]
+}
+
+export interface DataLeakPathsResponse {
+  systemName: string
+  exposedStores: number         // distinct stores reached by internet-capable workloads
+  accessibleStores: number      // distinct stores reached by ANY workload
+  totalStores: number           // total crown-jewel candidates in system
+  pathCount: number
+  internetDependency: {
+    level: DataLeakInternetDependencyLevel
+    summary: string
+  }
+  evidenceAge: {
+    egressLookbackDays: number
+    computedAt: string
+  }
+  paths: DataLeakPath[]
+}
+
+// Vendor-neutral display config for the four mitigations + risk-band visuals.
+export const DATA_LEAK_RISK_BAND_CONFIG: Record<DataLeakRiskBand, { label: string; color: string; bgColor: string; borderColor: string }> = {
+  critical: { label: "Critical", color: "#DC2626", bgColor: "rgba(220, 38, 38, 0.10)",  borderColor: "#DC2626" },
+  high:     { label: "High",     color: "#EA580C", bgColor: "rgba(234, 88, 12, 0.10)",  borderColor: "#EA580C" },
+  moderate: { label: "Moderate", color: "#CA8A04", bgColor: "rgba(202, 138, 4, 0.10)",  borderColor: "#CA8A04" },
+  low:      { label: "Low",      color: "#0284C7", bgColor: "rgba(2, 132, 199, 0.10)",  borderColor: "#0284C7" },
+}
+
+export const DATA_LEAK_BUCKET_LABEL: Record<DataLeakBucket, string> = {
+  ISOLATED:         "Cannot reach internet",
+  LATENT_EXPOSURE:  "Internet path open · no traffic observed",
+  AWS_REDIRECTABLE: "Reaches managed cloud via public route",
+  ACTIVE_INTERNET:  "Actively reaching external destinations",
+}
+
+export const DATA_LEAK_DEPENDENCY_LABEL: Record<DataLeakInternetDependencyLevel, { label: string; tone: "ok" | "warn" | "bad" }> = {
+  NONE: { label: "None",     tone: "ok"   },
+  MIN:  { label: "Minimal",  tone: "ok"   },
+  MOD:  { label: "Moderate", tone: "warn" },
+  FULL: { label: "Full",     tone: "bad"  },
+}
+
 // Safety decision UI config
 export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: string; color: string; bgColor: string; icon: string }> = {
   auto_eligible: {
@@ -513,4 +692,547 @@ export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: 
     bgColor: "rgba(239, 68, 68, 0.15)",
     icon: "🚫"
   }
+}
+
+// =============================================================================
+// Attack Chains v2 — hop-reified attack-path model (v0.2 §3)
+// =============================================================================
+//
+// Replaces the column-bucket + checkpoint-route layout with explicit
+// ordered hops walked from real Neo4j edges. Each AttackChain object
+// is produced by the backend Phase 3 materialization and read via
+// /api/attack-chain/chains-for-cj. The v0.3 9-lane Attacker View
+// renderer iterates these hops and draws connections directly — no
+// inference, no orphan cards.
+
+export type AttackChainEvidence = "observed" | "config" | "unknown"
+
+export interface AttackChainHop {
+  /** Drawing order within the chain. */
+  ordinal: number
+  /** Graph node id of the source side. */
+  source_id: string
+  /** Neo4j label of the source node (e.g. 'EC2Instance', 'IAMRole'). */
+  source_type: string
+  /** Human-readable name; falls back to id when unset on the node. */
+  source_name: string | null
+  target_id: string
+  target_type: string
+  target_name: string | null
+  /** Neo4j relationship type. Some are observation-backed
+   *  (HAS_NETWORK_INTERFACE), some are synthetic (EXFILTRATES_VIA). */
+  edge_type: string
+  /** observed = real traffic / activity data underlies this hop.
+   *  config   = the edge exists but no observation data.
+   *  unknown  = the hop is referenced but a node didn't resolve. */
+  evidence: AttackChainEvidence
+  hit_count: number | null
+  first_seen: string | null
+  last_seen: string | null
+}
+
+export type AttackChainStatus =
+  | "OBSERVED"
+  | "POTENTIAL_EXCESS"
+  | "UNVERIFIED"
+  | "BLOCKED"
+
+export type AttackChainGate =
+  | "OPEN_OBSERVED"
+  | "OPEN_CONFIG"
+  | "CLOSED"
+  | "UNKNOWN"
+
+export type AttackChainDamageType =
+  | "read"
+  | "write"
+  | "delete"
+  | "admin"
+  | "encrypt"
+  | "corrupt"
+  | "exfiltrate"
+
+export interface AttackChainClosure {
+  remove_actions: string[]
+  keep_actions: string[]
+  scope_to_prefixes: string[]
+  preserve_kms_chain: boolean
+  posture_notes: string[]
+  remediation_window_days: number
+}
+
+export interface AttackChain {
+  /** sha256(workload|role|cj) — stable across re-runs. */
+  id: string
+  cj_arn: string | null
+  cj_name: string | null
+  cj_type: string
+  workload_arn: string | null
+  workload_name: string | null
+  /** Neo4j label of the workload — 'EC2Instance', 'LambdaFunction', 'ECSService'. */
+  workload_kind: string
+  role_arn: string | null
+  role_name: string | null
+  path_status: AttackChainStatus
+  damage_types: AttackChainDamageType[]
+  observed_actions: string[]
+  observed_prefixes: string[]
+  observed_object_keys: string[]
+  excess_actions: string[]
+  identity_gate: AttackChainGate
+  route_gate: AttackChainGate
+  data_plane_gate: AttackChainGate
+  /** v2 §7 killer paragraph rendered from structured fields. */
+  business_sentence: string
+  closure_recommendation: AttackChainClosure
+  hops: AttackChainHop[]
+  hop_count: number
+  computed_at: string | null
+  schema_version: string
+}
+
+/** Per-node enrichment surfaced via /chains-for-cj.node_meta.
+ *  Backend reads these properties at request time from the live graph
+ *  so they reflect the latest collector run without re-materialization
+ *  of Phase 3. Every field is optional — null/missing means the
+ *  collector hasn't populated that signal yet (itself rendering
+ *  information). */
+export interface AttackChainNodeMeta {
+  labels?: string[]
+  // EC2 IMDS state
+  imds_http_tokens?: string | null
+  imds_http_endpoint?: string | null
+  imdsv2_enforced?: boolean | null
+  imds_disabled?: boolean | null
+  // Subnet posture
+  subnet_public?: boolean | null
+  subnet_cidr?: string | null
+  // Workload-level internet posture
+  is_internet_exposed?: boolean | null
+  public_ip?: string | null
+  internet_dependency_tier?: string | null
+  // Security group posture
+  sg_total_rules?: number | null
+  sg_high_risk?: boolean | null
+  sg_public_ingress?: boolean | null
+  // S3 / data-plane posture
+  bucket_versioning?: string | null
+  bucket_object_lock?: string | boolean | null
+  bucket_kms_key?: string | null
+  bucket_public_access_block?: boolean | null
+  // EC2 vuln signals
+  cve_count?: number | null
+  critical_cves?: number | null
+  // IAM role usage signals
+  role_allowed_actions?: number | null
+  role_used_actions?: number | null
+  role_data_events?: string[] | null
+  // Synthetic sentinel marker
+  is_synthetic?: boolean
+  description?: string
+}
+
+export interface AttackChainsResponse {
+  cj: { id: string; name: string; type: string }
+  chains: AttackChain[]
+  /** Per-node enrichment keyed by node id. Added 2026-05-23 to surface
+   *  IMDS / subnet public/private / internet exposure / SG rules / bucket
+   *  posture / role usage on the Phase View v0.3 chips. Optional — older
+   *  backends won't include it; renderer should fall back gracefully. */
+  node_meta?: Record<string, AttackChainNodeMeta>
+  stats: {
+    total: number
+    by_status: Partial<Record<AttackChainStatus, number>>
+    total_hops: number
+    avg_hop_count: number
+    nodes_enriched?: number
+  }
+  /** Set when the crown jewel id didn't resolve to a graph node —
+   *  chains[] will be empty in that case. */
+  note?: string
+}
+
+/**
+ * v0.3 9-lane attacker-phase taxonomy. Each Neo4j node type maps to
+ * exactly one lane via `laneForNodeType()` in the renderer; the same
+ * node may participate in multiple lanes across different chains
+ * (e.g. KMSKey shows up in 'creds' when read by a workload, and in
+ * 'data' when it IS the crown jewel).
+ */
+export type AttackLane =
+  | "entry"      // Internet, ExternalIP, public ALB/NLB/API GW, Lambda URL
+  | "reach"      // Subnet, SecurityGroup, NACL, VPCEndpoint, RouteTable
+  | "land"       // EC2, Lambda, ECS, NetworkInterface
+  | "creds"      // AccessKey, SecretsManagerSecret, KMSKey-as-source
+  | "become"     // IAMRole, InstanceProfile, IAMPolicy, PermissionSet, SSOUser/Group
+  | "data"       // S3Bucket, DynamoDBTable, RDSInstance, KMSKey-as-target
+  | "exfil"      // InternetGateway, NATGateway, VPCEndpoint-as-egress
+  | "persist"    // derived from role allowed_actions (iam:Create*, lambda:UpdateFunction*)
+  | "defense"    // overlay — VPC Flow Logs present? CloudTrail data events? etc.
+
+export interface AttackLaneConfig {
+  id: AttackLane
+  label: string
+  attackerQuestion: string
+  /** Hex color for chip / accent. */
+  accent: string
+  /** Lucide icon name (resolved in the component). */
+  icon: string
+}
+
+export const ATTACK_LANES: AttackLaneConfig[] = [
+  {
+    id: "entry",
+    label: "ENTRY POINTS",
+    attackerQuestion: "Where can I land?",
+    accent: "#ef4444",
+    icon: "Globe",
+  },
+  {
+    id: "reach",
+    label: "REACH GATES",
+    attackerQuestion: "What sits between me and my next hop?",
+    accent: "#f97316",
+    icon: "Shield",
+  },
+  {
+    id: "land",
+    label: "WORKLOADS",
+    attackerQuestion: "What did I land on?",
+    accent: "#3b82f6",
+    icon: "Server",
+  },
+  {
+    id: "creds",
+    label: "CREDENTIAL SOURCES",
+    attackerQuestion: "What creds can I steal here?",
+    accent: "#a855f7",
+    icon: "KeyRound",
+  },
+  {
+    id: "become",
+    label: "IDENTITIES & ESCALATION",
+    attackerQuestion: "Who can I become next?",
+    accent: "#ec4899",
+    icon: "Key",
+  },
+  {
+    id: "data",
+    label: "CROWN JEWELS",
+    attackerQuestion: "What's the prize?",
+    accent: "#10b981",
+    icon: "Database",
+  },
+  {
+    id: "exfil",
+    label: "EXFIL CHANNELS",
+    attackerQuestion: "How do I get data out?",
+    accent: "#f59e0b",
+    icon: "ArrowUpRight",
+  },
+  {
+    id: "persist",
+    label: "PERSISTENCE",
+    attackerQuestion: "How do I stay?",
+    accent: "#8b5cf6",
+    icon: "Lock",
+  },
+  {
+    id: "defense",
+    label: "DEFENSE GAPS",
+    attackerQuestion: "What would catch me?",
+    accent: "#64748b",
+    icon: "Eye",
+  },
+]
+
+// ─── Shared IAM Roles (discovery — step 1 of refactor) ─────────────
+// Wires to backend GET /api/iam/shared-roles. Read-only. Future
+// endpoints (split-plan, approve, execute, rollback) add types here.
+
+export interface SharedRole {
+  role_arn: string
+  role_name: string
+  // Resource type drives the UI's class-of-resource pill. Today
+  // discovery only returns IAMRole; extends to SecurityGroup /
+  // S3Bucket / RDS / etc. when shared-resource discovery broadens
+  // beyond IAM (design memo §6). Optional: pre-2026-05-25 plans
+  // don't carry it; UI falls back to "IAMRole".
+  resource_type?: string
+  consumer_count: number
+  consumer_kinds: Record<string, number>
+  system_tags: string[]
+  cross_system: boolean
+  // Plan store is step 2; until then these are always false / null.
+  has_active_plan: boolean
+  active_plan_id: string | null
+}
+
+export interface SharedRolesFilters {
+  min_principals: number
+  system_name: string | null
+  cross_system_only: boolean
+  include_stale: boolean
+  include_inactive: boolean
+}
+
+export interface SharedRolesResponse {
+  shared_roles: SharedRole[]
+  as_of: string
+  filters: SharedRolesFilters
+  count: number
+}
+
+// ─── Split plan (step 2 + 5) ───────────────────────────────────────
+
+export type SplitPlanState =
+  | "PROPOSED"
+  | "APPROVED"
+  | "EXECUTING"
+  | "EXECUTED"
+  | "REJECTED"
+  | "EXPIRED"
+
+export type EvidenceState =
+  | "HIGH"
+  | "NONE"
+  | "CONFLICTED"
+  | "COMPLEX_POLICY"
+
+export interface ConsumerEvidence {
+  consumer_id: string
+  consumer_type: string | null
+  consumer_name: string | null
+  system_name: string | null
+  observed_actions: string[]
+  allowed_intersection: string[]
+  evidence_state: EvidenceState
+  blockers: string[]
+  // Quarantine signals (added 2026-05-25). Older plans may lack these.
+  last_observed_at?: string | null
+  consumer_last_modified?: string | null
+  is_quarantine_candidate?: boolean
+  quarantine_threshold_days?: number
+}
+
+export interface GroupingKey {
+  account_id: string | null
+  region: string | null
+  system_name: string | null
+  consumer_type: string | null
+  trust_policy_hash: string
+  permission_boundary: string | null
+  proposed_actions_hash: string
+  proposed_resource_arns_hash: string
+  conditions_hash: string
+}
+
+export interface SplitPlanGroup {
+  group_id: string
+  grouping_key: GroupingKey
+  consumers: ConsumerEvidence[]
+  proposed_role_name: string
+  proposed_policy_document: Record<string, unknown>
+  proposed_trust_policy: unknown
+  permission_boundary_arn: string | null
+}
+
+export interface SplitPlanServerMeta {
+  stored_plan_hash: string
+  created_at: string
+  expires_at: string
+}
+
+export interface BlastRadiusSummary {
+  before: {
+    role_permission_count: number
+    consumer_count: number
+    per_consumer_blast: number
+  }
+  after: {
+    groups: Array<{
+      group_id: string
+      consumer_count: number
+      tailored_permission_count: number
+      reduction_pct_per_consumer: number
+    }>
+    summary: {
+      total_consumer_count: number
+      consumers_ready_to_split: number
+      consumers_awaiting_evidence: number
+      consumers_with_conflicting_evidence: number
+      consumers_complex_policy: number
+      average_reduction_pct_for_grouped: number
+      ratio_ready_label: string
+      // Added 2026-05-25
+      quarantine_candidates?: number
+      quarantine_threshold_days?: number
+    }
+  }
+}
+
+export interface SplitPlan {
+  plan_id: string
+  plan_hash: string
+  version: number
+  state: SplitPlanState
+  created_at: string
+  expires_at: string
+  requested_by: string
+  shared_role: {
+    role_arn: string
+    role_name: string
+    account_id: string | null
+    region: string
+    // Added 2026-05-25 — exposed by backend so detail view can render
+    // the BEFORE state without a second query.
+    allowed_actions?: string[]
+    allowed_actions_count?: number
+  }
+  discovery_facts: {
+    consumer_count: number
+    consumer_kinds: Record<string, number>
+    system_tags: string[]
+    cross_system: boolean
+  }
+  eligible_groups: SplitPlanGroup[]
+  blocked_consumers: ConsumerEvidence[]
+  execution_modes_available: string[]
+  execution_modes_enabled: string[]
+  data_caveats: string[]
+  // Executive blast-radius KPI per design memo §3.2. Added 2026-05-25.
+  blast_radius_summary?: BlastRadiusSummary
+  // Layered on by GET — absent on POST response
+  expired?: boolean
+  server_meta?: SplitPlanServerMeta
+}
+
+export interface ApprovePlanResponse {
+  plan_id: string
+  state: SplitPlanState
+  approval: {
+    event_id: string
+    approved_at: string
+    approved_by: string
+    plan_id: string
+    plan_hash_at_approval: string
+  }
+}
+
+// ─── Shared Security Groups (SG-1 to SG-6 backend live; UI starts here) ─
+
+export interface SharedSGVerdict {
+  discovery_candidate: boolean
+  proposal_allowed: boolean
+  create_only_allowed: boolean
+  staged_allowed: boolean
+  blocked_reasons: Array<{
+    code: string
+    phase_blocked: "proposal" | "create_only" | "staged"
+    message: string
+    severity: "hard" | "soft"
+  }>
+}
+
+export interface SharedSGConsumerBreakdown {
+  lambda: number
+  ec2: number
+  rds: number
+  load_balancer: number
+  network_interface: number
+}
+
+export interface SharedSGRuleSummary {
+  inbound: number
+  outbound: number
+  unused: number
+  high_risk: number
+  has_public_ingress: boolean
+}
+
+export interface SharedSGTopology {
+  systems: string[]
+  vpcs: string[]
+  self_ref_ingress: boolean
+  self_ref_egress: boolean
+  external_in_ref_ids: string[]
+  external_out_ref_ids: string[]
+}
+
+export interface SharedSGFreshness {
+  ingress_hash: string | null
+  egress_hash: string | null
+  last_synced: string | null
+}
+
+export interface SharedSG {
+  sg_id: string
+  sg_name: string
+  vpc_id: string | null
+  owner_id: string | null
+  consumer_count: number
+  consumer_breakdown: SharedSGConsumerBreakdown
+  rule_summary: SharedSGRuleSummary
+  topology: SharedSGTopology
+  freshness: SharedSGFreshness
+  verdict: SharedSGVerdict
+}
+
+// SG-9d: UI-convenience projections returned alongside the existing
+// shared_sg / discovery_facts / blast_radius_summary blocks. Backend
+// computes these so the detail-view doesn't have to re-derive them
+// (or hard-code the v1/v2 capability matrix client-side).
+
+export interface SharedSGBeforeSummary {
+  consumer_count: number
+  system_count: number
+  consumer_kinds: Record<string, number>
+  rules: {
+    inbound: number
+    outbound: number
+    /** Surfaced muted in the UI with a Phase-2 chip. v1 does NOT
+     *  narrow rules — these counts do not become deletions today. */
+    unused_phase2: number
+    /** Same: Phase-2 chip, not actionable in v1. */
+    high_risk_phase2: number
+    public_ingress: boolean
+  }
+  /** N-1 framing: compromise of any one consumer exposes this many
+   *  others sharing the identity. The BEFORE card opens with this. */
+  blast_radius_if_any_compromised: number
+}
+
+export type SwapMechanism =
+  | "atomic_set_replace"
+  | "parallel_attach_then_detach"
+  | "unknown"
+
+export interface SwapPlanPerKind {
+  mechanism: SwapMechanism
+  aws_api: string | null
+  downtime_seconds: number | null
+  /** False = SG-7b pending. UI disables the per-consumer Execute
+   *  button and renders a "Coming in SG-7b" chip. */
+  supported_in_v1: boolean
+  rollback: "snapshot_restore"
+  human_summary: string
+  consumer_count: number
+}
+
+export interface SharedSGSwapPlan {
+  phase_1: {
+    label: "CREATE_ONLY"
+    steps: string[]
+    consumer_impact: "none" | "per_consumer"
+    downtime_seconds: number
+    supported_in_v1: boolean
+  }
+  phase_2_per_consumer_kind: Record<string, SwapPlanPerKind>
+}
+
+export interface SharedSGsResponse {
+  shared_sgs: SharedSG[]
+  evidence_completeness: "ok" | "degraded"
+  sg0_pending_items: string[]
+  discovered_at: string
 }
