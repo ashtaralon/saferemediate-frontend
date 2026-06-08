@@ -757,7 +757,11 @@ export default function HomePage() {
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-8">
-                {selectedSystem ? <MicroEnforcementScore systemName={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+                {selectedSystem ? (
+                  <MicroEnforcementScore systemName={selectedSystem} />
+                ) : (
+                  <div className="text-center py-8 text-gray-500">No system selected</div>
+                )}
               </div>
               <div className="xl:col-span-4 space-y-6">
                 <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
