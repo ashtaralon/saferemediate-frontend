@@ -5,6 +5,8 @@
 // string when unavailable, so the panel can render an empty/loading state.
 
 import { useEffect, useState } from "react"
+import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
 
 interface UseClosurePreview {
@@ -13,13 +15,18 @@ interface UseClosurePreview {
   error: string | null
 }
 
-export function useClosurePreview(pathId: string | null | undefined): UseClosurePreview {
+type ClosurePathInput = Pick<
+  IdentityAttackPath,
+  "id" | "attack_path_id" | "nodes" | "crown_jewel_id"
+> | null | undefined
+
+export function useClosurePreview(path: ClosurePathInput): UseClosurePreview {
   const [closure, setClosure] = useState<ClosurePreview | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!pathId) {
+    if (!path?.id) {
       setClosure(null)
       setError(null)
       return
@@ -28,7 +35,12 @@ export function useClosurePreview(pathId: string | null | undefined): UseClosure
     setLoading(true)
     setError(null)
 
-    fetch(`/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/closure-preview`, { cache: "no-store" })
+    resolveClosurePathId(path)
+      .then((pathId) =>
+        fetch(`/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/closure-preview`, {
+          cache: "no-store",
+        }),
+      )
       .then(async (r) => {
         const body = await r.json().catch(() => null)
         if (cancelled) return
@@ -52,7 +64,7 @@ export function useClosurePreview(pathId: string | null | undefined): UseClosure
     return () => {
       cancelled = true
     }
-  }, [pathId])
+  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id, path?.nodes])
 
   return { closure, loading, error }
 }
