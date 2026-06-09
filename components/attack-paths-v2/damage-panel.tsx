@@ -42,6 +42,7 @@ import { classifyActions, type DamageCategory } from "./iam-action-to-english"
 
 interface DamagePanelProps {
   path: IdentityAttackPath
+  defaultCollapsed?: boolean
 }
 
 // Category meta — icon + tone + section title + intro line.
@@ -79,8 +80,8 @@ const CATEGORY_META: Record<
   },
 }
 
-export function DamagePanel({ path }: DamagePanelProps) {
-  const [collapsed, setCollapsed] = useState(false)
+export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed)
 
   // Collect actions from every IAMRole on the path. Each role's
   // permissions.high_risk is the actionable subset; that's what the

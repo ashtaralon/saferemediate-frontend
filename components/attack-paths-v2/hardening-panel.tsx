@@ -45,6 +45,7 @@ import { S3RemediationModal } from "@/components/s3-remediation-modal"
 interface HardeningPanelProps {
   path: IdentityAttackPath
   systemName: string
+  defaultCollapsed?: boolean
 }
 
 // Identify which existing remediation modal a given action targets.
@@ -139,10 +140,10 @@ const PLANE_META: Record<
   },
 }
 
-export function HardeningPanel({ path, systemName }: HardeningPanelProps) {
+export function HardeningPanel({ path, systemName, defaultCollapsed = false }: HardeningPanelProps) {
   const rr = path.risk_reduction
   const [openModal, setOpenModal] = useState<ModalTarget | null>(null)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(defaultCollapsed)
 
   // Group actions by plane. Prefer the per-plane buckets when the
   // backend supplied them; fall back to a single bucket pulled from
