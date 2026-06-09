@@ -27,6 +27,7 @@ import { isPrincipalNodeType, PRINCIPAL_NODE_TYPES } from "@/components/identity
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
 import { DamagePanel } from "./damage-panel"
+import { ClosureOutcomeSection } from "./closure-outcome-panel"
 import { PotentialDamageSection } from "./risk-potential-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import {
@@ -675,6 +676,10 @@ export function PathAnalysisPanel({
 
         {/* Slice 4 — live hardening recommendations */}
         <HardeningPanel path={path} systemName={systemName} />
+
+        {/* Slice 5 — what you're approving: live closure preview (real
+            AttackPath data → damage closed, not path closed). No mock. */}
+        <ClosureOutcomeSection pathId={path.id} />
       </div>
 
       <DamageScopeDrawer
