@@ -30,7 +30,7 @@ test.describe("damage-aware path card live", () => {
     const card = page.getByTestId("damage-aware-path-card")
     await expect(card).toBeVisible({ timeout: 60_000 })
     await expect(card.getByRole("heading", { name: /Damage-Aware Path to Crown Jewel/i })).toBeVisible()
-    await expect(card.getByText("Damage on jewel")).toBeVisible()
+    await expect(card.getByText("Potential damage on jewel")).toBeVisible()
     await expect(card.getByText("Why", { exact: true })).toBeVisible()
     await expect(card.getByText("Recommended LP fix")).toBeVisible()
     await expect(card.getByText("Expected result")).toBeVisible()

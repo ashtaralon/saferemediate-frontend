@@ -52,6 +52,7 @@ export type DamageScopePayload = {
     level: string
     vetos: string[]
     evidence_gaps: string[]
+    consumer_count?: number | null
   }
   remediation_action: {
     endpoint: string

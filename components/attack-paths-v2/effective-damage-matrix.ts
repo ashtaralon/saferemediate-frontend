@@ -80,7 +80,7 @@ function observedS3Verbs(
 export function buildEffectiveDamageMatrix(
   dc: DamageCapability | null | undefined,
   scope: DamageScopePayload | null | undefined,
-  pathHasObservedHop: boolean,
+  _pathHasObservedHop: boolean,
 ): EffectiveDamageMatrix {
   const verbs = dc?.direct_verbs ?? dc?.verbs
   const gates = dc?.gates
@@ -115,12 +115,11 @@ export function buildEffectiveDamageMatrix(
     }
   }
 
-  const baseConf: ConfidenceLabel = pathHasObservedHop ? "Confirmed" : "Configured"
   const matrix: EffectiveDamageMatrix = {
-    read: cellFromCount(verbs?.read ?? 0, baseConf),
-    write: cellFromCount(verbs?.write ?? 0, baseConf),
-    delete: cellFromCount(verbs?.delete ?? 0, baseConf),
-    admin: cellFromCount(verbs?.admin ?? 0, baseConf),
+    read: cellFromCount(verbs?.read ?? 0, "Configured"),
+    write: cellFromCount(verbs?.write ?? 0, "Configured"),
+    delete: cellFromCount(verbs?.delete ?? 0, "Configured"),
+    admin: cellFromCount(verbs?.admin ?? 0, "Configured"),
   }
 
   const observed = observedS3Verbs(scope?.scope_observed as Record<string, unknown> | undefined)

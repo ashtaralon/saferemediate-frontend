@@ -24,10 +24,12 @@ export function pathIdentityLabel(path: IdentityAttackPath): string {
 
 export function pathDamageSummary(path: IdentityAttackPath): string {
   const dc = path.damage_capability
-  if (dc?.summary) return dc.summary
-  const hasObserved = (path.edges ?? []).some((e) => e.is_observed)
-  const matrix = buildEffectiveDamageMatrix(dc, null, hasObserved)
-  return matrixToSummary(matrix)
+  const matrix = buildEffectiveDamageMatrix(dc, null, false)
+  const fromMatrix = matrixToSummary(matrix)
+  if (fromMatrix !== "Unknown") return fromMatrix
+  if (dc?.summary?.toLowerCase().includes("network blocked")) return "Blocked"
+  if (dc?.summary?.toLowerCase().includes("data-plane blocked")) return "Blocked"
+  return fromMatrix
 }
 
 export function pathTopFixLabel(path: IdentityAttackPath): string {

@@ -32,8 +32,8 @@ import type {
   IdentityAttackPath,
   RiskReductionAction,
   PlaneRemediationBucket,
-  PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
+import { resolveModalTarget, type ModalTarget } from "./remediation-target"
 
 // Remediation modals to lazy-load when the operator clicks Apply.
 // Imported inline at click time so the Slice 4 component doesn't
@@ -46,41 +46,6 @@ interface HardeningPanelProps {
   path: IdentityAttackPath
   systemName: string
   defaultCollapsed?: boolean
-}
-
-// Identify which existing remediation modal a given action targets.
-// Maps the action's node_type / plane to {kind, resourceId} so the
-// Apply click can open the right modal with the right ids.
-type ModalTarget =
-  | { kind: "iam"; roleName: string }
-  | { kind: "sg"; sgId: string; sgName: string }
-  | { kind: "s3"; bucketName: string }
-  | { kind: "none"; reason: string }
-
-function resolveModalTarget(
-  action: RiskReductionAction,
-  pathNodes: PathNodeDetail[],
-): ModalTarget {
-  // Action carries a node_name — find the node on the path.
-  const matchingNode = pathNodes.find(
-    (n) => n.name === action.node_name && n.type === action.node_type,
-  )
-  if (!matchingNode) {
-    return { kind: "none", reason: "Target node not found on this path" }
-  }
-  const t = (matchingNode.type || "").toLowerCase()
-  if (t === "iamrole") return { kind: "iam", roleName: matchingNode.name }
-  if (t === "securitygroup") {
-    return { kind: "sg", sgId: matchingNode.id, sgName: matchingNode.name }
-  }
-  if (t === "s3bucket") {
-    // S3 modals expect the bucket name not the ARN.
-    const bucketName = matchingNode.name.includes(":::")
-      ? matchingNode.name.split(":::")[1]
-      : matchingNode.name
-    return { kind: "s3", bucketName }
-  }
-  return { kind: "none", reason: `No remediation modal for ${matchingNode.type} yet` }
 }
 
 // Gate badge tone per memory `feedback_v44_execution_confidence_propagation`.

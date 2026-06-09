@@ -16,6 +16,16 @@ describe("buildEffectiveDamageMatrix", () => {
     expect(matrixToSummary(m)).toBe("Blocked")
   })
 
+  it("does not mark Configured as Confirmed from path-hop alone", () => {
+    const dc: DamageCapability = {
+      state: "live",
+      direct_verbs: { read: 2, write: 1, delete: 0, admin: 0 },
+    }
+    const m = buildEffectiveDamageMatrix(dc, null, true)
+    expect(m.read.confidence).toBe("Configured")
+    expect(m.write.confidence).toBe("Configured")
+  })
+
   it("upgrades S3 verbs to Observed when scope has prefix evidence", () => {
     const dc: DamageCapability = {
       state: "live",
