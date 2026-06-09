@@ -28,6 +28,7 @@ import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import { filterActivePaths } from "@/lib/active-filters"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
+import { ClosureOutcomeSection } from "./closure-outcome-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import {
   DamageScopeDrawer,
@@ -248,6 +249,10 @@ export function PathAnalysisPanel({
         scopeLoading={damageScopeLoading}
         scopeError={damageScopeError}
       />
+
+      <div className="px-6 py-4 border-b border-slate-800/60">
+        <ClosureOutcomeSection pathId={path.id} />
+      </div>
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
       <div className="border-b border-slate-800/60 bg-slate-950/40">
