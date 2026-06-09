@@ -547,6 +547,8 @@ export interface PathEdgeDetail {
 
 export interface IdentityAttackPath {
   id: string
+  /** Neo4j :AttackPath id (sha256). Closure-preview expects this, not `id`. */
+  attack_path_id?: string | null
   crown_jewel_id: string
   nodes: PathNodeDetail[]
   edges: PathEdgeDetail[]

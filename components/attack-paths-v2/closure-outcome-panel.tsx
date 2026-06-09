@@ -27,6 +27,7 @@ import {
   CircleSlash,
   AlertTriangle,
 } from "lucide-react"
+import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { ClosurePreview, ClosureVerdict } from "./closure-outcome-types"
 import { useClosurePreview } from "./use-closure-preview"
 
@@ -285,8 +286,12 @@ export function ClosureOutcomePanel({ closure, damageHint }: ClosureOutcomePanel
 // Self-fetching wrapper — drops into the path analysis sidebar with just a
 // pathId. Renders the live closure preview from the backend (which reads the
 // Neo4j AttackPath node). Honest loading / error / empty states — NO mock data.
-export function ClosureOutcomeSection({ pathId }: { pathId: string | null | undefined }) {
-  const { closure, loading, error } = useClosurePreview(pathId)
+export function ClosureOutcomeSection({
+  path,
+}: {
+  path: IdentityAttackPath | null | undefined
+}) {
+  const { closure, loading, error } = useClosurePreview(path)
 
   if (loading && !closure) {
     return (
