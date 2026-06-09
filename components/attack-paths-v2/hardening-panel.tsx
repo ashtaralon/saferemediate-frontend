@@ -256,9 +256,11 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">
                         {meta.label} · {bucket.action_count} action{bucket.action_count === 1 ? "" : "s"}
                       </span>
-                      <span className="ml-auto text-[10px] text-emerald-400">
-                        −{Math.round(bucket.delta)} pts
-                      </span>
+                      {bucket.delta < 0 && (
+                        <span className="ml-auto text-[10px] text-emerald-400">
+                          −{Math.abs(Math.round(bucket.delta))} pts
+                        </span>
+                      )}
                     </div>
                     {meta.copy && (
                       <div className="text-[11px] text-slate-400 mb-2 italic">
@@ -353,8 +355,8 @@ function ActionRow({
           )}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
-          {action.impact > 0 && (
-            <span className="text-emerald-400">−{Math.round(action.impact)} pts</span>
+          {action.impact < 0 && (
+            <span className="text-emerald-400">−{Math.abs(Math.round(action.impact))} pts</span>
           )}
           {action.dominant_factor && (
             <span className="text-slate-500">

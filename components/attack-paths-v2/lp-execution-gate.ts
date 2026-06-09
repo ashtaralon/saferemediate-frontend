@@ -62,6 +62,23 @@ export function assessLpExecution(
     }
   }
 
+  // Fail safe: only return AUTO when confidence is explicitly HIGH. A missing or
+  // empty lp_confidence (e.g. damage-scope failed to load) must NOT silently fall
+  // through to AUTO. For a safety-gated remediation product, absent evidence means
+  // REVIEW — never auto-apply.
+  if (level !== "HIGH") {
+    return {
+      gate: "REVIEW",
+      label: "REVIEW",
+      reason: lp
+        ? `LP confidence ${level || "unknown"} — verify before applying`
+        : "LP confidence unavailable — verify before applying",
+      consumerCount,
+      evidenceGaps,
+      vetos,
+    }
+  }
+
   return {
     gate: "AUTO",
     label: "AUTO",

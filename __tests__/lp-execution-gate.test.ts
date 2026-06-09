@@ -29,4 +29,24 @@ describe("assessLpExecution", () => {
     expect(r.gate).toBe("REVIEW")
     expect(r.evidenceGaps).toContain("No CloudTrail in 90d")
   })
+
+  it("returns REVIEW (not AUTO) when lp_confidence is missing — must fail safe", () => {
+    const r = assessLpExecution(null, null)
+    expect(r.gate).toBe("REVIEW")
+    expect(r.label).toBe("REVIEW")
+    expect(r.reason).toMatch(/unavailable/i)
+  })
+
+  it("returns REVIEW (not AUTO) when lp_confidence is undefined", () => {
+    const r = assessLpExecution(undefined, undefined)
+    expect(r.gate).toBe("REVIEW")
+  })
+
+  it("returns REVIEW (not AUTO) when level is empty/unknown", () => {
+    const r = assessLpExecution(
+      { score: 0, level: "", vetos: [], evidence_gaps: [] } as never,
+      null,
+    )
+    expect(r.gate).toBe("REVIEW")
+  })
 })
