@@ -28,7 +28,7 @@ export function useClosurePreview(pathId: string | null | undefined): UseClosure
     setLoading(true)
     setError(null)
 
-    fetch(`/api/proxy/attack-paths/${encodeURIComponent(pathId)}/closure-preview`, { cache: "no-store" })
+    fetch(`/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/closure-preview`, { cache: "no-store" })
       .then(async (r) => {
         const body = await r.json().catch(() => null)
         if (cancelled) return

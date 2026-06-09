@@ -3,7 +3,8 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 // =============================================================================
-// Closure Preview proxy — GET /api/proxy/attack-paths/<pathId>/closure-preview
+// Closure Preview proxy — GET /api/proxy/attack-paths/path/<pathId>/closure-preview
+// (static "path" segment avoids [pathId] vs [systemName] slug clash at this level)
 // Forwards to the backend read-view over the live AttackPath node. NO MOCK:
 // on backend error it returns an honest error envelope; the panel renders an
 // empty/loading state, never fabricated data.
