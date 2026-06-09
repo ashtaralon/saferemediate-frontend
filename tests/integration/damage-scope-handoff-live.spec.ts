@@ -22,8 +22,17 @@ async function openDamageScopeDrawer(page: import("@playwright/test").Page) {
 }
 
 test.describe("damage-scope LP modal handoff live", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
     test.setTimeout(180_000)
+    const base = process.env.FRONTEND_URL || "http://localhost:3000"
+    await context.addCookies([
+      {
+        name: "cyntro_auth",
+        value: "authenticated",
+        domain: new URL(base).hostname,
+        path: "/",
+      },
+    ])
     await page.goto(
       `/attack-paths-v2?system=${SYSTEM}&path=${PATH_ID}&mode=attack-path`,
       { waitUntil: "domcontentloaded" },
