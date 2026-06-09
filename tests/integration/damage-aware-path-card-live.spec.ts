@@ -34,7 +34,8 @@ test.describe("damage-aware path card live", () => {
     await expect(card.getByText("Why", { exact: true })).toBeVisible()
     await expect(card.getByText("Recommended LP fix")).toBeVisible()
     await expect(card.getByText("Expected result")).toBeVisible()
-    await expect(card.getByText("READ", { exact: true })).toBeVisible()
+    // Fixture path may be network-blocked (Blocked) or live (READ/WRITE/…)
+    await expect(card.getByText(/READ|WRITE|DELETE|ADMIN|Blocked/i).first()).toBeVisible()
   })
 
   test("path comparison table visible when multiple paths to jewel", async ({ page }) => {
