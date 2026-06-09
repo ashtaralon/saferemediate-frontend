@@ -35,6 +35,8 @@ import {
   DamageScopeDrawer,
   type DamageScopeTarget,
 } from "./damage-scope-drawer"
+import { DamageAwarePathCard } from "./damage-aware-path-card"
+import { useDamageScope } from "./use-damage-scope"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -332,6 +334,34 @@ export function PathAnalysisPanel({
         }.`
       : "Path summary unavailable.")
 
+  const jewelNodeId = useMemo(() => {
+    if (jewel?.id) return jewel.id
+    const dataTypes = new Set([
+      "S3Bucket",
+      "DynamoDBTable",
+      "RDSInstance",
+      "RDS",
+      "KMSKey",
+      "Secret",
+      "SecretsManagerSecret",
+    ])
+    const nodes = path.nodes ?? []
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (dataTypes.has(nodes[i].type)) return nodes[i].id
+    }
+    return nodes[nodes.length - 1]?.id ?? null
+  }, [path, jewel])
+
+  const damageScopeFetchTarget = useMemo(
+    () =>
+      jewelNodeId
+        ? { systemName, pathId: path.id, nodeId: jewelNodeId }
+        : null,
+    [systemName, path.id, jewelNodeId],
+  )
+  const { data: damageScopeData, loading: damageScopeLoading, error: damageScopeError } =
+    useDamageScope(damageScopeFetchTarget)
+
   return (
     <div className="flex flex-col h-full">
       {/* ─── Header ────────────────────────────────────────────── */}
@@ -528,6 +558,14 @@ export function PathAnalysisPanel({
         )}
       </div>
 
+      <DamageAwarePathCard
+        path={path}
+        jewel={jewel}
+        scope={damageScopeData}
+        scopeLoading={damageScopeLoading}
+        scopeError={damageScopeError}
+      />
+
       {/* ─── Embedded path-filtered map ────────────────────────── */}
       <div className="border-b border-slate-800/60 bg-slate-950/40">
         {/* V2-1: Caption strip — one-line story above the canvas.
@@ -701,11 +739,11 @@ export function PathAnalysisPanel({
         <PotentialDamageSection
           path={path}
           systemName={systemName}
-          legacy={<DamagePanel path={path} />}
+          legacy={<DamagePanel path={path} defaultCollapsed />}
         />
 
         {/* Slice 4 — live hardening recommendations */}
-        <HardeningPanel path={path} systemName={systemName} />
+        <HardeningPanel path={path} systemName={systemName} defaultCollapsed />
       </div>
 
       <DamageScopeDrawer

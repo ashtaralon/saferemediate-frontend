@@ -25,12 +25,20 @@ export type DamageScopePayload = {
   node_type: string
   principal_arn: string
   scope_today: { actions: string[]; headline: string }
-  scope_observed: Record<string, unknown>
   scope_post_lp: {
     kept_actions: string[]
     removed_actions: string[]
     headline: string
     informational_note?: string
+    scp_defense_note?: string
+    resource_policy_defense_note?: string
+  }
+  scope_observed: {
+    headline?: string
+    read_prefixes?: string[]
+    write_prefixes?: string[]
+    delete_prefixes?: string[]
+    [key: string]: unknown
   }
   damage_reduction_percent: number
   narrative: {

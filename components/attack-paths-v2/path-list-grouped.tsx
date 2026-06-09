@@ -20,6 +20,8 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
+import { PathComparisonTable } from "./path-comparison-table"
+import { pathDamageSummary, pathTopFixLabel } from "./path-damage-summary"
 
 interface PathListGroupedProps {
   // ActivePathList enforces at compile time that the caller passed
@@ -347,6 +349,16 @@ export function PathListGrouped({
                           {start?.name ?? start?.id ?? "—"}{" "}
                           <span className="text-slate-600">→</span>{" "}
                           <span className="text-slate-400">{target?.name ?? "jewel"}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
+                          <span className="text-slate-500">
+                            Damage: <span className="text-slate-300">{pathDamageSummary(p)}</span>
+                          </span>
+                          {pathTopFixLabel(p) !== "—" && (
+                            <span className="text-emerald-400/80 truncate max-w-[180px]" title={pathTopFixLabel(p)}>
+                              → {pathTopFixLabel(p)}
+                            </span>
+                          )}
                         </div>
                       </button>
                     )

@@ -1,0 +1,40 @@
+/**
+ * LIVE Playwright — Damage-Aware Path Card renders on Attack Paths v2.
+ */
+import { test, expect } from "@playwright/test"
+
+const SYSTEM = "alon-prod"
+const PATH_ID = "path-5203dfee3012"
+
+test.describe("damage-aware path card live", () => {
+  test.beforeEach(async ({ page }) => {
+    test.setTimeout(180_000)
+    await page.goto(
+      `/attack-paths-v2?system=${SYSTEM}&path=${PATH_ID}&mode=attack-path`,
+      { waitUntil: "domcontentloaded" },
+    )
+    await page.waitForTimeout(8000)
+  })
+
+  test("card renders with path, damage matrix, and LP sections", async ({ page }) => {
+    const card = page.getByTestId("damage-aware-path-card")
+    await expect(card).toBeVisible({ timeout: 60_000 })
+    await expect(card.getByText("Damage-Aware Path to Crown Jewel")).toBeVisible()
+    await expect(card.getByText("Path")).toBeVisible()
+    await expect(card.getByText("Damage on jewel")).toBeVisible()
+    await expect(card.getByText("Why")).toBeVisible()
+    await expect(card.getByText("Recommended LP fix")).toBeVisible()
+    await expect(card.getByText("Expected result")).toBeVisible()
+    await expect(card.getByText(/READ|WRITE|DELETE|ADMIN/)).toBeVisible()
+  })
+
+  test("path comparison table visible when multiple paths to jewel", async ({ page }) => {
+    const table = page.getByTestId("path-comparison-table")
+    const count = await table.count()
+    if (count === 0) {
+      test.skip(true, "Only one path to this jewel — comparison table hidden by design")
+    }
+    await expect(table).toBeVisible()
+    await expect(table.getByText(/different paths/i)).toBeVisible()
+  })
+})
