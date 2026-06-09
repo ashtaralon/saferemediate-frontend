@@ -251,7 +251,7 @@ export function PathAnalysisPanel({
       />
 
       <div className="px-6 py-4 border-b border-slate-800/60">
-        <ClosureOutcomeSection pathId={path.id} />
+        <ClosureOutcomeSection pathId={path.attack_path_id ?? path.id} />
       </div>
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
