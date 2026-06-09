@@ -6,6 +6,7 @@ import { test, expect } from "@playwright/test"
 
 const SYSTEM = "alon-prod"
 const PATH_ID = "path-5203dfee3012"
+const JEWEL_ID = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
 const ROLE_NAME = "alon-demo-ec2-role"
 const BUCKET_LABEL = /saferemediate-logs/i
 const SHADOW_ANNOTATION = `damage-scope:${PATH_ID}`
@@ -34,7 +35,7 @@ test.describe("damage-scope LP modal handoff live", () => {
       },
     ])
     await page.goto(
-      `/attack-paths-v2?system=${SYSTEM}&path=${PATH_ID}&mode=attack-path`,
+      `/attack-paths-v2?system=${SYSTEM}&jewel=${JEWEL_ID}&path=${PATH_ID}&mode=attack-path`,
       { waitUntil: "domcontentloaded" },
     )
     await page.waitForTimeout(8000)

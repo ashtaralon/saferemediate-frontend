@@ -249,6 +249,12 @@ export function PathListGrouped({
         </div>
       </div>
 
+      <PathComparisonTable
+        paths={paths}
+        selectedPathId={selectedPathId}
+        onSelectPath={onSelectPath}
+      />
+
       {/* Grouped path list */}
       <div className="divide-y divide-slate-800/40">
         {grouped.map(([bucket, bucketPaths]) => {
