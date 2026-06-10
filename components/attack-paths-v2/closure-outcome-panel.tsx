@@ -317,7 +317,7 @@ export function ClosureOutcomeSection({
   path: IdentityAttackPath | null | undefined
   jewel?: CrownJewelSummary | null
 }) {
-  const { closure, loading, error } = useClosurePreview(path)
+  const { closure, loading, error, retry } = useClosurePreview(path)
 
   // The attacker narrative NEVER waits for the closure preview — it renders
   // from the path/report immediately; the diff panel streams in below it.
@@ -325,12 +325,31 @@ export function ClosureOutcomeSection({
     <div className="space-y-3">
       {path && <AttackerNarrative path={path} jewel={jewel} closure={closure} />}
       {loading && !closure ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500">
-          Computing closure preview…
+        <div id="what-youre-approving" className="scroll-mt-4 rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500">
+          Computing exact diff…
         </div>
       ) : error && !closure ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500 italic">
-          Closure preview unavailable ({error}). No data shown.
+        // P0: never blank the approval anchor with "No data shown". The exact
+        // diff is the trust anchor — show an honest, retryable state instead.
+        <div id="what-youre-approving" className="scroll-mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.04] p-4">
+          <div className="flex items-center gap-2">
+            <FileDiff className="h-4 w-4 text-amber-300 shrink-0" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-200">
+              Exact diff temporarily unavailable
+            </span>
+            <button
+              type="button"
+              onClick={retry}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+            >
+              <RotateCcw className="h-3 w-3" /> Retry
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 italic mt-2 leading-snug">
+            The deterministic plan didn&apos;t respond in time ({error}) — likely a backend
+            cold start. Approval is disabled until the live diff loads; the attacker analysis and
+            recommended fix above are unaffected. Retry to fetch the exact diff.
+          </p>
         </div>
       ) : (
         <ClosureOutcomePanel closure={closure} path={path} jewel={jewel} />

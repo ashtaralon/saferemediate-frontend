@@ -43,6 +43,14 @@ const GATE_CHIP: Record<string, string> = {
   BLOCKED: "border-red-500/50 bg-red-500/10 text-red-300",
 }
 
+// Friendly fix label — "IAM_POLICY_PATCH" reads as plumbing; "IAM scope-down"
+// is the security action a CISO recognizes.
+function fixLabel(deliveredAs: string): string {
+  if (deliveredAs === "IAM_POLICY_PATCH") return "IAM scope-down"
+  if (deliveredAs === "TERRAFORM_PR") return "Terraform PR"
+  return deliveredAs.replace(/_/g, " ").toLowerCase()
+}
+
 const GRADE_META: Record<EvidenceGrade, { label: string; cls: string; accent: string }> = {
   OBSERVED: {
     label: "proven · observed",
@@ -211,7 +219,7 @@ export function AttackerNarrativeView({
           {diff && (
             <>
               <span className="text-slate-600">·</span>
-              <span className="text-slate-400">fix: {diff.delivered_as.replace(/_/g, " ").toLowerCase()}</span>
+              <span className="text-slate-400">fix: {fixLabel(diff.delivered_as).toLowerCase()}</span>
             </>
           )}
           {report.blast_radius?.band && (
@@ -306,7 +314,7 @@ export function AttackerNarrativeView({
           <div className="flex items-center gap-2 mb-2.5">
             <Wrench className="h-3.5 w-3.5 text-emerald-300" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-              Recommended first fix: {diff.delivered_as.replace(/_/g, " ").toLowerCase()}
+              Recommended first fix: {fixLabel(diff.delivered_as)}
             </span>
             {diff.diff_hash && (
               <span className="ml-auto font-mono text-[9px] text-slate-500" title="The human approves this hash, not the story">
@@ -351,27 +359,37 @@ export function AttackerNarrativeView({
               </>
             )}
           </div>
+          {report.blast_radius?.headline && (
+            <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+              Scope impact: {report.blast_radius.headline}
+            </p>
+          )}
           <a
             href="#what-youre-approving"
-            className="mt-3 inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 hover:bg-emerald-500/25 transition-colors"
           >
-            Review exact diff →
+            Review exact policy diff →
           </a>
         </div>
       )}
 
       {/* Micro-enforcement — least-privilege on every plane (Cyntro term).
-          The mitigation, decomposed: micro-permissions / micro-segmentation
-          / micro-access, each graded to what the data actually proves. */}
+          Collapsed by default: the CISO sees the primary fix above; the
+          three-plane detail is one click for SecOps. */}
       {report.micro_enforcement && report.micro_enforcement.length > 0 && (
-        <div className="px-4 py-3 border-t border-slate-800/70 bg-slate-900/40">
-          <div className="flex items-center gap-2 mb-2">
+        <details className="border-t border-slate-800/70 bg-slate-900/40 group">
+          <summary className="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-slate-900/60">
             <ShieldCheck className="h-3.5 w-3.5 text-teal-300" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-teal-300">
-              Micro-enforcement · least-privilege on every plane
+              Micro-enforcement · {report.micro_enforcement.length} controls
             </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <span className="text-[10px] text-slate-500">
+              {report.micro_enforcement.map((m) => `${MICRO_META[m.plane]?.layerLabel ?? m.layer}`).join(" · ")}
+            </span>
+            <span className="ml-auto text-[10px] text-slate-500 group-open:hidden">▸ expand</span>
+            <span className="ml-auto text-[10px] text-slate-500 hidden group-open:inline">▾ collapse</span>
+          </summary>
+          <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-3 gap-2.5">
             {report.micro_enforcement.map((m) => {
               const meta = MICRO_META[m.plane] ?? MICRO_META.micro_permissions
               const g = GRADE_META[m.evidence_grade]
@@ -435,7 +453,7 @@ export function AttackerNarrativeView({
               )
             })}
           </div>
-        </div>
+        </details>
       )}
 
       {/* Attacker walkthrough — demoted below the decision. Compressed
