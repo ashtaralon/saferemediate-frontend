@@ -72,7 +72,7 @@ export function useAttackPathReport(
     return () => {
       cancelled = true
     }
-  }, [path, jewel, closure])
+  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id, jewel?.id, closure])
 
   return { report, source, loading }
 }

@@ -64,7 +64,9 @@ export function useClosurePreview(path: ClosurePathInput): UseClosurePreview {
     return () => {
       cancelled = true
     }
-  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id, path?.nodes])
+  // Stable scalars only — `path.nodes` is a new array ref every parent render
+  // and was causing an infinite re-fetch / perpetual "Computing closure preview…".
+  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id])
 
   return { closure, loading, error }
 }
