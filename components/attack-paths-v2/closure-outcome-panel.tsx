@@ -1,58 +1,61 @@
 "use client"
 
 // Closure Outcome panel — Slice 5 of the v2 attack-path redesign.
+// 2026-06-10 presentation rewrite (Alon): the story is told from the
+// ATTACKER'S EYES, in the clean 3-column style of the standalone
+// attacker-path-map HTML — not as a wall of permission rows.
 //
-// Renders "what you're approving" for the path's remediation: BEFORE (today) →
-// EXACT DIFF (the change, not the story) → AFTER (projected, then verified).
+//   [ attacker story strip — foothold → identity → route → data → damage ]
+//   [ BEFORE · today ] [ EXACT DIFF · approve this ] [ AFTER · projected ]
 //
 // Cyntro law (rule #3 + feedback_not_detection_response):
-//   - never show a removal without the kept set,
-//   - the headline is "damage closed, NOT path closed" — the app keeps what it
-//     uses; we remove the dangerous, unused excess,
+//   - never show a removal without the kept set (kept is summarized, not dumped),
+//   - the headline is "damage closed, NOT path closed",
 //   - never claim verified function-preservation until the proof signals are in.
 //
-// Composes alongside <DamagePanel/> and <HardeningPanel/> in the path analysis
-// sidebar. Data comes from the backend EvidencePack / RemediationDiff contract
-// via GET /api/attack-paths/<id>/closure-preview (see closure-outcome-types.ts).
+// REAL DATA ONLY — everything renders from the live closure-preview endpoint
+// and the path's damage_capability. Absent data → honest absent states.
+// The map itself is untouched; this panel is the story around it.
 
 import { useState } from "react"
 import {
   ChevronDown,
   ChevronRight,
   ShieldCheck,
-  Minus,
   Check,
   RotateCcw,
   FileDiff,
   CircleSlash,
-  AlertTriangle,
 } from "lucide-react"
-import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import type { IdentityAttackPath, CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { ClosurePreview, ClosureVerdict } from "./closure-outcome-types"
 import { useClosurePreview } from "./use-closure-preview"
+import { AttackerNarrative } from "./attacker-narrative"
 
 interface ClosureOutcomePanelProps {
   closure: ClosurePreview | null
+  /** The path — powers the attacker story strip (foothold → gates → damage).
+   *  Optional so existing call sites keep compiling; strip hides without it. */
+  path?: IdentityAttackPath | null
+  /** The crown jewel, for the narrative recap header. */
+  jewel?: CrownJewelSummary | null
   /** Optional: the live worst-case damage label for the BEFORE line when the
    *  preview hasn't been computed but the damage_capability has. */
   damageHint?: string | null
 }
 
-const VERDICT_META: Record<ClosureVerdict, { label: string; tone: string; bg: string }> = {
+const VERDICT_META: Record<ClosureVerdict, { label: string; cls: string }> = {
   auto_eligible: {
-    label: "Auto-eligible · one-click approve",
-    tone: "text-emerald-300",
-    bg: "border-emerald-500/30 bg-emerald-500/[0.06]",
+    label: "auto-eligible · one-click approve",
+    cls: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
   },
   approval_required: {
-    label: "Review required · human approves the exact diff",
-    tone: "text-amber-300",
-    bg: "border-amber-500/30 bg-amber-500/[0.06]",
+    label: "approval_required · human approves the exact diff",
+    cls: "border-amber-500/50 bg-amber-500/10 text-amber-300",
   },
   blocked: {
-    label: "Blocked · not approvable yet",
-    tone: "text-red-300",
-    bg: "border-red-500/30 bg-red-500/[0.06]",
+    label: "blocked · not approvable yet",
+    cls: "border-red-500/50 bg-red-500/10 text-red-300",
   },
 }
 
@@ -71,22 +74,75 @@ function damageText(key: string | null | undefined): string {
   return DAMAGE_LABEL[key] ?? key
 }
 
-export function ClosureOutcomePanel({ closure, damageHint }: ClosureOutcomePanelProps) {
+/** "s3:DeleteObject" → "DeleteObject" — service prefix is noise in a summary. */
+function shortAction(a: string): string {
+  const i = a.indexOf(":")
+  return i >= 0 ? a.slice(i + 1) : a
+}
+
+// NOTE (2026-06-10): the inline "AttackerStoryStrip" was removed — it derived
+// gate states / damage verbs in React, i.e. the frontend acting as analyst.
+// The attacker story now renders ONLY via <AttackerNarrative/>, a pure
+// renderer of the backend-owned AttackPathReport (bridge-compiled until the
+// backend compiler endpoint ships). See attack-path-report-types.ts.
+
+// ── Column shells — the standalone-HTML look: 3 tinted cards side by side ───
+
+function StoryColumn({
+  tone,
+  title,
+  children,
+}: {
+  tone: "before" | "diff" | "after"
+  title: string
+  children: React.ReactNode
+}) {
+  const cls =
+    tone === "before"
+      ? "border-red-500/40 bg-red-950/20"
+      : tone === "diff"
+        ? "border-teal-500/40 bg-teal-950/15"
+        : "border-emerald-500/40 bg-emerald-950/15"
+  const titleCls =
+    tone === "before" ? "text-red-300" : tone === "diff" ? "text-teal-300" : "text-emerald-300"
+  return (
+    <div className={`rounded-lg border p-3 ${cls}`}>
+      <div className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${titleCls}`}>
+        {title}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Pill({ cls, children }: { cls: string; children: React.ReactNode }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-bold mt-2 ${cls}`}
+    >
+      {children}
+    </span>
+  )
+}
+
+export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: ClosureOutcomePanelProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  // Honest absent-state — no preview computed for this path yet.
+  // Honest absent-state — the attacker story still renders from the path;
+  // the diff/after columns wait for the deterministic plan.
   if (!closure) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 space-y-3">
         <div className="flex items-center gap-2">
           <FileDiff className="h-4 w-4 text-emerald-300" />
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-200">
             What you&apos;re approving
           </span>
         </div>
-        <div className="text-[11px] text-slate-500 italic mt-2">
-          Closure preview not computed for this path yet. Once the deterministic
-          plan runs, the exact diff and projected after-state appear here.
+        {path && <AttackerNarrative path={path} jewel={jewel} closure={null} />}
+        <div className="text-[11px] text-slate-500 italic">
+          Closure preview not computed for this path yet. Once the deterministic plan runs,
+          the exact diff and projected after-state appear here.
         </div>
       </div>
     )
@@ -94,14 +150,16 @@ export function ClosureOutcomePanel({ closure, damageHint }: ClosureOutcomePanel
 
   const { diff, after, proof, verdict, verdict_reasons, rollback_available, mode } = closure
   const vmeta = VERDICT_META[verdict] ?? VERDICT_META.approval_required
-  const shownRemoved = diff.removed_actions.slice(0, 6)
-  const shownKept = diff.kept_actions.slice(0, 6)
+  const shownRemoved = diff.removed_actions.slice(0, 4)
+  const moreRemoved = diff.removed_actions.length - shownRemoved.length
+  // Kept set summarized to one line (rule #3 satisfied without the wall).
+  const keptPreview = diff.kept_actions.slice(0, 2).map(shortAction).join(" / ")
 
   return (
-    <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] overflow-hidden">
+    <div className="rounded-xl border border-slate-700/80 bg-slate-900/40 overflow-hidden">
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-emerald-500/[0.05] transition-colors"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-slate-800/40 transition-colors"
       >
         {collapsed ? (
           <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
@@ -119,157 +177,97 @@ export function ClosureOutcomePanel({ closure, damageHint }: ClosureOutcomePanel
 
       {!collapsed && (
         <div className="px-4 pb-4 space-y-3">
-          {/* BEFORE — today */}
-          <div className="rounded-lg border border-red-500/30 bg-red-500/[0.04] p-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-red-300" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">
-                Before · today
-              </span>
-            </div>
-            <div className="text-[12px] text-slate-300">
-              Worst case:{" "}
-              <span className="text-red-300 font-semibold">
-                {damageText(after.worst_damage_before ?? damageHint)}
-              </span>
-              {after.blast_radius_before && (
-                <span className="text-slate-400"> · blast radius {after.blast_radius_before}</span>
-              )}
-            </div>
-          </div>
+          {path && <AttackerNarrative path={path} jewel={jewel} closure={closure} />}
 
-          {/* EXACT DIFF — approve this, not the story */}
-          <div className="rounded-lg border border-emerald-600/30 bg-slate-900/50 p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <FileDiff className="h-3.5 w-3.5 text-emerald-300" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">
-                Exact diff
-              </span>
-              <span className="ml-auto text-[10px] text-slate-500">approve this, not the story</span>
-            </div>
-
-            <div className="font-mono text-[11px] space-y-0.5">
-              {shownRemoved.map((a) => (
-                <div key={a} className="flex items-center gap-1.5 text-red-300">
-                  <Minus className="h-3 w-3 shrink-0" /> {a}
+          {/* The standalone-HTML 3-column story: BEFORE → DIFF → AFTER */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <StoryColumn tone="before" title="Before · today">
+              <div className="space-y-1.5 text-[12px] text-slate-300 leading-snug">
+                <div>
+                  Worst case:{" "}
+                  <span className="text-red-300 font-semibold">
+                    {damageText(after.worst_damage_before ?? damageHint)}
+                  </span>
                 </div>
-              ))}
-              {diff.removed_actions.length > shownRemoved.length && (
-                <div className="text-[10px] text-slate-500 italic pl-4">
-                  +{diff.removed_actions.length - shownRemoved.length} more removed
-                </div>
-              )}
-            </div>
-
-            <div className="font-mono text-[11px] space-y-0.5 mt-2">
-              {shownKept.map((a) => (
-                <div key={a} className="flex items-center gap-1.5 text-emerald-300">
-                  <Check className="h-3 w-3 shrink-0" /> {a}
-                </div>
-              ))}
-              {diff.kept_actions.length > shownKept.length && (
-                <div className="text-[10px] text-slate-500 italic pl-4">
-                  +{diff.kept_actions.length - shownKept.length} more kept
-                </div>
-              )}
-            </div>
-
-            {diff.scoped_to_prefixes.length > 0 && (
-              <div className="text-[11px] text-slate-400 mt-2">
-                Scoped to{" "}
-                <span className="font-mono text-emerald-300">
-                  {diff.scoped_to_prefixes.join(", ")}
-                </span>{" "}
-                ({diff.scoped_resource_count} resource
-                {diff.scoped_resource_count === 1 ? "" : "s"}) · delivered as {diff.delivered_as}
+                {after.blast_radius_before && (
+                  <div>
+                    Blast radius: <span className="text-slate-100 font-semibold">{after.blast_radius_before}</span>
+                  </div>
+                )}
               </div>
-            )}
+              <Pill cls="border-red-500/50 bg-red-500/10 text-red-300">live today</Pill>
+            </StoryColumn>
 
-            {/* Verdict — eligibility tier; human still approves in HITL */}
-            <div className={`rounded-md border ${vmeta.bg} px-2.5 py-1.5 mt-2`}>
-              <div className={`text-[11px] font-semibold ${vmeta.tone}`}>{vmeta.label}</div>
+            <StoryColumn tone="diff" title="Exact diff · approve this, not the story">
+              <div className="font-mono text-[11px] space-y-0.5">
+                {shownRemoved.map((a) => (
+                  <div key={a} className="text-red-300">− {a}</div>
+                ))}
+                {moreRemoved > 0 && (
+                  <div className="text-[10px] text-slate-500 italic">(+{moreRemoved} more removed)</div>
+                )}
+                {diff.kept_actions.length > 0 && (
+                  <div className="text-emerald-300 mt-2">
+                    ✓ keep {keptPreview} ({diff.kept_actions.length})
+                  </div>
+                )}
+                {diff.scoped_to_prefixes.length > 0 && (
+                  <div className="text-emerald-300">
+                    ✓ scope → {diff.scoped_to_prefixes.join(", ")}
+                  </div>
+                )}
+                {rollback_available && (
+                  <div className="text-teal-300">+ rollback snapshot captured</div>
+                )}
+              </div>
+              <Pill cls={vmeta.cls}>verdict: {vmeta.label}</Pill>
               {verdict_reasons.length > 0 && (
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {verdict_reasons.join(" · ")}
+                <div className="text-[10px] text-slate-400 mt-1">{verdict_reasons.join(" · ")}</div>
+              )}
+            </StoryColumn>
+
+            <StoryColumn tone="after" title={`After · ${proof?.verified ? "verified" : "projected"}`}>
+              <div className="space-y-1.5 text-[12px] text-slate-300 leading-snug">
+                <div className="flex items-start gap-1.5">
+                  <Check className="h-3 w-3 text-emerald-300 mt-0.5 shrink-0" />
+                  required read/write preserved (scoped)
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* AFTER — projected, then verified */}
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">
-                After · {proof?.verified ? "verified" : "projected"}
-              </span>
-            </div>
-            <ul className="space-y-1 text-[12px] text-slate-200">
-              <li className="flex items-start gap-1.5">
-                <Check className="h-3 w-3 text-emerald-300 mt-0.5 shrink-0" />
-                Required read/write preserved (scoped)
-              </li>
-              <li className="flex items-start gap-1.5">
-                <Check className="h-3 w-3 text-emerald-300 mt-0.5 shrink-0" />
-                Excess removed · worst case{" "}
-                <span className="text-slate-400">
-                  {damageText(after.worst_damage_before)} → {damageText(after.worst_damage_after)}
-                </span>
-              </li>
-              {after.blast_radius_after && (
-                <li className="flex items-start gap-1.5">
-                  <Check className="h-3 w-3 text-emerald-300 mt-0.5 shrink-0" />
-                  Blast radius {after.blast_radius_after}
-                </li>
-              )}
-              {/* Function-preservation proof — honest about projected vs verified */}
-              <li className="flex items-start gap-1.5">
-                {proof?.verified ? (
-                  <Check className="h-3 w-3 text-emerald-300 mt-0.5 shrink-0" />
-                ) : (
-                  <CircleSlash className="h-3 w-3 text-slate-500 mt-0.5 shrink-0" />
+                <div>
+                  Worst case: <span className="text-slate-100 font-semibold">{damageText(after.worst_damage_after)}</span>{" "}
+                  <span className="text-slate-500">(was {damageText(after.worst_damage_before)})</span>
+                </div>
+                {after.blast_radius_after && (
+                  <div>
+                    Blast radius: <span className="text-slate-100 font-semibold">{after.blast_radius_after}</span>
+                  </div>
                 )}
-                {proof?.verified ? (
-                  <span>
-                    No breakage detected: {proof.newly_denied_calls ?? 0} newly-denied calls, no
-                    rollback, no health regression
-                    {(proof.canary_window || proof.telemetry_sources.length > 0) && (
-                      <span className="text-slate-400">
-                        {" "}
-                        (
-                        {[
-                          proof.canary_window ? `${proof.canary_window} canary` : null,
-                          proof.telemetry_sources.length ? proof.telemetry_sources.join(", ") : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        )
-                      </span>
-                    )}
+                <div className="flex items-start gap-1.5">
+                  {proof?.verified ? (
+                    <Check className="h-3 w-3 text-emerald-300 mt-0.5 shrink-0" />
+                  ) : (
+                    <CircleSlash className="h-3 w-3 text-slate-500 mt-0.5 shrink-0" />
+                  )}
+                  <span className={proof?.verified ? undefined : "text-slate-400"}>
+                    {proof?.verified
+                      ? `no breakage: ${proof.newly_denied_calls ?? 0} newly-denied calls${
+                          proof.canary_window ? ` (${proof.canary_window} canary)` : ""
+                        }`
+                      : "function preserved — proven during canary (not yet run)"}
                   </span>
-                ) : (
-                  <span className="text-slate-400">
-                    Function-preservation proven during canary — not yet run (preview)
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Pill cls="border-emerald-500/50 bg-emerald-500/10 text-emerald-300">
+                  <ShieldCheck className="h-3 w-3" /> Damage closed
+                  {after.path_open_after && <span className="font-semibold opacity-80">— path stays open</span>}
+                </Pill>
+                {rollback_available && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 mt-2">
+                    <RotateCcw className="h-3 w-3" /> one-click rollback
                   </span>
                 )}
-              </li>
-            </ul>
-
-            <div className="flex items-center gap-2 mt-2.5">
-              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-                <ShieldCheck className="h-3 w-3" /> Damage closed
-              </span>
-              {after.path_open_after && (
-                <span className="text-[10px] text-slate-500 italic">
-                  path stays open — the app needs it
-                </span>
-              )}
-              {rollback_available && (
-                <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400">
-                  <RotateCcw className="h-3 w-3" /> one-click rollback
-                </span>
-              )}
-            </div>
+              </div>
+            </StoryColumn>
           </div>
 
           <div className="text-[11px] text-slate-500 italic">
@@ -288,8 +286,10 @@ export function ClosureOutcomePanel({ closure, damageHint }: ClosureOutcomePanel
 // Neo4j AttackPath node). Honest loading / error / empty states — NO mock data.
 export function ClosureOutcomeSection({
   path,
+  jewel,
 }: {
   path: IdentityAttackPath | null | undefined
+  jewel?: CrownJewelSummary | null
 }) {
   const { closure, loading, error } = useClosurePreview(path)
 
@@ -307,5 +307,5 @@ export function ClosureOutcomeSection({
       </div>
     )
   }
-  return <ClosureOutcomePanel closure={closure} />
+  return <ClosureOutcomePanel closure={closure} path={path} jewel={jewel} />
 }
