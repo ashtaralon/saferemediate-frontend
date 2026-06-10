@@ -31,8 +31,14 @@ import type {
   AttackerPhase,
   EvidenceGrade,
 } from "./attack-path-report-types"
-import { claimsById, dominantGrade } from "./attack-path-report-types"
+import { claimsById, dominantGrade, RISK_REDUCTION_LABEL } from "./attack-path-report-types"
 import { useAttackPathReport } from "./use-attack-path-report"
+
+const GATE_CHIP: Record<string, string> = {
+  AUTO_ELIGIBLE: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
+  REVIEW_REQUIRED: "border-amber-500/50 bg-amber-500/10 text-amber-300",
+  BLOCKED: "border-red-500/50 bg-red-500/10 text-red-300",
+}
 
 const GRADE_META: Record<EvidenceGrade, { label: string; cls: string; accent: string }> = {
   OBSERVED: {
@@ -301,6 +307,12 @@ export function AttackerNarrativeView({
                     </span>
                   </div>
                   <p className="text-[11px] leading-snug text-slate-300">{m.summary}</p>
+                  {m.reduces && m.reduces.length > 0 && (
+                    <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                      <span className="text-slate-500">reduces:</span>{" "}
+                      {m.reduces.map((r) => RISK_REDUCTION_LABEL[r] ?? r).join(", ")}
+                    </p>
+                  )}
                   {m.remove.length > 0 && (
                     <p className="text-[10px] text-red-300/90 mt-1 font-mono leading-snug">
                       − {m.remove.slice(0, 3).join(", ")}
@@ -312,6 +324,13 @@ export function AttackerNarrativeView({
                       ✓ keep {m.keep.slice(0, 2).join(", ")}
                       {m.keep.length > 2 ? ` (+${m.keep.length - 2})` : ""}
                     </p>
+                  )}
+                  {m.safety_gate && (
+                    <span
+                      className={`inline-flex items-center rounded border px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider mt-1.5 ${GATE_CHIP[m.safety_gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}
+                    >
+                      {m.safety_gate.replace("_", " ")}
+                    </span>
                   )}
                   {m.pending_signal && (
                     <p className="text-[9px] text-slate-500 italic mt-1 leading-snug">
@@ -365,7 +384,7 @@ export function AttackerNarrative({
   jewel?: CrownJewelSummary | null
   closure?: ClosurePreview | null
 }) {
-  const { report, source, loading } = useAttackPathReport(path, jewel, closure)
+  const { report, source, loading, error, retry } = useAttackPathReport(path, jewel, closure)
 
   if (loading && !report) {
     return (
@@ -374,6 +393,30 @@ export function AttackerNarrative({
       </div>
     )
   }
-  if (!report) return null
+  // Honest unavailable state — NEVER a contradicting fallback narrative.
+  if (!report) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+        <div className="flex items-center gap-2">
+          <Crosshair className="h-4 w-4 text-slate-500 shrink-0" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+            Attack-path report temporarily unavailable
+          </span>
+          <button
+            type="button"
+            onClick={retry}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+          >
+            <Wrench className="h-3 w-3" /> Retry
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 italic mt-2">
+          The compiler didn&apos;t respond{error ? ` (${error})` : ""}. Showing no
+          report rather than stale or contradicting data. The map and evidence below
+          are unaffected.
+        </p>
+      </div>
+    )
+  }
   return <AttackerNarrativeView report={report} source={source} />
 }

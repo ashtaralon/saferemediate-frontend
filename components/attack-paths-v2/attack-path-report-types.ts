@@ -154,6 +154,23 @@ export interface MissingEvidence {
 // planes, one idea: narrow each to what's provably used.
 export type MicroPlane = "micro_permissions" | "micro_segmentation" | "micro_access"
 
+export type RiskReduction =
+  | "FOOTHOLD_EXPOSURE"
+  | "DATA_READ_EXPOSURE"
+  | "DATA_DELETE_DAMAGE"
+  | "DATA_ADMIN_DAMAGE"
+  | "BLAST_RADIUS"
+  | "EXFIL_PORTABILITY"
+
+export const RISK_REDUCTION_LABEL: Record<RiskReduction, string> = {
+  FOOTHOLD_EXPOSURE: "foothold exposure",
+  DATA_READ_EXPOSURE: "whole-bucket read surface",
+  DATA_DELETE_DAMAGE: "delete damage",
+  DATA_ADMIN_DAMAGE: "admin damage",
+  BLAST_RADIUS: "blast radius",
+  EXFIL_PORTABILITY: "credential portability",
+}
+
 export interface MicroEnforcement {
   plane: MicroPlane
   title: string
@@ -167,6 +184,11 @@ export interface MicroEnforcement {
   /** Set when the plane is below OBSERVED grade — names the missing signal
    *  (e.g. per-port flow for segmentation) instead of overclaiming. */
   pending_signal?: string | null
+  /** What THIS plane reduces — different per plane (network ≠ data damage). */
+  reduces?: RiskReduction[]
+  /** Per-plane safety unit — one OBSERVED plane must not green-light the bundle. */
+  safety_gate?: "AUTO_ELIGIBLE" | "REVIEW_REQUIRED" | "BLOCKED"
+  approval_scope?: "STANDALONE" | "BUNDLE_MEMBER"
 }
 
 export interface AttackPathReport {
