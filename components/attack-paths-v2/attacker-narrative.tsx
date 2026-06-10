@@ -206,19 +206,42 @@ export function AttackerNarrativeView({
               </span>
             )}
           </div>
-          <p className="text-[12px] text-slate-200 leading-snug">
-            Remove {diff.remove_actions.length} unused action
-            {diff.remove_actions.length === 1 ? "" : "s"}, keep{" "}
-            {diff.keep_actions.slice(0, 2).join(" / ")}
-            {diff.keep_actions.length > 2 ? ` (+${diff.keep_actions.length - 2})` : ""}
-            {diff.scope_to && diff.scope_to.length > 0 && (
-              <>
-                {" "}scoped to{" "}
-                <span className="font-mono text-emerald-300">{diff.scope_to.join(", ")}</span>
-              </>
-            )}
-            {" "}— delivered as {diff.delivered_as}.
-          </p>
+          {diff.keep_bucket_level?.length || diff.keep_object_level?.length ? (
+            <div className="text-[12px] text-slate-200 leading-snug space-y-0.5">
+              <p>Remove {diff.remove_actions.length} unused destructive/admin action{diff.remove_actions.length === 1 ? "" : "s"}.</p>
+              {!!diff.keep_bucket_level?.length && (
+                <p>
+                  Keep {diff.keep_bucket_level.length} bucket-level metadata action
+                  {diff.keep_bucket_level.length === 1 ? "" : "s"} on the bucket.
+                </p>
+              )}
+              {!!diff.keep_object_level?.length && (
+                <p>
+                  Keep {diff.keep_object_level.length} object read/write action
+                  {diff.keep_object_level.length === 1 ? "" : "s"} only on{" "}
+                  <span className="font-mono text-emerald-300">
+                    {(diff.scope_to ?? []).map((p) => `${p}/*`).join(", ") || "observed scopes"}
+                  </span>
+                  .
+                </p>
+              )}
+              <p className="text-slate-400">Delivered as {diff.delivered_as}.</p>
+            </div>
+          ) : (
+            <p className="text-[12px] text-slate-200 leading-snug">
+              Remove {diff.remove_actions.length} unused action
+              {diff.remove_actions.length === 1 ? "" : "s"}, keep{" "}
+              {diff.keep_actions.slice(0, 2).join(" / ")}
+              {diff.keep_actions.length > 2 ? ` (+${diff.keep_actions.length - 2})` : ""}
+              {diff.scope_to && diff.scope_to.length > 0 && (
+                <>
+                  {" "}scoped to{" "}
+                  <span className="font-mono text-emerald-300">{diff.scope_to.join(", ")}</span>
+                </>
+              )}
+              {" "}— delivered as {diff.delivered_as}.
+            </p>
+          )}
           {report.safety_decision && (
             <p className="text-[11px] text-slate-500 italic mt-1">
               Safety gate: {report.safety_decision.gate}

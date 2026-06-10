@@ -127,6 +127,9 @@ function Pill({ cls, children }: { cls: string; children: React.ReactNode }) {
 
 export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: ClosureOutcomePanelProps) {
   const [collapsed, setCollapsed] = useState(false)
+  // "Approve the exact diff, not the story" — the FULL diff must be one
+  // click away before approval; the summary is only the resting state.
+  const [showFullDiff, setShowFullDiff] = useState(false)
 
   // Honest absent-state — the narrative renders independently in the
   // section above; only the diff/after columns wait for the plan.
@@ -197,16 +200,19 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
 
             <StoryColumn tone="diff" title="Exact diff · approve this, not the story">
               <div className="font-mono text-[11px] space-y-0.5">
-                {shownRemoved.map((a) => (
+                {(showFullDiff ? diff.removed_actions : shownRemoved).map((a) => (
                   <div key={a} className="text-red-300">− {a}</div>
                 ))}
-                {moreRemoved > 0 && (
-                  <div className="text-[10px] text-slate-500 italic">(+{moreRemoved} more removed)</div>
-                )}
-                {diff.kept_actions.length > 0 && (
-                  <div className="text-emerald-300 mt-2">
-                    ✓ keep {keptPreview} ({diff.kept_actions.length})
-                  </div>
+                {showFullDiff ? (
+                  diff.kept_actions.map((a) => (
+                    <div key={a} className="text-emerald-300 first:mt-2">✓ {a}</div>
+                  ))
+                ) : (
+                  diff.kept_actions.length > 0 && (
+                    <div className="text-emerald-300 mt-2">
+                      ✓ keep {keptPreview} ({diff.kept_actions.length})
+                    </div>
+                  )
                 )}
                 {diff.scoped_to_prefixes.length > 0 && (
                   <div className="text-emerald-300">
@@ -217,6 +223,18 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
                   <div className="text-teal-300">+ rollback snapshot captured</div>
                 )}
               </div>
+              {(moreRemoved > 0 || diff.kept_actions.length > 2) && (
+                <button
+                  type="button"
+                  onClick={() => setShowFullDiff((v) => !v)}
+                  className="mt-1.5 text-[10px] text-teal-300 hover:text-teal-200 underline underline-offset-2"
+                  data-testid="closure-full-diff-toggle"
+                >
+                  {showFullDiff
+                    ? "collapse"
+                    : `show full diff (${diff.removed_actions.length} removed · ${diff.kept_actions.length} kept)`}
+                </button>
+              )}
               <Pill cls={vmeta.cls}>verdict: {vmeta.label}</Pill>
               {verdict_reasons.length > 0 && (
                 <div className="text-[10px] text-slate-400 mt-1">{verdict_reasons.join(" · ")}</div>
@@ -249,7 +267,7 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
                       ? `no breakage: ${proof.newly_denied_calls ?? 0} newly-denied calls${
                           proof.canary_window ? ` (${proof.canary_window} canary)` : ""
                         }`
-                      : "function preserved — proven during canary (not yet run)"}
+                      : "Function preservation: pending canary (projected only)"}
                   </span>
                 </div>
               </div>

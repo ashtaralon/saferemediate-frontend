@@ -125,6 +125,12 @@ export interface RemediationDiffRef {
   remove_actions: string[]
   scope_to?: string[]
   rollback_snapshot_id?: string
+  /** S3 correctness split (compiler-authored): bucket-level actions bind to
+   *  arn:aws:s3:::bucket; object-level to bucket/<prefix>/*. ListBucket is
+   *  bucket-level with an s3:prefix condition — materialized by the plan
+   *  engine, rendered from this split. */
+  keep_bucket_level?: string[]
+  keep_object_level?: string[]
 }
 
 export interface SafetyDecision {

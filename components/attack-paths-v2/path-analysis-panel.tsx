@@ -202,7 +202,14 @@ export function PathAnalysisPanel({
       <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${sevTone}`}>
+            {/* Labeled "path score" so it can't be confused with the
+                compiler's Exposure (0–1) chip in the narrative — two
+                different models, two different dimensions. */}
+            <span
+              className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${sevTone}`}
+              title="IAP 6-factor path score (/100) — distinct from the compiler's Exposure model below"
+            >
+              <span className="opacity-70 mr-1 font-semibold normal-case">path score</span>
               {sevLabel}
               {sevScore !== undefined && sevScore !== null && (
                 <span className="ml-1.5 opacity-80">{sevScore}/100</span>
