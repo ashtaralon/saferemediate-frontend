@@ -128,8 +128,8 @@ function Pill({ cls, children }: { cls: string; children: React.ReactNode }) {
 export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: ClosureOutcomePanelProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  // Honest absent-state — the attacker story still renders from the path;
-  // the diff/after columns wait for the deterministic plan.
+  // Honest absent-state — the narrative renders independently in the
+  // section above; only the diff/after columns wait for the plan.
   if (!closure) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 space-y-3">
@@ -139,7 +139,6 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
             What you&apos;re approving
           </span>
         </div>
-        {path && <AttackerNarrative path={path} jewel={jewel} closure={null} />}
         <div className="text-[11px] text-slate-500 italic">
           Closure preview not computed for this path yet. Once the deterministic plan runs,
           the exact diff and projected after-state appear here.
@@ -177,8 +176,6 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
 
       {!collapsed && (
         <div className="px-4 pb-4 space-y-3">
-          {path && <AttackerNarrative path={path} jewel={jewel} closure={closure} />}
-
           {/* The standalone-HTML 3-column story: BEFORE → DIFF → AFTER */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <StoryColumn tone="before" title="Before · today">
@@ -293,19 +290,22 @@ export function ClosureOutcomeSection({
 }) {
   const { closure, loading, error } = useClosurePreview(path)
 
-  if (loading && !closure) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500">
-        Computing closure preview…
-      </div>
-    )
-  }
-  if (error && !closure) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500 italic">
-        Closure preview unavailable ({error}). No data shown.
-      </div>
-    )
-  }
-  return <ClosureOutcomePanel closure={closure} path={path} jewel={jewel} />
+  // The attacker narrative NEVER waits for the closure preview — it renders
+  // from the path/report immediately; the diff panel streams in below it.
+  return (
+    <div className="space-y-3">
+      {path && <AttackerNarrative path={path} jewel={jewel} closure={closure} />}
+      {loading && !closure ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500">
+          Computing closure preview…
+        </div>
+      ) : error && !closure ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500 italic">
+          Closure preview unavailable ({error}). No data shown.
+        </div>
+      ) : (
+        <ClosureOutcomePanel closure={closure} path={path} jewel={jewel} />
+      )}
+    </div>
+  )
 }
