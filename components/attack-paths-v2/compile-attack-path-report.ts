@@ -364,7 +364,10 @@ export function compileAttackPathReport(
   }
 
   // ── Assembled report ──────────────────────────────────────────────────
-  const exposure = path.severity?.overall_score
+  // NOTE: the bridge does NOT emit exposure_score — that's the backend
+  // compiler's R×I×X model (0–1). The IAP overall_score is a different
+  // scorer on a /100 scale; passing it here once rendered "EXPOSURE 32.00".
+  // The bridge only carries the IAP severity band as a fallback label.
   const chainOpen =
     derivedGates.network !== "CLOSED" && derivedGates.data_plane !== "CLOSED"
 
@@ -375,7 +378,6 @@ export function compileAttackPathReport(
     path_id: path.attack_path_id ?? path.id,
     current_state: {
       status: chainOpen ? "OPEN_TODAY" : "BLOCKED",
-      exposure_score: exposure,
       severity: (path.severity?.severity?.toUpperCase() as
         | "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined),
       source_label: sourceLabel,
