@@ -113,12 +113,19 @@ export function AttackerNarrativeView({
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-100">
             The attacker&apos;s-eye view · current state
           </span>
+          {/* Exposure (R×I×X, 0–1) — deliberately labeled so it can't be
+              confused with the IAP 6-factor /100 score in the page header. */}
           <span
             className={`ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${sevCls(report.current_state.severity)}`}
+            title="Exposure = Reachability × Impact × Ease — the compiler's per-path model (not the IAP score)"
           >
-            {report.current_state.severity ?? "—"}
-            {report.current_state.exposure_score != null && (
-              <span className="ml-1 opacity-80">{report.current_state.exposure_score}/100</span>
+            {report.current_state.exposure_score != null ? (
+              <>
+                Exposure {report.current_state.exposure_score.toFixed(2)}
+                <span className="ml-1 opacity-80">· {report.current_state.severity ?? "—"}</span>
+              </>
+            ) : (
+              (report.current_state.severity ?? "—")
             )}
           </span>
         </div>
