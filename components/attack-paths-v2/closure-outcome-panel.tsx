@@ -199,6 +199,12 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
             </StoryColumn>
 
             <StoryColumn tone="diff" title="Exact diff · approve this, not the story">
+              {/* Affected role visible before approval — shared-role impact. */}
+              {diff.role && (
+                <div className="text-[10px] text-slate-400 mb-1.5 leading-snug">
+                  affected role <span className="font-mono text-slate-200">{diff.role}</span>
+                </div>
+              )}
               <div className="font-mono text-[11px] space-y-0.5">
                 {(showFullDiff ? diff.removed_actions : shownRemoved).map((a) => (
                   <div key={a} className="text-red-300">− {a}</div>
@@ -227,12 +233,12 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
                 <button
                   type="button"
                   onClick={() => setShowFullDiff((v) => !v)}
-                  className="mt-1.5 text-[10px] text-teal-300 hover:text-teal-200 underline underline-offset-2"
+                  className="mt-2 inline-flex items-center gap-1 rounded-md border border-teal-500/40 bg-teal-500/10 px-2 py-1 text-[10px] font-semibold text-teal-200 hover:bg-teal-500/20 transition-colors"
                   data-testid="closure-full-diff-toggle"
                 >
                   {showFullDiff
-                    ? "collapse"
-                    : `show full diff (${diff.removed_actions.length} removed · ${diff.kept_actions.length} kept)`}
+                    ? "Collapse diff"
+                    : `View full policy diff (${diff.removed_actions.length} removed · ${diff.kept_actions.length} kept)`}
                 </button>
               )}
               <Pill cls={vmeta.cls}>verdict: {vmeta.label}</Pill>
@@ -272,8 +278,11 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                {/* "Projected:" until the canary actually runs; flips to
+                    "Verified:" only when proof is in — never overclaim. */}
                 <Pill cls="border-emerald-500/50 bg-emerald-500/10 text-emerald-300">
-                  <ShieldCheck className="h-3 w-3" /> Damage closed
+                  <ShieldCheck className="h-3 w-3" />
+                  {proof?.verified ? "Verified" : "Projected"}: damage closed
                   {after.path_open_after && <span className="font-semibold opacity-80">— path stays open</span>}
                 </Pill>
                 {rollback_available && (

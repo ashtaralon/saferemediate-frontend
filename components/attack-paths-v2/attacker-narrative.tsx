@@ -70,11 +70,11 @@ const GRADE_META: Record<EvidenceGrade, { label: string; cls: string; accent: st
 
 const MICRO_META: Record<
   string,
-  { icon: React.ReactNode; accent: string; layerLabel: string }
+  { icon: React.ReactNode; accent: string; layerLabel: string; role: string }
 > = {
-  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: "#6BB6E8", layerLabel: "IAM" },
-  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: "#A78BFA", layerLabel: "Network" },
-  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: "#34D399", layerLabel: "Data" },
+  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: "#6BB6E8", layerLabel: "IAM", role: "Primary fix" },
+  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: "#A78BFA", layerLabel: "Network", role: "Secondary hardening" },
+  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: "#34D399", layerLabel: "Data", role: "Data-scope refinement" },
 }
 
 const PHASE_META: Record<AttackerPhase, { step: string; icon: React.ReactNode }> = {
@@ -111,14 +111,25 @@ export function AttackerNarrativeView({
 }) {
   const byId = claimsById(report)
   const diff = report.remediation_diff
+  const cs = report.current_state
   const statusLine =
-    report.current_state.status === "OPEN_TODAY"
-      ? "The path is open today."
-      : report.current_state.status === "BLOCKED"
-        ? "The chain is broken by a control."
-        : report.current_state.status === "PARTIALLY_BLOCKED"
-          ? "The path is partially blocked."
-          : "The path state is unverified."
+    cs.status === "OPEN_TODAY"
+      ? "Open today"
+      : cs.status === "BLOCKED"
+        ? "Chain broken by a control"
+        : cs.status === "PARTIALLY_BLOCKED"
+          ? "Partially blocked"
+          : "State unverified"
+
+  // Damage verbs present, worst-first — for the orient strip.
+  const damageVerbs = Array.from(
+    new Set(
+      report.damage_matrix
+        .map((c) => c.category)
+        .filter((c) => ["ADMIN", "DELETE", "WRITE", "READ"].includes(c)),
+    ),
+  ).sort((a, b) => ["ADMIN", "DELETE", "WRITE", "READ"].indexOf(a) - ["ADMIN", "DELETE", "WRITE", "READ"].indexOf(b))
+  const fixGate = diff && report.safety_decision ? report.safety_decision.gate : null
 
   return (
     <div className="rounded-xl border border-slate-700/80 bg-slate-950/50 overflow-hidden">
@@ -132,28 +143,65 @@ export function AttackerNarrativeView({
           {/* Exposure (R×I×X, 0–1) — deliberately labeled so it can't be
               confused with the IAP 6-factor /100 score in the page header. */}
           <span
-            className={`ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${sevCls(report.current_state.severity)}`}
+            className={`ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${sevCls(cs.severity)}`}
             title="Exposure = Reachability × Impact × Ease — the compiler's per-path model (not the IAP score)"
           >
-            {report.current_state.exposure_score != null ? (
+            {cs.exposure_score != null ? (
               <>
-                Exposure {report.current_state.exposure_score.toFixed(2)}
-                <span className="ml-1 opacity-80">· {report.current_state.severity ?? "—"}</span>
+                Exposure {cs.exposure_score.toFixed(2)}
+                <span className="ml-1 opacity-80">· {cs.severity ?? "—"}</span>
               </>
             ) : (
-              (report.current_state.severity ?? "—")
+              (cs.severity ?? "—")
             )}
           </span>
         </div>
-        <p className="text-[12px] text-slate-300 leading-snug mt-2">
-          {statusLine}{" "}
-          <span className="font-mono text-slate-100">{report.current_state.source_label}</span>
-          {" → "}
-          <span className="font-mono text-amber-300">{report.current_state.target_label}</span>
-          {report.current_state.summary && (
-            <span className="block text-slate-400 mt-1">{report.current_state.summary}</span>
+
+        {/* Orient strip — scannable one-liner before the prose. */}
+        <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap mt-2 text-[10px] uppercase tracking-wider">
+          <span className={cs.status === "OPEN_TODAY" ? "text-red-300 font-bold" : "text-emerald-300 font-bold"}>
+            {statusLine}
+          </span>
+          {damageVerbs.length > 0 && (
+            <>
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-400">
+                damage <span className="text-amber-300 font-semibold">{damageVerbs.join(" / ").toLowerCase()}</span>
+              </span>
+            </>
           )}
+          {diff && (
+            <>
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-400">fix {diff.delivered_as.replace(/_/g, " ").toLowerCase()}</span>
+            </>
+          )}
+          {fixGate && (
+            <>
+              <span className="text-slate-600">·</span>
+              <span className="text-amber-300 font-semibold">{fixGate.replace(/_/g, " ").toLowerCase()}</span>
+            </>
+          )}
+        </div>
+
+        {/* Path one-liner */}
+        <p className="text-[12px] text-slate-300 leading-snug mt-1.5">
+          <span className="font-mono text-slate-100">{cs.source_label}</span>
+          {" → "}
+          <span className="font-mono text-amber-300">{cs.target_label}</span>
         </p>
+
+        {/* Dense business sentence — kept for depth, collapsed by default so
+            the hero stays scannable (reviewer: hero explains, diff shows). */}
+        {cs.summary && (
+          <details className="mt-1.5 group">
+            <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300 select-none list-none">
+              <span className="group-open:hidden">▸ why this path is open</span>
+              <span className="hidden group-open:inline">▾ why this path is open</span>
+            </summary>
+            <p className="text-[11px] text-slate-400 leading-relaxed mt-1">{cs.summary}</p>
+          </details>
+        )}
       </div>
 
       {/* Kill-chain walk — compiler-authored steps, grade chip per step */}
@@ -214,7 +262,7 @@ export function AttackerNarrativeView({
           <div className="flex items-center gap-2 mb-1">
             <Wrench className="h-3.5 w-3.5 text-emerald-300" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-              Single highest-leverage fix
+              Recommended first fix
             </span>
             {diff.diff_hash && (
               <span className="ml-auto font-mono text-[9px] text-slate-500" title="The human approves this hash, not the story">
@@ -294,7 +342,7 @@ export function AttackerNarrativeView({
                     style={{ background: meta.accent }}
                     aria-hidden
                   />
-                  <div className="flex items-center gap-1.5 mb-1">
+                  <div className="flex items-center gap-1.5 mb-0.5">
                     <span style={{ color: meta.accent }}>{meta.icon}</span>
                     <span className="text-[11px] font-semibold text-slate-100">{m.title}</span>
                     <span className="text-[9px] uppercase tracking-wider text-slate-500">
@@ -305,6 +353,9 @@ export function AttackerNarrativeView({
                     >
                       {m.evidence_grade}
                     </span>
+                  </div>
+                  <div className="text-[9px] uppercase tracking-wider mb-1" style={{ color: meta.accent }}>
+                    {meta.role}
                   </div>
                   <p className="text-[11px] leading-snug text-slate-300">{m.summary}</p>
                   {m.reduces && m.reduces.length > 0 && (

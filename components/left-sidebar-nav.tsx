@@ -4,6 +4,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map } from "lucide-react"
+// ThemeToggle import held until dark-mode migration lands:
+// import { ThemeToggle } from "@/components/theme-toggle"
 
 interface LeftSidebarNavProps {
   activeItem?: string
@@ -178,6 +180,8 @@ export function LeftSidebarNav({
           >
             CYNTRO
           </h1>
+          {/* ThemeToggle is held until the dark-mode color migration lands —
+              import kept so it's a one-line re-enable. */}
         </div>
       </div>
 
