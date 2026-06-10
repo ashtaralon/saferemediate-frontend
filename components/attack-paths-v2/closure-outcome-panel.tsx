@@ -59,9 +59,11 @@ const VERDICT_META: Record<ClosureVerdict, { label: string; cls: string }> = {
   },
 }
 
+// Precise data-plane damage wording — "full takeover" wrongly implies AWS
+// account takeover; this is bucket-scoped admin/delete.
 const DAMAGE_LABEL: Record<string, string> = {
-  admin_access: "full takeover (admin)",
-  admin_evasion: "takeover + disable audit",
+  admin_access: "bucket admin + object delete",
+  admin_evasion: "bucket admin + disable audit logging",
   admin_posture: "rewrite bucket posture",
   destroy_bucket: "bucket destruction",
   delete_object: "object deletion",
@@ -158,7 +160,7 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
   const keptPreview = diff.kept_actions.slice(0, 2).map(shortAction).join(" / ")
 
   return (
-    <div className="rounded-xl border border-slate-700/80 bg-slate-900/40 overflow-hidden">
+    <div id="what-youre-approving" className="scroll-mt-4 rounded-xl border border-slate-700/80 bg-slate-900/40 overflow-hidden">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-slate-800/40 transition-colors"

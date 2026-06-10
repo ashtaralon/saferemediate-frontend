@@ -10,6 +10,7 @@
 // REAL DATA ONLY. Absent sections drop out; what's missing is surfaced in
 // the "missing evidence" block (collection gaps are a feature, not silence).
 
+import { Fragment } from "react"
 import {
   Crosshair,
   KeyRound,
@@ -20,6 +21,8 @@ import {
   Flame,
   Wrench,
   EyeOff,
+  Check,
+  X,
 } from "lucide-react"
 import type {
   IdentityAttackPath,
@@ -121,15 +124,50 @@ export function AttackerNarrativeView({
           ? "Partially blocked"
           : "State unverified"
 
-  // Damage verbs present, worst-first — for the orient strip.
-  const damageVerbs = Array.from(
-    new Set(
-      report.damage_matrix
-        .map((c) => c.category)
-        .filter((c) => ["ADMIN", "DELETE", "WRITE", "READ"].includes(c)),
-    ),
-  ).sort((a, b) => ["ADMIN", "DELETE", "WRITE", "READ"].indexOf(a) - ["ADMIN", "DELETE", "WRITE", "READ"].indexOf(b))
+  // ── Decision-first derivations (all from existing report fields) ────────
+  const ORDER = ["ADMIN", "DELETE", "WRITE", "READ"]
+  const presentCats = new Set<string>(
+    report.damage_matrix.map((c) => String(c.category)).filter((c) => ORDER.includes(c)),
+  )
+  const damageVerbs = ORDER.filter((c) => presentCats.has(c))
   const fixGate = diff && report.safety_decision ? report.safety_decision.gate : null
+
+  // What the fix REMOVES vs PRESERVES, derived from micro-enforcement reduces:
+  // DATA_DELETE_DAMAGE → DELETE removed, DATA_ADMIN_DAMAGE → ADMIN removed;
+  // READ/WRITE are the observed-needed verbs, preserved (scoped).
+  const reduces = new Set((report.micro_enforcement ?? []).flatMap((m) => m.reduces ?? []))
+  const removedCats = new Set<string>()
+  if (reduces.has("DATA_DELETE_DAMAGE")) removedCats.add("DELETE")
+  if (reduces.has("DATA_ADMIN_DAMAGE")) removedCats.add("ADMIN")
+
+  const DAMAGE_META: Record<string, { label: string; impact: string }> = {
+    ADMIN: { label: "Bucket Admin", impact: "change ACL, logging, or versioning" },
+    DELETE: { label: "Delete Objects", impact: "destructive object-loss risk" },
+    WRITE: { label: "Write Objects", impact: "tamper / implant poisoned objects" },
+    READ: { label: "Read Objects", impact: "data exposure" },
+  }
+  const damageRows = ORDER.filter((c) => presentCats.has(c)).map((c) => ({
+    cat: c,
+    ...DAMAGE_META[c],
+    removed: removedCats.has(c),
+  }))
+
+  const scopes = diff?.scope_to ?? []
+  const execSummary = diff
+    ? `If ${cs.source_label} is compromised, its instance role can ` +
+      `${damageVerbs.map((v) => v.toLowerCase()).join(" / ")} on ${cs.target_label}` +
+      `${report.blast_radius?.headline ? " and other crown-jewel buckets" : ""}. ` +
+      `Observed behavior only needs read/write` +
+      `${scopes.length ? ` on ${scopes.map((s) => `${s}/`).join(", ")}` : ""}. ` +
+      `Cyntro recommends removing ${diff.remove_actions.length} unused destructive/admin ` +
+      `action${diff.remove_actions.length === 1 ? "" : "s"} and preserving the ${diff.keep_actions.length} required.`
+    : null
+
+  // Compressed 3-step walkthrough (foothold → identity → jewel) for the
+  // collapsed default; the full ordered steps live inside the expander.
+  const compressed = report.attacker_steps
+    .filter((s) => ["LAND_ON_FOOTHOLD", "BECOME_IDENTITY", "HIT_CROWN_JEWEL"].includes(s.phase))
+    .map((s) => ({ title: s.title, lead: s.body.split(". ")[0] + "." }))
 
   return (
     <div className="rounded-xl border border-slate-700/80 bg-slate-950/50 overflow-hidden">
@@ -166,14 +204,20 @@ export function AttackerNarrativeView({
             <>
               <span className="text-slate-600">·</span>
               <span className="text-slate-400">
-                damage <span className="text-amber-300 font-semibold">{damageVerbs.join(" / ").toLowerCase()}</span>
+                damage: <span className="text-amber-300 font-semibold">{damageVerbs.join(" / ").toLowerCase()}</span>
               </span>
             </>
           )}
           {diff && (
             <>
               <span className="text-slate-600">·</span>
-              <span className="text-slate-400">fix {diff.delivered_as.replace(/_/g, " ").toLowerCase()}</span>
+              <span className="text-slate-400">fix: {diff.delivered_as.replace(/_/g, " ").toLowerCase()}</span>
+            </>
+          )}
+          {report.blast_radius?.band && (
+            <>
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-400">blast: <span className="text-red-300 font-semibold">{report.blast_radius.band.toLowerCase()}</span></span>
             </>
           )}
           {fixGate && (
@@ -191,78 +235,78 @@ export function AttackerNarrativeView({
           <span className="font-mono text-amber-300">{cs.target_label}</span>
         </p>
 
-        {/* Dense business sentence — kept for depth, collapsed by default so
-            the hero stays scannable (reviewer: hero explains, diff shows). */}
+        {/* Executive one-sentence summary — the whole page in one line. */}
+        {execSummary && (
+          <p className="text-[12px] text-slate-300 leading-relaxed mt-2">{execSummary}</p>
+        )}
+
+        {/* Dense business sentence — kept for depth, collapsed by default. */}
         {cs.summary && (
           <details className="mt-1.5 group">
             <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300 select-none list-none">
-              <span className="group-open:hidden">▸ why this path is open</span>
-              <span className="hidden group-open:inline">▾ why this path is open</span>
+              <span className="group-open:hidden">▸ full evidence sentence</span>
+              <span className="hidden group-open:inline">▾ full evidence sentence</span>
             </summary>
             <p className="text-[11px] text-slate-400 leading-relaxed mt-1">{cs.summary}</p>
           </details>
         )}
       </div>
 
-      {/* Kill-chain walk — compiler-authored steps, grade chip per step */}
-      <div className="px-4 py-4 space-y-4">
-        {report.attacker_steps.map((step) => {
-          const meta = PHASE_META[step.phase]
-          const stepClaims = step.claim_ids
-            .map((id) => byId.get(id))
-            .filter((c): c is NonNullable<typeof c> => !!c)
-          const g = GRADE_META[dominantGrade(stepClaims)]
-          return (
-            <div key={step.phase} className="relative pl-5">
-              <span
-                className="absolute left-0 top-1 bottom-1 w-[2px] rounded"
-                style={{ background: g.accent }}
-                aria-hidden
-              />
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-slate-400">{meta.icon}</span>
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-                  {meta.step}
-                </span>
-                <span className="text-[12px] font-semibold text-slate-100">{step.title}</span>
-                <span
-                  className={`ml-auto inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${g.cls}`}
-                >
-                  {g.label}
-                </span>
-              </div>
-              <div className="text-[12px] leading-relaxed text-slate-300">{step.body}</div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Blast radius */}
-      {report.blast_radius?.headline && (
-        <div className="px-4 py-3 border-t border-slate-800/70 bg-red-950/15">
-          <div className="flex items-center gap-2 mb-1">
-            <Flame className="h-3.5 w-3.5 text-red-300" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-red-300">
-              Blast radius
-            </span>
-            {report.blast_radius.band && (
-              <span className="ml-auto text-[10px] font-semibold text-slate-400">
-                {report.blast_radius.brs != null ? `BRS ${report.blast_radius.brs} · ` : ""}
-                {report.blast_radius.band}
-              </span>
-            )}
+      {/* DAMAGE-FIRST CARD — the visual center. "What can happen" today vs
+          the projected after-fix state, per damage class. Derived from the
+          matrix + micro-enforcement reduces. Labeled "Projected" pre-apply. */}
+      {damageRows.length > 0 && (
+        <div className="px-4 py-4 border-b border-slate-800/70 bg-slate-900/20">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-2.5">
+            What can happen
           </div>
-          <p className="text-[12px] text-slate-300 leading-snug">{report.blast_radius.headline}</p>
+          <div className="grid grid-cols-[1fr_84px_104px] gap-x-3 items-center">
+            {/* header row */}
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 pb-1.5">Damage type</div>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-red-300/90 text-center pb-1.5">Today</div>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-emerald-300/90 text-center pb-1.5">Projected after fix</div>
+            {damageRows.map((r, i) => (
+              <Fragment key={r.cat}>
+                <div className={`text-[12px] text-slate-200 py-2 ${i > 0 ? "border-t border-slate-800/60" : ""}`}>
+                  <span className="font-semibold">{r.label}</span>
+                  <span className="text-slate-500"> — {r.impact}</span>
+                </div>
+                <div className={`text-center py-2 ${i > 0 ? "border-t border-slate-800/60" : ""}`}>
+                  <span className="inline-flex items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-300 text-[10px] font-bold w-[72px] py-1">
+                    Allowed
+                  </span>
+                </div>
+                <div className={`text-center py-2 ${i > 0 ? "border-t border-slate-800/60" : ""}`}>
+                  {r.removed ? (
+                    <span className="inline-flex items-center justify-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 text-emerald-300 text-[10px] font-bold w-[96px] py-1">
+                      <X className="h-3 w-3" /> Removed
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center justify-center gap-1 rounded border border-slate-600 bg-slate-800/40 text-slate-300 text-[10px] font-bold w-[96px] py-1">
+                      <Check className="h-3 w-3" /> Kept, scoped
+                    </span>
+                  )}
+                </div>
+              </Fragment>
+            ))}
+          </div>
+          {scopes.length > 0 && (
+            <p className="text-[11px] text-slate-400 mt-3">
+              Required access remains, scoped to{" "}
+              <span className="font-mono text-emerald-300">{scopes.map((s) => `${s}/*`).join(", ")}</span>.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Highest-leverage fix — bound to the diff object, not prose */}
+      {/* Recommended first fix — structured Remove / Keep / Scope / Safety,
+          bound to the diff object, with a one-click route to the exact diff. */}
       {diff && (
-        <div className="px-4 py-3 border-t border-slate-800/70 bg-emerald-950/15">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="px-4 py-4 border-t border-slate-800/70 bg-emerald-950/15">
+          <div className="flex items-center gap-2 mb-2.5">
             <Wrench className="h-3.5 w-3.5 text-emerald-300" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-              Recommended first fix
+              Recommended first fix: {diff.delivered_as.replace(/_/g, " ").toLowerCase()}
             </span>
             {diff.diff_hash && (
               <span className="ml-auto font-mono text-[9px] text-slate-500" title="The human approves this hash, not the story">
@@ -270,50 +314,49 @@ export function AttackerNarrativeView({
               </span>
             )}
           </div>
-          {diff.keep_bucket_level?.length || diff.keep_object_level?.length ? (
-            <div className="text-[12px] text-slate-200 leading-snug space-y-0.5">
-              <p>Remove {diff.remove_actions.length} unused destructive/admin action{diff.remove_actions.length === 1 ? "" : "s"}.</p>
-              {!!diff.keep_bucket_level?.length && (
-                <p>
-                  Keep {diff.keep_bucket_level.length} bucket-level metadata action
-                  {diff.keep_bucket_level.length === 1 ? "" : "s"} on the bucket.
-                </p>
-              )}
-              {!!diff.keep_object_level?.length && (
-                <p>
-                  Keep {diff.keep_object_level.length} object read/write action
-                  {diff.keep_object_level.length === 1 ? "" : "s"} only on{" "}
-                  <span className="font-mono text-emerald-300">
-                    {(diff.scope_to ?? []).map((p) => `${p}/*`).join(", ") || "observed scopes"}
-                  </span>
-                  .
-                </p>
-              )}
-              <p className="text-slate-400">Delivered as {diff.delivered_as}.</p>
+          <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Remove</div>
+            <div className="text-red-300">
+              {diff.remove_actions.length} unused destructive/admin action{diff.remove_actions.length === 1 ? "" : "s"}
             </div>
-          ) : (
-            <p className="text-[12px] text-slate-200 leading-snug">
-              Remove {diff.remove_actions.length} unused action
-              {diff.remove_actions.length === 1 ? "" : "s"}, keep{" "}
-              {diff.keep_actions.slice(0, 2).join(" / ")}
-              {diff.keep_actions.length > 2 ? ` (+${diff.keep_actions.length - 2})` : ""}
-              {diff.scope_to && diff.scope_to.length > 0 && (
-                <>
-                  {" "}scoped to{" "}
-                  <span className="font-mono text-emerald-300">{diff.scope_to.join(", ")}</span>
-                </>
-              )}
-              {" "}— delivered as {diff.delivered_as}.
-            </p>
-          )}
-          {report.safety_decision && (
-            <p className="text-[11px] text-slate-500 italic mt-1">
-              Safety gate: {report.safety_decision.gate}
-              {report.safety_decision.reasons.length > 0 &&
-                ` — ${report.safety_decision.reasons.join(" · ")}`}
-              . Routed to the risk-engine before apply.
-            </p>
-          )}
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Keep</div>
+            <div className="text-emerald-300">
+              {diff.keep_actions.length} required action{diff.keep_actions.length === 1 ? "" : "s"}
+              {diff.keep_bucket_level?.length && diff.keep_object_level?.length ? (
+                <span className="text-slate-400"> ({diff.keep_bucket_level.length} bucket-level · {diff.keep_object_level.length} object)</span>
+              ) : null}
+            </div>
+            {scopes.length > 0 && (
+              <>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Scope</div>
+                <div className="font-mono text-emerald-300 text-[11px]">
+                  {scopes.map((s) => `${s}/*`).join("  ·  ")}
+                </div>
+              </>
+            )}
+            {report.safety_decision && (
+              <>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Safety</div>
+                <div>
+                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${GATE_CHIP[report.safety_decision.gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}>
+                    {report.safety_decision.gate.replace(/_/g, " ")}
+                  </span>
+                  {report.safety_decision.reasons.length > 0 && (
+                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                      Why review: {report.safety_decision.reasons.join("; ")}. The diff must be
+                      approved against aggregate behavior — not auto-applied.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <a
+            href="#what-youre-approving"
+            className="mt-3 inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+          >
+            Review exact diff →
+          </a>
         </div>
       )}
 
@@ -393,6 +436,58 @@ export function AttackerNarrativeView({
             })}
           </div>
         </div>
+      )}
+
+      {/* Attacker walkthrough — demoted below the decision. Compressed
+          3-step chain by default; full evidence-graded 6 steps in the
+          expander for analysts (reviewer: story supports, doesn't compete). */}
+      {report.attacker_steps.length > 0 && (
+        <details className="border-t border-slate-800/70 group">
+          <summary className="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-slate-900/40">
+            <Crosshair className="h-3.5 w-3.5 text-slate-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Attacker walkthrough
+            </span>
+            <span className="text-[10px] text-slate-500 group-open:hidden ml-1">▸ expand full kill chain</span>
+            <span className="text-[10px] text-slate-500 hidden group-open:inline ml-1">▾ collapse</span>
+          </summary>
+
+          {/* Compressed chain — always the first thing under the summary. */}
+          <div className="px-4 pb-2 space-y-1.5 group-open:hidden">
+            {compressed.map((s, i) => (
+              <div key={i} className="text-[11px] text-slate-300 leading-snug">
+                <span className="text-slate-500 font-mono mr-1.5">{i + 1}.</span>
+                <span className="font-semibold text-slate-200">{s.title}</span>
+                <span className="text-slate-400"> — {s.lead}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Full ordered kill chain with gate chips. */}
+          <div className="px-4 pb-4 space-y-4 hidden group-open:block">
+            {report.attacker_steps.map((step) => {
+              const meta = PHASE_META[step.phase]
+              const stepClaims = step.claim_ids
+                .map((id) => byId.get(id))
+                .filter((c): c is NonNullable<typeof c> => !!c)
+              const g = GRADE_META[dominantGrade(stepClaims)]
+              return (
+                <div key={step.phase} className="relative pl-5">
+                  <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded" style={{ background: g.accent }} aria-hidden />
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-slate-400">{meta.icon}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{meta.step}</span>
+                    <span className="text-[12px] font-semibold text-slate-100">{step.title}</span>
+                    <span className={`ml-auto inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${g.cls}`}>
+                      {g.label}
+                    </span>
+                  </div>
+                  <div className="text-[12px] leading-relaxed text-slate-300">{step.body}</div>
+                </div>
+              )
+            })}
+          </div>
+        </details>
       )}
 
       {/* Missing evidence — collection gaps are actionable, not silent */}
