@@ -131,6 +131,9 @@ export interface RemediationDiffRef {
    *  engine, rendered from this split. */
   keep_bucket_level?: string[]
   keep_object_level?: string[]
+  /** Approval context — what the change touches, shown before the diff. */
+  role?: string | null
+  consumers?: number
 }
 
 export interface SafetyDecision {
@@ -148,6 +151,8 @@ export interface MissingEvidence {
   signal: string // e.g. "bucket policy status"
   why_it_matters: string
   collector_or_field?: string
+  /** Does this gap block the proposed approval, or only affect severity? */
+  blocks_approval?: boolean
 }
 
 // Micro-enforcement (Cyntro term) — least-privilege on every plane. Three

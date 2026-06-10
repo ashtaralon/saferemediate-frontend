@@ -148,12 +148,13 @@ export function AttackerNarrativeView({
   if (reduces.has("DATA_DELETE_DAMAGE")) removedCats.add("DELETE")
   if (reduces.has("DATA_ADMIN_DAMAGE")) removedCats.add("ADMIN")
 
-  const DAMAGE_META: Record<string, { label: string; impact: string }> = {
-    ADMIN: { label: "Bucket Admin", impact: "change ACL, logging, or versioning" },
-    DELETE: { label: "Delete Objects", impact: "destructive object-loss risk" },
-    WRITE: { label: "Write Objects", impact: "tamper / implant poisoned objects" },
-    READ: { label: "Read Objects", impact: "data exposure" },
+  const DAMAGE_META: Record<string, { label: string; short: string; impact: string }> = {
+    ADMIN: { label: "Bucket Admin", short: "bucket admin", impact: "change ACL, logging, versioning, or bucket posture" },
+    DELETE: { label: "Delete Objects", short: "delete objects", impact: "destructive data-loss risk" },
+    WRITE: { label: "Write Objects", short: "write", impact: "tamper / implant poisoned objects" },
+    READ: { label: "Read Objects", short: "read", impact: "data exposure" },
   }
+  const damageHeaderLabel = damageVerbs.map((v) => DAMAGE_META[v]?.short ?? v.toLowerCase()).join(" / ")
   const damageRows = ORDER.filter((c) => presentCats.has(c)).map((c) => ({
     cat: c,
     ...DAMAGE_META[c],
@@ -190,12 +191,12 @@ export function AttackerNarrativeView({
               confused with the IAP 6-factor /100 score in the page header. */}
           <span
             className={`ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${sevCls(cs.severity)}`}
-            title="Exposure = Reachability × Impact × Ease — the compiler's per-path model (not the IAP score)"
+            title="Worst-case damage exposure (Reachability × Impact × Ease) — distinct from the IAP likelihood path score in the page header"
           >
             {cs.exposure_score != null ? (
               <>
-                Exposure {cs.exposure_score.toFixed(2)}
-                <span className="ml-1 opacity-80">· {cs.severity ?? "—"}</span>
+                Damage exposure: {cs.severity ?? "—"}
+                <span className="ml-1 opacity-80">· {cs.exposure_score.toFixed(2)}</span>
               </>
             ) : (
               (cs.severity ?? "—")
@@ -212,7 +213,7 @@ export function AttackerNarrativeView({
             <>
               <span className="text-slate-600">·</span>
               <span className="text-slate-400">
-                damage: <span className="text-amber-300 font-semibold">{damageVerbs.join(" / ").toLowerCase()}</span>
+                damage: <span className="text-amber-300 font-semibold">{damageHeaderLabel}</span>
               </span>
             </>
           )}
@@ -268,7 +269,7 @@ export function AttackerNarrativeView({
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-2.5">
             What can happen
           </div>
-          <div className="grid grid-cols-[1fr_84px_104px] gap-x-3 items-center">
+          <div className="grid grid-cols-[minmax(0,1fr)_84px_104px] gap-x-2 items-center max-w-[560px]">
             {/* header row */}
             <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 pb-1.5">Damage type</div>
             <div className="text-[9px] font-semibold uppercase tracking-wider text-red-300/90 text-center pb-1.5">Today</div>
@@ -342,6 +343,17 @@ export function AttackerNarrativeView({
                 </div>
               </>
             )}
+            {diff.role && (
+              <>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Affected</div>
+                <div className="text-[12px] text-slate-200">
+                  role <span className="font-mono text-slate-100">{diff.role}</span>
+                  {diff.consumers != null && diff.consumers > 0 && (
+                    <span className="text-slate-400"> · {diff.consumers} live workload{diff.consumers === 1 ? "" : "s"}</span>
+                  )}
+                </div>
+              </>
+            )}
             {report.safety_decision && (
               <>
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Safety</div>
@@ -349,11 +361,17 @@ export function AttackerNarrativeView({
                   <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${GATE_CHIP[report.safety_decision.gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}>
                     {report.safety_decision.gate.replace(/_/g, " ")}
                   </span>
-                  {report.safety_decision.reasons.length > 0 && (
+                  {report.safety_decision.gate === "REVIEW_REQUIRED" && diff.consumers && diff.consumers > 1 ? (
                     <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                      Why review: {report.safety_decision.reasons.join("; ")}. The diff must be
-                      approved against aggregate behavior — not auto-applied.
+                      Why review is required: this role is shared by {diff.consumers} live workloads.
+                      The diff must be approved against aggregate behavior — not auto-applied.
                     </p>
+                  ) : (
+                    report.safety_decision.reasons.length > 0 && (
+                      <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                        {report.safety_decision.reasons.join("; ").replace(/shared_role/g, "shared role")}.
+                      </p>
+                    )
                   )}
                 </div>
               </>
@@ -368,7 +386,7 @@ export function AttackerNarrativeView({
             href="#what-youre-approving"
             className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 hover:bg-emerald-500/25 transition-colors"
           >
-            Review exact policy diff →
+            Review exact diff &amp; rollback →
           </a>
         </div>
       )}
@@ -517,10 +535,16 @@ export function AttackerNarrativeView({
               Not shown — signal missing
             </span>
           </div>
-          <ul className="space-y-0.5">
+          <ul className="space-y-1">
             {report.missing_evidence.map((m) => (
               <li key={m.signal} className="text-[11px] text-slate-500 leading-snug">
                 <span className="text-slate-400">{m.signal}</span> — {m.why_it_matters}
+                <span className="ml-1.5 text-slate-600">
+                  · blocks approval:{" "}
+                  <span className={m.blocks_approval ? "text-red-300 font-semibold" : "text-emerald-300/80 font-semibold"}>
+                    {m.blocks_approval ? "yes" : "no"}
+                  </span>
+                </span>
               </li>
             ))}
           </ul>
