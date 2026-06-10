@@ -16,6 +16,7 @@ import {
   Network,
   Database,
   ShieldAlert,
+  ShieldCheck,
   Flame,
   Wrench,
   EyeOff,
@@ -59,6 +60,15 @@ const GRADE_META: Record<EvidenceGrade, { label: string; cls: string; accent: st
     cls: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
     accent: "#34D399",
   },
+}
+
+const MICRO_META: Record<
+  string,
+  { icon: React.ReactNode; accent: string; layerLabel: string }
+> = {
+  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: "#6BB6E8", layerLabel: "IAM" },
+  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: "#A78BFA", layerLabel: "Network" },
+  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: "#34D399", layerLabel: "Data" },
 }
 
 const PHASE_META: Record<AttackerPhase, { step: string; icon: React.ReactNode }> = {
@@ -250,6 +260,68 @@ export function AttackerNarrativeView({
               . Routed to the risk-engine before apply.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Micro-enforcement — least-privilege on every plane (Cyntro term).
+          The mitigation, decomposed: micro-permissions / micro-segmentation
+          / micro-access, each graded to what the data actually proves. */}
+      {report.micro_enforcement && report.micro_enforcement.length > 0 && (
+        <div className="px-4 py-3 border-t border-slate-800/70 bg-slate-900/40">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="h-3.5 w-3.5 text-teal-300" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-teal-300">
+              Micro-enforcement · least-privilege on every plane
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            {report.micro_enforcement.map((m) => {
+              const meta = MICRO_META[m.plane] ?? MICRO_META.micro_permissions
+              const g = GRADE_META[m.evidence_grade]
+              return (
+                <div
+                  key={m.plane}
+                  className="relative rounded-lg border border-slate-800 bg-slate-950/50 p-2.5 pl-3"
+                >
+                  <span
+                    className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded"
+                    style={{ background: meta.accent }}
+                    aria-hidden
+                  />
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span style={{ color: meta.accent }}>{meta.icon}</span>
+                    <span className="text-[11px] font-semibold text-slate-100">{m.title}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-slate-500">
+                      {meta.layerLabel}
+                    </span>
+                    <span
+                      className={`ml-auto inline-flex items-center rounded border px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider ${g.cls}`}
+                    >
+                      {m.evidence_grade}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-snug text-slate-300">{m.summary}</p>
+                  {m.remove.length > 0 && (
+                    <p className="text-[10px] text-red-300/90 mt-1 font-mono leading-snug">
+                      − {m.remove.slice(0, 3).join(", ")}
+                      {m.remove.length > 3 ? ` (+${m.remove.length - 3})` : ""}
+                    </p>
+                  )}
+                  {m.keep.length > 0 && (
+                    <p className="text-[10px] text-emerald-300/90 font-mono leading-snug">
+                      ✓ keep {m.keep.slice(0, 2).join(", ")}
+                      {m.keep.length > 2 ? ` (+${m.keep.length - 2})` : ""}
+                    </p>
+                  )}
+                  {m.pending_signal && (
+                    <p className="text-[9px] text-slate-500 italic mt-1 leading-snug">
+                      pending: {m.pending_signal}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

@@ -150,6 +150,25 @@ export interface MissingEvidence {
   collector_or_field?: string
 }
 
+// Micro-enforcement (Cyntro term) — least-privilege on every plane. Three
+// planes, one idea: narrow each to what's provably used.
+export type MicroPlane = "micro_permissions" | "micro_segmentation" | "micro_access"
+
+export interface MicroEnforcement {
+  plane: MicroPlane
+  title: string
+  layer: "IAM" | "NETWORK" | "DATA"
+  evidence_grade: EvidenceGrade
+  summary: string
+  remove: string[]
+  keep: string[]
+  scope_to: string[]
+  claim_ids: string[]
+  /** Set when the plane is below OBSERVED grade — names the missing signal
+   *  (e.g. per-port flow for segmentation) instead of overclaiming. */
+  pending_signal?: string | null
+}
+
 export interface AttackPathReport {
   report_id: string
   report_version: string
@@ -198,6 +217,9 @@ export interface AttackPathReport {
   verification_target: VerificationTarget | null
 
   missing_evidence: MissingEvidence[]
+
+  /** The fix, decomposed across the three enforcement planes. */
+  micro_enforcement?: MicroEnforcement[]
 }
 
 /** Lookup helper — renderer resolves a step's claims for grade chips. */
