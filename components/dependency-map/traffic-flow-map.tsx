@@ -4315,21 +4315,39 @@ export function UnifiedArchitectureDiagram({
   // must be position:relative). Renders only for nodes that are actual
   // ordered path steps; rescued gates (SG/NACL that touch the path but
   // aren't BFS steps) get the ring but no number.
-  const renderPathStepBadge = (nodeId: string) => {
+  //
+  // absorbedIds (2026-06-11, identity-token follow-up): when a card
+  // consolidates other path nodes (the spine-mode IdentityRiskToken
+  // absorbs the on-path instance-profile/policy cards), pass their ids
+  // so the badge shows the full step RANGE ("2–3") instead of leaving
+  // a gap in the map's numbering (1, 3, 4…). Same range style as the
+  // kill-chain strip's collapsed NETWORK segment.
+  const renderPathStepBadge = (nodeId: string, absorbedIds?: string[]) => {
     if (!pathFilterActive) return null;
-    const step = pathStepById?.get(nodeId);
-    if (!step) return null;
+    const steps = [nodeId, ...(absorbedIds ?? [])]
+      .map((id) => pathStepById?.get(id))
+      .filter((s): s is number => s !== undefined)
+      .sort((a, b) => a - b);
+    if (steps.length === 0) return null;
+    const lo = steps[0];
+    const hi = steps[steps.length - 1];
+    const label = lo === hi ? String(lo) : `${lo}–${hi}`;
     return (
       <div
         className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none"
-        title={`Step ${step} of ${pathStepsTotal} on the attack path`}
-        data-path-step={step}
+        title={
+          lo === hi
+            ? `Step ${lo} of ${pathStepsTotal} on the attack path`
+            : `Steps ${lo}–${hi} of ${pathStepsTotal} on the attack path (consolidated identity card)`
+        }
+        data-path-step={lo}
+        data-path-step-end={lo === hi ? undefined : hi}
       >
         <div
-          className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-semibold text-white shadow-md"
+          className={`${lo === hi ? 'w-[18px]' : 'px-1.5 min-w-[18px]'} h-[18px] rounded-full flex items-center justify-center text-[10px] font-semibold text-white shadow-md whitespace-nowrap`}
           style={{ backgroundColor: 'var(--canvas-danger)' }}
         >
-          {step}
+          {label}
         </div>
       </div>
     );
@@ -5248,7 +5266,16 @@ export function UnifiedArchitectureDiagram({
               if (identityCollapsed && isOnSelectedPath(role.id) && !isIP) {
                 return (
                   <div key={`role:${role.id}`} data-role-id={role.id} className={`relative${pathEmphasisClass(role.id)}`}>
-                    {renderPathStepBadge(role.id)}
+                    {/* Range badge ("2–3") — the token absorbs the on-path
+                        profile/policy cards, so it carries their step
+                        numbers too; a single number would leave a gap in
+                        the map's 1..N sequence. */}
+                    {renderPathStepBadge(
+                      role.id,
+                      role.id === firstOnPathRoleId
+                        ? collapsedIdentityAnchors.map((a) => a.id)
+                        : undefined,
+                    )}
                     {/* Invisible edge anchors for the collapsed on-path
                         profile/policy cards — resolve to the token's box
                         so the spine stays geometrically continuous. Only
