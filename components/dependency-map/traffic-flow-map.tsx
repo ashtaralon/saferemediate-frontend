@@ -1853,6 +1853,81 @@ export function IAMRoleNode({
 }
 
 // ============================================
+// IDENTITY RISK TOKEN (spine mode only)
+// ============================================
+// 2026-06-11 — spine-mode identity consolidation. The identity lane's
+// role + instance-profile + policy card stack (plus scalar/event/linked
+// chips) read as "a security spreadsheet inside a graph" when the map
+// is telling a single-path story. In spine mode each ON-PATH role
+// renders as this ONE compact token: icon, IDENTITY micro-label, role
+// name, one metric line, risk chip. The "details" affordance expands
+// back to the existing detailed card stack (local toggle in
+// UnifiedArchitectureDiagram). Reuses the role node's id + hover/click
+// handlers so Connection Details / damage scope keep working.
+function IdentityRiskToken({
+  role,
+  isHighlighted,
+  onHover,
+  onClick,
+  onShowDetail,
+}: {
+  role: SecurityCheckpoint;
+  isHighlighted: boolean;
+  onHover: (id: string | null) => void;
+  onClick?: () => void;
+  onShowDetail: () => void;
+}) {
+  const hasData = role.totalCount > 0;
+  const unused = role.gapCount;
+  const usagePercent = hasData ? Math.round((role.usedCount / role.totalCount) * 100) : 0;
+  return (
+    <div
+      data-identity-token="true"
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
+        ${onClick ? 'cursor-pointer' : 'cursor-default'}
+        ${isHighlighted ? 'bg-accent border-border shadow-md' : 'bg-card border-border hover:border-primary/40'}`}
+      onMouseEnter={() => onHover(role.id)}
+      onMouseLeave={() => onHover(null)}
+      onClick={onClick}
+    >
+      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+        <Key className="w-5 h-5 text-muted-foreground" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Identity</div>
+        <div className="text-xs font-semibold text-foreground truncate">{role.shortName}</div>
+        {hasData && (
+          <div className={`text-[10px] mt-0.5 tabular-nums ${unused > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>
+            {role.usedCount}/{role.totalCount} perms · {unused} unused
+          </div>
+        )}
+        {hasData && usagePercent < 50 && (
+          <span className="inline-flex mt-1 text-[9px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 font-semibold uppercase tracking-wider">
+            Over-provisioned
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onShowDetail();
+        }}
+        title="Expand to the detailed role / instance-profile / policy cards"
+        className="flex items-center gap-0.5 self-end text-[9px] text-muted-foreground hover:text-foreground shrink-0"
+      >
+        <ChevronDown className="w-3 h-3" />
+        details
+      </button>
+      {/* Connection points — same anchors as IAMRoleNode so edge
+          endpoints land identically on the token. */}
+      <div className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-3 rounded-full bg-muted-foreground/40 border-2 border-border" />
+      <div className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-3 h-3 rounded-full bg-muted-foreground/40 border-2 border-border" />
+    </div>
+  );
+}
+
+// ============================================
 // BLAST RADIUS DATA TYPES
 // ============================================
 interface BlastRadiusNode {
@@ -3004,11 +3079,18 @@ function AnimatedTrafficLine({
     : pathDominance === 'faded' ? 1
     : undefined;
   const pathDominantOpacity =
-    pathDominance === 'lateral' ? 0.4
-    : pathDominance === 'faded' ? 0.6
+    pathDominance === 'lateral' ? 0.3
+    : pathDominance === 'faded' ? 0.25
     : undefined;
   const pathSuppressAnimation =
     pathDominance === 'lateral' || pathDominance === 'faded';
+  // Single-narrative gate (2026-06-11): when the spine is active
+  // (pathDominance defined), the LEGACY attack-path red treatment
+  // (pulsing 14px glow, "10,5" red dash, oversized particles) must not
+  // render alongside the dominance spine — two red systems compete.
+  // legacyAttack carries isAttackPath styling only outside spine mode.
+  const spineActive = pathDominance !== undefined;
+  const legacyAttack = isAttackPath && !spineActive;
 
   // Ghosted (outside dependency hop radius)
   if (ghosted) {
@@ -3214,11 +3296,11 @@ function AnimatedTrafficLine({
           d={pathD}
           fill="none"
           stroke={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor}
-          strokeWidth={isAttackPath ? 14 : isHighlighted ? 12 : 6}
-          opacity={isAttackPath ? 0.5 : isHighlighted ? 0.4 : 0.2}
+          strokeWidth={legacyAttack ? 14 : isHighlighted ? 12 : 6}
+          opacity={legacyAttack ? 0.5 : isHighlighted ? 0.4 : 0.2}
           strokeLinecap="round"
         >
-          {isAttackPath && (
+          {legacyAttack && (
             <animate
               attributeName="opacity"
               values="0.5;0.3;0.5"
@@ -3250,7 +3332,7 @@ function AnimatedTrafficLine({
           pathDominantStrokeWidth
             ?? heatmapStrokeWidth
             ?? v2LateralStrokeWidth
-            ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)
+            ?? (legacyAttack ? 4 : isHighlighted ? 3 : 2)
         }
         strokeLinecap="round"
         strokeDasharray={
@@ -3259,7 +3341,7 @@ function AnimatedTrafficLine({
           //   2. inferred edge → "6,4" (provenance via line style not palette)
           //   3. lateral edge → "4 4" dim / "6 3" bright (V2-6 multi-channel)
           //   4. observed/config on-path → solid
-          isAttackPath
+          legacyAttack
             ? "10,5"
             : edgeData?.inferred
               ? "6,4"
@@ -3372,7 +3454,7 @@ function AnimatedTrafficLine({
           {particleOffsets.map((offset, i) => (
             <g key={i}>
               {/* Outer glow */}
-              <circle r={isAttackPath ? 10 : isHighlighted ? 8 : 6} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor} opacity={isAttackPath ? 0.5 : 0.3}>
+              <circle r={legacyAttack ? 10 : isHighlighted ? 8 : 6} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor} opacity={legacyAttack ? 0.5 : 0.3}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3382,7 +3464,7 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Core particle */}
-              <circle r={isAttackPath ? 7 : isHighlighted ? 5 : 4} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : particleColor} opacity={1}>
+              <circle r={legacyAttack ? 7 : isHighlighted ? 5 : 4} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : particleColor} opacity={1}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3392,7 +3474,7 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Inner bright core */}
-              <circle r={isAttackPath ? 3 : isHighlighted ? 2 : 1.5} fill="#ffffff" opacity={0.9}>
+              <circle r={legacyAttack ? 3 : isHighlighted ? 2 : 1.5} fill="#ffffff" opacity={0.9}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3488,6 +3570,7 @@ export function ConnectionLinesSVG({
   ghostedNodeIds = EMPTY_NODE_SET as Set<string>,
   canvasV2 = false,
   showLaterals = false,
+  layoutEpoch = 0,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
@@ -3503,6 +3586,11 @@ export function ConnectionLinesSVG({
   // canvasV2 is false (legacy), both flags are no-ops.
   canvasV2?: boolean;
   showLaterals?: boolean;
+  // 2026-06-11 (identity token): callers bump this when they swap lane
+  // DOM outside of architecture changes (e.g. the spine-mode identity
+  // token ↔ detailed-stack toggle) so line endpoints re-measure. Any
+  // changing scalar works — included in the measure effect's deps.
+  layoutEpoch?: number;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
@@ -3884,7 +3972,7 @@ export function ConnectionLinesSVG({
       window.removeEventListener('resize', updateLines);
       container?.removeEventListener('scroll', scrollHandler);
     };
-  }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges]);
+  }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges, layoutEpoch]);
 
   // Attack-path dominance (2026-06-11 design review). Gate: presence of
   // architecture.pathStepByNodeId — produced only when a pathFilter is
@@ -3909,7 +3997,26 @@ export function ConnectionLinesSVG({
     const nodes = architecture.onPathNodeIds;
     const srcOn = !!nodes?.has(sourceId);
     const tgtOn = !!nodes?.has(targetId);
-    if (srcOn && tgtOn) return 'dominant';
+    if (srcOn && tgtOn) {
+      // Single-path enforcement (2026-06-11): both-endpoints-on-path is
+      // NOT sufficient for 'dominant'. Screenshot evidence showed
+      // branches entering the role from two directions reading as two
+      // equally-valid red paths. 'dominant' now requires a CONSECUTIVE
+      // spine hop — explicit pathEdgePairKeys match (above), or step
+      // numbers differing by exactly 1. Non-consecutive on-path pairs
+      // (shortcut/branch edges) demote to lateral context.
+      const steps = architecture.pathStepByNodeId;
+      const srcStep = steps?.get(sourceId);
+      const tgtStep = steps?.get(targetId);
+      if (
+        srcStep !== undefined &&
+        tgtStep !== undefined &&
+        Math.abs(srcStep - tgtStep) === 1
+      ) {
+        return 'dominant';
+      }
+      return 'lateral';
+    }
     if (srcOn || tgtOn) return 'lateral';
     return 'faded';
   };
@@ -4143,6 +4250,11 @@ export function UnifiedArchitectureDiagram({
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
   const effectiveHoveredId = highlightedNodeId || hoveredId;
   const [expandedSG, setExpandedSG] = useState<string | null>(null);
+  // Identity risk token (2026-06-11, spine mode only): false = on-path
+  // roles render as the compact IdentityRiskToken; true = the operator
+  // clicked "details" and the full role/profile/policy card stack
+  // renders. No-op outside spine mode (pathFilterActive false).
+  const [identityDetailOpen, setIdentityDetailOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Get nodes that are part of attack paths for highlighting
@@ -4222,6 +4334,45 @@ export function UnifiedArchitectureDiagram({
       </div>
     );
   };
+
+  // Identity-token derivations (2026-06-11, spine mode only).
+  // identityCollapsed: the identity lane shows ONE compact token per
+  // on-path role instead of the role+profile+policy stack. The
+  // collapsed on-path profile/policy cards are NOT unmounted into
+  // nothing — invisible anchor spans carrying their data-*-id attrs
+  // render inside the first on-path role's token wrapper, so
+  // ConnectionLinesSVG endpoint lookups still resolve (to the token's
+  // box — keeping the EC2 → IP → Role spine geometrically continuous)
+  // instead of dropping the edges or, worse, measuring a display:none
+  // card as a 0×0 rect at the container origin.
+  // First on-path REAL role (skip instance-profile ARNs that snuck into
+  // iamRoles[] — they render as cards, not tokens, so they can't host
+  // the collapsed anchors). If no such role exists, collapsing is
+  // disabled entirely so on-path profile/policy cards never vanish
+  // without a token to absorb their edge anchors.
+  const firstOnPathRoleId = useMemo(
+    () =>
+      architecture.iamRoles.find(
+        (r) =>
+          isOnSelectedPath(r.id) &&
+          !r.id.includes(':instance-profile/') &&
+          !/instance.?profile/i.test(r.id),
+      )?.id,
+    [architecture.iamRoles, isOnSelectedPath],
+  );
+  const identityCollapsed =
+    pathFilterActive && !identityDetailOpen && !!firstOnPathRoleId;
+  const collapsedIdentityAnchors = useMemo(() => {
+    if (!identityCollapsed) return [] as Array<{ id: string; kind: 'ip' | 'policy' }>;
+    return [
+      ...(architecture.instanceProfiles ?? [])
+        .filter((ip) => isOnSelectedPath(ip.id))
+        .map((ip) => ({ id: ip.id, kind: 'ip' as const })),
+      ...(architecture.iamPolicies ?? [])
+        .filter((p) => isOnSelectedPath(p.id))
+        .map((p) => ({ id: p.id, kind: 'policy' as const })),
+    ];
+  }, [identityCollapsed, architecture.instanceProfiles, architecture.iamPolicies, isOnSelectedPath]);
 
   // Get vulnerability data for nodes
   const nodeVulnerabilities = useMemo(() => {
@@ -4427,6 +4578,11 @@ export function UnifiedArchitectureDiagram({
           ghostedNodeIds={ghostedNodeIds}
           canvasV2={canvasV2}
           showLaterals={showLaterals}
+          // Identity token toggle swaps the identity lane's DOM (token ↔
+          // detailed stack) and shifts every card below it — bump the
+          // epoch so line endpoints re-measure instead of waiting for
+          // the next hover/scroll/resize.
+          layoutEpoch={identityDetailOpen ? 1 : 0}
         />
 
         {/* When the path has no network controls at all — no subnets, no
@@ -4498,7 +4654,11 @@ export function UnifiedArchitectureDiagram({
                       className={`relative mb-3${pathEmphasisClass(node.id)}`}
                     >
                       {renderPathStepBadge(node.id)}
-                      {isInAttackPath && (
+                      {/* Legacy attack-path cyan ring + ENTRY chip — gated
+                          off in spine mode (pathFilterActive): the numbered
+                          spine badges + kill-chain strip ARE the narrative;
+                          a second cyan/red overlay system competes with it. */}
+                      {isInAttackPath && !pathFilterActive && (
                         <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-cyan-400/50" />
                       )}
                       {/* V2-2b: ENTRY POINT chip on hop[0]. Pinned to the
@@ -4506,7 +4666,7 @@ export function UnifiedArchitectureDiagram({
                           marker (which lives top-left of the resource card).
                           Only renders when canvasV2 is on AND this node matches
                           the chain's hop[0] id passed via entryNodeId. */}
-                      {isChainEntry && (
+                      {isChainEntry && !pathFilterActive && (
                         <div className="absolute -top-2 -right-2 z-10 pointer-events-none">
                           <div className="px-1.5 py-0.5 rounded bg-cyan-500/90 text-cyan-950 text-[8px] font-semibold uppercase tracking-wider shadow-md ring-1 ring-cyan-300/60">
                             Entry
@@ -4554,8 +4714,10 @@ export function UnifiedArchitectureDiagram({
                   className={`relative${pathEmphasisClass(node.id)}`}
                 >
                   {renderPathStepBadge(node.id)}
-                  {/* Attack path vulnerability indicator */}
-                  {isInAttackPath && vuln && (
+                  {/* Attack path vulnerability indicator — legacy overlay,
+                      suppressed in spine mode (badge slot collides with the
+                      numbered step badge; red ring competes with the spine). */}
+                  {isInAttackPath && vuln && !pathFilterActive && (
                     <div className="absolute -top-2 -left-2 z-10">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-md ${
                         vuln.critical_cves > 0 ? 'bg-red-500 animate-pulse' : 'bg-orange-500'
@@ -4564,15 +4726,16 @@ export function UnifiedArchitectureDiagram({
                       </div>
                     </div>
                   )}
-                  {isInAttackPath && (
+                  {isInAttackPath && !pathFilterActive && (
                     <div className={`absolute inset-0 rounded-xl pointer-events-none ${
                       vuln?.critical_cves ? 'ring-2 ring-red-500 animate-pulse' : 'ring-2 ring-orange-500/50'
                     }`} />
                   )}
                   {/* V2-2b: ENTRY POINT chip — same overlay as in the
                       entry/principals lane (some chains start in COMPUTE
-                      with an EC2/Lambda hop[0] instead of root). */}
-                  {isChainEntry && (
+                      with an EC2/Lambda hop[0] instead of root). Gated off
+                      in spine mode — kill-chain strip carries ENTRY. */}
+                  {isChainEntry && !pathFilterActive && (
                     <div className="absolute -top-2 -right-2 z-10 pointer-events-none">
                       <div className="px-1.5 py-0.5 rounded bg-cyan-500/90 text-cyan-950 text-[8px] font-semibold uppercase tracking-wider shadow-md ring-1 ring-cyan-300/60">
                         Entry
@@ -5017,12 +5180,31 @@ export function UnifiedArchitectureDiagram({
                   Policies {architecture.iamPolicies?.length ?? 0}
                 </span>
               )}
+              {/* Spine mode: return from the expanded role/profile/policy
+                  stack back to the compact identity token. */}
+              {pathFilterActive && identityDetailOpen && (
+                <button
+                  type="button"
+                  onClick={() => setIdentityDetailOpen(false)}
+                  title="Collapse back to the compact identity token"
+                  className="inline-flex items-center gap-0.5 normal-case text-[9px] text-muted-foreground hover:text-foreground border border-border rounded px-1 py-0.5"
+                >
+                  <ChevronDown className="w-2.5 h-2.5 rotate-180" />
+                  collapse
+                </button>
+              )}
             </div>
             {/* Instance Profiles (rendered ABOVE roles to mirror the AWS
                 attachment shape: EC2 → IP → Role). Each card carries
                 data-ip-id so ConnectionLinesSVG routes the polyline
-                through it as a flow checkpoint between NACL and Role. */}
-            {(architecture.instanceProfiles ?? []).map((ip) => (
+                through it as a flow checkpoint between NACL and Role.
+                Spine mode (identityCollapsed): ON-PATH profiles collapse
+                into the role's IdentityRiskToken — their edge anchors
+                live as invisible spans inside the token wrapper. Off-
+                path profiles keep the dimmed card treatment. */}
+            {(architecture.instanceProfiles ?? [])
+              .filter((ip) => !(identityCollapsed && isOnSelectedPath(ip.id)))
+              .map((ip) => (
               <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id} className={`relative${pathEmphasisClass(ip.id)}`}>
                 {renderPathStepBadge(ip.id)}
                 <IAMRoleNode
@@ -5045,6 +5227,64 @@ export function UnifiedArchitectureDiagram({
               const isIP =
                 role.id.includes(':instance-profile/') ||
                 /instance.?profile/i.test(role.id);
+              // Shared click behavior — the token MUST fire the exact
+              // same handler chain as the detailed card so Connection
+              // Details / damage scope / RoleDetailPanel keep working.
+              const handleRoleClick = () => {
+                // EXFIL view subscribes via onRoleClick to open
+                // the RoleDetailPanel slide-in. When the prop
+                // isn't set (Attacker view, System Map, etc.)
+                // we fall through to the existing generic
+                // service-selection behavior.
+                if (onRoleClick && !isIP) {
+                  onRoleClick(role);
+                } else {
+                  onSelectService(role, isIP ? 'instance_profile' : 'iam_role');
+                }
+              };
+              // Spine mode: on-path roles render the compact identity
+              // risk token (one card for the whole identity story).
+              // Off-path roles keep the dimmed detailed card.
+              if (identityCollapsed && isOnSelectedPath(role.id) && !isIP) {
+                return (
+                  <div key={`role:${role.id}`} data-role-id={role.id} className={`relative${pathEmphasisClass(role.id)}`}>
+                    {renderPathStepBadge(role.id)}
+                    {/* Invisible edge anchors for the collapsed on-path
+                        profile/policy cards — resolve to the token's box
+                        so the spine stays geometrically continuous. Only
+                        on the first on-path role to keep ids unique. */}
+                    {role.id === firstOnPathRoleId &&
+                      collapsedIdentityAnchors.map((a) =>
+                        a.kind === 'ip' ? (
+                          <span
+                            key={`anchor:${a.id}`}
+                            aria-hidden="true"
+                            data-ip-id={a.id}
+                            // The visible IP card carries BOTH attrs (legacy
+                            // flow-mode looks profiles up via data-role-id);
+                            // the anchor must mirror that.
+                            data-role-id={a.id}
+                            className="absolute inset-0 pointer-events-none"
+                          />
+                        ) : (
+                          <span
+                            key={`anchor:${a.id}`}
+                            aria-hidden="true"
+                            data-policy-id={a.id}
+                            className="absolute inset-0 pointer-events-none"
+                          />
+                        ),
+                      )}
+                    <IdentityRiskToken
+                      role={role}
+                      isHighlighted={isNodeHighlighted(role.id)}
+                      onHover={setHoveredId}
+                      onClick={handleRoleClick}
+                      onShowDetail={() => setIdentityDetailOpen(true)}
+                    />
+                  </div>
+                );
+              }
               return (
                 <div key={`role:${role.id}`} data-role-id={role.id} className={`relative${pathEmphasisClass(role.id)}`}>
                   {renderPathStepBadge(role.id)}
@@ -5052,18 +5292,7 @@ export function UnifiedArchitectureDiagram({
                     role={role}
                     isHighlighted={isNodeHighlighted(role.id)}
                     onHover={setHoveredId}
-                    onClick={() => {
-                      // EXFIL view subscribes via onRoleClick to open
-                      // the RoleDetailPanel slide-in. When the prop
-                      // isn't set (Attacker view, System Map, etc.)
-                      // we fall through to the existing generic
-                      // service-selection behavior.
-                      if (onRoleClick && !isIP) {
-                        onRoleClick(role);
-                      } else {
-                        onSelectService(role, isIP ? 'instance_profile' : 'iam_role');
-                      }
-                    }}
+                    onClick={handleRoleClick}
                     spineMode={pathFilterActive}
                   />
                 </div>
@@ -5081,7 +5310,13 @@ export function UnifiedArchitectureDiagram({
                 the AWS attachment chain (EC2 → IP → Role → Policy).
                 forceIAMPolicy gives them distinct styling so the
                 operator can scan-distinguish Role vs Policy. */}
-            {(architecture.iamPolicies ?? []).map((policy) => (
+            {/* Spine mode (identityCollapsed): ON-PATH policies collapse
+                into the role's IdentityRiskToken (anchors preserved in
+                the token wrapper); off-path policies keep the dimmed
+                card treatment. */}
+            {(architecture.iamPolicies ?? [])
+              .filter((policy) => !(identityCollapsed && isOnSelectedPath(policy.id)))
+              .map((policy) => (
               <div key={`policy:${policy.id}`} data-policy-id={policy.id} className={`relative${pathEmphasisClass(policy.id)}`}>
                 {renderPathStepBadge(policy.id)}
                 <IAMRoleNode
@@ -5448,15 +5683,18 @@ export function UnifiedArchitectureDiagram({
                       </div>
                     </div>
                   )}
-                  {/* Attack path target indicator */}
-                  {isInAttackPath && isTarget && (
+                  {/* Attack path target indicator — legacy overlay, gated
+                      off in spine mode (the Crown marker + dominant spine
+                      already mark the target; a second pulsing red badge
+                      competes with the single-red-narrative discipline). */}
+                  {isInAttackPath && isTarget && !pathFilterActive && (
                     <div className="absolute -top-2 -right-2 z-10">
                       <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center animate-pulse shadow-lg">
                         <Target className="w-3 h-3 text-white" />
                       </div>
                     </div>
                   )}
-                  {isInAttackPath && (
+                  {isInAttackPath && !pathFilterActive && (
                     <div className={`absolute inset-0 rounded-xl pointer-events-none ${
                       isTarget ? 'ring-2 ring-red-500 animate-pulse' : 'ring-2 ring-orange-500/50'
                     }`} />

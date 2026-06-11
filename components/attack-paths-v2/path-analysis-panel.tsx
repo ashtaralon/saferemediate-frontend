@@ -23,6 +23,7 @@ import { AttackPathFlowViz } from "@/components/identity-attack-paths/attack-pat
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
+  PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import { filterActivePaths } from "@/lib/active-filters"
@@ -71,6 +72,87 @@ function captionTruncate(name: string, maxLen = 36): string {
   if (name.length <= maxLen) return name
   const half = Math.floor((maxLen - 1) / 2)
   return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
+}
+
+// Kill-chain strip (2026-06-11). The map's lane layout makes the
+// numbered spine zigzag visually; this strip gives reviewers the
+// LINEAR story: ENTRY → IDENTITY → NETWORK PASSAGE → DATA, with the
+// same 1-based step numbers the map badges carry. Replaces the old
+// canvasV2-gated "ENTRY → via N hops → REACHES" caption — always on
+// when a path is present. Purely presentational.
+type KillChainPhase = "ENTRY" | "IDENTITY" | "NETWORK" | "DATA"
+
+function killChainPhase(node: PathNodeDetail): KillChainPhase {
+  const t = (node.type || "").toLowerCase()
+  // Order matters: "instanceprofile" contains "instance" (a workload
+  // hint) — identity patterns must win first.
+  if (/role|instance.?profile|policy/.test(t)) return "IDENTITY"
+  if (/s3|bucket|rds|dynamo|kms|secret/.test(t)) return "DATA"
+  if (/subnet|security.?group|nacl|networkacl|route|vpce|vpc.?endpoint|igw|internet.?gateway|nat/.test(t)) return "NETWORK"
+  if (isPrincipalNodeType(node.type) || /ec2|lambda|ecs|instance|principal|user/.test(t)) return "ENTRY"
+  // Unknown type → fall back to the path tier the backend assigned.
+  if (node.tier === "network_control") return "NETWORK"
+  if (node.tier === "identity") return "IDENTITY"
+  if (node.tier === "crown_jewel") return "DATA"
+  return "ENTRY"
+}
+
+function KillChainStrip({ nodes }: { nodes: PathNodeDetail[] }) {
+  // Segments: every node is its own segment EXCEPT consecutive NETWORK
+  // nodes, which collapse into one "NETWORK PASSAGE · n hops" segment
+  // (step range + tooltip list) so the strip stays one line.
+  const segments = useMemo(() => {
+    const segs: Array<{ phase: KillChainPhase; nodes: Array<PathNodeDetail & { step: number }> }> = []
+    nodes.forEach((n, idx) => {
+      const phase = killChainPhase(n)
+      const entry = { ...n, step: idx + 1 }
+      const prev = segs[segs.length - 1]
+      if (phase === "NETWORK" && prev?.phase === "NETWORK") prev.nodes.push(entry)
+      else segs.push({ phase, nodes: [entry] })
+    })
+    return segs
+  }, [nodes])
+  if (segments.length === 0) return null
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-6 py-3 border-b border-border bg-card"
+      data-kill-chain-strip="true"
+    >
+      {segments.map((seg, i) => {
+        const grouped = seg.nodes.length > 1
+        const first = seg.nodes[0]
+        const last = seg.nodes[seg.nodes.length - 1]
+        const numberLabel = grouped ? `${first.step}–${last.step}` : String(first.step)
+        const title = seg.nodes.map((n) => `${n.step}. ${n.name} (${n.type})`).join("\n")
+        const isLast = i === segments.length - 1
+        return (
+          <span key={`${seg.phase}-${first.step}`} className="flex items-center gap-2 min-w-0" title={title}>
+            {/* Same badge style as the map's numbered spine badges */}
+            <span
+              className={`${grouped ? "px-1.5 min-w-[18px]" : "w-[18px]"} h-[18px] rounded-full flex items-center justify-center text-[10px] font-semibold text-white shadow-md shrink-0`}
+              style={{ backgroundColor: "var(--canvas-danger)" }}
+            >
+              {numberLabel}
+            </span>
+            <span className="flex flex-col leading-tight min-w-0">
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                {grouped ? `Network passage · ${seg.nodes.length} hops` : seg.phase}
+              </span>
+              {!grouped && (
+                <span className="text-[11px] font-mono text-foreground truncate">
+                  {captionTruncate(first.name)}
+                </span>
+              )}
+            </span>
+            {isLast && seg.phase === "DATA" && (
+              <Crown className="h-3 w-3 text-amber-500 shrink-0" />
+            )}
+            {!isLast && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+          </span>
+        )
+      })}
+    </div>
+  )
 }
 
 // Map severity level → tone for the score badge. Same palette as the
@@ -153,7 +235,6 @@ export function PathAnalysisPanel({
   }, [path, jewel])
 
   const start = path.nodes?.[0]
-  const target = path.nodes?.[path.nodes.length - 1]
   const sevTone = severityTone(path.severity?.severity)
   const sevLabel = (path.severity?.severity || "—").toUpperCase()
   const sevScore = path.severity?.overall_score
@@ -332,43 +413,12 @@ export function PathAnalysisPanel({
         </div>
         {evidenceOpen && (
         <>
-        {/* V2-1: Caption strip — one-line story above the canvas.
-            ENTRY: <hop[0]> → via N hops → REACHES: <jewel>.
-            Mirrors the breadcrumb up top but binds visually to the
-            canvas (not the metadata header) so the eye gets a
-            reading direction WITH the diagram, not 200px above it.
-            Behind ?canvas=v2 — legacy operators see no change. */}
-        {canvasV2 && start && target && (
-          <div className="px-6 pt-4 pb-1 flex items-center gap-2 text-[11px]">
-            <span className="text-muted-foreground uppercase tracking-wider font-medium shrink-0">
-              Entry
-            </span>
-            <span
-              className="font-mono text-foreground truncate max-w-[280px]"
-              title={start.name}
-            >
-              {start.name}
-            </span>
-            <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground shrink-0">
-              via <span className="font-semibold text-foreground">{path.hop_count}</span>{" "}
-              {path.hop_count === 1 ? "hop" : "hops"}
-            </span>
-            <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground uppercase tracking-wider font-medium shrink-0">
-              Reaches
-            </span>
-            <span
-              className="font-mono text-amber-700 dark:text-amber-300 truncate"
-              title={jewel?.name ?? target.name}
-            >
-              {captionTruncate(jewel?.name ?? target.name)}
-            </span>
-            {jewel?.name && (
-              <Crown className="h-3 w-3 text-amber-500 shrink-0" />
-            )}
-          </div>
-        )}
+        {/* Kill-chain strip (2026-06-11) — replaces the canvasV2-gated
+            "ENTRY → via N hops → REACHES" caption. Always on when the
+            path has nodes: a LINEAR phase-by-phase read of the spine
+            whose numbers match the map's step badges, since the lane
+            layout makes the numbered spine zigzag on the canvas. */}
+        {(path.nodes?.length ?? 0) > 0 && <KillChainStrip nodes={path.nodes} />}
         <div className="px-6 pt-4 pb-2 flex items-center justify-between gap-3">
           <div className="inline-flex items-center bg-muted rounded p-0.5 border border-border shrink-0">
             <button
