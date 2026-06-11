@@ -17,6 +17,11 @@
 // IdentityAttackPath type isn't updated for v2 yet, so those are detected
 // heuristically from node/edge strings (see detectCrossAccount / jewelMeta) —
 // the map lights up the moment v5 paths land, no type churn required.
+//
+// Tier 2 (render now, zero collectors): the KMS key-policy gate on the jewel
+// card (wildcard / cross-account / direct grant / iam-delegated, see
+// keyPolicyMeta) and the dashed ACCOUNT BOUNDARY divider every cross-account
+// hop crosses (see AccountBoundary).
 
 import {
   ShieldCheck,
@@ -159,6 +164,40 @@ function pickAssumedRole(
   return { node: role2, observed: edge?.is_observed ?? false }
 }
 
+// AWS account id from an ARN-shaped id ("arn:aws:iam::745783559495:role/x").
+// Used for account-boundary rendering — null when the id isn't an ARN.
+function accountOf(s: string | undefined | null): string | null {
+  const m = /arn:aws[^:]*:[^:]*:[^:]*:(\d{12}):/.exec(s ?? "")
+  return m ? m[1] : null
+}
+
+// KMS key-policy gate (Tier 2, zero collectors). The key policy is a second
+// data-plane gate in front of a KMS jewel — IAM alone is not enough (or, for
+// wildcard grants, IS enough from ANY account). States, worst-first:
+//   wildcard principal  → red    (anyone with IAM in their own account)
+//   cross-account grant → amber  (named external account)
+//   direct grant        → amber  (principal named in the key policy — bypasses
+//                                 the role's IAM ceiling)
+//   iam-delegated       → slate  (the AWS default :root delegation — access is
+//                                 governed by IAM, which this path already shows)
+function keyPolicyMeta(
+  p: IdentityAttackPath,
+  jewel: PathNodeDetail | undefined,
+  cross: { principal: string; via: string } | null,
+): { label: string; tone: string } | null {
+  if (!/KMSKey/i.test(jewel?.type ?? "")) return null
+  const wildcard =
+    p.nodes.some((n) => /external:wildcard/i.test(String(n.id ?? "") + String(n.name ?? ""))) ||
+    p.nodes.some((n) => n.name === "Any AWS principal")
+  if (wildcard) return { label: "key policy · wildcard principal", tone: "red" }
+  const crossAcct =
+    p.nodes.some((n) => /external:cross_account/i.test(String(n.id ?? "") + String(n.name ?? ""))) ||
+    p.nodes.some((n) => n.name === "Any external account")
+  if (crossAcct) return { label: "key policy · cross-account", tone: "amber" }
+  if (cross) return { label: "key policy · direct grant", tone: "amber" }
+  return { label: "key policy · iam-delegated", tone: "slate" }
+}
+
 function bandColor(sev: string | undefined): string {
   switch ((sev ?? "").toUpperCase()) {
     case "CRITICAL":
@@ -225,6 +264,24 @@ function Connector({ label, tone }: { label?: string; tone?: "red" | "amber" | "
   )
 }
 
+// Account boundary (Tier 2, zero collectors) — the vertical line every
+// cross-account story crosses. Drawn between the external/untrusted side and
+// the account that owns the jewel, so "this hop leaves AWS-account custody"
+// is visible instead of implied by a chip.
+function AccountBoundary({ ownerAccount }: { ownerAccount: string | null }) {
+  return (
+    <div className="flex shrink-0 flex-col items-center justify-stretch px-1.5" aria-label="account boundary">
+      <span className="whitespace-nowrap text-[8px] font-bold uppercase tracking-wider text-purple-300/90">
+        account boundary
+      </span>
+      <div className="my-0.5 w-px flex-1 border-l border-dashed border-purple-400/50" />
+      <span className="whitespace-nowrap font-mono text-[8px] text-slate-500">
+        {ownerAccount ? `→ ${ownerAccount}` : "→ this account"}
+      </span>
+    </div>
+  )
+}
+
 // ── the map ────────────────────────────────────────────────────────────────
 export function AttackerPathMap({
   path,
@@ -243,6 +300,8 @@ export function AttackerPathMap({
   const jm = jewelMeta(jewel?.type)
   const instanceProfile = pickInstanceProfile(path, foothold)
   const assumed = pickAssumedRole(path, role)
+  const keyPolicy = keyPolicyMeta(path, jewel, cross)
+  const jewelAccount = accountOf(jewel?.id) ?? accountOf(role?.id)
 
   const damage =
     worstDamage(path.damage_types) ??
@@ -261,6 +320,7 @@ export function AttackerPathMap({
   if (role?.has_mfa === false) flags.push("no MFA")
   if (jewel?.encryption && jewel.encryption.at_rest === false) flags.push("unencrypted at rest")
   if (cross) flags.push("cross-account")
+  if (keyPolicy?.tone === "red") flags.push("wildcard key policy")
 
   // Crown-jewel card — shared by both path shapes.
   const jewelCard = (
@@ -272,6 +332,7 @@ export function AttackerPathMap({
       chips={
         <>
           <Chip tone="emerald">{jm.label}</Chip>
+          {keyPolicy && <Chip tone={keyPolicy.tone}>{keyPolicy.label}</Chip>}
           {jewel?.data_classification && <Chip tone="amber">{jewel.data_classification}</Chip>}
           {jewel?.encryption?.at_rest === true && <Chip><Lock className="mr-0.5 h-2.5 w-2.5" />enc</Chip>}
           {jewel?.encryption?.at_rest === false && <Chip tone="red"><Unlock className="mr-0.5 h-2.5 w-2.5" />no enc</Chip>}
@@ -327,6 +388,7 @@ export function AttackerPathMap({
               accent="border-purple-500/40 bg-purple-500/[0.05]"
               chips={<Chip tone="purple">untrusted account</Chip>}
             />
+            <AccountBoundary ownerAccount={jewelAccount} />
             <Connector label={cross?.via} tone="amber" />
             {jewelCard}
           </>
@@ -414,6 +476,7 @@ export function AttackerPathMap({
 
             {crossCard && (
               <>
+                <AccountBoundary ownerAccount={jewelAccount} />
                 {crossCard}
                 <Connector label={cross?.via} tone="amber" />
               </>
