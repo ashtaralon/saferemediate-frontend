@@ -178,6 +178,7 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
     (s, p) => s + (p.bucket.actions ?? []).reduce((ss, a) => ss + (a.impact ?? 0), 0),
     0,
   )
+  const totalReduction = Math.abs(totalImpact)
   const totalActions = planes.reduce((s, p) => s + p.bucket.action_count, 0)
   const lockedActions = planes.reduce(
     (s, p) => s + ((p.bucket.locked_count ?? 0) || 0),
@@ -229,9 +230,9 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
                     <span className="text-lg font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
                       {rr.achievable_score}
                     </span>
-                    {totalImpact > 0 && (
+                    {totalReduction > 0 && (
                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400 ml-1">
-                        −{totalImpact}
+                        −{Math.round(totalReduction)}
                       </span>
                     )}
                   </div>
@@ -256,9 +257,11 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">
                         {meta.label} · {bucket.action_count} action{bucket.action_count === 1 ? "" : "s"}
                       </span>
-                      <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400">
-                        −{Math.round(bucket.delta)} pts
-                      </span>
+                      {Math.abs(bucket.delta ?? 0) > 0 && (
+                        <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400">
+                          −{Math.round(Math.abs(bucket.delta ?? 0))} pts
+                        </span>
+                      )}
                     </div>
                     {meta.copy && (
                       <div className="text-[11px] text-muted-foreground mb-2 italic">
@@ -353,9 +356,13 @@ function ActionRow({
           )}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-          {action.impact > 0 && (
-            <span className="text-emerald-600 dark:text-emerald-400">−{Math.round(action.impact)} pts</span>
-          )}
+          {(() => {
+            const reduction = Math.abs(action.impact ?? 0)
+            if (reduction <= 0) return null
+            return (
+              <span className="text-emerald-600 dark:text-emerald-400">−{Math.round(reduction)} pts</span>
+            )
+          })()}
           {action.dominant_factor && (
             <span className="text-muted-foreground">
               · drives {action.dominant_factor.replaceAll("_", " ")}
