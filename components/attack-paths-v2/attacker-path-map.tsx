@@ -134,6 +134,31 @@ function detectCrossAccount(p: IdentityAttackPath): { principal: string; via: st
   }
 }
 
+// Instance-profile binding (EC2 → RUNS_AS → role) — the mechanism an attacker
+// rides after RCE on the foothold. From a node of type InstanceProfile or the
+// foothold's infra_context. Graph: HAS_INSTANCE_PROFILE / USES_ROLE.
+function pickInstanceProfile(p: IdentityAttackPath, foothold: PathNodeDetail | undefined): string | null {
+  const ip = p.nodes.find((n) => /InstanceProfile/i.test(n.type))
+  if (ip) return ip.name
+  return foothold?.infra_context?.instance_profiles?.[0]?.name ?? null
+}
+
+// Assume-role hop (the BeyondTrust→Treasury pattern). A second role / STSSession
+// on the path = lateral movement. observed = the edge was seen in CloudTrail
+// (ASSUMED_ROLE/STSSession, is_observed) → red; config-only (CAN_ASSUME/TRUSTS)
+// → amber. This is the OPEN_CONFIG-vs-OPEN_OBSERVED split, drawn as one hop.
+function pickAssumedRole(
+  p: IdentityAttackPath,
+  primary: PathNodeDetail | undefined,
+): { node: PathNodeDetail; observed: boolean } | null {
+  const role2 =
+    p.nodes.find((n) => /IAMRole/i.test(n.type) && n.id !== primary?.id) ??
+    p.nodes.find((n) => /STSSession/i.test(n.type))
+  if (!role2) return null
+  const edge = (p.edges ?? []).find((e) => /ASSUME|STS|TRUSTS/i.test(e.type))
+  return { node: role2, observed: edge?.is_observed ?? false }
+}
+
 function bandColor(sev: string | undefined): string {
   switch ((sev ?? "").toUpperCase()) {
     case "CRITICAL":
@@ -216,6 +241,8 @@ export function AttackerPathMap({
   const cross = detectCrossAccount(path)
   const hasCompute = path.nodes.some(isComputeNode)
   const jm = jewelMeta(jewel?.type)
+  const instanceProfile = pickInstanceProfile(path, foothold)
+  const assumed = pickAssumedRole(path, role)
 
   const damage =
     worstDamage(path.damage_types) ??
@@ -305,6 +332,10 @@ export function AttackerPathMap({
           </>
         ) : (
           <>
+            {/* Compute/foothold segment — skipped on orphan/service-role paths
+                (no compute node), where the role IS the entry. */}
+            {hasCompute && (
+              <>
             {internetExposed && (
               <>
                 <SpineNode
@@ -331,11 +362,27 @@ export function AttackerPathMap({
                 </>
               }
             />
-            <Connector label="IMDS → role creds" tone={gate(gates?.identity_gate).tone} />
+            {instanceProfile ? (
+              <>
+                <Connector label="IMDS creds" tone={gate(gates?.identity_gate).tone} />
+                <SpineNode
+                  icon={<KeyRound className="h-3 w-3" />}
+                  kicker="instance profile"
+                  title={instanceProfile}
+                  accent="border-slate-700 bg-slate-900/40"
+                  chips={<Chip>RUNS_AS</Chip>}
+                />
+                <Connector label="binds role" tone="slate" />
+              </>
+            ) : (
+              <Connector label="IMDS → role creds" tone={gate(gates?.identity_gate).tone} />
+            )}
+              </>
+            )}
 
             <SpineNode
               icon={<KeyRound className="h-3 w-3" />}
-              kicker="identity"
+              kicker={hasCompute ? "identity" : "identity · entry"}
               title={role?.name ?? closure?.diff?.role ?? "—"}
               accent="border-amber-500/40 bg-amber-500/[0.05]"
               chips={
@@ -345,6 +392,21 @@ export function AttackerPathMap({
                 </>
               }
             />
+            {assumed && (
+              <>
+                <Connector
+                  label={`sts:AssumeRole · ${assumed.observed ? "observed" : "config"}`}
+                  tone={assumed.observed ? "red" : "amber"}
+                />
+                <SpineNode
+                  icon={<KeyRound className="h-3 w-3" />}
+                  kicker="assumed role"
+                  title={assumed.node.name}
+                  accent={assumed.observed ? "border-red-500/40 bg-red-500/[0.05]" : "border-amber-500/40 bg-amber-500/[0.05]"}
+                  chips={<Chip tone={assumed.observed ? "red" : "amber"}>{assumed.observed ? "assumed · observed" : "can assume · config"}</Chip>}
+                />
+              </>
+            )}
             <Connector
               label={gates?.route_gate ? `route · ${gate(gates.route_gate).label}` : "route"}
               tone={gates?.route_gate ? gate(gates.route_gate).tone : "slate"}
