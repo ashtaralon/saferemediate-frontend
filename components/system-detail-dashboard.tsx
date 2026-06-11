@@ -902,9 +902,19 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         const issuesData = await issuesRes.json()
         const resources = issuesData.resources || []
 
+        const lpRowCountsTowardSummary = (r: any) => {
+          if (r.countsTowardSummary === false) return false
+          const severity = String(r.severity || '').toUpperCase()
+          return (
+            (r.gapCount ?? 0) > 0
+            || (r.exposedCount ?? 0) > 0
+            || ['CRITICAL', 'HIGH', 'MEDIUM'].includes(severity)
+          )
+        }
+
         // Transform resources to CriticalIssue format for Critical Issues panel
         const criticalIssues: CriticalIssue[] = resources
-          .filter((r: any) => r.gapCount > 0 || r.exposedCount > 0)
+          .filter(lpRowCountsTowardSummary)
           .map((r: any, idx: number) => ({
             id: r.resourceArn || r.resourceName || `issue-${idx}`,
             title: `${r.gapCount || r.exposedCount} unused permissions`,
@@ -922,7 +932,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         console.log("[v0] Loaded", criticalIssues.length, "issues")
 
         // Also populate securityFindings for the Issues tab
-        const filteredResources = resources.filter((r: any) => r.gapCount > 0 || r.exposedCount > 0)
+        const filteredResources = resources.filter(lpRowCountsTowardSummary)
         const securityFindingsFromLP: SecurityFinding[] = filteredResources
           .map((r: any) => ({
             id: r.resourceArn || r.id || r.resourceName,
