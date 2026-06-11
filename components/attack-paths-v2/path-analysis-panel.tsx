@@ -78,11 +78,11 @@ function captionTruncate(name: string, maxLen = 36): string {
 // the page.
 function severityTone(level?: string) {
   const l = (level || "").toLowerCase()
-  if (l === "critical") return "bg-red-500/15 border-red-500/40 text-red-200"
-  if (l === "high") return "bg-orange-500/15 border-orange-500/40 text-orange-200"
-  if (l === "medium") return "bg-amber-500/15 border-amber-500/40 text-amber-200"
-  if (l === "low") return "bg-emerald-500/15 border-emerald-500/40 text-emerald-200"
-  return "bg-slate-500/15 border-slate-500/40 text-slate-200"
+  if (l === "critical") return "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
+  if (l === "high") return "bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-300"
+  if (l === "medium") return "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
+  if (l === "low") return "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+  return "bg-muted border-border text-muted-foreground"
 }
 
 export function PathAnalysisPanel({
@@ -199,7 +199,7 @@ export function PathAnalysisPanel({
   return (
     <div className="flex flex-col h-full">
       {/* Compact chrome — path narrative lives on DamageAwarePathCard */}
-      <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10">
+      <div className="px-6 py-2 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             {/* Labeled "path score" so it can't be confused with the
@@ -217,21 +217,21 @@ export function PathAnalysisPanel({
             </span>
             {isRootPrincipal && (
               <span
-                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider rounded border border-red-500/50 bg-red-500/15 text-red-200 px-2 py-0.5"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider rounded border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 px-2 py-0.5"
                 title="Authenticated with AWS account root user"
               >
                 <AlertOctagon className="h-3 w-3" />
                 Auth: root
               </span>
             )}
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-muted-foreground">
               {path.hop_count ?? path.nodes.length - 1} hops
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {jewel && (
-              <div className="flex items-center gap-1.5 text-xs font-mono text-amber-200/90 truncate max-w-[200px]" title={jewel.name}>
-                <Crown className="h-3 w-3 text-amber-400 shrink-0" />
+              <div className="flex items-center gap-1.5 text-xs font-mono text-amber-700 dark:text-amber-300 truncate max-w-[200px]" title={jewel.name}>
+                <Crown className="h-3 w-3 text-amber-500 shrink-0" />
                 {jewel.name}
               </div>
             )}
@@ -239,7 +239,7 @@ export function PathAnalysisPanel({
               <button
                 onClick={onToggleExpand}
                 title={isExpanded ? "Collapse (Esc)" : "Expand to full screen"}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-700 bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600 transition-colors"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               >
                 {isExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
               </button>
@@ -257,17 +257,17 @@ export function PathAnalysisPanel({
         scopeError={damageScopeError}
       />
 
-      <div className="px-6 py-4 border-b border-slate-800/60">
+      <div className="px-6 py-4 border-b border-border">
         <ClosureOutcomeSection path={path} jewel={jewel} />
       </div>
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
-      <div className="border-b border-slate-800/60 bg-slate-950/40">
+      <div className="border-b border-border bg-muted/30">
         <div className="px-6 pt-3 pb-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Supporting evidence
           </div>
-          <p className="text-[11px] text-slate-600 mt-0.5">
+          <p className="text-[11px] text-muted-foreground mt-0.5">
             Network topology, lateral movement, and per-plane signals
           </p>
         </div>
@@ -279,44 +279,44 @@ export function PathAnalysisPanel({
             Behind ?canvas=v2 — legacy operators see no change. */}
         {canvasV2 && start && target && (
           <div className="px-6 pt-4 pb-1 flex items-center gap-2 text-[11px]">
-            <span className="text-slate-500 uppercase tracking-wider font-medium shrink-0">
+            <span className="text-muted-foreground uppercase tracking-wider font-medium shrink-0">
               Entry
             </span>
             <span
-              className="font-mono text-slate-200 truncate max-w-[280px]"
+              className="font-mono text-foreground truncate max-w-[280px]"
               title={start.name}
             >
               {start.name}
             </span>
-            <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
-            <span className="text-slate-400 shrink-0">
-              via <span className="font-semibold text-slate-200">{path.hop_count}</span>{" "}
+            <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground shrink-0">
+              via <span className="font-semibold text-foreground">{path.hop_count}</span>{" "}
               {path.hop_count === 1 ? "hop" : "hops"}
             </span>
-            <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
-            <span className="text-slate-500 uppercase tracking-wider font-medium shrink-0">
+            <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground uppercase tracking-wider font-medium shrink-0">
               Reaches
             </span>
             <span
-              className="font-mono text-amber-300 truncate"
+              className="font-mono text-amber-700 dark:text-amber-300 truncate"
               title={jewel?.name ?? target.name}
             >
               {captionTruncate(jewel?.name ?? target.name)}
             </span>
             {jewel?.name && (
-              <Crown className="h-3 w-3 text-amber-400 shrink-0" />
+              <Crown className="h-3 w-3 text-amber-500 shrink-0" />
             )}
           </div>
         )}
         <div className="px-6 pt-4 pb-2 flex items-center justify-between gap-3">
-          <div className="inline-flex items-center bg-slate-800/60 rounded p-0.5 border border-slate-700 shrink-0">
+          <div className="inline-flex items-center bg-muted rounded p-0.5 border border-border shrink-0">
             <button
               type="button"
               onClick={() => setMapView("flow")}
               className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
                 mapView === "flow"
-                  ? "bg-blue-500/20 text-blue-200"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
               title="Rich system map — Stack Components sidebar, ROUTE TABLES, EGRESS GATEWAYS, lateral pivot edges"
             >
@@ -327,15 +327,15 @@ export function PathAnalysisPanel({
               onClick={() => setMapView("lateral")}
               className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
                 mapView === "lateral"
-                  ? "bg-fuchsia-500/20 text-fuchsia-200"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
               title="5-column lateral movement layout — Entry · Compute · Identity · Pivot · Crown Jewel"
             >
               Lateral Movement
             </button>
           </div>
-          <div className="text-[10px] text-slate-500 text-right min-w-0">
+          <div className="text-[10px] text-muted-foreground text-right min-w-0">
             {mapView === "flow"
               ? "click a data resource (canvas or Storage sidebar) for damage scope"
               : "Entry → Compute → Identity → Pivot → Crown Jewel"}
@@ -347,7 +347,7 @@ export function PathAnalysisPanel({
             alon-prod-sized data. */}
         <div className="px-6 pb-4">
           <div
-            className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
+            className="relative rounded-xl border border-border bg-card overflow-hidden"
             style={{ height: "520px" }}
           >
             {mapView === "flow" ? (
@@ -396,11 +396,11 @@ export function PathAnalysisPanel({
         </div>
       </div>
 
-      <div className="px-6 py-4 border-t border-slate-800/60">
+      <div className="px-6 py-4 border-t border-border">
         <button
           type="button"
           onClick={() => setTechnicalOpen((o) => !o)}
-          className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-400 hover:text-slate-200"
+          className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
         >
           <ChevronRight
             className={`h-3 w-3 transition-transform ${technicalOpen ? "rotate-90" : ""}`}

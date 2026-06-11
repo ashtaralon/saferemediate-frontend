@@ -38,10 +38,10 @@ function severityColor(sev: string | number): string {
   const s = typeof sev === "number"
     ? sev >= 80 ? "CRITICAL" : sev >= 60 ? "HIGH" : sev >= 40 ? "MEDIUM" : "LOW"
     : sev
-  if (s === "CRITICAL") return "border-red-500/40 bg-red-500/10 text-red-300"
-  if (s === "HIGH") return "border-orange-500/40 bg-orange-500/10 text-orange-300"
-  if (s === "MEDIUM") return "border-amber-500/40 bg-amber-500/10 text-amber-300"
-  return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+  if (s === "CRITICAL") return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+  if (s === "HIGH") return "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+  if (s === "MEDIUM") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
 }
 
 function severityLabel(sev: string | number): string {
@@ -101,16 +101,16 @@ export function AllCrownJewelsView({
   const totalPaths = paths.length
 
   return (
-    <div className="p-6 bg-slate-950 min-h-full overflow-auto">
+    <div className="p-6 bg-background min-h-full overflow-auto">
       {/* Header */}
       <div className="mb-6 flex items-baseline gap-3 flex-wrap">
-        <h2 className="text-base font-bold text-slate-100 tracking-wide uppercase">
+        <h2 className="text-base font-semibold text-foreground tracking-wide uppercase">
           All Crown Jewel Paths
         </h2>
-        <span className="text-[10px] text-slate-500 italic">
+        <span className="text-[10px] text-muted-foreground">
           {currentSystem ? `${currentSystem} · ` : ""}
           {jewels.length} crown jewel{jewels.length === 1 ? "" : "s"} ·{" "}
-          {totalPaths} path{totalPaths === 1 ? "" : "s"} total · sourced from Neo4j
+          {totalPaths} path{totalPaths === 1 ? "" : "s"} total
         </span>
       </div>
 
@@ -119,10 +119,10 @@ export function AllCrownJewelsView({
           one-click switcher instead of staring at empty cards. */}
       {totalPaths === 0 && jewels.length > 0 && otherSystems.length > 0 && onSwitchSystem && (
         <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-          <div className="text-xs font-semibold text-amber-200 mb-2">
+          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-2">
             No attack paths recorded on this system
           </div>
-          <p className="text-[11px] text-amber-300/80 mb-3">
+          <p className="text-[11px] text-muted-foreground mb-3">
             {jewels.length} crown jewel{jewels.length === 1 ? "" : "s"} defined,
             but no observed or modeled paths reach them. Switch to a system with active paths:
           </p>
@@ -132,7 +132,7 @@ export function AllCrownJewelsView({
                 key={s}
                 type="button"
                 onClick={() => onSwitchSystem(s)}
-                className="text-[11px] font-semibold rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-amber-200 transition-colors"
+                className="text-[11px] font-semibold rounded-md border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-amber-700 dark:text-amber-300 transition-colors"
               >
                 {s}
               </button>
@@ -142,8 +142,8 @@ export function AllCrownJewelsView({
       )}
 
       {jewels.length === 0 ? (
-        <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-8 text-center">
-          <div className="text-sm text-slate-400">
+        <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <div className="text-sm text-muted-foreground">
             No crown jewels defined for this system yet.
           </div>
         </div>
@@ -154,24 +154,24 @@ export function AllCrownJewelsView({
             return (
               <div
                 key={jewel.id}
-                className="rounded-lg border border-slate-700 bg-slate-900/40 overflow-hidden"
+                className="rounded-lg border border-border bg-card overflow-hidden"
               >
                 {/* CJ Header */}
                 <button
                   type="button"
                   onClick={() => onSelectJewel(jewel.id)}
-                  className="w-full px-4 py-3 flex items-center justify-between gap-3 bg-gradient-to-r from-amber-900/10 to-transparent hover:from-amber-900/20 transition-colors border-b border-slate-700/60"
+                  className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-accent/50 transition-colors border-b border-border"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <Crown className="h-4 w-4 text-amber-400 shrink-0" />
+                    <Crown className="h-4 w-4 text-amber-500 shrink-0" />
                     <div className="flex flex-col items-start min-w-0">
-                      <div className="text-sm font-bold text-slate-100 truncate max-w-full">
+                      <div className="text-sm font-semibold text-foreground truncate max-w-full">
                         {shortName(jewel.name, 60)}
                       </div>
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500 mt-0.5">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
                         {jewel.type} ·{" "}
                         {jewel.is_internet_exposed && (
-                          <span className="text-rose-400 font-semibold">internet-exposed · </span>
+                          <span className="text-red-600 dark:text-red-400 font-semibold">internet-exposed · </span>
                         )}
                         {jpaths.length} path{jpaths.length === 1 ? "" : "s"}
                       </div>
@@ -183,7 +183,7 @@ export function AllCrownJewelsView({
                     >
                       {jewel.severity}
                     </span>
-                    <span className="text-xs font-mono text-slate-300">
+                    <span className="text-xs font-mono text-foreground">
                       {Math.round(jewel.highest_risk_score)}
                     </span>
                   </div>
@@ -191,11 +191,11 @@ export function AllCrownJewelsView({
 
                 {/* Paths list */}
                 {jpaths.length === 0 ? (
-                  <div className="px-4 py-3 text-[10px] text-slate-500 italic">
+                  <div className="px-4 py-3 text-[10px] text-muted-foreground">
                     No paths recorded to this jewel.
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-800">
+                  <div className="divide-y divide-border">
                     {jpaths.map((p) => {
                       const src = p.nodes?.[0]?.name || p.nodes?.[0]?.id || "?"
                       const tgt = p.nodes?.[p.nodes.length - 1]?.name || p.nodes?.[p.nodes.length - 1]?.id || "?"
@@ -205,31 +205,31 @@ export function AllCrownJewelsView({
                           key={p.id}
                           type="button"
                           onClick={() => onSelectPath(jewel.id, p.id)}
-                          className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-slate-800/40 transition-colors text-left"
+                          className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-accent/50 transition-colors text-left"
                         >
                           <span
-                            className={`text-[8px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityColor(sev)}`}
+                            className={`text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityColor(sev)}`}
                           >
                             {severityLabel(sev)}
                           </span>
-                          <span className="text-[10px] font-mono text-slate-400 w-6 text-right">
+                          <span className="text-[10px] font-mono text-muted-foreground w-6 text-right">
                             {Math.round(sev)}
                           </span>
-                          <span className="text-[10px] text-slate-300 min-w-0 flex items-center gap-1.5 flex-1">
+                          <span className="text-[10px] text-foreground min-w-0 flex items-center gap-1.5 flex-1">
                             <span className="font-mono truncate max-w-[28%]">{nodeShort(src)}</span>
-                            <ArrowRight className="h-3 w-3 text-slate-600 shrink-0" />
+                            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                             <span className="font-mono truncate max-w-[28%]">{nodeShort(tgt)}</span>
                           </span>
-                          <span className="text-[9px] text-slate-500 shrink-0">
+                          <span className="text-[9px] text-muted-foreground shrink-0">
                             {p.hop_count} hop{p.hop_count === 1 ? "" : "s"}
                           </span>
                           {p.evidence_type === "observed" && (
-                            <span className="text-[8px] font-semibold uppercase tracking-wider rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 px-1.5 py-0.5 shrink-0">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 shrink-0">
                               Observed
                             </span>
                           )}
                           {(p.severity?.damage_floor_applied) && (
-                            <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+                            <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
                           )}
                         </button>
                       )
