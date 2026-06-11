@@ -731,11 +731,13 @@ export function ServiceNodeBox({
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
-  // Spine mode: category tints demote to neutral; hover highlight uses
-  // a neutral accent instead of the category bg/border pair.
-  const iconBoxCls = spineMode ? 'bg-muted' : config.bg;
-  const iconCls = spineMode ? 'text-muted-foreground' : config.color;
-  const labelCls = spineMode ? 'text-muted-foreground' : config.color;
+  // 2026-06-11 rebalance: icon color = category IDENTITY, it stays in
+  // spine mode (founder feedback: full neutralization read as dead).
+  // Card-bg tints stay neutral (bg-card) — only the icon chip + label
+  // keep their hue; hover highlight stays a neutral accent.
+  const iconBoxCls = config.bg;
+  const iconCls = config.color;
+  const labelCls = config.color;
   const highlightedCls = spineMode
     ? 'bg-accent border-border shadow-md scale-105'
     : `${config.bg} ${config.border} shadow-md scale-105`;
@@ -1011,10 +1013,12 @@ export function SecurityGroupPanel({
         className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent"
         onClick={onToggle}
       >
+        {/* 2026-06-11 rebalance: SG orange icon = identity, kept in spine
+            mode; red still wins when the SG has public ingress. */}
         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          hasPublicAccess ? 'bg-red-500/20' : spineMode ? 'bg-muted' : 'bg-orange-500/20'
+          hasPublicAccess ? 'bg-red-500/20' : 'bg-orange-500/20'
         }`}>
-          <Shield className={`w-5 h-5 ${hasPublicAccess ? 'text-red-600 dark:text-red-400' : spineMode ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`} />
+          <Shield className={`w-5 h-5 ${hasPublicAccess ? 'text-red-600 dark:text-red-400' : 'text-orange-600 dark:text-orange-400'}`} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-foreground truncate">{sg.shortName}</div>
@@ -1214,8 +1218,9 @@ export function NACLNode({
         ? "Lateral NACL — in the same VPC as the path's subnets but no ASSOCIATED_WITH edge to the path. Pivot surface only."
         : undefined}
     >
-      <div className={`w-10 h-10 rounded-lg ${spineMode ? 'bg-muted' : 'bg-cyan-500/20'} flex items-center justify-center flex-shrink-0`}>
-        <Lock className={`w-5 h-5 ${spineMode ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
+      {/* 2026-06-11 rebalance: NACL cyan icon = identity, kept in spine mode. */}
+      <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+        <Lock className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-xs font-semibold text-foreground truncate">
@@ -1684,8 +1689,12 @@ export function IAMRoleNode({
   const accentBgHover = spineMode ? 'bg-accent' : isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
   const accentBorderHi  = spineMode ? 'border-border' : isIAMPolicy ? 'border-violet-500/50' : isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
   const accentShadowHi  = isIAMPolicy ? 'shadow-md' : isInstanceProfile ? 'shadow-md' : 'shadow-md';
-  const accentBgFallback = spineMode ? 'bg-muted' : isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentTextFallback = spineMode ? 'text-muted-foreground' : isIAMPolicy ? 'text-violet-700 dark:text-violet-300' : isInstanceProfile ? 'text-amber-700 dark:text-amber-300' : 'text-pink-600 dark:text-pink-400';
+  // 2026-06-11 rebalance: icon chip keeps the identity hue (violet /
+  // amber / pink) even in spine mode — icon color = identity. Card-bg
+  // hover stays neutral above; usage statusColor still wins when data
+  // exists because it carries the risk signal.
+  const accentBgFallback = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentTextFallback = isIAMPolicy ? 'text-violet-700 dark:text-violet-300' : isInstanceProfile ? 'text-amber-700 dark:text-amber-300' : 'text-pink-600 dark:text-pink-400';
   const showDetail = !spineMode || isHighlighted;
 
   return (
@@ -1890,8 +1899,10 @@ function IdentityRiskToken({
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-        <Key className="w-5 h-5 text-muted-foreground" />
+      {/* 2026-06-11 rebalance: identity pink icon = identity, kept in
+          spine mode (token is spine-only, so no gate needed). */}
+      <div className="w-10 h-10 rounded-lg bg-pink-500/20 flex items-center justify-center flex-shrink-0">
+        <Key className="w-5 h-5 text-pink-600 dark:text-pink-400" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Identity</div>
@@ -3078,9 +3089,16 @@ function AnimatedTrafficLine({
     : pathDominance === 'lateral' ? 1.5
     : pathDominance === 'faded' ? 1
     : undefined;
+  // 2026-06-11 rebalance: raised floors (lateral 0.3→0.45, faded
+  // 0.25→0.4) — context edges must stay readable, just quieter than
+  // the spine.
+  // Dominant pinned to 1 so the hero line can never inherit the V2
+  // lateral dim (0.25 group opacity) when onPathEdgeIds and the
+  // dominance pair-keys disagree about an edge.
   const pathDominantOpacity =
-    pathDominance === 'lateral' ? 0.3
-    : pathDominance === 'faded' ? 0.25
+    pathDominance === 'dominant' ? 1
+    : pathDominance === 'lateral' ? 0.45
+    : pathDominance === 'faded' ? 0.4
     : undefined;
   const pathSuppressAnimation =
     pathDominance === 'lateral' || pathDominance === 'faded';
@@ -3091,6 +3109,31 @@ function AnimatedTrafficLine({
   // legacyAttack carries isAttackPath styling only outside spine mode.
   const spineActive = pathDominance !== undefined;
   const legacyAttack = isAttackPath && !spineActive;
+  // Spine-mode LIFE (2026-06-11 rebalance — "add colors, add live").
+  // The single-narrative gate killed ALL motion in spine mode; founder
+  // feedback: the map looked dead. Parallel spine treatment (NOT a
+  // re-enable of the legacy overlays — no pulsing rings, no cyan):
+  //   spineDominant      → marching-dash overlay + soft glow + particles
+  //                        on the hero red line.
+  //   spineLiveObserved  → edges with OBSERVED live traffic (isActive
+  //                        encodes observed+bytes/hits) keep animated
+  //                        GREEN particles even in spine mode when
+  //                        they're on-path or lateral — live evidence
+  //                        is the product's core signal. Locked AWS-
+  //                        required flows stay static by design;
+  //                        inferred edges never animate (honesty).
+  const spineDominant = pathDominance === 'dominant';
+  const spineLiveObserved =
+    (pathDominance === 'dominant' || pathDominance === 'lateral') &&
+    isActive && !isLockedFlow && !edgeData?.inferred;
+  // Particle hue in spine mode: green when live evidence flows on this
+  // edge (observed wins — it's the core signal), danger red otherwise
+  // on the dominant spine.
+  const spineParticleColor = spineLiveObserved
+    ? 'var(--canvas-observed)'
+    : spineDominant
+      ? 'var(--canvas-danger)'
+      : undefined;
 
   // Ghosted (outside dependency hop radius)
   if (ghosted) {
@@ -3291,14 +3334,17 @@ function AnimatedTrafficLine({
        *  Uses pathD so curves get glowed along their actual shape.
        *  Locked observed flows (Phase 2 V1 slice 3) skip the glow —
        *  they read as static observed presence, not animated traffic. */}
-      {(isActive || isAttackPath) && !isLockedFlow && !pathSuppressAnimation && (
+      {(spineDominant || ((isActive || isAttackPath) && !isLockedFlow && !pathSuppressAnimation)) && (
         <path
           d={pathD}
           fill="none"
           stroke={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor}
-          strokeWidth={legacyAttack ? 14 : isHighlighted ? 12 : 6}
-          opacity={legacyAttack ? 0.5 : isHighlighted ? 0.4 : 0.2}
+          strokeWidth={legacyAttack ? 14 : isHighlighted ? 12 : spineDominant ? 9 : 6}
+          opacity={legacyAttack ? 0.5 : isHighlighted ? 0.4 : spineDominant ? 0.3 : 0.2}
           strokeLinecap="round"
+          // 2026-06-11 rebalance: ONE tasteful glow on the hero spine —
+          // CSS drop-shadow in the danger token, dominant edges only.
+          style={spineDominant ? { filter: 'drop-shadow(0 0 4px var(--canvas-danger))' } : undefined}
         >
           {legacyAttack && (
             <animate
@@ -3345,7 +3391,11 @@ function AnimatedTrafficLine({
             ? "10,5"
             : edgeData?.inferred
               ? "6,4"
-              : v2LateralDasharray ?? undefined
+              // Dominant spine stays SOLID even if the V2 lateral
+              // classifier would dash it (2026-06-11 rebalance).
+              : spineDominant
+                ? undefined
+                : v2LateralDasharray ?? undefined
         }
         className="transition-all duration-300"
       >
@@ -3372,6 +3422,34 @@ function AnimatedTrafficLine({
           </title>
         )}
       </path>
+
+      {/* 2026-06-11 rebalance: marching-dash overlay on the dominant
+       *  spine. A slightly wider dashed stroke in the same danger token
+       *  rides on top of the solid hero line; the animated dashoffset
+       *  (SMIL — same pattern as attacker-canvas-v2) makes bright pulses
+       *  travel toward the crown jewel. Parallel spine treatment, NOT
+       *  the legacyAttack "10,5" dash system. */}
+      {spineDominant && animate && (
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--canvas-danger)"
+          strokeWidth={5}
+          strokeLinecap="round"
+          strokeDasharray="5 16"
+          opacity={0.55}
+          pointerEvents="none"
+          data-spine-march="true"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from="0"
+            to="-42"
+            dur="1.4s"
+            repeatCount="indefinite"
+          />
+        </path>
+      )}
 
       {/* V2-4 (2026-05-31): verb chip at edge midpoint, on-path
        *  edges only. Reads like a sentence when the operator scans
@@ -3439,7 +3517,13 @@ function AnimatedTrafficLine({
        *  particles for the operator's eye and contradict the
        *  multi-channel demotion (lower opacity + dashed pattern
        *  signals "not the primary read"). */}
-      {animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && !pathSuppressAnimation && (
+      {/* 2026-06-11 rebalance: spine mode gets its own particle gates —
+       *  dominant spine edges always flow (red, or green when observed);
+       *  lateral edges with OBSERVED live traffic keep their green
+       *  particles (live evidence must visibly flow). Inferred edges
+       *  still never animate. */}
+      {((animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && !pathSuppressAnimation) ||
+        (animate && !edgeData?.inferred && (spineDominant || spineLiveObserved))) && (
         <>
           {/* Define the path for animation — same shape as the visible
            *  line so the particles follow the curve. */}
@@ -3454,7 +3538,7 @@ function AnimatedTrafficLine({
           {particleOffsets.map((offset, i) => (
             <g key={i}>
               {/* Outer glow */}
-              <circle r={legacyAttack ? 10 : isHighlighted ? 8 : 6} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor} opacity={legacyAttack ? 0.5 : 0.3}>
+              <circle r={legacyAttack ? 10 : isHighlighted ? 8 : 6} fill={spineParticleColor ?? glowColor} opacity={legacyAttack ? 0.5 : 0.3}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3464,7 +3548,7 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Core particle */}
-              <circle r={legacyAttack ? 7 : isHighlighted ? 5 : 4} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : particleColor} opacity={1}>
+              <circle r={legacyAttack ? 7 : isHighlighted ? 5 : 4} fill={spineParticleColor ?? particleColor} opacity={1}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -4286,7 +4370,7 @@ export function UnifiedArchitectureDiagram({
   // branch via derivePathDominance), so everything below is a no-op
   // for the full System Map / Topology / EXFIL consumers. On-path cards get a subtle danger ring + a
   // numbered step badge (1 = entry, N = crown jewel); off-path cards
-  // dim to 50% — extending the existing "Laterals: dim" discipline to
+  // dim to 70% — extending the existing "Laterals: dim" discipline to
   // pathFilter mode instead of inventing a second dimming system.
   const pathStepById = architecture.pathStepByNodeId;
   const pathStepsTotal = useMemo(
@@ -4299,15 +4383,17 @@ export function UnifiedArchitectureDiagram({
       !!(pathStepById?.has(nodeId) || architecture.onPathNodeIds?.has(nodeId)),
     [pathStepById, architecture.onPathNodeIds],
   );
-  // Returns a class suffix (leading space) for a card wrapper. Full-
-  // opacity border-2 danger read too loud in review — ring-1 at 40%
-  // keeps the card's own styling legible underneath.
+  // Returns a class suffix (leading space) for a card wrapper.
+  // 2026-06-11 rebalance: on-path cards get real presence (ring-2 at
+  // 50% + shadow) — the faint ring-1 read as a ghost; off-path cards
+  // dim to 70% (was 50% — context must stay readable, just quieter
+  // than the spine).
   const pathEmphasisClass = useCallback(
     (nodeId: string): string => {
       if (!pathFilterActive) return '';
       return isOnSelectedPath(nodeId)
-        ? ' rounded-xl ring-1 ring-[color:var(--canvas-danger)]/40'
-        : ' opacity-50';
+        ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
+        : ' opacity-70';
     },
     [pathFilterActive, isOnSelectedPath],
   );
@@ -4576,8 +4662,11 @@ export function UnifiedArchitectureDiagram({
         )
       })()}
 
-      {/* Main diagram */}
-      <div ref={containerRef} className="relative min-h-[450px]">
+      {/* Main diagram. 2026-06-11 rebalance: spine views are sparse by
+          design (one path, few cards) — the 450px floor left a dead
+          band of empty canvas below the lanes. Lower floor in spine
+          mode only. */}
+      <div ref={containerRef} className={`relative ${pathFilterActive ? 'min-h-[320px]' : 'min-h-[450px]'}`}>
         {/* VPC Boundary boxes */}
         {showVPCBoundaries && architecture.vpcGroups && (
           <VPCBoundaries
@@ -4657,7 +4746,7 @@ export function UnifiedArchitectureDiagram({
             return (
               <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Target className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-700 dark:text-cyan-300'}`} />
+                  <Target className="w-4 h-4 text-cyan-700 dark:text-cyan-300" />
                   {architecture.entryLaneLabel ?? "Entry"} ({entries.length})
                 </div>
                 {entries.map((node) => {
@@ -4717,7 +4806,7 @@ export function UnifiedArchitectureDiagram({
               signals_wrong_primitive. */}
           <div className="flex flex-col gap-3" data-vpc-scoped-column="true" data-lane="compute">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Server className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-blue-600 dark:text-blue-400'}`} />
+              <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
               Compute ({architecture.computeServices.length})
             </div>
             {architecture.computeServices.map(node => {
@@ -4853,7 +4942,7 @@ export function UnifiedArchitectureDiagram({
                 inside the subnet card. */}
           <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets" data-vpc-scoped-column="true" data-lane="subnets">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Globe className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
+              <Globe className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
               Subnets ({architecture.subnets?.length ?? 0})
             </div>
             {(architecture.subnets || []).map(subnet => {
@@ -4886,7 +4975,7 @@ export function UnifiedArchitectureDiagram({
                   {renderPathStepBadge(subnet.id)}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Globe className={`w-3.5 h-3.5 shrink-0 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
+                      <Globe className="w-3.5 h-3.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
                       <span className="text-xs font-semibold text-foreground truncate">
                         {subnet.shortName}
                       </span>
@@ -4957,7 +5046,7 @@ export function UnifiedArchitectureDiagram({
           {/* SECURITY GROUPS */}
           <div className="flex flex-col gap-3 min-w-[180px]" data-vpc-scoped-column="true" data-lane="security-groups">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Shield className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`} />
+              <Shield className="w-4 h-4 text-orange-600 dark:text-orange-400" />
               Security Groups ({architecture.securityGroups.length})
             </div>
             {architecture.securityGroups.map(sg => (
@@ -4994,7 +5083,7 @@ export function UnifiedArchitectureDiagram({
           {architecture.nacls.length > 0 && (
             <div className="flex flex-col gap-3 min-w-[140px]" data-vpc-scoped-column="true" data-lane="nacls">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Lock className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
+                <Lock className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
                 NACLs ({architecture.nacls.length})
               </div>
               {architecture.nacls.map(nacl => (
@@ -5039,7 +5128,7 @@ export function UnifiedArchitectureDiagram({
           {architecture.egressGateways.length > 0 && (
             <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="egress-gateways">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Globe className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'}`} />
+                <Globe className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 Egress Gateways ({architecture.egressGateways.length})
               </div>
               {/* Canvas v3 Slice A — visualize-by-negation on the gateway
@@ -5078,9 +5167,11 @@ export function UnifiedArchitectureDiagram({
                   gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
                   'bg-violet-500/10 border-violet-500/40';
+                // 2026-06-11 rebalance: gateway icon keeps its kind hue in
+                // spine mode (icon color = identity); only the card bg
+                // stays neutral and unused gateways stay muted.
                 const iconColor =
                   isGateUnused ? 'text-muted-foreground' :
-                  pathFilterActive && !isInternetFacingGw ? 'text-muted-foreground' :
                   gw.kind === 'InternetGateway' ? 'text-amber-700 dark:text-amber-300' :
                   gw.kind === 'NATGateway' ? 'text-sky-700 dark:text-sky-300' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-700 dark:text-orange-300' :
@@ -5177,7 +5268,7 @@ export function UnifiedArchitectureDiagram({
               as a bug. */}
           <div className="flex flex-col gap-3 items-center" data-lane-global="true" data-lane="identity">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Key className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-pink-600 dark:text-pink-400'}`} />
+              <Key className="w-4 h-4 text-pink-600 dark:text-pink-400" />
               Identity
               <span
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
@@ -5186,15 +5277,15 @@ export function UnifiedArchitectureDiagram({
                 Global
               </span>
               {(architecture.instanceProfiles?.length ?? 0) > 0 && (
-                <span className={pathFilterActive ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-300/80'}>
+                <span className="text-amber-700 dark:text-amber-300/80">
                   IP {architecture.instanceProfiles?.length ?? 0}
                 </span>
               )}
-              <span className={pathFilterActive ? 'text-muted-foreground' : 'text-pink-700 dark:text-pink-300/80'}>
+              <span className="text-pink-700 dark:text-pink-300/80">
                 Roles {architecture.iamRoles.length}
               </span>
               {(architecture.iamPolicies?.length ?? 0) > 0 && (
-                <span className={pathFilterActive ? 'text-muted-foreground' : 'text-violet-700 dark:text-violet-300/80'}>
+                <span className="text-violet-700 dark:text-violet-300/80">
                   Policies {architecture.iamPolicies?.length ?? 0}
                 </span>
               )}
@@ -5498,7 +5589,7 @@ export function UnifiedArchitectureDiagram({
           {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
           <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="vpc-endpoints">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Cloud className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-violet-600 dark:text-violet-400'}`} />
+              <Cloud className="w-4 h-4 text-violet-600 dark:text-violet-400" />
               VPC Endpoints ({architecture.vpcEndpoints.length})
             </div>
             {architecture.vpcEndpoints.map(vpce => {
@@ -5523,7 +5614,7 @@ export function UnifiedArchitectureDiagram({
                 >
                   {renderPathStepBadge(vpce.id)}
                   <div className="flex items-center justify-center gap-2 mb-1">
-                    <Cloud className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-violet-700 dark:text-violet-300'}`} />
+                    <Cloud className="w-4 h-4 text-violet-700 dark:text-violet-300" />
                     <span className="text-sm font-semibold text-foreground">{vpce.serviceShort}</span>
                   </div>
                   {(!pathFilterActive || effectiveHoveredId === vpce.id) && (
@@ -5620,7 +5711,7 @@ export function UnifiedArchitectureDiagram({
               correct AWS semantics, not a missing-data bug. */}
           <div className="flex flex-col gap-3" data-lane-global="true" data-lane="resources">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Database className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-purple-600 dark:text-purple-400'}`} />
+              <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Resources ({architecture.resources.length})
               <span
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
@@ -5841,27 +5932,27 @@ export function UnifiedArchitectureDiagram({
       <div className="mt-6 pt-4 border-t border-border flex flex-wrap items-center gap-4 text-xs">
         <span className="text-muted-foreground">Legend:</span>
         <span className="flex items-center gap-1.5">
-          <Server className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-blue-600 dark:text-blue-400'}`} />
+          <Server className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
           <span className="text-muted-foreground">Compute</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Shield className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`} />
+          <Shield className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />
           <span className="text-muted-foreground">Security Group</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Key className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-pink-600 dark:text-pink-400'}`} />
+          <Key className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400" />
           <span className="text-muted-foreground">IAM Role</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Zap className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-lime-600 dark:text-lime-400'}`} />
+          <Zap className="w-3.5 h-3.5 text-lime-600 dark:text-lime-400" />
           <span className="text-muted-foreground">API Call</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Database className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-purple-600 dark:text-purple-400'}`} />
+          <Database className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
           <span className="text-muted-foreground">Database</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <HardDrive className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`} />
+          <HardDrive className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
           <span className="text-muted-foreground">Storage</span>
         </span>
         <span className="flex items-center gap-1.5 ml-auto">
