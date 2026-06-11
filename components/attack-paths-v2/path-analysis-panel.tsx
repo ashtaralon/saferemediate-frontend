@@ -29,7 +29,7 @@ import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import { filterActivePaths } from "@/lib/active-filters"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
-import { ClosureOutcomeSection } from "./closure-outcome-panel"
+import { AttackerPathMapSection } from "./attacker-path-map"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import {
   DamageScopeDrawer,
@@ -379,6 +379,13 @@ export function PathAnalysisPanel({
         </div>
       </div>
 
+      {/* HERO — the attacker path map (story view): kill-chain spine + THE GAP
+          + live before/diff/after closure. Replaces the standalone closure
+          section (the map composes ClosureOutcomePanel internally). */}
+      <div className="px-6 py-4 border-b border-border">
+        <AttackerPathMapSection path={path} />
+      </div>
+
       <DamageAwarePathCard
         path={path}
         jewel={jewel}
@@ -387,10 +394,6 @@ export function PathAnalysisPanel({
         scopeLoading={damageScopeLoading}
         scopeError={damageScopeError}
       />
-
-      <div className="px-6 py-4 border-b border-border">
-        <ClosureOutcomeSection path={path} jewel={jewel} />
-      </div>
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
       <div className="border-b border-border bg-muted/30">
