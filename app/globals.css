@@ -15,7 +15,9 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  /* 2026-06-11: darkened from 0.556 — secondary text was too pale in
+     dense security-review surfaces (graph labels, metadata, IDs). */
+  --muted-foreground: oklch(0.49 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -64,8 +66,9 @@
   --canvas-danger: #dc2626;
   --canvas-lateral: #7c3aed;
   --canvas-node-bg: #ffffff;
-  --canvas-node-border: #e2e8f0;
-  --canvas-label: #475569;
+  /* darker than --border so node cards hold their shape on the canvas */
+  --canvas-node-border: #cbd5e1;
+  --canvas-label: #334155;
 }
 
 .dark {

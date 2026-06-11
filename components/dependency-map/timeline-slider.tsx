@@ -144,11 +144,11 @@ export function TimelineSlider({
   // Collapsed state
   if (!isActive) {
     return (
-      <div className="h-10 bg-slate-800/95 border-t border-slate-700 flex items-center px-4">
+      <div className="h-10 bg-card border-t border-border flex items-center px-4">
         <button
           onClick={onToggle}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-                     bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-slate-300
+                     bg-muted text-foreground hover:bg-accent border border-border
                      transition-all duration-200"
         >
           <Clock className="w-3.5 h-3.5" />
@@ -161,7 +161,7 @@ export function TimelineSlider({
 
   // Expanded state
   return (
-    <div className="h-[60px] bg-slate-800/95 border-t border-slate-700 flex items-center px-4 gap-3">
+    <div className="h-[60px] bg-card border-t border-border flex items-center px-4 gap-3 text-foreground">
       {/* Toggle button */}
       <button
         onClick={onToggle}
@@ -184,8 +184,8 @@ export function TimelineSlider({
               px-2 py-1 rounded text-[10px] font-medium transition-all duration-150
               ${
                 currentWindow === opt.value
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground border border-border'
               }
             `}
           >
@@ -204,7 +204,7 @@ export function TimelineSlider({
         onPointerCancel={handlePointerUp}
       >
         {/* Track line */}
-        <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-600 -translate-y-1/2 rounded-full" />
+        <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-border -translate-y-1/2 rounded-full" />
 
         {/* Time tick marks and labels */}
         {timeLabels.map((label, i) => (
@@ -213,8 +213,8 @@ export function TimelineSlider({
             className="absolute top-0 bottom-0 flex flex-col items-center pointer-events-none"
             style={{ left: `${label.pct}%`, transform: 'translateX(-50%)' }}
           >
-            <div className="h-1.5 w-px bg-slate-500 mt-2.5" />
-            <span className="text-[8px] text-slate-500 mt-0.5 whitespace-nowrap">
+            <div className="h-1.5 w-px bg-border mt-2.5" />
+            <span className="text-[8px] text-muted-foreground mt-0.5 whitespace-nowrap">
               {label.label}
             </span>
           </div>
@@ -236,7 +236,7 @@ export function TimelineSlider({
               `}
             />
             {hoveredEvent === event.name && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-1.5 py-0.5 bg-slate-900 border border-slate-600 rounded text-[8px] text-slate-200 whitespace-nowrap pointer-events-none z-20">
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-1.5 py-0.5 bg-card border border-border rounded text-[8px] text-foreground whitespace-nowrap pointer-events-none z-20 shadow-md">
                 <span
                   className={
                     event.type === 'added' ? 'text-green-400' : 'text-red-400'
@@ -268,8 +268,8 @@ export function TimelineSlider({
 
       {/* Selected date label */}
       <div className="shrink-0 text-right min-w-[80px]">
-        <div className="text-[10px] text-slate-500">Selected</div>
-        <div className="text-xs text-emerald-400 font-medium whitespace-nowrap">
+        <div className="text-[10px] text-muted-foreground">Selected</div>
+        <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium whitespace-nowrap">
           {selectedDate}
         </div>
       </div>

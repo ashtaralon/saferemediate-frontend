@@ -458,6 +458,18 @@ export interface SystemArchitecture {
   // ids that are on the chain (vs lateral pivots). Drives lateral
   // dimming on the node cards. Optional; legacy callers undefined.
   onPathNodeIds?: Set<string>;
+  // Attack-path dominance (2026-06-11 design review). Set ONLY by
+  // applyPathFilter when a TrafficFlowMapPathFilter is active — its
+  // presence is the renderer's gate for the "one dominant path color,
+  // everything else fades" treatment, so non-pathFilter consumers
+  // (full System Map, Topology, EXFIL) are untouched.
+  //   pathStepByNodeId: nodeId → 1-based step number along the path
+  //     (1 = entry, N = crown jewel), from pathFilter.pathNodes order.
+  //   pathEdgePairKeys: "src->tgt" + reverse keys for every
+  //     pathFilter.pathEdges entry, so edge dominance can match the
+  //     path's explicit edges as well as node-pair containment.
+  pathStepByNodeId?: Map<string, number>;
+  pathEdgePairKeys?: Set<string>;
 }
 
 // Attack Path types
@@ -739,7 +751,7 @@ export function ServiceNodeBox({
               <span
                 key={eni.id}
                 data-eni-id={eni.id}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-muted text-[9px] font-mono text-foreground"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-muted text-[10px] font-mono text-foreground"
                 title={`Attached ENI: ${eni.name}`}
               >
                 <Network className="w-2.5 h-2.5 text-muted-foreground" />
@@ -783,11 +795,11 @@ export function ServiceNodeBox({
             >
               ↗ {theme.label}
             </span>
-            <span className="text-[9px] font-semibold text-foreground">
+            <span className="text-[10px] font-semibold text-foreground">
               {totalExt.toLocaleString()}
             </span>
             {exfilSummary.unknown_ip > 0 && (
-              <span className="text-[9px] font-semibold text-red-700 dark:text-red-200">
+              <span className="text-[10px] font-semibold text-red-700 dark:text-red-200">
                 · {exfilSummary.unknown_ip.toLocaleString()}?
               </span>
             )}
@@ -867,7 +879,7 @@ function RuleRow({ rule }: { rule: SGRule }) {
     <div className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs ${statusStyle.bg} border ${statusStyle.border} mb-1`}>
       {/* Protocol & Port */}
       <div className="flex items-center gap-1.5 min-w-[70px]">
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
           protocol === 'TCP' ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' :
           protocol === 'UDP' ? 'bg-violet-500/20 text-purple-600 dark:text-purple-400' :
           protocol === 'ICMP' ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400' :
@@ -895,13 +907,13 @@ function RuleRow({ rule }: { rule: SGRule }) {
 
       {/* Traffic info */}
       {rule.flowCount > 0 && (
-        <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium flex-shrink-0">
+        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex-shrink-0">
           {rule.flowCount} hits
         </span>
       )}
 
       {/* Status badge */}
-      <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${statusStyle.bg} ${statusStyle.text} border ${statusStyle.border}`}>
+      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${statusStyle.bg} ${statusStyle.text} border ${statusStyle.border}`}>
         {statusStyle.label}
       </span>
     </div>
@@ -985,7 +997,7 @@ export function SecurityGroupPanel({
             )}
             {hasPublicAccess && (
               <span
-                className="px-1.5 py-0.5 bg-red-500/20 text-red-600 dark:text-red-400 rounded text-[9px] font-semibold"
+                className="px-1.5 py-0.5 bg-red-500/20 text-red-600 dark:text-red-400 rounded text-[10px] font-semibold"
                 title="Security Group accepts inbound traffic from 0.0.0.0/0 — verified by has_public_ingress on the SecurityGroup node"
               >
                 {publicRules.length > 0 ? `${publicRules.length} PUBLIC` : "PUBLIC"}
@@ -993,7 +1005,7 @@ export function SecurityGroupPanel({
             )}
             {isLateral && (
               <span
-                className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-[9px] font-semibold uppercase tracking-wider"
+                className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-[10px] font-semibold uppercase tracking-wider"
                 title="Lateral SG — not attached to the path's workload. Pivot surface only."
               >
                 Lateral
@@ -1001,7 +1013,7 @@ export function SecurityGroupPanel({
             )}
             {sg.attachedWorkloads && sg.attachedWorkloads.length > 0 && (
               <span
-                className="px-1.5 py-0.5 bg-orange-500/15 text-orange-700 dark:text-orange-300 rounded text-[9px] font-semibold"
+                className="px-1.5 py-0.5 bg-orange-500/15 text-orange-700 dark:text-orange-300 rounded text-[10px] font-semibold"
                 title={`Attached to: ${sg.attachedWorkloads.join(", ")}`}
               >
                 on {sg.attachedWorkloads.length === 1
@@ -1025,17 +1037,17 @@ export function SecurityGroupPanel({
           {sg.rules.length > 0 && (
             <div className="flex gap-2 pb-2 border-b border-border">
               {usedRules.length > 0 && (
-                <span className="text-[9px] px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded">
+                <span className="text-[10px] px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded">
                   {usedRules.length} used
                 </span>
               )}
               {unusedRules.length > 0 && (
-                <span className="text-[9px] px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 rounded">
+                <span className="text-[10px] px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 rounded">
                   {unusedRules.length} unused
                 </span>
               )}
               {usedRules.length === 0 && unusedRules.length === 0 && (
-                <span className="text-[9px] px-2 py-1 bg-muted/50 border border-border text-muted-foreground rounded">
+                <span className="text-[10px] px-2 py-1 bg-muted/50 border border-border text-muted-foreground rounded">
                   No VPC Flow data yet
                 </span>
               )}
@@ -1175,13 +1187,13 @@ export function NACLNode({
               always 0 on NACLs with only allow rules (no denies =
               gapCount 0). N rules tells the operator what's enforceable
               here. */}
-          <span className={`text-[9px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
             {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
           </span>
           {/* Deny count — only when there ARE denies. Coloured amber
               because explicit denies are what catch unintended egress. */}
           {nacl.gapCount > 0 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-600 dark:text-amber-400">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-600 dark:text-amber-400">
               {nacl.gapCount} {nacl.gapCount === 1 ? 'deny' : 'denies'}
             </span>
           )}
@@ -1189,7 +1201,7 @@ export function NACLNode({
               ("this NACL applies to N subnets"). Hidden when 0 (orphan
               NACL — operator should look elsewhere). */}
           {subnetCount > 0 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-foreground">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground">
               {subnetCount} {subnetCount === 1 ? 'subnet' : 'subnets'}
             </span>
           )}
@@ -1207,7 +1219,7 @@ export function NACLNode({
               isVpcWideDefault gate. */}
           {isVpcWideDefault && (
             <span
-              className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-semibold uppercase tracking-wider"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-semibold uppercase tracking-wider"
               title={`AWS-default NACL applied to all ${nacl.subnetCount} subnets in this VPC. Context, not a chain-specific finding. Every workload in this VPC sees the same NACL.`}
             >
               VPC-wide default
@@ -1215,7 +1227,7 @@ export function NACLNode({
           )}
           {isDefault && hasPublicInbound && !isVpcWideDefault && (
             <span
-              className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/25 text-red-700 dark:text-red-300 font-semibold uppercase tracking-wider"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/25 text-red-700 dark:text-red-300 font-semibold uppercase tracking-wider"
               title="Default NACL with 0.0.0.0/0 ALLOW ALL on inbound + outbound. Pinned to this chain's subnet — no filtering applied."
             >
               Default · No filtering
@@ -1226,7 +1238,7 @@ export function NACLNode({
               wide-open custom rule on a non-default NACL). */}
           {hasHighRisk && !(isDefault && hasPublicInbound) && (
             <span
-              className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-700 dark:text-amber-300 font-semibold uppercase tracking-wider"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-700 dark:text-amber-300 font-semibold uppercase tracking-wider"
               title="NACL has a high-risk rule. Verified by has_high_risk on the NetworkACL node."
             >
               High risk
@@ -1234,7 +1246,7 @@ export function NACLNode({
           )}
           {isLateral && (
             <span
-              className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold uppercase tracking-wider"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold uppercase tracking-wider"
               title="Lateral NACL — not associated with the path's subnet. Pivot surface only."
             >
               Lateral
@@ -1334,7 +1346,7 @@ function LateralFanOut({
                 {j.name}
               </span>
               {j.hits > 0 && (
-                <span className="text-[9px] text-fuchsia-700 dark:text-fuchsia-300/90 font-mono tabular-nums shrink-0">
+                <span className="text-[10px] text-fuchsia-700 dark:text-fuchsia-300/90 font-mono tabular-nums shrink-0">
                   {j.hits >= 1000 ? `${(j.hits / 1000).toFixed(0)}K` : String(j.hits)} hits
                 </span>
               )}
@@ -1369,7 +1381,7 @@ function LateralFanOut({
                 {c.name}
               </span>
               {c.system_name && (
-                <span className="text-[9px] text-amber-700 dark:text-amber-300/70 truncate max-w-[100px]">
+                <span className="text-[10px] text-amber-700 dark:text-amber-300/70 truncate max-w-[100px]">
                   {c.system_name}
                 </span>
               )}
@@ -1400,13 +1412,13 @@ function LateralFanOut({
               <span className="text-[10px] text-foreground font-mono truncate flex-1">
                 {s.session_name}
               </span>
-              <span className="text-[9px] text-cyan-700 dark:text-cyan-300/90 font-mono tabular-nums shrink-0">
+              <span className="text-[10px] text-cyan-700 dark:text-cyan-300/90 font-mono tabular-nums shrink-0">
                 {s.calls} call{s.calls === 1 ? "" : "s"}
               </span>
             </div>
           ))}
           {assumedBy.length > 4 && (
-            <span className="text-[9px] text-cyan-700 dark:text-cyan-300/60 pl-1">
+            <span className="text-[10px] text-cyan-700 dark:text-cyan-300/60 pl-1">
               +{assumedBy.length - 4} more sessions
             </span>
           )}
@@ -1446,7 +1458,7 @@ function LateralFanOut({
             </div>
           ))}
           {policiesAttached.length > 4 && (
-            <span className="text-[9px] text-rose-700 dark:text-rose-300/60 pl-1">
+            <span className="text-[10px] text-rose-700 dark:text-rose-300/60 pl-1">
               +{policiesAttached.length - 4} more policies
             </span>
           )}
@@ -1476,13 +1488,13 @@ function LateralFanOut({
                 <span className="text-[10px] text-foreground font-mono">
                   {a.action}
                 </span>
-                <span className="text-[9px] text-lime-700 dark:text-lime-300/80 font-mono tabular-nums">
+                <span className="text-[10px] text-lime-700 dark:text-lime-300/80 font-mono tabular-nums">
                   ·{a.calls}
                 </span>
               </div>
             ))}
             {actionsUsed.length > 6 && (
-              <span className="text-[9px] text-lime-700 dark:text-lime-300/60 self-center">
+              <span className="text-[10px] text-lime-700 dark:text-lime-300/60 self-center">
                 +{actionsUsed.length - 6}
               </span>
             )}
@@ -1552,7 +1564,7 @@ function RoleCompactSummary({ role }: { role: SecurityCheckpoint }) {
           </span>
         ))}
       </div>
-      <span className="text-[9px] uppercase tracking-wider font-semibold text-violet-700 dark:text-violet-300 ml-auto px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/30">
+      <span className="text-[10px] uppercase tracking-wider font-semibold text-violet-700 dark:text-violet-300 ml-auto px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/30">
         Click for details →
       </span>
     </div>
@@ -1660,20 +1672,20 @@ export function IAMRoleNode({
               <span className={`text-[10px] font-bold ${statusColor.text}`}>
                 {role.usedCount}/{role.totalCount}
               </span>
-              <span className="text-[9px] text-muted-foreground">perms</span>
+              <span className="text-[10px] text-muted-foreground">perms</span>
             </div>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {hasGap ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-600 dark:text-amber-400">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-amber-600 dark:text-amber-400">
                   {role.gapCount} unused
                 </span>
               ) : (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                   {usagePercent}% used
                 </span>
               )}
               {blastRadius > 0 && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                   {blastRadius} linked
                 </span>
               )}
@@ -1691,7 +1703,7 @@ export function IAMRoleNode({
               {typeof role.liveObservedTotalHits === "number" &&
                 role.liveObservedTotalHits > 0 && (
                   <span
-                    className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-700 dark:text-amber-200 border border-amber-500/40 font-semibold"
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-700 dark:text-amber-200 border border-amber-500/40 font-semibold"
                     title={`Live evidence: ${role.liveObservedTotalHits.toLocaleString()} observed CloudTrail hits across ${role.liveObservedResourceCount ?? 0} resource(s). Independent of the collector-written used_actions_count scalar.`}
                   >
                     ⚡{" "}
@@ -1715,7 +1727,7 @@ export function IAMRoleNode({
                   graph is incomplete here. */}
               {role.usageScalarEdgesDisagree && (
                 <span
-                  className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-semibold"
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-semibold"
                   title={`Data quality: scalar used_actions_count=${role.usedCount} but no :USED_ACTION edges exist in the graph. The action-level evidence is missing — silver-layer ingestion may not have run for this role. Check cloudtrail_silver.py / iam_usage_sync.py.`}
                 >
                   ⚠ scalar · no edges
@@ -1724,7 +1736,7 @@ export function IAMRoleNode({
               {typeof role.liveUsedActionEventCount === "number" &&
                 role.liveUsedActionEventCount > 0 && (
                   <span
-                    className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/40"
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/40"
                     title={`Event-volume: ${role.liveUsedActionEventCount.toLocaleString()} :USED_ACTION events across ${role.usedCount} distinct actions. Source: silver-layer USED_ACTION edges, sum of .count property.`}
                   >
                     {role.liveUsedActionEventCount >= 1_000_000
@@ -2640,11 +2652,23 @@ function AnimatedTrafficLine({
   dim = false,
   routePrecedence = null,
   waypoint = null,
+  pathDominance,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
   isHighlighted: boolean;
   isAttackPath?: boolean;
+  /** Attack-path dominance (pathFilter mode only — 2026-06-11 design
+   *  review "one dominant path color; everything else fades").
+   *    'dominant' → edge is on the selected attack path: single hero
+   *                 color var(--canvas-danger), width 3.5, full opacity.
+   *    'lateral'  → pivot edge touching the path at one endpoint:
+   *                 var(--canvas-lateral), width 1.5, opacity 0.4.
+   *    'faded'    → unrelated edge: var(--color-border), width 1,
+   *                 opacity 0.6, no animation.
+   *  Undefined → pathFilter not active; every override below is a
+   *  no-op and the legacy color resolution applies unchanged. */
+  pathDominance?: 'dominant' | 'lateral' | 'faded';
   flowData?: TrafficFlow;
   animate: boolean;
   trafficIntensity?: 'low' | 'medium' | 'high';
@@ -2901,6 +2925,30 @@ function AnimatedTrafficLine({
   // Heatmap stroke width - thicker = higher risk
   const heatmapStrokeWidth = heatmapMode && !isAttackPath ? 2 + (heatmapRatio * 8) : undefined;
 
+  // Path-dominance overrides (2026-06-11 design review). When the map
+  // renders a selected attack path (pathFilter), ONE color dominates:
+  // on-path edges read var(--canvas-danger); laterals demote to
+  // var(--canvas-lateral); everything else fades to the border gray.
+  // Highest precedence — wins over heatmap / plane / v2 styling. All
+  // four consts are undefined/false when pathDominance is undefined
+  // (non-pathFilter consumers → zero behavior change).
+  const pathDominantLineColor =
+    pathDominance === 'dominant' ? 'var(--canvas-danger)'
+    : pathDominance === 'lateral' ? 'var(--canvas-lateral)'
+    : pathDominance === 'faded' ? 'var(--color-border)'
+    : undefined;
+  const pathDominantStrokeWidth =
+    pathDominance === 'dominant' ? 3.5
+    : pathDominance === 'lateral' ? 1.5
+    : pathDominance === 'faded' ? 1
+    : undefined;
+  const pathDominantOpacity =
+    pathDominance === 'lateral' ? 0.4
+    : pathDominance === 'faded' ? 0.6
+    : undefined;
+  const pathSuppressAnimation =
+    pathDominance === 'lateral' || pathDominance === 'faded';
+
   // Ghosted (outside dependency hop radius)
   if (ghosted) {
     return (
@@ -3093,17 +3141,18 @@ function AnimatedTrafficLine({
           ? routePrecedence.isPrivate ? "false" : "true"
           : undefined
       }
-      style={{ opacity: v2GroupOpacity, transition: "opacity 200ms ease-out" }}
+      data-path-dominance={pathDominance}
+      style={{ opacity: pathDominantOpacity ?? v2GroupOpacity, transition: "opacity 200ms ease-out" }}
     >
       {/* Glow effect for active lines and attack paths.
        *  Uses pathD so curves get glowed along their actual shape.
        *  Locked observed flows (Phase 2 V1 slice 3) skip the glow —
        *  they read as static observed presence, not animated traffic. */}
-      {(isActive || isAttackPath) && !isLockedFlow && (
+      {(isActive || isAttackPath) && !isLockedFlow && !pathSuppressAnimation && (
         <path
           d={pathD}
           fill="none"
-          stroke={glowColor}
+          stroke={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor}
           strokeWidth={isAttackPath ? 14 : isHighlighted ? 12 : 6}
           opacity={isAttackPath ? 0.5 : isHighlighted ? 0.4 : 0.2}
           strokeLinecap="round"
@@ -3135,9 +3184,10 @@ function AnimatedTrafficLine({
       <path
         d={pathD}
         fill="none"
-        stroke={v2StrokeOverride ?? lineColor}
+        stroke={pathDominantLineColor ?? v2StrokeOverride ?? lineColor}
         strokeWidth={
-          heatmapStrokeWidth
+          pathDominantStrokeWidth
+            ?? heatmapStrokeWidth
             ?? v2LateralStrokeWidth
             ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)
         }
@@ -3199,9 +3249,9 @@ function AnimatedTrafficLine({
           ? 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
           : (y1 + y2) / 2
         // Approximate text width from char count (no canvas
-        // measurement available in SSR-safe SVG). 6px per char at
-        // font-size 9 is conservative.
-        const labelW = verbChipLabel.length * 6 + 10
+        // measurement available in SSR-safe SVG). 6.5px per char at
+        // font-size 10 is conservative.
+        const labelW = verbChipLabel.length * 6.5 + 10
         return (
           <g
             data-verb-chip="true"
@@ -3224,7 +3274,7 @@ function AnimatedTrafficLine({
               x={midX}
               y={midY + 2}
               textAnchor="middle"
-              fontSize={9}
+              fontSize={10}
               fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif"
               fill="var(--canvas-label)"
               letterSpacing={0.2}
@@ -3246,7 +3296,7 @@ function AnimatedTrafficLine({
        *  particles for the operator's eye and contradict the
        *  multi-channel demotion (lower opacity + dashed pattern
        *  signals "not the primary read"). */}
-      {animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && (
+      {animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && !pathSuppressAnimation && (
         <>
           {/* Define the path for animation — same shape as the visible
            *  line so the particles follow the curve. */}
@@ -3261,7 +3311,7 @@ function AnimatedTrafficLine({
           {particleOffsets.map((offset, i) => (
             <g key={i}>
               {/* Outer glow */}
-              <circle r={isAttackPath ? 10 : isHighlighted ? 8 : 6} fill={glowColor} opacity={isAttackPath ? 0.5 : 0.3}>
+              <circle r={isAttackPath ? 10 : isHighlighted ? 8 : 6} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : glowColor} opacity={isAttackPath ? 0.5 : 0.3}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3271,7 +3321,7 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Core particle */}
-              <circle r={isAttackPath ? 7 : isHighlighted ? 5 : 4} fill={particleColor} opacity={1}>
+              <circle r={isAttackPath ? 7 : isHighlighted ? 5 : 4} fill={pathDominance === 'dominant' ? 'var(--canvas-danger)' : particleColor} opacity={1}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3349,7 +3399,7 @@ function AnimatedTrafficLine({
        *  and matches the straight chord in legacy flow mode. */}
       <polygon
         points={`${x2},${y2} ${x2 - 12},${y2 - 6} ${x2 - 12},${y2 + 6}`}
-        fill={lineColor}
+        fill={pathDominantLineColor ?? lineColor}
         transform={`rotate(${arrowAngleDeg}, ${x2}, ${y2})`}
       />
     </g>
@@ -3775,6 +3825,32 @@ export function ConnectionLinesSVG({
     };
   }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges]);
 
+  // Attack-path dominance (2026-06-11 design review). Gate: presence of
+  // architecture.pathStepByNodeId — applyPathFilter is the ONLY producer,
+  // so non-pathFilter consumers never enter this branch.
+  //   dominant : explicit pathEdges pair match OR both flow endpoints in
+  //              the path's node set → single hero color, on top.
+  //   lateral  : exactly one endpoint on the path (pivot context).
+  //   faded    : neither endpoint on the path.
+  const pathDominanceActive =
+    !!architecture.pathStepByNodeId && architecture.pathStepByNodeId.size > 0;
+  const dominanceForLine = (
+    sourceId: string,
+    targetId: string,
+  ): 'dominant' | 'lateral' | 'faded' | undefined => {
+    if (!pathDominanceActive) return undefined;
+    const pairs = architecture.pathEdgePairKeys;
+    if (pairs?.has(`${sourceId}->${targetId}`) || pairs?.has(`${targetId}->${sourceId}`)) {
+      return 'dominant';
+    }
+    const nodes = architecture.onPathNodeIds;
+    const srcOn = !!nodes?.has(sourceId);
+    const tgtOn = !!nodes?.has(targetId);
+    if (srcOn && tgtOn) return 'dominant';
+    if (srcOn || tgtOn) return 'lateral';
+    return 'faded';
+  };
+
   return (
     // width/height="100%" is REQUIRED — SVG's intrinsic default is 300x150
     // and `inset-0` only zeroes top/right/bottom/left, it does not stretch
@@ -3787,9 +3863,12 @@ export function ConnectionLinesSVG({
       {/* Render non-highlighted lines first, then attack paths, then highlighted on top */}
       {lines
         .sort((a, b) => {
-          // Attack paths render on top of normal lines
-          const aScore = (a.isAttackPath ? 2 : 0) + (a.isHighlighted ? 1 : 0);
-          const bScore = (b.isAttackPath ? 2 : 0) + (b.isHighlighted ? 1 : 0);
+          // Attack paths render on top of normal lines; in pathFilter
+          // mode the dominant path edges render on top of everything.
+          const aScore = (a.isAttackPath ? 2 : 0) + (a.isHighlighted ? 1 : 0)
+            + (dominanceForLine(a.sourceId, a.targetId) === 'dominant' ? 4 : 0);
+          const bScore = (b.isAttackPath ? 2 : 0) + (b.isHighlighted ? 1 : 0)
+            + (dominanceForLine(b.sourceId, b.targetId) === 'dominant' ? 4 : 0);
           return aScore - bScore;
         })
         .map((line, i) => {
@@ -3906,6 +3985,7 @@ export function ConnectionLinesSVG({
               dim={dim}
               routePrecedence={linePrecedence}
               waypoint={lineWaypoint}
+              pathDominance={dominanceForLine(line.sourceId, line.targetId)}
             />
           );
         })}
@@ -4024,6 +4104,60 @@ export function UnifiedArchitectureDiagram({
     });
     return edges;
   }, [attackPaths]);
+
+  // Attack-path dominance on node cards (2026-06-11 design review).
+  // architecture.pathStepByNodeId is set ONLY by applyPathFilter, so
+  // everything below is a no-op for the full System Map / Topology /
+  // EXFIL consumers. On-path cards get a subtle danger ring + a
+  // numbered step badge (1 = entry, N = crown jewel); off-path cards
+  // dim to 50% — extending the existing "Laterals: dim" discipline to
+  // pathFilter mode instead of inventing a second dimming system.
+  const pathStepById = architecture.pathStepByNodeId;
+  const pathStepsTotal = useMemo(
+    () => (pathStepById && pathStepById.size > 0 ? Math.max(...pathStepById.values()) : 0),
+    [pathStepById],
+  );
+  const pathFilterActive = pathStepsTotal > 0;
+  const isOnSelectedPath = useCallback(
+    (nodeId: string): boolean =>
+      !!(pathStepById?.has(nodeId) || architecture.onPathNodeIds?.has(nodeId)),
+    [pathStepById, architecture.onPathNodeIds],
+  );
+  // Returns a class suffix (leading space) for a card wrapper. Full-
+  // opacity border-2 danger read too loud in review — ring-1 at 40%
+  // keeps the card's own styling legible underneath.
+  const pathEmphasisClass = useCallback(
+    (nodeId: string): string => {
+      if (!pathFilterActive) return '';
+      return isOnSelectedPath(nodeId)
+        ? ' rounded-xl ring-1 ring-[color:var(--canvas-danger)]/40'
+        : ' opacity-50';
+    },
+    [pathFilterActive, isOnSelectedPath],
+  );
+  // Numbered step badge — absolute top-left of the card wrapper (which
+  // must be position:relative). Renders only for nodes that are actual
+  // ordered path steps; rescued gates (SG/NACL that touch the path but
+  // aren't BFS steps) get the ring but no number.
+  const renderPathStepBadge = (nodeId: string) => {
+    if (!pathFilterActive) return null;
+    const step = pathStepById?.get(nodeId);
+    if (!step) return null;
+    return (
+      <div
+        className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none"
+        title={`Step ${step} of ${pathStepsTotal} on the attack path`}
+        data-path-step={step}
+      >
+        <div
+          className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-semibold text-white shadow-md"
+          style={{ backgroundColor: 'var(--canvas-danger)' }}
+        >
+          {step}
+        </div>
+      </div>
+    );
+  };
 
   // Get vulnerability data for nodes
   const nodeVulnerabilities = useMemo(() => {
@@ -4297,8 +4431,9 @@ export function UnifiedArchitectureDiagram({
                       data-entry-id={node.id}
                       data-compute-id={node.id}
                       data-chain-entry={isChainEntry ? "true" : undefined}
-                      className="relative mb-3"
+                      className={`relative mb-3${pathEmphasisClass(node.id)}`}
                     >
+                      {renderPathStepBadge(node.id)}
                       {isInAttackPath && (
                         <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-cyan-400/50" />
                       )}
@@ -4351,12 +4486,13 @@ export function UnifiedArchitectureDiagram({
                   key={node.id}
                   data-compute-id={node.id}
                   data-chain-entry={isChainEntry ? "true" : undefined}
-                  className="relative"
+                  className={`relative${pathEmphasisClass(node.id)}`}
                 >
+                  {renderPathStepBadge(node.id)}
                   {/* Attack path vulnerability indicator */}
                   {isInAttackPath && vuln && (
                     <div className="absolute -top-2 -left-2 z-10">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-md ${
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-md ${
                         vuln.critical_cves > 0 ? 'bg-red-500 animate-pulse' : 'bg-orange-500'
                       }`}>
                         {vuln.cve_count}
@@ -4492,9 +4628,10 @@ export function UnifiedArchitectureDiagram({
                 <div
                   key={subnet.id}
                   data-subnet-id={subnet.id}
-                  className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5"
+                  className={`relative rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5${pathEmphasisClass(subnet.id)}`}
                   title={tooltip}
                 >
+                  {renderPathStepBadge(subnet.id)}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Globe className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
@@ -4571,7 +4708,8 @@ export function UnifiedArchitectureDiagram({
               Security Groups ({architecture.securityGroups.length})
             </div>
             {architecture.securityGroups.map(sg => (
-              <div key={sg.id} data-sg-id={sg.id}>
+              <div key={sg.id} data-sg-id={sg.id} className={`relative${pathEmphasisClass(sg.id)}`}>
+                {renderPathStepBadge(sg.id)}
                 <SecurityGroupPanel
                   sg={sg}
                   isExpanded={expandedSG === sg.id}
@@ -4606,7 +4744,8 @@ export function UnifiedArchitectureDiagram({
                 NACLs ({architecture.nacls.length})
               </div>
               {architecture.nacls.map(nacl => (
-                <div key={nacl.id} data-nacl-id={nacl.id}>
+                <div key={nacl.id} data-nacl-id={nacl.id} className={`relative${pathEmphasisClass(nacl.id)}`}>
+                  {renderPathStepBadge(nacl.id)}
                   <NACLNode
                     nacl={nacl}
                     isHighlighted={isNodeHighlighted(nacl.id)}
@@ -4715,7 +4854,7 @@ export function UnifiedArchitectureDiagram({
                     data-gateway-unused={isGateUnused ? "true" : undefined}
                     className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette} ${
                       isGateUnused ? "opacity-50" : ""
-                    }`}
+                    }${pathEmphasisClass(gw.id)}`}
                     title={
                       isGateUnused
                         ? `${titleParts.join(' · ')} — Available in this VPC but route precedence picked a different gateway for the destinations on this path.`
@@ -4724,6 +4863,7 @@ export function UnifiedArchitectureDiagram({
                     onMouseEnter={() => setHoveredId(gw.id)}
                     onMouseLeave={() => setHoveredId(null)}
                   >
+                    {renderPathStepBadge(gw.id)}
                     <div className="flex items-center justify-center gap-2 mb-1">
                       <Globe className={`w-4 h-4 ${iconColor}`} />
                       <span className={`text-sm font-semibold ${isGateUnused ? "text-muted-foreground" : "text-foreground"}`}>{gw.kindLabel}</span>
@@ -4733,7 +4873,7 @@ export function UnifiedArchitectureDiagram({
                     </div>
                     {routeLine && (
                       <div
-                        className="text-[9px] text-center text-muted-foreground mt-1 truncate max-w-[140px]"
+                        className="text-[10px] text-center text-muted-foreground mt-1 truncate max-w-[140px]"
                         title={routeLine}
                       >
                         {routeLine}
@@ -4741,7 +4881,7 @@ export function UnifiedArchitectureDiagram({
                     )}
                     {isGateUnused && (
                       <div
-                        className="mt-1.5 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full border border-border bg-muted text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mx-auto w-fit"
+                        className="mt-1.5 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full border border-border bg-muted text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mx-auto w-fit"
                         title="This gateway exists in the path's VPC but route precedence didn't select it for any destination on this path."
                       >
                         Available · Not selected
@@ -4776,7 +4916,7 @@ export function UnifiedArchitectureDiagram({
               <Key className="w-4 h-4 text-pink-600 dark:text-pink-400" />
               Identity
               <span
-                className="px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
                 title="IAM is a regional/global service. IAM Roles, Instance Profiles, and Policies are not VPC-scoped and therefore sit outside any VPC enclosure on this canvas."
               >
                 Global
@@ -4800,7 +4940,8 @@ export function UnifiedArchitectureDiagram({
                 data-ip-id so ConnectionLinesSVG routes the polyline
                 through it as a flow checkpoint between NACL and Role. */}
             {(architecture.instanceProfiles ?? []).map((ip) => (
-              <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id}>
+              <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id} className={`relative${pathEmphasisClass(ip.id)}`}>
+                {renderPathStepBadge(ip.id)}
                 <IAMRoleNode
                   role={ip}
                   isHighlighted={isNodeHighlighted(ip.id)}
@@ -4821,7 +4962,8 @@ export function UnifiedArchitectureDiagram({
                 role.id.includes(':instance-profile/') ||
                 /instance.?profile/i.test(role.id);
               return (
-                <div key={`role:${role.id}`} data-role-id={role.id}>
+                <div key={`role:${role.id}`} data-role-id={role.id} className={`relative${pathEmphasisClass(role.id)}`}>
+                  {renderPathStepBadge(role.id)}
                   <IAMRoleNode
                     role={role}
                     isHighlighted={isNodeHighlighted(role.id)}
@@ -4855,7 +4997,8 @@ export function UnifiedArchitectureDiagram({
                 forceIAMPolicy gives them distinct styling so the
                 operator can scan-distinguish Role vs Policy. */}
             {(architecture.iamPolicies ?? []).map((policy) => (
-              <div key={`policy:${policy.id}`} data-policy-id={policy.id}>
+              <div key={`policy:${policy.id}`} data-policy-id={policy.id} className={`relative${pathEmphasisClass(policy.id)}`}>
+                {renderPathStepBadge(policy.id)}
                 <IAMRoleNode
                   role={policy}
                   isHighlighted={isNodeHighlighted(policy.id)}
@@ -5020,11 +5163,12 @@ export function UnifiedArchitectureDiagram({
                     isInUseForFlow
                       ? 'bg-violet-500/15 border-violet-400/70 shadow-md'
                       : 'bg-violet-500/5 border-violet-500/30'
-                  }`}
+                  }${pathEmphasisClass(vpce.id)}`}
                   title={vpce.serviceName ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}` : vpce.id}
                   onMouseEnter={() => setHoveredId(vpce.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
+                  {renderPathStepBadge(vpce.id)}
                   <div className="flex items-center justify-center gap-2 mb-1">
                     <Cloud className="w-4 h-4 text-violet-700 dark:text-violet-300" />
                     <span className="text-sm font-semibold text-foreground">{vpce.serviceShort}</span>
@@ -5034,7 +5178,7 @@ export function UnifiedArchitectureDiagram({
                   </div>
                   {vpce.endpointType && (
                     <div className="mt-1 text-center">
-                      <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded border bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200">
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200">
                         {vpce.endpointType}
                       </span>
                     </div>
@@ -5104,7 +5248,7 @@ export function UnifiedArchitectureDiagram({
                       {strengthLabel}
                     </div>
                     {gate.hint && (
-                      <div className="mt-1 text-[9px] text-center text-muted-foreground leading-tight">
+                      <div className="mt-1 text-[10px] text-center text-muted-foreground leading-tight">
                         {gate.hint}
                       </div>
                     )}
@@ -5124,7 +5268,7 @@ export function UnifiedArchitectureDiagram({
               <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Resources ({architecture.resources.length})
               <span
-                className="px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
                 title="S3, DynamoDB, KMS and other AWS data services are regional, not VPC-scoped. They sit outside any VPC enclosure on this canvas — traffic from inside a VPC reaches them via the VPC Endpoint or NAT/IGW gateway shown to the left."
               >
                 Global
@@ -5187,16 +5331,25 @@ export function UnifiedArchitectureDiagram({
                   data-route-precedence-gateway-id={routePrecedence?.gateway.id}
                   className={`relative transition-transform duration-200 ${
                     emphasizeJewel ? 'scale-[1.15] z-20' : ''
-                  }`}
+                  }${pathEmphasisClass(node.id)}`}
                   style={emphasizeJewel ? {
                     filter: jewelHaloFilter,
                   } : undefined}
                 >
+                  {renderPathStepBadge(node.id)}
                   {/* Crown jewel indicator — set by applyPathFilter when this
                       resource is the path's target. Renders ABOVE the
-                      legacy attack-path target chip when both apply. */}
+                      legacy attack-path target chip when both apply.
+                      Shifts right when a numbered step badge occupies the
+                      top-left corner (pathFilter mode) so the two markers
+                      don't overlap. */}
                   {node.isCrownJewel && (
-                    <div className="absolute -top-2 -left-2 z-10" title="Crown jewel — attack-path target">
+                    <div
+                      className={`absolute -top-2 z-10 ${
+                        pathFilterActive && pathStepById?.has(node.id) ? 'left-4' : '-left-2'
+                      }`}
+                      title="Crown jewel — attack-path target"
+                    >
                       <div className="w-6 h-6 rounded-full bg-amber-400 flex items-center justify-center shadow-lg ring-2 ring-amber-300/40">
                         <Crown className="w-3.5 h-3.5 text-amber-900" />
                       </div>
@@ -5631,6 +5784,38 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     return m ? m[1] : null;
   };
 
+  // Attack-path dominance (2026-06-11 design review): step numbers from
+  // the ORDERED pathNodes list (1 = entry, N = crown jewel). Falls back
+  // to filter.nodeIds order when the caller didn't provide pathNodes.
+  // Also mirror the step onto the resolved EC2 card id when the path
+  // node is a CloudTrailPrincipal session named like an instance id —
+  // the badge must land on the card the operator actually sees.
+  const orderedPathIds: string[] =
+    filter.pathNodes && filter.pathNodes.length > 0
+      ? filter.pathNodes.map((pn) => pn.id)
+      : filter.nodeIds;
+  const pathStepByNodeId = new Map<string, number>();
+  orderedPathIds.forEach((id, idx) => {
+    if (!pathStepByNodeId.has(id)) pathStepByNodeId.set(id, idx + 1);
+  });
+  (filter.pathNodes ?? []).forEach((pn, idx) => {
+    const instId = isInstanceIdName(pn.name);
+    if (!instId) return;
+    const resolvedId = archComputeByInstanceId.get(instId)?.id ?? instId;
+    if (!pathStepByNodeId.has(resolvedId)) pathStepByNodeId.set(resolvedId, idx + 1);
+  });
+  // Dominant node set (drives edge dominance + on-path card emphasis)
+  // and the explicit path-edge pair keys (both directions).
+  const dominantPathNodeIds = new Set<string>([
+    ...filter.nodeIds,
+    ...pathStepByNodeId.keys(),
+  ]);
+  const pathEdgePairKeys = new Set<string>();
+  (filter.pathEdges ?? []).forEach((e) => {
+    pathEdgePairKeys.add(`${e.source}->${e.target}`);
+    pathEdgePairKeys.add(`${e.target}->${e.source}`);
+  });
+
   (filter.pathNodes ?? []).forEach((pn) => {
     if (seenIds.has(pn.id)) return;
     const bucket = bucketForType(pn.type);
@@ -5926,6 +6111,11 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
     totalGaps: securityGroups.reduce((s, sg) => s + sg.gapCount, 0) + iamRoles.reduce((s, r) => s + r.gapCount, 0),
     vpcGroups: arch.vpcGroups,
+    // Attack-path dominance payload — presence of pathStepByNodeId is
+    // the renderer's "pathFilter is active" gate.
+    onPathNodeIds: dominantPathNodeIds,
+    pathStepByNodeId,
+    pathEdgePairKeys,
   };
 }
 

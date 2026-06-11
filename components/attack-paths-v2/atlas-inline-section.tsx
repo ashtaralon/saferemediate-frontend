@@ -198,8 +198,8 @@ export function AtlasInlineSection({ systemName, path, jewel }: AtlasInlineSecti
       )}
 
       {error && (
-        <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-300 py-2">
-          <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+        <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300 py-2">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
           <span>{error}</span>
         </div>
       )}
@@ -242,12 +242,12 @@ function ChainRow({ chain, index }: { chain: AtlasChain; index: number }) {
   // Render the chain as a single horizontal row of primitive pills with
   // arrows between them. State-delta highlights inline under each step.
   return (
-    <div className="rounded border border-red-500/30 bg-red-500/5 px-3 py-2">
+    <div className="rounded border border-border bg-card px-3 py-2">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">
           Chain {index}
         </span>
-        <span className="font-mono text-[9px] text-muted-foreground">
+        <span className="font-mono text-[10px] text-muted-foreground">
           {chain.chain_id.slice(0, 12)}…
         </span>
         <span className="text-[10px] text-muted-foreground">
@@ -263,11 +263,11 @@ function ChainRow({ chain, index }: { chain: AtlasChain; index: number }) {
       </div>
       {chain.assumptions_consumed.length > 0 && (
         <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">assumes:</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">assumes:</span>
           {chain.assumptions_consumed.map((a) => (
             <span
               key={a}
-              className="text-[9px] font-mono px-1 py-0.5 rounded bg-muted text-foreground border border-border"
+              className="text-[10px] font-mono px-1 py-0.5 rounded bg-muted text-foreground border border-border"
             >
               {a}
             </span>
@@ -286,14 +286,29 @@ function StepPill({ step, isLast }: { step: AtlasChainStep; isLast: boolean }) {
     d.added_accessible_resources[0] ??
     d.added_compromised_workloads[0] ??
     d.added_synthetic_nodes[0]
+  // Color discipline: chains are CATALOG results (informational), so steps
+  // render neutral. Red is reserved for the destructive capability — the
+  // final data-access step that actually touches the jewel.
+  const isDangerStep =
+    isLast || step.primitive_id.toUpperCase().includes("DATA_ACCESS")
   return (
     <>
-      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10 border border-red-500/30 text-[11px]">
-        <span className="font-mono font-semibold text-red-700 dark:text-red-300">{step.primitive_id}</span>
+      <div
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] ${
+          isDangerStep ? "bg-red-500/10 border-red-500/30" : "bg-muted border-border"
+        }`}
+      >
+        <span
+          className={`font-mono font-semibold ${
+            isDangerStep ? "text-red-700 dark:text-red-300" : "text-foreground"
+          }`}
+        >
+          {step.primitive_id}
+        </span>
         {result && (
           <>
             <span className="text-muted-foreground">→</span>
-            <span className="font-mono text-amber-700 dark:text-amber-300">{shortId(result)}</span>
+            <span className="font-mono text-muted-foreground">{shortId(result)}</span>
           </>
         )}
       </div>

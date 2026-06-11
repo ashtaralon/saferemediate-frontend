@@ -10,7 +10,7 @@
 //
 // Cyntro law (rule #3 + feedback_not_detection_response):
 //   - never show a removal without the kept set (kept is summarized, not dumped),
-//   - the headline is "damage closed, NOT path closed",
+//   - the headline is "damage reduced — path remains reachable" (never "path closed"),
 //   - never claim verified function-preservation until the proof signals are in.
 //
 // REAL DATA ONLY — everything renders from the live closure-preview endpoint
@@ -137,10 +137,10 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
   // section above; only the diff/after columns wait for the plan.
   if (!closure) {
     return (
-      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className="rounded-xl border-2 border-primary/20 bg-card p-4 space-y-3">
         <div className="flex items-center gap-2">
           <FileDiff className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+          <span className="text-xs font-semibold uppercase tracking-wider text-foreground">
             What you&apos;re approving
           </span>
         </div>
@@ -160,7 +160,7 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
   const keptPreview = diff.kept_actions.slice(0, 2).map(shortAction).join(" / ")
 
   return (
-    <div id="what-youre-approving" className="scroll-mt-4 rounded-xl border border-border bg-card overflow-hidden">
+    <div id="what-youre-approving" className="scroll-mt-4 rounded-xl border-2 border-primary/20 bg-card overflow-hidden">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-accent transition-colors"
@@ -171,16 +171,19 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
           <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
         )}
         <ShieldCheck className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+        <span className="text-xs font-semibold uppercase tracking-wider text-foreground">
           What you&apos;re approving
         </span>
         <span className="ml-auto text-[10px] text-muted-foreground">
-          damage closed, <span className="text-amber-700 dark:text-amber-300">not</span> path closed
+          Damage reduced — path remains reachable, destructive permissions removed
         </span>
       </button>
 
       {!collapsed && (
         <div className="px-4 pb-4 space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            The exact permission diff you are approving — not the narrative.
+          </p>
           {/* The standalone-HTML 3-column story: BEFORE → DIFF → AFTER */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <StoryColumn tone="before" title="Before · today">
@@ -284,7 +287,7 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
                     "Verified:" only when proof is in — never overclaim. */}
                 <Pill cls="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
                   <ShieldCheck className="h-3 w-3" />
-                  {proof?.verified ? "Verified" : "Projected"}: damage closed
+                  {proof?.verified ? "Verified" : "Projected"}: damage reduced
                   {after.path_open_after && <span className="font-semibold opacity-80">— path stays open</span>}
                 </Pill>
                 {rollback_available && (

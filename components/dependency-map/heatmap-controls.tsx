@@ -34,8 +34,8 @@ export function HeatmapControls({
           transition-all duration-200
           ${
             heatmapMode
-              ? 'bg-orange-500/20 text-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.3)]'
-              : 'bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-slate-300'
+              ? 'bg-orange-500/20 text-orange-600 dark:text-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.3)]'
+              : 'bg-muted text-foreground hover:bg-accent border border-border'
           }
         `}
         title="Toggle heatmap mode"
@@ -52,8 +52,8 @@ export function HeatmapControls({
           transition-all duration-200
           ${
             showVPCBoundaries
-              ? 'bg-green-500/20 text-green-400'
-              : 'bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-slate-300'
+              ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+              : 'bg-muted text-foreground hover:bg-accent border border-border'
           }
         `}
         title="Toggle VPC boundaries"
@@ -64,10 +64,10 @@ export function HeatmapControls({
 
       {/* Dependency depth slider */}
       {showDepthSlider && (
-        <div className="flex items-center gap-2 ml-1 pl-2 border-l border-slate-600">
-          <Layers className="w-3.5 h-3.5 text-slate-400" />
-          <label className="text-[10px] text-slate-400 whitespace-nowrap">
-            Depth: <span className="text-orange-400 font-semibold">{hopDepth}</span>{' '}
+        <div className="flex items-center gap-2 ml-1 pl-2 border-l border-border">
+          <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+          <label className="text-[10px] text-muted-foreground whitespace-nowrap">
+            Depth: <span className="text-orange-600 dark:text-orange-400 font-semibold">{hopDepth}</span>{' '}
             {hopDepth === 1 ? 'hop' : 'hops'}
           </label>
           <input
@@ -84,8 +84,8 @@ export function HeatmapControls({
 
       {/* Heatmap legend - Risk-based */}
       {heatmapMode && (
-        <div className="flex items-center gap-1.5 ml-1 pl-2 border-l border-slate-600">
-          <span className="text-[9px] text-green-400">Safe</span>
+        <div className="flex items-center gap-1.5 ml-1 pl-2 border-l border-border">
+          <span className="text-[9px] text-green-600 dark:text-green-400">Safe</span>
           <div
             className="w-16 h-2 rounded-full"
             style={{
@@ -93,7 +93,7 @@ export function HeatmapControls({
                 'linear-gradient(to right, #22c55e, #84cc16, #eab308, #f97316, #ef4444)',
             }}
           />
-          <span className="text-[9px] text-red-400">Critical</span>
+          <span className="text-[9px] text-red-600 dark:text-red-400">Critical</span>
         </div>
       )}
     </div>

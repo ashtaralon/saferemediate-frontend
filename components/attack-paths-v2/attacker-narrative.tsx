@@ -213,26 +213,26 @@ export function AttackerNarrativeView({
             <>
               <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">
-                damage: <span className="text-amber-700 dark:text-amber-300 font-semibold">{damageHeaderLabel}</span>
+                damage: <span className="text-red-700 dark:text-red-300 font-semibold">{damageHeaderLabel}</span>
               </span>
             </>
           )}
           {diff && (
             <>
               <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">fix: {fixLabel(diff.delivered_as).toLowerCase()}</span>
+              <span className="text-muted-foreground">fix: <span className="text-foreground">{fixLabel(diff.delivered_as).toLowerCase()}</span></span>
             </>
           )}
           {report.blast_radius?.band && (
             <>
               <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">blast: <span className="text-red-700 dark:text-red-300 font-semibold">{report.blast_radius.band.toLowerCase()}</span></span>
+              <span className="text-muted-foreground">blast: <span className="text-orange-700 dark:text-orange-300 font-semibold">{report.blast_radius.band.toLowerCase()}</span></span>
             </>
           )}
           {fixGate && (
             <>
               <span className="text-muted-foreground">·</span>
-              <span className="text-amber-700 dark:text-amber-300 font-semibold">{fixGate.replace(/_/g, " ").toLowerCase()}</span>
+              <span className="text-orange-700 dark:text-orange-300 font-semibold">{fixGate.replace(/_/g, " ").toLowerCase()}</span>
             </>
           )}
         </div>

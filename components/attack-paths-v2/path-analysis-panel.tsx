@@ -106,6 +106,10 @@ export function PathAnalysisPanel({
   // toggle before Attack Paths v2 dropped it.
   const [mapView, setMapView] = useState<"flow" | "lateral">("flow")
   const [technicalOpen, setTechnicalOpen] = useState(false)
+  // Supporting evidence is collapsible but DEFAULT OPEN — the flow map is
+  // still the demo hero; the toggle just lets the operator focus the
+  // decision panel above when they want to.
+  const [evidenceOpen, setEvidenceOpen] = useState(true)
 
   const lateralPaths = useMemo(() => filterActivePaths([path]), [path])
 
@@ -310,13 +314,24 @@ export function PathAnalysisPanel({
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
       <div className="border-b border-border bg-muted/30">
         <div className="px-6 pt-3 pb-1">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setEvidenceOpen((o) => !o)}
+            className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight
+              className={`h-3 w-3 transition-transform ${evidenceOpen ? "rotate-90" : ""}`}
+            />
             Supporting evidence
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Network topology, lateral movement, and per-plane signals
-          </p>
+          </button>
+          {evidenceOpen && (
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Network topology, lateral movement, and per-plane signals
+            </p>
+          )}
         </div>
+        {evidenceOpen && (
+        <>
         {/* V2-1: Caption strip — one-line story above the canvas.
             ENTRY: <hop[0]> → via N hops → REACHES: <jewel>.
             Mirrors the breadcrumb up top but binds visually to the
@@ -440,13 +455,15 @@ export function PathAnalysisPanel({
               from the path itself — no inputs. */}
           <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
         </div>
+        </>
+        )}
       </div>
 
       <div className="px-6 py-4 border-t border-border">
         <button
           type="button"
           onClick={() => setTechnicalOpen((o) => !o)}
-          className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
         >
           <ChevronRight
             className={`h-3 w-3 transition-transform ${technicalOpen ? "rotate-90" : ""}`}
