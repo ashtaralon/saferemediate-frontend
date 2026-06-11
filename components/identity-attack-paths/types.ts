@@ -291,6 +291,25 @@ export interface DamageCapability {
   lateral_services?: Record<string, number>
   gates?: DamageGates
   effective_damage?: EffectiveDamage
+  // Accuracy-audit reconciliation (2026-06-11): when the backend matched
+  // this path to a materialized :AttackPath node, the graph's
+  // damage_types replace the grant-ceiling heuristics as the source of
+  // truth for the damage chip (F2/F3). damage_source flags the override.
+  materialized_damage_types?: string[]
+  damage_source?: "materialized_attack_path"
+}
+
+// Gate/damage summary of the materialized :AttackPath node backing a
+// synthesized list path. Same vocabulary as the chains-for-cj endpoint.
+export interface MaterializedPathSummary {
+  id: string
+  path_status: "OBSERVED" | "POTENTIAL_EXCESS" | "UNVERIFIED" | "BLOCKED"
+  damage_types: string[]
+  identity_gate: string
+  route_gate: string
+  data_plane_gate: string
+  role_name?: string | null
+  workload_name?: string | null
 }
 
 // BRS v1.1 — per-jewel Blast Radius Score (attached to each path)
@@ -579,6 +598,16 @@ export interface IdentityAttackPath {
   // "All services in the flow" — sibling resources reachable from each
   // IAM role on the path. Renders as the "Reachable Services" expansion.
   reachable_neighbors?: ReachableNeighborsByRole[]
+  // Accuracy-audit reconciliation (2026-06-11): true when this path is
+  // backed by a materialized :AttackPath node (the same node the
+  // closure panel reads). False = pure synthesis; closure-preview may
+  // 404 for it.
+  materialized?: boolean
+  // Graph damage taxonomy from the materialized node — read/write/
+  // delete/admin. Source of truth for the damage chip when present.
+  damage_types?: string[]
+  // Gates + status of the backing node (drives the evidence summary).
+  materialized_path?: MaterializedPathSummary | null
 }
 
 export interface CrownJewelSummary {
@@ -597,6 +626,14 @@ export interface CrownJewelSummary {
   // IAM roles reach it via observed edges (shared-bucket-across-systems
   // pattern). Absent/null for in-system jewels.
   crown_jewel_source?: "reachable_only" | null
+  // Accuracy-audit F1 (2026-06-11): count of materialized :AttackPath
+  // nodes reaching this jewel in the graph.
+  materialized_path_count?: number
+  // True when the materializer has run for this account but produced
+  // ZERO AttackPath nodes for this jewel — the honest "not computed"
+  // state. Synthesized paths are suppressed backend-side; the UI must
+  // not render a path count or severity score for this jewel.
+  paths_not_computed?: boolean
 }
 
 // Tier-1: system-level posture summary attached to the top of the
@@ -625,6 +662,10 @@ export interface IdentityAttackPathsResponse {
   error?: string | null
   // Tier-1 enrichment: system-level posture summary (live/loading/not-wired).
   system_posture?: SystemPosture | null
+  // True when the response was reconciled against materialized
+  // :AttackPath nodes (accuracy audit F1/F2/F3). False = materializer
+  // hasn't run; list is pure synthesis.
+  materialization_available?: boolean
 }
 
 export interface JewelDetailResponse {

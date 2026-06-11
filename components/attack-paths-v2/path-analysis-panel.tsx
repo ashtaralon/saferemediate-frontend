@@ -196,6 +196,40 @@ export function PathAnalysisPanel({
   const { data: damageScopeData, loading: damageScopeLoading, error: damageScopeError } =
     useDamageScope(damageScopeFetchTarget)
 
+  // Accuracy-audit F5 (2026-06-11): per-path gate evidence summary from
+  // the MATERIALIZED :AttackPath gates — always labeled with the exact
+  // foothold → role pair it summarizes. The previous evidence chip
+  // aggregated whichever underlying path variant happened to be loaded
+  // (EC2-foothold route=OPEN_CONFIG vs orphan-role route=UNKNOWN)
+  // without disambiguating, so the counts wobbled between views.
+  const materializedEvidence = useMemo(() => {
+    const mp = path.materialized_path
+    if (!mp) return null
+    const gateNames: Array<[string, string | undefined]> = [
+      ["identity", mp.identity_gate],
+      ["route", mp.route_gate],
+      ["data-plane", mp.data_plane_gate],
+    ]
+    const counts = { observed: 0, configured: 0, blocked: 0, unknown: 0 }
+    for (const [, g] of gateNames) {
+      const v = (g || "UNKNOWN").toUpperCase()
+      if (v === "OPEN_OBSERVED") counts.observed++
+      else if (v === "OPEN_CONFIG") counts.configured++
+      else if (v === "CLOSED") counts.blocked++
+      else counts.unknown++
+    }
+    const parts: string[] = []
+    if (counts.observed) parts.push(`${counts.observed} observed`)
+    if (counts.configured) parts.push(`${counts.configured} configured`)
+    if (counts.blocked) parts.push(`${counts.blocked} blocked`)
+    if (counts.unknown) parts.push(`${counts.unknown} unknown`)
+    const pathLabel = [mp.workload_name, mp.role_name].filter(Boolean).join(" → ")
+    const detail = gateNames
+      .map(([name, g]) => `${name}=${(g || "UNKNOWN").toUpperCase()}`)
+      .join(" · ")
+    return { parts, pathLabel, detail }
+  }, [path.materialized_path])
+
   return (
     <div className="flex flex-col h-full">
       {/* Compact chrome — path narrative lives on DamageAwarePathCard */}
@@ -227,6 +261,18 @@ export function PathAnalysisPanel({
             <span className="text-[11px] text-muted-foreground">
               {path.hop_count ?? path.nodes.length - 1} hops
             </span>
+            {materializedEvidence && (
+              <span
+                className="text-[10px] uppercase tracking-wider text-muted-foreground truncate max-w-[360px]"
+                title={`Gate evidence for THIS path${materializedEvidence.pathLabel ? ` (${materializedEvidence.pathLabel})` : ""}: ${materializedEvidence.detail}`}
+              >
+                Evidence
+                {materializedEvidence.pathLabel && (
+                  <span className="normal-case font-mono"> ({materializedEvidence.pathLabel})</span>
+                )}
+                : {materializedEvidence.parts.join(" · ")}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {jewel && (

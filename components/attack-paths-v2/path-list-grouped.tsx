@@ -221,6 +221,26 @@ export function PathListGrouped({
   }
 
   if (paths.length === 0) {
+    // Accuracy-audit F1 (2026-06-11): distinguish "graph says zero
+    // materialized paths" (honest not-computed state) from "no paths
+    // today". The synthesized list is suppressed backend-side for
+    // not-computed jewels so the list and closure layer can't disagree.
+    if (jewel?.paths_not_computed) {
+      return (
+        <div className="px-4 py-6">
+          <div className="text-xs text-muted-foreground">
+            Attack paths for{" "}
+            <span className="font-mono text-foreground">{jewel?.name ?? "this jewel"}</span>{" "}
+            have not been computed yet.
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1.5">
+            No materialized attack-path evidence exists in the graph for this
+            jewel. Run the attack-path materializer (Phase 3) to compute them —
+            nothing is shown rather than showing unverified paths.
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="px-4 py-6">
         <div className="text-xs text-muted-foreground">
