@@ -710,6 +710,7 @@ export function ServiceNodeBox({
   onHover,
   onClick,
   exfilSummary,
+  spineMode = false,
 }: {
   node: ServiceNode;
   position: 'left' | 'right';
@@ -718,34 +719,55 @@ export function ServiceNodeBox({
   onHover: (id: string | null) => void;
   onClick?: () => void;
   exfilSummary?: NodeExfilSummary | null;
+  // 2026-06-11 — 3-color map discipline. True when the parent diagram
+  // renders an attack-path spine (architecture.pathStepByNodeId set).
+  // Neutralizes the per-category hue (NODE_CONFIG color/bg/border) so
+  // only risk (red/orange), safe (green) and neutral gray remain on
+  // the canvas, and collapses secondary rows (instance id, ENI chips)
+  // behind the existing hover mechanism. Optional + default false —
+  // every other consumer (System Map, EXFIL, egress map, identity
+  // attack-path viz) renders exactly as before.
+  spineMode?: boolean;
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
+  // Spine mode: category tints demote to neutral; hover highlight uses
+  // a neutral accent instead of the category bg/border pair.
+  const iconBoxCls = spineMode ? 'bg-muted' : config.bg;
+  const iconCls = spineMode ? 'text-muted-foreground' : config.color;
+  const labelCls = spineMode ? 'text-muted-foreground' : config.color;
+  const highlightedCls = spineMode
+    ? 'bg-accent border-border shadow-md scale-105'
+    : `${config.bg} ${config.border} shadow-md scale-105`;
+  // Secondary detail rows show by default; in spine mode they appear
+  // only while the card is hovered/highlighted (Connection Details +
+  // click drill-down still carry the full story).
+  const showDetail = !spineMode || isHighlighted;
 
   return (
     <div
       className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200
         ${onClick ? "cursor-pointer" : "cursor-default"}
-        ${isHighlighted ? `${config.bg} ${config.border} shadow-md scale-105` : 'bg-card border-border hover:border-primary/40'}
+        ${isHighlighted ? highlightedCls : 'bg-card border-border hover:border-primary/40'}
         ${position === 'left' ? 'pr-6' : 'pl-6'}`}
       onMouseEnter={() => onHover(node.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className={`w-11 h-11 rounded-lg ${config.bg} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-5 h-5 ${config.color}`} />
+      <div className={`w-11 h-11 rounded-lg ${iconBoxCls} flex items-center justify-center flex-shrink-0`}>
+        <Icon className={`w-5 h-5 ${iconCls}`} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-bold text-foreground truncate">{node.shortName}</div>
-        {node.instanceId && (
+        {node.instanceId && showDetail && (
           <div className="text-[10px] text-muted-foreground font-mono">{node.instanceId}</div>
         )}
-        <div className={`text-[10px] ${config.color} uppercase tracking-wider`}>{config.text}</div>
+        <div className={`text-[10px] ${labelCls} uppercase tracking-wider`}>{config.text}</div>
         {/* ENI chips — attached NetworkInterface(s) folded onto the
             workload card so the SG-ENI-EC2 binding is visible
             without taking up a separate Compute row. Compact chip
             list; full ENI detail lives in the workload drill-down. */}
-        {node.enis && node.enis.length > 0 && (
+        {showDetail && node.enis && node.enis.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {node.enis.map((eni) => (
               <span
@@ -930,6 +952,7 @@ export function SecurityGroupPanel({
   isHighlighted,
   onHover,
   onDetails,
+  spineMode = false,
 }: {
   sg: SecurityCheckpoint;
   isExpanded: boolean;
@@ -937,6 +960,12 @@ export function SecurityGroupPanel({
   isHighlighted: boolean;
   onHover: (id: string | null) => void;
   onDetails?: () => void;
+  // 2026-06-11 — 3-color discipline + detail collapse in spine mode.
+  // SG orange demotes to neutral gray; risk signals (red PUBLIC,
+  // amber gap ring) keep their color. Default card = name + rule
+  // count + risk chips; in/out counts and attachment chips show on
+  // hover. Optional — non-spine consumers unchanged.
+  spineMode?: boolean;
 }) {
   const hasGap = sg.gapCount > 0;
 
@@ -958,11 +987,15 @@ export function SecurityGroupPanel({
   // pivot opportunities. onPath===undefined treats as on-path
   // (back-compat for callers that don't supply the signal yet).
   const isLateral = sg.onPath === false;
+  // Spine mode: secondary chips (in/out split, attachment, lateral
+  // badge) appear on hover only; PUBLIC + rule count stay (risk +
+  // the one key metric). Category orange demotes to neutral.
+  const showDetail = !spineMode || isHighlighted;
 
   return (
     <div
       className={`relative rounded-xl border-2 transition-all duration-200 overflow-hidden
-        ${isHighlighted ? 'bg-orange-500/20 border-orange-500/50 shadow-md' : 'bg-card border-border'}
+        ${isHighlighted ? (spineMode ? 'bg-accent border-border shadow-md' : 'bg-orange-500/20 border-orange-500/50 shadow-md') : 'bg-card border-border'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}
         ${hasPublicAccess ? 'ring-2 ring-red-400/30' : ''}
         ${isLateral ? 'opacity-50' : ''}`}
@@ -979,9 +1012,9 @@ export function SecurityGroupPanel({
         onClick={onToggle}
       >
         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          hasPublicAccess ? 'bg-red-500/20' : 'bg-orange-500/20'
+          hasPublicAccess ? 'bg-red-500/20' : spineMode ? 'bg-muted' : 'bg-orange-500/20'
         }`}>
-          <Shield className={`w-5 h-5 ${hasPublicAccess ? 'text-red-600 dark:text-red-400' : 'text-orange-600 dark:text-orange-400'}`} />
+          <Shield className={`w-5 h-5 ${hasPublicAccess ? 'text-red-600 dark:text-red-400' : spineMode ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-foreground truncate">{sg.shortName}</div>
@@ -989,10 +1022,10 @@ export function SecurityGroupPanel({
             <span className="text-muted-foreground">
               {sg.totalCount} rules
             </span>
-            {inboundRules.length > 0 && (
+            {showDetail && inboundRules.length > 0 && (
               <span className="text-blue-600 dark:text-blue-400">↓{inboundRules.length} in</span>
             )}
-            {outboundRules.length > 0 && (
+            {showDetail && outboundRules.length > 0 && (
               <span className="text-emerald-600 dark:text-emerald-400">↑{outboundRules.length} out</span>
             )}
             {hasPublicAccess && (
@@ -1003,7 +1036,7 @@ export function SecurityGroupPanel({
                 {publicRules.length > 0 ? `${publicRules.length} PUBLIC` : "PUBLIC"}
               </span>
             )}
-            {isLateral && (
+            {showDetail && isLateral && (
               <span
                 className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-[10px] font-semibold uppercase tracking-wider"
                 title="Lateral SG — not attached to the path's workload. Pivot surface only."
@@ -1011,9 +1044,9 @@ export function SecurityGroupPanel({
                 Lateral
               </span>
             )}
-            {sg.attachedWorkloads && sg.attachedWorkloads.length > 0 && (
+            {showDetail && sg.attachedWorkloads && sg.attachedWorkloads.length > 0 && (
               <span
-                className="px-1.5 py-0.5 bg-orange-500/15 text-orange-700 dark:text-orange-300 rounded text-[10px] font-semibold"
+                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${spineMode ? 'bg-muted text-muted-foreground' : 'bg-orange-500/15 text-orange-700 dark:text-orange-300'}`}
                 title={`Attached to: ${sg.attachedWorkloads.join(", ")}`}
               >
                 on {sg.attachedWorkloads.length === 1
@@ -1112,11 +1145,19 @@ export function NACLNode({
   isHighlighted,
   onHover,
   onClick,
+  spineMode = false,
 }: {
   nacl: SecurityCheckpoint;
   isHighlighted: boolean;
   onHover: (id: string | null) => void;
   onClick?: () => void;
+  // 2026-06-11 — 3-color discipline + detail collapse in spine mode.
+  // NACL cyan demotes to neutral gray; risk chips (red Default·No
+  // filtering, amber denies/high-risk) keep their color. Default
+  // card = name + rule count + risk chips; subnet count and VPC-wide
+  // context chips show on hover. Optional — non-spine consumers
+  // unchanged.
+  spineMode?: boolean;
 }) {
   const hasGap = nacl.gapCount > 0;
   const blastRadius = nacl.connectedTargets?.length || nacl.connectedSources?.length || 0;
@@ -1157,11 +1198,13 @@ export function NACLNode({
           ? "ring-2 ring-amber-400/50"
           : "";
 
+  const showDetail = !spineMode || isHighlighted;
+
   return (
     <div
       className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
         ${onClick ? "cursor-pointer" : "cursor-default"}
-        ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-md scale-105' : 'bg-card border-border hover:border-primary/40'}
+        ${isHighlighted ? (spineMode ? 'bg-accent border-border shadow-md scale-105' : 'bg-cyan-500/20 border-cyan-500/50 shadow-md scale-105') : 'bg-card border-border hover:border-primary/40'}
         ${ringClass}
         ${isLateral ? 'opacity-50' : ''}`}
       onMouseEnter={() => onHover(nacl.id)}
@@ -1171,8 +1214,8 @@ export function NACLNode({
         ? "Lateral NACL — in the same VPC as the path's subnets but no ASSOCIATED_WITH edge to the path. Pivot surface only."
         : undefined}
     >
-      <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
-        <Lock className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+      <div className={`w-10 h-10 rounded-lg ${spineMode ? 'bg-muted' : 'bg-cyan-500/20'} flex items-center justify-center flex-shrink-0`}>
+        <Lock className={`w-5 h-5 ${spineMode ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-xs font-semibold text-foreground truncate">
@@ -1187,7 +1230,7 @@ export function NACLNode({
               always 0 on NACLs with only allow rules (no denies =
               gapCount 0). N rules tells the operator what's enforceable
               here. */}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 && !spineMode ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
             {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
           </span>
           {/* Deny count — only when there ARE denies. Coloured amber
@@ -1200,7 +1243,7 @@ export function NACLNode({
           {/* Subnet attachment count — shows the NACL's blast surface
               ("this NACL applies to N subnets"). Hidden when 0 (orphan
               NACL — operator should look elsewhere). */}
-          {subnetCount > 0 && (
+          {showDetail && subnetCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground">
               {subnetCount} {subnetCount === 1 ? 'subnet' : 'subnets'}
             </span>
@@ -1217,7 +1260,7 @@ export function NACLNode({
               The audit's "DEFAULT · NO FILTERING in red on the path"
               was case (a) being rendered as case (b). Fixed via
               isVpcWideDefault gate. */}
-          {isVpcWideDefault && (
+          {showDetail && isVpcWideDefault && (
             <span
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-semibold uppercase tracking-wider"
               title={`AWS-default NACL applied to all ${nacl.subnetCount} subnets in this VPC. Context, not a chain-specific finding. Every workload in this VPC sees the same NACL.`}
@@ -1244,7 +1287,7 @@ export function NACLNode({
               High risk
             </span>
           )}
-          {isLateral && (
+          {showDetail && isLateral && (
             <span
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold uppercase tracking-wider"
               title="Lateral NACL — not associated with the path's subnet. Pivot surface only."
@@ -1582,6 +1625,7 @@ export function IAMRoleNode({
   onClick,
   forceInstanceProfile = false,
   forceIAMPolicy = false,
+  spineMode = false,
 }: {
   role: SecurityCheckpoint;
   isHighlighted: boolean;
@@ -1597,6 +1641,14 @@ export function IAMRoleNode({
   // colors switch to violet so the operator can scan-distinguish
   // Role cards from Policy cards in the IDENTITY column.
   forceIAMPolicy?: boolean;
+  // 2026-06-11 — 3-color discipline + detail collapse in spine mode.
+  // Pink/amber/violet identity hues demote to neutral gray; the
+  // usage-status palette (emerald = healthy, amber/red = over-
+  // provisioned) keeps its color because it IS the risk signal.
+  // Default card = name + perms used/total + risk chip; blast-radius,
+  // data-quality, event-volume chips and the compact summary show on
+  // hover. Optional — non-spine consumers unchanged.
+  spineMode?: boolean;
 }) {
   const hasGap = role.gapCount > 0;
   const hasData = role.totalCount > 0;
@@ -1627,11 +1679,14 @@ export function IAMRoleNode({
   // Three-way palette: policy (violet) > profile (amber) > role (pink).
   // Order matters: an IAMPolicy might match the InstanceProfile heuristic
   // if a caller wrongly passes a policy id, but explicit force flags win.
-  const accentBgHover = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentBorderHi  = isIAMPolicy ? 'border-violet-500/50' : isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
+  // Spine mode collapses all three identity hues to neutral gray —
+  // the usage statusColor (risk/safe) is the only color the card keeps.
+  const accentBgHover = spineMode ? 'bg-accent' : isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentBorderHi  = spineMode ? 'border-border' : isIAMPolicy ? 'border-violet-500/50' : isInstanceProfile ? 'border-amber-500/50' : 'border-pink-500/50';
   const accentShadowHi  = isIAMPolicy ? 'shadow-md' : isInstanceProfile ? 'shadow-md' : 'shadow-md';
-  const accentBgFallback = isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
-  const accentTextFallback = isIAMPolicy ? 'text-violet-700 dark:text-violet-300' : isInstanceProfile ? 'text-amber-700 dark:text-amber-300' : 'text-pink-600 dark:text-pink-400';
+  const accentBgFallback = spineMode ? 'bg-muted' : isIAMPolicy ? 'bg-violet-500/15' : isInstanceProfile ? 'bg-amber-500/15' : 'bg-pink-500/20';
+  const accentTextFallback = spineMode ? 'text-muted-foreground' : isIAMPolicy ? 'text-violet-700 dark:text-violet-300' : isInstanceProfile ? 'text-amber-700 dark:text-amber-300' : 'text-pink-600 dark:text-pink-400';
+  const showDetail = !spineMode || isHighlighted;
 
   return (
     <div
@@ -1656,12 +1711,12 @@ export function IAMRoleNode({
         <div className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
           {role.shortName}
           {isInstanceProfile && (
-            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+            <span className={`text-[8px] uppercase tracking-wider px-1 py-0.5 rounded border ${spineMode ? 'bg-muted text-muted-foreground border-border' : 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40'}`}>
               Profile
             </span>
           )}
           {isIAMPolicy && (
-            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/40">
+            <span className={`text-[8px] uppercase tracking-wider px-1 py-0.5 rounded border ${spineMode ? 'bg-muted text-muted-foreground border-border' : 'bg-violet-500/20 text-violet-700 dark:text-violet-300 border-violet-500/40'}`}>
               Policy
             </span>
           )}
@@ -1684,7 +1739,7 @@ export function IAMRoleNode({
                   {usagePercent}% used
                 </span>
               )}
-              {blastRadius > 0 && (
+              {showDetail && blastRadius > 0 && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                   {blastRadius} linked
                 </span>
@@ -1725,7 +1780,7 @@ export function IAMRoleNode({
                   (which masks the ingestion drift) we render the
                   scalar's claim visibly so the operator KNOWS the
                   graph is incomplete here. */}
-              {role.usageScalarEdgesDisagree && (
+              {showDetail && role.usageScalarEdgesDisagree && (
                 <span
                   className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-semibold"
                   title={`Data quality: scalar used_actions_count=${role.usedCount} but no :USED_ACTION edges exist in the graph. The action-level evidence is missing — silver-layer ingestion may not have run for this role. Check cloudtrail_silver.py / iam_usage_sync.py.`}
@@ -1733,7 +1788,8 @@ export function IAMRoleNode({
                   ⚠ scalar · no edges
                 </span>
               )}
-              {typeof role.liveUsedActionEventCount === "number" &&
+              {showDetail &&
+                typeof role.liveUsedActionEventCount === "number" &&
                 role.liveUsedActionEventCount > 0 && (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/40"
@@ -1764,7 +1820,8 @@ export function IAMRoleNode({
                 slides in from the right via the EXFIL view (the
                 shared TFM stays generic; EXFIL view subscribes to
                 role-chip clicks). */}
-            {((role.alsoReaches?.length ?? 0) > 0 ||
+            {showDetail &&
+              ((role.alsoReaches?.length ?? 0) > 0 ||
               (role.sharedWith?.length ?? 0) > 0 ||
               (role.assumedBy?.length ?? 0) > 0 ||
               (role.policiesAttached?.length ?? 0) > 0 ||
@@ -2663,7 +2720,9 @@ function AnimatedTrafficLine({
    *    'dominant' → edge is on the selected attack path: single hero
    *                 color var(--canvas-danger), width 3.5, full opacity.
    *    'lateral'  → pivot edge touching the path at one endpoint:
-   *                 var(--canvas-lateral), width 1.5, opacity 0.4.
+   *                 muted gray var(--canvas-config), width 1.5,
+   *                 opacity 0.4 (3-color discipline — context, not
+   *                 a fourth color family).
    *    'faded'    → unrelated edge: var(--color-border), width 1,
    *                 opacity 0.6, no animation.
    *  Undefined → pathFilter not active; every override below is a
@@ -2927,14 +2986,16 @@ function AnimatedTrafficLine({
 
   // Path-dominance overrides (2026-06-11 design review). When the map
   // renders a selected attack path (pathFilter), ONE color dominates:
-  // on-path edges read var(--canvas-danger); laterals demote to
-  // var(--canvas-lateral); everything else fades to the border gray.
+  // on-path edges read var(--canvas-danger); laterals demote to a muted
+  // gray (var(--canvas-config) at 0.4 — 3-color discipline: lateral is
+  // CONTEXT, not a fourth color family competing with the red spine);
+  // everything else fades to the border gray.
   // Highest precedence — wins over heatmap / plane / v2 styling. All
   // four consts are undefined/false when pathDominance is undefined
   // (non-pathFilter consumers → zero behavior change).
   const pathDominantLineColor =
     pathDominance === 'dominant' ? 'var(--canvas-danger)'
-    : pathDominance === 'lateral' ? 'var(--canvas-lateral)'
+    : pathDominance === 'lateral' ? 'var(--canvas-config)'
     : pathDominance === 'faded' ? 'var(--color-border)'
     : undefined;
   const pathDominantStrokeWidth =
@@ -3826,7 +3887,9 @@ export function ConnectionLinesSVG({
   }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges]);
 
   // Attack-path dominance (2026-06-11 design review). Gate: presence of
-  // architecture.pathStepByNodeId — applyPathFilter is the ONLY producer,
+  // architecture.pathStepByNodeId — produced only when a pathFilter is
+  // active (applyPathFilter, or the architectureOverride+pathFilter
+  // branch in TrafficFlowMap via the shared derivePathDominance helper),
   // so non-pathFilter consumers never enter this branch.
   //   dominant : explicit pathEdges pair match OR both flow endpoints in
   //              the path's node set → single hero color, on top.
@@ -4106,9 +4169,10 @@ export function UnifiedArchitectureDiagram({
   }, [attackPaths]);
 
   // Attack-path dominance on node cards (2026-06-11 design review).
-  // architecture.pathStepByNodeId is set ONLY by applyPathFilter, so
-  // everything below is a no-op for the full System Map / Topology /
-  // EXFIL consumers. On-path cards get a subtle danger ring + a
+  // architecture.pathStepByNodeId is set only when a pathFilter is
+  // active (applyPathFilter, or the architectureOverride+pathFilter
+  // branch via derivePathDominance), so everything below is a no-op
+  // for the full System Map / Topology / EXFIL consumers. On-path cards get a subtle danger ring + a
   // numbered step badge (1 = entry, N = crown jewel); off-path cards
   // dim to 50% — extending the existing "Laterals: dim" discipline to
   // pathFilter mode instead of inventing a second dimming system.
@@ -4419,7 +4483,7 @@ export function UnifiedArchitectureDiagram({
             return (
               <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Target className="w-4 h-4 text-cyan-700 dark:text-cyan-300" />
+                  <Target className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-700 dark:text-cyan-300'}`} />
                   {architecture.entryLaneLabel ?? "Entry"} ({entries.length})
                 </div>
                 {entries.map((node) => {
@@ -4456,6 +4520,7 @@ export function UnifiedArchitectureDiagram({
                         isHighlighted={isNodeHighlighted(node.id)}
                         onHover={setHoveredId}
                         onClick={() => onSelectService(node, 'compute')}
+                        spineMode={pathFilterActive}
                       />
                     </div>
                   );
@@ -4474,7 +4539,7 @@ export function UnifiedArchitectureDiagram({
               signals_wrong_primitive. */}
           <div className="flex flex-col gap-3" data-vpc-scoped-column="true" data-lane="compute">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <Server className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-blue-600 dark:text-blue-400'}`} />
               Compute ({architecture.computeServices.length})
             </div>
             {architecture.computeServices.map(node => {
@@ -4522,6 +4587,7 @@ export function UnifiedArchitectureDiagram({
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'compute')}
                     exfilSummary={exfilByWorkloadId?.[node.id] ?? (node.instanceId ? exfilByWorkloadId?.[node.instanceId] : undefined)}
+                    spineMode={pathFilterActive}
                   />
                 </div>
               );
@@ -4606,7 +4672,7 @@ export function UnifiedArchitectureDiagram({
                 inside the subnet card. */}
           <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets" data-vpc-scoped-column="true" data-lane="subnets">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Globe className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+              <Globe className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
               Subnets ({architecture.subnets?.length ?? 0})
             </div>
             {(architecture.subnets || []).map(subnet => {
@@ -4628,13 +4694,18 @@ export function UnifiedArchitectureDiagram({
                 <div
                   key={subnet.id}
                   data-subnet-id={subnet.id}
-                  className={`relative rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-2.5${pathEmphasisClass(subnet.id)}`}
+                  // Spine mode (3-color discipline): subnet teal demotes to
+                  // neutral card chrome; the posture chip keeps amber
+                  // (public = review) / emerald (private = safe).
+                  className={`relative rounded-lg border p-2.5 ${pathFilterActive ? 'border-border bg-card' : 'border-cyan-500/30 bg-cyan-500/5'}${pathEmphasisClass(subnet.id)}`}
                   title={tooltip}
+                  onMouseEnter={() => setHoveredId(subnet.id)}
+                  onMouseLeave={() => setHoveredId(null)}
                 >
                   {renderPathStepBadge(subnet.id)}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Globe className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                      <Globe className={`w-3.5 h-3.5 shrink-0 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
                       <span className="text-xs font-semibold text-foreground truncate">
                         {subnet.shortName}
                       </span>
@@ -4646,7 +4717,8 @@ export function UnifiedArchitectureDiagram({
                       {postureLabel}
                     </span>
                   </div>
-                  {subnet.connectedComputeIds.length > 1 && (
+                  {subnet.connectedComputeIds.length > 1 &&
+                    (!pathFilterActive || effectiveHoveredId === subnet.id) && (
                     <div className="mt-1 text-[10px] text-muted-foreground">
                       {subnet.connectedComputeIds.length} workloads
                     </div>
@@ -4704,7 +4776,7 @@ export function UnifiedArchitectureDiagram({
           {/* SECURITY GROUPS */}
           <div className="flex flex-col gap-3 min-w-[180px]" data-vpc-scoped-column="true" data-lane="security-groups">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Shield className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+              <Shield className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`} />
               Security Groups ({architecture.securityGroups.length})
             </div>
             {architecture.securityGroups.map(sg => (
@@ -4721,6 +4793,7 @@ export function UnifiedArchitectureDiagram({
                   isHighlighted={isNodeHighlighted(sg.id)}
                   onHover={setHoveredId}
                   onDetails={() => onSelectService(sg, 'security_group')}
+                  spineMode={pathFilterActive}
                 />
               </div>
             ))}
@@ -4740,7 +4813,7 @@ export function UnifiedArchitectureDiagram({
           {architecture.nacls.length > 0 && (
             <div className="flex flex-col gap-3 min-w-[140px]" data-vpc-scoped-column="true" data-lane="nacls">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                <Lock className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-cyan-600 dark:text-cyan-400'}`} />
                 NACLs ({architecture.nacls.length})
               </div>
               {architecture.nacls.map(nacl => (
@@ -4751,6 +4824,7 @@ export function UnifiedArchitectureDiagram({
                     isHighlighted={isNodeHighlighted(nacl.id)}
                     onHover={setHoveredId}
                     onClick={() => onSelectService(nacl, 'nacl')}
+                    spineMode={pathFilterActive}
                   />
                 </div>
               ))}
@@ -4784,7 +4858,7 @@ export function UnifiedArchitectureDiagram({
           {architecture.egressGateways.length > 0 && (
             <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="egress-gateways">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Globe className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <Globe className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'}`} />
                 Egress Gateways ({architecture.egressGateways.length})
               </div>
               {/* Canvas v3 Slice A — visualize-by-negation on the gateway
@@ -4809,14 +4883,23 @@ export function UnifiedArchitectureDiagram({
                 const noDestinationsAtAll = architecture.resources.length === 0
                 const isGateUnused =
                   !noDestinationsAtAll && !isWinningForAnyDestination
+                // Spine mode (3-color discipline): gateway kind hues (sky
+                // NAT, violet TGW) demote to neutral. Internet-facing
+                // gateways (IGW / egress-only IGW) keep the amber/orange
+                // family — internet egress on an attack path is a risk
+                // signal, not a category color.
+                const isInternetFacingGw =
+                  gw.kind === 'InternetGateway' || gw.kind === 'EgressOnlyInternetGateway';
                 const palette =
                   isGateUnused ? 'bg-muted/30 border-border' :
+                  pathFilterActive && !isInternetFacingGw ? 'bg-card border-border' :
                   gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
                   gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'bg-orange-500/10 border-orange-500/40' :
                   'bg-violet-500/10 border-violet-500/40';
                 const iconColor =
                   isGateUnused ? 'text-muted-foreground' :
+                  pathFilterActive && !isInternetFacingGw ? 'text-muted-foreground' :
                   gw.kind === 'InternetGateway' ? 'text-amber-700 dark:text-amber-300' :
                   gw.kind === 'NATGateway' ? 'text-sky-700 dark:text-sky-300' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-700 dark:text-orange-300' :
@@ -4871,7 +4954,7 @@ export function UnifiedArchitectureDiagram({
                     <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
                       {gw.shortName}
                     </div>
-                    {routeLine && (
+                    {routeLine && (!pathFilterActive || effectiveHoveredId === gw.id) && (
                       <div
                         className="text-[10px] text-center text-muted-foreground mt-1 truncate max-w-[140px]"
                         title={routeLine}
@@ -4913,7 +4996,7 @@ export function UnifiedArchitectureDiagram({
               as a bug. */}
           <div className="flex flex-col gap-3 items-center" data-lane-global="true" data-lane="identity">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Key className="w-4 h-4 text-pink-600 dark:text-pink-400" />
+              <Key className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-pink-600 dark:text-pink-400'}`} />
               Identity
               <span
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
@@ -4922,15 +5005,15 @@ export function UnifiedArchitectureDiagram({
                 Global
               </span>
               {(architecture.instanceProfiles?.length ?? 0) > 0 && (
-                <span className="text-amber-700 dark:text-amber-300/80">
+                <span className={pathFilterActive ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-300/80'}>
                   IP {architecture.instanceProfiles?.length ?? 0}
                 </span>
               )}
-              <span className="text-pink-700 dark:text-pink-300/80">
+              <span className={pathFilterActive ? 'text-muted-foreground' : 'text-pink-700 dark:text-pink-300/80'}>
                 Roles {architecture.iamRoles.length}
               </span>
               {(architecture.iamPolicies?.length ?? 0) > 0 && (
-                <span className="text-violet-700 dark:text-violet-300/80">
+                <span className={pathFilterActive ? 'text-muted-foreground' : 'text-violet-700 dark:text-violet-300/80'}>
                   Policies {architecture.iamPolicies?.length ?? 0}
                 </span>
               )}
@@ -4948,6 +5031,7 @@ export function UnifiedArchitectureDiagram({
                   onHover={setHoveredId}
                   onClick={() => onSelectService(ip, 'instance_profile')}
                   forceInstanceProfile={true}
+                  spineMode={pathFilterActive}
                 />
               </div>
             ))}
@@ -4980,6 +5064,7 @@ export function UnifiedArchitectureDiagram({
                         onSelectService(role, isIP ? 'instance_profile' : 'iam_role');
                       }
                     }}
+                    spineMode={pathFilterActive}
                   />
                 </div>
               );
@@ -5005,6 +5090,7 @@ export function UnifiedArchitectureDiagram({
                   onHover={setHoveredId}
                   onClick={() => onSelectService(policy, 'iam_role')}
                   forceIAMPolicy={true}
+                  spineMode={pathFilterActive}
                 />
               </div>
             ))}
@@ -5150,7 +5236,7 @@ export function UnifiedArchitectureDiagram({
           {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
           <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="vpc-endpoints">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Cloud className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+              <Cloud className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-violet-600 dark:text-violet-400'}`} />
               VPC Endpoints ({architecture.vpcEndpoints.length})
             </div>
             {architecture.vpcEndpoints.map(vpce => {
@@ -5159,10 +5245,15 @@ export function UnifiedArchitectureDiagram({
                 <div
                   key={vpce.id}
                   data-vpce-id={vpce.id}
+                  // Spine mode (3-color discipline): VPCE violet demotes to
+                  // neutral card chrome; in-use elevation becomes a neutral
+                  // shadow instead of a brighter violet.
                   className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${
-                    isInUseForFlow
-                      ? 'bg-violet-500/15 border-violet-400/70 shadow-md'
-                      : 'bg-violet-500/5 border-violet-500/30'
+                    pathFilterActive
+                      ? (isInUseForFlow ? 'bg-muted border-border shadow-md' : 'bg-card border-border')
+                      : isInUseForFlow
+                        ? 'bg-violet-500/15 border-violet-400/70 shadow-md'
+                        : 'bg-violet-500/5 border-violet-500/30'
                   }${pathEmphasisClass(vpce.id)}`}
                   title={vpce.serviceName ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}` : vpce.id}
                   onMouseEnter={() => setHoveredId(vpce.id)}
@@ -5170,15 +5261,17 @@ export function UnifiedArchitectureDiagram({
                 >
                   {renderPathStepBadge(vpce.id)}
                   <div className="flex items-center justify-center gap-2 mb-1">
-                    <Cloud className="w-4 h-4 text-violet-700 dark:text-violet-300" />
+                    <Cloud className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-violet-700 dark:text-violet-300'}`} />
                     <span className="text-sm font-semibold text-foreground">{vpce.serviceShort}</span>
                   </div>
-                  <div className="text-[10px] text-violet-700 dark:text-violet-300/90 text-center font-mono truncate max-w-[140px]">
-                    {vpce.shortName}
-                  </div>
-                  {vpce.endpointType && (
+                  {(!pathFilterActive || effectiveHoveredId === vpce.id) && (
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${pathFilterActive ? 'text-muted-foreground' : 'text-violet-700 dark:text-violet-300/90'}`}>
+                      {vpce.shortName}
+                    </div>
+                  )}
+                  {vpce.endpointType && (!pathFilterActive || effectiveHoveredId === vpce.id) && (
                     <div className="mt-1 text-center">
-                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${pathFilterActive ? 'bg-muted border-border text-muted-foreground' : 'bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200'}`}>
                         {vpce.endpointType}
                       </span>
                     </div>
@@ -5265,7 +5358,7 @@ export function UnifiedArchitectureDiagram({
               correct AWS semantics, not a missing-data bug. */}
           <div className="flex flex-col gap-3" data-lane-global="true" data-lane="resources">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <Database className={`w-4 h-4 ${pathFilterActive ? 'text-muted-foreground' : 'text-purple-600 dark:text-purple-400'}`} />
               Resources ({architecture.resources.length})
               <span
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
@@ -5375,6 +5468,7 @@ export function UnifiedArchitectureDiagram({
                     isHighlighted={isNodeHighlighted(node.id)}
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'resource')}
+                    spineMode={pathFilterActive}
                   />
                   {/* Canvas v3 Slice A — destination-card chip from PR #93
                       removed. The route-precedence chip now lives on the
@@ -5475,31 +5569,34 @@ export function UnifiedArchitectureDiagram({
         </div>
       )}
 
-      {/* Legend */}
+      {/* Legend — in spine mode the category hues are neutralized on the
+          canvas (3-color discipline), so the legend icons go neutral too;
+          Live Traffic (green) and Security Gap (amber) keep their color
+          because those families survive on the spine canvas. */}
       <div className="mt-6 pt-4 border-t border-border flex flex-wrap items-center gap-4 text-xs">
         <span className="text-muted-foreground">Legend:</span>
         <span className="flex items-center gap-1.5">
-          <Server className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+          <Server className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-blue-600 dark:text-blue-400'}`} />
           <span className="text-muted-foreground">Compute</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />
+          <Shield className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`} />
           <span className="text-muted-foreground">Security Group</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Key className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400" />
+          <Key className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-pink-600 dark:text-pink-400'}`} />
           <span className="text-muted-foreground">IAM Role</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Zap className="w-3.5 h-3.5 text-lime-600 dark:text-lime-400" />
+          <Zap className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-lime-600 dark:text-lime-400'}`} />
           <span className="text-muted-foreground">API Call</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Database className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+          <Database className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-purple-600 dark:text-purple-400'}`} />
           <span className="text-muted-foreground">Database</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <HardDrive className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+          <HardDrive className={`w-3.5 h-3.5 ${pathFilterActive ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`} />
           <span className="text-muted-foreground">Storage</span>
         </span>
         <span className="flex items-center gap-1.5 ml-auto">
@@ -5691,6 +5788,81 @@ function bucketForType(rawType: string): 'compute' | 'resource' | 'security_grou
   return 'unknown';
 }
 
+// ---------------------------------------------------------------
+// Attack-path dominance helpers — shared between applyPathFilter
+// (rawArchitecture + pathFilter mode) and the architectureOverride
+// branch in TrafficFlowMap (override + pathFilter mode, e.g. the
+// merged Attack Path tab). Extracted 2026-06-11 so the override
+// path gets the EXACT same step-numbering + principal→EC2 mirroring
+// instead of a drifting duplicate.
+// ---------------------------------------------------------------
+
+// CloudTrailPrincipal sessions are often named with the EC2 instance
+// id they ran on (e.g. "i-0ee29afa0048943e0"). Returns the instance
+// id when the name IS one, else null.
+function instanceIdFromName(name: string | undefined): string | null {
+  if (!name) return null;
+  const m = name.match(/^(i-[a-f0-9]+)$/i);
+  return m ? m[1] : null;
+}
+
+// name/id → arch-compute index so a principal session named like an
+// instance ID resolves back to the actual EC2 compute card. The
+// IdentityAttackPaths BFS prefers the observed CloudTrail-session edge
+// over the configured USES_ROLE edge, so the principal session shows
+// up in the path instead of the EC2 it belongs to.
+function buildComputeByInstanceId(
+  computeServices: ServiceNode[],
+): Map<string, ServiceNode> {
+  const byInstanceId = new Map<string, ServiceNode>();
+  computeServices.forEach((c) => {
+    const m = c.id.match(/i-[a-f0-9]+/i);
+    if (m) byInstanceId.set(m[0], c);
+  });
+  return byInstanceId;
+}
+
+// Derives the renderer's dominance payload from a path filter:
+//   pathStepByNodeId : 1-based step numbers from the ORDERED pathNodes
+//     list (1 = entry, N = crown jewel), falling back to nodeIds order.
+//     Instance-session principals mirror their step onto the resolved
+//     EC2 card id so the badge lands on the card the operator sees.
+//   onPathNodeIds    : dominant node set (edge dominance + card emphasis).
+//   pathEdgePairKeys : "src->tgt" + reverse for every explicit path edge.
+function derivePathDominance(
+  filter: TrafficFlowMapPathFilter,
+  archComputeByInstanceId: Map<string, ServiceNode>,
+): {
+  pathStepByNodeId: Map<string, number>;
+  onPathNodeIds: Set<string>;
+  pathEdgePairKeys: Set<string>;
+} {
+  const orderedPathIds: string[] =
+    filter.pathNodes && filter.pathNodes.length > 0
+      ? filter.pathNodes.map((pn) => pn.id)
+      : filter.nodeIds;
+  const pathStepByNodeId = new Map<string, number>();
+  orderedPathIds.forEach((id, idx) => {
+    if (!pathStepByNodeId.has(id)) pathStepByNodeId.set(id, idx + 1);
+  });
+  (filter.pathNodes ?? []).forEach((pn, idx) => {
+    const instId = instanceIdFromName(pn.name);
+    if (!instId) return;
+    const resolvedId = archComputeByInstanceId.get(instId)?.id ?? instId;
+    if (!pathStepByNodeId.has(resolvedId)) pathStepByNodeId.set(resolvedId, idx + 1);
+  });
+  const onPathNodeIds = new Set<string>([
+    ...filter.nodeIds,
+    ...pathStepByNodeId.keys(),
+  ]);
+  const pathEdgePairKeys = new Set<string>();
+  (filter.pathEdges ?? []).forEach((e) => {
+    pathEdgePairKeys.add(`${e.source}->${e.target}`);
+    pathEdgePairKeys.add(`${e.target}->${e.source}`);
+  });
+  return { pathStepByNodeId, onPathNodeIds, pathEdgePairKeys };
+}
+
 function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFilter): SystemArchitecture {
   const ids = new Set(filter.nodeIds);
   const inPath = (id: string | undefined | null) => !!id && ids.has(id);
@@ -5767,54 +5939,17 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     ...nacls.map((n) => n.id),
     ...iamRoles.map((r) => r.id),
   ]);
-  // Build a name → arch-compute index so we can resolve a CloudTrailPrincipal
-  // whose `name` is an instance ID (e.g. "i-0ee29afa0048943e0") back to the
-  // actual EC2 compute node. The IdentityAttackPaths BFS prefers the
-  // observed CloudTrail-session edge over the configured USES_ROLE edge,
-  // so the principal session shows up in the path instead of the EC2 it
-  // belongs to. Resolve here so the operator sees the EC2.
-  const archComputeByInstanceId = new Map<string, ServiceNode>();
-  arch.computeServices.forEach((c) => {
-    const m = c.id.match(/i-[a-f0-9]+/i);
-    if (m) archComputeByInstanceId.set(m[0], c);
-  });
-  const isInstanceIdName = (name: string | undefined): string | null => {
-    if (!name) return null;
-    const m = name.match(/^(i-[a-f0-9]+)$/i);
-    return m ? m[1] : null;
-  };
-
-  // Attack-path dominance (2026-06-11 design review): step numbers from
-  // the ORDERED pathNodes list (1 = entry, N = crown jewel). Falls back
-  // to filter.nodeIds order when the caller didn't provide pathNodes.
-  // Also mirror the step onto the resolved EC2 card id when the path
-  // node is a CloudTrailPrincipal session named like an instance id —
-  // the badge must land on the card the operator actually sees.
-  const orderedPathIds: string[] =
-    filter.pathNodes && filter.pathNodes.length > 0
-      ? filter.pathNodes.map((pn) => pn.id)
-      : filter.nodeIds;
-  const pathStepByNodeId = new Map<string, number>();
-  orderedPathIds.forEach((id, idx) => {
-    if (!pathStepByNodeId.has(id)) pathStepByNodeId.set(id, idx + 1);
-  });
-  (filter.pathNodes ?? []).forEach((pn, idx) => {
-    const instId = isInstanceIdName(pn.name);
-    if (!instId) return;
-    const resolvedId = archComputeByInstanceId.get(instId)?.id ?? instId;
-    if (!pathStepByNodeId.has(resolvedId)) pathStepByNodeId.set(resolvedId, idx + 1);
-  });
-  // Dominant node set (drives edge dominance + on-path card emphasis)
-  // and the explicit path-edge pair keys (both directions).
-  const dominantPathNodeIds = new Set<string>([
-    ...filter.nodeIds,
-    ...pathStepByNodeId.keys(),
-  ]);
-  const pathEdgePairKeys = new Set<string>();
-  (filter.pathEdges ?? []).forEach((e) => {
-    pathEdgePairKeys.add(`${e.source}->${e.target}`);
-    pathEdgePairKeys.add(`${e.target}->${e.source}`);
-  });
+  // Principal-session → EC2 resolution index + attack-path dominance
+  // payload. Logic lives in the shared buildComputeByInstanceId /
+  // derivePathDominance helpers above so the architectureOverride
+  // branch in TrafficFlowMap derives the identical metadata.
+  const archComputeByInstanceId = buildComputeByInstanceId(arch.computeServices);
+  const isInstanceIdName = instanceIdFromName;
+  const {
+    pathStepByNodeId,
+    onPathNodeIds: dominantPathNodeIds,
+    pathEdgePairKeys,
+  } = derivePathDominance(filter, archComputeByInstanceId);
 
   (filter.pathNodes ?? []).forEach((pn) => {
     if (seenIds.has(pn.id)) return;
@@ -6272,7 +6407,39 @@ export default function TrafficFlowMap({
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
   const architecture = useMemo(() => {
-    if (architectureOverride) return architectureOverride;
+    if (architectureOverride) {
+      // 2026-06-11 bug fix: callers like the merged Attack Path tab
+      // (path-analysis-panel.tsx) pass BOTH architectureOverride AND
+      // pathFilter. The override used to short-circuit applyPathFilter
+      // entirely, so pathStepByNodeId / pathEdgePairKeys / onPathNodeIds
+      // were never populated — no dominant spine, no numbered step
+      // badges, no ring emphasis, no faded background edges. Derive the
+      // dominance payload here via the SAME shared helpers applyPathFilter
+      // uses (incl. principal-session → EC2 step mirroring) and attach it
+      // to a shallow copy — never mutate the caller's prop object.
+      if (
+        pathFilter &&
+        !(architectureOverride.pathStepByNodeId && architectureOverride.pathStepByNodeId.size > 0)
+      ) {
+        const dom = derivePathDominance(
+          pathFilter,
+          buildComputeByInstanceId(architectureOverride.computeServices),
+        );
+        if (dom.pathStepByNodeId.size > 0) {
+          return {
+            ...architectureOverride,
+            pathStepByNodeId: dom.pathStepByNodeId,
+            pathEdgePairKeys: dom.pathEdgePairKeys,
+            // Union with any caller-supplied on-path set (canvasV2
+            // lateral dimming) — both claim "this node is on the chain".
+            onPathNodeIds: architectureOverride.onPathNodeIds
+              ? new Set([...architectureOverride.onPathNodeIds, ...dom.onPathNodeIds])
+              : dom.onPathNodeIds,
+          };
+        }
+      }
+      return architectureOverride;
+    }
     if (!rawArchitecture) return null;
     return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
   }, [rawArchitecture, pathFilter, architectureOverride]);
