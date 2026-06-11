@@ -603,6 +603,10 @@ export interface IdentityAttackPath {
   // closure panel reads). False = pure synthesis; closure-preview may
   // 404 for it.
   materialized?: boolean
+  // True when the backing :AttackPath is stale (workload inactive).
+  // Shown with honest muted styling — not counted in live graph totals.
+  materialized_stale?: boolean
+  stale_reason?: string | null
   // Graph damage taxonomy from the materialized node — read/write/
   // delete/admin. Source of truth for the damage chip when present.
   damage_types?: string[]
@@ -629,6 +633,8 @@ export interface CrownJewelSummary {
   // Accuracy-audit F1 (2026-06-11): count of materialized :AttackPath
   // nodes reaching this jewel in the graph.
   materialized_path_count?: number
+  /** Stale :AttackPath nodes (inactive workload) — not in live graph total. */
+  stale_materialized_path_count?: number
   // True when the materializer has run for this account but produced
   // ZERO AttackPath nodes for this jewel — the honest "not computed"
   // state. Synthesized paths are suppressed backend-side; the UI must

@@ -20,6 +20,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
+import { MaterializedScopeBadge } from "./materialized-scope-badge"
 import { PathComparisonTable } from "./path-comparison-table"
 import { pathDamageSummary, pathTopFixLabel } from "./path-damage-summary"
 
@@ -263,9 +264,15 @@ export function PathListGrouped({
         <div className="text-sm font-mono font-semibold text-foreground truncate mt-0.5" title={jewel?.name}>
           {jewel?.name ?? "—"}
         </div>
-        <div className="text-[11px] text-muted-foreground mt-0.5">
-          {paths.length} path{paths.length === 1 ? "" : "s"} ·{" "}
-          {grouped.length} source type{grouped.length === 1 ? "" : "s"}
+        <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>
+            {paths.length} path{paths.length === 1 ? "" : "s"} ·{" "}
+            {grouped.length} source type{grouped.length === 1 ? "" : "s"}
+          </span>
+          <MaterializedScopeBadge
+            surfaced={paths.length}
+            graphTotal={jewel?.materialized_path_count}
+          />
         </div>
       </div>
 
@@ -368,6 +375,14 @@ export function PathListGrouped({
                           {p.evidence_type === "observed" && hits === 0 && (
                             <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
                               observed (no hit count)
+                            </span>
+                          )}
+                          {p.materialized_stale && (
+                            <span
+                              className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300 px-1.5 py-0.5"
+                              title={p.stale_reason ?? "Workload inactive — graph path retained for audit"}
+                            >
+                              inactive workload
                             </span>
                           )}
                         </div>

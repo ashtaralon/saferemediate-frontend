@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Shield, Globe, ChevronLeft, ChevronRight } from "lucide-react"
+import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
 import { SeverityBadge } from "./severity-badge"
 import type { CrownJewelSummary } from "./types"
 
@@ -122,6 +123,12 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                           {jewel.path_count} path{(jewel.path_count ?? 0) > 1 ? "s" : ""}
                         </span>
                       </>
+                    )}
+                    {!notComputed && (
+                      <MaterializedScopeBadge
+                        surfaced={jewel.path_count ?? 0}
+                        graphTotal={jewel.materialized_path_count}
+                      />
                     )}
                     {jewel.is_internet_exposed && (
                       <>
