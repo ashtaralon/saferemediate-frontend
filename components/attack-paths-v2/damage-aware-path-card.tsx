@@ -375,11 +375,15 @@ export function DamageAwarePathCard({
                 {topFix.node_name && (
                   <p className="text-[11px] font-mono text-muted-foreground mt-0.5">on {topFix.node_name}</p>
                 )}
-                {topFix.impact > 0 && (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
-                    −{Math.round(topFix.impact)} path score
-                  </p>
-                )}
+                {(() => {
+                  const reduction = Math.abs(topFix.impact ?? 0)
+                  if (reduction <= 0) return null
+                  return (
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
+                      −{Math.round(reduction)} path score
+                    </p>
+                  )
+                })()}
                 <button
                   type="button"
                   onClick={() => handleApply(topFix)}
