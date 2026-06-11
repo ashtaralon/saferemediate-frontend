@@ -53,29 +53,29 @@ const CATEGORY_META: Record<
   destructive: {
     title: "Destructive — irreversible",
     icon: Skull,
-    tone: "text-red-300",
+    tone: "text-red-500",
     bg: "border-red-500/30 bg-red-500/[0.04]",
     intro: "Permission to do things that can't be undone:",
   },
   exfil: {
     title: "Exfiltration — data leaves the perimeter",
     icon: Download,
-    tone: "text-orange-300",
+    tone: "text-orange-500",
     bg: "border-orange-500/30 bg-orange-500/[0.04]",
     intro: "Permission to read or copy sensitive data out:",
   },
   manipulate: {
     title: "Manipulation — change data, identity, or access",
     icon: Edit,
-    tone: "text-amber-300",
+    tone: "text-amber-500",
     bg: "border-amber-500/30 bg-amber-500/[0.04]",
     intro: "Permission to modify or persist:",
   },
   control_plane: {
     title: "Other capabilities",
     icon: HelpCircle,
-    tone: "text-slate-400",
-    bg: "border-slate-700/40 bg-slate-900/30",
+    tone: "text-muted-foreground",
+    bg: "border-border bg-muted/30",
     intro: "Other permissions on the role:",
   },
 }
@@ -122,14 +122,14 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
 
   if (empty) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+      <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-red-300" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-200">
+          <AlertTriangle className="h-4 w-4 text-red-500" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
             Potential Damage
           </span>
         </div>
-        <div className="text-[11px] text-slate-500 italic mt-2">
+        <div className="text-[11px] text-muted-foreground italic mt-2">
           No IAM role on this path and no damage capability surfaced on the
           response. Either this is a pure-network path (the workload can reach
           the resource but has no identity to act with), or the path's
@@ -151,15 +151,15 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
         className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-red-500/[0.05] transition-colors"
       >
         {collapsed ? (
-          <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         ) : (
-          <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
         )}
-        <AlertTriangle className="h-4 w-4 text-red-300" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-100">
+        <AlertTriangle className="h-4 w-4 text-red-500" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
           Potential Damage
         </span>
-        <span className="ml-auto text-[10px] text-slate-400">
+        <span className="ml-auto text-[10px] text-muted-foreground">
           {totalActions} translated capabilit
           {totalActions === 1 ? "y" : "ies"}
         </span>
@@ -172,17 +172,17 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
               opener when not. */}
           {path.damage_narrative ? (
             <div className="flex items-start gap-2 pt-1">
-              <Sparkles className="h-3.5 w-3.5 text-amber-300 mt-0.5 shrink-0" />
-              <div className="text-sm text-slate-200 leading-snug">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+              <div className="text-sm text-foreground leading-snug">
                 {path.damage_narrative}
               </div>
             </div>
           ) : (
             roles.length > 0 && (
-              <div className="text-sm text-slate-300 leading-snug pt-1">
+              <div className="text-sm text-foreground leading-snug pt-1">
                 The role
                 {roles.length > 1 ? "s" : ""}{" "}
-                <span className="font-mono text-pink-300">
+                <span className="font-mono text-pink-700 dark:text-pink-300">
                   {roles.map((r) => r.name).join(", ")}
                 </span>{" "}
                 on this path can do the following on resources reachable from here:
@@ -195,20 +195,20 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
             <div className="flex items-center gap-4 text-[11px] flex-wrap">
               {dcCounts.destructive !== null && (
                 <span>
-                  <span className="text-red-300 font-semibold">{dcCounts.destructive}</span>
-                  <span className="text-slate-400"> destructive</span>
+                  <span className="text-red-700 dark:text-red-300 font-semibold">{dcCounts.destructive}</span>
+                  <span className="text-muted-foreground"> destructive</span>
                 </span>
               )}
               {dcCounts.write !== null && (
                 <span>
-                  <span className="text-amber-300 font-semibold">{dcCounts.write}</span>
-                  <span className="text-slate-400"> write/modify</span>
+                  <span className="text-amber-700 dark:text-amber-300 font-semibold">{dcCounts.write}</span>
+                  <span className="text-muted-foreground"> write/modify</span>
                 </span>
               )}
               {dcCounts.read !== null && (
                 <span>
-                  <span className="text-blue-300 font-semibold">{dcCounts.read}</span>
-                  <span className="text-slate-400"> read</span>
+                  <span className="text-blue-700 dark:text-blue-300 font-semibold">{dcCounts.read}</span>
+                  <span className="text-muted-foreground"> read</span>
                 </span>
               )}
             </div>
@@ -216,7 +216,7 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
 
           {/* Categorised capability buckets */}
           {visibleBuckets.length === 0 ? (
-            <div className="text-[11px] text-slate-500 italic">
+            <div className="text-[11px] text-muted-foreground italic">
               No high-risk IAM actions catalogued for the role
               {roles.length > 1 ? "s" : ""} on this path. The backend may not
               have flagged them yet, or this role is genuinely narrow. Per-role
@@ -235,28 +235,28 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <Icon className={`h-3.5 w-3.5 ${meta.tone}`} />
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">
                         {meta.title}
                       </span>
-                      <span className="ml-auto text-[10px] text-slate-500">
+                      <span className="ml-auto text-[10px] text-muted-foreground">
                         {items.length}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-400 mb-1.5 italic">
+                    <div className="text-[11px] text-muted-foreground mb-1.5 italic">
                       {meta.intro}
                     </div>
                     <ul className="space-y-1">
                       {items.slice(0, 12).map((sentence, i) => (
                         <li
                           key={`${cat}-${i}`}
-                          className="text-[12px] text-slate-200 flex items-start gap-2"
+                          className="text-[12px] text-foreground flex items-start gap-2"
                         >
                           <span className={`mt-1 inline-block w-1 h-1 rounded-full shrink-0 ${meta.tone.replace("text-", "bg-")}`} />
                           {sentence}
                         </li>
                       ))}
                       {items.length > 12 && (
-                        <li className="text-[10px] text-slate-500 italic">
+                        <li className="text-[10px] text-muted-foreground italic">
                           + {items.length - 12} more capabilities in this category
                         </li>
                       )}
@@ -268,7 +268,7 @@ export function DamagePanel({ path, defaultCollapsed = false }: DamagePanelProps
           )}
 
           {/* Closure framing — set up the hardening panel below */}
-          <div className="pt-1 text-[11px] text-slate-500 italic">
+          <div className="pt-1 text-[11px] text-muted-foreground italic">
             Cyntro will narrow each of these to only what's actually used —
             see Recommended Hardening below for the closure plan.
           </div>

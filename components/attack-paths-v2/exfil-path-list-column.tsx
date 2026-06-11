@@ -61,7 +61,7 @@ const CHANNEL_LABELS: Record<string, string> = {
 const CHANNEL_DOT: Record<string, string> = {
   network_via_igw: "bg-amber-400",
   serverless_direct: "bg-violet-400",
-  ec2_no_egress: "bg-slate-300",
+  ec2_no_egress: "bg-muted-foreground",
   direct_api: "bg-rose-400",
 }
 
@@ -70,7 +70,7 @@ const CHANNEL_DOT: Record<string, string> = {
 const CHANNEL_BORDER: Record<string, string> = {
   network_via_igw: "border-l-amber-400/40",
   serverless_direct: "border-l-violet-400/40",
-  ec2_no_egress: "border-l-slate-300/40",
+  ec2_no_egress: "border-l-border",
   direct_api: "border-l-rose-400/40",
 }
 
@@ -91,11 +91,11 @@ function channelLabel(channel: string): string {
 }
 
 function channelDot(channel: string): string {
-  return CHANNEL_DOT[channel] ?? "bg-slate-400"
+  return CHANNEL_DOT[channel] ?? "bg-muted-foreground"
 }
 
 function channelBorder(channel: string): string {
-  return CHANNEL_BORDER[channel] ?? "border-l-slate-400/40"
+  return CHANNEL_BORDER[channel] ?? "border-l-border"
 }
 
 // ─── Component ────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ export function ExfilPathListColumn({
 
   if (loading) {
     return (
-      <div className="px-4 py-3 text-[10px] uppercase tracking-wider text-slate-500">
+      <div className="px-4 py-3 text-[10px] uppercase tracking-wider text-muted-foreground">
         Loading exfil paths…
       </div>
     )
@@ -170,10 +170,10 @@ export function ExfilPathListColumn({
   if (paths.length === 0) {
     return (
       <div className="px-4 py-3 space-y-2">
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           Paths to {jewelName ?? "this jewel"}
         </div>
-        <div className="text-xs text-slate-500 leading-relaxed">
+        <div className="text-xs text-muted-foreground leading-relaxed">
           No exfil paths surfaced. Either no role currently reaches this
           jewel via any of the four channels, or the collector hasn't
           observed traffic yet.
@@ -184,10 +184,10 @@ export function ExfilPathListColumn({
 
   return (
     <div className="px-2 py-2 space-y-3">
-      <div className="px-2 pb-1 text-[10px] uppercase tracking-wider text-slate-500 font-bold flex items-center gap-1.5">
-        <Route className="h-3 w-3 text-slate-400" />
+      <div className="px-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
+        <Route className="h-3 w-3 text-muted-foreground" />
         Paths to {jewelName ?? "jewel"}
-        <span className="ml-auto font-mono text-slate-600 tabular-nums">
+        <span className="ml-auto font-mono text-muted-foreground tabular-nums">
           {paths.length}
         </span>
       </div>
@@ -203,16 +203,16 @@ export function ExfilPathListColumn({
             <button
               type="button"
               onClick={() => toggle(channel)}
-              className="w-full flex items-center gap-1.5 px-1 py-1 text-[10px] uppercase tracking-wider font-bold text-slate-300 hover:text-slate-100 transition-colors"
+              className="w-full flex items-center gap-1.5 px-1 py-1 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors"
             >
               {isCollapsed ? (
-                <ChevronRight className="h-3 w-3 text-slate-500" />
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-3 w-3 text-slate-500" />
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
               )}
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${channelDot(channel)}`} />
               <span className="truncate">{channelLabel(channel)}</span>
-              <span className="ml-auto font-mono text-slate-500 tabular-nums">
+              <span className="ml-auto font-mono text-muted-foreground tabular-nums">
                 {groupPaths.length}
               </span>
             </button>
@@ -231,34 +231,34 @@ export function ExfilPathListColumn({
                       onClick={() => onSelectPath(p.path_id)}
                       className={`w-full text-left rounded-md px-2 py-1.5 transition-colors ${
                         isSelected
-                          ? "bg-slate-800/80 ring-1 ring-slate-600"
-                          : "hover:bg-slate-800/40"
+                          ? "bg-primary/10 ring-1 ring-primary/40"
+                          : "hover:bg-accent"
                       }`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span
-                          className={`text-[8px] uppercase tracking-wider font-bold shrink-0 ${
-                            observed ? "text-red-300" : "text-amber-300"
+                          className={`text-[8px] uppercase tracking-wider font-semibold shrink-0 ${
+                            observed ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"
                           }`}
                         >
                           {observed ? "obs" : "cap"}
                         </span>
                         <span
-                          className="text-[10px] font-mono text-slate-200 truncate flex-1"
+                          className="text-[10px] font-mono text-foreground truncate flex-1"
                           title={p.accessor_name}
                         >
                           {friendlyAccessorName(p.accessor_name)}
                         </span>
-                        <span className="text-[10px] tabular-nums font-mono text-slate-400 shrink-0">
+                        <span className="text-[10px] tabular-nums font-mono text-muted-foreground shrink-0">
                           {compactNumber(p.jewel_hits)}
                         </span>
                       </div>
-                      <div className="text-[9px] text-slate-500 mt-0.5 flex items-center gap-1.5">
+                      <div className="text-[9px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
                         <span>
                           {p.workload_count} wkld
                           {p.workload_count === 1 ? "" : "s"}
                         </span>
-                        <span className="text-slate-700">·</span>
+                        <span className="text-muted-foreground/60">·</span>
                         <span>
                           {p.gateway_count} gw
                           {p.gateway_count === 1 ? "" : "s"}

@@ -51,6 +51,21 @@
   --bg-primary: var(--background);
   --bg-secondary: var(--card);
   --border-subtle: var(--border);
+
+  /* Canvas semantic tokens — graph/SVG views (attack-path canvases,
+     TrafficFlowMap, topology). One vocabulary across every canvas:
+     observed = live evidence (CloudTrail/flow logs), config = allowed
+     but not observed, capable = unverified/assumed, danger = critical
+     signal, lateral = pivot edges. Light values here; dark overrides
+     in .dark below. */
+  --canvas-observed: #059669;
+  --canvas-config: #64748b;
+  --canvas-capable: #d97706;
+  --canvas-danger: #dc2626;
+  --canvas-lateral: #7c3aed;
+  --canvas-node-bg: #ffffff;
+  --canvas-node-border: #e2e8f0;
+  --canvas-label: #475569;
 }
 
 .dark {
@@ -97,6 +112,16 @@
   --bg-primary: var(--background);
   --bg-secondary: var(--card);
   --border-subtle: var(--border);
+
+  /* Canvas semantic tokens — dark variants. */
+  --canvas-observed: #34d399;
+  --canvas-config: #8aa0b2;
+  --canvas-capable: #f5b14c;
+  --canvas-danger: #ef5b53;
+  --canvas-lateral: #a78bfa;
+  --canvas-node-bg: #11202f;
+  --canvas-node-border: #24405a;
+  --canvas-label: #8aa0b2;
 }
 
 @theme inline {

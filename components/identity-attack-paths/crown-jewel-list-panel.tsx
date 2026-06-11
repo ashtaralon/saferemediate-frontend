@@ -30,18 +30,15 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
 
   if (collapsed) {
     return (
-      <div
-        className="w-9 min-w-[36px] border-r flex flex-col items-center pt-3"
-        style={{ background: "rgba(15, 23, 42, 0.95)", borderColor: "rgba(148, 163, 184, 0.15)" }}
-      >
+      <div className="w-9 min-w-[36px] border-r border-border bg-card/95 flex flex-col items-center pt-3">
         <button
           onClick={() => setCollapsed(false)}
-          className="p-1.5 rounded hover:bg-slate-700/60 transition-colors"
+          className="p-1.5 rounded hover:bg-accent transition-colors"
           title="Expand crown jewel list"
         >
-          <ChevronRight className="w-4 h-4 text-slate-300" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </button>
-        <div className="mt-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ writingMode: "vertical-rl" }}>
+        <div className="mt-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground" style={{ writingMode: "vertical-rl" }}>
           {jewels?.length ?? 0} jewels
         </div>
       </div>
@@ -49,37 +46,36 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
   }
 
   return (
-    <div
-      className="w-[280px] min-w-[280px] border-r overflow-y-auto"
-      style={{ background: "rgba(15, 23, 42, 0.95)", borderColor: "rgba(148, 163, 184, 0.15)" }}
-    >
-      <div
-        className="px-4 py-3 border-b flex items-center justify-between"
-        style={{ borderColor: "rgba(148, 163, 184, 0.15)" }}
-      >
+    <div className="w-[280px] min-w-[280px] border-r border-border bg-card/95 overflow-y-auto">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Crown Jewels
           </div>
-          <div className="text-xs text-slate-200 mt-0.5">
+          <div className="text-xs text-foreground mt-0.5">
             <span className="font-semibold tabular-nums">{jewels?.length ?? 0}</span> critical assets
           </div>
         </div>
         <button
           onClick={() => setCollapsed(true)}
-          className="p-1 rounded hover:bg-slate-700/60 transition-colors"
+          className="p-1 rounded hover:bg-accent transition-colors"
           title="Collapse to give the attack graph more room"
         >
-          <ChevronLeft className="w-4 h-4 text-slate-400" />
+          <ChevronLeft className="w-4 h-4 text-muted-foreground" />
         </button>
       </div>
 
       <div className="p-2 space-y-1">
         {(jewels ?? []).map((jewel) => {
           const isSelected = jewel.id === selectedJewelId
+          // Accuracy-audit F1 (2026-06-11): a jewel with ZERO materialized
+          // :AttackPath nodes must not render a severity score or a path
+          // count — that data would be synthesized, and the deep layer
+          // (closure panel) would have nothing to back it.
+          const notComputed = jewel.paths_not_computed === true
           const sev = jewel.severity ?? "LOW"
           const score = Math.round(jewel.highest_risk_score ?? 0)
-          const sevColor =
+          const sevColor = notComputed ? "#64748b" :
             sev === "CRITICAL" ? "#ef4444" :
             sev === "HIGH" ? "#f97316" :
             sev === "MEDIUM" ? "#eab308" : "#22c55e"
@@ -90,9 +86,7 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
               onClick={() => onSelect(jewel.id)}
               className="group w-full text-left rounded-md px-2 py-2 transition-all"
               style={{
-                background: isSelected
-                  ? `linear-gradient(135deg, ${sevColor}18 0%, ${sevColor}08 100%)`
-                  : "transparent",
+                background: isSelected ? `${sevColor}14` : "transparent",
                 border: `1px solid ${isSelected ? `${sevColor}40` : "transparent"}`,
               }}
             >
@@ -101,21 +95,29 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                   className="w-10 shrink-0 text-right text-lg font-semibold tabular-nums leading-none"
                   style={{ color: sevColor }}
                 >
-                  {score}
+                  {notComputed ? "—" : score}
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="truncate text-xs font-medium text-white">
+                    <span className="truncate text-xs font-medium text-foreground">
                       {jewel.name ?? jewel.id}
                     </span>
-                    <SeverityBadge severity={sev} size="sm" />
+                    {!notComputed && <SeverityBadge severity={sev} size="sm" />}
                   </div>
-                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                     <span className="uppercase tracking-wide">{getJewelTypeLabel(jewel.type)}</span>
-                    {(jewel.path_count ?? 0) > 0 && (
+                    {notComputed && (
                       <>
-                        <span className="text-slate-600">·</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span title="No materialized attack paths exist for this jewel yet — run the attack-path materializer to compute them.">
+                          not computed
+                        </span>
+                      </>
+                    )}
+                    {!notComputed && (jewel.path_count ?? 0) > 0 && (
+                      <>
+                        <span className="text-muted-foreground">·</span>
                         <span className="tabular-nums">
                           {jewel.path_count} path{(jewel.path_count ?? 0) > 1 ? "s" : ""}
                         </span>
@@ -123,8 +125,8 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                     )}
                     {jewel.is_internet_exposed && (
                       <>
-                        <span className="text-slate-600">·</span>
-                        <span className="inline-flex items-center gap-0.5 text-red-400 font-medium">
+                        <span className="text-muted-foreground">·</span>
+                        <span className="inline-flex items-center gap-0.5 text-red-500 font-medium">
                           <Globe className="w-2.5 h-2.5" />
                           exposed
                         </span>
@@ -139,8 +141,8 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
 
         {(jewels?.length ?? 0) === 0 && (
           <div className="text-center py-8">
-            <Shield className="w-6 h-6 text-slate-600 mx-auto mb-2" />
-            <p className="text-xs text-slate-400">No crown jewels detected</p>
+            <Shield className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
+            <p className="text-xs text-muted-foreground">No crown jewels detected</p>
           </div>
         )}
       </div>

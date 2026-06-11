@@ -94,27 +94,27 @@ export function RoleDetailPanel(props: RoleDetailPanelProps) {
 
   return (
     <div
-      className="absolute right-0 top-0 h-full w-[440px] max-w-[90vw] bg-slate-950 border-l border-slate-700 z-40 shadow-2xl shadow-black/60 flex flex-col"
+      className="absolute right-0 top-0 h-full w-[440px] max-w-[90vw] bg-background border-l border-border z-40 shadow-md flex flex-col"
       role="dialog"
       aria-label={`Role details for ${roleName}`}
     >
       {/* Header */}
-      <header className="px-4 py-3 border-b border-slate-800 flex items-start gap-2">
+      <header className="px-4 py-3 border-b border-border flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">
             IAM Role · details
           </div>
-          <div className="text-sm font-mono text-slate-100 truncate" title={roleName}>
+          <div className="text-sm font-mono text-foreground truncate" title={roleName}>
             {roleName}
           </div>
           <div className="flex items-center gap-2 mt-1.5">
-            <span className="text-xs text-slate-400 tabular-nums">
-              <strong className="text-slate-200">{usedCount}</strong>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              <strong className="text-foreground">{usedCount}</strong>
               {" / "}
-              <strong className="text-slate-200">{totalCount}</strong> perms used
+              <strong className="text-foreground">{totalCount}</strong> perms used
             </span>
             {gapCount > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-semibold">
+              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-700 dark:text-amber-300 font-semibold">
                 {gapCount} unused
               </span>
             )}
@@ -123,7 +123,7 @@ export function RoleDetailPanel(props: RoleDetailPanelProps) {
         <button
           type="button"
           onClick={onClose}
-          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 shrink-0"
+          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
           aria-label="Close details"
         >
           <X className="h-4 w-4" />
@@ -131,7 +131,7 @@ export function RoleDetailPanel(props: RoleDetailPanelProps) {
       </header>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-800 bg-slate-900/40">
+      <div className="flex border-b border-border bg-card">
         {tabs.map((t) => {
           const isActive = activeTab === t.key
           return (
@@ -142,8 +142,8 @@ export function RoleDetailPanel(props: RoleDetailPanelProps) {
               className={
                 "flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors " +
                 (isActive
-                  ? "border-violet-500 text-slate-100 bg-slate-900"
-                  : "border-transparent text-slate-400 hover:text-slate-200")
+                  ? "border-primary text-foreground bg-card"
+                  : "border-transparent text-muted-foreground hover:text-foreground")
               }
             >
               {t.label}
@@ -151,7 +151,7 @@ export function RoleDetailPanel(props: RoleDetailPanelProps) {
                 <span
                   className={
                     "ml-1.5 text-[10px] px-1 py-0.5 rounded tabular-nums " +
-                    (isActive ? "bg-violet-500/20 text-violet-200" : "bg-slate-800 text-slate-400")
+                    (isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")
                   }
                 >
                   {t.count}
@@ -237,16 +237,16 @@ function LateralTab({
                 className="w-full flex items-center gap-2 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 hover:border-fuchsia-400/60 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
                 title={`Switch to EXFIL view for ${j.name}`}
               >
-                <span className="text-fuchsia-300 font-bold text-xs">→</span>
-                <span className="text-xs text-slate-200 font-mono truncate flex-1">
+                <span className="text-fuchsia-700 dark:text-fuchsia-300 font-semibold text-xs">→</span>
+                <span className="text-xs text-foreground font-mono truncate flex-1">
                   {j.name}
                 </span>
                 {j.hits > 0 && (
-                  <span className="text-[10px] text-fuchsia-300/90 font-mono tabular-nums shrink-0">
+                  <span className="text-[10px] text-fuchsia-700 dark:text-fuchsia-300/90 font-mono tabular-nums shrink-0">
                     {j.hits >= 1000 ? `${(j.hits / 1000).toFixed(0)}K` : String(j.hits)} hits
                   </span>
                 )}
-                <ExternalLink className="h-3 w-3 text-fuchsia-300 shrink-0" />
+                <ExternalLink className="h-3 w-3 text-fuchsia-700 dark:text-fuchsia-300 shrink-0" />
               </button>
             ))}
           </div>
@@ -267,14 +267,14 @@ function LateralTab({
                 className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5"
                 title={`${c.type}: ${c.name}${c.system_name ? ` (system: ${c.system_name})` : ""}`}
               >
-                <span className="text-[10px] uppercase tracking-wider text-amber-300 font-bold shrink-0">
+                <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300 font-semibold shrink-0">
                   {workloadIcon(c.type)}
                 </span>
-                <span className="text-xs text-slate-200 font-mono truncate flex-1">
+                <span className="text-xs text-foreground font-mono truncate flex-1">
                   {c.name}
                 </span>
                 {c.system_name && (
-                  <span className="text-[10px] text-amber-300/70 truncate max-w-[120px]">
+                  <span className="text-[10px] text-amber-700 dark:text-amber-300/70 truncate max-w-[120px]">
                     {c.system_name}
                   </span>
                 )}
@@ -312,14 +312,14 @@ function SessionsTab({ sessions }: { sessions: Session[] }) {
             className="flex items-center gap-2 rounded border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5"
             title={s.last_seen ? `Last seen ${s.last_seen}` : "Last-seen timestamp unavailable"}
           >
-            <span className="text-xs text-slate-200 font-mono truncate flex-1">
+            <span className="text-xs text-foreground font-mono truncate flex-1">
               {s.session_name}
             </span>
-            <span className="text-[10px] text-cyan-300/90 font-mono tabular-nums shrink-0">
+            <span className="text-[10px] text-cyan-700 dark:text-cyan-300/90 font-mono tabular-nums shrink-0">
               {s.calls} call{s.calls === 1 ? "" : "s"}
             </span>
             {s.last_seen && (
-              <span className="text-[10px] text-cyan-300/60 shrink-0 hidden sm:inline">
+              <span className="text-[10px] text-cyan-700 dark:text-cyan-300/60 shrink-0 hidden sm:inline">
                 {s.last_seen.slice(0, 10)}
               </span>
             )}
@@ -361,10 +361,10 @@ function PoliciesTab({ policies }: { policies: Policy[] }) {
               className="flex items-center gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5"
               title={`${p.name} (${attachmentLabel})`}
             >
-              <span className="text-xs text-slate-200 font-mono truncate flex-1">
+              <span className="text-xs text-foreground font-mono truncate flex-1">
                 {p.name}
               </span>
-              <span className="text-[10px] uppercase tracking-wider text-rose-300/80 shrink-0 font-semibold">
+              <span className="text-[10px] uppercase tracking-wider text-rose-700 dark:text-rose-300/80 shrink-0 font-semibold">
                 {attachmentLabel}
               </span>
             </div>
@@ -401,8 +401,8 @@ function ActionsTab({ actions }: { actions: Action[] }) {
             className="flex items-center gap-2 rounded border border-lime-500/30 bg-lime-500/10 px-2.5 py-1.5"
             title={`${a.action}: ${a.calls} call${a.calls === 1 ? "" : "s"}`}
           >
-            <span className="text-xs text-slate-200 font-mono flex-1">{a.action}</span>
-            <span className="text-[10px] text-lime-300/90 font-mono tabular-nums shrink-0">
+            <span className="text-xs text-foreground font-mono flex-1">{a.action}</span>
+            <span className="text-[10px] text-lime-700 dark:text-lime-300/90 font-mono tabular-nums shrink-0">
               {a.calls} call{a.calls === 1 ? "" : "s"}
             </span>
           </div>
@@ -424,27 +424,27 @@ function SectionHeader({
   sub: string
 }) {
   const toneClass: Record<string, string> = {
-    fuchsia: "text-fuchsia-300",
-    amber: "text-amber-300",
-    cyan: "text-cyan-300",
-    rose: "text-rose-300",
-    lime: "text-lime-300",
+    fuchsia: "text-fuchsia-700 dark:text-fuchsia-300",
+    amber: "text-amber-700 dark:text-amber-300",
+    cyan: "text-cyan-700 dark:text-cyan-300",
+    rose: "text-rose-700 dark:text-rose-300",
+    lime: "text-lime-700 dark:text-lime-300",
   }
   return (
     <div className="mb-2">
-      <div className={`text-[10px] uppercase tracking-wider font-bold ${toneClass[tone]}`}>
+      <div className={`text-[10px] uppercase tracking-wider font-semibold ${toneClass[tone]}`}>
         {label}
       </div>
-      <div className="text-[11px] text-slate-400 mt-0.5">{sub}</div>
+      <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
     </div>
   )
 }
 
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-md border border-slate-700/50 bg-slate-900/40 p-4">
-      <div className="text-xs font-semibold text-slate-300 mb-1">{title}</div>
-      <div className="text-[11px] text-slate-500 leading-relaxed">{body}</div>
+    <div className="rounded-md border border-border bg-card p-4">
+      <div className="text-xs font-semibold text-foreground mb-1">{title}</div>
+      <div className="text-[11px] text-muted-foreground leading-relaxed">{body}</div>
     </div>
   )
 }

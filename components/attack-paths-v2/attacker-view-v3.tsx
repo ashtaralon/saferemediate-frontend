@@ -133,34 +133,34 @@ const STATUS_CONFIG: Record<
 > = {
   OBSERVED: {
     label: "Observed",
-    color: "#ef4444",
-    bg: "bg-red-500/15",
-    border: "border-red-500/50",
+    color: "var(--canvas-danger)",
+    bg: "bg-red-500/10",
+    border: "border-red-500/30",
   },
   POTENTIAL_EXCESS: {
     label: "Potential Excess",
-    color: "#f59e0b",
-    bg: "bg-amber-500/15",
-    border: "border-amber-500/50",
+    color: "var(--canvas-capable)",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/30",
   },
   UNVERIFIED: {
     label: "Unverified",
-    color: "#64748b",
-    bg: "bg-slate-500/15",
-    border: "border-slate-500/50",
+    color: "var(--canvas-config)",
+    bg: "bg-muted",
+    border: "border-border",
   },
   BLOCKED: {
     label: "Blocked",
-    color: "#10b981",
-    bg: "bg-emerald-500/15",
-    border: "border-emerald-500/50",
+    color: "var(--canvas-observed)",
+    bg: "bg-emerald-500/10",
+    border: "border-emerald-500/30",
   },
 }
 
 function evidenceDot(evidence: string): string {
-  if (evidence === "observed") return "#10b981" // green: real traffic
-  if (evidence === "config") return "#94a3b8" // slate: configured, not seen
-  return "#f59e0b" // amber: unknown
+  if (evidence === "observed") return "var(--canvas-observed)" // green: real traffic
+  if (evidence === "config") return "var(--canvas-config)" // slate: configured, not seen
+  return "var(--canvas-capable)" // amber: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -443,23 +443,23 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-[#0f172a] text-slate-100">
+    <div className="flex flex-col h-full overflow-y-auto bg-background text-foreground">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Attacker View · v0.3 · 9-Lane Phase Map
           </div>
-          <div className="text-sm font-semibold text-slate-100 mt-0.5">
+          <div className="text-sm font-semibold text-foreground mt-0.5">
             {cjMeta.name}{" "}
-            <span className="text-xs text-slate-400 font-normal">({cjMeta.type})</span>
+            <span className="text-xs text-muted-foreground font-normal">({cjMeta.type})</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <select
             value={rankBy}
             onChange={(e) => setRankBy(e.target.value as any)}
-            className="bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded px-2 py-1"
+            className="bg-muted border border-border text-xs text-foreground rounded px-2 py-1"
           >
             <option value="severity">Rank: severity</option>
             <option value="freshness">Rank: freshness</option>
@@ -468,7 +468,7 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
           <button
             onClick={onMaterialize}
             disabled={materializing}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs rounded"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs rounded"
             title="Re-run Phase 3 materialization (refresh AttackPath data without a full sync)"
           >
             {materializing ? (
@@ -579,25 +579,25 @@ function ChainFlowMapSection({
   }, [chain])
 
   return (
-    <div className="border-t border-slate-700/60 bg-slate-950/60">
+    <div className="border-t border-border bg-background">
       <div className="px-4 py-3 flex items-center justify-between">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Flow Map · This Chain's Gates
           </div>
-          <div className="text-xs text-slate-300 mt-0.5">
+          <div className="text-xs text-foreground mt-0.5">
             {chain.workload_name || "(unknown workload)"}{" "}
-            <span className="text-slate-500">→</span>{" "}
+            <span className="text-muted-foreground">→</span>{" "}
             {chain.role_name || "(unknown role)"}{" "}
-            <span className="text-slate-500">→</span>{" "}
+            <span className="text-muted-foreground">→</span>{" "}
             {chain.cj_name || chain.cj_arn || "(crown jewel)"}{" "}
-            <span className="text-slate-500">· {chain.hop_count} hops</span>
+            <span className="text-muted-foreground">· {chain.hop_count} hops</span>
           </div>
         </div>
       </div>
       <div className="px-4 pb-4">
         <div
-          className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
+          className="relative rounded-xl border border-border bg-card overflow-hidden"
           style={{ height: "520px" }}
         >
           <TrafficFlowMap
@@ -648,8 +648,8 @@ function ChainSummaryBar({
   }, [projected])
 
   return (
-    <div className="px-4 py-2 border-b border-slate-700/40">
-      <div className="flex items-center gap-2 mb-2 text-[10px] text-slate-400 uppercase tracking-wider">
+    <div className="px-4 py-2 border-b border-border">
+      <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground uppercase tracking-wider">
         <span>{projected.length} chains</span>
         {Object.entries(byStatus)
           .filter(([_, n]) => n > 0)
@@ -664,10 +664,10 @@ function ChainSummaryBar({
               </span>
             </span>
           ))}
-        {loading ? <span className="text-blue-300">Loading…</span> : null}
-        {error ? <span className="text-red-300">Error: {error}</span> : null}
+        {loading ? <span className="text-primary">Loading…</span> : null}
+        {error ? <span className="text-red-700 dark:text-red-300">Error: {error}</span> : null}
         {materializeResult ? (
-          <span className="text-emerald-300">{materializeResult}</span>
+          <span className="text-emerald-700 dark:text-emerald-300">{materializeResult}</span>
         ) : null}
       </div>
       {projected.length > 0 ? (
@@ -681,8 +681,8 @@ function ChainSummaryBar({
                 onClick={() => onSelect(p.chain.id)}
                 className={`px-2.5 py-1 rounded border text-[11px] transition-colors ${
                   active
-                    ? `${cfg.bg} ${cfg.border} text-slate-100`
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-700/60"
+                    ? `${cfg.bg} ${cfg.border} text-foreground`
+                    : "bg-muted border-border text-foreground hover:bg-accent"
                 }`}
                 title={p.chain.business_sentence}
               >
@@ -692,7 +692,7 @@ function ChainSummaryBar({
                 />
                 {p.chain.workload_name || "(unknown workload)"} →{" "}
                 {p.chain.role_name || "(unknown role)"}{" "}
-                <span className="text-slate-400">· {p.chain.hop_count} hops</span>
+                <span className="text-muted-foreground">· {p.chain.hop_count} hops</span>
               </button>
             )
           })}
@@ -710,17 +710,17 @@ function EmptyState({
   materializing: boolean
 }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-slate-400 text-sm">
-      <AlertCircle className="w-8 h-8 mb-3 text-slate-500" />
-      <div className="font-semibold text-slate-200 mb-1">No attack chains materialized yet</div>
-      <div className="text-xs text-slate-400 mb-4 max-w-md text-center">
+    <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm">
+      <AlertCircle className="w-8 h-8 mb-3 text-muted-foreground" />
+      <div className="font-semibold text-foreground mb-1">No attack chains materialized yet</div>
+      <div className="text-xs text-muted-foreground mb-4 max-w-md text-center">
         Phase 3 hasn't run for this crown jewel. Click below to materialize from the
         current graph state — no sync required.
       </div>
       <button
         onClick={onMaterialize}
         disabled={materializing}
-        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs rounded"
+        className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs rounded"
       >
         {materializing ? (
           <Loader2 className="w-3 h-3 animate-spin" />
@@ -798,14 +798,14 @@ function NineLaneGrid({
             <div key={lane.id} className="text-center">
               <div className="flex items-center justify-center gap-1.5 mb-1">
                 <Icon className="w-3.5 h-3.5" style={{ color: lane.accent }} />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">
                   {lane.label}
                 </span>
                 {count > 0 ? (
-                  <span className="text-[10px] text-slate-400">({count})</span>
+                  <span className="text-[10px] text-muted-foreground">({count})</span>
                 ) : null}
               </div>
-              <div className="text-[9px] text-slate-500 italic px-1 leading-tight">
+              <div className="text-[9px] text-muted-foreground italic px-1 leading-tight">
                 {lane.attackerQuestion}
               </div>
             </div>
@@ -820,7 +820,7 @@ function NineLaneGrid({
           return (
             <div
               key={lane.id}
-              className="min-h-[300px] bg-slate-900/40 border border-slate-800 rounded p-1.5 space-y-1.5"
+              className="min-h-[300px] bg-card border border-border rounded p-1.5 space-y-1.5"
               style={{ borderLeftColor: lane.accent, borderLeftWidth: 2 }}
             >
               {lane.id === "persist" ? (
@@ -828,7 +828,7 @@ function NineLaneGrid({
               ) : lane.id === "defense" ? (
                 <DefenseLaneContent signals={defenseSignals} />
               ) : nodes.length === 0 ? (
-                <div className="text-[10px] text-slate-500 italic px-2 py-3 text-center">
+                <div className="text-[10px] text-muted-foreground italic px-2 py-3 text-center">
                   No {lane.label.toLowerCase()} on this chain
                 </div>
               ) : (
@@ -901,8 +901,8 @@ function NodeCard({
       ref={setRef}
       className={`relative px-2 py-1.5 rounded text-[10px] border ${
         isCrownJewel
-          ? "bg-emerald-900/40 border-emerald-500/60"
-          : "bg-slate-800/80 border-slate-700"
+          ? "bg-emerald-500/10 border-emerald-500/40"
+          : "bg-muted border-border"
       }`}
       title={`${node.type}: ${node.name}`}
     >
@@ -911,9 +911,9 @@ function NodeCard({
           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
           style={{ background: evidenceDot(ev || "unknown") }}
         />
-        <span className="text-slate-200 truncate flex-1 font-mono">{shortName}</span>
+        <span className="text-foreground truncate flex-1 font-mono">{shortName}</span>
       </div>
-      <div className="text-[9px] text-slate-500 mt-0.5 truncate">{node.type}</div>
+      <div className="text-[9px] text-muted-foreground mt-0.5 truncate">{node.type}</div>
       {chips.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {chips.map((c) => (
@@ -947,10 +947,10 @@ interface NodeChip {
   tooltip?: string
 }
 
-const CHIP_RED = "bg-red-900/40 border-red-500/60 text-red-200"
-const CHIP_AMBER = "bg-amber-900/30 border-amber-500/50 text-amber-200"
-const CHIP_GREEN = "bg-emerald-900/30 border-emerald-500/50 text-emerald-200"
-const CHIP_SLATE = "bg-slate-700/60 border-slate-600 text-slate-300"
+const CHIP_RED = "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
+const CHIP_AMBER = "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
+const CHIP_GREEN = "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+const CHIP_SLATE = "bg-muted border-border text-muted-foreground"
 
 function buildNodeChips(node: LaneNode, meta?: AttackChainNodeMeta): NodeChip[] {
   if (!meta) return []
@@ -1064,7 +1064,7 @@ function buildNodeChips(node: LaneNode, meta?: AttackChainNodeMeta): NodeChip[] 
 function PersistLaneContent({ signals }: { signals: PersistSignal[] }) {
   if (signals.length === 0) {
     return (
-      <div className="text-[10px] text-emerald-400 italic px-1.5 py-3 text-center leading-tight">
+      <div className="text-[10px] text-emerald-600 dark:text-emerald-400 italic px-1.5 py-3 text-center leading-tight">
         ✓ No persistence surface — attacker cannot create new identities or backdoors from this principal
       </div>
     )
@@ -1074,10 +1074,10 @@ function PersistLaneContent({ signals }: { signals: PersistSignal[] }) {
       {signals.map((s) => (
         <div
           key={s.action_pattern}
-          className="px-2 py-1.5 rounded text-[10px] bg-violet-900/30 border border-violet-500/40"
+          className="px-2 py-1.5 rounded text-[10px] bg-violet-500/10 border border-violet-500/30"
         >
-          <div className="font-mono text-violet-200 text-[10px]">{s.action_pattern}</div>
-          <div className="text-[9px] text-slate-400 mt-0.5">{s.description}</div>
+          <div className="font-mono text-violet-700 dark:text-violet-300 text-[10px]">{s.action_pattern}</div>
+          <div className="text-[9px] text-muted-foreground mt-0.5">{s.description}</div>
         </div>
       ))}
     </>
@@ -1087,7 +1087,7 @@ function PersistLaneContent({ signals }: { signals: PersistSignal[] }) {
 function DefenseLaneContent({ signals }: { signals: DefenseSignal[] }) {
   if (signals.length === 0) {
     return (
-      <div className="text-[10px] text-slate-500 italic px-2 py-3 text-center">
+      <div className="text-[10px] text-muted-foreground italic px-2 py-3 text-center">
         No defense signals derived
       </div>
     )
@@ -1097,17 +1097,17 @@ function DefenseLaneContent({ signals }: { signals: DefenseSignal[] }) {
       {signals.map((s, i) => {
         const palette =
           s.state === "ok"
-            ? { bg: "bg-emerald-900/30", border: "border-emerald-500/40", color: "text-emerald-300", icon: "✓" }
+            ? { bg: "bg-emerald-500/10", border: "border-emerald-500/30", color: "text-emerald-700 dark:text-emerald-300", icon: "✓" }
             : s.state === "warning"
-              ? { bg: "bg-amber-900/30", border: "border-amber-500/40", color: "text-amber-300", icon: "⚠" }
-              : { bg: "bg-red-900/30", border: "border-red-500/40", color: "text-red-300", icon: "✗" }
+              ? { bg: "bg-amber-500/10", border: "border-amber-500/30", color: "text-amber-700 dark:text-amber-300", icon: "⚠" }
+              : { bg: "bg-red-500/10", border: "border-red-500/30", color: "text-red-700 dark:text-red-300", icon: "✗" }
         return (
           <div key={i} className={`px-2 py-1.5 rounded text-[10px] ${palette.bg} border ${palette.border}`}>
             <div className={`flex items-center gap-1 ${palette.color} text-[10px] font-semibold`}>
               <span>{palette.icon}</span>
               <span>{s.label}</span>
             </div>
-            <div className="text-[9px] text-slate-400 mt-0.5 leading-tight">{s.detail}</div>
+            <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{s.detail}</div>
           </div>
         )
       })}
@@ -1156,7 +1156,7 @@ function ConnectionLayer({
           refY="3"
           orient="auto"
         >
-          <path d="M0,0 L6,3 L0,6 Z" fill="#10b981" />
+          <path d="M0,0 L6,3 L0,6 Z" fill="var(--canvas-observed)" />
         </marker>
         <marker
           id="arrowhead-config"
@@ -1166,7 +1166,7 @@ function ConnectionLayer({
           refY="3"
           orient="auto"
         >
-          <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
+          <path d="M0,0 L6,3 L0,6 Z" fill="var(--canvas-config)" />
         </marker>
       </defs>
       {hops.map((hop, i) => {
@@ -1175,10 +1175,10 @@ function ConnectionLayer({
         if (!a || !b) return null
         const stroke =
           hop.evidence === "observed"
-            ? "#10b981"
+            ? "var(--canvas-observed)"
             : hop.evidence === "config"
-              ? "#94a3b8"
-              : "#f59e0b"
+              ? "var(--canvas-config)"
+              : "var(--canvas-capable)"
         const dash = hop.evidence === "observed" ? "none" : "4 3"
         const marker =
           hop.evidence === "observed" ? "url(#arrowhead-observed)" : "url(#arrowhead-config)"
@@ -1206,7 +1206,7 @@ function BusinessSentencePanel({ projected }: { projected: ProjectedChain }) {
   const c = projected.chain
   const cfg = STATUS_CONFIG[c.path_status]
   return (
-    <div className="px-4 py-3 border-t border-slate-700/60 bg-slate-900/60">
+    <div className="px-4 py-3 border-t border-border bg-card">
       <div className="flex items-start gap-3">
         <div
           className={`flex-shrink-0 px-2.5 py-1 rounded text-[10px] font-semibold border ${cfg.bg} ${cfg.border}`}
@@ -1214,19 +1214,19 @@ function BusinessSentencePanel({ projected }: { projected: ProjectedChain }) {
         >
           {cfg.label}
         </div>
-        <div className="text-xs text-slate-200 leading-relaxed flex-1">
+        <div className="text-xs text-foreground leading-relaxed flex-1">
           {c.business_sentence || "(no business sentence available)"}
         </div>
       </div>
       {c.closure_recommendation && c.closure_recommendation.remove_actions?.length > 0 ? (
-        <div className="mt-2 pl-[68px] text-[10px] text-slate-400">
-          <div className="font-semibold uppercase tracking-wider text-slate-500 mb-1">
+        <div className="mt-2 pl-[68px] text-[10px] text-muted-foreground">
+          <div className="font-semibold uppercase tracking-wider text-muted-foreground mb-1">
             Closure recommendation
           </div>
           <div className="space-y-0.5">
             {c.closure_recommendation.keep_actions?.length > 0 ? (
               <div>
-                <span className="text-emerald-400">Keep:</span>{" "}
+                <span className="text-emerald-600 dark:text-emerald-400">Keep:</span>{" "}
                 <span className="font-mono">
                   {c.closure_recommendation.keep_actions.slice(0, 5).join(", ")}
                 </span>
@@ -1234,7 +1234,7 @@ function BusinessSentencePanel({ projected }: { projected: ProjectedChain }) {
             ) : null}
             {c.closure_recommendation.remove_actions?.length > 0 ? (
               <div>
-                <span className="text-red-400">Remove:</span>{" "}
+                <span className="text-red-600 dark:text-red-400">Remove:</span>{" "}
                 <span className="font-mono">
                   {c.closure_recommendation.remove_actions.slice(0, 5).join(", ")}
                 </span>
@@ -1242,7 +1242,7 @@ function BusinessSentencePanel({ projected }: { projected: ProjectedChain }) {
             ) : null}
             {c.closure_recommendation.scope_to_prefixes?.length > 0 ? (
               <div>
-                <span className="text-slate-400">Scope to:</span>{" "}
+                <span className="text-muted-foreground">Scope to:</span>{" "}
                 <span className="font-mono">
                   {c.closure_recommendation.scope_to_prefixes.slice(0, 3).join(", ")}
                 </span>

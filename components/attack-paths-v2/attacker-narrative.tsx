@@ -38,9 +38,9 @@ import { claimsById, dominantGrade, RISK_REDUCTION_LABEL } from "./attack-path-r
 import { useAttackPathReport } from "./use-attack-path-report"
 
 const GATE_CHIP: Record<string, string> = {
-  AUTO_ELIGIBLE: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
-  REVIEW_REQUIRED: "border-amber-500/50 bg-amber-500/10 text-amber-300",
-  BLOCKED: "border-red-500/50 bg-red-500/10 text-red-300",
+  AUTO_ELIGIBLE: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  REVIEW_REQUIRED: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  BLOCKED: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
 }
 
 // Friendly fix label — "IAM_POLICY_PATCH" reads as plumbing; "IAM scope-down"
@@ -54,28 +54,28 @@ function fixLabel(deliveredAs: string): string {
 const GRADE_META: Record<EvidenceGrade, { label: string; cls: string; accent: string }> = {
   OBSERVED: {
     label: "proven · observed",
-    cls: "border-red-500/50 bg-red-500/10 text-red-300",
-    accent: "#EF5B53",
+    cls: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
+    accent: "var(--canvas-danger)",
   },
   CONFIGURED: {
     label: "open · config",
-    cls: "border-amber-500/50 bg-amber-500/10 text-amber-300",
-    accent: "#F5B14C",
+    cls: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    accent: "var(--canvas-capable)",
   },
   INFERRED: {
     label: "inferred · modeled",
-    cls: "border-sky-500/50 bg-sky-500/10 text-sky-300",
-    accent: "#6BB6E8",
+    cls: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    accent: "var(--color-primary)",
   },
   UNKNOWN: {
     label: "unknown",
-    cls: "border-slate-600 bg-slate-800/40 text-slate-400",
-    accent: "#5F7186",
+    cls: "border-border bg-muted text-muted-foreground",
+    accent: "var(--canvas-config)",
   },
   BLOCKED: {
     label: "blocked",
-    cls: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
-    accent: "#34D399",
+    cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    accent: "var(--canvas-observed)",
   },
 }
 
@@ -83,9 +83,9 @@ const MICRO_META: Record<
   string,
   { icon: React.ReactNode; accent: string; layerLabel: string; role: string }
 > = {
-  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: "#6BB6E8", layerLabel: "IAM", role: "Primary fix" },
-  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: "#A78BFA", layerLabel: "Network", role: "Secondary hardening" },
-  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: "#34D399", layerLabel: "Data", role: "Data-scope refinement" },
+  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: "var(--color-primary)", layerLabel: "IAM", role: "Primary fix" },
+  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: "var(--canvas-lateral)", layerLabel: "Network", role: "Secondary hardening" },
+  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: "var(--canvas-observed)", layerLabel: "Data", role: "Data-scope refinement" },
 }
 
 const PHASE_META: Record<AttackerPhase, { step: string; icon: React.ReactNode }> = {
@@ -100,15 +100,15 @@ const PHASE_META: Record<AttackerPhase, { step: string; icon: React.ReactNode }>
 function sevCls(sev?: string): string {
   switch ((sev || "").toUpperCase()) {
     case "CRITICAL":
-      return "border-red-500/50 bg-red-500/10 text-red-300"
+      return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
     case "HIGH":
-      return "border-orange-500/50 bg-orange-500/10 text-orange-300"
+      return "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300"
     case "MEDIUM":
-      return "border-amber-500/50 bg-amber-500/10 text-amber-300"
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
     case "LOW":
-      return "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
     default:
-      return "border-slate-600 bg-slate-800/40 text-slate-400"
+      return "border-border bg-muted text-muted-foreground"
   }
 }
 
@@ -179,18 +179,18 @@ export function AttackerNarrativeView({
     .map((s) => ({ title: s.title, lead: s.body.split(". ")[0] + "." }))
 
   return (
-    <div className="rounded-xl border border-slate-700/80 bg-slate-950/50 overflow-hidden">
+    <div className="rounded-xl border border-border bg-muted/30 overflow-hidden">
       {/* Headline */}
-      <div className="px-4 py-3 border-b border-slate-800/70 bg-slate-900/40">
+      <div className="px-4 py-3 border-b border-border bg-card">
         <div className="flex items-center gap-2 flex-wrap">
-          <Crosshair className="h-4 w-4 text-red-300 shrink-0" />
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-100">
+          <Crosshair className="h-4 w-4 text-red-700 dark:text-red-300 shrink-0" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
             The attacker&apos;s-eye view · current state
           </span>
           {/* Exposure (R×I×X, 0–1) — deliberately labeled so it can't be
               confused with the IAP 6-factor /100 score in the page header. */}
           <span
-            className={`ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${sevCls(cs.severity)}`}
+            className={`ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${sevCls(cs.severity)}`}
             title="Worst-case damage exposure (Reachability × Impact × Ease) — distinct from the IAP likelihood path score in the page header"
           >
             {cs.exposure_score != null ? (
@@ -206,57 +206,57 @@ export function AttackerNarrativeView({
 
         {/* Orient strip — scannable one-liner before the prose. */}
         <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap mt-2 text-[10px] uppercase tracking-wider">
-          <span className={cs.status === "OPEN_TODAY" ? "text-red-300 font-bold" : "text-emerald-300 font-bold"}>
+          <span className={cs.status === "OPEN_TODAY" ? "text-red-700 dark:text-red-300 font-bold" : "text-emerald-700 dark:text-emerald-300 font-bold"}>
             {statusLine}
           </span>
           {damageVerbs.length > 0 && (
             <>
-              <span className="text-slate-600">·</span>
-              <span className="text-slate-400">
-                damage: <span className="text-amber-300 font-semibold">{damageHeaderLabel}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">
+                damage: <span className="text-amber-700 dark:text-amber-300 font-semibold">{damageHeaderLabel}</span>
               </span>
             </>
           )}
           {diff && (
             <>
-              <span className="text-slate-600">·</span>
-              <span className="text-slate-400">fix: {fixLabel(diff.delivered_as).toLowerCase()}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">fix: {fixLabel(diff.delivered_as).toLowerCase()}</span>
             </>
           )}
           {report.blast_radius?.band && (
             <>
-              <span className="text-slate-600">·</span>
-              <span className="text-slate-400">blast: <span className="text-red-300 font-semibold">{report.blast_radius.band.toLowerCase()}</span></span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">blast: <span className="text-red-700 dark:text-red-300 font-semibold">{report.blast_radius.band.toLowerCase()}</span></span>
             </>
           )}
           {fixGate && (
             <>
-              <span className="text-slate-600">·</span>
-              <span className="text-amber-300 font-semibold">{fixGate.replace(/_/g, " ").toLowerCase()}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-amber-700 dark:text-amber-300 font-semibold">{fixGate.replace(/_/g, " ").toLowerCase()}</span>
             </>
           )}
         </div>
 
         {/* Path one-liner */}
-        <p className="text-[12px] text-slate-300 leading-snug mt-1.5">
-          <span className="font-mono text-slate-100">{cs.source_label}</span>
+        <p className="text-[12px] text-foreground leading-snug mt-1.5">
+          <span className="font-mono text-foreground">{cs.source_label}</span>
           {" → "}
-          <span className="font-mono text-amber-300">{cs.target_label}</span>
+          <span className="font-mono text-amber-700 dark:text-amber-300">{cs.target_label}</span>
         </p>
 
         {/* Executive one-sentence summary — the whole page in one line. */}
         {execSummary && (
-          <p className="text-[12px] text-slate-300 leading-relaxed mt-2">{execSummary}</p>
+          <p className="text-[12px] text-foreground leading-relaxed mt-2">{execSummary}</p>
         )}
 
         {/* Dense business sentence — kept for depth, collapsed by default. */}
         {cs.summary && (
           <details className="mt-1.5 group">
-            <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300 select-none list-none">
+            <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
               <span className="group-open:hidden">▸ full evidence sentence</span>
               <span className="hidden group-open:inline">▾ full evidence sentence</span>
             </summary>
-            <p className="text-[11px] text-slate-400 leading-relaxed mt-1">{cs.summary}</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed mt-1">{cs.summary}</p>
           </details>
         )}
       </div>
@@ -265,33 +265,33 @@ export function AttackerNarrativeView({
           the projected after-fix state, per damage class. Derived from the
           matrix + micro-enforcement reduces. Labeled "Projected" pre-apply. */}
       {damageRows.length > 0 && (
-        <div className="px-4 py-4 border-b border-slate-800/70 bg-slate-900/20">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-2.5">
+        <div className="px-4 py-4 border-b border-border bg-card">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground mb-2.5">
             What can happen
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)_84px_104px] gap-x-2 items-center max-w-[560px]">
             {/* header row */}
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 pb-1.5">Damage type</div>
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-red-300/90 text-center pb-1.5">Today</div>
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-emerald-300/90 text-center pb-1.5">Projected after fix</div>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground pb-1.5">Damage type</div>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300/90 text-center pb-1.5">Today</div>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300/90 text-center pb-1.5">Projected after fix</div>
             {damageRows.map((r, i) => (
               <Fragment key={r.cat}>
-                <div className={`text-[12px] text-slate-200 py-2 ${i > 0 ? "border-t border-slate-800/60" : ""}`}>
+                <div className={`text-[12px] text-foreground py-2 ${i > 0 ? "border-t border-border" : ""}`}>
                   <span className="font-semibold">{r.label}</span>
-                  <span className="text-slate-500"> — {r.impact}</span>
+                  <span className="text-muted-foreground"> — {r.impact}</span>
                 </div>
-                <div className={`text-center py-2 ${i > 0 ? "border-t border-slate-800/60" : ""}`}>
-                  <span className="inline-flex items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-300 text-[10px] font-bold w-[72px] py-1">
+                <div className={`text-center py-2 ${i > 0 ? "border-t border-border" : ""}`}>
+                  <span className="inline-flex items-center justify-center rounded border border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300 text-[10px] font-bold w-[72px] py-1">
                     Allowed
                   </span>
                 </div>
-                <div className={`text-center py-2 ${i > 0 ? "border-t border-slate-800/60" : ""}`}>
+                <div className={`text-center py-2 ${i > 0 ? "border-t border-border" : ""}`}>
                   {r.removed ? (
-                    <span className="inline-flex items-center justify-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 text-emerald-300 text-[10px] font-bold w-[96px] py-1">
+                    <span className="inline-flex items-center justify-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold w-[96px] py-1">
                       <X className="h-3 w-3" /> Removed
                     </span>
                   ) : (
-                    <span className="inline-flex items-center justify-center gap-1 rounded border border-slate-600 bg-slate-800/40 text-slate-300 text-[10px] font-bold w-[96px] py-1">
+                    <span className="inline-flex items-center justify-center gap-1 rounded border border-border bg-muted text-foreground text-[10px] font-bold w-[96px] py-1">
                       <Check className="h-3 w-3" /> Kept, scoped
                     </span>
                   )}
@@ -300,9 +300,9 @@ export function AttackerNarrativeView({
             ))}
           </div>
           {scopes.length > 0 && (
-            <p className="text-[11px] text-slate-400 mt-3">
+            <p className="text-[11px] text-muted-foreground mt-3">
               Required access remains, scoped to{" "}
-              <span className="font-mono text-emerald-300">{scopes.map((s) => `${s}/*`).join(", ")}</span>.
+              <span className="font-mono text-emerald-700 dark:text-emerald-300">{scopes.map((s) => `${s}/*`).join(", ")}</span>.
             </p>
           )}
         </div>
@@ -311,64 +311,64 @@ export function AttackerNarrativeView({
       {/* Recommended first fix — structured Remove / Keep / Scope / Safety,
           bound to the diff object, with a one-click route to the exact diff. */}
       {diff && (
-        <div className="px-4 py-4 border-t border-slate-800/70 bg-emerald-950/15">
+        <div className="px-4 py-4 border-t border-border bg-emerald-500/5">
           <div className="flex items-center gap-2 mb-2.5">
-            <Wrench className="h-3.5 w-3.5 text-emerald-300" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+            <Wrench className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-300" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
               Recommended first fix: {fixLabel(diff.delivered_as)}
             </span>
             {diff.diff_hash && (
-              <span className="ml-auto font-mono text-[9px] text-slate-500" title="The human approves this hash, not the story">
+              <span className="ml-auto font-mono text-[9px] text-muted-foreground" title="The human approves this hash, not the story">
                 diff {diff.diff_hash.slice(0, 12)}
               </span>
             )}
           </div>
           <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Remove</div>
-            <div className="text-red-300">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Remove</div>
+            <div className="text-red-700 dark:text-red-300">
               {diff.remove_actions.length} unused destructive/admin action{diff.remove_actions.length === 1 ? "" : "s"}
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Keep</div>
-            <div className="text-emerald-300">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Keep</div>
+            <div className="text-emerald-700 dark:text-emerald-300">
               {diff.keep_actions.length} required action{diff.keep_actions.length === 1 ? "" : "s"}
               {diff.keep_bucket_level?.length && diff.keep_object_level?.length ? (
-                <span className="text-slate-400"> ({diff.keep_bucket_level.length} bucket-level · {diff.keep_object_level.length} object)</span>
+                <span className="text-muted-foreground"> ({diff.keep_bucket_level.length} bucket-level · {diff.keep_object_level.length} object)</span>
               ) : null}
             </div>
             {scopes.length > 0 && (
               <>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Scope</div>
-                <div className="font-mono text-emerald-300 text-[11px]">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Scope</div>
+                <div className="font-mono text-emerald-700 dark:text-emerald-300 text-[11px]">
                   {scopes.map((s) => `${s}/*`).join("  ·  ")}
                 </div>
               </>
             )}
             {diff.role && (
               <>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Affected</div>
-                <div className="text-[12px] text-slate-200">
-                  role <span className="font-mono text-slate-100">{diff.role}</span>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Affected</div>
+                <div className="text-[12px] text-foreground">
+                  role <span className="font-mono text-foreground">{diff.role}</span>
                   {diff.consumers != null && diff.consumers > 0 && (
-                    <span className="text-slate-400"> · {diff.consumers} live workload{diff.consumers === 1 ? "" : "s"}</span>
+                    <span className="text-muted-foreground"> · {diff.consumers} live workload{diff.consumers === 1 ? "" : "s"}</span>
                   )}
                 </div>
               </>
             )}
             {report.safety_decision && (
               <>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-0.5">Safety</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Safety</div>
                 <div>
-                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${GATE_CHIP[report.safety_decision.gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}>
+                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${GATE_CHIP[report.safety_decision.gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}>
                     {report.safety_decision.gate.replace(/_/g, " ")}
                   </span>
                   {report.safety_decision.gate === "REVIEW_REQUIRED" && diff.consumers && diff.consumers > 1 ? (
-                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
                       Why review is required: this role is shared by {diff.consumers} live workloads.
                       The diff must be approved against aggregate behavior — not auto-applied.
                     </p>
                   ) : (
                     report.safety_decision.reasons.length > 0 && (
-                      <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
                         {report.safety_decision.reasons.join("; ").replace(/shared_role/g, "shared role")}.
                       </p>
                     )
@@ -378,13 +378,13 @@ export function AttackerNarrativeView({
             )}
           </div>
           {report.blast_radius?.headline && (
-            <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+            <p className="text-[11px] text-muted-foreground mt-2 leading-snug">
               Scope impact: {report.blast_radius.headline}
             </p>
           )}
           <a
             href="#what-youre-approving"
-            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 hover:bg-emerald-500/25 transition-colors"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition-colors"
           >
             Review exact diff &amp; rollback →
           </a>
@@ -395,17 +395,17 @@ export function AttackerNarrativeView({
           Collapsed by default: the CISO sees the primary fix above; the
           three-plane detail is one click for SecOps. */}
       {report.micro_enforcement && report.micro_enforcement.length > 0 && (
-        <details className="border-t border-slate-800/70 bg-slate-900/40 group">
-          <summary className="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-slate-900/60">
-            <ShieldCheck className="h-3.5 w-3.5 text-teal-300" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-teal-300">
+        <details className="border-t border-border bg-card group">
+          <summary className="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-accent">
+            <ShieldCheck className="h-3.5 w-3.5 text-teal-700 dark:text-teal-300" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
               Micro-enforcement · {report.micro_enforcement.length} controls
             </span>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-muted-foreground">
               {report.micro_enforcement.map((m) => `${MICRO_META[m.plane]?.layerLabel ?? m.layer}`).join(" · ")}
             </span>
-            <span className="ml-auto text-[10px] text-slate-500 group-open:hidden">▸ expand</span>
-            <span className="ml-auto text-[10px] text-slate-500 hidden group-open:inline">▾ collapse</span>
+            <span className="ml-auto text-[10px] text-muted-foreground group-open:hidden">▸ expand</span>
+            <span className="ml-auto text-[10px] text-muted-foreground hidden group-open:inline">▾ collapse</span>
           </summary>
           <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-3 gap-2.5">
             {report.micro_enforcement.map((m) => {
@@ -414,7 +414,7 @@ export function AttackerNarrativeView({
               return (
                 <div
                   key={m.plane}
-                  className="relative rounded-lg border border-slate-800 bg-slate-950/50 p-2.5 pl-3"
+                  className="relative rounded-lg border border-border bg-muted/30 p-2.5 pl-3"
                 >
                   <span
                     className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded"
@@ -423,12 +423,12 @@ export function AttackerNarrativeView({
                   />
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span style={{ color: meta.accent }}>{meta.icon}</span>
-                    <span className="text-[11px] font-semibold text-slate-100">{m.title}</span>
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500">
+                    <span className="text-[11px] font-semibold text-foreground">{m.title}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
                       {meta.layerLabel}
                     </span>
                     <span
-                      className={`ml-auto inline-flex items-center rounded border px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider ${g.cls}`}
+                      className={`ml-auto inline-flex items-center rounded border px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wider ${g.cls}`}
                     >
                       {m.evidence_grade}
                     </span>
@@ -436,34 +436,34 @@ export function AttackerNarrativeView({
                   <div className="text-[9px] uppercase tracking-wider mb-1" style={{ color: meta.accent }}>
                     {meta.role}
                   </div>
-                  <p className="text-[11px] leading-snug text-slate-300">{m.summary}</p>
+                  <p className="text-[11px] leading-snug text-foreground">{m.summary}</p>
                   {m.reduces && m.reduces.length > 0 && (
-                    <p className="text-[10px] text-slate-400 mt-1 leading-snug">
-                      <span className="text-slate-500">reduces:</span>{" "}
+                    <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                      <span className="text-muted-foreground">reduces:</span>{" "}
                       {m.reduces.map((r) => RISK_REDUCTION_LABEL[r] ?? r).join(", ")}
                     </p>
                   )}
                   {m.remove.length > 0 && (
-                    <p className="text-[10px] text-red-300/90 mt-1 font-mono leading-snug">
+                    <p className="text-[10px] text-red-700 dark:text-red-300/90 mt-1 font-mono leading-snug">
                       − {m.remove.slice(0, 3).join(", ")}
                       {m.remove.length > 3 ? ` (+${m.remove.length - 3})` : ""}
                     </p>
                   )}
                   {m.keep.length > 0 && (
-                    <p className="text-[10px] text-emerald-300/90 font-mono leading-snug">
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-300/90 font-mono leading-snug">
                       ✓ keep {m.keep.slice(0, 2).join(", ")}
                       {m.keep.length > 2 ? ` (+${m.keep.length - 2})` : ""}
                     </p>
                   )}
                   {m.safety_gate && (
                     <span
-                      className={`inline-flex items-center rounded border px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider mt-1.5 ${GATE_CHIP[m.safety_gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}
+                      className={`inline-flex items-center rounded border px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wider mt-1.5 ${GATE_CHIP[m.safety_gate] ?? GATE_CHIP.REVIEW_REQUIRED}`}
                     >
                       {m.safety_gate.replace("_", " ")}
                     </span>
                   )}
                   {m.pending_signal && (
-                    <p className="text-[9px] text-slate-500 italic mt-1 leading-snug">
+                    <p className="text-[9px] text-muted-foreground italic mt-1 leading-snug">
                       pending: {m.pending_signal}
                     </p>
                   )}
@@ -478,23 +478,23 @@ export function AttackerNarrativeView({
           3-step chain by default; full evidence-graded 6 steps in the
           expander for analysts (reviewer: story supports, doesn't compete). */}
       {report.attacker_steps.length > 0 && (
-        <details className="border-t border-slate-800/70 group">
-          <summary className="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-slate-900/40">
-            <Crosshair className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <details className="border-t border-border group">
+          <summary className="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-accent">
+            <Crosshair className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Attacker walkthrough
             </span>
-            <span className="text-[10px] text-slate-500 group-open:hidden ml-1">▸ expand full kill chain</span>
-            <span className="text-[10px] text-slate-500 hidden group-open:inline ml-1">▾ collapse</span>
+            <span className="text-[10px] text-muted-foreground group-open:hidden ml-1">▸ expand full kill chain</span>
+            <span className="text-[10px] text-muted-foreground hidden group-open:inline ml-1">▾ collapse</span>
           </summary>
 
           {/* Compressed chain — always the first thing under the summary. */}
           <div className="px-4 pb-2 space-y-1.5 group-open:hidden">
             {compressed.map((s, i) => (
-              <div key={i} className="text-[11px] text-slate-300 leading-snug">
-                <span className="text-slate-500 font-mono mr-1.5">{i + 1}.</span>
-                <span className="font-semibold text-slate-200">{s.title}</span>
-                <span className="text-slate-400"> — {s.lead}</span>
+              <div key={i} className="text-[11px] text-foreground leading-snug">
+                <span className="text-muted-foreground font-mono mr-1.5">{i + 1}.</span>
+                <span className="font-semibold text-foreground">{s.title}</span>
+                <span className="text-muted-foreground"> — {s.lead}</span>
               </div>
             ))}
           </div>
@@ -511,14 +511,14 @@ export function AttackerNarrativeView({
                 <div key={step.phase} className="relative pl-5">
                   <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded" style={{ background: g.accent }} aria-hidden />
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-slate-400">{meta.icon}</span>
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{meta.step}</span>
-                    <span className="text-[12px] font-semibold text-slate-100">{step.title}</span>
-                    <span className={`ml-auto inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${g.cls}`}>
+                    <span className="text-muted-foreground">{meta.icon}</span>
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{meta.step}</span>
+                    <span className="text-[12px] font-semibold text-foreground">{step.title}</span>
+                    <span className={`ml-auto inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${g.cls}`}>
                       {g.label}
                     </span>
                   </div>
-                  <div className="text-[12px] leading-relaxed text-slate-300">{step.body}</div>
+                  <div className="text-[12px] leading-relaxed text-foreground">{step.body}</div>
                 </div>
               )
             })}
@@ -528,20 +528,20 @@ export function AttackerNarrativeView({
 
       {/* Missing evidence — collection gaps are actionable, not silent */}
       {report.missing_evidence.length > 0 && (
-        <div className="px-4 py-3 border-t border-slate-800/70 bg-slate-900/30">
+        <div className="px-4 py-3 border-t border-border bg-card">
           <div className="flex items-center gap-2 mb-1">
-            <EyeOff className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Not shown — signal missing
             </span>
           </div>
           <ul className="space-y-1">
             {report.missing_evidence.map((m) => (
-              <li key={m.signal} className="text-[11px] text-slate-500 leading-snug">
-                <span className="text-slate-400">{m.signal}</span> — {m.why_it_matters}
-                <span className="ml-1.5 text-slate-600">
+              <li key={m.signal} className="text-[11px] text-muted-foreground leading-snug">
+                <span className="text-muted-foreground">{m.signal}</span> — {m.why_it_matters}
+                <span className="ml-1.5 text-muted-foreground">
                   · blocks approval:{" "}
-                  <span className={m.blocks_approval ? "text-red-300 font-semibold" : "text-emerald-300/80 font-semibold"}>
+                  <span className={m.blocks_approval ? "text-red-700 dark:text-red-300 font-semibold" : "text-emerald-700 dark:text-emerald-300/80 font-semibold"}>
                     {m.blocks_approval ? "yes" : "no"}
                   </span>
                 </span>
@@ -552,7 +552,7 @@ export function AttackerNarrativeView({
       )}
 
       {/* Provenance footer */}
-      <div className="px-4 py-2 border-t border-slate-800/70 text-[9px] text-slate-600 font-mono">
+      <div className="px-4 py-2 border-t border-border text-[9px] text-muted-foreground font-mono">
         compiler {report.compiler_version}
         {source === "bridge" && " · interim client bridge — backend report endpoint not yet live"}
         {report.evidence_pack_hash && ` · evidence ${report.evidence_pack_hash.slice(0, 12)}`}
@@ -576,7 +576,7 @@ export function AttackerNarrative({
 
   if (loading && !report) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-[11px] text-slate-500">
+      <div className="rounded-xl border border-border bg-card p-4 text-[11px] text-muted-foreground">
         Compiling attack-path report…
       </div>
     )
@@ -584,21 +584,21 @@ export function AttackerNarrative({
   // Honest unavailable state — NEVER a contradicting fallback narrative.
   if (!report) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+      <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
-          <Crosshair className="h-4 w-4 text-slate-500 shrink-0" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+          <Crosshair className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
             Attack-path report temporarily unavailable
           </span>
           <button
             type="button"
             onClick={retry}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-0.5 text-[10px] text-foreground hover:bg-accent"
           >
             <Wrench className="h-3 w-3" /> Retry
           </button>
         </div>
-        <p className="text-[11px] text-slate-500 italic mt-2">
+        <p className="text-[11px] text-muted-foreground italic mt-2">
           The compiler didn&apos;t respond{error ? ` (${error})` : ""}. Showing no
           report rather than stale or contradicting data. The map and evidence below
           are unaffected.

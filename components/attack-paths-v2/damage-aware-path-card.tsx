@@ -53,13 +53,13 @@ function confidenceTone(label: string): string {
   switch (label) {
     case "Observed":
     case "Confirmed":
-      return "text-emerald-300"
+      return "text-emerald-700 dark:text-emerald-300"
     case "Configured":
-      return "text-amber-300"
+      return "text-amber-700 dark:text-amber-300"
     case "Blocked":
-      return "text-red-300"
+      return "text-red-700 dark:text-red-300"
     default:
-      return "text-slate-400"
+      return "text-muted-foreground"
   }
 }
 
@@ -69,16 +69,16 @@ function pathStatusLabel(path: IdentityAttackPath): {
 } {
   const effective = path.damage_capability?.effective_damage
   if (effective === "network_blocked" || effective === "data_plane_blocked") {
-    return { label: "Blocked", tone: "text-red-300" }
+    return { label: "Blocked", tone: "text-red-700 dark:text-red-300" }
   }
   if (effective === "no_jewel_perms") {
-    return { label: "No jewel permissions", tone: "text-slate-400" }
+    return { label: "No jewel permissions", tone: "text-muted-foreground" }
   }
   const hasObserved = (path.edges ?? []).some((e) => e.is_observed)
   if (hasObserved || path.evidence_type === "observed") {
-    return { label: "Observed", tone: "text-emerald-300" }
+    return { label: "Observed", tone: "text-emerald-700 dark:text-emerald-300" }
   }
-  return { label: "Configured", tone: "text-amber-300" }
+  return { label: "Configured", tone: "text-amber-700 dark:text-amber-300" }
 }
 
 function GranularLineRow({
@@ -96,18 +96,18 @@ function GranularLineRow({
     <div className="flex items-start gap-2 py-1 pl-2">
       <span className="shrink-0 mt-0.5">
         {allowed ? (
-          <Check className="h-3 w-3 text-emerald-400" aria-hidden />
+          <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" aria-hidden />
         ) : (
-          <X className="h-3 w-3 text-slate-600" aria-hidden />
+          <X className="h-3 w-3 text-muted-foreground" aria-hidden />
         )}
       </span>
       <div className="min-w-0 flex-1">
-        <span className="text-[11px] text-slate-200">{label}</span>
+        <span className="text-[11px] text-foreground">{label}</span>
         <span className={`ml-2 text-[9px] font-semibold uppercase ${confidenceTone(confidence)}`}>
           {confidence}
         </span>
         {detail && (
-          <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">{detail}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{detail}</p>
         )}
       </div>
     </div>
@@ -258,18 +258,18 @@ export function DamageAwarePathCard({
   return (
     <>
       <div
-        className="mx-6 mt-3 mb-2 rounded-xl border border-slate-700/80 bg-slate-900/50 overflow-hidden shadow-lg shadow-black/20"
+        className="mx-6 mt-3 mb-2 rounded-xl border border-border bg-card overflow-hidden shadow-md"
         data-testid="damage-aware-path-card"
       >
-        <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-950/60">
+        <div className="px-4 py-3 border-b border-border bg-muted/30">
           <div className="flex items-center gap-2 flex-wrap">
-            <Shield className="h-4 w-4 text-blue-300 shrink-0" />
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-100">
+            <Shield className="h-4 w-4 text-blue-500 shrink-0" />
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
               Damage-Aware Path to Crown Jewel
             </h2>
             {jewel && (
               <span
-                className="ml-auto inline-flex items-center gap-1 text-[10px] text-amber-300 font-mono truncate max-w-[220px]"
+                className="ml-auto inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-300 font-mono truncate max-w-[220px]"
                 title={jewel.name}
               >
                 <Crown className="h-3 w-3 shrink-0" />
@@ -277,37 +277,37 @@ export function DamageAwarePathCard({
               </span>
             )}
           </div>
-          <p className="text-[10px] text-slate-500 mt-1">Path · Damage · Least-Privilege Fix</p>
+          <p className="text-[10px] text-muted-foreground mt-1">Path · Damage · Least-Privilege Fix</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-800/60">
+        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
           <section className="px-4 py-3 space-y-2">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500">Path</div>
-            <p className="text-sm text-slate-100 font-mono leading-snug">{chainLine}</p>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Path</div>
+            <p className="text-sm text-foreground font-mono leading-snug">{chainLine}</p>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
               <span className={`uppercase tracking-wider font-semibold ${status.tone}`}>
                 {status.label}
               </span>
-              <span className="text-slate-600">·</span>
-              <span className="text-slate-400">{path.hop_count} hop{path.hop_count === 1 ? "" : "s"}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{path.hop_count} hop{path.hop_count === 1 ? "" : "s"}</span>
               {(path.nodes ?? []).some((n) => isPrincipalNodeType(n.type) && n.name === "root") && (
                 <>
-                  <span className="text-slate-600">·</span>
-                  <span className="text-red-300 font-semibold uppercase">Root credentials</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-red-700 dark:text-red-300 font-semibold uppercase">Root credentials</span>
                 </>
               )}
             </div>
             {path.damage_narrative && (
-              <p className="text-[12px] text-slate-300 leading-snug">{path.damage_narrative}</p>
+              <p className="text-[12px] text-foreground leading-snug">{path.damage_narrative}</p>
             )}
           </section>
 
           <section className="px-4 py-3">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
               Potential damage on jewel
             </div>
             {scopeLoading && !scope ? (
-              <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Loading scope…
               </div>
@@ -318,7 +318,7 @@ export function DamageAwarePathCard({
                   if (!lines.length) return null
                   return (
                     <div key={verb}>
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                      <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
                         {verbLabel(verb)}
                       </div>
                       {lines.map((line, i) => (
@@ -336,7 +336,7 @@ export function DamageAwarePathCard({
               </div>
             )}
             {scopeError && (
-              <p className="text-[11px] text-amber-400/90 mt-2 flex items-center gap-1">
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 Scope unavailable — showing configured signals only
               </p>
@@ -344,15 +344,15 @@ export function DamageAwarePathCard({
           </section>
         </div>
 
-        <section className="px-4 py-3 border-t border-slate-800/60 bg-slate-950/30">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Why</div>
+        <section className="px-4 py-3 border-t border-border bg-muted/30">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Why</div>
           <ul className="space-y-1.5">
             {whyLines.map((w) => (
               <li key={w.label} className="text-[11px] leading-snug">
-                <span className="text-slate-500 uppercase tracking-wider text-[9px] mr-2">
+                <span className="text-muted-foreground uppercase tracking-wider text-[9px] mr-2">
                   {w.label}
                 </span>
-                <span className="text-slate-300">{w.text}</span>
+                <span className="text-foreground">{w.text}</span>
                 <span
                   className={`ml-2 text-[9px] font-semibold uppercase ${confidenceTone(w.confidence)}`}
                 >
@@ -363,47 +363,47 @@ export function DamageAwarePathCard({
           </ul>
         </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-800/60 border-t border-slate-800/60">
+        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border border-t border-border">
           <section className="px-4 py-3 bg-emerald-500/[0.03]">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-400 mb-1">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1">
               <Sparkles className="h-3 w-3" />
               Recommended LP fix
             </div>
             {topFix ? (
               <div>
-                <p className="text-sm text-slate-100">{topFix.action}</p>
+                <p className="text-sm text-foreground">{topFix.action}</p>
                 {topFix.node_name && (
-                  <p className="text-[11px] font-mono text-slate-500 mt-0.5">on {topFix.node_name}</p>
+                  <p className="text-[11px] font-mono text-muted-foreground mt-0.5">on {topFix.node_name}</p>
                 )}
                 {topFix.impact > 0 && (
-                  <p className="text-[10px] text-emerald-400 mt-1">
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
                     −{Math.round(topFix.impact)} path score
                   </p>
                 )}
                 <button
                   type="button"
                   onClick={() => handleApply(topFix)}
-                  className="mt-3 inline-flex items-center rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+                  className="mt-3 inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition-colors"
                   data-testid="damage-aware-apply-cta"
                 >
                   Preview LP fix
                 </button>
               </div>
             ) : (
-              <p className="text-[11px] text-slate-500 italic">
+              <p className="text-[11px] text-muted-foreground italic">
                 No LP recommendation computed for this path yet
               </p>
             )}
           </section>
           <section className="px-4 py-3">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
               Expected result
             </div>
-            <p className="text-sm text-slate-200 leading-snug">
+            <p className="text-sm text-foreground leading-snug">
               {expectedResult ?? "Post-LP scope will appear after damage-scope loads"}
             </p>
             {scope?.damage_reduction_percent != null && scope.damage_reduction_percent > 0 && (
-              <p className="text-[10px] text-emerald-400 mt-1">
+              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
                 ~{Math.round(scope.damage_reduction_percent)}% dangerous scope removed (configured
                 basis)
               </p>
@@ -411,20 +411,20 @@ export function DamageAwarePathCard({
           </section>
         </div>
 
-        <div className="px-4 py-2.5 border-t border-slate-800/60 bg-slate-950/40 space-y-2">
+        <div className="px-4 py-2.5 border-t border-border bg-muted/30 space-y-2">
           <div className="flex flex-wrap items-center gap-3 text-[10px]">
-            <span className="text-slate-500 uppercase tracking-wider">LP confidence</span>
+            <span className="text-muted-foreground uppercase tracking-wider">LP confidence</span>
             <span
-              className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${gateTone(lpAssessment.gate)}`}
+              className={`font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${gateTone(lpAssessment.gate)}`}
               title={lpAssessment.reason}
             >
               {lpAssessment.label}
             </span>
             {blastLine && (
               <>
-                <span className="text-slate-600">·</span>
+                <span className="text-muted-foreground">·</span>
                 <span
-                  className={lpAssessment.gate === "REVIEW" ? "text-amber-300" : "text-slate-400"}
+                  className={lpAssessment.gate === "REVIEW" ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}
                   title="Blast impact if this role is narrowed"
                 >
                   Blast: {blastLine}
@@ -432,12 +432,12 @@ export function DamageAwarePathCard({
               </>
             )}
           </div>
-          <p className="text-[10px] text-slate-500 leading-snug">{lpAssessment.reason}</p>
+          <p className="text-[10px] text-muted-foreground leading-snug">{lpAssessment.reason}</p>
           {lpAssessment.evidenceGaps.length > 0 && (
             <button
               type="button"
               onClick={() => setShowTechnical((s) => !s)}
-              className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200"
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
             >
               {showTechnical ? (
                 <ChevronDown className="h-3 w-3" />
@@ -449,13 +449,13 @@ export function DamageAwarePathCard({
             </button>
           )}
           {showTechnical && lpAssessment.evidenceGaps.length > 0 && (
-            <ul className="text-[10px] text-slate-500 list-disc pl-4 space-y-0.5">
+            <ul className="text-[10px] text-muted-foreground list-disc pl-4 space-y-0.5">
               {lpAssessment.evidenceGaps.slice(0, 4).map((g) => (
                 <li key={g}>{g}</li>
               ))}
             </ul>
           )}
-          <p className="text-[10px] text-slate-600 italic">
+          <p className="text-[10px] text-muted-foreground italic">
             Remove dangerous damage, preserve required access — based on collected IAM, network,
             data, and observed usage signals.
           </p>

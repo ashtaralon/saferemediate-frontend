@@ -54,16 +54,16 @@ function GateBadge({ gate }: { gate: string | null | undefined }) {
   if (!gate) return null
   const g = gate.toUpperCase()
   const map: Record<string, { tone: string; label: string }> = {
-    AUTO: { tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300", label: "AUTO" },
-    STAGED_AUTO: { tone: "border-blue-500/40 bg-blue-500/10 text-blue-300", label: "STAGED" },
-    SUGGEST: { tone: "border-amber-500/40 bg-amber-500/10 text-amber-300", label: "SUGGEST" },
-    MANUAL_REVIEW: { tone: "border-orange-500/40 bg-orange-500/10 text-orange-300", label: "REVIEW" },
-    INSUFFICIENT_DATA: { tone: "border-slate-500/40 bg-slate-500/10 text-slate-300", label: "INSUFFICIENT DATA" },
+    AUTO: { tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", label: "AUTO" },
+    STAGED_AUTO: { tone: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300", label: "STAGED" },
+    SUGGEST: { tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300", label: "SUGGEST" },
+    MANUAL_REVIEW: { tone: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300", label: "REVIEW" },
+    INSUFFICIENT_DATA: { tone: "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-300", label: "INSUFFICIENT DATA" },
   }
-  const m = map[g] ?? { tone: "border-slate-500/40 bg-slate-500/10 text-slate-300", label: g }
+  const m = map[g] ?? { tone: "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-300", label: g }
   return (
     <span
-      className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${m.tone}`}
+      className={`inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${m.tone}`}
     >
       {m.label}
     </span>
@@ -78,28 +78,28 @@ const PLANE_META: Record<
   network: {
     label: "NETWORK",
     icon: ShieldAlert,
-    tone: "text-orange-300",
+    tone: "text-orange-700 dark:text-orange-300",
     bg: "border-orange-500/20 bg-orange-500/5",
     copy: "Close unused ingress and egress rules",
   },
   iam: {
     label: "IDENTITY",
     icon: Key,
-    tone: "text-pink-300",
+    tone: "text-pink-700 dark:text-pink-300",
     bg: "border-pink-500/20 bg-pink-500/5",
     copy: "Drop permissions that haven't been used in 90 days",
   },
   data: {
     label: "DATA",
     icon: Database,
-    tone: "text-violet-300",
+    tone: "text-violet-700 dark:text-violet-300",
     bg: "border-violet-500/20 bg-violet-500/5",
     copy: "Narrow resource access to observed actions only",
   },
   other: {
     label: "OTHER",
     icon: Sparkles,
-    tone: "text-slate-300",
+    tone: "text-slate-600 dark:text-slate-300",
     bg: "border-slate-500/20 bg-slate-500/5",
     copy: "",
   },
@@ -157,14 +157,14 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
   // No hardening data at all — render an honest empty state.
   if (!rr || planes.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+      <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-emerald-300" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-200">
+          <Sparkles className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
             Recommended Hardening
           </span>
         </div>
-        <div className="text-[11px] text-slate-500 italic mt-2">
+        <div className="text-[11px] text-muted-foreground italic mt-2">
           No closure recommendations computed for this path yet. Either the
           risk-reduction simulator hasn't run on this snapshot, or the path's
           nodes have no actionable narrowing opportunities (everything observed
@@ -193,15 +193,15 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
           className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-emerald-500/[0.06] transition-colors"
         >
           {collapsed ? (
-            <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           )}
-          <Sparkles className="h-4 w-4 text-emerald-300" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-100">
+          <Sparkles className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
             Recommended Hardening
           </span>
-          <span className="ml-auto text-[10px] text-slate-400">
+          <span className="ml-auto text-[10px] text-muted-foreground">
             {totalActions} action{totalActions === 1 ? "" : "s"} across {planes.length} plane{planes.length === 1 ? "" : "s"}
           </span>
         </button>
@@ -213,30 +213,30 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
               <div className="px-4 pb-3 border-b border-emerald-500/15">
                 {/* Reduction narrative when LLM is enabled */}
                 {path.reduction_narrative && (
-                  <div className="text-sm text-slate-200 leading-snug mb-3">
+                  <div className="text-sm text-foreground leading-snug mb-3">
                     {path.reduction_narrative}
                   </div>
                 )}
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500">
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
                       score
                     </span>
-                    <span className="text-lg font-semibold text-slate-200 tabular-nums">
+                    <span className="text-lg font-semibold text-foreground tabular-nums">
                       {rr.current_score}
                     </span>
-                    <ArrowRight className="h-3 w-3 text-slate-500" />
-                    <span className="text-lg font-semibold text-emerald-300 tabular-nums">
+                    <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-lg font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
                       {rr.achievable_score}
                     </span>
                     {totalImpact > 0 && (
-                      <span className="text-[11px] text-emerald-400 ml-1">
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 ml-1">
                         −{totalImpact}
                       </span>
                     )}
                   </div>
                   {lockedActions > 0 && (
-                    <span className="text-[10px] text-slate-500">
+                    <span className="text-[10px] text-muted-foreground">
                       · {lockedActions} locked (AWS-managed)
                     </span>
                   )}
@@ -253,15 +253,15 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
                   <div key={plane} className={`${meta.bg} border-l-2 border-l-current ${meta.tone} px-4 py-3`}>
                     <div className="flex items-center gap-2 mb-2">
                       <Icon className={`h-3.5 w-3.5 ${meta.tone}`} />
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">
                         {meta.label} · {bucket.action_count} action{bucket.action_count === 1 ? "" : "s"}
                       </span>
-                      <span className="ml-auto text-[10px] text-emerald-400">
+                      <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400">
                         −{Math.round(bucket.delta)} pts
                       </span>
                     </div>
                     {meta.copy && (
-                      <div className="text-[11px] text-slate-400 mb-2 italic">
+                      <div className="text-[11px] text-muted-foreground mb-2 italic">
                         {meta.copy}
                       </div>
                     )}
@@ -281,7 +281,7 @@ export function HardeningPanel({ path, systemName, defaultCollapsed = false }: H
 
             {/* Footer — caveat per feedback_safety_language: describe the
                 fail-closed posture, don't claim "safe." */}
-            <div className="px-4 py-2.5 text-[10px] text-slate-500 bg-slate-950/40 border-t border-emerald-500/10">
+            <div className="px-4 py-2.5 text-[10px] text-muted-foreground bg-muted/30 border-t border-emerald-500/10">
               Each Apply opens the standard remediation flow for that resource:
               dry-run preview → snapshot → execute → rollback available. The
               same UnifiedPipeline that powers the IAM, SG, and S3 remediation
@@ -339,31 +339,31 @@ function ActionRow({
     <div
       className={`flex items-start gap-2 p-2 rounded-md border ${
         locked
-          ? "bg-slate-900/30 border-slate-800 opacity-60"
-          : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+          ? "bg-card border-border opacity-60"
+          : "bg-card border-border hover:border-border"
       }`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-200">{action.action}</span>
+          <span className="text-xs text-foreground">{action.action}</span>
           {action.node_name && (
-            <span className="text-[10px] font-mono text-slate-500 truncate">
+            <span className="text-[10px] font-mono text-muted-foreground truncate">
               · {action.node_name}
             </span>
           )}
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
+        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
           {action.impact > 0 && (
-            <span className="text-emerald-400">−{Math.round(action.impact)} pts</span>
+            <span className="text-emerald-600 dark:text-emerald-400">−{Math.round(action.impact)} pts</span>
           )}
           {action.dominant_factor && (
-            <span className="text-slate-500">
+            <span className="text-muted-foreground">
               · drives {action.dominant_factor.replaceAll("_", " ")}
             </span>
           )}
         </div>
         {locked && action.not_remediable_reason && (
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500">
+          <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
             <Lock className="h-2.5 w-2.5" />
             {action.not_remediable_reason}
           </div>
@@ -374,8 +374,8 @@ function ActionRow({
         disabled={locked}
         className={`shrink-0 text-[10px] font-semibold rounded-md px-2.5 py-1 border transition-colors ${
           locked
-            ? "border-slate-800 text-slate-600 cursor-not-allowed"
-            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20"
+            ? "border-border text-muted-foreground cursor-not-allowed"
+            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
         }`}
       >
         Apply
