@@ -965,6 +965,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return { kind: 'percent', pct: metrics.gapPct }
   }
 
+  const getPosturePanelDescription = (resourceType: GapResource['resourceType']): string => {
+    if (resourceType === 'SecurityGroup') {
+      return 'Per-port public-ingress analysis from VPC Flow Logs and SG rules. Each issue is a concrete narrow-or-close recommendation — see Risk Details.'
+    }
+    if (resourceType === 'LambdaFunction' || resourceType === 'EC2Instance') {
+      return 'Workload posture assertions from AWS configuration. Each issue is a one-shot fix — see Risk Details for the list.'
+    }
+    return 'Configuration assertions from AWS RDS describe-db-instances. Each issue is a one-shot fix — see Risk Details for the list.'
+  }
+
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
     const activeResources = resources.filter(resource => !isRemediatedResource(resource))
     const severityCounts = activeResources.reduce((acc, resource) => {
@@ -2375,8 +2385,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 </span>
                               </div>
                               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                                Configuration assertions from AWS RDS describe-db-instances.
-                                Each issue is a one-shot fix — see Risk Details for the list.
+                                {getPosturePanelDescription(resource.resourceType)}
                               </p>
                               {/* Severity-tally bar instead of used/unused — one segment per violation. */}
                               <div className="h-3 rounded-full overflow-hidden flex gap-0.5" style={{ background: "var(--bg-primary)" }}>
