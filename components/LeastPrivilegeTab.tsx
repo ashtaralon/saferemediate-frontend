@@ -942,6 +942,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
     }
 
+    // SG with violatedRules (new public-ingress behavioral analyzer) —
+    // show "N issues" pill same as RDS/Lambda/EC2 posture rows.
+    if (t === 'SecurityGroup' && violations > 0) {
+      return {
+        kind: 'count',
+        count: violations,
+        label: violations === 1 ? 'issue' : 'issues',
+      }
+    }
+
     // SG chain-aware exposed-rule shape: gap=0 (no unused) but exposed>0.
     // Show "N exposed" instead of misleading "0%".
     if (t === 'SecurityGroup' && metrics.gapPct === 0 && metrics.unusedCount === 0) {
@@ -2344,16 +2354,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
                             <BarChart3 className="w-3.5 h-3.5" />
-                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security'
+                            {(resource.evidence?.violatedRules?.length ?? 0) > 0
+                              ? (resource.resourceType === 'SecurityGroup' ? 'Public Ingress' : 'Posture Issues')
+                              : resource.resourceType === 'SecurityGroup' ? 'Rule Security'
                               : resource.resourceType === 'S3Bucket' ? 'Access Analysis'
                               : resource.resourceType === 'RDSInstance' ? 'Posture Issues'
                               : 'Privilege Analysis'}
                           </h4>
-                          {/* Posture rows (RDS today; S3 public-policy and EC2 workload
-                              exposure tomorrow) don't carry a permission-gap metric.
-                              Render the violation count + severity instead of the
-                              over-privileged-percentage bar. */}
-                          {resource.resourceType === 'RDSInstance' && (resource.evidence?.violatedRules?.length ?? 0) > 0 ? (
+                          {/* Posture rows render violation count + severity instead
+                              of the over-privileged-percentage bar. Fires on any
+                              row with violatedRules — not gated on resource type. */}
+                          {(resource.evidence?.violatedRules?.length ?? 0) > 0 ? (
                             <>
                               <div className="flex items-center gap-3 mb-2">
                                 <span className="text-3xl font-bold" style={{ color: sevColor }}>
@@ -2540,19 +2551,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </div>
                           )}
 
-                          {/* RDS Instance: posture violation list. Each row is a
-                              concrete config flip (publicly_accessible, storage
-                              encryption, IAM-DB auth, backups, deletion protection).
-                              Severity per-rule comes from the backend's
-                              _determine_severity-equivalent for RDS posture. */}
-                          {resource.resourceType === 'RDSInstance' && (
+                          {/* Posture violation list — any row with violatedRules
+                              (RDS, SG public-ingress, Lambda, etc.). */}
+                          {(resource.evidence?.violatedRules?.length ?? 0) > 0 && resource.resourceType !== 'IAMRole' && (
                             <div className="space-y-2">
                               {(resource.evidence?.violatedRules?.length ?? 0) === 0 ? (
                                 <p className="text-xs" style={{ color: "#22c55e" }}>No posture issues found.</p>
                               ) : (
                                 <>
                                   <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                                    {resource.evidence?.violatedRules?.length} violation{resource.evidence?.violatedRules?.length === 1 ? '' : 's'}
+                                    {resource.evidence?.violatedRules?.length} {resource.resourceType === 'SecurityGroup' ? 'public port' : 'violation'}{resource.evidence?.violatedRules?.length === 1 ? '' : 's'}
                                   </div>
                                   <div className="space-y-1.5 max-h-44 overflow-y-auto">
                                     {(resource.evidence?.violatedRules ?? []).map((v, i) => {
