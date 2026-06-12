@@ -738,7 +738,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               flowlogs: r.evidence?.flowlogs || null,
               resourcePolicies: r.evidence?.resourcePolicies || null,
               confidence_breakdown: r.evidence?.confidence_breakdown || null,
-              rule_states: r.evidence?.rule_states || null  // Security Group rule states
+              rule_states: r.evidence?.rule_states || null,  // Security Group rule states
+              // Posture findings (RDS / Lambda / EC2) carry violatedRules in API evidence.
+              violatedRules: r.evidence?.violatedRules || undefined
             },
             severity: normalizeLpSeverity(r.severity),
             confidence: r.confidence || 0,
