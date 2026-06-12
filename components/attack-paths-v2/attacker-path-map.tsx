@@ -59,12 +59,15 @@ function gate(s: GateState | undefined) {
 }
 
 const DAMAGE_LABEL: Record<string, string> = {
+  unauthorized_grant: "unauthorized grant — self-escalate key access",
   admin: "full takeover (admin)",
   delete: "destroy / delete",
   write: "tamper / write",
   read: "read / exfil",
 }
-const DAMAGE_RANK = ["read", "write", "delete", "admin"]
+// unauthorized_grant (KMS key-policy: grant yourself more access) ranks above
+// admin — it's an escalation + persistence primitive on the key.
+const DAMAGE_RANK = ["read", "write", "delete", "admin", "unauthorized_grant"]
 function worstDamage(types: string[] | undefined): string | null {
   if (!types || types.length === 0) return null
   const top = [...types].sort((a, b) => DAMAGE_RANK.indexOf(b) - DAMAGE_RANK.indexOf(a))[0]
