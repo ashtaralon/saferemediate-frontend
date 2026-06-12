@@ -198,6 +198,20 @@ interface LeastPrivilegeSummary {
   attackSurfaceReduction: number
 }
 
+interface LpReadinessCheck {
+  id: string
+  status: string
+  message?: string
+  remediation?: string
+}
+
+interface LpReadinessPayload {
+  status: 'ready' | 'degraded' | 'not_started'
+  score?: number
+  blockers?: string[]
+  checks?: LpReadinessCheck[]
+}
+
 interface LeastPrivilegeResponse {
   summary: LeastPrivilegeSummary
   resources: GapResource[]
@@ -248,6 +262,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // family-scoped BRSS for IAM. Fetched from /api/proxy/issues-summary in
   // parallel with the main LP data.
   const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
+  const [lpReadiness, setLpReadiness] = useState<LpReadinessPayload | null>(null)
   const { toast } = useToast()
   const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
   const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
@@ -605,6 +620,29 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }
       } catch {
         setBrss(null)
+      }
+      if (!systemName) {
+        setLpReadiness(null)
+        return
+      }
+      try {
+        const readinessRes = await fetch(
+          `/api/proxy/systems/${encodeURIComponent(systemName)}/lp-readiness?observation_days=90`,
+          { cache: 'no-store' },
+        )
+        if (!readinessRes.ok) {
+          setLpReadiness(null)
+          return
+        }
+        const readinessPayload = await readinessRes.json()
+        setLpReadiness({
+          status: readinessPayload.status,
+          score: readinessPayload.score,
+          blockers: readinessPayload.blockers,
+          checks: readinessPayload.checks,
+        })
+      } catch {
+        setLpReadiness(null)
       }
     })()
     return () => {
@@ -1717,6 +1755,46 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </button>
         </div>
       </div>
+
+      {lpReadiness && lpReadiness.status !== 'ready' && (
+        <div
+          className="rounded-lg border px-4 py-3"
+          style={{
+            background: lpReadiness.status === 'not_started' ? '#f59e0b12' : '#ef444412',
+            borderColor: lpReadiness.status === 'not_started' ? '#f59e0b40' : '#ef444440',
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle
+              className="w-5 h-5 shrink-0 mt-0.5"
+              style={{ color: lpReadiness.status === 'not_started' ? '#f59e0b' : '#ef4444' }}
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                LP data {lpReadiness.status === 'not_started' ? 'not ready' : 'incomplete'}
+                {typeof lpReadiness.score === 'number' && (
+                  <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                    readiness {Math.round(lpReadiness.score * 100)}%
+                  </span>
+                )}
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                {lpReadiness.status === 'not_started'
+                  ? 'Collectors or system tagging have not populated enough graph data for full LP coverage.'
+                  : 'Some LP analyzers may be missing substrate data — findings below may be partial.'}
+              </p>
+              {(lpReadiness.checks || [])
+                .filter((c) => c.status === 'fail' || c.status === 'warn')
+                .slice(0, 3)
+                .map((c) => (
+                  <p key={c.id} className="text-xs mt-1 font-mono" style={{ color: 'var(--text-muted)' }}>
+                    {c.remediation || c.message || c.id}
+                  </p>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
