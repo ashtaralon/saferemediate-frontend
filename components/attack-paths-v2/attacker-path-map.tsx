@@ -105,6 +105,18 @@ function pickRole(p: IdentityAttackPath): PathNodeDetail | undefined {
     p.nodes.find((n) => /IAMRole/i.test(n.type))
   )
 }
+
+// Roles are often ingested with name = principal id ("AROA…") and the friendly
+// name only in the ARN. Prefer the ARN's `role/<name>` segment so the identity
+// card reads "cyntro-demo-cmk-consumer", not "AROA23JBKAVDSFWB7GYAZ".
+function friendlyRoleName(
+  role: PathNodeDetail | undefined,
+  fallback?: string | null,
+): string {
+  const m = role?.canonical_id ? /[:/]role\/([^/]+)$/.exec(String(role.canonical_id)) : null
+  if (m) return m[1]
+  return role?.name ?? fallback ?? "—"
+}
 function pickJewel(p: IdentityAttackPath): PathNodeDetail | undefined {
   return (
     p.nodes.find((n) => n.tier === "crown_jewel") ??
@@ -448,7 +460,7 @@ export function AttackerPathMap({
             <SpineNode
               icon={<KeyRound className="h-3 w-3" />}
               kicker={hasCompute ? "identity" : "identity · entry"}
-              title={role?.name ?? closure?.diff?.role ?? "—"}
+              title={friendlyRoleName(role, closure?.diff?.role)}
               accent="border-amber-500/40 bg-amber-500/[0.05]"
               chips={
                 <>
