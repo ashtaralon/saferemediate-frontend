@@ -259,13 +259,13 @@ export function AttackPathPanel({
       : null
     return (
       <div
-        className="flex flex-col h-full items-center justify-center gap-3 text-sm text-slate-500"
+        className="flex flex-col h-full items-center justify-center gap-3 text-sm text-muted-foreground"
         data-loading-stage={stage}
       >
         <Loader2 className="w-5 h-5 animate-spin" />
         <div>{label}</div>
         {subtitle && (
-          <div className="text-xs text-slate-600 max-w-md text-center px-4">
+          <div className="text-xs text-muted-foreground max-w-md text-center px-4">
             {subtitle}
           </div>
         )}
@@ -278,12 +278,12 @@ export function AttackPathPanel({
       ? `${payload.error}${payload.detail ? `: ${payload.detail}` : ""}`
       : error ?? "Failed to load attack path."
     return (
-      <div className="flex flex-col h-full items-center justify-center gap-3 text-sm text-slate-400">
+      <div className="flex flex-col h-full items-center justify-center gap-3 text-sm text-muted-foreground">
         <AlertTriangle className="w-5 h-5 text-amber-500" />
         <div className="max-w-md text-center">{errMsg}</div>
         <button
           onClick={retry}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-slate-700 hover:bg-slate-800 transition-colors"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-border hover:bg-accent transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           Retry
@@ -294,7 +294,7 @@ export function AttackPathPanel({
 
   if (!identityPath) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-400">
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Empty path.
       </div>
     )

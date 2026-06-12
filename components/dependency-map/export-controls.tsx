@@ -46,8 +46,15 @@ export function ExportControls({
     try {
       // Dynamic import html2canvas only when needed
       const html2canvas = (await import('html2canvas')).default;
+      // Export background follows the active theme (html2canvas needs a
+      // concrete color, so resolve the body's computed background instead
+      // of hardcoding the old dark-navy fill).
+      const themeBg = (() => {
+        const c = getComputedStyle(document.body).backgroundColor;
+        return c && c !== 'rgba(0, 0, 0, 0)' ? c : '#ffffff';
+      })();
       const canvas = await html2canvas(containerRef.current, {
-        backgroundColor: '#0f172a',
+        backgroundColor: themeBg,
         scale: 2,
         useCORS: true,
         logging: false,
@@ -94,8 +101,8 @@ export function ExportControls({
           transition-all duration-200
           ${
             isExporting
-              ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-              : 'bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white'
+              ? 'bg-muted/50 text-muted-foreground cursor-not-allowed border border-border'
+              : 'bg-muted text-foreground hover:bg-accent border border-border'
           }
         `}
       >
@@ -114,19 +121,19 @@ export function ExportControls({
 
       {isOpen && (
         <div
-          className="absolute right-0 mt-1 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl overflow-visible"
+          className="absolute right-0 mt-1 w-48 bg-card border border-border rounded-lg shadow-2xl overflow-visible"
           style={{ zIndex: 9999, top: '100%' }}
         >
           <button
             onClick={handleExportPNG}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-white hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
           >
             <FileImage className="w-4 h-4 text-blue-400" />
             Export as PNG
           </button>
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-white hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
           >
             <Printer className="w-4 h-4 text-green-400" />
             Print / Save as PDF

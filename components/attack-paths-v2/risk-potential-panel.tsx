@@ -38,19 +38,19 @@ function severityStyles(severity: string) {
   const s = severity.toUpperCase()
   if (s === "CRITICAL") {
     return {
-      border: "border-red-500/40",
+      border: "border-red-500/30",
       bg: "bg-red-500/[0.06]",
-      headline: "text-red-100",
-      chip: "bg-red-500/15 text-red-200 border-red-500/30",
+      headline: "text-red-800 dark:text-red-100",
+      chip: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30",
       dot: "bg-red-400",
     }
   }
   if (s === "HIGH") {
     return {
-      border: "border-orange-500/35",
+      border: "border-orange-500/30",
       bg: "bg-orange-500/[0.05]",
-      headline: "text-orange-100",
-      chip: "bg-orange-500/15 text-orange-200 border-orange-500/30",
+      headline: "text-orange-800 dark:text-orange-100",
+      chip: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30",
       dot: "bg-orange-400",
     }
   }
@@ -58,16 +58,16 @@ function severityStyles(severity: string) {
     return {
       border: "border-amber-500/30",
       bg: "bg-amber-500/[0.04]",
-      headline: "text-amber-100",
-      chip: "bg-amber-500/15 text-amber-200 border-amber-500/30",
+      headline: "text-amber-800 dark:text-amber-100",
+      chip: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30",
       dot: "bg-amber-400",
     }
   }
   return {
-    border: "border-slate-700/50",
-    bg: "bg-slate-900/30",
-    headline: "text-slate-200",
-    chip: "bg-slate-800 text-slate-300 border-slate-700",
+    border: "border-border",
+    bg: "bg-card",
+    headline: "text-foreground",
+    chip: "bg-muted text-foreground border-border",
     dot: "bg-slate-500",
   }
 }
@@ -75,8 +75,8 @@ function severityStyles(severity: string) {
 function MetaPill({ label, value }: { label: string; value: number }) {
   if (!value) return null
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-300">
-      <span className="uppercase tracking-wider text-slate-500">{label}</span>
+    <span className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground">
+      <span className="uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className="font-mono font-semibold tabular-nums">{value}</span>
     </span>
   )
@@ -118,20 +118,20 @@ function FindingCard({
     >
       <div className="flex flex-wrap items-center gap-2">
         <span
-          className={`text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${styles.chip}`}
+          className={`text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${styles.chip}`}
         >
           {statement.layer_chip}
         </span>
         {statement.category_label ? (
-          <span className="text-[11px] font-mono text-slate-300">{statement.category_label}</span>
+          <span className="text-[11px] font-mono text-foreground">{statement.category_label}</span>
         ) : null}
         {statement.source_label ? (
-          <span className="text-[11px] text-slate-400">{statement.source_label}</span>
+          <span className="text-[11px] text-muted-foreground">{statement.source_label}</span>
         ) : null}
       </div>
 
       {statement.observed_pill ? (
-        <div className="text-[10px] text-slate-400 italic">{statement.observed_pill}</div>
+        <div className="text-[10px] text-muted-foreground italic">{statement.observed_pill}</div>
       ) : null}
 
       <p className={`text-sm font-semibold leading-snug ${styles.headline}`}>
@@ -139,15 +139,15 @@ function FindingCard({
       </p>
 
       {statement.supporting ? (
-        <p className="text-[12px] text-slate-400 leading-relaxed">{statement.supporting}</p>
+        <p className="text-[12px] text-muted-foreground leading-relaxed">{statement.supporting}</p>
       ) : null}
 
       {statement.evidence_lines.length > 0 ? (
-        <ul className="space-y-1 border-t border-slate-800/80 pt-2">
+        <ul className="space-y-1 border-t border-border pt-2">
           {statement.evidence_lines.map((line) => (
             <li
               key={line}
-              className="text-[11px] font-mono text-slate-300 flex items-start gap-2"
+              className="text-[11px] font-mono text-foreground flex items-start gap-2"
             >
               <span className={`mt-1.5 inline-block h-1 w-1 rounded-full shrink-0 ${styles.dot}`} />
               {line}
@@ -155,7 +155,7 @@ function FindingCard({
           ))}
         </ul>
       ) : statement.evidence_summary ? (
-        <p className="text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">
+        <p className="text-[11px] text-muted-foreground border-t border-border pt-2">
           {statement.evidence_summary}
         </p>
       ) : null}
@@ -164,7 +164,7 @@ function FindingCard({
         <button
           type="button"
           onClick={() => onRemediate(sgId, finding.workload_name || sgId)}
-          className="text-[11px] font-semibold text-cyan-300 hover:text-cyan-200 transition-colors"
+          className="text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
           title={statement.recommendation_prompt || undefined}
         >
           {statement.recommendation_label} →
@@ -183,17 +183,17 @@ export function RiskPotentialPanel({ path, systemName }: RiskPotentialPanelProps
 
   if (loading && !data) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 animate-pulse">
-        <div className="h-4 w-40 bg-slate-800 rounded mb-3" />
-        <div className="h-20 bg-slate-800/60 rounded" />
+      <div className="rounded-xl border border-border bg-card p-4 animate-pulse">
+        <div className="h-4 w-40 bg-muted rounded mb-3" />
+        <div className="h-20 bg-muted rounded" />
       </div>
     )
   }
 
   if (error && !data) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
-        <div className="text-[11px] text-slate-500 italic">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="text-[11px] text-muted-foreground italic">
           Risk Potential unavailable ({error}). Showing legacy damage projection below.
         </div>
       </div>
@@ -213,15 +213,15 @@ export function RiskPotentialPanel({ path, systemName }: RiskPotentialPanelProps
           className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-red-500/[0.05] transition-colors"
         >
           {collapsed ? (
-            <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           )}
-          <ShieldAlert className="h-4 w-4 text-red-300" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-100">
+          <ShieldAlert className="h-4 w-4 text-red-700 dark:text-red-300" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
             Risk Potential
           </span>
-          <span className="ml-auto text-[10px] text-slate-400">
+          <span className="ml-auto text-[10px] text-muted-foreground">
             {meta.total} finding{meta.total === 1 ? "" : "s"} · {sg.name}
           </span>
         </button>
@@ -236,7 +236,7 @@ export function RiskPotentialPanel({ path, systemName }: RiskPotentialPanelProps
               <MetaPill label="subnet" value={meta.by_layer.SUBNET_PLACEMENT ?? 0} />
               <MetaPill label="egress" value={meta.by_layer.EGRESS_CAPABILITY ?? 0} />
               {meta.observation_window_days ? (
-                <span className="text-[10px] text-slate-500 self-center">
+                <span className="text-[10px] text-muted-foreground self-center">
                   {meta.observation_window_days}d observation window
                 </span>
               ) : null}
@@ -252,7 +252,7 @@ export function RiskPotentialPanel({ path, systemName }: RiskPotentialPanelProps
               ))}
             </div>
 
-            <p className="text-[11px] text-slate-500 italic border-t border-slate-800/80 pt-2">
+            <p className="text-[11px] text-muted-foreground italic border-t border-border pt-2">
               Chain-ranked exposure from {normalizeSgId(data.sg_id)} — deterministic
               damage statements, not LLM inference.
             </p>

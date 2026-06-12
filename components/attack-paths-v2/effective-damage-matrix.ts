@@ -86,6 +86,28 @@ export function buildEffectiveDamageMatrix(
   const gates = dc?.gates
   const effective = dc?.effective_damage
 
+  // Accuracy-audit F2/F3 (2026-06-11): when the backend reconciled this
+  // path against its materialized :AttackPath node, the graph's
+  // damage_types are the source of truth for the chip — not the IAM
+  // grant-ceiling verb counts and not the SG/NACL "Blocked" heuristic.
+  // The backend already corrects effective_damage on fresh responses;
+  // this branch also protects cached/stale payloads.
+  const matTypes = dc?.materialized_damage_types
+  if (Array.isArray(matTypes) && matTypes.length > 0 &&
+      effective !== "network_blocked" && effective !== "data_plane_blocked") {
+    const detail = "From materialized attack path (graph)"
+    const cell = (verb: DamageVerbKey): MatrixCell =>
+      matTypes.includes(verb)
+        ? { allowed: true, confidence: "Configured", detail }
+        : { allowed: false, confidence: "Unknown" }
+    return {
+      read: cell("read"),
+      write: cell("write"),
+      delete: cell("delete"),
+      admin: cell("admin"),
+    }
+  }
+
   if (effective === "network_blocked") {
     const reason = gates?.network_reason ?? "Network controls block reachability"
     return {

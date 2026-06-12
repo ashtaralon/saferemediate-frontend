@@ -15,7 +15,9 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  /* 2026-06-11: darkened from 0.556 — secondary text was too pale in
+     dense security-review surfaces (graph labels, metadata, IDs). */
+  --muted-foreground: oklch(0.49 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -37,8 +39,10 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  --font-inter: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-mono-stack: "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  /* Geist — sleek dev-tools type system (loaded via next/font in layout.tsx).
+     Falls back to system stacks if the font variable isn't present. */
+  --font-inter: var(--font-geist-sans), "Geist", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono-stack: var(--font-geist-mono), "Geist Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 
   /* Least-Privilege token aliases — used by LP-styled views (Systems, LP).
      Aliased to the shadcn family so there's a single source of truth and
@@ -49,41 +53,59 @@
   --bg-primary: var(--background);
   --bg-secondary: var(--card);
   --border-subtle: var(--border);
+
+  /* Canvas semantic tokens — graph/SVG views (attack-path canvases,
+     TrafficFlowMap, topology). One vocabulary across every canvas:
+     observed = live evidence (CloudTrail/flow logs), config = allowed
+     but not observed, capable = unverified/assumed, danger = critical
+     signal, lateral = pivot edges. Light values here; dark overrides
+     in .dark below. */
+  --canvas-observed: #059669;
+  --canvas-config: #64748b;
+  --canvas-capable: #d97706;
+  --canvas-danger: #dc2626;
+  --canvas-lateral: #7c3aed;
+  --canvas-node-bg: #ffffff;
+  /* darker than --border so node cards hold their shape on the canvas */
+  --canvas-node-border: #cbd5e1;
+  --canvas-label: #334155;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  /* Cyntro tech palette — the navy + teal attacker-view aesthetic, applied
+     app-wide in dark mode. Brand accent is teal (#00C2A8). */
+  --background: #0d1b2a;
+  --foreground: #eaf1f6;
+  --card: #11202f;
+  --card-foreground: #eaf1f6;
+  --popover: #15293d;
+  --popover-foreground: #eaf1f6;
+  --primary: #00c2a8;
+  --primary-foreground: #04342c;
+  --secondary: #15293d;
+  --secondary-foreground: #eaf1f6;
+  --muted: #15293d;
+  --muted-foreground: #8aa0b2;
+  --accent: #15293d;
+  --accent-foreground: #4fd8c4;
+  --destructive: #ef5b53;
+  --destructive-foreground: #2a1714;
+  --border: #24405a;
+  --input: #24405a;
+  --ring: #00c2a8;
+  --chart-1: #00c2a8;
+  --chart-2: #34d399;
+  --chart-3: #f5b14c;
+  --chart-4: #6bb6e8;
+  --chart-5: #a78bfa;
+  --sidebar: #0a1622;
+  --sidebar-foreground: #c7d5e0;
+  --sidebar-primary: #00c2a8;
+  --sidebar-primary-foreground: #04342c;
+  --sidebar-accent: #15293d;
+  --sidebar-accent-foreground: #4fd8c4;
+  --sidebar-border: #1c3046;
+  --sidebar-ring: #00c2a8;
 
   /* LP token aliases — dark variant (same right-hand sides; shadcn tokens
      already shift to dark values above, so aliases track automatically). */
@@ -93,6 +115,16 @@
   --bg-primary: var(--background);
   --bg-secondary: var(--card);
   --border-subtle: var(--border);
+
+  /* Canvas semantic tokens — dark variants. */
+  --canvas-observed: #34d399;
+  --canvas-config: #8aa0b2;
+  --canvas-capable: #f5b14c;
+  --canvas-danger: #ef5b53;
+  --canvas-lateral: #a78bfa;
+  --canvas-node-bg: #11202f;
+  --canvas-node-border: #24405a;
+  --canvas-label: #8aa0b2;
 }
 
 @theme inline {

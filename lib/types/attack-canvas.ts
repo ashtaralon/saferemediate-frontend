@@ -235,21 +235,20 @@ export function planeForString(relationship: string): EdgePlane {
  * without needing the legend. Avoid red — that's reserved for attack
  * paths in AnimatedTrafficLine.
  *
- * Tuned for OKLCH dark surface (#0f172a / slate-900 family). The
- * lightness is intentionally low (~55-65%) so the lines read as
- * structural rather than alarmist.
+ * 500-level hues — saturated enough to read on the light theme,
+ * still structural (not alarmist) on the dark navy surface.
  */
 export const PLANE_COLOR: Record<EdgePlane, string> = {
-  identity: "#a78bfa", // violet-400 — muted purple
-  network: "#2dd4bf", // teal-400
-  data: "#fb923c", // orange-400 — warm
+  identity: "#8b5cf6", // violet-500
+  network: "#14b8a6", // teal-500
+  data: "#f97316", // orange-500 — warm
 }
 
 /** Slightly brighter glow companion to PLANE_COLOR for active particles. */
 export const PLANE_GLOW: Record<EdgePlane, string> = {
-  identity: "#c4b5fd", // violet-300
-  network: "#5eead4", // teal-300
-  data: "#fdba74", // orange-300
+  identity: "#a78bfa", // violet-400
+  network: "#2dd4bf", // teal-400
+  data: "#fb923c", // orange-400
 }
 
 /**

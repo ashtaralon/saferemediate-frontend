@@ -23,11 +23,13 @@ import { AttackPathFlowViz } from "@/components/identity-attack-paths/attack-pat
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
+  PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import { filterActivePaths } from "@/lib/active-filters"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
+import { AttackerPathMapSection } from "./attacker-path-map"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import {
   DamageScopeDrawer,
@@ -72,16 +74,97 @@ function captionTruncate(name: string, maxLen = 36): string {
   return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
 }
 
+// Kill-chain strip (2026-06-11). The map's lane layout makes the
+// numbered spine zigzag visually; this strip gives reviewers the
+// LINEAR story: ENTRY → IDENTITY → NETWORK PASSAGE → DATA, with the
+// same 1-based step numbers the map badges carry. Replaces the old
+// canvasV2-gated "ENTRY → via N hops → REACHES" caption — always on
+// when a path is present. Purely presentational.
+type KillChainPhase = "ENTRY" | "IDENTITY" | "NETWORK" | "DATA"
+
+function killChainPhase(node: PathNodeDetail): KillChainPhase {
+  const t = (node.type || "").toLowerCase()
+  // Order matters: "instanceprofile" contains "instance" (a workload
+  // hint) — identity patterns must win first.
+  if (/role|instance.?profile|policy/.test(t)) return "IDENTITY"
+  if (/s3|bucket|rds|dynamo|kms|secret/.test(t)) return "DATA"
+  if (/subnet|security.?group|nacl|networkacl|route|vpce|vpc.?endpoint|igw|internet.?gateway|nat/.test(t)) return "NETWORK"
+  if (isPrincipalNodeType(node.type) || /ec2|lambda|ecs|instance|principal|user/.test(t)) return "ENTRY"
+  // Unknown type → fall back to the path tier the backend assigned.
+  if (node.tier === "network_control") return "NETWORK"
+  if (node.tier === "identity") return "IDENTITY"
+  if (node.tier === "crown_jewel") return "DATA"
+  return "ENTRY"
+}
+
+function KillChainStrip({ nodes }: { nodes: PathNodeDetail[] }) {
+  // Segments: every node is its own segment EXCEPT consecutive NETWORK
+  // nodes, which collapse into one "NETWORK PASSAGE · n hops" segment
+  // (step range + tooltip list) so the strip stays one line.
+  const segments = useMemo(() => {
+    const segs: Array<{ phase: KillChainPhase; nodes: Array<PathNodeDetail & { step: number }> }> = []
+    nodes.forEach((n, idx) => {
+      const phase = killChainPhase(n)
+      const entry = { ...n, step: idx + 1 }
+      const prev = segs[segs.length - 1]
+      if (phase === "NETWORK" && prev?.phase === "NETWORK") prev.nodes.push(entry)
+      else segs.push({ phase, nodes: [entry] })
+    })
+    return segs
+  }, [nodes])
+  if (segments.length === 0) return null
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-6 py-3 border-b border-border bg-card"
+      data-kill-chain-strip="true"
+    >
+      {segments.map((seg, i) => {
+        const grouped = seg.nodes.length > 1
+        const first = seg.nodes[0]
+        const last = seg.nodes[seg.nodes.length - 1]
+        const numberLabel = grouped ? `${first.step}–${last.step}` : String(first.step)
+        const title = seg.nodes.map((n) => `${n.step}. ${n.name} (${n.type})`).join("\n")
+        const isLast = i === segments.length - 1
+        return (
+          <span key={`${seg.phase}-${first.step}`} className="flex items-center gap-2 min-w-0" title={title}>
+            {/* Same badge style as the map's numbered spine badges */}
+            <span
+              className={`${grouped ? "px-1.5 min-w-[18px]" : "w-[18px]"} h-[18px] rounded-full flex items-center justify-center text-[10px] font-semibold text-white shadow-md shrink-0`}
+              style={{ backgroundColor: "var(--canvas-danger)" }}
+            >
+              {numberLabel}
+            </span>
+            <span className="flex flex-col leading-tight min-w-0">
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                {grouped ? `Network passage · ${seg.nodes.length} hops` : seg.phase}
+              </span>
+              {!grouped && (
+                <span className="text-[11px] font-mono text-foreground truncate">
+                  {captionTruncate(first.name)}
+                </span>
+              )}
+            </span>
+            {isLast && seg.phase === "DATA" && (
+              <Crown className="h-3 w-3 text-amber-500 shrink-0" />
+            )}
+            {!isLast && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 // Map severity level → tone for the score badge. Same palette as the
 // path list so the operator sees consistent severity coloring across
 // the page.
 function severityTone(level?: string) {
   const l = (level || "").toLowerCase()
-  if (l === "critical") return "bg-red-500/15 border-red-500/40 text-red-200"
-  if (l === "high") return "bg-orange-500/15 border-orange-500/40 text-orange-200"
-  if (l === "medium") return "bg-amber-500/15 border-amber-500/40 text-amber-200"
-  if (l === "low") return "bg-emerald-500/15 border-emerald-500/40 text-emerald-200"
-  return "bg-slate-500/15 border-slate-500/40 text-slate-200"
+  if (l === "critical") return "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
+  if (l === "high") return "bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-300"
+  if (l === "medium") return "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
+  if (l === "low") return "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+  return "bg-muted border-border text-muted-foreground"
 }
 
 export function PathAnalysisPanel({
@@ -105,6 +188,10 @@ export function PathAnalysisPanel({
   // toggle before Attack Paths v2 dropped it.
   const [mapView, setMapView] = useState<"flow" | "lateral">("flow")
   const [technicalOpen, setTechnicalOpen] = useState(false)
+  // Supporting evidence is collapsible but DEFAULT OPEN — the flow map is
+  // still the demo hero; the toggle just lets the operator focus the
+  // decision panel above when they want to.
+  const [evidenceOpen, setEvidenceOpen] = useState(true)
 
   const lateralPaths = useMemo(() => filterActivePaths([path]), [path])
 
@@ -148,7 +235,6 @@ export function PathAnalysisPanel({
   }, [path, jewel])
 
   const start = path.nodes?.[0]
-  const target = path.nodes?.[path.nodes.length - 1]
   const sevTone = severityTone(path.severity?.severity)
   const sevLabel = (path.severity?.severity || "—").toUpperCase()
   const sevScore = path.severity?.overall_score
@@ -195,13 +281,54 @@ export function PathAnalysisPanel({
   const { data: damageScopeData, loading: damageScopeLoading, error: damageScopeError } =
     useDamageScope(damageScopeFetchTarget)
 
+  // Accuracy-audit F5 (2026-06-11): per-path gate evidence summary from
+  // the MATERIALIZED :AttackPath gates — always labeled with the exact
+  // foothold → role pair it summarizes. The previous evidence chip
+  // aggregated whichever underlying path variant happened to be loaded
+  // (EC2-foothold route=OPEN_CONFIG vs orphan-role route=UNKNOWN)
+  // without disambiguating, so the counts wobbled between views.
+  const materializedEvidence = useMemo(() => {
+    const mp = path.materialized_path
+    if (!mp) return null
+    const gateNames: Array<[string, string | undefined]> = [
+      ["identity", mp.identity_gate],
+      ["route", mp.route_gate],
+      ["data-plane", mp.data_plane_gate],
+    ]
+    const counts = { observed: 0, configured: 0, blocked: 0, unknown: 0 }
+    for (const [, g] of gateNames) {
+      const v = (g || "UNKNOWN").toUpperCase()
+      if (v === "OPEN_OBSERVED") counts.observed++
+      else if (v === "OPEN_CONFIG") counts.configured++
+      else if (v === "CLOSED") counts.blocked++
+      else counts.unknown++
+    }
+    const parts: string[] = []
+    if (counts.observed) parts.push(`${counts.observed} observed`)
+    if (counts.configured) parts.push(`${counts.configured} configured`)
+    if (counts.blocked) parts.push(`${counts.blocked} blocked`)
+    if (counts.unknown) parts.push(`${counts.unknown} unknown`)
+    const pathLabel = [mp.workload_name, mp.role_name].filter(Boolean).join(" → ")
+    const detail = gateNames
+      .map(([name, g]) => `${name}=${(g || "UNKNOWN").toUpperCase()}`)
+      .join(" · ")
+    return { parts, pathLabel, detail }
+  }, [path.materialized_path])
+
   return (
     <div className="flex flex-col h-full">
       {/* Compact chrome — path narrative lives on DamageAwarePathCard */}
-      <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10">
+      <div className="px-6 py-2 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${sevTone}`}>
+            {/* Labeled "path score" so it can't be confused with the
+                compiler's Exposure (0–1) chip in the narrative — two
+                different models, two different dimensions. */}
+            <span
+              className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${sevTone}`}
+              title="IAP 6-factor path score (/100) — distinct from the compiler's Exposure model below"
+            >
+              <span className="opacity-70 mr-1 font-semibold normal-case">path score</span>
               {sevLabel}
               {sevScore !== undefined && sevScore !== null && (
                 <span className="ml-1.5 opacity-80">{sevScore}/100</span>
@@ -209,21 +336,33 @@ export function PathAnalysisPanel({
             </span>
             {isRootPrincipal && (
               <span
-                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider rounded border border-red-500/50 bg-red-500/15 text-red-200 px-2 py-0.5"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider rounded border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 px-2 py-0.5"
                 title="Authenticated with AWS account root user"
               >
                 <AlertOctagon className="h-3 w-3" />
                 Auth: root
               </span>
             )}
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-muted-foreground">
               {path.hop_count ?? path.nodes.length - 1} hops
             </span>
+            {materializedEvidence && (
+              <span
+                className="text-[10px] uppercase tracking-wider text-muted-foreground truncate max-w-[360px]"
+                title={`Gate evidence for THIS path${materializedEvidence.pathLabel ? ` (${materializedEvidence.pathLabel})` : ""}: ${materializedEvidence.detail}`}
+              >
+                Evidence
+                {materializedEvidence.pathLabel && (
+                  <span className="normal-case font-mono"> ({materializedEvidence.pathLabel})</span>
+                )}
+                : {materializedEvidence.parts.join(" · ")}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {jewel && (
-              <div className="flex items-center gap-1.5 text-xs font-mono text-amber-200/90 truncate max-w-[200px]" title={jewel.name}>
-                <Crown className="h-3 w-3 text-amber-400 shrink-0" />
+              <div className="flex items-center gap-1.5 text-xs font-mono text-amber-700 dark:text-amber-300 truncate max-w-[200px]" title={jewel.name}>
+                <Crown className="h-3 w-3 text-amber-500 shrink-0" />
                 {jewel.name}
               </div>
             )}
@@ -231,13 +370,21 @@ export function PathAnalysisPanel({
               <button
                 onClick={onToggleExpand}
                 title={isExpanded ? "Collapse (Esc)" : "Expand to full screen"}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-700 bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600 transition-colors"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               >
                 {isExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
               </button>
             )}
           </div>
         </div>
+      </div>
+
+      {/* HERO — attacker path map (story view): kill-chain spine + THE GAP +
+          live before/diff/after. First content block, above the technical
+          panels. Composes ClosureOutcomePanel internally, so the standalone
+          closure section is removed (no double render). */}
+      <div className="px-6 py-4 border-b border-border">
+        <AttackerPathMapSection path={path} />
       </div>
 
       <DamageAwarePathCard
@@ -250,61 +397,41 @@ export function PathAnalysisPanel({
       />
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
-      <div className="border-b border-slate-800/60 bg-slate-950/40">
+      <div className="border-b border-border bg-muted/30">
         <div className="px-6 pt-3 pb-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">
+          <button
+            type="button"
+            onClick={() => setEvidenceOpen((o) => !o)}
+            className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight
+              className={`h-3 w-3 transition-transform ${evidenceOpen ? "rotate-90" : ""}`}
+            />
             Supporting evidence
-          </div>
-          <p className="text-[11px] text-slate-600 mt-0.5">
-            Network topology, lateral movement, and per-plane signals
-          </p>
+          </button>
+          {evidenceOpen && (
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Network topology, lateral movement, and per-plane signals
+            </p>
+          )}
         </div>
-        {/* V2-1: Caption strip — one-line story above the canvas.
-            ENTRY: <hop[0]> → via N hops → REACHES: <jewel>.
-            Mirrors the breadcrumb up top but binds visually to the
-            canvas (not the metadata header) so the eye gets a
-            reading direction WITH the diagram, not 200px above it.
-            Behind ?canvas=v2 — legacy operators see no change. */}
-        {canvasV2 && start && target && (
-          <div className="px-6 pt-4 pb-1 flex items-center gap-2 text-[11px]">
-            <span className="text-slate-500 uppercase tracking-wider font-medium shrink-0">
-              Entry
-            </span>
-            <span
-              className="font-mono text-slate-200 truncate max-w-[280px]"
-              title={start.name}
-            >
-              {start.name}
-            </span>
-            <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
-            <span className="text-slate-400 shrink-0">
-              via <span className="font-semibold text-slate-200">{path.hop_count}</span>{" "}
-              {path.hop_count === 1 ? "hop" : "hops"}
-            </span>
-            <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
-            <span className="text-slate-500 uppercase tracking-wider font-medium shrink-0">
-              Reaches
-            </span>
-            <span
-              className="font-mono text-amber-300 truncate"
-              title={jewel?.name ?? target.name}
-            >
-              {captionTruncate(jewel?.name ?? target.name)}
-            </span>
-            {jewel?.name && (
-              <Crown className="h-3 w-3 text-amber-400 shrink-0" />
-            )}
-          </div>
-        )}
+        {evidenceOpen && (
+        <>
+        {/* Kill-chain strip (2026-06-11) — replaces the canvasV2-gated
+            "ENTRY → via N hops → REACHES" caption. Always on when the
+            path has nodes: a LINEAR phase-by-phase read of the spine
+            whose numbers match the map's step badges, since the lane
+            layout makes the numbered spine zigzag on the canvas. */}
+        {(path.nodes?.length ?? 0) > 0 && <KillChainStrip nodes={path.nodes} />}
         <div className="px-6 pt-4 pb-2 flex items-center justify-between gap-3">
-          <div className="inline-flex items-center bg-slate-800/60 rounded p-0.5 border border-slate-700 shrink-0">
+          <div className="inline-flex items-center bg-muted rounded p-0.5 border border-border shrink-0">
             <button
               type="button"
               onClick={() => setMapView("flow")}
               className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
                 mapView === "flow"
-                  ? "bg-blue-500/20 text-blue-200"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
               title="Rich system map — Stack Components sidebar, ROUTE TABLES, EGRESS GATEWAYS, lateral pivot edges"
             >
@@ -315,15 +442,15 @@ export function PathAnalysisPanel({
               onClick={() => setMapView("lateral")}
               className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
                 mapView === "lateral"
-                  ? "bg-fuchsia-500/20 text-fuchsia-200"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
               title="5-column lateral movement layout — Entry · Compute · Identity · Pivot · Crown Jewel"
             >
               Lateral Movement
             </button>
           </div>
-          <div className="text-[10px] text-slate-500 text-right min-w-0">
+          <div className="text-[10px] text-muted-foreground text-right min-w-0">
             {mapView === "flow"
               ? "click a data resource (canvas or Storage sidebar) for damage scope"
               : "Entry → Compute → Identity → Pivot → Crown Jewel"}
@@ -335,7 +462,7 @@ export function PathAnalysisPanel({
             alon-prod-sized data. */}
         <div className="px-6 pb-4">
           <div
-            className="relative rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden"
+            className="relative rounded-xl border border-border bg-card overflow-hidden"
             style={{ height: "520px" }}
           >
             {mapView === "flow" ? (
@@ -382,13 +509,15 @@ export function PathAnalysisPanel({
               from the path itself — no inputs. */}
           <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
         </div>
+        </>
+        )}
       </div>
 
-      <div className="px-6 py-4 border-t border-slate-800/60">
+      <div className="px-6 py-4 border-t border-border">
         <button
           type="button"
           onClick={() => setTechnicalOpen((o) => !o)}
-          className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-400 hover:text-slate-200"
+          className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
         >
           <ChevronRight
             className={`h-3 w-3 transition-transform ${technicalOpen ? "rotate-90" : ""}`}

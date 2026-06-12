@@ -20,6 +20,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
+import { MaterializedScopeBadge } from "./materialized-scope-badge"
 import { PathComparisonTable } from "./path-comparison-table"
 import { pathDamageSummary, pathTopFixLabel } from "./path-damage-summary"
 
@@ -40,16 +41,16 @@ const SOURCE_BUCKETS: Record<
   string,
   { label: string; icon: any; tone: string }
 > = {
-  root: { label: "FROM ROOT CREDENTIALS", icon: AlertOctagon, tone: "text-red-300" },
-  lambda: { label: "FROM LAMBDA", icon: Zap, tone: "text-orange-300" },
-  ec2: { label: "FROM EC2", icon: Server, tone: "text-blue-300" },
-  ecs: { label: "FROM ECS / CONTAINER", icon: Box, tone: "text-sky-300" },
-  human: { label: "FROM HUMAN USER", icon: User, tone: "text-emerald-300" },
-  external: { label: "FROM EXTERNAL", icon: Globe, tone: "text-red-300" },
-  external_account: { label: "FROM EXTERNAL ACCOUNT", icon: Globe, tone: "text-red-300" },
-  service: { label: "FROM AWS SERVICE", icon: Cloud, tone: "text-violet-300" },
-  database: { label: "FROM DATABASE", icon: Database, tone: "text-purple-300" },
-  other: { label: "FROM OTHER", icon: Box, tone: "text-slate-400" },
+  root: { label: "FROM ROOT CREDENTIALS", icon: AlertOctagon, tone: "text-red-600 dark:text-red-400" },
+  lambda: { label: "FROM LAMBDA", icon: Zap, tone: "text-orange-600 dark:text-orange-400" },
+  ec2: { label: "FROM EC2", icon: Server, tone: "text-blue-600 dark:text-blue-400" },
+  ecs: { label: "FROM ECS / CONTAINER", icon: Box, tone: "text-sky-600 dark:text-sky-400" },
+  human: { label: "FROM HUMAN USER", icon: User, tone: "text-emerald-600 dark:text-emerald-400" },
+  external: { label: "FROM EXTERNAL", icon: Globe, tone: "text-red-600 dark:text-red-400" },
+  external_account: { label: "FROM EXTERNAL ACCOUNT", icon: Globe, tone: "text-red-600 dark:text-red-400" },
+  service: { label: "FROM AWS SERVICE", icon: Cloud, tone: "text-violet-600 dark:text-violet-400" },
+  database: { label: "FROM DATABASE", icon: Database, tone: "text-purple-600 dark:text-purple-400" },
+  other: { label: "FROM OTHER", icon: Box, tone: "text-muted-foreground" },
 }
 
 function nodeTypeBucket(type: string | undefined): keyof typeof SOURCE_BUCKETS | null {
@@ -135,16 +136,16 @@ function classifySource(nodes: PathNodeDetail[] | undefined): keyof typeof SOURC
   return "other"
 }
 
-// Severity → tone for the per-path chip. Mirrors the existing
-// IdentityAttackPaths palette so v1 and v2 look consistent on a side-
-// by-side comparison.
+// Severity → tone for the per-path chip. Theme-aware (light + dark)
+// and aligned with FindingCard's severity palette. Phase 2 will hoist
+// this into a shared *_CONFIG export in lib/types.ts.
 function severityTone(level?: string) {
   const l = (level || "").toLowerCase()
-  if (l === "critical") return "bg-red-500/15 border-red-500/40 text-red-200"
-  if (l === "high") return "bg-orange-500/15 border-orange-500/40 text-orange-200"
-  if (l === "medium") return "bg-amber-500/15 border-amber-500/40 text-amber-200"
-  if (l === "low") return "bg-emerald-500/15 border-emerald-500/40 text-emerald-200"
-  return "bg-slate-500/15 border-slate-500/40 text-slate-200"
+  if (l === "critical") return "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
+  if (l === "high") return "bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-300"
+  if (l === "medium") return "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
+  if (l === "low") return "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+  return "bg-muted border-border text-muted-foreground"
 }
 
 export function PathListGrouped({
@@ -221,10 +222,30 @@ export function PathListGrouped({
   }
 
   if (paths.length === 0) {
+    // Accuracy-audit F1 (2026-06-11): distinguish "graph says zero
+    // materialized paths" (honest not-computed state) from "no paths
+    // today". The synthesized list is suppressed backend-side for
+    // not-computed jewels so the list and closure layer can't disagree.
+    if (jewel?.paths_not_computed) {
+      return (
+        <div className="px-4 py-6">
+          <div className="text-xs text-muted-foreground">
+            Attack paths for{" "}
+            <span className="font-mono text-foreground">{jewel?.name ?? "this jewel"}</span>{" "}
+            have not been computed yet.
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1.5">
+            No materialized attack-path evidence exists in the graph for this
+            jewel. Run the attack-path materializer (Phase 3) to compute them —
+            nothing is shown rather than showing unverified paths.
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="px-4 py-6">
-        <div className="text-xs text-slate-400">
-          No attack paths to <span className="font-mono text-slate-200">{jewel?.name ?? "this jewel"}</span> today.
+        <div className="text-xs text-muted-foreground">
+          No attack paths to <span className="font-mono text-foreground">{jewel?.name ?? "this jewel"}</span> today.
         </div>
       </div>
     )
@@ -233,19 +254,25 @@ export function PathListGrouped({
   return (
     <div>
       {/* Jewel header — context for what the path list is about */}
-      <div className="px-4 py-3 border-b border-slate-800/60 sticky top-0 bg-slate-950/95 backdrop-blur">
+      <div className="px-4 py-3 border-b border-border sticky top-0 bg-background/95 backdrop-blur">
         <div className="flex items-center gap-2">
-          <Crown className="h-3.5 w-3.5 text-amber-400" />
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">
+          <Crown className="h-3.5 w-3.5 text-amber-500" />
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
             PATHS TO
           </div>
         </div>
-        <div className="text-sm font-mono font-semibold text-white truncate mt-0.5" title={jewel?.name}>
+        <div className="text-sm font-mono font-semibold text-foreground truncate mt-0.5" title={jewel?.name}>
           {jewel?.name ?? "—"}
         </div>
-        <div className="text-[11px] text-slate-400 mt-0.5">
-          {paths.length} path{paths.length === 1 ? "" : "s"} ·{" "}
-          {grouped.length} source type{grouped.length === 1 ? "" : "s"}
+        <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>
+            {paths.length} path{paths.length === 1 ? "" : "s"} ·{" "}
+            {grouped.length} source type{grouped.length === 1 ? "" : "s"}
+          </span>
+          <MaterializedScopeBadge
+            surfaced={paths.length}
+            graphTotal={jewel?.materialized_path_count}
+          />
         </div>
       </div>
 
@@ -256,7 +283,7 @@ export function PathListGrouped({
       />
 
       {/* Grouped path list */}
-      <div className="divide-y divide-slate-800/40">
+      <div className="divide-y divide-border">
         {grouped.map(([bucket, bucketPaths]) => {
           const meta = SOURCE_BUCKETS[bucket]
           const Icon = meta.icon
@@ -266,18 +293,18 @@ export function PathListGrouped({
               {/* Group header */}
               <button
                 onClick={() => toggleGroup(bucket as string)}
-                className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-slate-900/40 transition-colors"
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-accent/50 transition-colors"
               >
                 {isCollapsed ? (
-                  <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                 ) : (
-                  <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
                 <Icon className={`h-3.5 w-3.5 ${meta.tone}`} />
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
                   {meta.label}
                 </span>
-                <span className="text-[10px] text-slate-500 ml-auto">
+                <span className="text-[10px] text-muted-foreground ml-auto">
                   {bucketPaths.length}
                 </span>
               </button>
@@ -310,8 +337,8 @@ export function PathListGrouped({
                         onClick={() => onSelectPath(p.id)}
                         className={`w-full text-left rounded-lg px-3 py-2 mx-2 mb-1 transition-colors border ${
                           isSelected
-                            ? "bg-blue-500/10 border-blue-500/40"
-                            : "bg-transparent border-transparent hover:bg-slate-900/40 hover:border-slate-800"
+                            ? "bg-primary/10 border-primary/40"
+                            : "bg-transparent border-transparent hover:bg-accent/50 hover:border-border"
                         }`}
                       >
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -328,7 +355,7 @@ export function PathListGrouped({
                               hits) at a glance. */}
                           {hits > 0 && (
                             <span
-                              className="inline-flex items-center text-[9px] font-bold rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 px-1.5 py-0.5"
+                              className="inline-flex items-center text-[9px] font-semibold rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5"
                               title={`${hits} CloudTrail/flow-log events observed across this path`}
                             >
                               {hits.toLocaleString()} hits
@@ -336,32 +363,40 @@ export function PathListGrouped({
                           )}
                           {isTopOfBucket && (
                             <span
-                              className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border border-amber-500/50 bg-amber-500/15 text-amber-200 px-1.5 py-0.5"
+                              className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5"
                               title="Highest observed traffic in this source bucket — most likely the real attack route"
                             >
                               top
                             </span>
                           )}
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-[10px] text-muted-foreground">
                             {p.hop_count} hop{p.hop_count === 1 ? "" : "s"}
                           </span>
                           {p.evidence_type === "observed" && hits === 0 && (
-                            <span className="text-[9px] text-slate-500 uppercase tracking-wider">
+                            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
                               observed (no hit count)
                             </span>
                           )}
+                          {p.materialized_stale && (
+                            <span
+                              className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300 px-1.5 py-0.5"
+                              title={p.stale_reason ?? "Workload inactive — graph path retained for audit"}
+                            >
+                              inactive workload
+                            </span>
+                          )}
                         </div>
-                        <div className="text-xs text-slate-300 font-mono truncate">
+                        <div className="text-xs text-foreground font-mono truncate">
                           {start?.name ?? start?.id ?? "—"}{" "}
-                          <span className="text-slate-600">→</span>{" "}
-                          <span className="text-slate-400">{target?.name ?? "jewel"}</span>
+                          <span className="text-muted-foreground">→</span>{" "}
+                          <span className="text-muted-foreground">{target?.name ?? "jewel"}</span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
-                          <span className="text-slate-500">
-                            Damage: <span className="text-slate-300">{pathDamageSummary(p)}</span>
+                          <span className="text-muted-foreground">
+                            Damage: <span className="text-foreground">{pathDamageSummary(p)}</span>
                           </span>
                           {pathTopFixLabel(p) !== "—" && (
-                            <span className="text-emerald-400/80 truncate max-w-[180px]" title={pathTopFixLabel(p)}>
+                            <span className="text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]" title={pathTopFixLabel(p)}>
                               → {pathTopFixLabel(p)}
                             </span>
                           )}

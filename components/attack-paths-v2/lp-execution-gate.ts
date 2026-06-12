@@ -17,13 +17,24 @@ export function assessLpExecution(
   lp: DamageScopePayload["lp_confidence"] | null | undefined,
   sharedRoleConsumers?: number | null,
 ): LpExecutionAssessment {
+  if (!lp) {
+    return {
+      gate: "REVIEW",
+      label: "REVIEW",
+      reason: "LP confidence unavailable — verify before applying",
+      consumerCount: sharedRoleConsumers ?? null,
+      evidenceGaps: [],
+      vetos: [],
+    }
+  }
+
   const consumerCount =
-    lp?.consumer_count ??
+    lp.consumer_count ??
     sharedRoleConsumers ??
     null
-  const vetos = lp?.vetos ?? []
-  const evidenceGaps = lp?.evidence_gaps ?? []
-  const level = (lp?.level ?? "").toUpperCase()
+  const vetos = lp.vetos ?? []
+  const evidenceGaps = lp.evidence_gaps ?? []
+  const level = (lp.level ?? "").toUpperCase()
 
   const sharedRole = consumerCount != null && consumerCount > 1
   const hasVetos = vetos.length > 0
@@ -62,17 +73,12 @@ export function assessLpExecution(
     }
   }
 
-  // Fail safe: only return AUTO when confidence is explicitly HIGH. A missing or
-  // empty lp_confidence (e.g. damage-scope failed to load) must NOT silently fall
-  // through to AUTO. For a safety-gated remediation product, absent evidence means
-  // REVIEW — never auto-apply.
-  if (level !== "HIGH") {
+  // Fail safe: only return AUTO when confidence is explicitly HIGH.
+  if (level === "HIGH") {
     return {
-      gate: "REVIEW",
-      label: "REVIEW",
-      reason: lp
-        ? `LP confidence ${level || "unknown"} — verify before applying`
-        : "LP confidence unavailable — verify before applying",
+      gate: "AUTO",
+      label: "AUTO",
+      reason: "High-confidence LP — unused permissions with strong observation coverage",
       consumerCount,
       evidenceGaps,
       vetos,
@@ -80,9 +86,11 @@ export function assessLpExecution(
   }
 
   return {
-    gate: "AUTO",
-    label: "AUTO",
-    reason: "High-confidence LP — unused permissions with strong observation coverage",
+    gate: "REVIEW",
+    label: "REVIEW",
+    reason:
+      evidenceGaps[0] ??
+      "LP confidence unavailable — verify before applying",
     consumerCount,
     evidenceGaps,
     vetos,

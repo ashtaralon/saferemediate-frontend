@@ -77,9 +77,9 @@ function severityFromPercent(pct: number): "LOW" | "MEDIUM" | "HIGH" {
 
 function severityClass(level: string) {
   const l = level.toUpperCase()
-  if (l === "HIGH") return "bg-red-500/20 text-red-200 border-red-500/40"
-  if (l === "MEDIUM") return "bg-amber-500/20 text-amber-200 border-amber-500/40"
-  return "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"
+  if (l === "HIGH") return "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30"
+  if (l === "MEDIUM") return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30"
+  return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
 }
 
 function ScopeCard({
@@ -92,16 +92,16 @@ function ScopeCard({
   bullets: string[]
 }) {
   return (
-    <div className="rounded-lg border border-slate-700/80 bg-slate-900/60 p-4 space-y-2">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400">{title}</div>
-      <p className="text-sm font-medium text-slate-100">{headline}</p>
+    <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{title}</div>
+      <p className="text-sm font-medium text-foreground">{headline}</p>
       {bullets.length > 0 && (
-        <ul className="text-xs text-slate-400 space-y-1 list-disc pl-4">
+        <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
           {bullets.slice(0, 8).map((b) => (
             <li key={b}>{b}</li>
           ))}
           {bullets.length > 8 && (
-            <li className="list-none pl-0 text-slate-500">+{bullets.length - 8} more</li>
+            <li className="list-none pl-0 text-muted-foreground">+{bullets.length - 8} more</li>
           )}
         </ul>
       )}
@@ -192,26 +192,26 @@ export function DamageScopeDrawer({
         <SheetContent
           side="right"
           container={portalContainer}
-          className="w-full sm:max-w-[480px] bg-slate-950 border-slate-800 text-slate-100 overflow-y-auto"
+          className="w-full sm:max-w-[480px] bg-background border-border text-foreground overflow-y-auto"
           data-testid="damage-scope-drawer"
         >
           <SheetHeader>
-            <SheetTitle className="text-slate-100">Damage scope</SheetTitle>
-            <SheetDescription className="text-slate-400">
+            <SheetTitle className="text-foreground">Damage scope</SheetTitle>
+            <SheetDescription className="text-muted-foreground">
               {target?.nodeName || target?.nodeId || "Data resource"} · path{" "}
               {target?.pathId}
             </SheetDescription>
           </SheetHeader>
 
           {loading && (
-            <div className="flex items-center justify-center py-12 text-slate-400">
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin mr-2" />
               Loading scope…
             </div>
           )}
 
           {error && !loading && (
-            <p className="text-sm text-red-300 px-4">{error}</p>
+            <p className="text-sm text-red-700 dark:text-red-300 px-4">{error}</p>
           )}
 
           {data && !loading && (
@@ -222,7 +222,7 @@ export function DamageScopeDrawer({
               >
                 {pct}% damage reduction · {sev}
               </div>
-              <p className="text-sm text-slate-300">{data.narrative.summary}</p>
+              <p className="text-sm text-foreground">{data.narrative.summary}</p>
 
               <ScopeCard
                 title="Today (configured)"
@@ -243,7 +243,7 @@ export function DamageScopeDrawer({
                 ]}
               />
               {data.scope_post_lp.informational_note && (
-                <p className="text-xs text-slate-500 border-l-2 border-slate-600 pl-3">
+                <p className="text-xs text-muted-foreground border-l-2 border-border pl-3">
                   {data.scope_post_lp.informational_note}
                 </p>
               )}

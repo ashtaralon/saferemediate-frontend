@@ -457,7 +457,7 @@ export function ExfilViewV3({
     return (
       <div className="flex flex-col h-full">
         <Header jewel={jewel} subtitle="Select a crown jewel to see its exfil surface" />
-        <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
+        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
           No crown jewel selected.
         </div>
       </div>
@@ -472,7 +472,7 @@ export function ExfilViewV3({
     return (
       <div className="flex flex-col h-full">
         <Header jewel={jewel} subtitle="Computing the exfiltration surface…" />
-        <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
+        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
           {retryLabel}
         </div>
       </div>
@@ -485,16 +485,16 @@ export function ExfilViewV3({
       <div className="flex flex-col h-full">
         <Header jewel={jewel} subtitle="Could not load exfil view" />
         <div className="flex-1 flex items-center justify-center px-6">
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md text-sm text-red-200">
+          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md text-sm text-red-700 dark:text-red-300">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="h-4 w-4" />
               <span className="font-semibold">Exfil view failed</span>
             </div>
-            <div className="text-xs text-red-200/80">{msg}</div>
+            <div className="text-xs text-red-700 dark:text-red-300/80">{msg}</div>
             <button
               type="button"
               onClick={retry}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/20"
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-700 dark:text-red-300 hover:bg-red-500/20"
             >
               <RefreshCw className="h-3 w-3" />
               Retry
@@ -620,8 +620,8 @@ function DamageRemediationPanel({
 }) {
   if (!selectedPath) {
     return (
-      <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/40">
-        <div className="text-xs text-slate-500 italic">
+      <div className="px-6 py-6 border-t border-border bg-background">
+        <div className="text-xs text-muted-foreground italic">
           Select an exfil path above to see the damage assessment and
           remediation actions.
         </div>
@@ -724,16 +724,16 @@ function DamageRemediationPanel({
   const destinationCollectorWired = payload.observed_exfil?.available ?? false
 
   return (
-    <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/40 space-y-5">
+    <div className="px-6 py-6 border-t border-border bg-background space-y-5">
       {/* DAMAGE */}
       <section>
         <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle className="h-4 w-4 text-red-400" />
-          <h3 className="text-sm font-bold uppercase tracking-wider text-red-200">
+          <AlertTriangle className="h-4 w-4 text-red-500" />
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">
             Damage on this path
           </h3>
         </div>
-        <div className="text-sm text-slate-200 leading-relaxed space-y-1.5">
+        <div className="text-sm text-foreground leading-relaxed space-y-1.5">
           {damageSentences.map((s, i) => (
             <p key={i}>{s}</p>
           ))}
@@ -743,8 +743,8 @@ function DamageRemediationPanel({
       {/* BLAST RADIUS */}
       <section>
         <div className="flex items-center gap-2 mb-2">
-          <span className="h-4 w-4 rounded-full bg-amber-500/40 border border-amber-400" />
-          <h3 className="text-sm font-bold uppercase tracking-wider text-amber-200">
+          <span className="h-4 w-4 rounded-full bg-amber-500/40 border border-amber-500" />
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
             Blast radius beyond this path
           </h3>
         </div>
@@ -752,10 +752,10 @@ function DamageRemediationPanel({
           {blastChips.map((c, i) => {
             const tone =
               c.tone === "red"
-                ? "bg-red-500/10 border-red-500/40 text-red-200"
+                ? "bg-red-500/10 border-red-500/40 text-red-700 dark:text-red-300"
                 : c.tone === "amber"
-                  ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
-                  : "bg-slate-700/30 border-slate-600/50 text-slate-300"
+                  ? "bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300"
+                  : "bg-muted border-border text-muted-foreground"
             return (
               <div key={i} className={`rounded border px-3 py-2 ${tone}`}>
                 <div className="text-base font-bold">{c.label}</div>
@@ -772,16 +772,16 @@ function DamageRemediationPanel({
           state — no faking. */}
       <section>
         <div className="flex items-center gap-2 mb-2">
-          <ShieldCheck className="h-4 w-4 text-emerald-400" />
-          <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-200">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
             How to reduce the damage
           </h3>
-          <span className="text-[10px] text-emerald-300/60">
+          <span className="text-[10px] text-emerald-700 dark:text-emerald-300/60">
             · all claims tied to Neo4j rows
           </span>
         </div>
         {!rem ? (
-          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
             Remediation enrichment not yet computed for this path. Refresh
             the page; if this persists, the backend's _attach_remediation
             failed for this accessor (check Render logs).
@@ -798,50 +798,50 @@ function DamageRemediationPanel({
       {/* DESTINATIONS — every domain / external endpoint data leaves to */}
       <section>
         <div className="flex items-center gap-2 mb-2">
-          <Globe className="h-4 w-4 text-cyan-300" />
-          <h3 className="text-sm font-bold uppercase tracking-wider text-cyan-200">
+          <Globe className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">
             Where data leaves to
           </h3>
         </div>
         {destinationRows.length === 0 ? (
-          <div className="text-xs text-slate-500 italic px-3 py-2 rounded border border-slate-800 bg-slate-900/40">
+          <div className="text-xs text-muted-foreground italic px-3 py-2 rounded border border-border bg-card">
             No destinations resolved for this jewel.
           </div>
         ) : (
-          <div className="rounded border border-slate-800 bg-slate-900/40 divide-y divide-slate-800/60">
+          <div className="rounded border border-border bg-card divide-y divide-border">
             {destinationRows.map((d) => (
               <div
                 key={d.label}
                 className="px-3 py-2 flex items-center gap-3 text-sm"
               >
                 <span
-                  className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${
+                  className={`text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border ${
                     d.provenance === "observed"
-                      ? "border-red-500/50 text-red-200 bg-red-500/10"
-                      : "border-amber-500/50 text-amber-200 bg-amber-500/10"
+                      ? "border-red-500/30 text-red-700 dark:text-red-700 dark:text-red-300 bg-red-500/10"
+                      : "border-amber-500/30 text-amber-700 dark:text-amber-700 dark:text-amber-300 bg-amber-500/10"
                   }`}
                 >
                   {d.provenance}
                 </span>
-                <span className="text-slate-200 font-mono flex-1 truncate">
+                <span className="text-foreground font-mono flex-1 truncate">
                   {d.label}
                 </span>
-                <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
                   {d.kind}
                 </span>
-                <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
                   {d.observed} observed · {d.capable} capable
                 </span>
               </div>
             ))}
           </div>
         )}
-        <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+        <div className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
           {destinationCollectorWired ? (
             <>Destinations reflect real CloudTrail / VPC Flow Log exit traces.</>
           ) : (
             <>
-              <strong className="text-amber-300/80">
+              <strong className="text-amber-700 dark:text-amber-300/80">
                 Domain-level destination resolution is collector-pending (Phase D).
               </strong>{" "}
               Today's destinations are aggregated exit channels (Internet /
@@ -881,15 +881,15 @@ function RemediationIAMCol({
   // every observed action as a "discrepancy."
   if (allowedNotCollected) {
     return (
-      <div className="rounded border border-amber-500/40 bg-slate-900/40 p-3 space-y-3">
-        <h4 className="text-[10px] uppercase tracking-wider font-bold text-rose-300">
+      <div className="rounded border border-amber-500/40 bg-card p-3 space-y-3">
+        <h4 className="text-[10px] uppercase tracking-wider font-semibold text-rose-700 dark:text-rose-300">
           IAM role permissions
         </h4>
         <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
-          <div className="text-[12px] font-semibold text-amber-200">
+          <div className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">
             Cannot compute unused-permission gap on this role yet.
           </div>
-          <div className="text-[11px] text-amber-300/80 mt-1 leading-snug">
+          <div className="text-[11px] text-amber-700 dark:text-amber-300/80 mt-1 leading-snug">
             <span className="font-mono">{roleName}</span> has{" "}
             {policyEdges > 0 ? `${policyEdges} IAMPolicy node${policyEdges === 1 ? "" : "s"} attached` : "policies referenced by name"}{" "}
             in the graph, but{" "}
@@ -898,17 +898,17 @@ function RemediationIAMCol({
             list for this role. Without that baseline, Cyntro can't honestly
             recommend which permissions to remove.
           </div>
-          <div className="text-[11px] text-amber-300/80 mt-1 leading-snug">
+          <div className="text-[11px] text-amber-700 dark:text-amber-300/80 mt-1 leading-snug">
             Run <span className="font-mono">/api/admin/lp-collect-role?role_arn={"<arn>"}</span>{" "}
             (or the next scheduled lp_collector cycle) to populate the baseline.
           </div>
         </div>
         {observedActions.length > 0 && (
           <div className="space-y-1">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-300">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
               Observed footprint ({observedActions.length} action{observedActions.length === 1 ? "" : "s"})
             </div>
-            <div className="text-[11px] text-slate-400 leading-snug">
+            <div className="text-[11px] text-muted-foreground leading-snug">
               Distinct IAM actions observed via ACTUAL_API_CALL edges in the
               graph. This is what the role is actually being used for — the
               minimum scope a future tight policy would need to keep.
@@ -921,8 +921,8 @@ function RemediationIAMCol({
                     a.startsWith("s3:Delete") ||
                     a.startsWith("kms:") ||
                     a.startsWith("ec2:Delete")
-                      ? "border-amber-500/50 bg-amber-500/10 text-amber-200"
-                      : "border-slate-700 bg-slate-800/40 text-slate-300"
+                      ? "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                      : "border-border bg-muted text-muted-foreground"
                   }`}
                   title={a}
                 >
@@ -937,25 +937,25 @@ function RemediationIAMCol({
   }
 
   return (
-    <div className="rounded border border-rose-500/30 bg-slate-900/40 p-3 space-y-3">
-      <h4 className="text-[10px] uppercase tracking-wider font-bold text-rose-300">
+    <div className="rounded border border-rose-500/30 bg-card p-3 space-y-3">
+      <h4 className="text-[10px] uppercase tracking-wider font-semibold text-rose-700 dark:text-rose-300">
         IAM role permissions
       </h4>
       {unused.length === 0 ? (
-        <div className="text-[12px] text-emerald-300/90">
+        <div className="text-[12px] text-emerald-700 dark:text-emerald-300/90">
           ✓ All {rem.allowed_actions?.length ?? 0} allowed actions are exercised
           by observed traffic. No unused-permission gap on this path.
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="text-[12px] text-slate-200 font-semibold leading-snug">
+          <div className="text-[12px] text-foreground font-semibold leading-snug">
             Remove {unused.length} unused permission
             {unused.length === 1 ? "" : "s"} from{" "}
-            <span className="font-mono text-rose-200">{roleName}</span>
+            <span className="font-mono text-rose-700 dark:text-rose-300">{roleName}</span>
           </div>
-          <div className="text-[11px] text-slate-400 leading-snug">
+          <div className="text-[11px] text-muted-foreground leading-snug">
             Allowed but never observed on{" "}
-            <span className="text-slate-300">ACTUAL_API_CALL</span> edges:
+            <span className="text-foreground">ACTUAL_API_CALL</span> edges:
           </div>
           <ul className="space-y-1">
             {unused.map((a) => (
@@ -963,8 +963,8 @@ function RemediationIAMCol({
                 key={a}
                 className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
                   destructive.has(a)
-                    ? "border-red-500/50 bg-red-500/10 text-red-200"
-                    : "border-slate-700 bg-slate-800/40 text-slate-300"
+                    ? "border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300"
+                    : "border-border bg-muted text-muted-foreground"
                 }`}
                 title={
                   destructive.has(a)
@@ -973,7 +973,7 @@ function RemediationIAMCol({
                 }
               >
                 {destructive.has(a) && (
-                  <span className="text-[9px] uppercase tracking-wider font-bold mr-1.5 text-red-300">
+                  <span className="text-[9px] uppercase tracking-wider font-semibold mr-1.5 text-red-700 dark:text-red-300">
                     destructive
                   </span>
                 )}
@@ -984,15 +984,15 @@ function RemediationIAMCol({
         </div>
       )}
       {used.length > 0 && (
-        <div className="space-y-1 pt-2 border-t border-slate-800">
-          <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-300/80">
+        <div className="space-y-1 pt-2 border-t border-border">
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-300/80">
             Keep ({used.length})
           </div>
           <div className="flex flex-wrap gap-1">
             {used.map((a) => (
               <span
                 key={a}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/5 text-emerald-200"
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
               >
                 {a}
               </span>
@@ -1001,29 +1001,29 @@ function RemediationIAMCol({
         </div>
       )}
       {observedNotInAllowed.length > 0 && (
-        <div className="space-y-1 pt-2 border-t border-slate-800">
-          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-300/80">
+        <div className="space-y-1 pt-2 border-t border-border">
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-amber-700 dark:text-amber-300/80">
             Discrepancy — observed but not in allowed_actions
           </div>
           <div className="flex flex-wrap gap-1">
             {observedNotInAllowed.map((a) => (
               <span
                 key={a}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-200"
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
                 title="Action observed via ACTUAL_API_CALL but not in this role's allowed_actions — either wildcard match (s3:Get* covering s3:Head*) or per-principal attribution gap"
               >
                 {a}
               </span>
             ))}
           </div>
-          <div className="text-[10px] text-amber-300/70">
+          <div className="text-[10px] text-amber-700 dark:text-amber-300/70">
             Likely wildcard expansion (s3:Get* covering s3:Head*) or
             per-principal attribution gap.
           </div>
         </div>
       )}
       {rem.used_cached_was_stale && (
-        <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800">
+        <div className="text-[10px] text-muted-foreground pt-2 border-t border-border">
           Note: cached <span className="font-mono">used_actions_count</span> on
           the IAMRole node was stale. Live diff against ACTUAL_API_CALL is the
           authoritative number.
@@ -1036,23 +1036,23 @@ function RemediationIAMCol({
 // ── SG remediation column — Neo4j-grounded ──────────────────────
 function RemediationSGCol({ rem }: { rem: RemediationSG }) {
   return (
-    <div className="rounded border border-cyan-500/30 bg-slate-900/40 p-3 space-y-2">
-      <h4 className="text-[10px] uppercase tracking-wider font-bold text-cyan-300">
+    <div className="rounded border border-cyan-500/30 bg-card p-3 space-y-2">
+      <h4 className="text-[10px] uppercase tracking-wider font-semibold text-cyan-600 dark:text-cyan-300">
         Security groups / network
       </h4>
       {!rem.applies ? (
-        <div className="text-[12px] text-slate-300 leading-snug">
+        <div className="text-[12px] text-foreground leading-snug">
           <span className="font-semibold">Not applicable on this path.</span>
-          <div className="text-[11px] text-slate-400 mt-1">
+          <div className="text-[11px] text-muted-foreground mt-1">
             Workload is not VPC-attached — reaches AWS services via the public
             API endpoint (Service Plane). SG / NACL / subnet controls don't
             gate this exfil. IAM is the only gate.
           </div>
         </div>
       ) : !rem.sgs_collected ? (
-        <div className="text-[12px] text-amber-200 leading-snug">
+        <div className="text-[12px] text-amber-700 dark:text-amber-300 leading-snug">
           <span className="font-semibold">SG rules not collected.</span>
-          <div className="text-[11px] text-amber-300/70 mt-1">
+          <div className="text-[11px] text-amber-700 dark:text-amber-300/70 mt-1">
             Workload is VPC-attached but no SG rule data is in Neo4j. Run{" "}
             <span className="font-mono">/api/admin/run-consumer-edges</span>
             then refresh.
@@ -1062,16 +1062,16 @@ function RemediationSGCol({ rem }: { rem: RemediationSG }) {
         <div className="space-y-2.5">
           {rem.groups.map((g) => (
             <div key={g.sg_id} className="space-y-1.5">
-              <div className="text-[11px] font-mono text-slate-100">
+              <div className="text-[11px] font-mono text-foreground">
                 {g.sg_name}
-                <span className="text-[10px] text-slate-500 ml-1.5">
+                <span className="text-[10px] text-muted-foreground ml-1.5">
                   · {g.outbound_rules.length} outbound rule
                   {g.outbound_rules.length === 1 ? "" : "s"}
                 </span>
               </div>
               {g.public_egress_rules.length > 0 ? (
                 <div className="space-y-1">
-                  <div className="text-[11px] text-red-300 font-semibold">
+                  <div className="text-[11px] text-red-700 dark:text-red-300 font-semibold">
                     {g.public_egress_rules.length} PUBLIC egress rule
                     {g.public_egress_rules.length === 1 ? "" : "s"} — remove or
                     scope:
@@ -1080,7 +1080,7 @@ function RemediationSGCol({ rem }: { rem: RemediationSG }) {
                     {g.public_egress_rules.map((r, i) => (
                       <li
                         key={i}
-                        className="text-[11px] font-mono text-red-200 px-1.5 py-0.5 rounded border border-red-500/40 bg-red-500/10"
+                        className="text-[11px] font-mono text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded border border-red-500/40 bg-red-500/10"
                       >
                         {r.protocol === "all" || r.from_port === -1
                           ? `ALL TRAFFIC → ${r.source}`
@@ -1090,13 +1090,13 @@ function RemediationSGCol({ rem }: { rem: RemediationSG }) {
                       </li>
                     ))}
                   </ul>
-                  <div className="text-[10px] text-red-300/70">
+                  <div className="text-[10px] text-red-700 dark:text-red-300/70">
                     Replace with a VPC endpoint and/or scoped egress to the
                     specific AWS service prefix.
                   </div>
                 </div>
               ) : (
-                <div className="text-[11px] text-emerald-300/80">
+                <div className="text-[11px] text-emerald-700 dark:text-emerald-300/80">
                   No 0.0.0.0/0 egress rules on this SG — already scoped.
                 </div>
               )}
@@ -1228,17 +1228,17 @@ function RemediationDataCol({
   }
 
   return (
-    <div className="rounded border border-emerald-500/30 bg-slate-900/40 p-3 space-y-2.5">
-      <h4 className="text-[10px] uppercase tracking-wider font-bold text-emerald-300">
+    <div className="rounded border border-emerald-500/30 bg-card p-3 space-y-2.5">
+      <h4 className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-300">
         Data-access permissions
       </h4>
       {rows.map((r, i) => {
         const tone =
           r.state === "good"
-            ? "text-emerald-300/90"
+            ? "text-emerald-700 dark:text-emerald-300/90"
             : r.state === "bad"
-              ? "text-red-200"
-              : "text-slate-400"
+              ? "text-red-700 dark:text-red-300"
+              : "text-muted-foreground"
         const stateLabel =
           r.state === "good" ? "✓" : r.state === "bad" ? "✗" : "—"
         return (
@@ -1247,7 +1247,7 @@ function RemediationDataCol({
               <span className="mr-1.5">{stateLabel}</span>
               {r.label}
             </div>
-            <div className="text-[11px] text-slate-400 leading-snug pl-4">
+            <div className="text-[11px] text-muted-foreground leading-snug pl-4">
               {r.detail}
             </div>
           </div>
@@ -1268,10 +1268,10 @@ function RemediationColumn({
 }) {
   const headerTone =
     color === "rose"
-      ? "text-rose-300"
+      ? "text-rose-700 dark:text-rose-300"
       : color === "cyan"
-        ? "text-cyan-300"
-        : "text-emerald-300"
+        ? "text-cyan-600 dark:text-cyan-300"
+        : "text-emerald-700 dark:text-emerald-300"
   const borderTone =
     color === "rose"
       ? "border-rose-500/30"
@@ -1279,18 +1279,18 @@ function RemediationColumn({
         ? "border-cyan-500/30"
         : "border-emerald-500/30"
   return (
-    <div className={`rounded border ${borderTone} bg-slate-900/40 p-3 space-y-2.5`}>
+    <div className={`rounded border ${borderTone} bg-card p-3 space-y-2.5`}>
       <h4
-        className={`text-[10px] uppercase tracking-wider font-bold ${headerTone}`}
+        className={`text-[10px] uppercase tracking-wider font-semibold ${headerTone}`}
       >
         {title}
       </h4>
       {items.map((it, i) => (
         <div key={i} className="space-y-1">
-          <div className="text-[12px] text-slate-200 font-semibold leading-snug">
+          <div className="text-[12px] text-foreground font-semibold leading-snug">
             {it.action}
           </div>
-          <div className="text-[11px] text-slate-400 leading-snug">
+          <div className="text-[11px] text-muted-foreground leading-snug">
             {it.rationale}
           </div>
         </div>
@@ -1301,23 +1301,23 @@ function RemediationColumn({
 
 function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle: string }) {
   return (
-    <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10 flex items-start justify-between gap-4">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10 flex items-start justify-between gap-4">
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1.5">
-          <ArrowRight className="h-3 w-3 text-amber-300" />
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5 flex items-center gap-1.5">
+          <ArrowRight className="h-3 w-3 text-amber-700 dark:text-amber-300" />
           EXFIL VIEW · where the data leaves
           <FreshnessBanner variant="pill" className="ml-2" />
         </div>
-        <div className="text-[11px] text-slate-400">{subtitle}</div>
+        <div className="text-[11px] text-muted-foreground">{subtitle}</div>
       </div>
       {jewel && (
         <div className="text-right shrink-0">
           <div className="flex items-center gap-1.5 justify-end mb-0.5">
-            <Crown className="h-3 w-3 text-amber-400" />
-            <span className="text-[10px] uppercase tracking-wider text-slate-500">source</span>
+            <Crown className="h-3 w-3 text-amber-500" />
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">source</span>
           </div>
           <div
-            className="text-xs font-mono text-amber-200/90 break-all max-w-[520px]"
+            className="text-xs font-mono text-amber-700 dark:text-amber-300/90 break-all max-w-[520px]"
             title={jewel.name}
           >
             {jewel.name}
@@ -1398,18 +1398,18 @@ function KeystoneStrip({
     const warnings = atlasSummary.coverage_warnings
     const catalog = atlasSummary.catalog_version ?? "unknown"
     return (
-      <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-900/40 flex items-center gap-3 text-[10px] text-slate-400">
-        <span className="text-[9px] uppercase tracking-wider font-bold text-slate-500">
+      <div className="px-6 py-2 border-b border-border bg-card flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">
           Keystones
         </span>
-        <span className="text-slate-500">·</span>
+        <span className="text-muted-foreground">·</span>
         <span title={`ATLAS catalog ${catalog} returned 0 chains for the queried pairs`}>
           ATLAS · 0 chains validated against catalog{" "}
-          <span className="font-mono text-slate-300">{catalog}</span>
+          <span className="font-mono text-foreground">{catalog}</span>
         </span>
         {warnings.length > 0 && (
           <span
-            className="text-amber-300/80"
+            className="text-amber-700 dark:text-amber-300/80"
             title={warnings.map((w) => `${w.code}: ${w.message}`).join("\n")}
           >
             · {warnings.length} coverage note{warnings.length === 1 ? "" : "s"}
@@ -1426,10 +1426,10 @@ function KeystoneStrip({
   const visible = keystones.slice(0, 5)
   const toneFor = (pct: number) =>
     pct >= 0.75
-      ? "bg-red-500/10 text-red-200 border-red-500/40 hover:bg-red-500/20"
+      ? "bg-red-500/10 text-red-700 dark:text-red-700 dark:text-red-300 border-red-500/30 hover:bg-red-500/20"
       : pct >= 0.4
-        ? "bg-amber-500/10 text-amber-200 border-amber-500/40 hover:bg-amber-500/20"
-        : "bg-slate-800/60 text-slate-300 border-slate-700/60 hover:bg-slate-800"
+        ? "bg-amber-500/10 text-amber-700 dark:text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+        : "bg-muted text-foreground border-border hover:bg-accent"
 
   const labelFor = (k: ExfilKeystone): string => {
     // Pick the first non-structural label (Service/Resource/Node
@@ -1439,13 +1439,13 @@ function KeystoneStrip({
   }
 
   return (
-    <div className="px-6 py-2 border-b border-slate-800/60 bg-slate-900/40 flex items-center gap-2 text-[10px] overflow-x-auto">
-      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-500 shrink-0">
+    <div className="px-6 py-2 border-b border-border bg-card flex items-center gap-2 text-[10px] overflow-x-auto">
+      <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground shrink-0">
         Keystones
       </span>
-      <span className="text-slate-500 shrink-0">·</span>
+      <span className="text-muted-foreground shrink-0">·</span>
       <span
-        className="text-[9px] uppercase tracking-wider font-semibold text-slate-400 shrink-0"
+        className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground shrink-0"
         title={`Kill any of these to drop the listed share of ${atlasSummary.total_chains} ATLAS-validated chain${atlasSummary.total_chains === 1 ? "" : "s"}`}
       >
         Top {visible.length} of {keystones.length}
@@ -1461,7 +1461,7 @@ function KeystoneStrip({
 
         const chipBody = (
           <>
-            <span className="text-[8px] uppercase tracking-wider font-bold opacity-80">
+            <span className="text-[8px] uppercase tracking-wider font-semibold opacity-80">
               {labelText}
             </span>
             <span className="text-[10px] font-mono truncate max-w-[180px]">
@@ -1506,13 +1506,13 @@ function KeystoneStrip({
         )
       })}
       {keystones.length > visible.length && (
-        <span className="text-[9px] text-slate-500 shrink-0">
+        <span className="text-[9px] text-muted-foreground shrink-0">
           +{keystones.length - visible.length} more
         </span>
       )}
       {error && (
         <span
-          className="text-[9px] text-red-300 shrink-0"
+          className="text-[9px] text-red-700 dark:text-red-300 shrink-0"
           title={error}
         >
           · plan mint failed
@@ -1563,7 +1563,7 @@ function AtlasPill({
       <span
         className={`inline-flex items-center gap-1 rounded ${
           compact ? "px-1.5 py-[1px] text-[8px]" : "px-1.5 py-0.5 text-[9px]"
-        } font-bold uppercase tracking-wider bg-slate-800/60 text-slate-500 border border-slate-700/60`}
+        } font-semibold uppercase tracking-wider bg-muted text-muted-foreground border border-border`}
         title="ATLAS engine call failed or timed out for this path"
       >
         ATLAS · unavailable
@@ -1572,8 +1572,8 @@ function AtlasPill({
   }
   const hasChains = atlas.chain_count > 0
   const toneClass = hasChains
-    ? "bg-emerald-500/10 text-emerald-200 border-emerald-500/30"
-    : "bg-slate-800/60 text-slate-400 border-slate-700/60"
+    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+    : "bg-muted text-muted-foreground border-border"
   const label = hasChains
     ? `ATLAS · ${atlas.chain_count} chain${atlas.chain_count === 1 ? "" : "s"}`
     : `ATLAS · 0 chains`
@@ -1587,7 +1587,7 @@ function AtlasPill({
     <span
       className={`inline-flex items-center gap-1 rounded border ${
         compact ? "px-1.5 py-[1px] text-[8px]" : "px-1.5 py-0.5 text-[9px]"
-      } font-bold uppercase tracking-wider ${toneClass}`}
+      } font-semibold uppercase tracking-wider ${toneClass}`}
       title={titleText}
     >
       {label}

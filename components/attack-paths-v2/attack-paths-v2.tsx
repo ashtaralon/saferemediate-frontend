@@ -126,6 +126,12 @@ export function AttackPathsV2() {
                 // param values).
                 "attack-path"
 
+  // Beta gate (2026-06-11) — the typed-DTO "Attack Map" canvas is an
+  // engineering comparison surface, not an operator tab. Hidden from
+  // the default tab bar; reachable via ?beta=1 (and kept visible when
+  // a deep link already points at it so the URL doesn't strand).
+  const showBeta = searchParams?.get("beta") === "1" || viewMode === "attacker_v2"
+
   // 2026-05-30 v3 — auto-resolve which system to load when no ?system=
   // param is in the URL. Precedence:
   //   1. localStorage["cyntro:lastSystem"] — the system the operator
@@ -463,12 +469,12 @@ export function AttackPathsV2() {
   // manually instead of staring at a spinner.
   if (!systemName) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-950 p-6">
-        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-6 max-w-md w-full">
-          <div className="text-sm font-semibold text-slate-200 mb-1">
+      <div className="flex h-screen items-center justify-center bg-background p-6">
+        <div className="rounded-xl border border-border bg-card p-6 max-w-md w-full">
+          <div className="text-sm font-semibold text-foreground mb-1">
             Select a system
           </div>
-          <p className="text-xs text-slate-400 mb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Attack Paths v2 needs a system to render.
             {!autoRedirectDone && availableSystems.length === 0 && (
               <> Loading available systems…</>
@@ -485,7 +491,7 @@ export function AttackPathsV2() {
                     params.set("system", s)
                     router.replace(`${pathname}?${params.toString()}`)
                   }}
-                  className="w-full text-left rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 hover:border-slate-600 transition-colors"
+                  className="w-full text-left rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
                 >
                   {s}
                 </button>
@@ -493,10 +499,10 @@ export function AttackPathsV2() {
             </div>
           )}
           {autoRedirectDone && availableSystems.length === 0 && (
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-muted-foreground">
               No systems available. Run an AWS sync from the dashboard to
               populate this list.{" "}
-              <a href="/?section=systems" className="underline hover:text-slate-300">
+              <a href="/?section=systems" className="underline hover:text-foreground">
                 Open systems dashboard
               </a>
             </div>
@@ -509,8 +515,8 @@ export function AttackPathsV2() {
   // ─── Loading / error states ────────────────────────────────────
   if (isLoading && !data) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-950">
-        <div className="flex items-center gap-3 text-slate-300">
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex items-center gap-3 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Loading attack paths for {systemName}…</span>
         </div>
@@ -520,16 +526,16 @@ export function AttackPathsV2() {
 
   if (error && !data) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-950">
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md">
-          <div className="flex items-center gap-2 text-red-300 mb-2">
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 max-w-md">
+          <div className="flex items-center gap-2 text-destructive mb-2">
             <AlertTriangle className="h-5 w-5" />
             <span className="text-sm font-semibold">Could not load attack paths</span>
           </div>
-          <div className="text-xs text-red-200/80 mb-3">{String(error)}</div>
+          <div className="text-xs text-muted-foreground mb-3">{String(error)}</div>
           <button
             onClick={retry}
-            className="inline-flex items-center gap-2 rounded-md bg-red-500/20 border border-red-500/40 px-3 py-1.5 text-xs text-red-100 hover:bg-red-500/30"
+            className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/20 transition-colors"
           >
             <RefreshCw className="h-3 w-3" /> Retry
           </button>
@@ -540,19 +546,19 @@ export function AttackPathsV2() {
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
-        className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-slate-800 bg-slate-950 overflow-y-auto`}
+        className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
-        <div className="px-4 py-3 border-b border-slate-800/60">
+        <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
             <BackToDashboard
-              className="p-1.5 -ml-1.5 rounded-md hover:bg-slate-800 transition-colors shrink-0"
-              iconClassName="w-4 h-4 text-slate-300"
+              className="p-1.5 -ml-1.5 rounded-md hover:bg-accent transition-colors shrink-0"
+              iconClassName="w-4 h-4 text-muted-foreground"
             />
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 CYNTRO · ATTACK PATHS V2
               </div>
               {/* System switcher — operator can swap to a different
@@ -572,7 +578,7 @@ export function AttackPathsV2() {
                   router.replace(`${pathname}?${params.toString()}`)
                 }}
               />
-              <div className="text-[11px] text-slate-400 mt-0.5">
+              <div className="text-[11px] text-muted-foreground mt-0.5">
                 {allPaths.length} paths · {jewels.length} crown jewels
               </div>
             </div>
@@ -590,7 +596,7 @@ export function AttackPathsV2() {
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" ? "hidden" : "w-[400px]"} shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-950/60`}
+        className={`${isPathExpanded || viewMode === "exposure" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -619,7 +625,7 @@ export function AttackPathsV2() {
       </section>
 
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
-      <main className="flex-1 overflow-y-auto bg-slate-950">
+      <main className="flex-1 overflow-y-auto bg-background">
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
@@ -632,6 +638,7 @@ export function AttackPathsV2() {
               pathCount={jewelPaths.length}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
+              showBeta={showBeta}
             />
             <TopologyView systemName={systemName} selectedPath={selectedPath ?? null} />
           </>
@@ -667,6 +674,7 @@ export function AttackPathsV2() {
               pathCount={jewelPaths.length}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
+              showBeta={showBeta}
             />
             {viewMode === "exposure" ? (
               <JewelExposurePanel
@@ -789,6 +797,7 @@ function ModeToggle({
   pathCount,
   isExpanded,
   onToggleExpand,
+  showBeta = false,
 }: {
   mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
   onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => void
@@ -796,127 +805,103 @@ function ModeToggle({
   pathCount: number
   isExpanded: boolean
   onToggleExpand: () => void
+  /** Gate for the beta "Attack Map" (typed DTO canvas) tab — enabled
+      via ?beta=1 or when a deep link already points at it. Keeps
+      engineering-internal surfaces out of the default operator UI. */
+  showBeta?: boolean
 }) {
+  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
+  // Capability-named tabs — no version stamps in the operator UI.
+  // Engineering context (DTO provenance, phase docs) lives in the
+  // title tooltips, not the labels.
+  const tabs: { key: TabKey; label: string; title: string }[] = [
+    {
+      key: "attack-path",
+      label: "Attack Path",
+      title:
+        "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
+    },
+    {
+      key: "exposure",
+      label: "Exposure",
+      title: "Aggregate view — every workload, role, and policy that exposes this jewel.",
+    },
+    ...(showBeta
+      ? [
+          {
+            key: "attacker_v2" as TabKey,
+            label: "Attack Map (beta)",
+            title:
+              "Typed, edge-proven canvas — every node and edge comes from an explicit Neo4j relationship; the renderer does zero inference.",
+          },
+        ]
+      : []),
+    {
+      key: "phase",
+      label: "Phases",
+      title:
+        "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
+    },
+    {
+      key: "exfil",
+      label: "Exfiltration",
+      title:
+        "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
+    },
+    {
+      key: "topology",
+      label: "Topology",
+      title:
+        "AWS reference-architecture containment — VPC > AZ > Subnet > workloads, with Security Groups as boundaries. Every node sourced from Neo4j.",
+    },
+  ]
   return (
-    <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
           implicit "live" framing the tab subtitles use. */}
       <FreshnessBanner variant="pill" />
-      <div className="flex rounded-md border border-slate-700 overflow-hidden">
-        <button
-          onClick={() => onChange("attack-path")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "attack-path"
-              ? "bg-blue-500/15 text-blue-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="Attack Path — Per-Path header (severity, evidence, breadcrumb, closure) wrapped around the Attacker View canvas (9 lanes, lateral pivots, VPC boundary, hover provenance). One chain, one source of truth."
-        >
-          Attack Path
-        </button>
-        <button
-          onClick={() => onChange("exposure")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "exposure"
-              ? "bg-violet-500/15 text-violet-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="All doors view — aggregate every workload, role, and policy that exposes this jewel."
-        >
-          Exposure view
-        </button>
-        <button
-          onClick={() => onChange("attacker_v2")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "attacker_v2"
-              ? "bg-cyan-500/15 text-cyan-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="Attack Map v2 — typed, edge-proven canvas. Every node and edge comes from an explicit Neo4j relationship; renderer does zero inference. Beta — compare side-by-side with v1."
-        >
-          Attack Map <span className="text-[8px] opacity-60">v2</span>
-        </button>
-        <button
-          onClick={() => onChange("phase")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "phase"
-              ? "bg-emerald-500/15 text-emerald-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="Phase view (v0.3) — 9-lane attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge."
-        >
-          Phase view <span className="text-[8px] opacity-60">v0.3</span>
-        </button>
-        {/* ATLAS is now an inline section at the bottom of the
-            Attacker View canvas (atlas-inline-section.tsx, wired in
-            attacker-view-panel.tsx) — derives foothold + target from
-            the selected path, no search UI needed. The standalone tab
-            was removed 2026-05-27 per the "in front of us in a very
-            clear way" feedback. */}
-        {/* EXFIL — Phase A 2026-05-25 PRD. The other tabs answer
-            'how does the attacker reach this jewel?'. This one
-            answers 'where does the data go from here?'. BFS
-            direction inverts: jewel becomes SOURCE on the left,
-            external destinations become SINKS on the right. */}
-        <button
-          onClick={() => onChange("exfil")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-r border-slate-700 ${
-            mode === "exfil"
-              ? "bg-amber-500/15 text-amber-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="Exfil view (Phase A) — BFS-forwards from the crown jewel: every door the data can leave through, with capable (amber) vs observed (red) color-coding. Identity-egress + data-propagation lanes are honest not-wired empty states until Phase B/C collectors land."
-        >
-          Exfil <span className="text-[8px] opacity-60">Phase A</span>
-        </button>
-        {/* Topology — AWS reference-architecture containment view.
-            Phase 1 (2026-05-29): VPC > AZ > Subnet > workloads, with
-            SGs as dashed boundaries. Distinct mental model from the
-            attack-path tabs — this shows the customer's architecture,
-            not the attacker's path. Powers customer-facing demos
-            ("here's your environment"). */}
-        <button
-          onClick={() => onChange("topology")}
-          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-            mode === "topology"
-              ? "bg-teal-500/15 text-teal-200"
-              : "bg-slate-900 text-slate-400 hover:text-slate-200"
-          }`}
-          title="Topology view (Phase 1) — AWS reference-architecture containment. VPC > AZ > Public/Private Subnet > workloads, with Security Groups as dashed boundaries. Powered by /api/topology-aws/{system}, every node sourced from Neo4j."
-        >
-          Topology <span className="text-[8px] opacity-60">v0.1</span>
-        </button>
+      {/* ATLAS is an inline section at the bottom of the Attacker View
+          canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
+          direction: jewel = SOURCE, external destinations = SINKS.
+          Topology shows the customer's architecture, not the
+          attacker's path. */}
+      <div className="flex rounded-md border border-border overflow-hidden">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            title={tab.title}
+            className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
+              mode === tab.key
+                ? "bg-primary/10 text-primary"
+                : "bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
-      <div className="text-[10px] text-slate-500 italic min-w-0 truncate flex-1">
-        {mode === "attack-path"
-          ? `Showing ${pathCount} attack path${pathCount === 1 ? "" : "s"} to ${jewelName ?? "this jewel"} — Per-Path header on Attacker-View canvas`
-          : mode === "exposure"
-            ? `Showing every door to ${jewelName ?? "this jewel"} (workloads, roles, policies, controls)`
-            : mode === "attacker_v2"
-              ? `Typed AttackCanvas DTO — every node/edge backed by an explicit Neo4j relationship · beta`
-              : mode === "phase"
-                ? `9-lane attacker-phase view — all chains to ${jewelName ?? "this jewel"}, ranked by severity`
-                : mode === "topology"
-                  ? `AWS-style containment view — VPC > AZ > Subnet > workloads, sourced from Neo4j`
-                  : `Exfil view — every door the data can leave through, capable (amber) vs observed (red)`}
+      {/* Quiet context — mode descriptions live in the tab tooltips. */}
+      <div className="text-[10px] text-muted-foreground min-w-0 truncate flex-1">
+        {jewelName ? `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}` : null}
       </div>
       <button
         onClick={onToggleExpand}
         title={isExpanded ? "Collapse — restore jewels + paths columns" : "Expand canvas — hide jewels + paths columns"}
         aria-label={isExpanded ? "Collapse canvas" : "Expand canvas"}
-        className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 hover:bg-slate-800/60 transition-colors"
+        className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
       >
         {isExpanded ? (
           <>
-            <Minimize2 className="h-3 w-3 text-slate-300" />
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-300">Collapse</span>
+            <Minimize2 className="h-3 w-3" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider">Collapse</span>
           </>
         ) : (
           <>
-            <Maximize2 className="h-3 w-3 text-slate-300" />
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-300">Expand</span>
+            <Maximize2 className="h-3 w-3" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider">Expand</span>
           </>
         )}
       </button>
@@ -950,16 +935,16 @@ function SystemSwitcher({
         className="text-left w-full mt-0.5 flex items-center gap-1.5 hover:opacity-80 transition-opacity"
         title={hasOthers ? "Switch system" : "Only system available"}
       >
-        <span className="text-sm font-semibold text-white truncate">{currentSystem}</span>
+        <span className="text-sm font-semibold text-foreground truncate">{currentSystem}</span>
         {hasOthers && (
-          <span className="text-[9px] text-slate-400 uppercase">▾</span>
+          <span className="text-[9px] text-muted-foreground uppercase">▾</span>
         )}
       </button>
       {open && hasOthers && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full mt-1 z-20 min-w-[200px] max-h-[300px] overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg">
-            <div className="px-3 py-2 text-[9px] uppercase tracking-wider text-slate-500 border-b border-slate-800">
+          <div className="absolute left-0 top-full mt-1 z-20 min-w-[200px] max-h-[300px] overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+            <div className="px-3 py-2 text-[9px] uppercase tracking-wider text-muted-foreground border-b border-border">
               Switch system
             </div>
             {availableSystems.map((s) => (
@@ -970,8 +955,8 @@ function SystemSwitcher({
                   setOpen(false)
                   if (s !== currentSystem) onSwitch(s)
                 }}
-                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-800 transition-colors ${
-                  s === currentSystem ? "text-amber-300 font-semibold" : "text-slate-200"
+                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors ${
+                  s === currentSystem ? "text-primary font-semibold" : "text-foreground"
                 }`}
               >
                 {s === currentSystem ? "● " : "  "}
@@ -997,10 +982,10 @@ function EmptyState({
   return (
     <div className="flex h-full items-center justify-center px-6">
       <div className={`text-center max-w-md ${large ? "py-20" : "py-12"}`}>
-        <div className={`${large ? "text-lg" : "text-sm"} font-semibold text-slate-300`}>
+        <div className={`${large ? "text-lg" : "text-sm"} font-semibold text-foreground`}>
           {title}
         </div>
-        <div className={`mt-1.5 ${large ? "text-sm" : "text-xs"} text-slate-500`}>
+        <div className={`mt-1.5 ${large ? "text-sm" : "text-xs"} text-muted-foreground`}>
           {subtitle}
         </div>
       </div>

@@ -58,18 +58,18 @@ export function ExfilArchetypeDetailCard({
       {/* Header  archetype id + gate strength chip */}
       <div className="flex items-start gap-2">
         <div className="rounded-full bg-amber-500/15 p-1.5 shrink-0">
-          <RouteIcon className="h-3.5 w-3.5 text-amber-300" />
+          <RouteIcon className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Exfil archetype
           </div>
-          <div className="font-semibold text-slate-100 text-sm leading-tight mt-0.5">
+          <div className="font-semibold text-foreground text-sm leading-tight mt-0.5">
             {spec.label}
           </div>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border shrink-0"
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider border shrink-0"
           style={{
             backgroundColor: `${strengthSpec.accent}20`,
             color: strengthSpec.accent,
@@ -82,17 +82,17 @@ export function ExfilArchetypeDetailCard({
       </div>
 
       {/* Chain shape  the canonical READER  HANDLER  GATE  DEST */}
-      <div className="rounded-lg border border-slate-700/50 bg-slate-900/60 px-3 py-2">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+      <div className="rounded-lg border border-border bg-muted/50 px-3 py-2">
+        <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
           Chain
         </div>
-        <div className="text-[11px] text-slate-300 leading-snug font-mono break-words">
+        <div className="text-[11px] text-foreground leading-snug font-mono break-words">
           {spec.chainShape}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {!spec.hasHandler && (
             <span
-              className="inline-flex items-center gap-1 rounded bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.5 text-[9px] font-medium text-rose-300"
+              className="inline-flex items-center gap-1 rounded bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300"
               title="No workload — data bypasses compute, SG, NACL"
             >
               <ShieldOff className="h-2.5 w-2.5" />
@@ -100,7 +100,7 @@ export function ExfilArchetypeDetailCard({
             </span>
           )}
           <span
-            className="inline-flex items-center gap-1 rounded bg-slate-800/60 border border-slate-700 px-1.5 py-0.5 text-[9px] font-medium text-slate-300"
+            className="inline-flex items-center gap-1 rounded bg-muted border border-border px-1.5 py-0.5 text-[9px] font-medium text-foreground"
             title={`Destination boundedness: ${dest.bounded}`}
           >
             Destination · {dest.primaryLabel}
@@ -110,36 +110,36 @@ export function ExfilArchetypeDetailCard({
 
       {/* Trust story  why this path matters */}
       <div>
-        <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+        <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
           <AlertTriangle className="h-2.5 w-2.5" />
           Why this path matters
         </div>
-        <div className="text-[11px] text-slate-300 leading-relaxed">
+        <div className="text-[11px] text-foreground leading-relaxed">
           {spec.trustStory}
         </div>
       </div>
 
       {/* Closure action  what Cyntro will narrow */}
       <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-        <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-emerald-300/80 mb-1">
+        <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300/80 mb-1">
           <Wrench className="h-2.5 w-2.5" />
           What Cyntro will close
         </div>
-        <div className="text-[11px] text-emerald-100/90 leading-relaxed">
+        <div className="text-[11px] text-emerald-800 dark:text-emerald-200 leading-relaxed">
           {closureCopy}
         </div>
       </div>
 
       {/* Bytes-source footnote  honest about which signal feeds the arc */}
-      <div className="text-[9px] text-slate-500 leading-snug">
-        <span className="font-bold uppercase tracking-wider">Volume source · </span>
+      <div className="text-[9px] text-muted-foreground leading-snug">
+        <span className="font-semibold uppercase tracking-wider">Volume source · </span>
         {BYTES_SOURCE_LABEL[spec.bytesSource]}
       </div>
 
       {/* Collector-backlog footnote when applicable */}
       {spec.collectorStatus === "not_collected_yet" && (
-        <div className="rounded border border-slate-700/60 bg-slate-900/40 px-2.5 py-1.5 text-[9px] text-slate-400 leading-snug">
-          <span className="font-bold uppercase tracking-wider text-slate-500">
+        <div className="rounded border border-border bg-card px-2.5 py-1.5 text-[9px] text-muted-foreground leading-snug">
+          <span className="font-semibold uppercase tracking-wider text-muted-foreground">
             Not collected yet ·
           </span>
           {spec.collectorBacklog ?? "Collector pending"}
@@ -170,9 +170,9 @@ export function ExfilArchetypeGrid({
   onSelect,
 }: GridProps) {
   return (
-    <div className="px-6 py-3 border-t border-slate-800/60 bg-slate-950/95">
+    <div className="px-6 py-3 border-t border-border bg-background/95">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+        <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
           Every door the data could leave through · 8 archetypes
         </div>
         <ArchetypeLegend />
@@ -192,17 +192,17 @@ export function ExfilArchetypeGrid({
           //   active + no instances   → slate (eligible, none found)
           //   not_collected_yet       → dashed slate ("Not collected")
           const stateClass = (() => {
-            if (!isActive) return "border-dashed border-slate-700 bg-slate-900/40 text-slate-500"
-            if (observed) return "border-rose-500/40 bg-rose-500/5 text-rose-200"
-            if (hasInstances) return "border-amber-500/40 bg-amber-500/5 text-amber-200"
-            return "border-slate-700 bg-slate-900/60 text-slate-400"
+            if (!isActive) return "border-dashed border-border bg-card text-muted-foreground"
+            if (observed) return "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-700 dark:text-rose-300"
+            if (hasInstances) return "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-700 dark:text-amber-300"
+            return "border-border bg-card text-muted-foreground"
           })()
 
           const dotClass = (() => {
-            if (!isActive) return "bg-slate-600"
+            if (!isActive) return "bg-muted-foreground/50"
             if (observed) return "bg-rose-400"
             if (hasInstances) return "bg-amber-400"
-            return "bg-slate-500"
+            return "bg-muted-foreground"
           })()
 
           const interactive = isActive && hasInstances
@@ -214,9 +214,9 @@ export function ExfilArchetypeGrid({
               onClick={() => interactive && onSelect?.(id)}
               disabled={!interactive}
               className={`text-left rounded-lg border ${stateClass} ${
-                isSelected ? "ring-2 ring-amber-400/60" : ""
+                isSelected ? "ring-2 ring-primary/50" : ""
               } ${
-                interactive ? "hover:bg-slate-800/40 cursor-pointer" : "cursor-default"
+                interactive ? "hover:bg-accent cursor-pointer" : "cursor-default"
               } px-2.5 py-2 transition-colors`}
               title={spec.trustStory}
             >
@@ -225,7 +225,7 @@ export function ExfilArchetypeGrid({
                 <span className="text-[10px] font-semibold truncate">{spec.label}</span>
                 {!spec.hasHandler && (
                   <span
-                    className="ml-auto text-[8px] font-mono uppercase tracking-wider text-slate-500 shrink-0"
+                    className="ml-auto text-[8px] font-mono uppercase tracking-wider text-muted-foreground shrink-0"
                     title="No workload — data bypasses compute"
                   >
                     {"∅"}
@@ -241,7 +241,7 @@ export function ExfilArchetypeGrid({
               </div>
               {!isActive && spec.collectorBacklog && (
                 <div
-                  className="text-[8px] text-slate-500 mt-1 truncate"
+                  className="text-[8px] text-muted-foreground mt-1 truncate"
                   title={spec.collectorBacklog}
                 >
                   {/* Show the sprint prefix; backlog strings are
@@ -261,11 +261,11 @@ export function ExfilArchetypeGrid({
 
 function ArchetypeLegend() {
   return (
-    <div className="flex items-center gap-2.5 text-[8px] uppercase tracking-wider text-slate-500">
+    <div className="flex items-center gap-2.5 text-[8px] uppercase tracking-wider text-muted-foreground">
       <LegendDot color="bg-rose-400" label="Observed" />
       <LegendDot color="bg-amber-400" label="Capable" />
-      <LegendDot color="bg-slate-500" label="None found" />
-      <LegendDot color="bg-slate-600" label="Not collected" dashed />
+      <LegendDot color="bg-muted-foreground" label="None found" />
+      <LegendDot color="bg-muted-foreground/50" label="Not collected" dashed />
     </div>
   )
 }
@@ -283,7 +283,7 @@ function LegendDot({
     <span className="inline-flex items-center gap-1">
       <span
         className={`h-1.5 w-1.5 rounded-full ${color}${
-          dashed ? " ring-1 ring-dashed ring-slate-600" : ""
+          dashed ? " ring-1 ring-dashed ring-border" : ""
         }`}
       />
       <span>{label}</span>

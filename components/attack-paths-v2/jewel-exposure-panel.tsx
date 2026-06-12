@@ -210,7 +210,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
     return (
       <div className="flex flex-col h-full">
         <ExposureHeader jewel={jewel} headline="Loading exposure…" />
-        <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
+        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
           Computing the all-doors view…
         </div>
       </div>
@@ -222,12 +222,12 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
       <div className="flex flex-col h-full">
         <ExposureHeader jewel={jewel} headline="Exposure data unavailable" />
         <div className="flex-1 flex items-center justify-center px-6">
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md text-sm text-red-200">
+          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 max-w-md text-sm text-red-700 dark:text-red-300">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="h-4 w-4" />
               <span className="font-semibold">Could not load exposure</span>
             </div>
-            <div className="text-xs text-red-200/80">{String(error)}</div>
+            <div className="text-xs text-red-700 dark:text-red-300/80">{String(error)}</div>
           </div>
         </div>
       </div>
@@ -264,7 +264,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         <LaneCard
           title="COMPUTE"
           icon={Server}
-          tone="text-blue-300"
+          tone="text-blue-700 dark:text-blue-300"
           bg="bg-blue-500/5 border-blue-500/20"
           count={data.summary.workload_count}
           subtitle={`${data.workloads.filter((w) => !w.hidden).length} live · ${data.workloads.filter((w) => w.hidden).length} stale`}
@@ -279,7 +279,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         <LaneCard
           title="NETWORK"
           icon={ShieldAlert}
-          tone="text-orange-300"
+          tone="text-orange-700 dark:text-orange-300"
           bg="bg-orange-500/5 border-orange-500/20"
           count={data.summary.security_group_count + data.summary.subnet_count}
           subtitle={`${data.summary.security_group_count} SG · ${data.summary.subnet_count} subnet · ${data.summary.vpc_count} VPC`}
@@ -290,7 +290,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         <LaneCard
           title="IAM ROLES"
           icon={Key}
-          tone="text-pink-300"
+          tone="text-pink-700 dark:text-pink-300"
           bg="bg-pink-500/5 border-pink-500/20"
           count={data.summary.identity_count}
           subtitle={`${data.identities.filter((i) => !i.hidden).reduce((s, i) => s + (i.observed_hit_count || 0), 0)} total observed hits`}
@@ -305,7 +305,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         <LaneCard
           title="INSTANCE PROFILES"
           icon={Layers}
-          tone="text-amber-300"
+          tone="text-amber-700 dark:text-amber-300"
           bg="bg-amber-500/5 border-amber-500/20"
           count={data.summary.instance_profile_count}
           subtitle={
@@ -322,7 +322,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         <LaneCard
           title="IAM POLICIES"
           icon={FileText}
-          tone="text-violet-300"
+          tone="text-violet-700 dark:text-violet-300"
           bg="bg-violet-500/5 border-violet-500/20"
           count={data.summary.policy_count}
           subtitle={
@@ -341,7 +341,7 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
         <LaneCard
           title="DATA PLANE — the jewel itself"
           icon={Database}
-          tone="text-emerald-300"
+          tone="text-emerald-700 dark:text-emerald-300"
           bg="bg-emerald-500/5 border-emerald-500/20"
           count={null}
           subtitle="bucket-level controls"
@@ -369,22 +369,22 @@ function ExposureHeader({
   onToggleStale?: () => void
 }) {
   return (
-    <div className="px-6 py-4 border-b border-slate-800/60 bg-slate-950/95 backdrop-blur sticky top-0 z-10">
+    <div className="px-6 py-4 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
             EXPOSURE VIEW · all doors to this crown jewel
           </div>
-          <div className="text-sm font-semibold text-slate-100 leading-snug">
+          <div className="text-sm font-semibold text-foreground leading-snug">
             {headline}
           </div>
         </div>
         <div className="text-right shrink-0">
           <div className="flex items-center gap-1.5 justify-end mb-0.5">
-            <Crown className="h-3 w-3 text-amber-400" />
-            <span className="text-[10px] uppercase tracking-wider text-slate-500">crown jewel</span>
+            <Crown className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">crown jewel</span>
           </div>
-          <div className="text-xs font-mono text-amber-200/90 truncate max-w-[260px]" title={jewel.name}>
+          <div className="text-xs font-mono text-amber-700 dark:text-amber-300/90 truncate max-w-[260px]" title={jewel.name}>
             {jewel.name}
           </div>
         </div>
@@ -393,7 +393,7 @@ function ExposureHeader({
         <div className="mt-3 flex items-center gap-2">
           <button
             onClick={onToggleStale}
-            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider rounded border border-slate-700 bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600 transition-colors px-2 py-1"
+            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider rounded border border-border bg-card text-foreground hover:bg-accent hover:border-border transition-colors px-2 py-1"
           >
             {showStale ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
             {showStale ? `Hide ${staleCount} stale` : `Show ${staleCount} stale (pilot / inactive)`}
@@ -425,16 +425,16 @@ function LaneCard({
 }) {
   return (
     <div className={`rounded-xl border ${bg} overflow-hidden`}>
-      <div className="px-4 py-2.5 flex items-center gap-2 border-b border-slate-800/40 bg-slate-950/30">
+      <div className="px-4 py-2.5 flex items-center gap-2 border-b border-border bg-muted/30">
         <Icon className={`h-3.5 w-3.5 ${tone}`} />
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-200">{title}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">{title}</span>
         {count !== null && (
-          <span className={`text-[10px] font-bold tabular-nums rounded border border-slate-700 bg-slate-900 ${tone} px-1.5 py-0.5`}>
+          <span className={`text-[10px] font-bold tabular-nums rounded border border-border bg-muted ${tone} px-1.5 py-0.5`}>
             {count}
           </span>
         )}
         {subtitle && (
-          <span className="ml-auto text-[10px] text-slate-500 italic truncate">{subtitle}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground italic truncate">{subtitle}</span>
         )}
       </div>
       <div className="px-4 py-3 space-y-1.5">{children}</div>
@@ -451,24 +451,24 @@ function WorkloadRow({ workload }: { workload: ExposureWorkload }) {
     <div
       className={`flex items-center gap-2 p-2 rounded-md ${
         workload.is_stale
-          ? "bg-slate-900/30 border border-slate-800 opacity-50"
-          : "bg-slate-900/40 border border-slate-800"
+          ? "bg-card border border-border opacity-50"
+          : "bg-card border border-border"
       }`}
     >
-      <Icon className={`h-3.5 w-3.5 shrink-0 ${workload.is_stale ? "text-slate-600" : "text-blue-300"}`} />
-      <span className="text-xs font-mono text-slate-200 truncate flex-1">{workload.name}</span>
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${workload.is_stale ? "text-muted-foreground" : "text-blue-700 dark:text-blue-300"}`} />
+      <span className="text-xs font-mono text-foreground truncate flex-1">{workload.name}</span>
       <div className="flex items-center gap-1 flex-wrap justify-end">
         {workload.roles_carried.map((r, i) => (
           <span
             key={`${r.role_name}-${i}`}
-            className="text-[9px] font-mono rounded border border-pink-500/30 bg-pink-500/5 text-pink-200 px-1.5 py-0.5"
+            className="text-[9px] font-mono rounded border border-pink-500/30 bg-pink-500/5 text-pink-700 dark:text-pink-300 px-1.5 py-0.5"
             title={`Binding: ${r.binding}${r.via_instance_profile ? ` (via ${r.via_instance_profile})` : ""}`}
           >
             {r.role_name}
           </span>
         ))}
         {workload.is_stale && (
-          <span className="text-[9px] font-bold uppercase tracking-wider rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 px-1.5 py-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">
             ⚠ stale
           </span>
         )}
@@ -486,26 +486,26 @@ function IdentityRow({ identity }: { identity: ExposureIdentity }) {
     <div
       className={`flex items-center gap-2 p-2 rounded-md ${
         identity.is_stale
-          ? "bg-slate-900/30 border border-slate-800 opacity-50"
+          ? "bg-card border border-border opacity-50"
           : "bg-pink-500/5 border border-pink-500/20"
       }`}
     >
-      <Key className={`h-3.5 w-3.5 shrink-0 ${identity.is_stale ? "text-slate-600" : "text-pink-300"}`} />
-      <span className="text-xs font-mono text-slate-200 truncate flex-1">{identity.name}</span>
-      <div className="flex items-center gap-2 text-[10px] text-slate-400 shrink-0">
-        <span className="text-emerald-300 font-semibold tabular-nums">
+      <Key className={`h-3.5 w-3.5 shrink-0 ${identity.is_stale ? "text-muted-foreground" : "text-pink-700 dark:text-pink-300"}`} />
+      <span className="text-xs font-mono text-foreground truncate flex-1">{identity.name}</span>
+      <div className="flex items-center gap-2 text-[10px] text-muted-foreground shrink-0">
+        <span className="text-emerald-700 dark:text-emerald-300 font-semibold tabular-nums">
           {identity.observed_hit_count} hits
         </span>
         {identity.allowed_actions !== null && identity.allowed_actions !== undefined && (
           <span title={`${identity.used_actions} of ${identity.allowed_actions} actions used`}>
             {identity.used_actions ?? 0}/{identity.allowed_actions} used
             {unusedPct !== null && unusedPct > 50 && (
-              <span className="text-amber-300 ml-1">({unusedPct}% unused)</span>
+              <span className="text-amber-700 dark:text-amber-300 ml-1">({unusedPct}% unused)</span>
             )}
           </span>
         )}
         {identity.is_stale && (
-          <span className="text-[9px] font-bold uppercase tracking-wider rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 px-1.5 py-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">
             ⚠ stale
           </span>
         )}
@@ -517,10 +517,10 @@ function IdentityRow({ identity }: { identity: ExposureIdentity }) {
 function InstanceProfileRow({ ip }: { ip: ExposureInstanceProfile }) {
   return (
     <div className="flex items-center gap-2 p-2 rounded-md bg-amber-500/5 border border-amber-500/20">
-      <Layers className="h-3.5 w-3.5 text-amber-300 shrink-0" />
-      <span className="text-xs font-mono text-amber-200 truncate flex-1">{ip.name}</span>
-      <span className="text-[10px] text-slate-400">
-        wraps <span className="font-mono text-pink-300">{ip.wraps_role}</span> · carried by {ip.carried_by.length} EC2
+      <Layers className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300 shrink-0" />
+      <span className="text-xs font-mono text-amber-700 dark:text-amber-300 truncate flex-1">{ip.name}</span>
+      <span className="text-[10px] text-muted-foreground">
+        wraps <span className="font-mono text-pink-700 dark:text-pink-300">{ip.wraps_role}</span> · carried by {ip.carried_by.length} EC2
       </span>
     </div>
   )
@@ -532,36 +532,36 @@ function PolicyRow({ policy }: { policy: ExposurePolicy }) {
     <div
       className={`p-2 rounded-md ${
         policy.is_stale
-          ? "bg-slate-900/30 border border-slate-800 opacity-50"
+          ? "bg-card border border-border opacity-50"
           : "bg-violet-500/5 border border-violet-500/20"
       }`}
     >
       <div className="flex items-center gap-2 mb-1">
-        <FileText className={`h-3.5 w-3.5 shrink-0 ${policy.is_stale ? "text-slate-600" : "text-violet-300"}`} />
-        <span className="text-xs font-mono text-slate-200 truncate flex-1">{policy.name}</span>
+        <FileText className={`h-3.5 w-3.5 shrink-0 ${policy.is_stale ? "text-muted-foreground" : "text-violet-700 dark:text-violet-300"}`} />
+        <span className="text-xs font-mono text-foreground truncate flex-1">{policy.name}</span>
         {policy.is_inline && (
-          <span className="text-[9px] uppercase tracking-wider text-slate-500">inline</span>
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">inline</span>
         )}
         {policy.has_wildcard_resource && (
-          <span className="text-[9px] font-bold uppercase tracking-wider rounded border border-red-500/40 bg-red-500/10 text-red-300 px-1.5 py-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300 px-1.5 py-0.5">
             wildcard scope
           </span>
         )}
         {policy.is_stale && (
-          <span className="text-[9px] font-bold uppercase tracking-wider rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 px-1.5 py-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">
             ⚠ stale
           </span>
         )}
       </div>
-      <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap">
+      <div className="text-[10px] text-muted-foreground flex items-center gap-2 flex-wrap">
         {policy.actions && policy.actions.length > 0 && (
           <span>
-            <span className="text-slate-200">{policy.actions.length}</span> action{policy.actions.length === 1 ? "" : "s"}
+            <span className="text-foreground">{policy.actions.length}</span> action{policy.actions.length === 1 ? "" : "s"}
           </span>
         )}
         {policy.attached_to_roles && policy.attached_to_roles.length > 0 && (
           <span>
-            attached to <span className="text-pink-300 font-mono">{policy.attached_to_roles.join(", ")}</span>
+            attached to <span className="text-pink-700 dark:text-pink-300 font-mono">{policy.attached_to_roles.join(", ")}</span>
           </span>
         )}
       </div>
@@ -577,23 +577,23 @@ function PolicyRow({ policy }: { policy: ExposurePolicy }) {
           impact chip — operator needs both "this policy is wide" AND
           "narrowing it actually closes N doors." */}
       {policy.narrowing_impact?.confidence === "unknown" && (
-        <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-slate-800/40 border border-slate-700">
-          <AlertTriangle className="h-3 w-3 text-slate-400 shrink-0 mt-0.5" />
-          <div className="text-[10px] text-slate-300 leading-snug">
+        <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-muted border border-border">
+          <AlertTriangle className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="text-[10px] text-foreground leading-snug">
             <span className="font-semibold">Scope unknown:</span> {policy.narrowing_impact.reason ?? "wildcard policy"}.
           </div>
         </div>
       )}
       {policy.narrowing_impact?.confidence === "high" && (policy.narrowing_impact.droppable_jewel_count ?? 0) > 0 && (
         <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-emerald-500/10 border border-emerald-500/30">
-          <Layers className="h-3 w-3 text-emerald-300 shrink-0 mt-0.5" />
-          <div className="text-[10px] text-emerald-100 leading-snug">
+          <Layers className="h-3 w-3 text-emerald-700 dark:text-emerald-300 shrink-0 mt-0.5" />
+          <div className="text-[10px] text-emerald-800 dark:text-emerald-100 leading-snug">
             <span className="font-semibold">
               Narrowing protects {policy.narrowing_impact.droppable_jewel_count} additional jewel
               {policy.narrowing_impact.droppable_jewel_count === 1 ? "" : "s"}:
             </span>{" "}
             <span className="font-mono">{policy.narrowing_impact.droppable_jewel_names.join(", ")}</span>{" "}
-            <span className="text-emerald-300/80">(no observed access from attached roles)</span>.
+            <span className="text-emerald-700 dark:text-emerald-300/80">(no observed access from attached roles)</span>.
           </div>
         </div>
       )}
@@ -601,12 +601,12 @@ function PolicyRow({ policy }: { policy: ExposurePolicy }) {
         (policy.narrowing_impact.current_jewel_count ?? 0) > 1 &&
         (policy.narrowing_impact.droppable_jewel_count ?? 0) === 0 && (
           <div className="mt-1.5 flex items-start gap-1.5 p-1.5 rounded bg-amber-500/10 border border-amber-500/30">
-            <AlertTriangle className="h-3 w-3 text-amber-300 shrink-0 mt-0.5" />
-            <div className="text-[10px] text-amber-100 leading-snug">
+            <AlertTriangle className="h-3 w-3 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5" />
+            <div className="text-[10px] text-amber-800 dark:text-amber-100 leading-snug">
               <span className="font-semibold">
                 Shared across {policy.narrowing_impact.current_jewel_count} jewels — all observed in use.
               </span>{" "}
-              <span className="text-amber-200/80">
+              <span className="text-amber-700 dark:text-amber-300/80">
                 Resource scope can't be reduced safely, but action-level narrowing is still available (see role's unused actions).
               </span>
             </div>
@@ -618,25 +618,25 @@ function PolicyRow({ policy }: { policy: ExposurePolicy }) {
           shared jewels worth scrutinizing. */}
       {policy.jewel_reach && policy.jewel_reach.length > 1 && (
         <details className="mt-1.5">
-          <summary className="text-[9px] uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-300">
+          <summary className="text-[9px] uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground">
             per-jewel access detail ({policy.jewel_reach.length} jewels)
           </summary>
           <div className="mt-1 space-y-0.5">
             {policy.jewel_reach.map((jr) => (
               <div key={jr.jewel_id} className="flex items-center gap-2 text-[10px]">
-                <span className={`font-mono truncate ${jr.is_current_jewel ? "text-amber-200" : "text-slate-300"}`}>
+                <span className={`font-mono truncate ${jr.is_current_jewel ? "text-amber-700 dark:text-amber-300" : "text-foreground"}`}>
                   {jr.jewel_name}
-                  {jr.is_current_jewel && <span className="ml-1 text-[9px] uppercase text-amber-400">current</span>}
+                  {jr.is_current_jewel && <span className="ml-1 text-[9px] uppercase text-amber-600 dark:text-amber-400">current</span>}
                 </span>
                 <span className="ml-auto tabular-nums shrink-0">
                   {jr.observed_access_hits > 0 ? (
-                    <span className="text-emerald-300">{jr.observed_access_hits} hits</span>
+                    <span className="text-emerald-700 dark:text-emerald-300">{jr.observed_access_hits} hits</span>
                   ) : (
-                    <span className="text-slate-500 italic">no observed access</span>
+                    <span className="text-muted-foreground italic">no observed access</span>
                   )}
                 </span>
                 {jr.is_droppable && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 px-1 py-0.5">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-1 py-0.5">
                     droppable
                   </span>
                 )}
@@ -653,35 +653,35 @@ function NetworkSummary({ network }: { network: JewelExposureResponse["network"]
   return (
     <div className="grid grid-cols-2 gap-2 text-[10px]">
       <div>
-        <div className="text-slate-500 uppercase tracking-wider mb-1">Security groups</div>
+        <div className="text-muted-foreground uppercase tracking-wider mb-1">Security groups</div>
         {network.security_groups.length === 0 ? (
-          <span className="text-slate-600 italic">none</span>
+          <span className="text-muted-foreground italic">none</span>
         ) : (
           network.security_groups.map((sg) => (
-            <div key={sg.id} className="font-mono text-slate-200 truncate">
+            <div key={sg.id} className="font-mono text-foreground truncate">
               {sg.name}
             </div>
           ))
         )}
       </div>
       <div>
-        <div className="text-slate-500 uppercase tracking-wider mb-1">
+        <div className="text-muted-foreground uppercase tracking-wider mb-1">
           Subnets / VPCs ({network.vpcs.length} VPC{network.vpcs.length === 1 ? "" : "s"})
         </div>
         {network.subnets.length === 0 ? (
-          <span className="text-slate-600 italic">none</span>
+          <span className="text-muted-foreground italic">none</span>
         ) : (
           network.subnets.slice(0, 6).map((sn) => (
-            <div key={sn.id} className="font-mono text-slate-200 truncate">
+            <div key={sn.id} className="font-mono text-foreground truncate">
               {sn.name || sn.id}
               {sn.is_public === true && (
-                <span className="ml-1 text-[9px] uppercase tracking-wider text-red-300">public</span>
+                <span className="ml-1 text-[9px] uppercase tracking-wider text-red-700 dark:text-red-300">public</span>
               )}
             </div>
           ))
         )}
         {network.subnets.length > 6 && (
-          <div className="text-slate-600 italic">+{network.subnets.length - 6} more</div>
+          <div className="text-muted-foreground italic">+{network.subnets.length - 6} more</div>
         )}
       </div>
     </div>
@@ -724,8 +724,8 @@ function ChangeTimeline({
   // first_scan / diff_unavailable empty states
   if (changeLog === null || changeLog === undefined) {
     return (
-      <div className="px-6 py-3 border-b border-slate-800/60 bg-slate-900/20">
-        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+      <div className="px-6 py-3 border-b border-border bg-card">
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
           <Clock className="h-3 w-3" />
           {summary.reason === "first_scan" ? (
             <span>First scan for this jewel — nothing to compare yet. Future visits will show what changed.</span>
@@ -740,8 +740,8 @@ function ChangeTimeline({
   // No changes since last scan
   if (changeLog.length === 0) {
     return (
-      <div className="px-6 py-3 border-b border-slate-800/60 bg-emerald-500/[0.04]">
-        <div className="flex items-center gap-2 text-[10px] text-emerald-300">
+      <div className="px-6 py-3 border-b border-border bg-emerald-500/[0.04]">
+        <div className="flex items-center gap-2 text-[10px] text-emerald-700 dark:text-emerald-300">
           <Clock className="h-3 w-3" />
           <span>
             No changes since {summary.previous_snapshot_date ?? "last scan"} — attack surface is steady.
@@ -753,27 +753,27 @@ function ChangeTimeline({
 
   // Has changes — render the timeline
   return (
-    <div className="border-b border-slate-800/60 bg-amber-500/[0.04]">
+    <div className="border-b border-border bg-amber-500/[0.04]">
       <button
         onClick={() => setExpanded((e) => !e)}
         className="w-full px-6 py-3 flex items-center gap-2 text-left hover:bg-amber-500/[0.06] transition-colors"
       >
-        <History className="h-3.5 w-3.5 text-amber-300" />
-        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
+        <History className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
           What changed since {summary.previous_snapshot_date ?? "last scan"}
         </span>
-        <span className="ml-2 text-[10px] text-slate-300">
+        <span className="ml-2 text-[10px] text-foreground">
           {summary.added_count > 0 && (
-            <span className="text-emerald-300 mr-2">+{summary.added_count}</span>
+            <span className="text-emerald-700 dark:text-emerald-300 mr-2">+{summary.added_count}</span>
           )}
           {summary.removed_count > 0 && (
-            <span className="text-red-300 mr-2">−{summary.removed_count}</span>
+            <span className="text-red-700 dark:text-red-300 mr-2">−{summary.removed_count}</span>
           )}
           {summary.modified_count > 0 && (
-            <span className="text-amber-300">∼{summary.modified_count}</span>
+            <span className="text-amber-700 dark:text-amber-300">∼{summary.modified_count}</span>
           )}
         </span>
-        <span className="ml-auto text-[10px] text-slate-500">
+        <span className="ml-auto text-[10px] text-muted-foreground">
           {expanded ? "click to collapse" : `${summary.total_count} change${summary.total_count === 1 ? "" : "s"} — click to expand`}
         </span>
       </button>
@@ -791,9 +791,9 @@ function ChangeTimeline({
 function ChangeRow({ change }: { change: ExposureChange }) {
   // Type → icon + tone
   const typeMeta: Record<ExposureChange["type"], { icon: any; tone: string }> = {
-    added: { icon: Plus, tone: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
-    removed: { icon: Minus, tone: "text-red-300 border-red-500/40 bg-red-500/10" },
-    modified: { icon: ArrowRightLeft, tone: "text-amber-300 border-amber-500/40 bg-amber-500/10" },
+    added: { icon: Plus, tone: "text-emerald-700 dark:text-emerald-300 border-emerald-500/30 bg-emerald-500/10" },
+    removed: { icon: Minus, tone: "text-red-700 dark:text-red-300 border-red-500/30 bg-red-500/10" },
+    modified: { icon: ArrowRightLeft, tone: "text-amber-700 dark:text-amber-300 border-amber-500/30 bg-amber-500/10" },
   }
   const m = typeMeta[change.type]
   const TypeIcon = m.icon
@@ -811,15 +811,15 @@ function ChangeRow({ change }: { change: ExposureChange }) {
   // inline rendering. Keep them stylable.
   const parts = change.narrative.split(/\*\*/)
   return (
-    <div className="flex items-start gap-2 p-2 rounded-md bg-slate-900/40 border border-slate-800">
+    <div className="flex items-start gap-2 p-2 rounded-md bg-card border border-border">
       <span className={`shrink-0 inline-flex items-center justify-center w-4 h-4 rounded border ${m.tone}`}>
         <TypeIcon className="h-2.5 w-2.5" />
       </span>
-      <CatIcon className="h-3.5 w-3.5 text-slate-500 shrink-0 mt-0.5" />
-      <div className="text-[11px] text-slate-200 leading-snug min-w-0">
+      <CatIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+      <div className="text-[11px] text-foreground leading-snug min-w-0">
         {parts.map((p, i) =>
           i % 2 === 1 ? (
-            <span key={i} className="font-mono font-semibold text-white">
+            <span key={i} className="font-mono font-semibold text-foreground">
               {p}
             </span>
           ) : (
@@ -833,12 +833,12 @@ function ChangeRow({ change }: { change: ExposureChange }) {
 
 function DPCell({ label, value, okWhen }: { label: string; value: any; okWhen?: string }) {
   const isNull = value === null || value === undefined
-  const tone = isNull ? "text-slate-600" : value === true ? "text-emerald-300" : value === false ? "text-red-300" : "text-slate-200"
+  const tone = isNull ? "text-muted-foreground" : value === true ? "text-emerald-700 dark:text-emerald-300" : value === false ? "text-red-700 dark:text-red-300" : "text-foreground"
   const display =
     isNull ? "not set" : typeof value === "boolean" ? (value ? "✓" : "✗") : String(value)
   return (
     <div>
-      <div className="text-slate-500 uppercase tracking-wider">{label}</div>
+      <div className="text-muted-foreground uppercase tracking-wider">{label}</div>
       <div className={`font-mono ${tone}`}>{display}</div>
     </div>
   )

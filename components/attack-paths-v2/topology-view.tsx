@@ -156,35 +156,35 @@ export default function TopologyView({ systemName, selectedPath }: TopologyViewP
 
   if (loading && !data) {
     return (
-      <div className="p-12 text-center text-xs text-slate-500">
+      <div className="p-12 text-center text-xs text-muted-foreground">
         Loading topology…
       </div>
     )
   }
   if (error) {
     return (
-      <div className="p-12 text-center text-xs text-rose-400">
+      <div className="p-12 text-center text-xs text-rose-500">
         Failed to load topology: {String(error)}
       </div>
     )
   }
   if (vpcs.length === 0) {
     return (
-      <div className="p-12 text-center text-xs text-slate-500">
+      <div className="p-12 text-center text-xs text-muted-foreground">
         No VPCs found for this system.
       </div>
     )
   }
 
   return (
-    <div className="p-6 bg-slate-950 min-h-full overflow-auto">
+    <div className="p-6 bg-background min-h-full overflow-auto">
       <div className="mb-4 flex items-baseline gap-3">
-        <h2 className="text-base font-bold text-slate-100 tracking-wide uppercase">Topology View</h2>
-        <span className="text-[10px] text-slate-500 italic">
+        <h2 className="text-base font-semibold text-foreground tracking-wide uppercase">Topology View</h2>
+        <span className="text-[10px] text-muted-foreground italic">
           AWS-style containment · sourced from Neo4j as-is
         </span>
         {hasPath && (
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-300 ml-2 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 ml-2 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">
             Path overlay · {onPathIds.size} on-path nodes highlighted
           </span>
         )}
@@ -212,31 +212,31 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
   const regionLabel = inferredRegion ?? "region unknown"
   return (
     // Outer: AWS Cloud frame — solid blue rule, AWS icon top-left.
-    <div className="border-2 border-blue-600/40 rounded-md p-4 mb-6 bg-blue-950/10">
+    <div className="border-2 border-blue-500/40 rounded-md p-4 mb-6 bg-blue-500/5">
       <div className="flex items-center gap-2 mb-3">
-        <Cloud className="h-4 w-4 text-blue-400" />
-        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-300">AWS Cloud</span>
+        <Cloud className="h-4 w-4 text-blue-500" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">AWS Cloud</span>
       </div>
 
       {/* Region container — dashed border */}
-      <div className="border border-dashed border-emerald-600/50 rounded-md p-4 mb-2 bg-emerald-950/5">
+      <div className="border border-dashed border-emerald-500/50 rounded-md p-4 mb-2 bg-emerald-500/5">
         <div className="flex items-center gap-2 mb-3">
-          <Globe className="h-3.5 w-3.5 text-emerald-400" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+          <Globe className="h-3.5 w-3.5 text-emerald-500" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
             Region · {regionLabel}
           </span>
         </div>
 
         {/* VPC container — solid green rule */}
-        <div className="border-2 border-emerald-500/40 rounded-md p-4 bg-emerald-900/5">
+        <div className="border-2 border-emerald-500/40 rounded-md p-4 bg-emerald-500/5">
           {/* VPC banner — name + CIDR on its own row, centered emphasis */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Network className="h-4 w-4 text-emerald-400" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200">
+              <Network className="h-4 w-4 text-emerald-500" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-700 dark:text-emerald-300">
                 VPC{vpc.cidr ? ` · ${vpc.cidr}` : ""}
               </span>
-              <span className="text-[9px] text-emerald-300/60">{shortName(vpc.id)}</span>
+              <span className="text-[9px] text-emerald-700 dark:text-emerald-300/60">{shortName(vpc.id)}</span>
             </div>
             {/* Service endpoints (VPCEs) chip cluster — sit at the
                 top-right of the VPC so they're visible without scrolling.
@@ -245,17 +245,17 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
                 a tier resource. */}
             {vpc.vpc_endpoints.length > 0 && (
               <div className="flex items-center gap-1.5">
-                <span className="text-[8px] uppercase tracking-wider text-slate-500">
+                <span className="text-[8px] uppercase tracking-wider text-muted-foreground">
                   Service endpoints
                 </span>
                 {vpc.vpc_endpoints.map((g) => (
                   <div
                     key={g.id}
-                    className="flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-900/20 px-1.5 py-0.5"
+                    className="flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5"
                     title={g.id}
                   >
-                    <Globe className="h-3 w-3 text-cyan-300" />
-                    <span className="text-[9px] font-bold uppercase text-cyan-200">
+                    <Globe className="h-3 w-3 text-cyan-600 dark:text-cyan-300" />
+                    <span className="text-[9px] font-semibold uppercase text-cyan-700 dark:text-cyan-300">
                       VPCE {g.service ? `· ${g.service}` : ""}
                     </span>
                   </div>
@@ -272,7 +272,7 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
           <div className="flex flex-col items-center mb-2">
             <div className="flex flex-col items-center gap-0.5">
               <div className="text-xl leading-none">👤</div>
-              <span className="text-[8px] uppercase tracking-wider text-slate-400">
+              <span className="text-[8px] uppercase tracking-wider text-muted-foreground">
                 User
               </span>
             </div>
@@ -281,20 +281,20 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
               vpc.internet_gateways.map((g) => (
                 <div
                   key={g.id}
-                  className="flex flex-col items-center gap-0.5 rounded-md border border-violet-500/60 bg-violet-900/30 px-3 py-1.5"
+                  className="flex flex-col items-center gap-0.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-3 py-1.5"
                   title={g.id}
                 >
-                  <Globe className="h-4 w-4 text-violet-300" />
-                  <span className="text-[9px] font-bold uppercase text-violet-200">
+                  <Globe className="h-4 w-4 text-violet-600 dark:text-violet-300" />
+                  <span className="text-[9px] font-semibold uppercase text-violet-700 dark:text-violet-300">
                     Internet Gateway
                   </span>
-                  <span className="text-[8px] text-violet-300/70 font-mono">
+                  <span className="text-[8px] text-violet-600 dark:text-violet-300/70 font-mono">
                     {shortName(g.id)}
                   </span>
                 </div>
               ))
             ) : (
-              <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-[9px] text-slate-400 italic">
+              <div className="rounded-md border border-border bg-card px-3 py-1.5 text-[9px] text-muted-foreground italic">
                 Private VPC · no Internet Gateway
               </div>
             )}
@@ -316,20 +316,20 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
               we have ALB inter-AZ rendering — for now, single row). */}
           {(vpc.nat_gateways ?? []).length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="text-[8px] uppercase tracking-wider text-slate-500">
+              <span className="text-[8px] uppercase tracking-wider text-muted-foreground">
                 Egress
               </span>
               {(vpc.nat_gateways ?? []).map((n) => (
                 <div
                   key={n.id}
-                  className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-900/20 px-2 py-1"
+                  className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1"
                   title={`${n.id}${n.subnet_id ? ` · in subnet ${n.subnet_id}` : ""}`}
                 >
-                  <Globe className="h-3 w-3 text-amber-300" />
-                  <span className="text-[9px] font-bold uppercase text-amber-200">
+                  <Globe className="h-3 w-3 text-amber-700 dark:text-amber-300" />
+                  <span className="text-[9px] font-semibold uppercase text-amber-700 dark:text-amber-700 dark:text-amber-300">
                     NAT GW
                   </span>
-                  <span className="text-[8px] text-amber-300/70 font-mono">
+                  <span className="text-[8px] text-amber-700 dark:text-amber-300/70 font-mono">
                     {shortName(n.id)}
                   </span>
                 </div>
@@ -353,18 +353,18 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
           {/* NACLs footer — render as a row of chips with which subnets they apply to */}
           {vpc.nacls.length > 0 && (
             <div className="mt-3 pt-3 border-t border-emerald-500/20">
-              <div className="text-[9px] uppercase tracking-wider text-slate-500 mb-2">Network ACLs (subnet-attached)</div>
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-2">Network ACLs (subnet-attached)</div>
               <div className="flex flex-wrap gap-2">
                 {vpc.nacls.map((n) => (
                   <div
                     key={n.id}
-                    className="flex items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-900/15 px-2 py-1"
+                    className="flex items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1"
                     title={`${n.id} · associated with subnets: ${n.subnet_ids.join(", ")}`}
                   >
-                    <Lock className="h-3 w-3 text-sky-300" />
-                    <span className="text-[9px] font-bold uppercase text-sky-200">NACL</span>
-                    <span className="text-[8px] text-sky-300/70">{shortName(n.id)}</span>
-                    <span className="text-[8px] text-sky-300/50">· {n.subnet_ids.length} subnet{n.subnet_ids.length === 1 ? "" : "s"}</span>
+                    <Lock className="h-3 w-3 text-sky-600 dark:text-sky-300" />
+                    <span className="text-[9px] font-semibold uppercase text-sky-700 dark:text-sky-300">NACL</span>
+                    <span className="text-[8px] text-sky-600 dark:text-sky-300/70">{shortName(n.id)}</span>
+                    <span className="text-[8px] text-sky-600 dark:text-sky-300/50">· {n.subnet_ids.length} subnet{n.subnet_ids.length === 1 ? "" : "s"}</span>
                   </div>
                 ))}
               </div>
@@ -390,10 +390,10 @@ function AwsCloudFrame({ vpc, onPathIds, hasPath }: { vpc: VPC; onPathIds: Set<s
 type TierKey = "web" | "app" | "db" | "other"
 const TIER_ORDER: TierKey[] = ["web", "app", "db", "other"]
 const TIER_META: Record<TierKey, { label: string; accent: string; tint: string }> = {
-  web: { label: "Web Tier", accent: "text-emerald-300", tint: "border-emerald-600/30 bg-emerald-900/10" },
-  app: { label: "Application Tier", accent: "text-sky-300", tint: "border-sky-600/30 bg-sky-900/10" },
-  db: { label: "Database Tier", accent: "text-violet-300", tint: "border-violet-600/30 bg-violet-900/10" },
-  other: { label: "Other", accent: "text-slate-300", tint: "border-slate-600/30 bg-slate-900/10" },
+  web: { label: "Web Tier", accent: "text-emerald-700 dark:text-emerald-300", tint: "border-emerald-500/30 bg-emerald-500/5" },
+  app: { label: "Application Tier", accent: "text-sky-600 dark:text-sky-300", tint: "border-sky-500/30 bg-sky-500/5" },
+  db: { label: "Database Tier", accent: "text-violet-600 dark:text-violet-300", tint: "border-violet-500/30 bg-violet-500/5" },
+  other: { label: "Other", accent: "text-muted-foreground", tint: "border-border bg-muted/30" },
 }
 
 function classifySubnetTier(s: Subnet): TierKey {
@@ -472,16 +472,16 @@ function FlowConnector({
 }) {
   const lineColor =
     tone === "active"
-      ? "rgba(251,191,36,0.85)"   // amber-400 (path-overlay)
+      ? "color-mix(in srgb, var(--canvas-capable) 85%, transparent)"   // capable amber (path-overlay)
       : tone === "dim"
-        ? "rgba(148,163,184,0.25)" // slate-400/25
-        : "rgba(148,163,184,0.55)" // slate-400/55
+        ? "color-mix(in srgb, var(--canvas-config) 25%, transparent)" // config gray /25
+        : "color-mix(in srgb, var(--canvas-config) 55%, transparent)" // config gray /55
   const arrowColor =
     tone === "active"
-      ? "#fbbf24"
+      ? "var(--canvas-capable)"
       : tone === "dim"
-        ? "rgba(148,163,184,0.4)"
-        : "#94a3b8"
+        ? "color-mix(in srgb, var(--canvas-config) 40%, transparent)"
+        : "var(--canvas-config)"
   return (
     <div className="flex flex-col items-center" style={{ marginTop: -2, marginBottom: -2 }}>
       <div
@@ -543,7 +543,7 @@ function TierRowsLayout({
   const populatedTiers = TIER_ORDER.filter((t) => byTier[t].length > 0)
 
   if (populatedTiers.length === 0) {
-    return <div className="text-[10px] text-slate-500 italic">No subnets to render.</div>
+    return <div className="text-[10px] text-muted-foreground italic">No subnets to render.</div>
   }
 
   return (
@@ -559,7 +559,7 @@ function TierRowsLayout({
       >
         <div /> {/* tier-band placeholder */}
         {azNames.map((az) => (
-          <div key={az} className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 text-center">
+          <div key={az} className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground text-center">
             AZ · {az}
           </div>
         ))}
@@ -656,7 +656,7 @@ function TierRowsLayout({
                   AWS reference's "Web Tier" / "Application Tier" /
                   "Database Tier" sidebar. */}
               <div className="flex items-center justify-center">
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${meta.accent} writing-mode-vertical-rl`}
+                <span className={`text-[10px] font-semibold uppercase tracking-widest ${meta.accent} writing-mode-vertical-rl`}
                       style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
                   {meta.label}
                 </span>
@@ -666,7 +666,7 @@ function TierRowsLayout({
                 return (
                   <div key={az} className="flex flex-col gap-2">
                     {cellSubnets.length === 0 ? (
-                      <div className="border border-dashed border-slate-700/40 rounded-md py-6 text-center text-[9px] text-slate-600 italic">
+                      <div className="border border-dashed border-border rounded-md py-6 text-center text-[9px] text-muted-foreground italic">
                         no subnet
                       </div>
                     ) : (
@@ -720,7 +720,7 @@ function LoadBalancerChip({
   }, [sgs])
   const onPath = !hasPath || onPathIds.has(alb.id)
   const ringClass = hasPath && onPath
-    ? "ring-2 ring-amber-400/70 shadow-[0_0_12px_rgba(251,191,36,0.4)]"
+    ? "ring-2 ring-primary/50"
     : hasPath
       ? "opacity-40"
       : ""
@@ -731,12 +731,12 @@ function LoadBalancerChip({
   // entry point for both AZs."
   return (
     <div
-      className={`flex flex-col items-center gap-1 rounded-lg border-2 border-purple-500/60 bg-purple-900/30 px-4 py-2 min-w-[180px] ${ringClass} transition-all`}
+      className={`flex flex-col items-center gap-1 rounded-lg border-2 border-purple-500/40 bg-purple-500/10 px-4 py-2 min-w-[180px] ${ringClass} transition-all`}
       title={alb.id}
     >
       <div className="flex items-center gap-1.5">
-        <Network className="h-4 w-4 text-purple-300" />
-        <span className="text-[9px] font-bold uppercase tracking-wider text-purple-200">
+        <Network className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+        <span className="text-[9px] font-semibold uppercase tracking-wider text-purple-700 dark:text-purple-300">
           {kind === "ALB"
             ? "Application Load Balancer"
             : kind === "NLB"
@@ -744,29 +744,29 @@ function LoadBalancerChip({
               : "Load Balancer"}
         </span>
       </div>
-      <div className="text-[11px] font-mono text-purple-100">
+      <div className="text-[11px] font-mono text-purple-800 dark:text-purple-100">
         {shortName(alb.name)}
       </div>
-      <div className="text-[8px] text-purple-300/60 font-mono">
+      <div className="text-[8px] text-purple-600 dark:text-purple-300/60 font-mono">
         {shortName(alb.id)}
       </div>
       {(alb.security_groups ?? []).length > 0 && (
         <div className="flex flex-wrap items-center gap-1 justify-center mt-1 pt-1 border-t border-purple-500/30 w-full">
-          <ShieldCheck className="h-2.5 w-2.5 text-rose-400" />
+          <ShieldCheck className="h-2.5 w-2.5 text-rose-500" />
           {(alb.security_groups ?? []).map((sgId) => {
             const sg = sgMap.get(sgId)
             return (
               <span
                 key={sgId}
-                className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-900/20 px-1 py-0.5"
+                className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-1 py-0.5"
                 title={sgId}
               >
-                <span className="text-[7px] font-bold uppercase text-rose-200">SG</span>
-                <span className="text-[7px] text-rose-300/80 font-mono">
+                <span className="text-[7px] font-semibold uppercase text-rose-700 dark:text-rose-700 dark:text-rose-300">SG</span>
+                <span className="text-[7px] text-rose-700 dark:text-rose-300/80 font-mono">
                   {shortName(sg?.name || sgId)}
                 </span>
                 {sg?.has_public_ingress && (
-                  <span className="text-[7px] font-bold uppercase text-amber-300 bg-amber-500/20 rounded px-0.5">
+                  <span className="text-[7px] font-semibold uppercase text-amber-700 dark:text-amber-300 bg-amber-500/10 rounded px-0.5">
                     Pub
                   </span>
                 )}
@@ -800,9 +800,9 @@ function SubnetBox({
 }) {
   // Public subnet → light-green tint. Private → light-blue tint.
   const tint = subnet.is_public
-    ? "border-emerald-600/40 bg-emerald-800/15"
-    : "border-sky-600/40 bg-sky-800/10"
-  const labelColor = subnet.is_public ? "text-emerald-300" : "text-sky-300"
+    ? "border-emerald-500/40 bg-emerald-500/10"
+    : "border-sky-500/40 bg-sky-500/10"
+  const labelColor = subnet.is_public ? "text-emerald-700 dark:text-emerald-300" : "text-sky-600 dark:text-sky-300"
 
   // Path-overlay dim: when a path is selected, dim subnets whose id is
   // not on the path AND whose workloads are all off-path. Service-
@@ -839,12 +839,12 @@ function SubnetBox({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <Lock className={`h-3 w-3 ${labelColor}`} />
-          <span className={`text-[9px] font-bold uppercase tracking-wider ${labelColor}`}>
+          <span className={`text-[9px] font-semibold uppercase tracking-wider ${labelColor}`}>
             {subnet.is_public ? "Public Subnet" : "Private Subnet"}
           </span>
-          <span className="text-[9px] text-slate-400">{subnet.cidr ?? "—"}</span>
+          <span className="text-[9px] text-muted-foreground">{subnet.cidr ?? "—"}</span>
         </div>
-        <span className="text-[8px] text-slate-500" title={subnet.id}>
+        <span className="text-[8px] text-muted-foreground" title={subnet.id}>
           {shortName(subnet.id)}
         </span>
       </div>
@@ -858,21 +858,21 @@ function SubnetBox({
         <div className="mb-2">
           <div className="flex items-center gap-1.5 mb-1">
             <div
-              className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/15 px-1.5 py-0.5"
+              className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5"
               title={subnet.route_table_id}
             >
-              <span className="text-[8px] font-bold uppercase text-amber-300">RT</span>
-              <span className="text-[8px] text-amber-200/80 font-mono">
+              <span className="text-[8px] font-semibold uppercase text-amber-700 dark:text-amber-300">RT</span>
+              <span className="text-[8px] text-amber-700 dark:text-amber-700 dark:text-amber-300/80 font-mono">
                 {shortName(subnet.route_table_id)}
               </span>
               {routeTable?.main && (
-                <span className="text-[7px] font-bold uppercase text-amber-300/80 bg-amber-500/10 rounded px-1">
+                <span className="text-[7px] font-semibold uppercase text-amber-700 dark:text-amber-300/80 bg-amber-500/10 rounded px-1">
                   main
                 </span>
               )}
             </div>
             {routeTable && (
-              <span className="text-[8px] text-amber-300/60">
+              <span className="text-[8px] text-amber-700 dark:text-amber-300/60">
                 {routeTable.routes.length} route
                 {routeTable.routes.length === 1 ? "" : "s"}
               </span>
@@ -887,10 +887,10 @@ function SubnetBox({
                 const isInternet = r.target_kind === "igw" || r.target_kind === "nat"
                 const isLocal = r.target_kind === "local"
                 const tone = isInternet
-                  ? "border-violet-500/40 bg-violet-900/20 text-violet-200"
+                  ? "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300"
                   : isLocal
-                    ? "border-slate-600/40 bg-slate-800/40 text-slate-300"
-                    : "border-cyan-500/40 bg-cyan-900/20 text-cyan-200"
+                    ? "border-border bg-muted text-muted-foreground"
+                    : "border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
                 return (
                   <span
                     key={`${r.cidr}-${i}`}
@@ -902,14 +902,14 @@ function SubnetBox({
                 )
               })}
               {routeTable.routes.length > 3 && (
-                <span className="text-[8px] text-amber-300/60">
+                <span className="text-[8px] text-amber-700 dark:text-amber-300/60">
                   +{routeTable.routes.length - 3} more
                 </span>
               )}
             </div>
           )}
           {!routeTable && (
-            <div className="text-[8px] text-slate-500 italic pl-2">
+            <div className="text-[8px] text-muted-foreground italic pl-2">
               Routes not collected for this table
             </div>
           )}
@@ -918,7 +918,7 @@ function SubnetBox({
 
       {/* Workloads — group SG-shared workloads in a dashed SG boundary */}
       {groups.length === 0 ? (
-        <div className="text-[9px] text-slate-500 italic px-2 py-3 text-center">
+        <div className="text-[9px] text-muted-foreground italic px-2 py-3 text-center">
           (no workloads in this subnet)
         </div>
       ) : (
@@ -957,23 +957,23 @@ function SGBoundary({
   const sgDim = hasPath && hasSg && !sgOnPath ? "opacity-50" : ""
   return (
     <div
-      className={`rounded-md p-2 ${hasSg ? "border border-dashed border-rose-500/50 bg-rose-950/10" : ""} ${sgDim} transition-opacity`}
+      className={`rounded-md p-2 ${hasSg ? "border border-dashed border-rose-500/40 bg-rose-500/5" : ""} ${sgDim} transition-opacity`}
     >
       {hasSg && (
         <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-          <ShieldCheck className="h-3 w-3 text-rose-400" />
+          <ShieldCheck className="h-3 w-3 text-rose-500" />
           {sgIds.map((id) => {
             const sg = sgById.get(id)
             return (
               <div
                 key={id}
-                className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-900/20 px-1.5 py-0.5"
+                className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5"
                 title={id}
               >
-                <span className="text-[8px] font-bold uppercase text-rose-200">SG</span>
-                <span className="text-[8px] text-rose-300/80">{shortName(sg?.name || id)}</span>
+                <span className="text-[8px] font-semibold uppercase text-rose-700 dark:text-rose-700 dark:text-rose-300">SG</span>
+                <span className="text-[8px] text-rose-700 dark:text-rose-300/80">{shortName(sg?.name || id)}</span>
                 {sg?.has_public_ingress && (
-                  <span className="text-[7px] font-bold uppercase text-amber-300 bg-amber-500/20 rounded px-1">
+                  <span className="text-[7px] font-semibold uppercase text-amber-700 dark:text-amber-300 bg-amber-500/10 rounded px-1">
                     Public
                   </span>
                 )}
@@ -997,21 +997,21 @@ function WorkloadCard({ workload, onPathIds, hasPath }: { workload: Workload; on
   const onPath = !hasPath || onPathIds.has(workload.id)
   // On-path workloads get an amber ring; off-path get dimmed.
   const ringClass = hasPath && onPath
-    ? "ring-2 ring-amber-400/70 shadow-[0_0_12px_rgba(251,191,36,0.4)]"
+    ? "ring-2 ring-primary/50"
     : hasPath
       ? "opacity-40"
       : ""
   return (
     <div
-      className={`flex items-center gap-2 rounded-md border border-orange-500/40 bg-orange-900/15 px-2 py-1.5 min-w-0 ${ringClass} transition-all`}
+      className={`flex items-center gap-2 rounded-md border border-orange-500/40 bg-orange-500/10 px-2 py-1.5 min-w-0 ${ringClass} transition-all`}
       title={workload.id}
     >
-      <Icon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+      <Icon className="h-3.5 w-3.5 text-orange-500 shrink-0" />
       <div className="flex flex-col min-w-0">
-        <span className="text-[9px] font-bold text-orange-200 truncate">
+        <span className="text-[9px] font-bold text-orange-700 dark:text-orange-600 dark:text-orange-300 truncate">
           {shortName(workload.name)}
         </span>
-        <span className="text-[8px] text-orange-300/60 uppercase tracking-wider">{kind}</span>
+        <span className="text-[8px] text-orange-600 dark:text-orange-300/60 uppercase tracking-wider">{kind}</span>
       </div>
     </div>
   )

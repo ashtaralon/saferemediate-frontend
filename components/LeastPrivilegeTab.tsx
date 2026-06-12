@@ -162,6 +162,24 @@ interface GapResource {
   // Older backend responses may omit this — treated as 'removable' so
   // rows stay visible during/right after deploy.
   category?: 'removable' | 'coverage' | 'audit'
+  countsTowardSummary?: boolean
+}
+
+const LP_SEVERITY_BUCKETS = ['critical', 'high', 'medium', 'low'] as const
+type LpSeverityBucket = (typeof LP_SEVERITY_BUCKETS)[number]
+
+const normalizeLpSeverity = (severity: string | undefined | null): LpSeverityBucket => {
+  const key = String(severity || 'low').toLowerCase()
+  return (LP_SEVERITY_BUCKETS as readonly string[]).includes(key) ? (key as LpSeverityBucket) : 'low'
+}
+
+const summaryCount = (summary: Record<string, unknown> | undefined, ...keys: string[]): number => {
+  if (!summary) return 0
+  for (const key of keys) {
+    const value = summary[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return 0
 }
 
 interface LeastPrivilegeSummary {
@@ -645,13 +663,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           avgLPScore: result.resources?.length > 0 
             ? result.resources.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / result.resources.length
             : 100,
-          iamIssuesCount: result.summary?.iamIssuesCount || 0,
-          networkIssuesCount: result.summary?.networkIssuesCount || 0,
-          s3IssuesCount: result.summary?.s3IssuesCount || 0,
-          criticalCount: result.summary?.criticalCount || 0,
-          highCount: result.summary?.highCount || 0,
-          mediumCount: result.summary?.mediumCount || 0,
-          lowCount: result.summary?.lowCount || 0,
+          iamIssuesCount: summaryCount(result.summary, 'iamIssuesCount', 'iamCount'),
+          networkIssuesCount: summaryCount(result.summary, 'networkIssuesCount', 'sgCount'),
+          s3IssuesCount: summaryCount(result.summary, 's3IssuesCount', 's3Count'),
+          criticalCount: summaryCount(result.summary, 'criticalCount', 'critical'),
+          highCount: summaryCount(result.summary, 'highCount', 'high'),
+          mediumCount: summaryCount(result.summary, 'mediumCount', 'medium'),
+          lowCount: summaryCount(result.summary, 'lowCount', 'low'),
           confidenceLevel: result.summary?.confidenceLevel || 0,
           observationDays: result.observationDays || 90,
           attackSurfaceReduction: result.resources?.length > 0
@@ -673,6 +691,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             // transform, otherwise every row falls back to 'removable' and
             // the Coverage/Audit subtabs render empty.
             category: r.category,
+            countsTowardSummary: r.countsTowardSummary ?? r.counts_toward_summary,
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
             allowedCount: r.allowedCount || 0,
@@ -721,7 +740,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               confidence_breakdown: r.evidence?.confidence_breakdown || null,
               rule_states: r.evidence?.rule_states || null  // Security Group rule states
             },
-            severity: r.severity || 'medium',
+            severity: normalizeLpSeverity(r.severity),
             confidence: r.confidence || 0,
             observationDays: r.observationDays || 90,
             title: r.title || (isSecurityGroup
@@ -937,9 +956,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
     const activeResources = resources.filter(resource => !isRemediatedResource(resource))
     const severityCounts = activeResources.reduce((acc, resource) => {
-      acc[resource.severity] = (acc[resource.severity] || 0) + 1
+      const bucket = normalizeLpSeverity(resource.severity)
+      acc[bucket] += 1
       return acc
-    }, { critical: 0, high: 0, medium: 0, low: 0 } as Record<'critical' | 'high' | 'medium' | 'low', number>)
+    }, { critical: 0, high: 0, medium: 0, low: 0 } as Record<LpSeverityBucket, number>)
 
     const totalExcessPermissions = activeResources.reduce((total, resource) => {
       const metrics = getUsageMetricsForResource(resource)
@@ -1587,13 +1607,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
     })
     .filter(r => {
-      // Was: "hide IAM roles with gapCount=0 on the Active Issues tab" — that
-      // gate is now redundant because such rows route to Audit (gap=0 → audit).
-      // Keep the gate only on the Removable tab as a defence-in-depth filter
-      // in case the backend mis-categorises.
+      // Removable tab: honour aggregator visibility — posture findings often
+      // have gapCount=0 but still count toward summary (S3/NACL bug class).
       if (activeTab !== 'removable') return true
-      if (r.resourceType === 'IAMRole') return (r.gapCount ?? 0) > 0
-      return true
+      if (r.countsTowardSummary === false) return false
+      if ((r.gapCount ?? 0) > 0 || (r.networkExposure?.internetExposedRules ?? 0) > 0) return true
+      return ['critical', 'high', 'medium'].includes(normalizeLpSeverity(r.severity))
     })
     .filter(r => {
       if (activeTab !== 'removable') return true
