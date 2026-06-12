@@ -24,6 +24,8 @@ export type DamageScopePayload = {
   node_id: string
   node_type: string
   principal_arn: string
+  /** Per-cell S3 damage matrix with bound LP fixes (null for non-S3 or on failure). */
+  damage_matrix?: import("./damage-matrix-fix").DamageMatrix | null
   scope_today: { actions: string[]; headline: string }
   scope_post_lp: {
     kept_actions: string[]

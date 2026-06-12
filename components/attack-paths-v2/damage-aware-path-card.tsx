@@ -37,8 +37,14 @@ import { pathIdentityLabel, pathSourceLabel } from "./path-damage-summary"
 import {
   resolveModalTarget,
   resolveIamRoleFromPath,
+  boundFixToTarget,
   type ModalTarget,
 } from "./remediation-target"
+import {
+  selectRecommendedFix,
+  expectedResultLabel,
+  type RecommendedFix,
+} from "./damage-matrix-fix"
 
 interface DamageAwarePathCardProps {
   path: IdentityAttackPath
@@ -137,6 +143,12 @@ export function DamageAwarePathCard({
   const byVerb = useMemo(() => groupLinesByVerb(granularLines), [granularLines])
 
   const topFix = path.risk_reduction?.top_actions?.[0]
+  // Prefer the backend damage-cell-bound fix (e.g. "Remove s3:DeleteObject")
+  // over the generic top risk-reducer when the S3 damage matrix is present.
+  const boundFix = useMemo(
+    () => selectRecommendedFix(scope?.damage_matrix),
+    [scope],
+  )
   const lpAssessment = useMemo(
     () => assessLpExecution(scope?.lp_confidence, scope?.lp_confidence?.consumer_count),
     [scope],
@@ -242,6 +254,10 @@ export function DamageAwarePathCard({
       return
     }
     setOpenModal(target)
+  }
+
+  const handleApplyBoundFix = (rec: RecommendedFix) => {
+    setOpenModal(boundFixToTarget(rec.fix))
   }
 
   const blastLine = useMemo(() => {
@@ -369,7 +385,32 @@ export function DamageAwarePathCard({
               <Sparkles className="h-3 w-3" />
               Recommended LP fix
             </div>
-            {topFix ? (
+            {boundFix ? (
+              <div>
+                <p className="text-sm text-slate-100">{boundFix.action_label}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Addresses{" "}
+                  <span className="text-slate-200">{boundFix.label.toLowerCase()}</span> on this
+                  jewel
+                </p>
+                <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                  {boundFix.fix.resource_scope}
+                </p>
+                {expectedResultLabel(boundFix) && (
+                  <p className="text-[10px] text-emerald-400 mt-1">
+                    {expectedResultLabel(boundFix)}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleApplyBoundFix(boundFix)}
+                  className="mt-3 inline-flex items-center rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+                  data-testid="damage-aware-apply-cta"
+                >
+                  Preview LP fix
+                </button>
+              </div>
+            ) : topFix ? (
               <div>
                 <p className="text-sm text-foreground">{topFix.action}</p>
                 {topFix.node_name && (
@@ -466,7 +507,7 @@ export function DamageAwarePathCard({
         </div>
       </div>
 
-      {openModal?.kind === "iam" && (
+      {(openModal?.kind === "iam" || openModal?.kind === "iam_action_patch") && (
         <IAMPermissionAnalysisModal
           isOpen={true}
           onClose={() => setOpenModal(null)}

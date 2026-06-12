@@ -29,7 +29,7 @@ const safeNumber = (v: unknown, fallback = 0): number => {
 // Types
 interface GapResource {
   id: string
-  resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL'
+  resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance'
   resourceName: string
   resourceArn: string
   systemName?: string
@@ -136,6 +136,14 @@ interface GapResource {
       flows?: number
       resources_checked?: number
     }> | null
+    // Posture findings (RDS, S3 public policy, EC2 workload exposure):
+    // each entry is a rule violation with its own severity. Carried by
+    // the backend in evidence.violatedRules per finding_class='posture'.
+    violatedRules?: Array<{
+      severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+      rule: string
+      message: string
+    }>
   }
   // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
   // in this file still write lowercase. Severity rendering goes through
@@ -888,6 +896,61 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       total,
       gapPct: Math.round((unused / total) * 100)
     }
+  }
+
+  // 2026-06-12: "GAP %" column is misleading for non-permission-gap rows.
+  // RDS/Lambda/EC2 posture findings have no permission count — showing
+  // "0%" reads as "no LP needed" when in fact the resource has a CRITICAL
+  // posture issue. S3 with a public policy is similar — gap is 0 but the
+  // policy is the problem. Branch the display by finding class so the
+  // column reflects the actual semantics per row type:
+  //
+  //   permission_gap (IAM)        →  "N%" (percent — current behavior)
+  //   rule_gap unused (SG)        →  "N%" (percent — current behavior)
+  //   rule_gap exposed (SG chain) →  "N exposed" rules
+  //   posture (RDS/Lambda/EC2/S3) →  "N issues" violations
+  //   no signal                   →  "—" (em-dash)
+  type RowMetricDisplay =
+    | { kind: 'percent'; pct: number }
+    | { kind: 'count'; count: number; label: string }
+    | { kind: 'na' }
+
+  const getRowMetricDisplay = (
+    resource: GapResource,
+    metrics: { gapPct: number; unusedCount: number },
+  ): RowMetricDisplay => {
+    const t = resource.resourceType
+    const sev = (resource.severity || '').toUpperCase()
+    const violations = resource.evidence?.violatedRules?.length ?? 0
+
+    // Pure-posture resource types — RDS, Lambda, EC2 workload exposure.
+    // Always count-based; percentage is never meaningful for these.
+    if (t === 'RDSInstance' || t === 'LambdaFunction' || t === 'EC2Instance') {
+      const count = violations
+        || ((resource.evidence as unknown as { allFindingIds?: string[] })?.allFindingIds?.length ?? 0)
+      return count > 0
+        ? { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+        : { kind: 'na' }
+    }
+
+    // S3: the public-policy posture case fires CRITICAL/HIGH with gap=0
+    // because every action is in use. Show the issue count instead of "0%".
+    if (t === 'S3Bucket' && metrics.gapPct === 0 && (sev === 'CRITICAL' || sev === 'HIGH')) {
+      const count = violations || 1
+      return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+    }
+
+    // SG chain-aware exposed-rule shape: gap=0 (no unused) but exposed>0.
+    // Show "N exposed" instead of misleading "0%".
+    if (t === 'SecurityGroup' && metrics.gapPct === 0 && metrics.unusedCount === 0) {
+      const exposed = (resource as unknown as { exposedCount?: number }).exposedCount ?? 0
+      if (exposed > 0) return { kind: 'count', count: exposed, label: 'exposed' }
+      // SG flagged severity-wise but no exposed/unused signal in evidence —
+      // show em-dash to avoid the "0% no LP needed" lie.
+      if (sev === 'CRITICAL' || sev === 'HIGH') return { kind: 'na' }
+    }
+
+    return { kind: 'percent', pct: metrics.gapPct }
   }
 
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
@@ -2029,12 +2092,45 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         {getResourceTypeLabel(resource.resourceType)}
                       </span>
 
-                      {/* Gap bar */}
+                      {/* GAP % column — polymorphic per row finding class.
+                          Permission gap → percentage bar (legacy behavior).
+                          Posture / exposed-rule → count + label (e.g. "5 issues").
+                          No signal → em-dash. See getRowMetricDisplay. */}
                       <div className="flex items-center justify-center gap-1.5">
-                        <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-                          <div className="h-full rounded-full" style={{ width: `${Math.min(metrics.gapPct, 100)}%`, background: sevColor }} />
-                        </div>
-                        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{metrics.gapPct}%</span>
+                        {(() => {
+                          const display = getRowMetricDisplay(resource, metrics)
+                          if (display.kind === 'percent') {
+                            return (
+                              <>
+                                <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                                  <div className="h-full rounded-full" style={{ width: `${Math.min(display.pct, 100)}%`, background: sevColor }} />
+                                </div>
+                                <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{display.pct}%</span>
+                              </>
+                            )
+                          }
+                          if (display.kind === 'count') {
+                            return (
+                              <span
+                                className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                                style={{ background: `${sevColor}18`, color: sevColor }}
+                                title={`${display.count} ${display.label} — see Risk Details for the list`}
+                              >
+                                {display.count} {display.label}
+                              </span>
+                            )
+                          }
+                          // 'na'
+                          return (
+                            <span
+                              className="text-xs"
+                              style={{ color: "var(--text-muted)" }}
+                              title="Posture finding — percentage doesn't apply. See Risk Details for the issues."
+                            >
+                              —
+                            </span>
+                          )
+                        })()}
                       </div>
 
                       {/* Used */}
@@ -2246,42 +2342,92 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
                             <BarChart3 className="w-3.5 h-3.5" />
-                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security' : resource.resourceType === 'S3Bucket' ? 'Access Analysis' : 'Privilege Analysis'}
+                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security'
+                              : resource.resourceType === 'S3Bucket' ? 'Access Analysis'
+                              : resource.resourceType === 'RDSInstance' ? 'Posture Issues'
+                              : 'Privilege Analysis'}
                           </h4>
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="text-3xl font-bold" style={{ color: sevColor }}>
-                              {metrics.gapPct}%
-                            </span>
-                            <span className="text-xs font-medium" style={{ color: sevColor }}>Over-Privileged</span>
-                          </div>
-                          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                            {metrics.unusedCount > 0
-                              ? (resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence && metrics.usedCount === 0))
-                                ? <>{metrics.unusedCount} of {metrics.total} permissions have <strong style={{ color: "#f97316" }}>no observed usage</strong> — insufficient data to confirm</>
-                                : <>{metrics.unusedCount} of {metrics.total} permissions never used — only <strong style={{ color: "#22c55e" }}>{metrics.usedCount}</strong> needed</>
-                              : <>All {metrics.total} permissions are in active use</>
-                            }
-                          </p>
-                          {/* Visual bar: green (used) vs red (unused) */}
-                          <div className="h-3 rounded-full overflow-hidden flex" style={{ background: "var(--bg-primary)" }}>
-                            {metrics.usedCount > 0 && (
-                              <div className="h-full rounded-l-full" style={{
-                                width: `${Math.max(((metrics.usedCount / Math.max(1, metrics.total)) * 100), 4)}%`,
-                                background: '#22c55e'
-                              }} />
-                            )}
-                            {metrics.unusedCount > 0 && (
-                              <div className="h-full" style={{
-                                width: `${(metrics.unusedCount / Math.max(1, metrics.total)) * 100}%`,
-                                background: '#ef4444',
-                                borderRadius: metrics.usedCount > 0 ? '0 9999px 9999px 0' : '9999px'
-                              }} />
-                            )}
-                          </div>
-                          <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                            <span>{metrics.usedCount} used</span>
-                            <span>{metrics.unusedCount} to remove</span>
-                          </div>
+                          {/* Posture rows (RDS today; S3 public-policy and EC2 workload
+                              exposure tomorrow) don't carry a permission-gap metric.
+                              Render the violation count + severity instead of the
+                              over-privileged-percentage bar. */}
+                          {resource.resourceType === 'RDSInstance' && (resource.evidence?.violatedRules?.length ?? 0) > 0 ? (
+                            <>
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className="text-3xl font-bold" style={{ color: sevColor }}>
+                                  {resource.evidence?.violatedRules?.length ?? 0}
+                                </span>
+                                <span className="text-xs font-medium" style={{ color: sevColor }}>
+                                  posture {resource.evidence?.violatedRules?.length === 1 ? 'issue' : 'issues'}
+                                </span>
+                              </div>
+                              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                                Configuration assertions from AWS RDS describe-db-instances.
+                                Each issue is a one-shot fix — see Risk Details for the list.
+                              </p>
+                              {/* Severity-tally bar instead of used/unused — one segment per violation. */}
+                              <div className="h-3 rounded-full overflow-hidden flex gap-0.5" style={{ background: "var(--bg-primary)" }}>
+                                {(resource.evidence?.violatedRules ?? []).map((v, i) => {
+                                  const c = v.severity === 'CRITICAL' ? '#ef4444'
+                                    : v.severity === 'HIGH' ? '#f97316'
+                                    : v.severity === 'MEDIUM' ? '#eab308'
+                                    : '#22c55e'
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="h-full"
+                                      style={{
+                                        background: c,
+                                        flex: 1,
+                                      }}
+                                      title={`${v.severity}: ${v.rule}`}
+                                    />
+                                  )
+                                })}
+                              </div>
+                              <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                                <span>{(resource.evidence?.violatedRules ?? []).filter(v => v.severity === 'CRITICAL' || v.severity === 'HIGH').length} actionable now</span>
+                                <span>{(resource.evidence?.violatedRules ?? []).filter(v => v.severity === 'MEDIUM' || v.severity === 'LOW').length} review</span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className="text-3xl font-bold" style={{ color: sevColor }}>
+                                  {metrics.gapPct}%
+                                </span>
+                                <span className="text-xs font-medium" style={{ color: sevColor }}>Over-Privileged</span>
+                              </div>
+                              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                                {metrics.unusedCount > 0
+                                  ? (resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence && metrics.usedCount === 0))
+                                    ? <>{metrics.unusedCount} of {metrics.total} permissions have <strong style={{ color: "#f97316" }}>no observed usage</strong> — insufficient data to confirm</>
+                                    : <>{metrics.unusedCount} of {metrics.total} permissions never used — only <strong style={{ color: "#22c55e" }}>{metrics.usedCount}</strong> needed</>
+                                  : <>All {metrics.total} permissions are in active use</>
+                                }
+                              </p>
+                              {/* Visual bar: green (used) vs red (unused) */}
+                              <div className="h-3 rounded-full overflow-hidden flex" style={{ background: "var(--bg-primary)" }}>
+                                {metrics.usedCount > 0 && (
+                                  <div className="h-full rounded-l-full" style={{
+                                    width: `${Math.max(((metrics.usedCount / Math.max(1, metrics.total)) * 100), 4)}%`,
+                                    background: '#22c55e'
+                                  }} />
+                                )}
+                                {metrics.unusedCount > 0 && (
+                                  <div className="h-full" style={{
+                                    width: `${(metrics.unusedCount / Math.max(1, metrics.total)) * 100}%`,
+                                    background: '#ef4444',
+                                    borderRadius: metrics.usedCount > 0 ? '0 9999px 9999px 0' : '9999px'
+                                  }} />
+                                )}
+                              </div>
+                              <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                                <span>{metrics.usedCount} used</span>
+                                <span>{metrics.unusedCount} to remove</span>
+                              </div>
+                            </>
+                          )}
                         </div>
 
                         {/* Column 2: Risk Details (type-specific) */}
@@ -2388,6 +2534,56 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                     ))}
                                   </div>
                                 </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* RDS Instance: posture violation list. Each row is a
+                              concrete config flip (publicly_accessible, storage
+                              encryption, IAM-DB auth, backups, deletion protection).
+                              Severity per-rule comes from the backend's
+                              _determine_severity-equivalent for RDS posture. */}
+                          {resource.resourceType === 'RDSInstance' && (
+                            <div className="space-y-2">
+                              {(resource.evidence?.violatedRules?.length ?? 0) === 0 ? (
+                                <p className="text-xs" style={{ color: "#22c55e" }}>No posture issues found.</p>
+                              ) : (
+                                <>
+                                  <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                                    {resource.evidence?.violatedRules?.length} violation{resource.evidence?.violatedRules?.length === 1 ? '' : 's'}
+                                  </div>
+                                  <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                                    {(resource.evidence?.violatedRules ?? []).map((v, i) => {
+                                      const sevColor =
+                                        v.severity === 'CRITICAL' ? '#ef4444' :
+                                        v.severity === 'HIGH' ? '#f97316' :
+                                        v.severity === 'MEDIUM' ? '#eab308' :
+                                        '#22c55e'
+                                      return (
+                                        <div
+                                          key={i}
+                                          className="flex items-start gap-2 p-2 rounded border"
+                                          style={{ borderColor: `${sevColor}40`, background: `${sevColor}08` }}
+                                        >
+                                          <span
+                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
+                                            style={{ background: sevColor, color: 'white' }}
+                                          >
+                                            {v.severity}
+                                          </span>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-mono mb-0.5" style={{ color: sevColor }}>
+                                              {v.rule}
+                                            </div>
+                                            <div className="text-xs leading-snug" style={{ color: "var(--text-secondary)" }}>
+                                              {v.message}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </>
                               )}
                             </div>
                           )}

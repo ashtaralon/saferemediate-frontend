@@ -73,6 +73,7 @@ export function assessLpExecution(
     }
   }
 
+  // Fail safe: only return AUTO when confidence is explicitly HIGH.
   if (level === "HIGH") {
     return {
       gate: "AUTO",
