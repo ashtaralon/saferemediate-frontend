@@ -879,6 +879,61 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
   }
 
+  // 2026-06-12: "GAP %" column is misleading for non-permission-gap rows.
+  // RDS/Lambda/EC2 posture findings have no permission count — showing
+  // "0%" reads as "no LP needed" when in fact the resource has a CRITICAL
+  // posture issue. S3 with a public policy is similar — gap is 0 but the
+  // policy is the problem. Branch the display by finding class so the
+  // column reflects the actual semantics per row type:
+  //
+  //   permission_gap (IAM)        →  "N%" (percent — current behavior)
+  //   rule_gap unused (SG)        →  "N%" (percent — current behavior)
+  //   rule_gap exposed (SG chain) →  "N exposed" rules
+  //   posture (RDS/Lambda/EC2/S3) →  "N issues" violations
+  //   no signal                   →  "—" (em-dash)
+  type RowMetricDisplay =
+    | { kind: 'percent'; pct: number }
+    | { kind: 'count'; count: number; label: string }
+    | { kind: 'na' }
+
+  const getRowMetricDisplay = (
+    resource: GapResource,
+    metrics: { gapPct: number; unusedCount: number },
+  ): RowMetricDisplay => {
+    const t = resource.resourceType
+    const sev = (resource.severity || '').toUpperCase()
+    const violations = resource.evidence?.violatedRules?.length ?? 0
+
+    // Pure-posture resource types — RDS, Lambda, EC2 workload exposure.
+    // Always count-based; percentage is never meaningful for these.
+    if (t === 'RDSInstance' || t === 'LambdaFunction' || t === 'EC2Instance') {
+      const count = violations
+        || ((resource.evidence as unknown as { allFindingIds?: string[] })?.allFindingIds?.length ?? 0)
+      return count > 0
+        ? { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+        : { kind: 'na' }
+    }
+
+    // S3: the public-policy posture case fires CRITICAL/HIGH with gap=0
+    // because every action is in use. Show the issue count instead of "0%".
+    if (t === 'S3Bucket' && metrics.gapPct === 0 && (sev === 'CRITICAL' || sev === 'HIGH')) {
+      const count = violations || 1
+      return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+    }
+
+    // SG chain-aware exposed-rule shape: gap=0 (no unused) but exposed>0.
+    // Show "N exposed" instead of misleading "0%".
+    if (t === 'SecurityGroup' && metrics.gapPct === 0 && metrics.unusedCount === 0) {
+      const exposed = (resource as unknown as { exposedCount?: number }).exposedCount ?? 0
+      if (exposed > 0) return { kind: 'count', count: exposed, label: 'exposed' }
+      // SG flagged severity-wise but no exposed/unused signal in evidence —
+      // show em-dash to avoid the "0% no LP needed" lie.
+      if (sev === 'CRITICAL' || sev === 'HIGH') return { kind: 'na' }
+    }
+
+    return { kind: 'percent', pct: metrics.gapPct }
+  }
+
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
     const activeResources = resources.filter(resource => !isRemediatedResource(resource))
     const severityCounts = activeResources.reduce((acc, resource) => {
@@ -2018,12 +2073,45 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         {getResourceTypeLabel(resource.resourceType)}
                       </span>
 
-                      {/* Gap bar */}
+                      {/* GAP % column — polymorphic per row finding class.
+                          Permission gap → percentage bar (legacy behavior).
+                          Posture / exposed-rule → count + label (e.g. "5 issues").
+                          No signal → em-dash. See getRowMetricDisplay. */}
                       <div className="flex items-center justify-center gap-1.5">
-                        <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-                          <div className="h-full rounded-full" style={{ width: `${Math.min(metrics.gapPct, 100)}%`, background: sevColor }} />
-                        </div>
-                        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{metrics.gapPct}%</span>
+                        {(() => {
+                          const display = getRowMetricDisplay(resource, metrics)
+                          if (display.kind === 'percent') {
+                            return (
+                              <>
+                                <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                                  <div className="h-full rounded-full" style={{ width: `${Math.min(display.pct, 100)}%`, background: sevColor }} />
+                                </div>
+                                <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{display.pct}%</span>
+                              </>
+                            )
+                          }
+                          if (display.kind === 'count') {
+                            return (
+                              <span
+                                className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                                style={{ background: `${sevColor}18`, color: sevColor }}
+                                title={`${display.count} ${display.label} — see Risk Details for the list`}
+                              >
+                                {display.count} {display.label}
+                              </span>
+                            )
+                          }
+                          // 'na'
+                          return (
+                            <span
+                              className="text-xs"
+                              style={{ color: "var(--text-muted)" }}
+                              title="Posture finding — percentage doesn't apply. See Risk Details for the issues."
+                            >
+                              —
+                            </span>
+                          )
+                        })()}
                       </div>
 
                       {/* Used */}
