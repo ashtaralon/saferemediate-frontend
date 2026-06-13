@@ -255,7 +255,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // family-scoped BRSS for IAM. Fetched from /api/proxy/issues-summary in
   // parallel with the main LP data.
   const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
-  const [lpReadiness, setLpReadiness] = useState<LpReadinessPayload | null>(null)
   const { toast } = useToast()
   const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
   const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
@@ -613,29 +612,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }
       } catch {
         setBrss(null)
-      }
-      if (!systemName) {
-        setLpReadiness(null)
-        return
-      }
-      try {
-        const readinessRes = await fetch(
-          `/api/proxy/systems/${encodeURIComponent(systemName)}/lp-readiness?observation_days=90`,
-          { cache: 'no-store' },
-        )
-        if (!readinessRes.ok) {
-          setLpReadiness(null)
-          return
-        }
-        const readinessPayload = await readinessRes.json()
-        setLpReadiness({
-          status: readinessPayload.status,
-          score: readinessPayload.score,
-          blockers: readinessPayload.blockers,
-          checks: readinessPayload.checks,
-        })
-      } catch {
-        setLpReadiness(null)
       }
     })()
     return () => {
