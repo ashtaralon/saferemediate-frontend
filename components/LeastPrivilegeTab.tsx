@@ -143,6 +143,13 @@ interface GapResource {
       severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
       rule: string
       message: string
+      // IAM escalation primitive detector (unified/escalation/detector.py)
+      primitive?: string
+      evidence_actions?: string[]
+      evidence_resources?: string[]
+      confidence?: string
+      severity_bump?: number
+      detector_version?: string
     }>
   }
   // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
@@ -1003,14 +1010,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return { kind: 'percent', pct: metrics.gapPct }
   }
 
-  const getPosturePanelDescription = (resourceType: GapResource['resourceType']): string => {
+  const isIamEscalationRule = (rule: string | undefined): boolean =>
+    !!rule?.startsWith('iam.escalation.')
+
+  const getPosturePanelDescription = (resource: GapResource): string => {
+    const rules = resource.evidence?.violatedRules ?? []
+    if (rules.some((v) => isIamEscalationRule(v.rule))) {
+      return 'Toxic privilege combinations observed in CloudTrail — the role actually used these together. Narrow or split to bound blast radius if compromised.'
+    }
+    const resourceType = resource.resourceType
     if (resourceType === 'SecurityGroup') {
       return 'Per-port public-ingress analysis from VPC Flow Logs and SG rules. Each issue is a concrete narrow-or-close recommendation — see Risk Details.'
+    }
+    if (resourceType === 'RDSInstance') {
+      return 'Configuration assertions from AWS RDS describe-db-instances. Each issue is a one-shot fix — see Risk Details for the list.'
     }
     if (resourceType === 'LambdaFunction' || resourceType === 'EC2Instance') {
       return 'Workload posture assertions from AWS configuration. Each issue is a one-shot fix — see Risk Details for the list.'
     }
-    return 'Configuration assertions from AWS RDS describe-db-instances. Each issue is a one-shot fix — see Risk Details for the list.'
+    return 'Configuration posture issues detected. See Risk Details for the list.'
   }
 
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
@@ -2463,7 +2481,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 </span>
                               </div>
                               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                                {getPosturePanelDescription(resource.resourceType)}
+                                {getPosturePanelDescription(resource)}
                               </p>
                               {/* Severity-tally bar instead of used/unused — one segment per violation. */}
                               <div className="h-3 rounded-full overflow-hidden flex gap-0.5" style={{ background: "var(--bg-primary)" }}>
@@ -2638,50 +2656,79 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </div>
                           )}
 
-                          {/* Posture violation list — any row with violatedRules
-                              (RDS, SG public-ingress, Lambda, etc.). */}
-                          {(resource.evidence?.violatedRules?.length ?? 0) > 0 && resource.resourceType !== 'IAMRole' && (
+                          {/* Posture violation list — RDS/SG/Lambda rows, plus IAM rows
+                              that carry iam.escalation.* primitive detections. */}
+                          {(resource.evidence?.violatedRules?.length ?? 0) > 0 &&
+                            (resource.resourceType !== 'IAMRole' ||
+                              (resource.evidence?.violatedRules ?? []).some((v) => isIamEscalationRule(v.rule))) && (
                             <div className="space-y-2">
-                              {(resource.evidence?.violatedRules?.length ?? 0) === 0 ? (
-                                <p className="text-xs" style={{ color: "#22c55e" }}>No posture issues found.</p>
-                              ) : (
-                                <>
-                                  <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                                    {resource.evidence?.violatedRules?.length} {resource.resourceType === 'SecurityGroup' ? 'public port' : 'violation'}{resource.evidence?.violatedRules?.length === 1 ? '' : 's'}
-                                  </div>
-                                  <div className="space-y-1.5 max-h-44 overflow-y-auto">
-                                    {(resource.evidence?.violatedRules ?? []).map((v, i) => {
-                                      const sevColor =
-                                        v.severity === 'CRITICAL' ? '#ef4444' :
-                                        v.severity === 'HIGH' ? '#f97316' :
-                                        v.severity === 'MEDIUM' ? '#eab308' :
-                                        '#22c55e'
-                                      return (
-                                        <div
-                                          key={i}
-                                          className="flex items-start gap-2 p-2 rounded border"
-                                          style={{ borderColor: `${sevColor}40`, background: `${sevColor}08` }}
-                                        >
-                                          <span
-                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
-                                            style={{ background: sevColor, color: 'white' }}
+                              {(() => {
+                                const violatedRules = resource.evidence?.violatedRules ?? []
+                                const escalationRules = violatedRules.filter((v) => isIamEscalationRule(v.rule))
+                                const isIamEscalation =
+                                  resource.resourceType === 'IAMRole' && escalationRules.length > 0
+                                const listRules = isIamEscalation ? escalationRules : violatedRules
+                                const countLabel = isIamEscalation
+                                  ? `${escalationRules.length} escalation pattern${escalationRules.length === 1 ? '' : 's'}`
+                                  : `${violatedRules.length} ${resource.resourceType === 'SecurityGroup' ? 'public port' : 'violation'}${violatedRules.length === 1 ? '' : 's'}`
+                                return (
+                                  <>
+                                    <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                                      {countLabel}
+                                    </div>
+                                    <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                                      {listRules.map((v, i) => {
+                                        const ruleSevColor =
+                                          v.severity === 'CRITICAL' ? '#ef4444' :
+                                          v.severity === 'HIGH' ? '#f97316' :
+                                          v.severity === 'MEDIUM' ? '#eab308' :
+                                          '#22c55e'
+                                        const observedActions = v.evidence_actions ?? []
+                                        return (
+                                          <div
+                                            key={i}
+                                            className="flex items-start gap-2 p-2 rounded border"
+                                            style={{ borderColor: `${ruleSevColor}40`, background: `${ruleSevColor}08` }}
                                           >
-                                            {v.severity}
-                                          </span>
-                                          <div className="flex-1 min-w-0">
-                                            <div className="text-xs font-mono mb-0.5" style={{ color: sevColor }}>
-                                              {v.rule}
-                                            </div>
-                                            <div className="text-xs leading-snug" style={{ color: "var(--text-secondary)" }}>
-                                              {v.message}
+                                            <span
+                                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
+                                              style={{ background: ruleSevColor, color: 'white' }}
+                                            >
+                                              {v.severity}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="text-xs font-mono mb-0.5" style={{ color: ruleSevColor }}>
+                                                {v.rule}
+                                              </div>
+                                              <div className="text-xs leading-snug" style={{ color: "var(--text-secondary)" }}>
+                                                {v.message}
+                                              </div>
+                                              {observedActions.length > 0 && (
+                                                <div className="mt-1.5">
+                                                  <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>
+                                                    Observed:
+                                                  </span>
+                                                  <div className="flex flex-wrap gap-1 mt-0.5">
+                                                    {observedActions.map((action, j) => (
+                                                      <span
+                                                        key={j}
+                                                        className="px-2 py-0.5 rounded text-xs font-mono"
+                                                        style={{ background: `${ruleSevColor}15`, color: ruleSevColor }}
+                                                      >
+                                                        {action}
+                                                      </span>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                </>
-                              )}
+                                        )
+                                      })}
+                                    </div>
+                                  </>
+                                )
+                              })()}
                             </div>
                           )}
                         </div>
