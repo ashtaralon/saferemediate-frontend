@@ -237,7 +237,10 @@ export function DamageAwarePathCard({
     const source = pathSourceLabel(path)
     const identity = pathIdentityLabel(path)
     const target = jewel?.name ?? path.nodes?.[path.nodes.length - 1]?.name ?? "crown jewel"
-    return `${source} → ${identity} → ${target}`
+    // BE-10: collapse the middle node when the entry IS the jewel-reaching
+    // identity (pivot's-own-reach) so we don't print "pivot → pivot → jewel".
+    const parts = [source, identity !== source ? identity : null, target].filter(Boolean)
+    return parts.join(" → ")
   }, [path, jewel])
 
   const status = pathStatusLabel(path)
