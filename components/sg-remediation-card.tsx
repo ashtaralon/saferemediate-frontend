@@ -490,10 +490,39 @@ export function SGRemediationCard({
       // hasn't been redeployed yet (the contract is additive).
       const rec = r.recommendation || ({} as RuleRecommendation)
       const backendAction = rec.action_class
-      const action: RuleAction = backendAction ?? classifyRule(r, observationDays)
+      let action: RuleAction = backendAction ?? classifyRule(r, observationDays)
+
+      // SAFETY GATE — apply AFTER backend/client resolution so neither
+      // the backend's action_class nor the local classifier can ever
+      // leave an outbound ALL rule outside "protected". Backend
+      // currently emits action_class='safe_to_remove' on the default-
+      // permissive egress rule because its rule-traffic substrate
+      // reads SG-level HAS_TRAFFIC (zero-counter for egress) instead
+      // of workload ACTUAL_TRAFFIC. Same root cause documented in
+      // classifyRule(); the gate exists in both places as defense in
+      // depth so a fix in either layer alone doesn't accidentally
+      // un-protect this rule shape. See classifyRule() comment for
+      // empirical case and removal condition.
+      if (
+        (r.direction === "outbound" || r.direction === "egress") &&
+        (r.protocol || "").toLowerCase() === "all"
+      ) {
+        action = "protected"
+      }
+
       const evidence = rec.evidence_confidence ?? rec.confidence ?? 0
       const ceiling = rec.action_ceiling ?? actionCeiling(action)
-      const execution = rec.execution_confidence ?? Math.min(evidence, ceiling)
+      // Force execution_confidence to 0 for the gated rule even if the
+      // backend computed something higher — otherwise the rule lands
+      // in PROTECTED with a misleading "85%" badge that contradicts
+      // the gate. Zero matches PROTECTED's semantic of "no execution
+      // semantics; excluded from remediable average."
+      const wasGated =
+        (r.direction === "outbound" || r.direction === "egress") &&
+        (r.protocol || "").toLowerCase() === "all"
+      const execution = wasGated
+        ? 0
+        : rec.execution_confidence ?? Math.min(evidence, ceiling)
       return {
         ...r,
         _action: action,
