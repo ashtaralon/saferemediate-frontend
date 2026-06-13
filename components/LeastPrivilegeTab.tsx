@@ -916,7 +916,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   const isRemediatedResource = (resource: GapResource) =>
-    !!(resource.remediatedAt || (resource.resourceType === 'IAMRole' && resource.allowedCount === 0))
+    !!(
+      resource.remediatedAt ||
+      (
+        resource.resourceType === 'IAMRole' &&
+        resource.allowedCount === 0 &&
+        // Sync-incomplete / never-measured roles normalize null→0 — not remediated.
+        // Rows with open posture/escalation violations must stay in active inventory.
+        (resource.evidence?.violatedRules?.length ?? 0) === 0
+      )
+    )
 
   const getUsageMetricsForResource = (resource: GapResource) => {
     if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
