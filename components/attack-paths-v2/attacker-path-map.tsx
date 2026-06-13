@@ -41,6 +41,7 @@ import {
 import type {
   IdentityAttackPath,
   PathNodeDetail,
+  PathEdgeDetail,
 } from "@/components/identity-attack-paths/types"
 import type { ClosurePreview } from "./closure-outcome-types"
 import { useClosurePreview } from "./use-closure-preview"
@@ -99,8 +100,28 @@ function pickFoothold(p: IdentityAttackPath): PathNodeDetail | undefined {
     p.nodes[0]
   )
 }
+// The role→role assume hop. Direction matters: source = the role doing the
+// assuming (the spine ENTRY), target = the role being assumed (lateral
+// movement). TRUSTS is excluded — that's the resource-policy / cross-account
+// hop handled separately by detectCrossAccount.
+function findAssumeEdge(p: IdentityAttackPath): PathEdgeDetail | undefined {
+  return (p.edges ?? []).find((e) => /ASSUME|STS/i.test(e.type))
+}
+function nodeById(p: IdentityAttackPath, id: string | null | undefined): PathNodeDetail | undefined {
+  if (!id) return undefined
+  return p.nodes.find((n) => n.id === id || n.canonical_id === id)
+}
 function pickRole(p: IdentityAttackPath): PathNodeDetail | undefined {
+  // BE-9: when the path carries an assume hop, the ENTRY identity is the role
+  // doing the assuming (the assume edge SOURCE). Without this, an *injected*
+  // escalation target (which carries tier="identity") can outrank the true
+  // foothold role and invert the spine (treasury rendered as entry assuming
+  // pivot, when reality is pivot → assumes → treasury).
+  const source = nodeById(p, findAssumeEdge(p)?.source)
+  if (source && /Role|User/i.test(source.type)) return source
   return (
+    // prefer the real foothold role over an injected escalation target
+    p.nodes.find((n) => n.tier === "identity" && !n.assume_escalation && /Role|User/i.test(n.type)) ??
     p.nodes.find((n) => n.tier === "identity" && /Role|User/i.test(n.type)) ??
     p.nodes.find((n) => /IAMRole/i.test(n.type))
   )
@@ -170,13 +191,32 @@ function pickInstanceProfile(p: IdentityAttackPath, foothold: PathNodeDetail | u
 function pickAssumedRole(
   p: IdentityAttackPath,
   primary: PathNodeDetail | undefined,
-): { node: PathNodeDetail; observed: boolean } | null {
+): { node: PathNodeDetail; observed: boolean; reachesJewel: boolean } | null {
+  const edge = findAssumeEdge(p)
+  // BE-9: the assumed role is the assume edge TARGET (the role being assumed),
+  // not "whichever other IAMRole" — that arbitrary pick inverted the hop.
+  const target = nodeById(p, edge?.target)
   const role2 =
+    (target && target.id !== primary?.id && /IAMRole|STSSession/i.test(target.type)
+      ? target
+      : undefined) ??
     p.nodes.find((n) => /IAMRole/i.test(n.type) && n.id !== primary?.id) ??
     p.nodes.find((n) => /STSSession/i.test(n.type))
   if (!role2) return null
-  const edge = (p.edges ?? []).find((e) => /ASSUME|STS|TRUSTS/i.test(e.type))
-  return { node: role2, observed: edge?.is_observed ?? false }
+  // Does the assumed role actually reach the crown jewel? If so the hop sits
+  // ON the access spine (entry → assumes → assumed → jewel — the BeyondTrust
+  // lateral-movement story). If not, the assume is a lateral *branch* off the
+  // entry (the entry reaches the jewel on its own); render it as such so we
+  // don't imply the assumed role is the jewel-reaching identity.
+  const jewel = pickJewel(p)
+  const reachesJewel = (p.edges ?? []).some(
+    (e) =>
+      (e.source === role2.id || e.source === role2.canonical_id) &&
+      (e.target === jewel?.id ||
+        e.target === jewel?.canonical_id ||
+        e.target === p.crown_jewel_id),
+  )
+  return { node: role2, observed: edge?.is_observed ?? false, reachesJewel }
 }
 
 // AWS account id from an ARN-shaped id ("arn:aws:iam::745783559495:role/x").
@@ -356,6 +396,17 @@ export function AttackerPathMap({
     />
   )
 
+  // Assumed-role card — shared by the on-spine hop and the lateral branch.
+  const assumedCard = assumed && (
+    <SpineNode
+      icon={<KeyRound className="h-3 w-3" />}
+      kicker="assumed role"
+      title={friendlyRoleName(assumed.node)}
+      accent={assumed.observed ? "border-red-500/40 bg-red-500/[0.05]" : "border-amber-500/40 bg-amber-500/[0.05]"}
+      chips={<Chip tone={assumed.observed ? "red" : "amber"}>{assumed.observed ? "assumed · observed" : "can assume · config"}</Chip>}
+    />
+  )
+
   // Cross-account principal card (compiler v2 ExternalPrincipal / RPG hop).
   const crossCard = cross && (
     <SpineNode
@@ -377,7 +428,7 @@ export function AttackerPathMap({
         <ShieldCheck className="h-4 w-4 text-emerald-300" />
         <span className="text-[12px] font-semibold tracking-wide text-slate-100">Attacker path</span>
         <span className="font-mono text-[12px] text-slate-300">
-          {(externalShape ? cross?.principal : foothold?.name) ?? "entry"} <span className="text-slate-600">→</span> {jewel?.name ?? "crown jewel"}
+          {(externalShape ? cross?.principal : hasCompute ? foothold?.name : friendlyRoleName(role)) ?? "entry"} <span className="text-slate-600">→</span> {jewel?.name ?? "crown jewel"}
         </span>
         {sev && (
           <span className={`ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${bandColor(sev)}`}>
@@ -469,19 +520,17 @@ export function AttackerPathMap({
                 </>
               }
             />
-            {assumed && (
+            {/* BE-9: the assume hop sits ON the spine only when the assumed
+                role reaches the jewel (entry → assumes → assumed → jewel).
+                When the entry reaches the jewel itself, the assume is a lateral
+                branch rendered after the jewel (see assumedBranch below). */}
+            {assumed && assumed.reachesJewel && (
               <>
                 <Connector
                   label={`sts:AssumeRole · ${assumed.observed ? "observed" : "config"}`}
                   tone={assumed.observed ? "red" : "amber"}
                 />
-                <SpineNode
-                  icon={<KeyRound className="h-3 w-3" />}
-                  kicker="assumed role"
-                  title={assumed.node.name}
-                  accent={assumed.observed ? "border-red-500/40 bg-red-500/[0.05]" : "border-amber-500/40 bg-amber-500/[0.05]"}
-                  chips={<Chip tone={assumed.observed ? "red" : "amber"}>{assumed.observed ? "assumed · observed" : "can assume · config"}</Chip>}
-                />
+                {assumedCard}
               </>
             )}
             <Connector
@@ -498,6 +547,20 @@ export function AttackerPathMap({
             )}
 
             {jewelCard}
+
+            {/* BE-9: lateral assume branch — the entry reaches the jewel on
+                its own, and ALSO assumes another role (pivot's-own-reach). Drawn
+                after the jewel so the access spine stays honest while the
+                lateral-movement signal is preserved. */}
+            {assumed && !assumed.reachesJewel && (
+              <>
+                <Connector
+                  label={`also assumes · ${assumed.observed ? "observed" : "config"} (lateral)`}
+                  tone={assumed.observed ? "red" : "amber"}
+                />
+                {assumedCard}
+              </>
+            )}
 
             {egress.kind && (
               <>

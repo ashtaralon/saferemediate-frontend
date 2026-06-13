@@ -377,6 +377,13 @@ export interface PathNodeDetail {
   // muted for roles; IAMUser without MFA is a HARD signal.
   has_mfa?: boolean | null
   has_console_access?: boolean | null
+  // BE-2: role injected into the spine because an observed role→role assume
+  // edge reached it (lateral movement); it is the assume edge's *target*, not
+  // the path's entry. Used to keep spine ordering honest (BE-9).
+  assume_escalation?: boolean
+  // BE-2: terminal jewel node synthesized from a dangling edge target (orphan-
+  // role / chain paths omit it from nodes[]). tier is "crown_jewel" here.
+  synthesized_terminal?: boolean
   // 2026-05-23: soft-delete flag surfaced through the response so the
   // frontend's client-side stale gate (lib/active-filters.ts) can drop
   // paths through inactive nodes even when localStorage SWR serves a
