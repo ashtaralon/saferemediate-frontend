@@ -225,6 +225,37 @@ function classifyRule(
   rule: RuleAnalysis,
   observationDays: number,
 ): RuleAction {
+  // ── SAFETY GATE — outbound ALL rules force-protected (2026-06-14) ──
+  //
+  // The classifier substrate for egress is currently wrong: it reads
+  // SG-level (SG)-[:HAS_TRAFFIC]->(TrafficPattern) — which is zero-
+  // counter for egress by construction — instead of the workload-level
+  // (workload)-[:ACTUAL_TRAFFIC]->() edges that actually carry
+  // observed outbound flow. As a result, the default-permissive
+  // outbound-ALL rule appears as "no traffic observed" and the
+  // confidence score can climb above 85, routing it to safe_to_remove.
+  //
+  // Empirical case (alon-prod, cyntrotest-sg, 2026-06-13): outbound
+  // ALL rule scored SAFE TO REMOVE @ 85% confidence; attached EC2
+  // i-0662a9c68ba77f837 had 1000 outbound ACTUAL_TRAFFIC edges
+  // through it. Applying would have killed internet egress for the
+  // workload.
+  //
+  // Until the classifier reads ACTUAL_TRAFFIC for egress, force every
+  // outbound-ALL rule into "protected" — visible, but uncheckable
+  // and excluded from the remediable average. PROTECTED bucket is the
+  // right home: not silently hidden, not silently downgraded;
+  // operator can still see + simulate, but cannot apply.
+  //
+  // Remove this gate when sg_gap_analysis._compute_rule_traffic() is
+  // updated to use workload ACTUAL_TRAFFIC for outbound rules.
+  if (
+    (rule.direction === "outbound" || rule.direction === "egress") &&
+    (rule.protocol || "").toLowerCase() === "all"
+  ) {
+    return "protected"
+  }
+
   const hasTraffic = (rule.traffic?.connection_count ?? 0) > 0
   const sensitive = isSensitiveExposure(rule)
   const conf = rule.recommendation?.confidence ?? 0
@@ -459,10 +490,39 @@ export function SGRemediationCard({
       // hasn't been redeployed yet (the contract is additive).
       const rec = r.recommendation || ({} as RuleRecommendation)
       const backendAction = rec.action_class
-      const action: RuleAction = backendAction ?? classifyRule(r, observationDays)
+      let action: RuleAction = backendAction ?? classifyRule(r, observationDays)
+
+      // SAFETY GATE — apply AFTER backend/client resolution so neither
+      // the backend's action_class nor the local classifier can ever
+      // leave an outbound ALL rule outside "protected". Backend
+      // currently emits action_class='safe_to_remove' on the default-
+      // permissive egress rule because its rule-traffic substrate
+      // reads SG-level HAS_TRAFFIC (zero-counter for egress) instead
+      // of workload ACTUAL_TRAFFIC. Same root cause documented in
+      // classifyRule(); the gate exists in both places as defense in
+      // depth so a fix in either layer alone doesn't accidentally
+      // un-protect this rule shape. See classifyRule() comment for
+      // empirical case and removal condition.
+      if (
+        (r.direction === "outbound" || r.direction === "egress") &&
+        (r.protocol || "").toLowerCase() === "all"
+      ) {
+        action = "protected"
+      }
+
       const evidence = rec.evidence_confidence ?? rec.confidence ?? 0
       const ceiling = rec.action_ceiling ?? actionCeiling(action)
-      const execution = rec.execution_confidence ?? Math.min(evidence, ceiling)
+      // Force execution_confidence to 0 for the gated rule even if the
+      // backend computed something higher — otherwise the rule lands
+      // in PROTECTED with a misleading "85%" badge that contradicts
+      // the gate. Zero matches PROTECTED's semantic of "no execution
+      // semantics; excluded from remediable average."
+      const wasGated =
+        (r.direction === "outbound" || r.direction === "egress") &&
+        (r.protocol || "").toLowerCase() === "all"
+      const execution = wasGated
+        ? 0
+        : rec.execution_confidence ?? Math.min(evidence, ceiling)
       return {
         ...r,
         _action: action,
@@ -1356,6 +1416,26 @@ export function SGRemediationCard({
                                 title="Heuristic (port 80/443) says public endpoint, but observation says zero traffic. Verify the workload is actually serving before keeping this rule open."
                               >
                                 ⚠ DECLARATION CONFLICT
+                              </span>
+                            )}
+                          {/* EGRESS SAFETY GATE chip — fires when this rule
+                              was force-classified to PROTECTED by the
+                              outbound-ALL safety gate in classifyRule().
+                              Visible signal that this isn't a normal
+                              "protected by dependency" verdict — it's a
+                              temporary block while the classifier
+                              substrate (SG-level HAS_TRAFFIC vs workload-
+                              level ACTUAL_TRAFFIC for egress) gets fixed.
+                              Tooltip explains the substrate gap; remove
+                              this chip when the gate in classifyRule()
+                              is removed. */}
+                          {(rule.direction === "outbound" || rule.direction === "egress") &&
+                            (rule.protocol || "").toLowerCase() === "all" && (
+                              <span
+                                className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 border border-slate-400 text-slate-800"
+                                title="Default-permissive egress. The classifier reads SG-level traffic stats which are zero for egress by construction — applying this could kill workload internet access. Held in PROTECTED until the substrate fix lands."
+                              >
+                                ⛔ EGRESS SAFETY GATE
                               </span>
                             )}
                         </div>
