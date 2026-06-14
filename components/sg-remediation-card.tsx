@@ -42,7 +42,9 @@ import { dispatchRemediationChanged } from "@/lib/remediation-events"
 
 interface RuleTraffic {
   connection_count: number
-  unique_sources?: string[]
+  unique_source_count?: number
+  unique_sources?: string[] | number
+  sample_sources?: string[]
   bytes_transferred?: number
   packets_transferred?: number
   last_seen?: string | null
@@ -163,22 +165,15 @@ const INITIAL_OVERRIDE: OverrideState = {
 //
 // Bypass: protected rules are EXCLUDED from the remediable average, not
 // included with a ceiling of 100. They have no execution semantics.
-type RuleAction =
-  | "safe_to_remove"
-  | "verify_first"
-  | "investigate_first"
-  | "protected"
-
-const SENSITIVE_PORTS = new Set([22, 3389, 3306, 5432, 27017, 6379, 9200, 11211])
+import {
+  classifyRule,
+  type RuleAction,
+} from "@/lib/sg-rule-classifier"
 
 // Per-action execution ceilings (0-100). Aligned with routing thresholds:
 //   AUTO        ≥ 90 (SG narrowing) / 92 (SG deletion)
 //   STAGED_AUTO ≥ 70 / 75
 //   SUGGEST     ≥ 40
-// safe_to_remove can ride raw score up to AUTO. verify_first caps at
-// 74 — clears narrowing-STAGED but not narrowing-AUTO, and falls to
-// SUGGEST for deletion. investigate_first caps at 39 — never reaches
-// any auto band, always SUGGEST or INSUFFICIENT_DATA.
 function actionCeiling(action: RuleAction): number {
   switch (action) {
     case "safe_to_remove":
@@ -188,121 +183,9 @@ function actionCeiling(action: RuleAction): number {
     case "investigate_first":
       return 39
     case "protected":
-      return 100 // excluded from remediable avg; ceiling is a no-op
+      return 100
   }
 }
-
-function isSensitiveExposure(rule: RuleAnalysis): boolean {
-  if (!rule.is_public) return false
-  const m = /^(\d+)(?:-(\d+))?$/.exec(rule.port_range)
-  if (!m) return false
-  const lo = parseInt(m[1], 10)
-  const hi = m[2] ? parseInt(m[2], 10) : lo
-  for (const p of SENSITIVE_PORTS) {
-    if (p >= lo && p <= hi) return true
-  }
-  return false
-}
-
-// Observation-window adequacy: 14d is the floor below which "no traffic"
-// is too thin a signal to act on. Mirrors the v4.4 §11M5 freshness gate
-// philosophy — when window is short and a rule is idle, we don't know
-// if the rule is dead or just hasn't fired this week.
-const MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT = 14
-
-// Peer of a rule = the OTHER end (not the SG itself). For inbound rules
-// the peer lives in `source`; for outbound rules the peer lives in
-// `destination`. Backend sg_gap_analysis.py:731-732 sets outbound
-// `source` to the OWN sg-id and `destination` to the actual CIDR / SG
-// reference. Reading `source` for outbound treats every rule as if it
-// referenced itself — wrong classification + misleading display.
-function rulePeer(rule: RuleAnalysis): string {
-  const isOutbound = rule.direction === "outbound" || rule.direction === "egress"
-  return (isOutbound ? rule.destination : rule.source) || ""
-}
-
-function classifyRule(
-  rule: RuleAnalysis,
-  observationDays: number,
-): RuleAction {
-  // ── SAFETY GATE — outbound ALL rules force-protected (2026-06-14) ──
-  //
-  // The classifier substrate for egress is currently wrong: it reads
-  // SG-level (SG)-[:HAS_TRAFFIC]->(TrafficPattern) — which is zero-
-  // counter for egress by construction — instead of the workload-level
-  // (workload)-[:ACTUAL_TRAFFIC]->() edges that actually carry
-  // observed outbound flow. As a result, the default-permissive
-  // outbound-ALL rule appears as "no traffic observed" and the
-  // confidence score can climb above 85, routing it to safe_to_remove.
-  //
-  // Empirical case (alon-prod, cyntrotest-sg, 2026-06-13): outbound
-  // ALL rule scored SAFE TO REMOVE @ 85% confidence; attached EC2
-  // i-0662a9c68ba77f837 had 1000 outbound ACTUAL_TRAFFIC edges
-  // through it. Applying would have killed internet egress for the
-  // workload.
-  //
-  // Until the classifier reads ACTUAL_TRAFFIC for egress, force every
-  // outbound-ALL rule into "protected" — visible, but uncheckable
-  // and excluded from the remediable average. PROTECTED bucket is the
-  // right home: not silently hidden, not silently downgraded;
-  // operator can still see + simulate, but cannot apply.
-  //
-  // Remove this gate when sg_gap_analysis._compute_rule_traffic() is
-  // updated to use workload ACTUAL_TRAFFIC for outbound rules.
-  if (
-    (rule.direction === "outbound" || rule.direction === "egress") &&
-    (rule.protocol || "").toLowerCase() === "all"
-  ) {
-    return "protected"
-  }
-
-  const hasTraffic = (rule.traffic?.connection_count ?? 0) > 0
-  const sensitive = isSensitiveExposure(rule)
-  const conf = rule.recommendation?.confidence ?? 0
-  const isSgRef = rulePeer(rule).startsWith("sg-")
-  const windowAdequate =
-    (observationDays || 0) >= MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT
-
-  // SG reference + active traffic → protected (control-plane / LB wiring
-  // confirmed live). Operator should not auto-remove.
-  if (isSgRef && hasTraffic) return "protected"
-
-  // SG reference + no traffic + thin window → still protected. We
-  // haven't watched long enough to call this rule dead. Avoid burning
-  // operator-review cycles on rules that just haven't fired this week.
-  if (isSgRef && !hasTraffic && !windowAdequate) return "protected"
-
-  // SG reference + no traffic + adequate window → verify_first. Operator
-  // hand-review with the dependency-graph context; could legitimately
-  // be a deprecated app's leftover.
-  if (isSgRef && !hasTraffic && windowAdequate) return "verify_first"
-
-  // Sensitive + active traffic → protected. DB/SSH actively used; don't
-  // touch even if confidence is high.
-  if (sensitive && hasTraffic) return "protected"
-
-  // Sensitive + public → investigate_first regardless of traffic.
-  // Sensitive public exposure is high-confidence risky (we KNOW this
-  // is a misconfig pattern) but low-safety to mutate without operator
-  // approval — exactly the case the action ceiling exists to gate.
-  if (sensitive) return "investigate_first"
-
-  // Idle rule + thin window → investigate_first. Same reasoning as
-  // SG-ref + thin window, but for non-ref rules. The score itself is
-  // probably already low; the ceiling enforces it.
-  if (!hasTraffic && !windowAdequate) return "investigate_first"
-
-  // Has traffic on a non-sensitive, non-public rule → verify_first.
-  if (hasTraffic) return "verify_first"
-
-  // Score-only partition (only reached when window is adequate AND no
-  // traffic AND not sensitive AND not an SG ref).
-  if (conf >= 85) return "safe_to_remove"
-  if (conf >= 60) return "verify_first"
-  return "investigate_first"
-}
-
-// ── Visual tokens (match IAM modal) ───────────────────────────────
 
 const ACTION_STYLE: Record<
   RuleAction,

@@ -29,11 +29,18 @@ export async function GET(
   // 8 jewels × 8 paths/jewel = up to 64 paths surfaced. Previous 12 × 8
   // = 96 paths routinely produced ~49s responses against the 55s
   // AbortSignal limit — surfacing as 502 in the UI under any cold-cache
-  // spike. Measured: 12×8 = 49s cold, 8×8 = ~20s, 8×3 = ~28s. The cost
-  // driver is `max_jewels` (graph traversal per jewel), not
-  // `max_paths_per_jewel` (output size). Cutting jewels from 12 → 8
-  // gives a comfortable margin; keeping 8 paths/jewel preserves the
+  // spike. The cost driver is `max_jewels` (graph traversal per jewel),
+  // not `max_paths_per_jewel` (output size). Cutting jewels from 12 → 8
+  // keeps us under the 55s abort; keeping 8 paths/jewel preserves the
   // operator drill-down depth (Path 1/8, 2/8, ... per jewel).
+  //
+  // Measured cold latency on alon-prod (2026-06): 12×8 = ~35s, 8×8 = ~41s
+  // — i.e. the headroom against the 55s AbortSignal is THIN, not comfortable.
+  // (An earlier comment here claimed 8×8 ≈ 20s; that number was stale —
+  // the graph has grown since.) A Render cold-start stacked on top can
+  // approach the limit, so the alon-prod demo MUST pre-warm this route
+  // (see cyntro_v5-cutover_verification-runbook.md). Warm hits are ~0.5s
+  // off the in-memory + edge cache.
   const maxJewels =
     searchParams.get("max_jewels") || String(IAP_PROXY_DEFAULT_MAX_JEWELS)
   const maxPathsPerJewel =
