@@ -29,8 +29,8 @@ import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import { filterActivePaths } from "@/lib/active-filters"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
-import { AttackerPathMapSection } from "./attacker-path-map"
 import { AtlasInlineSection } from "./atlas-inline-section"
+import { AttackPathCardLight } from "./attack-path-card-light"
 import {
   DamageScopeDrawer,
   type DamageScopeTarget,
@@ -188,10 +188,11 @@ export function PathAnalysisPanel({
   // toggle before Attack Paths v2 dropped it.
   const [mapView, setMapView] = useState<"flow" | "lateral">("flow")
   const [technicalOpen, setTechnicalOpen] = useState(false)
-  // Supporting evidence is collapsible but DEFAULT OPEN — the flow map is
-  // still the demo hero; the toggle just lets the operator focus the
-  // decision panel above when they want to.
-  const [evidenceOpen, setEvidenceOpen] = useState(true)
+  // Supporting evidence is collapsible and DEFAULT CLOSED — the light
+  // attack-path card is the hero/decision surface now; the flow map, the
+  // dark damage-aware card, and per-plane signals are one click away for
+  // the operator who wants to drill into the topology.
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
 
   const lateralPaths = useMemo(() => filterActivePaths([path]), [path])
 
@@ -379,22 +380,14 @@ export function PathAnalysisPanel({
         </div>
       </div>
 
-      {/* HERO — attacker path map (story view): kill-chain spine + THE GAP +
-          live before/diff/after. First content block, above the technical
-          panels. Composes ClosureOutcomePanel internally, so the standalone
-          closure section is removed (no double render). */}
-      <div className="px-6 py-4 border-b border-border">
-        <AttackerPathMapSection path={path} />
+      {/* HERO — light prod attack-path card (cyntro_attack-path-card_design.html).
+          Pure renderer of the real backend AttackPathReport: header + risk +
+          "how real" gates + the fix you approve. The flow map, the dark
+          damage-aware card, and per-plane detail all move into "Supporting
+          evidence" below so the clean light card is the default view. */}
+      <div className="px-6 py-5 border-b border-border" style={{ background: "#eef1f5" }}>
+        <AttackPathCardLight path={path} jewel={jewel} />
       </div>
-
-      <DamageAwarePathCard
-        path={path}
-        jewel={jewel}
-        systemName={systemName}
-        scope={damageScopeData}
-        scopeLoading={damageScopeLoading}
-        scopeError={damageScopeError}
-      />
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
       <div className="border-b border-border bg-muted/30">
@@ -417,6 +410,20 @@ export function PathAnalysisPanel({
         </div>
         {evidenceOpen && (
         <>
+        {/* Dark damage-aware card — demoted from hero into supporting
+            evidence (the light card above now owns the damage/fix story).
+            Kept here so its damage-scope drawer + per-cell detail stay
+            available for the operator drilling in. */}
+        <div className="px-6 pt-4">
+          <DamageAwarePathCard
+            path={path}
+            jewel={jewel}
+            systemName={systemName}
+            scope={damageScopeData}
+            scopeLoading={damageScopeLoading}
+            scopeError={damageScopeError}
+          />
+        </div>
         {/* Kill-chain strip (2026-06-11) — replaces the canvasV2-gated
             "ENTRY → via N hops → REACHES" caption. Always on when the
             path has nodes: a LINEAR phase-by-phase read of the spine

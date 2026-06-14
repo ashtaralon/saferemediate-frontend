@@ -49,13 +49,25 @@ import { AttackerViewV3 } from "./attacker-view-v3"
 import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
+import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
 }
 
-export function AttackPathsV2() {
+export function AttackPathsV2({
+  systemName: systemNameProp,
+  embedded = false,
+}: {
+  // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
+  // the dashboard and wins over the ?system URL param; the shell renders at a
+  // contained height (not full-screen), drops BackToDashboard, and locks the
+  // system to the dashboard's selection. Defaults preserve the standalone
+  // /attack-paths-v2 route behavior exactly.
+  systemName?: string | null
+  embedded?: boolean
+} = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -71,7 +83,11 @@ export function AttackPathsV2() {
   // honestly degrades to an empty state when no system is selected
   // (see EmptyState rendering below), and the system picker upstream
   // is the entry point operators land on.
-  const systemName = searchParams?.get("system") ?? null
+  const systemName = systemNameProp ?? searchParams?.get("system") ?? null
+  // Contained height for the dashboard-embedded tab vs full-screen for the
+  // standalone route. Used by every shell branch (empty/loading/error/main)
+  // so the 3-column layout scrolls inside the tab instead of overflowing.
+  const shellHeight = embedded ? "h-[78vh] min-h-[600px]" : "h-screen"
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   // Exfil tab uses its own per-path selection (orthogonal to attack-path
@@ -109,7 +125,7 @@ export function AttackPathsV2() {
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" =
+  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" =
     modeParam === "exposure"
       ? "exposure"
       : modeParam === "attacker_v2"
@@ -120,7 +136,9 @@ export function AttackPathsV2() {
             ? "exfil"
             : modeParam === "topology"
               ? "topology"
-              : // Legacy "path" / "attacker" both collapse into the
+              : modeParam === "lateral"
+                ? "lateral"
+                : // Legacy "path" / "attacker" both collapse into the
                 // merged "attack-path" (URL gets rewritten by the
                 // useEffect below so deep links stop showing the old
                 // param values).
@@ -423,7 +441,7 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => {
+  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral") => {
     // Switching to exposure / phase / topology clears the path
     // selection — those aggregate across paths (phase shows every
     // chain targeting the jewel; topology / exposure are jewel-scoped
@@ -469,7 +487,7 @@ export function AttackPathsV2() {
   // manually instead of staring at a spinner.
   if (!systemName) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-6">
+      <div className={`flex ${shellHeight} items-center justify-center bg-background p-6`}>
         <div className="rounded-xl border border-border bg-card p-6 max-w-md w-full">
           <div className="text-sm font-semibold text-foreground mb-1">
             Select a system
@@ -515,7 +533,7 @@ export function AttackPathsV2() {
   // ─── Loading / error states ────────────────────────────────────
   if (isLoading && !data) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="flex items-center gap-3 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Loading attack paths for {systemName}…</span>
@@ -526,7 +544,7 @@ export function AttackPathsV2() {
 
   if (error && !data) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 max-w-md">
           <div className="flex items-center gap-2 text-destructive mb-2">
             <AlertTriangle className="h-5 w-5" />
@@ -546,25 +564,33 @@ export function AttackPathsV2() {
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+    <div className={`flex ${shellHeight} bg-background text-foreground overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
         className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
-            <BackToDashboard
-              className="p-1.5 -ml-1.5 rounded-md hover:bg-accent transition-colors shrink-0"
-              iconClassName="w-4 h-4 text-muted-foreground"
-            />
+            {!embedded && (
+              <BackToDashboard
+                className="p-1.5 -ml-1.5 rounded-md hover:bg-accent transition-colors shrink-0"
+                iconClassName="w-4 h-4 text-muted-foreground"
+              />
+            )}
             <div className="min-w-0 flex-1">
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 CYNTRO · ATTACK PATHS V2
               </div>
-              {/* System switcher — operator can swap to a different
-                  system without leaving the page. Replaces the
-                  static label that locked them in once auto-redirect
-                  picked a wrong system. */}
+              {/* Standalone route: switcher lets the operator swap system
+                  without leaving the page. Embedded in the dashboard tab:
+                  the system is fixed by the dashboard's selection (the prop
+                  wins over ?system), so we render a static label instead of
+                  a switcher that would desync from the dashboard. */}
+              {embedded ? (
+                <div className="text-sm font-semibold text-foreground truncate">
+                  {systemName}
+                </div>
+              ) : (
               <SystemSwitcher
                 currentSystem={systemName}
                 availableSystems={availableSystems}
@@ -578,6 +604,7 @@ export function AttackPathsV2() {
                   router.replace(`${pathname}?${params.toString()}`)
                 }}
               />
+              )}
               <div className="text-[11px] text-muted-foreground mt-0.5">
                 {allPaths.length} paths · {jewels.length} crown jewels
               </div>
@@ -746,6 +773,27 @@ export function AttackPathsV2() {
                   onSelectPath={handleSelectExfilPath}
                 />
               )
+            ) : viewMode === "lateral" ? (
+              // Lateral Movement — light blast-radius view: for each role on
+              // the selected path, the OTHER resources it can also reach. The
+              // panel fetches the per-path facade so it has the graph-view
+              // canvas (real lateral fan-out), then derives the reach groups.
+              !selectedPath || !selectedJewelId ? (
+                <EmptyState
+                  title="Select a path"
+                  subtitle="Lateral movement shows where this path's identity can pivot next — sibling resources each role on the path can also touch. Pick a path on the left."
+                  large
+                />
+              ) : (
+                <LateralMovementPanel
+                  systemName={systemName}
+                  jewelId={selectedJewelId}
+                  pathId={selectedPath.id}
+                  pathFromPage={selectedPath}
+                  jewelFromPage={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                  siblingPathsFromPage={jewelPaths}
+                />
+              )
             ) : !selectedPath || !selectedJewelId ? (
               <EmptyState
                 title="Select a path"
@@ -799,8 +847,8 @@ function ModeToggle({
   onToggleExpand,
   showBeta = false,
 }: {
-  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
-  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => void
+  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral"
+  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -810,7 +858,7 @@ function ModeToggle({
       engineering-internal surfaces out of the default operator UI. */
   showBeta?: boolean
 }) {
-  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
+  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral"
   // Capability-named tabs — no version stamps in the operator UI.
   // Engineering context (DTO provenance, phase docs) lives in the
   // title tooltips, not the labels.
@@ -822,10 +870,27 @@ function ModeToggle({
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
     },
     {
+      key: "lateral",
+      label: "Lateral Movement",
+      title:
+        "Where this path's identity can pivot next — for each role on the path, the other resources it can also reach (real sibling-neighbor graph data).",
+    },
+    {
       key: "exposure",
       label: "Exposure",
       title: "Aggregate view — every workload, role, and policy that exposes this jewel.",
     },
+    {
+      key: "exfil",
+      label: "Exfiltration",
+      title:
+        "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
+    },
+    // Legacy dark-canvas engineering views (typed-DTO Attack Map, 9-lane
+    // Phases, AWS Topology). Retired from the default light surface (2026-06-14)
+    // — the light Attack Path card + map is the canonical per-path view now.
+    // Kept behind ?beta=1 (not deleted) so engineering can still reach the
+    // edge-proven canvases for debugging until they're ported to light.
     ...(showBeta
       ? [
           {
@@ -834,26 +899,20 @@ function ModeToggle({
             title:
               "Typed, edge-proven canvas — every node and edge comes from an explicit Neo4j relationship; the renderer does zero inference.",
           },
+          {
+            key: "phase" as TabKey,
+            label: "Phases (beta)",
+            title:
+              "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
+          },
+          {
+            key: "topology" as TabKey,
+            label: "Topology (beta)",
+            title:
+              "AWS reference-architecture containment — VPC > AZ > Subnet > workloads, with Security Groups as boundaries. Every node sourced from Neo4j.",
+          },
         ]
       : []),
-    {
-      key: "phase",
-      label: "Phases",
-      title:
-        "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
-    },
-    {
-      key: "exfil",
-      label: "Exfiltration",
-      title:
-        "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
-    },
-    {
-      key: "topology",
-      label: "Topology",
-      title:
-        "AWS reference-architecture containment — VPC > AZ > Subnet > workloads, with Security Groups as boundaries. Every node sourced from Neo4j.",
-    },
   ]
   return (
     <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">

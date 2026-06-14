@@ -60,16 +60,27 @@ export function useAttackPathReport(
     setLoading(true)
     setError(null)
 
+    // Bounded per-attempt timeout so the card's skeleton never becomes an
+    // open-ended 30–60s spinner waiting on the 55s proxy abort. A warm backend
+    // returns in ~0.3s; 15s comfortably covers a cold Aura/Render wake, and the
+    // single retry below gives the now-warm backend a fast second chance.
+    const ATTEMPT_TIMEOUT_MS = 15_000
     const fetchReport = async (pathId: string): Promise<AttackPathReport> => {
-      const r = await fetch(
-        `/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/report`,
-        { cache: "no-store" },
-      )
-      const body = await r.json().catch(() => null)
-      if (r.ok && body && !body.error && Array.isArray(body.claims)) {
-        return body as AttackPathReport
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), ATTEMPT_TIMEOUT_MS)
+      try {
+        const r = await fetch(
+          `/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/report`,
+          { cache: "no-store", signal: ctrl.signal },
+        )
+        const body = await r.json().catch(() => null)
+        if (r.ok && body && !body.error && Array.isArray(body.claims)) {
+          return body as AttackPathReport
+        }
+        throw new Error(body?.error ?? `http_${r.status}`)
+      } finally {
+        clearTimeout(timer)
       }
-      throw new Error(body?.error ?? `http_${r.status}`)
     }
 
     ;(async () => {

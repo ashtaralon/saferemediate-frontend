@@ -18,12 +18,15 @@
 // canonical.
 
 import { Suspense } from "react"
-import { AttackPathsV2 } from "@/components/attack-paths-v2/attack-paths-v2"
+import { LightRouteIsland } from "@/components/attack-paths-v2/light-route-island"
+import { AttackPathsV2Client } from "./attack-paths-v2-client"
 
 export default function AttackPathsV2Page() {
   return (
     <Suspense fallback={null}>
-      <AttackPathsV2 />
+      <LightRouteIsland>
+        <AttackPathsV2Client />
+      </LightRouteIsland>
     </Suspense>
   )
 }
