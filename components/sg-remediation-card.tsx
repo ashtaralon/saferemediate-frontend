@@ -168,6 +168,7 @@ const INITIAL_OVERRIDE: OverrideState = {
 import {
   classifyRule,
   isSensitiveExposure,
+  ruleEvidenceNarrative,
   rulePeer,
   type RuleAction,
 } from "@/lib/sg-rule-classifier"
@@ -206,7 +207,7 @@ const ACTION_STYLE: Record<
     border: "#fed7aa",
   },
   investigate_first: {
-    label: "Investigate first",
+    label: "Review & close",
     color: "#dc2626",
     bg: "#fef2f2",
     border: "#fecaca",
@@ -296,7 +297,7 @@ function routingFromScore(score: number, operation: Operation): RoutingState {
     name: "INSUFFICIENT_DATA",
     label: "Not enough data to remediate safely",
     blurb:
-      "Security Group visible but Cyntro lacks the evidence to act. Improve coverage or override.",
+      "Auto-remediation pipeline blocked (coverage or risk shape). Manual Apply still requires acknowledgment — run Simulate first; investigate rules are misconfigurations to close, not dependencies to keep.",
     color: "#991b1b",
     bg: "#fef2f2",
     border: "#fecaca",
@@ -568,11 +569,12 @@ export function SGRemediationCard({
           return
         }
         const impact = Array.isArray(d?.potential_impact) ? d.potential_impact : []
+        const isSafe = d?.is_safe === true && impact.length === 0
         setRuleSimResults((prev) => ({
           ...prev,
           [rule.rule_id]: {
             kind: "result",
-            is_safe: d?.is_safe !== false && impact.length === 0,
+            is_safe: isSafe,
             warnings: Array.isArray(d?.safety_warnings) ? d.safety_warnings : [],
             impact: impact.map((i: any) => ({
               active_connections: i?.active_connections ?? 0,
@@ -656,7 +658,7 @@ export function SGRemediationCard({
               .map((i: any) =>
                 typeof i === "string"
                   ? i
-                  : i?.reason || i?.message || JSON.stringify(i),
+                  : i?.warning || i?.reason || i?.message || JSON.stringify(i),
               )
               .filter(Boolean)
             setPreflight({ kind: "blocked", reasons, warnings })
@@ -734,7 +736,7 @@ export function SGRemediationCard({
         reasons.push(
           typeof i === "string"
             ? i
-            : i?.reason || i?.message || JSON.stringify(i),
+            : i?.warning || i?.reason || i?.message || JSON.stringify(i),
         )
       }
     }
@@ -1250,6 +1252,20 @@ export function SGRemediationCard({
                   {style.label} ({rules.length})
                 </span>
               </div>
+              {a === "investigate_first" && rules.length > 0 && (
+                <div
+                  className="px-3 py-2 text-[11px] border-b"
+                  style={{
+                    borderColor: style.border,
+                    color: style.color,
+                    backgroundColor: style.bg,
+                  }}
+                >
+                  Misconfiguration candidates — close or restrict after review. Not
+                  &quot;keep because traffic exists&quot;; high-volume public hits are often
+                  internet scan noise. Simulate shows blast radius; Apply needs acknowledgment.
+                </div>
+              )}
               <div className="divide-y" style={{ borderColor: style.border }}>
                 {rules.map((rule) => {
                   const isSelected = selected.has(rule.rule_id)
@@ -1265,11 +1281,12 @@ export function SGRemediationCard({
                   // that so the operator sees WHY this rule routes to
                   // verify_first instead of safe_to_remove.
                   const peer = rulePeer(rule)
-                  const isSgRef = peer.startsWith("sg-")
-                  const reasonText =
-                    rule._action === "verify_first" && isSgRef && conn === 0
-                      ? "References another security group — verify dependency before removing"
-                      : rule.recommendation?.reason || "—"
+                  const reasonText = ruleEvidenceNarrative(
+                    rule,
+                    rule._action,
+                    observationDays,
+                    rule.recommendation?.reason,
+                  )
                   const simState = ruleSimResults[rule.rule_id]
                   return (
                     <div key={rule.rule_id}>
@@ -1472,9 +1489,15 @@ export function SGRemediationCard({
                               simState.rules_matched > 0 &&
                               simState.is_safe && (
                                 <div className="text-emerald-700">
-                                  <span className="font-semibold">✓ Safe to remove.</span>{" "}
-                                  No active connections found for this rule. A rollback
-                                  snapshot will be captured before any change.
+                                  <span className="font-semibold">✓ No workload blast radius.</span>{" "}
+                                  Simulate found no observed connections that depend on this
+                                  rule. A rollback snapshot is captured before any change.
+                                  {rule._action === "investigate_first" && (
+                                    <span className="block mt-1 text-amber-800 font-medium">
+                                      Routing still requires human approval — this is not
+                                      auto-eligible despite a clean simulate.
+                                    </span>
+                                  )}
                                   {simState.warnings.length > 0 && (
                                     <ul className="mt-1 ml-3 list-disc text-[var(--muted-foreground,#6b7280)] space-y-0.5">
                                       {simState.warnings.map((w, i) => (
@@ -1488,7 +1511,13 @@ export function SGRemediationCard({
                               simState.rules_matched > 0 &&
                               !simState.is_safe && (
                                 <div className="text-rose-700">
-                                  <span className="font-semibold">⊘ Would impact live traffic.</span>
+                                  <span className="font-semibold">
+                                    ⊘ Observed traffic on this rule.
+                                  </span>
+                                  <span className="block mt-0.5 text-[var(--muted-foreground,#6b7280)]">
+                                    For public sensitive ports this is often scan noise —
+                                    closing is still recommended after operator review.
+                                  </span>
                                   <ul className="mt-1 ml-3 list-disc space-y-0.5">
                                     {simState.impact.map((i, idx) => (
                                       <li key={idx}>

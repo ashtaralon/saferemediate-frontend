@@ -170,3 +170,32 @@ export function classifyRule(
   if (conf >= 60) return "verify_first"
   return "investigate_first"
 }
+
+/** Operator-facing evidence line — avoids backend "keep / active traffic"
+ * copy on public scanner rules that are investigate_first by design. */
+export function ruleEvidenceNarrative(
+  rule: ClassifierRule,
+  action: RuleAction,
+  observationDays: number,
+  backendReason?: string,
+): string {
+  const conn = rule.traffic?.connection_count ?? 0
+  const unique = trafficUniqueCount(rule.traffic)
+  const peer = rulePeer(rule)
+  const isSgRef = peer.startsWith("sg-")
+
+  if (action === "verify_first" && isSgRef && conn === 0) {
+    return "References another security group — verify dependency before removing"
+  }
+
+  if (action === "investigate_first" && rule.is_public && conn > 0) {
+    return `Public rule: ${conn.toLocaleString()} connection${conn === 1 ? "" : "s"} from ${unique} source${unique === 1 ? "" : "s"} — likely internet scan/brute-force, not workload traffic. Close or restrict after review; simulate before apply.`
+  }
+
+  if (action === "investigate_first" && rule.is_public && conn === 0) {
+    const days = observationDays || 30
+    return `Public exposure, no observed use in ${days}d — still a misconfiguration risk. Verify intent before removing.`
+  }
+
+  return backendReason || "—"
+}
