@@ -54,6 +54,17 @@ describe("friendlyResourceName", () => {
     expect(friendlyResourceName("cyntro-demo-pivot-role")).toBe("cyntro-demo-pivot-role")
   })
 
+  it("unwraps the internal '(orphan role: X)' placeholder, never rendering it", () => {
+    expect(friendlyResourceName("(orphan role: cyntro-demo-treasury-role)")).toBe(
+      "cyntro-demo-treasury-role",
+    )
+    // Wrapped ARN unwraps then takes the ARN tail.
+    expect(
+      friendlyResourceName("(orphan role: arn:aws:iam::1:role/treasury)"),
+    ).toBe("treasury")
+    expect(friendlyResourceName("(orphan role: foo)")).not.toContain("orphan role")
+  })
+
   it("falls back to the type (or 'resource') for empty input", () => {
     expect(friendlyResourceName("", "IAMRole")).toBe("IAMRole")
     expect(friendlyResourceName(null)).toBe("resource")
