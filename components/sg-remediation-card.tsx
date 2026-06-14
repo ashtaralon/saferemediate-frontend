@@ -167,6 +167,8 @@ const INITIAL_OVERRIDE: OverrideState = {
 // included with a ceiling of 100. They have no execution semantics.
 import {
   classifyRule,
+  isSensitiveExposure,
+  rulePeer,
   type RuleAction,
 } from "@/lib/sg-rule-classifier"
 
