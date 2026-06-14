@@ -1472,7 +1472,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
-          <p style={{ color: "var(--text-secondary)" }}>Analyzing least privilege gaps...</p>
+          <p style={{ color: "var(--text-secondary)" }}>Loading resource risk findings...</p>
         </div>
       </div>
     )

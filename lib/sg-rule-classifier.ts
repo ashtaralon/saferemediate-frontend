@@ -153,6 +153,17 @@ export function classifyRule(
     return "investigate_first"
   }
 
+  // Public internet CIDR + observed traffic (e.g. 443 with scanner volume).
+  if (rule.is_public && hasTraffic && isPublicCidr(peer)) {
+    const uniqueCount = trafficUniqueCount(rule.traffic)
+    const samples = rule.traffic?.sample_sources || []
+    const mode = classifySourceMode(samples, uniqueCount)
+    if (mode === "internal_narrow") {
+      return "protected"
+    }
+    return "investigate_first"
+  }
+
   if (!hasTraffic && !windowAdequate) return "investigate_first"
   if (hasTraffic) return "verify_first"
   if (conf >= 85) return "safe_to_remove"

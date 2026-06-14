@@ -74,4 +74,14 @@ describe("sg-rule-classifier", () => {
     expect(isSensitiveExposure(r)).toBe(false)
     expect(classifyRule(r, 30)).toBe("verify_first")
   })
+
+  it("public HTTPS with scanner traffic → investigate_first", () => {
+    const r = rule({
+      port_range: "443",
+      connections: 1619,
+      unique_source_count: 721,
+      sample_sources: ["185.55.243.251", "144.202.82.88"],
+    })
+    expect(classifyRule(r, 30)).toBe("investigate_first")
+  })
 })

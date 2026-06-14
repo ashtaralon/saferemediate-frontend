@@ -19,8 +19,8 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ sgId: string }> } | { sgId: string } },
 ) {
+  let sgId = ""
   try {
-    let sgId: string
     if (context.params instanceof Promise) {
       const resolved = await context.params
       sgId = resolved.sgId
@@ -74,11 +74,7 @@ export async function GET(
       "[SG Rule Analysis] Error:",
       error instanceof Error ? error.message : error,
     )
-    const sgId =
-      context.params instanceof Promise
-        ? "(unknown)"
-        : (context.params as { sgId: string }).sgId
-    const cached = typeof sgId === "string" ? cache[sgId] : undefined
+    const cached = sgId ? cache[sgId] : undefined
     if (
       error instanceof Error &&
       error.name === "AbortError" &&
