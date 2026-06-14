@@ -1574,7 +1574,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       label: "Risk",
       icon: ShieldAlert,
       children: [
-        { id: "least-privilege", label: "Least Privilege" },
+        { id: "least-privilege", label: "Resource Risk" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
         { id: "attacker-map", label: "Attacker Map" },

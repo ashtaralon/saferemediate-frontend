@@ -87,6 +87,7 @@ interface GapResource {
   accessorCount?: number
   totalHits?: number
   principals?: string[]
+  findingClass?: 'permission_gap' | 'posture' | 'rule_gap'
   evidence: {
     dataSources: string[]
     observationDays: number
@@ -698,6 +699,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             // transform, otherwise every row falls back to 'removable' and
             // the Coverage/Audit subtabs render empty.
             category: r.category,
+            findingClass: r.findingClass ?? r.finding_class,
             countsTowardSummary: r.countsTowardSummary ?? r.counts_toward_summary,
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
@@ -931,7 +933,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   type RowMetricDisplay =
     | { kind: 'percent'; pct: number }
     | { kind: 'count'; count: number; label: string }
-    | { kind: 'na' }
+    | { kind: 'na'; title?: string }
+
+  const isPermissionGapRow = (resource: GapResource): boolean =>
+    resource.findingClass === 'permission_gap' ||
+    (!resource.findingClass && resource.resourceType === 'IAMRole')
 
   const getRowMetricDisplay = (
     resource: GapResource,
@@ -940,22 +946,43 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const t = resource.resourceType
     const sev = (resource.severity || '').toUpperCase()
     const violations = resource.evidence?.violatedRules?.length ?? 0
+    const findingClass = resource.findingClass
 
     // Pure-posture resource types — RDS, Lambda, EC2 workload exposure.
-    // Always count-based; percentage is never meaningful for these.
-    if (t === 'RDSInstance' || t === 'LambdaFunction' || t === 'EC2Instance') {
+    if (t === 'RDSInstance' || t === 'LambdaFunction' || t === 'EC2Instance' || findingClass === 'posture') {
       const count = violations
         || ((resource.evidence as unknown as { allFindingIds?: string[] })?.allFindingIds?.length ?? 0)
-      return count > 0
-        ? { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
-        : { kind: 'na' }
+      if (count > 0) {
+        return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+      }
+      if (resource.blastRadius && (sev === 'CRITICAL' || sev === 'HIGH')) {
+        const rationale = resource.blastRadius.rationale?.[0]
+        return {
+          kind: 'na',
+          title: rationale
+            ? `Posture / exposure finding — severity from blast radius: ${rationale}`
+            : 'Posture finding — severity from blast radius, not permission gap',
+        }
+      }
+      return { kind: 'na', title: 'Posture finding — gap % does not apply' }
     }
 
-    // S3: the public-policy posture case fires CRITICAL/HIGH with gap=0
-    // because every action is in use. Show the issue count instead of "0%".
+    // S3 public-policy posture: only count real violatedRules entries.
     if (t === 'S3Bucket' && metrics.gapPct === 0 && (sev === 'CRITICAL' || sev === 'HIGH')) {
-      const count = violations || 1
-      return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+      if (violations > 0) {
+        return {
+          kind: 'count',
+          count: violations,
+          label: violations === 1 ? 'issue' : 'issues',
+        }
+      }
+      const rationale = resource.blastRadius?.rationale?.[0]
+      return {
+        kind: 'na',
+        title: rationale
+          ? `Exposure finding — ${rationale}. See Blast Radius and expanded panel.`
+          : 'Exposure finding — severity from blast radius, not unused permissions',
+      }
     }
 
     // SG with violatedRules (new public-ingress behavioral analyzer) —
@@ -1713,9 +1740,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         <div className="flex items-center gap-3">
           <BackToDashboard />
           <div>
-            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Resource Risk</h2>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              GAP between allowed and actual permissions
+              Permission gaps, posture exposure, and network rule findings
               {data?.fromCache && (
                 <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
                   (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
@@ -2018,12 +2045,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             <span>Type</span>
             <span
               className="text-center inline-flex items-center justify-center gap-1 cursor-help"
-              title="Permission Gap — share of granted permissions never observed being used in the observation window. Higher = more cleanup opportunity."
+              title="Row signal — permission gap % for IAM, issue/exposed counts for posture and SG rules, or — when severity is blast-radius-driven."
             >
-              Gap % <span className="text-[10px] opacity-60">ⓘ</span>
+              Signal <span className="text-[10px] opacity-60">ⓘ</span>
             </span>
-            <span className="text-center">Used</span>
-            <span className="text-center">Unused</span>
+            <span
+              className="text-center"
+              title="Permissions observed in the window — meaningful for IAM permission-gap rows only"
+            >
+              Used
+            </span>
+            <span
+              className="text-center"
+              title="Unused granted permissions — meaningful for IAM permission-gap rows only"
+            >
+              Unused
+            </span>
             <span
               className="text-center inline-flex items-center justify-center gap-1 cursor-help"
               title="Blast Radius Score (BRS v1.1) — breach impact IF this resource is compromised right now. Combines Damage-on-Compromise, Identity Privilege, Network Exposure, Lateral Movement. Shown with confidence (HIGH/MED/LOW) based on observation evidence."
@@ -2174,7 +2211,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <span
                               className="text-xs"
                               style={{ color: "var(--text-muted)" }}
-                              title="Posture finding — percentage doesn't apply. See Risk Details for the issues."
+                              title={display.title || "Posture finding — percentage doesn't apply. See Risk Details for the issues."}
                             >
                               —
                             </span>
@@ -2182,12 +2219,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         })()}
                       </div>
 
-                      {/* Used */}
-                      <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{metrics.usedCount}</div>
+                      {/* Used — IAM permission-gap rows only */}
+                      <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {isPermissionGapRow(resource) ? metrics.usedCount : '—'}
+                      </div>
 
-                      {/* Unused */}
-                      <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
-                        {metrics.unusedCount}
+                      {/* Unused — IAM permission-gap rows only */}
+                      <div
+                        className="text-center text-sm font-medium"
+                        style={{
+                          color: isPermissionGapRow(resource)
+                            ? (metrics.unusedCount > 0 ? '#ef4444' : '#22c55e')
+                            : 'var(--text-muted)',
+                        }}
+                        title={isPermissionGapRow(resource) ? undefined : 'Not a permission-gap row'}
+                      >
+                        {isPermissionGapRow(resource) ? metrics.unusedCount : '—'}
                       </div>
 
                       {/* Blast Radius — breach impact (v1.1). Shows score · band · confidence. */}
