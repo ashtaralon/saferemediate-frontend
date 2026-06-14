@@ -329,10 +329,28 @@ export function SGRemediationCard({
     fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
       cache: "no-store",
     })
-      .then((r) => r.json())
-      .then((d: SGGapResponse) => {
+      .then(async (r) => {
+        const d = (await r.json()) as SGGapResponse & {
+          detail?: string
+          error?: string
+        }
         if (cancelled) return
-        if (d?.error) setErr(d.message || "Backend error")
+        if (!r.ok) {
+          setErr(
+            d?.detail ||
+              d?.error ||
+              d?.message ||
+              `Backend ${r.status}`,
+          )
+          return
+        }
+        if (d?.error) {
+          setErr(
+            d.message ||
+              d.detail ||
+              "Backend error",
+          )
+        }
         setData(d)
       })
       .catch((e) => {

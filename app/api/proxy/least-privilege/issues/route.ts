@@ -7,6 +7,8 @@ import {
 const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
 
+export const maxDuration = 60
+
 // In-memory cache. Only stores SUCCESSFUL responses. Backend errors are
 // no longer surfaced as "200 with empty data" — the proxy now returns
 // 502/504 and the UI renders an honest error state instead of the
@@ -41,7 +43,7 @@ export async function GET(req: NextRequest) {
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 50000)
+  const timeoutId = setTimeout(() => controller.abort(), 55000)
 
   try {
     const params = new URLSearchParams()
@@ -90,6 +92,33 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     clearTimeout(timeoutId)
     console.error("[LP Proxy] Fetch error:", error instanceof Error ? error.message : error)
+    // Cold Render + 365d observation can exceed the upstream budget. Serve
+    // stale success data when available so Resource Risk doesn't hard-fail
+    // the whole tab on a transient slow backend.
+    if (
+      error instanceof Error &&
+      error.name === "AbortError" &&
+      cachedData &&
+      cachedData.cacheKey === cacheKey
+    ) {
+      const cacheAge = Math.round((now - cacheTimestamp) / 1000)
+      console.warn("[LP Proxy] Timeout — returning stale cache", { cacheAge })
+      return NextResponse.json(
+        {
+          ...cachedData.data,
+          fromCache: true,
+          fromStaleCache: true,
+          staleReason: "timeout",
+          cacheAge,
+        },
+        {
+          headers: {
+            "X-Cache": "STALE",
+            "Cache-Control": "no-store",
+          },
+        },
+      )
+    }
     return fromCaughtError(error)
   }
 }
