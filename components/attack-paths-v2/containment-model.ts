@@ -288,10 +288,39 @@ export function buildContainmentModel(
 
   // y-bands.
   const cs = report.current_state
+  const srcLabel = norm(cs.source_label)
+
+  // Foothold = the on-path COMPUTE workload placed in the architecture. The IAP
+  // serialization often leaves node.tier null, so we don't rely on it: we
+  // resolve the foothold against the topology (prefer the workload matching the
+  // report's source_label, else the first on-path workload) in a pre-pass so
+  // the layout can reserve the IGW band before drawing the AZ columns.
+  let footholdId: string | null = null
+  let footholdPublic = false
+  for (const az of azs) {
+    for (const sn of az.subnets ?? []) {
+      for (const w of sn.workloads ?? []) {
+        if (!workloadOnPath(w, ids)) continue
+        if (srcLabel && norm(w.name) === srcLabel) {
+          footholdId = w.id
+          footholdPublic = sn.is_public
+        } else if (!footholdId) {
+          footholdId = w.id
+          footholdPublic = sn.is_public
+        }
+      }
+    }
+  }
   const footholdNode =
-    (path.nodes ?? []).find((n) => n.tier === "entry") ??
-    (path.nodes ?? []).find((n) => n.is_internet_exposed)
-  const hasInternetEntry = !!footholdNode?.is_internet_exposed
+    (path.nodes ?? []).find((n) => norm(n.name) === srcLabel) ??
+    (path.nodes ?? []).find((n) => n.tier === "entry")
+  const igw = vpc.internet_gateways?.[0]
+  // Internet entry: an explicit is_internet_exposed flag wins; otherwise infer
+  // from real topology — a public subnet fronted by an Internet Gateway. Never
+  // drawn when the flag is explicitly false.
+  const explicitIE = footholdNode?.is_internet_exposed
+  const hasInternetEntry =
+    explicitIE === true || (explicitIE !== false && footholdPublic && !!igw)
 
   let y = M
   // User / Internet (only when the path actually enters from the internet).
@@ -319,7 +348,6 @@ export function buildContainmentModel(
   const regionY = cloudY + 38
   const igwH = 50
   // IGW straddles the VPC top edge when the path uses an internet entry.
-  const igw = vpc.internet_gateways?.[0]
   const vpcY = regionY + (hasInternetEntry && igw ? 44 : 30)
   const azY = vpcY + 52
 
@@ -364,6 +392,7 @@ export function buildContainmentModel(
       const cx = ax + SUBNET_PAD + 8
       for (const w of cardWorkloads) {
         const onPath = workloadOnPath(w, ids)
+        const isFoothold = footholdId != null && w.id === footholdId
         cards.push({
           id: w.id,
           x: cx,
@@ -374,11 +403,11 @@ export function buildContainmentModel(
           icon: workloadIcon(w.type),
           title: w.name,
           sub: w.id !== w.name ? w.id : undefined,
-          badge: onPath && footholdNode && norm(w.name) === norm(footholdNode.name) ? "FOOTHOLD" : undefined,
+          badge: isFoothold ? "FOOTHOLD" : undefined,
           onPath,
           layer: onPath ? "path" : "ctx",
         })
-        if (onPath && footholdNode && norm(w.name) === norm(footholdNode.name)) {
+        if (isFoothold) {
           anchors.foothold = { x: cx, y: cardY, w: cw, h: CARD_H, cx: cx + cw / 2, cy: cardY + CARD_H / 2 }
         }
         cardY += CARD_H + CARD_GAP
@@ -461,12 +490,23 @@ export function buildContainmentModel(
   })
 
   // ── Regional & global services band (inside Region, outside VPC): the IAM
-  //    role(s), crown jewel, and KMS key the path actually crosses. Sourced
-  //    from path tiers — never invented.
-  const roleNodes = (path.nodes ?? []).filter((n) => n.tier === "identity")
+  //    role, crown jewel, and KMS key the path actually crosses. Tier is
+  //    unreliable in the IAP serialization, so we resolve these from the
+  //    report's friendly labels + node TYPE, never from tier alone, and never
+  //    invent a node.
   const jewelNode =
     (path.nodes ?? []).find((n) => n.tier === "crown_jewel") ??
+    (path.nodes ?? []).find((n) => norm(n.name) === norm(cs.target_label)) ??
     (path.nodes ?? [])[(path.nodes ?? []).length - 1]
+  // Prefer the report's friendly role_name (the same label the header chip and
+  // lede render) over a possibly-opaque (AROA…) role node name.
+  const roleName =
+    path.damage_capability?.role_name ||
+    (path.nodes ?? []).find(
+      (n) => /role|iam/i.test(n.type) && n.id !== jewelNode?.id && norm(n.name) !== srcLabel,
+    )?.name ||
+    null
+  const roleNames: string[] = roleName ? [roleName] : []
   const kms = findKms(path, jewelNode)
 
   const regionalY = vpcBottom + 30
@@ -481,21 +521,20 @@ export function buildContainmentModel(
 
   let rx = regionX + REGION_PAD
   const excess = report.remediation_diff?.remove_actions ?? []
-  roleNodes.forEach((rn, i) => {
+  roleNames.forEach((rn, i) => {
     const rw = 260
-    const onPath = true
     cards.push({
-      id: rn.id || `role-${i}`,
+      id: `role-${i}`,
       x: rx,
       y: regionalCardsY,
       w: rw,
       h: REGIONAL_CARD_H,
       cat: "security",
       icon: "⚿",
-      title: rn.name,
+      title: rn,
       sub: "IAM role",
       badge: excess.length > 0 ? shortAction(excess[0]) : undefined,
-      onPath,
+      onPath: true,
       layer: "path",
     })
     anchors[`role-${i}`] = { x: rx, y: regionalCardsY, w: rw, h: REGIONAL_CARD_H, cx: rx + rw / 2, cy: regionalCardsY + REGIONAL_CARD_H / 2 }
@@ -606,6 +645,7 @@ export function buildContainmentModel(
   } else if (anchors.user && anchors.foothold && !igwAnchor) {
     edges.push(straight("e-user-foothold", botMid(anchors.user), topMid(anchors.foothold), EDGE_COLOR.path, "inbound"))
   }
+  const dataLbl = excess.length > 0 ? `${shortAction(excess[0])} · excess` : "data access"
   if (anchors.foothold && anchors.role) {
     edges.push(
       curve(
@@ -616,11 +656,14 @@ export function buildContainmentModel(
         "assumes role",
       ),
     )
-  }
-  // role → jewel (data plane): label the excess capability the fix removes.
-  if (anchors.role && anchors.jewel) {
-    const lbl = excess.length > 0 ? `${shortAction(excess[0])} · excess` : "data access"
-    edges.push(straight("e-role-jewel", rightMid(anchors.role), leftMid(anchors.jewel), gateEdgeColor(gates.data_plane ?? gates.network), lbl))
+    // role → jewel (data plane): label the excess capability the fix removes.
+    if (anchors.jewel) {
+      edges.push(straight("e-role-jewel", rightMid(anchors.role), leftMid(anchors.jewel), gateEdgeColor(gates.data_plane ?? gates.network), dataLbl))
+    }
+  } else if (anchors.foothold && anchors.jewel) {
+    // No IAM role node — connect the foothold straight to the jewel so the
+    // chain is never broken (e.g. resource-policy / direct-access paths).
+    edges.push(curve("e-foothold-jewel", botMid(anchors.foothold), topMid(anchors.jewel), gateEdgeColor(gates.data_plane ?? gates.network), dataLbl))
   }
   if (anchors.jewel && anchors.kms) {
     edges.push(straight("e-jewel-kms", rightMid(anchors.jewel), leftMid(anchors.kms), EDGE_COLOR.enc, "encrypts"))

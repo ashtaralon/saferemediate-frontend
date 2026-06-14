@@ -166,6 +166,38 @@ describe("buildContainmentModel", () => {
     expect(m.edges.find((e) => e.id === "e-foothold-role")?.color).toBe("#c0392b")
   })
 
+  it("resolves foothold/role/jewel when node tiers are null (the live IAP serialization)", () => {
+    // Regression for the prod bug: the IAP list leaves entry/identity nodes
+    // tier=null (only crown_jewel is tagged) and the IAM principal serializes
+    // as an opaque AROA id. The model must still anchor the foothold (via the
+    // report's source_label + the topology workload) and label the role from
+    // damage_capability.role_name — NOT fall back to the spine map.
+    const p = {
+      id: "path-1",
+      crown_jewel_id: "cj",
+      damage_capability: { role_name: "alon-demo-ec2-role" },
+      nodes: [
+        nd({ id: "i-0aa725", name: "alon-demo-app2", type: "EC2Instance", tier: undefined as never }),
+        nd({ id: "AROA23JBKAVDQCMGEX66T", name: "AROA23JBKAVDQCMGEX66T", type: "IAMRole", tier: undefined as never }),
+        nd({ id: "jewel-1", name: "saferemediate-logs-745783559495", type: "S3Bucket", tier: "crown_jewel" }),
+      ],
+      edges: [],
+    } as unknown as IdentityAttackPath
+    const m = buildContainmentModel(topology(), p, report())
+    expect(m).not.toBeNull()
+    // Foothold anchored from source_label, not tier.
+    const foothold = m!.cards.find((c) => c.title === "alon-demo-app2")!
+    expect(foothold.badge).toBe("FOOTHOLD")
+    // Role labeled from damage_capability.role_name, never the AROA id.
+    const titles = m!.cards.map((c) => c.title)
+    expect(titles).toContain("alon-demo-ec2-role")
+    expect(titles).not.toContain("AROA23JBKAVDQCMGEX66T")
+    // The full chain renders.
+    const ids = m!.edges.map((e) => e.id)
+    expect(ids).toContain("e-foothold-role")
+    expect(ids).toContain("e-role-jewel")
+  })
+
   it("drops the internet/IGW entry when the foothold isn't internet-exposed", () => {
     const p = goldenPath()
     p.nodes[0].is_internet_exposed = false
