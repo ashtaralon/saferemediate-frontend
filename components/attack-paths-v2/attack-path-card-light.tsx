@@ -35,7 +35,7 @@ import type {
 import { useClosurePreview } from "./use-closure-preview"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { classifyPathShape } from "./path-shape"
-import { AttackPathMapLight } from "./attack-path-map-light"
+import { AttackPathContainmentMap } from "./attack-path-containment-map"
 
 // ── Mockup palette (cyntro_attack-path-card_design.html :root) ──────────────
 const C = {
@@ -173,9 +173,11 @@ export function isNetworkGateNA(
 export function AttackPathCardLightView({
   report,
   path,
+  systemName,
 }: {
   report: AttackPathReport
   path: IdentityAttackPath
+  systemName?: string | null
 }) {
   const cs = report.current_state
   const diff = report.remediation_diff
@@ -265,12 +267,12 @@ export function AttackPathCardLightView({
             the facade serializes hops.nodes sparse — so a real path never loses
             its map. */}
         {(nodes.length >= 2 || (!!cs.source_label && !!cs.target_label)) && (
-          <Section title="The path" hint="how the attacker walks it — node by node">
+          <Section title="The path" hint="the attacker's route across your real AWS architecture">
             <div
               className="rounded-2xl p-5"
               style={{ background: C.card, boxShadow: "0 1px 2px rgba(20,30,50,.05),0 6px 22px rgba(20,30,50,.05)" }}
             >
-              <AttackPathMapLight path={path} report={report} />
+              <AttackPathContainmentMap path={path} report={report} systemName={systemName} />
             </div>
           </Section>
         )}
@@ -592,9 +594,11 @@ function ApprovePill({ children }: { children: React.ReactNode }) {
 export function AttackPathCardLight({
   path,
   jewel,
+  systemName,
 }: {
   path: IdentityAttackPath
   jewel?: CrownJewelSummary | null
+  systemName?: string | null
 }) {
   const { closure } = useClosurePreview(path)
   const { report, source, loading, error, retry } = useAttackPathReport(path, jewel, closure)
@@ -640,7 +644,7 @@ export function AttackPathCardLight({
           compiled in-browser.
         </div>
       )}
-      <AttackPathCardLightView report={report} path={path} />
+      <AttackPathCardLightView report={report} path={path} systemName={systemName} />
     </>
   )
 }
