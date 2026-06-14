@@ -17,7 +17,7 @@ const cache: Record<string, { data: unknown; timestamp: number }> = {}
 
 export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ sgId: string }> } | { sgId: string } },
+  context: { params: Promise<{ sgId: string }> | { sgId: string } },
 ) {
   let sgId = ""
   try {
