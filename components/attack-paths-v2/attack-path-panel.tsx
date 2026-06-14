@@ -193,8 +193,16 @@ export function AttackPathPanel({
       damage_narrative: payload.damage_narrative,
       reduction_narrative: payload.reduction_narrative,
       reachable_neighbors: payload.reachable_neighbors ?? undefined,
+      // The facade payload carries no authoritative gate state; the backend's
+      // materialized :AttackPath summary (identity/route/data_plane gates) only
+      // rides on the IAP list path. Thread it through from pathFromPage so the
+      // bridge compiler can trust it instead of re-deriving (and downgrading an
+      // OPEN_OBSERVED identity gate to OPEN_CONFIG off a partial edges[]).
+      materialized: pathFromPage?.materialized,
+      materialized_stale: pathFromPage?.materialized_stale,
+      materialized_path: pathFromPage?.materialized_path ?? null,
     }
-  }, [payload])
+  }, [payload, pathFromPage])
 
   const jewelSummary = useMemo<CrownJewelSummary | null>(() => {
     if (!payload || isFacadeError(payload)) return null
