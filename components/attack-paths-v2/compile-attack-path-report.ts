@@ -35,6 +35,7 @@ import type {
   MissingEvidence,
 } from "./attack-path-report-types"
 import { pathSourceLabel, pathIdentityLabel } from "./path-damage-summary"
+import { classifyPathShape, damageVerbPhrase, pathDamageTypes } from "./path-shape"
 
 const COMPILER_VERSION = "bridge-0.1.0"
 
@@ -146,6 +147,16 @@ export function compileAttackPathReport(
   const roleLabel = pathIdentityLabel(path)
   const targetLabel = jewel?.name ?? dc?.jewel_name ?? jewelNode?.name ?? "crown jewel"
 
+  // Closure diff (the FE's authoritative "excess to strip" signal) and path
+  // shape — needed up-front so the identity claims + narrative branch per shape
+  // (spec §1.1) instead of always rendering the Shape-A compute-excess story.
+  const removed = closure?.diff.removed_actions ?? []
+  const kept = closure?.diff.kept_actions ?? []
+  const scoped = closure?.diff.scoped_to_prefixes ?? []
+  const shape = classifyPathShape(path, closure ? removed : undefined)
+  const damageTypes = pathDamageTypes(path)
+  const damageVerbs = damageVerbPhrase(damageTypes)
+
   const claims: Claim[] = []
   const missing: MissingEvidence[] = []
 
@@ -185,14 +196,40 @@ export function compileAttackPathReport(
   claims.push(...entryClaims)
 
   // ── Identity claims (R1: observed only if evidence touches the identity) ─
+  // Branch by shape: the IMDS instance-credential chain is a COMPUTE primitive
+  // — emit it only when a workload is actually on the path (Shape A / hybrid),
+  // never on an identity-only assume path (Shape B) where it would assert a
+  // compromise that isn't there. Shape B's identity story is the assume hop.
   const identityClaims: Claim[] = []
-  if (roleNode || dc?.role_name) {
+  if (shape.hasCompute && (roleNode || dc?.role_name)) {
     identityClaims.push({
       id: "identity.imds_chain",
       text: `If ${sourceLabel} is compromised, instance credentials via IMDS resolve to ${roleLabel}`,
       source_refs: [{ kind: "model_rule", id: "imds_instance_profile_chain" }],
       ...grade("INFERRED"), // modeled attacker primitive — narrative only (R2)
     })
+  }
+  if (shape.hasAssume && shape.assume) {
+    // Shape B — the sts:AssumeRole pivot (entry → assumes → assumed). Observed
+    // in CloudTrail → OPEN_OBSERVED; trust-policy-only → OPEN_CONFIG (spec §4.1).
+    const a = shape.assume
+    identityClaims.push({
+      id: "identity.assume_hop",
+      text: a.observed
+        ? `An attacker holding \`${a.entryRole}\` can assume \`${a.assumedRole}\` — Cyntro observed this sts:AssumeRole call${
+            a.hitCount ? ` (${a.hitCount}×)` : ""
+          } in CloudTrail. No workload compromise is needed; the identity already has standing access`
+        : `\`${a.entryRole}\` is permitted to assume \`${a.assumedRole}\` (sts:AssumeRole allowed by trust policy; not yet observed in CloudTrail)`,
+      source_refs: [
+        {
+          kind: "neo4j_edge",
+          property: "ASSUMES_ROLE_ACTUAL",
+          value: a.observed,
+        },
+      ],
+      ...grade(a.observed ? "OBSERVED" : "CONFIGURED"),
+    })
+  } else if (roleNode || dc?.role_name) {
     const roleIds = new Set(
       [roleNode?.id, ...nodes.filter((n) => isPrincipalNodeType(n.type)).map((n) => n.id)].filter(
         Boolean,
@@ -291,9 +328,6 @@ export function compileAttackPathReport(
   claims.push(...dataClaims)
 
   // ── GAP + damage matrix (driven ONLY by authoritative claims, R2) ──────
-  const removed = closure?.diff.removed_actions ?? []
-  const kept = closure?.diff.kept_actions ?? []
-  const scoped = closure?.diff.scoped_to_prefixes ?? []
   let gapClaim: Claim | null = null
   if (removed.length > 0) {
     gapClaim = {
@@ -331,7 +365,7 @@ export function compileAttackPathReport(
   if (identityClaims.length > 0) {
     attacker_steps.push({
       phase: "BECOME_IDENTITY",
-      title: "Become the role",
+      title: shape.hasAssume && !shape.hasCompute ? "Pivot via sts:AssumeRole" : "Become the role",
       body: identityClaims.map((c) => c.text).join(". ") + ".",
       claim_ids: identityClaims.map((c) => c.id),
     })
@@ -371,6 +405,28 @@ export function compileAttackPathReport(
   const chainOpen =
     derivedGates.network !== "CLOSED" && derivedGates.data_plane !== "CLOSED"
 
+  // Shape-aware executive headline (spec §4). Composed from structured fields —
+  // NEVER by string-splitting business_sentence. Shape A keeps the renderer's
+  // existing diff-driven summary, so headline stays undefined there.
+  let headline: string | undefined
+  if (shape.kind === "B" && shape.assume) {
+    const a = shape.assume
+    headline =
+      `\`${a.entryRole}\` already holds standing access and can ` +
+      `${a.observed ? "assume" : "be permitted to assume"} \`${a.assumedRole}\`` +
+      `${
+        a.observed
+          ? ` — Cyntro observed this sts:AssumeRole${a.hitCount ? ` ${a.hitCount}×` : ""} in CloudTrail`
+          : " (allowed by trust policy, not yet observed)"
+      }` +
+      ` — to ${damageVerbs} in ${targetLabel}. No workload compromise is needed; the identity already has standing access.`
+  } else if (shape.kind === "C") {
+    headline =
+      `\`${roleLabel}\` is already scoped to what it uses — there is no unused permission to remove. ` +
+      `The exposure is the standing reach itself: it can ${damageVerbs} ${targetLabel}. ` +
+      `Containment here is network/route restriction or a review of the standing grant, not a least-privilege trim.`
+  }
+
   return {
     report_id: `bridge-${path.id}`,
     report_version: "1",
@@ -383,6 +439,8 @@ export function compileAttackPathReport(
       source_label: sourceLabel,
       target_label: targetLabel,
       summary: path.damage_narrative ?? "",
+      shape: shape.kind,
+      headline,
     },
     claims,
     gates: derivedGates,

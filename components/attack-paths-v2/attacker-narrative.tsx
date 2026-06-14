@@ -162,7 +162,10 @@ export function AttackerNarrativeView({
   }))
 
   const scopes = diff?.scope_to ?? []
-  const execSummary = diff
+  // Shape-A diff-driven summary — asserts a compute compromise ("its instance
+  // role"), so it is ONLY correct for Shape A. Shapes B/C carry a compiler-
+  // composed headline instead (assume-chain / zero-excess reach, spec §4).
+  const shapeAExecSummary = diff
     ? `If ${cs.source_label} is compromised, its instance role can ` +
       `${damageVerbs.map((v) => v.toLowerCase()).join(" / ")} on ${cs.target_label}` +
       `${report.blast_radius?.headline ? " and other crown-jewel buckets" : ""}. ` +
@@ -171,6 +174,8 @@ export function AttackerNarrativeView({
       `Cyntro recommends removing ${diff.remove_actions.length} unused destructive/admin ` +
       `action${diff.remove_actions.length === 1 ? "" : "s"} and preserving the ${diff.keep_actions.length} required.`
     : null
+  const execSummary =
+    cs.headline ?? (cs.shape == null || cs.shape === "A" ? shapeAExecSummary : null)
 
   // Compressed 3-step walkthrough (foothold → identity → jewel) for the
   // collapsed default; the full ordered steps live inside the expander.
