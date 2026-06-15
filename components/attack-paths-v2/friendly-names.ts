@@ -24,11 +24,21 @@ const ORPHAN_ROLE_RE = /^\(orphan role:\s*(.+?)\)\s*$/i
  *  - "(orphan role: foo)" placeholder → "foo" (internal marker, never rendered)
  *  - ARN → last path segment ("arn:aws:iam::…:role/foo" → "foo")
  *  - "x:::y" snapshot ids → the "y" half
- *  - opaque IAM unique id → a readable type ("assumed role", "IAM user", …)
+ *  - opaque IAM unique id → try `arnHint` (key_properties.arn) before generic type
  *  - anything else → returned as-is. */
-export function friendlyResourceName(rawName?: string | null, type?: string | null): string {
+export function friendlyResourceName(
+  rawName?: string | null,
+  type?: string | null,
+  arnHint?: string | null,
+): string {
   let raw = (rawName ?? "").trim()
-  if (!raw) return type || "resource"
+  if (!raw) {
+    if (arnHint?.startsWith("arn:")) {
+      const tail = arnHint.split("/").pop()
+      if (tail) return tail
+    }
+    return type || "resource"
+  }
   const orphan = raw.match(ORPHAN_ROLE_RE)
   if (orphan) raw = orphan[1].trim()
   if (raw.includes(":::")) return raw.split(":::")[1] || raw
@@ -37,9 +47,15 @@ export function friendlyResourceName(rawName?: string | null, type?: string | nu
     if (tail) return tail
   }
   if (isOpaqueIamId(raw)) {
+    const arn = (arnHint ?? "").trim()
+    if (arn.startsWith("arn:")) {
+      const tail = arn.split("/").pop()
+      if (tail) return tail
+    }
     if (type === "IAMUser") return "IAM user"
     if (type === "AccessKey") return "access key"
     if (type === "STSSession") return "assumed-role session"
+    if (/role|iam/i.test(type ?? "")) return raw
     return "assumed role"
   }
   return raw

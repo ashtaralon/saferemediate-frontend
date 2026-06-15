@@ -497,11 +497,15 @@ export function buildAttackerArchitecture(
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
+    const p = props || {}
+    const arn = typeof p.arn === "string" ? p.arn : undefined
     let display = friendlyName(name, id)
+    if (isOpaqueIamId(display) && arn?.includes(":role/")) {
+      display = arn.split("/").pop() || display
+    }
     if (isOpaqueIamId(display) && path.damage_capability?.role_name) {
       display = path.damage_capability.role_name
     }
-    const p = props || {}
     const totalCount = Number(p.allowed_actions_count ?? 0) || 0
     // 2026-05-26 audit fix: trust LIVE evidence over collector scalars.
     // The `used_actions_count` field on cyntro-demo-ec2-s3-role lies

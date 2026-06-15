@@ -35,7 +35,6 @@ import type {
 import { useClosurePreview } from "./use-closure-preview"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { classifyPathShape } from "./path-shape"
-import { AttackPathContainmentMap } from "./attack-path-containment-map"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 // ── Mockup palette (cyntro_attack-path-card_design.html :root) ──────────────
@@ -263,23 +262,6 @@ export function AttackPathCardLightView({
           </div>
         </div>
       </div>
-
-        {/* ── THE PATH (map) ──────────────────────────────────────────────── */}
-        {/* Render whenever a source→target spine is drawable. The map prefers
-            the real path.nodes spine and falls back to the report's labels when
-            the facade serializes hops.nodes sparse — so a real path never loses
-            its map. */}
-        {(nodes.length >= 2 || (!!cs.source_label && !!cs.target_label)) && (
-          <Section title="The attack map" hint="the attacker's route across your real AWS architecture">
-            <div
-              className="rounded-2xl p-5"
-              style={{ background: C.card, boxShadow: "0 1px 2px rgba(20,30,50,.05),0 6px 22px rgba(20,30,50,.05)" }}
-            >
-              <AttackPathContainmentMap path={path} report={report} architecture={architecture} systemName={systemName} />
-            </div>
-          </Section>
-        )}
-
         {/* ── THE RISK ────────────────────────────────────────────────────── */}
         <Section title="The risk" hint="what an attacker could do — in plain words">
         <div

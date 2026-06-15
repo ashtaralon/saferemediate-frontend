@@ -129,4 +129,17 @@ describe("buildContainmentFromArchitecture", () => {
     const m = buildContainmentFromArchitecture(a, path, report, "path")
     expect(m!.meta.region).toBe("eu-west-1")
   })
+
+  it("labels public subnet with CIDR from architecture (not Unknown subnet)", () => {
+    const m = buildContainmentFromArchitecture(arch(), path, report, "path")
+    expect(m).not.toBeNull()
+    const subnetFrame = m!.frames.find((f) => f.kind === "subnet" && f.label.includes("Public subnet"))
+    expect(subnetFrame?.label).toMatch(/Public subnet · 172\.31\.32\.0\/20/)
+  })
+
+  it("includes VPC CIDR on vpc frame when vpcGroups populated", () => {
+    const m = buildContainmentFromArchitecture(arch(), path, report, "path")
+    const vpcFrame = m!.frames.find((f) => f.kind === "vpc")
+    expect(vpcFrame?.label).toMatch(/172\.31\.0\.0\/16/)
+  })
 })
