@@ -150,8 +150,9 @@ function FlowInner({
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         fitView
-        minZoom={0.2}
-        maxZoom={1.8}
+        minZoom={0.35}
+        maxZoom={1.4}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable

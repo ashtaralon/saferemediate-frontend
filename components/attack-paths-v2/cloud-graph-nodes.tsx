@@ -23,13 +23,37 @@ export interface ResourceNodeData {
   variant: "protagonist" | "standard" | "chip"
   dimmed?: boolean
   focused?: boolean
+  step?: number
   copyValue?: string
+}
+
+export interface LaneNodeData {
+  label: string
 }
 
 function truncate(s: string, max: number): string {
   if (!s || s.length <= max) return s
   return `${s.slice(0, max - 1)}…`
 }
+
+export const LaneBackdropNode = memo(function LaneBackdropNode({ data }: NodeProps<LaneNodeData>) {
+  return (
+    <div
+      className="h-full w-full rounded-xl pointer-events-none"
+      style={{
+        background: "rgba(228,233,240,0.35)",
+        border: `1px dashed ${CG.border}`,
+      }}
+    >
+      <div
+        className="text-center pt-2.5 text-[10px] font-bold uppercase tracking-[0.14em]"
+        style={{ color: CG.faint }}
+      >
+        {data.label}
+      </div>
+    </div>
+  )
+})
 
 export const ContainerNode = memo(function ContainerNode({ data }: NodeProps<ContainerNodeData>) {
   const stroke =
@@ -75,7 +99,7 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
   const color = typeColorForCategory(data.cat)
   const h = data.variant === "chip" ? 44 : data.variant === "protagonist" ? 76 : 68
   const badgeW = data.badge ? data.badge.length * 5.5 + 16 : 0
-  const titleMax = data.variant === "chip" ? 18 : 24
+  const titleMax = data.variant === "chip" ? 22 : 28
 
   const onCopy = useCallback(() => {
     const v = data.copyValue ?? data.title
@@ -144,11 +168,20 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
           {data.badge}
         </div>
       ) : null}
+      {data.step != null ? (
+        <div
+          className="absolute -left-2 -top-2 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[9px] font-extrabold text-white"
+          style={{ background: CG.attack, border: "2px solid #fff" }}
+        >
+          {data.step}
+        </div>
+      ) : null}
     </div>
   )
 })
 
 export const cloudGraphNodeTypes = {
+  lane: LaneBackdropNode,
   container: ContainerNode,
   resource: ResourceNode,
 }

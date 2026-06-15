@@ -35,7 +35,7 @@ describe("orderPathFlowEdges", () => {
 })
 
 describe("layoutCloudGraphFlow", () => {
-  it("resolves within 5s and returns nodes", async () => {
+  it("resolves with lane spine nodes only on path mode", async () => {
     const arch: SystemArchitecture = {
       computeServices: [{ id: "i-0aa725", name: "alon-demo-app2", shortName: "alon-demo-app2", type: "ec2instance" }],
       resources: [{ id: "arn:aws:s3:::logs", name: "saferemediate-logs", shortName: "saferemediate-logs", type: "s3bucket", isCrownJewel: true }],
@@ -55,7 +55,12 @@ describe("layoutCloudGraphFlow", () => {
     const report = { current_state: { source_label: "alon-demo-app2", target_label: "saferemediate-logs" }, gates: {}, remediation_diff: { remove_actions: [] } } as AttackPathReport
     const model = buildContainmentFromArchitecture(arch, path, report, "path")!
     const result = await layoutCloudGraphFlow(model, path, "path")
-    expect(result.nodes.length).toBeGreaterThan(0)
+    expect(result.nodes.some((n) => n.type === "lane")).toBe(true)
+    expect(result.nodes.filter((n) => n.type === "resource").length).toBeLessThanOrEqual(model.cards.length)
     expect(result.edges.length).toBeGreaterThan(0)
+    // No orphan EC2s in path mode — only spine
+    const resourceIds = result.nodes.filter((n) => n.type === "resource").map((n) => n.id)
+    expect(resourceIds).toContain("i-0aa725")
+    expect(resourceIds).not.toContain("cyntro-web-server")
   }, 8000)
 })
