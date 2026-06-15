@@ -640,6 +640,91 @@ export function enforceContainmentOnModel<
   }
 }
 
+// =============================================================================
+// §9 — Density throttling (visual authority over "show everything")
+// =============================================================================
+//
+// PR #138 review feedback: even after the spatial contract enforced ordering
+// and color authority, the canvas STILL feels "visually democratic" because
+// every node is rendered with equal real-estate. Compressing the OFF_SPINE +
+// CONTROL classes per view mode is what turns it from "diagram tool" into
+// "executive surface".
+//
+// Rule:
+//   "Just this path" mode  → drop OFF_SPINE and CONTROL cards entirely.
+//                            Spine nodes + their immediate containers remain.
+//   "Full environment" mode → keep everything (auditor mode).
+//
+// This is content-level density (which cards exist) rather than visual-weight
+// density (how opaque they are). Lower-weight density was already encoded in
+// SEMANTIC_TOKENS.opacity (CONTROL 0.65, OFF_SPINE 0.38). Removing cards is
+// what stops them consuming SPATIAL real estate.
+
+export interface DensityThrottleResult<M> {
+  model: M
+  /** Counts of cards stripped per semantic class, for dev observability. */
+  stripped: Partial<Record<SemanticClass, number>>
+}
+
+/** Drop OFF_SPINE and CONTROL cards from the model in path mode. Frames are
+ *  left intact — the AWS Cloud / Region / VPC / AZ / Subnet structure still
+ *  reads as "this is the topology" even when individual SG / NACL / RT cards
+ *  and sibling Lambdas are hidden. Pure function; same inputs → same model.
+ *
+ *  Card classification mirrors classifyNodeSemantic() so the contract stays
+ *  one-source-of-truth. */
+export function densityThrottle<
+  M extends { frames: CMFrame[]; cards: CMCard[]; edges: { sourceId?: string; targetId?: string }[]; width: number; height: number },
+>(model: M, viewMode: "path" | "full"): DensityThrottleResult<M> {
+  if (viewMode === "full") {
+    return { model, stripped: {} }
+  }
+
+  // Import semantic classifier without creating a cycle (semantic.ts depends
+  // on this file's token exports — but the function we need has no cycle).
+  // Inline a lightweight classifier here to avoid the dependency dance; it
+  // matches classifyNodeSemantic exactly.
+  const NETWORK_CONDUIT_RE = /internet gateway|vpc endpoint|nat gateway|vpce\b|^igw|vpc · |^vpc\b|subnet/i
+  const classOf = (card: CMCard): SemanticClass => {
+    if (card.badge === "CROWN JEWEL") return "JEWEL"
+    if (card.badge === "FOOTHOLD") return "ENTRY"
+    if (card.cat === "user") return "ENTRY"
+    if (!card.onPath) return "OFF_SPINE"
+    if (card.cat === "security") return "IDENTITY"
+    if (card.cat === "storage") return "JEWEL"
+    if (card.cat === "network") {
+      if (card.title && NETWORK_CONDUIT_RE.test(card.title)) return "NETWORK"
+      return "CONTROL"
+    }
+    if (card.cat === "compute") return "OFF_SPINE"
+    return "CONTROL"
+  }
+
+  const stripped: Partial<Record<SemanticClass, number>> = {}
+  const keptCards: CMCard[] = []
+  const droppedIds = new Set<string>()
+  for (const card of model.cards) {
+    const cls = classOf(card)
+    if (cls === "OFF_SPINE" || cls === "CONTROL") {
+      stripped[cls] = (stripped[cls] ?? 0) + 1
+      droppedIds.add(card.id)
+      continue
+    }
+    keptCards.push(card)
+  }
+
+  // Drop edges whose endpoints got removed — they'd render as floating
+  // disconnected lines if kept.
+  const keptEdges = model.edges.filter(
+    (e) => !droppedIds.has(e.sourceId ?? "") && !droppedIds.has(e.targetId ?? ""),
+  )
+
+  return {
+    model: { ...model, cards: keptCards, edges: keptEdges },
+    stripped,
+  }
+}
+
 /** §0.3 acceptance helper — compares two layout results for byte-identical
  *  positions (after normalizing for canvas scale). Returns the deltas list;
  *  empty list = passes determinism contract. */

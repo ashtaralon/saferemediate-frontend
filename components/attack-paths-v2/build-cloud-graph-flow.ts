@@ -12,6 +12,7 @@ import type { ContainerKind } from "./cloud-graph-nodes"
 import type { FlowEdgeData } from "./cloud-graph-edges"
 import type { ContainmentViewMode } from "./build-containment-from-architecture"
 import {
+  densityThrottle,
   enforceAnchoring,
   enforceContainmentOnModel,
 } from "./cloud-graph-hierarchy"
@@ -401,9 +402,26 @@ export async function layoutCloudGraphFlow(
   //      containment ran first, anchoring could re-move a card outside its
   //      newly-expanded frame, defeating the cascade.
 
+  // ── §9 density throttling ──
+  // In path mode, drop OFF_SPINE + CONTROL cards entirely so the canvas
+  // doesn't consume real estate showing 12 sibling workloads at 38% opacity.
+  // Full-environment mode keeps everything for auditors.
+  const densityResult = densityThrottle(model, viewMode)
+  if (
+    Object.keys(densityResult.stripped).length > 0 &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[cloud-graph-hierarchy] density throttling stripped:`,
+      densityResult.stripped,
+    )
+  }
+  const throttled = densityResult.model
+
   // ── §2 anchoring ──
-  const spineIds = buildSpineCardIds(model, path)
-  const positioned = model.cards.map((card) => ({
+  const spineIds = buildSpineCardIds(throttled, path)
+  const positioned = throttled.cards.map((card) => ({
     id: card.id,
     x: card.x,
     y: card.y,
@@ -416,7 +434,7 @@ export async function layoutCloudGraphFlow(
       onPath: card.onPath,
     }),
   }))
-  const canvas = { width: model.width, height: model.height }
+  const canvas = { width: throttled.width, height: throttled.height }
   const anchored = enforceAnchoring(positioned, canvas, spineIds)
   if (anchored.violations.length > 0 && process.env.NODE_ENV !== "production") {
     // eslint-disable-next-line no-console
@@ -427,8 +445,8 @@ export async function layoutCloudGraphFlow(
   }
   const snappedById = new Map(anchored.nodes.map((n) => [n.id, n]))
   const anchoredModel: ContainmentModel = {
-    ...model,
-    cards: model.cards.map((card) => {
+    ...throttled,
+    cards: throttled.cards.map((card) => {
       const s = snappedById.get(card.id)
       return s ? { ...card, x: s.x, y: s.y } : card
     }),
