@@ -316,6 +316,10 @@ export interface SubnetNode {
   shortName: string;
   isPublic: boolean | null;
   vpcId?: string;
+  /** Availability zone (e.g. eu-west-1b) — from graph key_properties.availability_zone */
+  availabilityZone?: string;
+  /** Subnet CIDR block — from graph key_properties.cidr_block */
+  cidrBlock?: string;
   // Compute node ids that live in this subnet (via IN_SUBNET edges).
   // Lets the connection-line renderer draw compute→subnet edges so the
   // path reads "EC2 → Subnet → SG → NACL → IAM" visually.
@@ -426,7 +430,9 @@ export interface SystemArchitecture {
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
-  vpcGroups?: Array<{ vpcId: string; vpcName: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
+  vpcGroups?: Array<{ vpcId: string; vpcName: string; cidrBlock?: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
+  /** AWS region (e.g. eu-west-1) — inferred from node ARNs in the graph */
+  region?: string;
   /** EXFIL view authoritative VPC posture for the selected path's
    *  workload(s). Resolved on the backend by direct RUNS_IN_VPC /
    *  IN_SUBNET / SECURED_BY traversal. Drives the evidence-backed
