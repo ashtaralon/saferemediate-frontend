@@ -385,16 +385,19 @@ export function PathAnalysisPanel({
             evidence (the light card above now owns the damage/fix story).
             Kept here so its damage-scope drawer + per-cell detail stay
             available for the operator drilling in. */}
-        <div className="px-6 pt-4">
-          <DamageAwarePathCard
-            path={path}
-            jewel={jewel}
-            systemName={systemName}
-            scope={damageScopeData}
-            scopeLoading={damageScopeLoading}
-            scopeError={damageScopeError}
-          />
-        </div>
+        {report && (
+          <div className="px-6 pt-4">
+            <DamageAwarePathCard
+              report={report}
+              path={path}
+              jewel={jewel}
+              systemName={systemName}
+              scope={damageScopeData}
+              scopeLoading={damageScopeLoading}
+              scopeError={damageScopeError}
+            />
+          </div>
+        )}
         {/* Kill-chain strip (2026-06-11) — replaces the canvasV2-gated
             "ENTRY → via N hops → REACHES" caption. Always on when the
             path has nodes: a LINEAR phase-by-phase read of the spine

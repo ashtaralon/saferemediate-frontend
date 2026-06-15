@@ -7,6 +7,32 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DamageAwarePathCard } from "@/components/attack-paths-v2/damage-aware-path-card"
 import { HardeningPanel } from "@/components/attack-paths-v2/hardening-panel"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
+
+// Minimal AttackPathReport that satisfies the IR contract — empty
+// damage_matrix / claims so this test stays focused on risk-reduction sign
+// rendering (the path.risk_reduction.top_actions sub-tree).
+const baseReport: AttackPathReport = {
+  report_id: "test-report",
+  report_version: "1",
+  compiler_version: "0.1.0",
+  path_id: "test-path",
+  current_state: {
+    status: "OPEN_TODAY",
+    source_label: "demo-source",
+    target_label: "demo-jewel",
+    summary: "test path summary",
+  },
+  claims: [],
+  gates: {},
+  attacker_steps: [],
+  damage_matrix: [],
+  gap: null,
+  remediation_diff: null,
+  safety_decision: { gate: "REVIEW_REQUIRED", reasons: ["test reason"] },
+  verification_target: null,
+  missing_evidence: [],
+}
 
 afterEach(() => {
   cleanup()
@@ -61,6 +87,7 @@ describe("risk reduction sign normalization", () => {
   it("damage-aware-path-card renders a single minus for negative impact", () => {
     const { container } = render(
       <DamageAwarePathCard
+        report={baseReport}
         path={basePath}
         jewel={null}
         systemName="alon-prod"
