@@ -3,6 +3,7 @@
 import { memo, useCallback } from "react"
 import { Handle, Position, type NodeProps } from "reactflow"
 import { CG, typeColorForCategory } from "./cloud-graph-tokens"
+import { classifyNodeSemantic, SEMANTIC_TOKENS } from "./cloud-graph-semantic"
 
 export type ContainerKind = "cloud" | "region" | "vpc" | "az" | "subnet"
 
@@ -100,14 +101,22 @@ export const ContainerNode = memo(function ContainerNode({ data }: NodeProps<Con
       }}
     >
       <div
-        className="absolute left-3 top-2.5 text-[11px] font-bold uppercase tracking-[0.06em] pointer-events-none select-none"
-        style={{ color: data.kind === "subnet" ? "#2f7a2a" : stroke }}
+        className="absolute left-3 top-2.5 text-[12px] font-extrabold uppercase tracking-[0.08em] pointer-events-none select-none"
+        style={{
+          color:
+            data.kind === "subnet"
+              ? data.isPublicSubnet ? "#1f6024" : "#1b4cb2"
+              : data.kind === "vpc" ? "#247a1f"
+              : data.kind === "region" ? "#1b4cb2"
+              : data.kind === "cloud" ? "#22303f"
+              : stroke,
+        }}
         title={data.label}
       >
         {truncate(data.label, 52)}
       </div>
       {data.sub ? (
-        <div className="absolute left-3 top-[22px] text-[10px] pointer-events-none" style={{ color: CG.faint }}>
+        <div className="absolute left-3 top-[24px] text-[10px] font-mono pointer-events-none" style={{ color: CG.muted }}>
           {truncate(data.sub, 48)}
         </div>
       ) : null}
@@ -127,21 +136,37 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
     }
   }, [data.copyValue, data.title])
 
-  const opacity = data.dimmed ? 0.22 : data.focused === false ? 0.25 : 1
-  const stroke = data.onPath ? CG.attack : CG.border
-  const sw = data.onPath ? 2 : 1
+  // Attack-path-priority rule — semantic class drives border/glow/opacity so
+  // ENTRY / IDENTITY / NETWORK / JEWEL visually dominate, CONTROL / OFF_SPINE
+  // recede. Title is needed to split cat="network" into NETWORK (conduit) vs
+  // CONTROL (config metadata).
+  const semantic = classifyNodeSemantic({
+    cat: data.cat,
+    badge: data.badge,
+    title: data.title,
+    onPath: data.onPath,
+  })
+  const token = SEMANTIC_TOKENS[semantic]
+  // data.dimmed (full-environment "isolate" toggle) and data.focused=false
+  // are explicit user-driven overrides — they win over the semantic baseline.
+  const opacity =
+    data.dimmed ? 0.22 :
+    data.focused === false ? 0.25 :
+    token.opacity
 
   return (
     <div
-      className="relative rounded-lg bg-white transition-all duration-200 cursor-default h-full box-border"
+      className="relative rounded-lg transition-all duration-200 cursor-default h-full box-border"
       style={{
         width: "100%",
         opacity,
-        border: `${sw}px solid ${stroke}`,
-        boxShadow: data.onPath ? CG.shadow : "0 1px 2px rgba(16,24,40,.03)",
+        background: token.bg ?? "white",
+        border: `${token.width}px solid ${token.border}`,
+        boxShadow: token.glow,
         paddingRight: badgeW > 0 ? badgeW + 8 : 8,
       }}
       title={[data.title, data.sub].filter(Boolean).join(" · ")}
+      data-semantic={semantic}
       onDoubleClick={onCopy}
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0, width: 1, height: 1 }} />

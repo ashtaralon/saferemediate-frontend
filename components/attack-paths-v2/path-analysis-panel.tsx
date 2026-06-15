@@ -414,7 +414,7 @@ export function PathAnalysisPanel({
             </p>
           </div>
           <div
-            className="relative rounded-[14px] border border-border bg-card overflow-auto px-1 py-1 max-h-[560px]"
+            className="relative rounded-[14px] border border-border bg-card overflow-auto px-1 py-1 max-h-[760px]"
             style={{ boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }}
             data-testid="attack-path-flow-map-slot"
           >
