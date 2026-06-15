@@ -264,19 +264,41 @@ export function enforceAnchoring(
     }
   }
 
-  // ── A6: Spine sequence is monotonic on x-axis ──
-  for (let i = 0; i < spineOrder.length - 1; i++) {
-    const a = byId.get(spineOrder[i])
-    const b = byId.get(spineOrder[i + 1])
-    if (!a || !b) continue
-    if (b.x < a.x) {
+  // ── A6: Spine sequence is monotonic on x-axis for PROTAGONIST CLASS
+  //        transitions ──
+  //
+  // Two refinements vs the naive "every step right of the previous":
+  //   1) Only protagonist classes (ENTRY / NETWORK / IDENTITY / JEWEL) carry
+  //      x-ordering meaning. CONTROL nodes (SG / NACL / RT) live in the
+  //      bottom band per A4 — forcing them into the spine x-sequence would
+  //      put them at small x because they pack horizontally there, breaking
+  //      monotonicity for downstream protagonists.
+  //   2) Within a single class (e.g. two JEWELs reachable from the same
+  //      identity), siblings have no required x-order. They're parallel
+  //      targets, not sequenced ones.
+  //
+  // The invariant we DO enforce: when the spine transitions from one
+  // protagonist class to a different protagonist class, the later class's
+  // node must be at greater or equal x.
+  const PROTAGONIST: ReadonlySet<SemanticClass> = new Set([
+    "ENTRY",
+    "NETWORK",
+    "IDENTITY",
+    "JEWEL",
+  ])
+  let lastProtagonist: PositionedNode | undefined
+  for (const id of spineOrder) {
+    const cur = byId.get(id)
+    if (!cur || !PROTAGONIST.has(cur.semantic)) continue
+    if (lastProtagonist && cur.semantic !== lastProtagonist.semantic && cur.x < lastProtagonist.x) {
       violations.push({
         rule: "A6",
-        nodeId: b.id,
-        detail: `Spine step ${i + 1}→${i + 2}: ${b.id}.x=${b.x.toFixed(1)} < ${a.id}.x=${a.x.toFixed(1)} (must be monotonic)`,
+        nodeId: cur.id,
+        detail: `Spine class transition ${lastProtagonist.semantic}→${cur.semantic}: ${cur.id}.x=${cur.x.toFixed(1)} < ${lastProtagonist.id}.x=${lastProtagonist.x.toFixed(1)} (later class must be ≥ x)`,
       })
-      b.x = a.x + 24 // minimal forward jog
+      cur.x = lastProtagonist.x + 24
     }
+    lastProtagonist = cur
   }
 
   return { nodes: out, violations }

@@ -11,7 +11,11 @@ import type { CMCard, CMEdge, CMFrame, CMNote, ContainmentModel } from "./contai
 import type { ContainerKind } from "./cloud-graph-nodes"
 import type { FlowEdgeData } from "./cloud-graph-edges"
 import type { ContainmentViewMode } from "./build-containment-from-architecture"
-import { enforceContainmentOnModel } from "./cloud-graph-hierarchy"
+import {
+  enforceAnchoring,
+  enforceContainmentOnModel,
+} from "./cloud-graph-hierarchy"
+import { classifyNodeSemantic } from "./cloud-graph-semantic"
 
 function frameContains(outer: CMFrame, inner: { x: number; y: number; w: number; h: number }): boolean {
   const cx = inner.x + inner.w / 2
@@ -384,13 +388,55 @@ export async function layoutCloudGraphFlow(
   path: IdentityAttackPath,
   viewMode: ContainmentViewMode,
 ): Promise<CloudGraphFlowResult> {
-  // Visual Hierarchy Contract §4 — before converting to ReactFlow, run the
-  // containment enforcement pass. Frames expand to encompass any card whose
-  // position escaped their bounds (the cyntro-demo-cmk-outside-VPC bug).
-  // Pure function — same model in produces same enforced model out (§0.3).
-  const enforced = enforceContainmentOnModel(model)
+  // Visual Hierarchy Contract enforcement pipeline. Both passes are pure
+  // functions so the same (model, path, viewMode) input produces identical
+  // output across canvas-size changes (§0.3 determinism).
+  //
+  // Order matters:
+  //   1) ANCHORING (§2) runs first — it snaps cards into compliance with the
+  //      spine-monotonic + ENTRY<IDENTITY<JEWEL + CONTROL-bottom-band rules.
+  //      Cards may move; their absolute positions change.
+  //   2) CONTAINMENT (§4) runs SECOND — frames expand to encompass the now-
+  //      anchored card positions (the cyntro-demo-cmk-outside-VPC bug). If
+  //      containment ran first, anchoring could re-move a card outside its
+  //      newly-expanded frame, defeating the cascade.
+
+  // ── §2 anchoring ──
+  const spineIds = buildSpineCardIds(model, path)
+  const positioned = model.cards.map((card) => ({
+    id: card.id,
+    x: card.x,
+    y: card.y,
+    width: card.w,
+    height: card.h,
+    semantic: classifyNodeSemantic({
+      cat: card.cat,
+      badge: card.badge,
+      title: card.title,
+      onPath: card.onPath,
+    }),
+  }))
+  const canvas = { width: model.width, height: model.height }
+  const anchored = enforceAnchoring(positioned, canvas, spineIds)
+  if (anchored.violations.length > 0 && process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[cloud-graph-hierarchy] anchoring snapped ${anchored.violations.length} card(s):`,
+      anchored.violations.map((v) => v.detail),
+    )
+  }
+  const snappedById = new Map(anchored.nodes.map((n) => [n.id, n]))
+  const anchoredModel: ContainmentModel = {
+    ...model,
+    cards: model.cards.map((card) => {
+      const s = snappedById.get(card.id)
+      return s ? { ...card, x: s.x, y: s.y } : card
+    }),
+  }
+
+  // ── §4 containment ──
+  const enforced = enforceContainmentOnModel(anchoredModel)
   if (enforced.violations.length > 0 && process.env.NODE_ENV !== "production") {
-    // Surface contract violations in dev so layout bugs are visible, not silent.
     // eslint-disable-next-line no-console
     console.debug(
       `[cloud-graph-hierarchy] expanded ${enforced.violations.length} frame(s) to enforce containment:`,
