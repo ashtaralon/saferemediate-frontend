@@ -11,6 +11,7 @@ import type { CMCard, CMEdge, CMFrame, CMNote, ContainmentModel } from "./contai
 import type { ContainerKind } from "./cloud-graph-nodes"
 import type { FlowEdgeData } from "./cloud-graph-edges"
 import type { ContainmentViewMode } from "./build-containment-from-architecture"
+import { enforceContainmentOnModel } from "./cloud-graph-hierarchy"
 
 function frameContains(outer: CMFrame, inner: { x: number; y: number; w: number; h: number }): boolean {
   const cx = inner.x + inner.w / 2
@@ -383,5 +384,18 @@ export async function layoutCloudGraphFlow(
   path: IdentityAttackPath,
   viewMode: ContainmentViewMode,
 ): Promise<CloudGraphFlowResult> {
-  return layoutContainmentNested(model, path, viewMode)
+  // Visual Hierarchy Contract §4 — before converting to ReactFlow, run the
+  // containment enforcement pass. Frames expand to encompass any card whose
+  // position escaped their bounds (the cyntro-demo-cmk-outside-VPC bug).
+  // Pure function — same model in produces same enforced model out (§0.3).
+  const enforced = enforceContainmentOnModel(model)
+  if (enforced.violations.length > 0 && process.env.NODE_ENV !== "production") {
+    // Surface contract violations in dev so layout bugs are visible, not silent.
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[cloud-graph-hierarchy] expanded ${enforced.violations.length} frame(s) to enforce containment:`,
+      enforced.violations.map((v) => v.detail),
+    )
+  }
+  return layoutContainmentNested(enforced.model, path, viewMode)
 }

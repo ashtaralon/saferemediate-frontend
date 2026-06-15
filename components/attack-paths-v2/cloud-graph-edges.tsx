@@ -9,7 +9,10 @@ import {
 } from "reactflow"
 import { CG } from "./cloud-graph-tokens"
 import type { Layer } from "./containment-model"
-import { SPINE_EDGE } from "./cloud-graph-semantic"
+import {
+  EDGE_ROUTING_TOKENS,
+  type EdgeRoutingClass,
+} from "./cloud-graph-hierarchy"
 
 export interface FlowEdgeData {
   label?: string
@@ -22,6 +25,16 @@ export interface FlowEdgeData {
   dimmed?: boolean
   animate?: boolean
   flowActive?: boolean
+}
+
+/** Map FlowEdgeData to its semantic routing class (mirrors
+ *  cloud-graph-hierarchy.ts::edgeRoutingClass but works against the
+ *  ReactFlow-side data shape). */
+function flowEdgeClass(data: FlowEdgeData | undefined): EdgeRoutingClass {
+  if (!data) return "metadata"
+  if (data.edgeStyle === "path" && data.layer === "path") return "spine"
+  if (data.edgeStyle === "enc" || data.edgeStyle === "priv") return "infra"
+  return "metadata"
 }
 
 export const CloudGraphEdge = memo(function CloudGraphEdge({
@@ -50,35 +63,30 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
     offset: 64,
   })
 
+  // Visual Hierarchy Contract §3 — every edge resolves to one of three
+  // routing classes (spine / infra / metadata) and inherits its visual
+  // treatment from EDGE_ROUTING_TOKENS. Hue per category (enc=teal, priv=
+  // green) is preserved for legibility but width/opacity/animation now
+  // come from the contract.
+  const cls = flowEdgeClass(data)
+  const token = EDGE_ROUTING_TOKENS[cls]
   const style = data?.edgeStyle ?? "path"
-  // Visual-priority rule for path-class edges: spine dominates (thick, bright,
-  // animated); off-spine path edges recede (thin + low opacity). Encryption
-  // and private-route edges keep their semantic colors regardless — they're
-  // category indicators, not attack-priority signals.
-  const isSpine = style === "path" && data?.layer === "path"
-  const spineToken = isSpine ? SPINE_EDGE.onSpine : SPINE_EDGE.offSpine
+
+  // Spine = deep slate; infra keeps its category hue; metadata reads gray
+  // (it'll be invisible at opacity 0 anyway).
   const color =
+    cls === "spine" ? "#2b3a4b" :
     style === "enc" ? CG.encrypt :
     style === "priv" ? CG.priv :
-    spineToken.stroke
-  const strokeWidth =
-    style === "enc" ? 1.5 :
-    style === "priv" ? 1.5 :
-    spineToken.width
+    CG.faint
+
+  const strokeWidth = token.width
   const dash =
     style === "enc" ? "6 4" : style === "priv" ? "2 5" : undefined
-  const opacity = data?.dimmed
-    ? 0.15
-    : style === "priv"
-      ? 0.4
-      : style === "path"
-        ? spineToken.opacity
-        : 1
-  const animate =
-    data?.animate !== false &&
-    style === "path" &&
-    (isSpine || data?.flowActive === true) &&
-    spineToken.animate
+  // User-driven dim (full-environment "isolate" toggle) wins over contract
+  // opacity; otherwise the contract token rules.
+  const opacity = data?.dimmed ? 0.15 : token.opacity
+  const animate = token.animated && data?.animate !== false
   const pulseDelay = data?.pulseDelay ?? 0
 
   return (
@@ -131,7 +139,10 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
           </div>
         </EdgeLabelRenderer>
       ) : null}
-      {data?.label ? (
+      {data?.label && token.labelVisibility !== "hover" ? (
+        // Spine class only — labelVisibility === "always". Infra and metadata
+        // labels are suppressed by default per the contract; they reappear
+        // in a hover/drill-in view that's not implemented in v1.
         <EdgeLabelRenderer>
           <div
             className="absolute rounded-md border bg-white px-2 py-0.5 text-[10px] font-semibold pointer-events-none nodrag nopan"
