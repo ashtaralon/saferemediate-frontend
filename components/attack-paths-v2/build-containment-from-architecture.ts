@@ -8,7 +8,7 @@
 // supplementary topology-aws siblings when provided (§3 option b).
 
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
-import type { SystemArchitecture, ServiceNode, SubnetNode, EgressGatewayNode } from "@/components/dependency-map/traffic-flow-map"
+import type { SystemArchitecture, ServiceNode, SubnetNode, EgressGatewayNode, NodeType } from "@/components/dependency-map/traffic-flow-map"
 import type { AttackPathReport } from "./attack-path-report-types"
 import {
   type ContainmentModel,
@@ -23,11 +23,16 @@ import {
   EDGE_COLOR,
   isLambdaType,
   isCardWorkload,
+  cmCardRenderHeight,
 } from "./containment-model"
 import { isOpaqueIamId } from "./friendly-names"
-import { placeAzNetworkControls, placeExternalServicesRail, subnetRouteNote } from "./cloud-graph-layout"
+import { placeAzNetworkControls, placeExternalServicesRail, placeIdentityStack, routeTableCardId, subnetRouteNote } from "./cloud-graph-layout"
 
 const norm = (s?: string | null) => (s ?? "").trim().toLowerCase()
+
+function withRenderHeight(card: Omit<CMCard, "h">): CMCard {
+  return { ...card, h: cmCardRenderHeight(card) }
+}
 
 export type ContainmentViewMode = "path" | "full"
 
@@ -128,7 +133,7 @@ function mergeTopologyContextWorkloads(
           computes.push(existing)
           placed.add(existing.id)
         } else if (isCardWorkload(w.type)) {
-          computes.push({ id: w.id, name: w.name, shortName: w.name, type: w.type })
+          computes.push({ id: w.id, name: w.name, shortName: w.name, type: w.type as NodeType })
           placed.add(w.id)
         }
       }
@@ -157,6 +162,12 @@ export function edgeLabelForRelationship(
   if (R === "ACCESSES_RESOURCE" || R === "ACTUAL_S3_ACCESS" || R === "READS_FROM") {
     return excessAction ? `${shortAction(excessAction)} · excess` : "data access"
   }
+  if (R === "IN_SUBNET") return "in subnet"
+  if (R === "SECURED_BY" || R === "USES_SECURITY_GROUP" || R === "HAS_SECURITY_GROUP") return "secured by"
+  if (R === "ASSOCIATED_WITH") return "associated"
+  if (R === "HAS_POLICY" || R === "ATTACHED_POLICY") return "attached policy"
+  if (R === "ROUTES_VIA" || R === "ROUTES_VIA_INFERRED") return "routes via"
+  if (R === "SENDS_TRAFFIC" || R === "ACTUAL_TRAFFIC") return "sends traffic"
   return null
 }
 
@@ -244,6 +255,81 @@ function pushPathEdge(edges: CMEdge[], edge: CMEdge): void {
   edges.push({ ...edge, layer: "path" })
 }
 
+function pushCtxEdge(edges: CMEdge[], edge: CMEdge): void {
+  if (hasEdge(edges, edge.id)) return
+  edges.push({ ...edge, layer: edge.layer ?? "ctx" })
+}
+
+function resolveEndpointId(
+  id: string,
+  architecture: SystemArchitecture,
+  anchors: Record<string, Anchor>,
+): string | undefined {
+  if (anchors[id]) return id
+  const sn = architecture.subnets.find((s) => s.id === id)
+  if (sn?.routeTableId) {
+    const rtId = routeTableCardId(sn.routeTableId)
+    if (anchors[rtId]) return rtId
+  }
+  return undefined
+}
+
+function formatFlowLabel(bytes?: number | null, connections?: number | null): string | undefined {
+  const parts: string[] = []
+  if (connections != null && connections > 0) parts.push(`${connections} calls`)
+  if (bytes != null && bytes > 0) {
+    parts.push(bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(bytes / 1000)} KB`)
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined
+}
+
+function appendTrafficFlowEdges(
+  edges: CMEdge[],
+  anchors: Record<string, Anchor>,
+  architecture: SystemArchitecture,
+  onPathNodeIds: Set<string>,
+): void {
+  for (const f of architecture.flows ?? []) {
+    const hops: Array<{ id?: string; label?: string }> = [
+      { id: f.sourceId },
+      { id: f.sgId, label: "via SG" },
+      { id: f.naclId, label: "via NACL" },
+      { id: f.instanceProfileId, label: "via profile" },
+      { id: f.roleId, label: "via role" },
+      { id: f.vpceId ?? f.egressGatewayId, label: f.vpceId ? "via VPCE" : "via gateway" },
+      { id: f.targetId },
+    ]
+    let prev: string | undefined
+    for (const hop of hops) {
+      if (!hop.id) continue
+      if (!anchors[hop.id]) continue
+      if (prev && anchors[prev]) {
+        const srcA = anchors[prev]
+        const tgtA = anchors[hop.id]
+        const flowLabel = formatFlowLabel(f.bytes, f.connections)
+        const onPath = onPathNodeIds.has(prev) && onPathNodeIds.has(hop.id)
+        pushCtxEdge(edges, {
+          id: `flow-${prev}-${hop.id}`,
+          d: curveD(rightMid(srcA), leftMid(tgtA)),
+          style: f.isActive === false ? "priv" : "path",
+          color: f.isActive === false ? EDGE_COLOR.priv : EDGE_COLOR.path,
+          label: hop.label ?? flowLabel,
+          labelX: (srcA.cx + tgtA.cx) / 2,
+          labelY: (srcA.cy + tgtA.cy) / 2,
+          layer: onPath ? "path" : "ctx",
+          sourceId: prev,
+          targetId: hop.id,
+          observed: f.isActive !== false,
+          flowActive: f.isActive !== false && ((f.connections ?? 0) > 0 || (f.bytes ?? 0) > 0),
+          hitCount: f.connections ?? null,
+          bytes: f.bytes ?? null,
+        })
+      }
+      prev = hop.id
+    }
+  }
+}
+
 /** Always materialize the attack spine — multiple animated hops (not only when zero path edges). */
 function ensureAttackPathSpine(
   edges: CMEdge[],
@@ -260,9 +346,11 @@ function ensureAttackPathSpine(
     gates: AttackPathReport["gates"]
     profileName: string | null
     excess: string[]
+    profileId?: string
   },
 ): void {
   const { hasInternetEntry, igwAnchor, igwH, gates, profileName, excess } = opts
+  const profileAnchor = opts.profileId ? anchors[opts.profileId] : undefined
 
   if (hasInternetEntry && anchors.user && igwAnchor) {
     const userH = anchors.user.h ?? 28
@@ -290,7 +378,34 @@ function ensureAttackPathSpine(
       targetId: opts.footholdId,
     })
   }
-  if (anchors.foothold && anchors.role) {
+  if (anchors.foothold && profileAnchor) {
+    pushPathEdge(edges, {
+      id: "syn-foot-profile",
+      d: curveD(rightMid(anchors.foothold), leftMid(profileAnchor)),
+      style: "path",
+      color: gateEdgeColor(gates.identity),
+      label: "via profile",
+      labelX: (anchors.foothold.cx + profileAnchor.cx) / 2,
+      labelY: (anchors.foothold.cy + profileAnchor.cy) / 2,
+      layer: "path",
+      sourceId: opts.footholdId,
+      targetId: opts.profileId,
+    })
+  }
+  if (profileAnchor && anchors.role) {
+    pushPathEdge(edges, {
+      id: "syn-profile-role",
+      d: curveD(botMid(profileAnchor), topMid(anchors.role)),
+      style: "path",
+      color: gateEdgeColor(gates.identity),
+      label: profileName ? `runs as · ${profileName}` : "runs as · via instance profile",
+      labelX: (profileAnchor.cx + anchors.role.cx) / 2,
+      labelY: (profileAnchor.cy + anchors.role.cy) / 2,
+      layer: "path",
+      sourceId: opts.profileId,
+      targetId: opts.roleId,
+    })
+  } else if (anchors.foothold && anchors.role) {
     pushPathEdge(edges, {
       id: "syn-foot-role",
       d: curveD(botMid(anchors.foothold), topMid(anchors.role)),
@@ -348,11 +463,14 @@ function ensurePathSpineFromPathNodes(
     const a = nodes[i]
     const b = nodes[i + 1]
     const src = anchors[a.id]
-    let tgt = anchors[b.id]
+    let tgt: Anchor | undefined = anchors[b.id]
     if (!tgt) {
-      tgt =
-        Object.values(anchors).find((an) => norm(an.id) === norm(b.id) || norm(b.name) === norm(an.id)) ??
-        undefined
+      // Anchors are keyed by node id; look at the KEY (not the value) when
+      // resolving a fuzzy id/name match.
+      const match = Object.entries(anchors).find(
+        ([id]) => norm(id) === norm(b.id) || norm(b.name) === norm(id),
+      )
+      tgt = match?.[1]
     }
     if (!src || !tgt) continue
     const id = `syn-spine-${a.id}-${b.id}`
@@ -581,12 +699,11 @@ export function buildContainmentFromArchitecture(
         const archSubnet = architecture.subnets.find((s) => s.id === ts.id)
         const computes: ServiceNode[] = []
         for (const w of ts.workloads ?? []) {
-          if (isLambdaType(w.type)) continue
           const existing = computeById.get(w.id) ?? computeById.get(w.name)
           if (existing) {
             computes.push(existing)
-          } else if (isCardWorkload(w.type)) {
-            computes.push({ id: w.id, name: w.name, shortName: w.name, type: w.type })
+          } else if (isCardWorkload(w.type) || isLambdaType(w.type)) {
+            computes.push({ id: w.id, name: w.name, shortName: w.name, type: w.type as NodeType })
           }
         }
         addSubnetRow(
@@ -653,12 +770,11 @@ export function buildContainmentFromArchitecture(
   if (hasInternetEntry) {
     const uw = 120
     const ux = cloudX + cloudW / 2 - uw / 2
-    cards.push({
+    const userCard = withRenderHeight({
       id: "user",
       x: ux,
       y,
       w: uw,
-      h: 28,
       cat: "user",
       icon: "◐",
       title: "User / Internet",
@@ -666,14 +782,15 @@ export function buildContainmentFromArchitecture(
       onPath: true,
       layer: "path",
     })
-    anchors.user = { x: ux, y, w: uw, h: 28, cx: ux + uw / 2, cy: y + 14 }
-    y += 36
+    cards.push(userCard)
+    anchors.user = { x: ux, y, w: uw, h: userCard.h, cx: ux + uw / 2, cy: y + userCard.h / 2 }
+    y += userCard.h + 8
   }
 
   const cloudY = y
   const regionY = cloudY + 28
-  const igwH = 38
-  const vpcY = regionY + (hasInternetEntry && igw ? 36 : 24)
+  let igwH = cmCardRenderHeight({ cat: "network", onPath: true, title: "Internet Gateway" })
+  const vpcY = regionY + (hasInternetEntry && igw ? igwH + 10 : 24)
   const azY = vpcY + 40
 
   let maxAzBottom = azY
@@ -687,10 +804,11 @@ export function buildContainmentFromArchitecture(
       ax,
       azY,
       azW: laneW,
-      cardH: Math.min(28, CARD_H),
+      cardH: Math.min(44, CARD_H),
       cards: (c) => pushUniqueCard(cards, c),
       anchors,
       onPathNodeIds: onPathNodes,
+      mode,
     })
 
     let sy = azY + AZ_HEADER
@@ -711,10 +829,26 @@ export function buildContainmentFromArchitecture(
       return
     }
     for (const { subnet: sn, computes } of rows) {
-      const visible = computes.slice(0, 4)
-      const hiddenCount = computes.length - visible.length
-      const bodyH = visible.length > 0 ? visible.length * (CARD_H + CARD_GAP) + CARD_GAP : 28
-      const subnetH = SUBNET_HEADER + bodyH + (hiddenCount > 0 ? 14 : 0)
+      const visible = computes
+      const bodyH =
+        visible.length > 0
+          ? visible.reduce((sum, c) => {
+              const draft: Pick<CMCard, "cat" | "badge" | "onPath" | "title"> = {
+                cat: workloadCategory(c.type),
+                onPath: computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel),
+                title: c.name,
+                badge:
+                  c.id === footholdCompute!.id || norm(c.name) === srcLabel
+                    ? "FOOTHOLD"
+                    : isLambdaType(c.type)
+                      ? "LAMBDA"
+                      : undefined,
+              }
+              return sum + cmCardRenderHeight(draft) + CARD_GAP
+            }, CARD_GAP)
+          : 28
+      const rtExtra = sn.routeTableId ? cmCardRenderHeight({ cat: "network", onPath: false, title: "rtb" }) + CARD_GAP : 0
+      const subnetH = SUBNET_HEADER + rtExtra + bodyH
       frames.push({
         id: sn.id,
         x: ax + SUBNET_PAD,
@@ -732,6 +866,24 @@ export function buildContainmentFromArchitecture(
       let cardY = sy + SUBNET_HEADER
       const cw = Math.min(laneW - SUBNET_PAD * 2 - 16, 220)
       const cx = ax + SUBNET_PAD + 8
+      if (sn.routeTableId) {
+        const rtId = routeTableCardId(sn.routeTableId)
+        const rtCard = withRenderHeight({
+          id: rtId,
+          x: cx,
+          y: cardY,
+          w: cw,
+          cat: "network",
+          icon: "⇄",
+          title: sn.routeTableId,
+          sub: "Route table",
+          onPath: onPathNodes.has(rtId) || onPathNodes.has(sn.id),
+          layer: "ctx",
+        })
+        pushUniqueCard(cards, rtCard)
+        anchors[rtId] = { x: cx, y: cardY, w: cw, h: rtCard.h, cx: cx + cw / 2, cy: cardY + rtCard.h / 2 }
+        cardY += rtCard.h + CARD_GAP
+      }
       if (visible.length === 0) {
         notes.push({ id: `sn-empty-${sn.id}`, x: ax + laneW / 2, y: sy + SUBNET_HEADER + 24, text: "no workloads observed", anchor: "middle" })
       }
@@ -739,32 +891,30 @@ export function buildContainmentFromArchitecture(
         const onPath = computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel)
         const isFoothold = c.id === footholdCompute!.id || norm(c.name) === srcLabel
         const layer: Layer = onPath ? "path" : "ctx"
+        const cardDraft: Pick<CMCard, "cat" | "badge" | "onPath" | "title"> = {
+          cat: workloadCategory(c.type),
+          onPath,
+          title: c.name,
+          badge: isFoothold ? "FOOTHOLD" : isLambdaType(c.type) ? "LAMBDA" : undefined,
+        }
+        const ch = cmCardRenderHeight(cardDraft)
         cards.push({
           id: c.id,
           x: cx,
           y: cardY,
           w: cw,
-          h: CARD_H,
-          cat: workloadCategory(c.type),
+          h: ch,
+          cat: cardDraft.cat,
           icon: workloadIcon(c.type),
           title: c.name,
           sub: c.instanceId && c.instanceId !== c.name ? c.instanceId : undefined,
-          badge: isFoothold ? "FOOTHOLD" : undefined,
+          badge: cardDraft.badge,
           onPath,
           layer,
         })
-        anchors[c.id] = { x: cx, y: cardY, w: cw, h: CARD_H, cx: cx + cw / 2, cy: cardY + CARD_H / 2 }
+        anchors[c.id] = { x: cx, y: cardY, w: cw, h: ch, cx: cx + cw / 2, cy: cardY + ch / 2 }
         if (isFoothold) anchors.foothold = anchors[c.id]
-        cardY += CARD_H + CARD_GAP
-      }
-      if (hiddenCount > 0) {
-        notes.push({
-          id: `sn-more-${sn.id}`,
-          x: ax + laneW / 2,
-          y: cardY + 10,
-          text: `+${hiddenCount} more in subnet`,
-          anchor: "middle",
-        })
+        cardY += ch + CARD_GAP
       }
       sy += subnetH + 10
     }
@@ -784,18 +934,49 @@ export function buildContainmentFromArchitecture(
 
   // VPC-level gateways (VPCE at VPC level per spec §2.4 — not inside an AZ).
   let gatewayBottom = maxAzBottom + 8
+  const nats = architecture.egressGateways.filter((g) => g.kind === "NATGateway")
+  let natMaxH = 0
+  nats.forEach((nat, i) => {
+    const onPath = onPathNodes.has(nat.id)
+    const nw = Math.min(200, vpcInnerW - AZ_GAP * 2)
+    const nx = vpcX + AZ_GAP + i * (nw + 12)
+    const natCard = withRenderHeight({
+      id: nat.id,
+      x: nx,
+      y: gatewayBottom,
+      w: nw,
+      cat: "network",
+      icon: "⇅",
+      title: nat.kindLabel || "NAT Gateway",
+      sub: nat.shortName ?? nat.id,
+      onPath,
+      layer: onPath ? "path" : "ctx",
+    })
+    cards.push(natCard)
+    natMaxH = Math.max(natMaxH, natCard.h)
+    anchors[nat.id] = {
+      x: nx,
+      y: gatewayBottom,
+      w: nw,
+      h: natCard.h,
+      cx: nx + nw / 2,
+      cy: gatewayBottom + natCard.h / 2,
+    }
+  })
+  if (nats.length) gatewayBottom += natMaxH + 8
+
   const vpces = architecture.egressGateways.filter((g) => g.kind === "VPCEndpoint")
+  let vpceMaxH = 0
   vpces.forEach((vpce, i) => {
     const onPath = onPathNodes.has(vpce.id)
     const vw = Math.min(220, vpcInnerW - AZ_GAP * 2)
     const vx = vpcX + (i % 2 === 0 ? AZ_GAP : vpcInnerW - vw - AZ_GAP)
     const badge = onPath ? undefined : "UNUSED"
-    cards.push({
+    const vpceCard = withRenderHeight({
       id: vpce.id,
       x: vx,
       y: gatewayBottom,
       w: vw,
-      h: REGIONAL_CARD_H,
       cat: "network",
       icon: "⛒",
       title: vpce.kindLabel || "VPC Endpoint",
@@ -804,9 +985,18 @@ export function buildContainmentFromArchitecture(
       onPath,
       layer: onPath ? "path" : "ctx",
     })
-    anchors[vpce.id] = { x: vx, y: gatewayBottom, w: vw, h: REGIONAL_CARD_H, cx: vx + vw / 2, cy: gatewayBottom + REGIONAL_CARD_H / 2 }
+    cards.push(vpceCard)
+    vpceMaxH = Math.max(vpceMaxH, vpceCard.h)
+    anchors[vpce.id] = {
+      x: vx,
+      y: gatewayBottom,
+      w: vw,
+      h: vpceCard.h,
+      cx: vx + vw / 2,
+      cy: gatewayBottom + vpceCard.h / 2,
+    }
   })
-  if (vpces.length) gatewayBottom += REGIONAL_CARD_H + 8
+  if (vpces.length) gatewayBottom += vpceMaxH + 8
 
   frames.push({
     id: vpcId,
@@ -820,7 +1010,7 @@ export function buildContainmentFromArchitecture(
     layer: "frame",
   })
 
-  // Regional band — IAM role, instance profile hint, crown jewel, KMS.
+  // Regional band — identity stack (profile → role → policy), crown jewel, KMS.
   const profile = architecture.instanceProfiles?.[0]
   const role = architecture.iamRoles[0]
   const jewel = architecture.resources.find((r) => r.isCrownJewel) ?? architecture.resources[0]
@@ -836,37 +1026,48 @@ export function buildContainmentFromArchitecture(
     anchor: "start",
   })
 
-  let rxPos = regionX + REGION_PAD
-  if (role) {
-    const rw = mode === "path" ? 220 : 260
-    const roleTitle = resolveRoleDisplayName(role, path)
-    const roleSub = profile ? `via ${profile.shortName ?? profile.name}` : "IAM role"
-    cards.push({
-      id: role.id,
-      x: rxPos,
-      y: regionalCardsY,
-      w: rw,
-      h: REGIONAL_CARD_H,
-      cat: "security",
-      icon: "⚿",
-      title: roleTitle,
-      sub: roleSub,
-      badge: excess.length > 0 ? shortAction(excess[0]) : role.gapCount > 0 ? `${role.gapCount} unused` : undefined,
-      onPath: true,
-      layer: "path",
-    })
-    anchors[role.id] = { x: rxPos, y: regionalCardsY, w: rw, h: REGIONAL_CARD_H, cx: rxPos + rw / 2, cy: regionalCardsY + REGIONAL_CARD_H / 2 }
+  const identityX = regionX + REGION_PAD
+  const identityW = 220
+  notes.push({
+    id: "identity-header",
+    x: identityX,
+    y: regionalCardsY - 12,
+    text: "IDENTITY & ACCESS",
+    anchor: "start",
+  })
+  const identityStack = placeIdentityStack({
+    architecture,
+    x: identityX,
+    y: regionalCardsY,
+    w: identityW,
+    mode,
+    onPathNodeIds: onPathNodes,
+    cards: (c) => {
+      const { h: _drop, ...rest } = c
+      pushUniqueCard(cards, withRenderHeight(rest))
+    },
+    anchors,
+  })
+  if (role && anchors[role.id]) {
     anchors.role = anchors[role.id]
-    rxPos += rw + 36
+    const roleIdx = cards.findIndex((c) => c.id === role.id)
+    if (roleIdx >= 0) {
+      cards[roleIdx] = {
+        ...cards[roleIdx],
+        title: resolveRoleDisplayName(role, path),
+      }
+    }
   }
+
+  let rxPos = identityX + identityStack.width + 28
+  let regionalMaxH = Math.max(identityStack.bottom - regionalCardsY, 0)
   if (jewel) {
     const jw = mode === "path" ? 200 : 240
-    cards.push({
+    const jewelCard = withRenderHeight({
       id: jewel.id,
       x: rxPos,
       y: regionalCardsY,
       w: jw,
-      h: REGIONAL_CARD_H,
       cat: "storage",
       icon: "◈",
       title: cs.target_label || jewel.name,
@@ -875,18 +1076,26 @@ export function buildContainmentFromArchitecture(
       onPath: true,
       layer: "path",
     })
-    anchors[jewel.id] = { x: rxPos, y: regionalCardsY, w: jw, h: REGIONAL_CARD_H, cx: rxPos + jw / 2, cy: regionalCardsY + REGIONAL_CARD_H / 2 }
+    cards.push(jewelCard)
+    regionalMaxH = Math.max(regionalMaxH, jewelCard.h)
+    anchors[jewel.id] = {
+      x: rxPos,
+      y: regionalCardsY,
+      w: jw,
+      h: jewelCard.h,
+      cx: rxPos + jw / 2,
+      cy: regionalCardsY + jewelCard.h / 2,
+    }
     anchors.jewel = anchors[jewel.id]
     rxPos += jw + 36
   }
   if (kms) {
     const kw = 230
-    cards.push({
+    const kmsCard = withRenderHeight({
       id: kms.id,
       x: rxPos,
       y: regionalCardsY,
       w: kw,
-      h: REGIONAL_CARD_H,
       cat: "security",
       icon: "⚷",
       title: kms.shortName ?? kms.name,
@@ -895,7 +1104,16 @@ export function buildContainmentFromArchitecture(
       onPath: true,
       layer: "path",
     })
-    anchors[kms.id] = { x: rxPos, y: regionalCardsY, w: kw, h: REGIONAL_CARD_H, cx: rxPos + kw / 2, cy: regionalCardsY + REGIONAL_CARD_H / 2 }
+    cards.push(kmsCard)
+    regionalMaxH = Math.max(regionalMaxH, kmsCard.h)
+    anchors[kms.id] = {
+      x: rxPos,
+      y: regionalCardsY,
+      w: kw,
+      h: kmsCard.h,
+      cx: rxPos + kw / 2,
+      cy: regionalCardsY + kmsCard.h / 2,
+    }
   }
 
   const externalRailX = cloudX + cloudW + 24
@@ -916,7 +1134,7 @@ export function buildContainmentFromArchitecture(
     anchor: "start",
   })
 
-  const regionBottom = regionalCardsY + REGIONAL_CARD_H + REGION_PAD
+  const regionBottom = regionalCardsY + Math.max(regionalMaxH, REGIONAL_CARD_H) + REGION_PAD
   frames.push({
     id: `region-${region}`,
     x: regionX,
@@ -945,12 +1163,11 @@ export function buildContainmentFromArchitecture(
     const iw = 132
     const ix = cloudX + cloudW / 2 - iw / 2
     const iy = regionY + 6
-    pushUniqueCard(cards, {
+    const igwCard = withRenderHeight({
       id: igw.id,
       x: ix,
       y: iy,
       w: iw,
-      h: igwH,
       cat: "network",
       icon: "⇅",
       title: "Internet Gateway",
@@ -958,6 +1175,8 @@ export function buildContainmentFromArchitecture(
       onPath: true,
       layer: "path",
     })
+    igwH = igwCard.h
+    pushUniqueCard(cards, igwCard)
     igwAnchor = { x: ix, y: iy, w: iw, h: igwH, cx: ix + iw / 2, cy: iy + igwH / 2 }
     anchors[igw.id] = igwAnchor
   }
@@ -965,15 +1184,19 @@ export function buildContainmentFromArchitecture(
   const H = regionBottom + CLOUD_PAD + M
   const profileName = profile?.shortName ?? profile?.name ?? null
 
-  // Attack edges from architecture.edges (on-path only in path mode).
+  // Neo4j graph edges — lateral movement, identity chain, network attachments.
   for (const e of architecture.edges ?? []) {
     if (mode === "path" && !onPathEdges.has(e.id)) continue
-    const src = anchors[e.source_aws_id]
-    const tgt = anchors[e.target_aws_id]
+    const srcId = resolveEndpointId(e.source_aws_id, architecture, anchors)
+    const tgtId = resolveEndpointId(e.target_aws_id, architecture, anchors)
+    if (!srcId || !tgtId) continue
+    const src = anchors[srcId]
+    const tgt = anchors[tgtId]
     if (!src || !tgt) continue
     const rel = e.relationship || ""
     const label = edgeLabelForRelationship(rel, profileName, excess[0] ?? null)
     const isPriv = !onPathEdges.has(e.id) && mode === "full"
+    const onPath = onPathEdges.has(e.id)
     const color = isPriv
       ? EDGE_COLOR.priv
       : rel.toUpperCase().includes("ENCRYPT")
@@ -981,7 +1204,7 @@ export function buildContainmentFromArchitecture(
         : rel.toUpperCase().includes("ASSUME") || rel.toUpperCase().includes("INSTANCE_PROFILE") || rel.toUpperCase().includes("USES_ROLE")
           ? gateEdgeColor(gates.identity)
           : gateEdgeColor(gates.data_plane ?? gates.network)
-    edges.push({
+    pushCtxEdge(edges, {
       id: e.id,
       d: curveD(botMid(src), topMid(tgt)),
       style: isPriv ? "priv" : rel.toUpperCase().includes("ENCRYPT") ? "enc" : "path",
@@ -989,11 +1212,17 @@ export function buildContainmentFromArchitecture(
       label: label ?? undefined,
       labelX: (src.cx + tgt.cx) / 2,
       labelY: (src.cy + tgt.cy) / 2,
-      layer: onPathEdges.has(e.id) ? "path" : "ctx",
-      sourceId: e.source_aws_id,
-      targetId: e.target_aws_id,
+      layer: onPath ? "path" : "ctx",
+      sourceId: srcId,
+      targetId: tgtId,
+      observed: e.observed,
+      hitCount: e.hit_count,
+      bytes: e.bytes,
+      flowActive: e.observed === true || (e.hit_count ?? 0) > 0,
     })
   }
+
+  appendTrafficFlowEdges(edges, anchors, architecture, onPathNodes)
 
   ensureAttackPathSpine(edges, anchors, {
     hasInternetEntry,
@@ -1002,6 +1231,7 @@ export function buildContainmentFromArchitecture(
     igwId: igw?.id,
     footholdId: footholdCompute?.id,
     roleId: role?.id,
+    profileId: profile?.id,
     jewelId: jewel?.id,
     kmsId: kms?.id,
     gates,
@@ -1014,30 +1244,35 @@ export function buildContainmentFromArchitecture(
   if (anchors.foothold && sg0 && anchors[sg0.id]) {
     const sgA = anchors[sg0.id]
     const foot = anchors.foothold
-    edges.push({
+    pushCtxEdge(edges, {
       id: "syn-foot-sg",
       d: curveD(rightMid(foot), leftMid(sgA)),
       style: "path",
       color: EDGE_COLOR.path,
-      label: "Allow",
+      label: "secured by",
       labelX: (foot.cx + sgA.cx) / 2,
       labelY: (foot.cy + sgA.cy) / 2 - 6,
       layer: "ctx",
+      sourceId: footholdCompute!.id,
+      targetId: sg0.id,
+      flowActive: true,
     })
   }
   const nacl0 = architecture.nacls[0]
   if (anchors.foothold && nacl0 && anchors[nacl0.id]) {
     const naclA = anchors[nacl0.id]
     const foot = anchors.foothold
-    edges.push({
+    pushCtxEdge(edges, {
       id: "syn-foot-nacl",
       d: curveD(topMid(naclA), topMid(foot)),
       style: "priv",
       color: EDGE_COLOR.priv,
-      label: "Internal",
+      label: "via NACL",
       labelX: (naclA.cx + foot.cx) / 2,
       labelY: naclA.y - 6,
       layer: "ctx",
+      sourceId: nacl0.id,
+      targetId: footholdCompute!.id,
     })
   }
 
@@ -1069,7 +1304,7 @@ export function buildContainmentFromArchitecture(
       region,
       hasInternetEntry,
       onPathCount: cards.filter((c) => c.onPath).length,
-      lambdaCount: 0,
+      lambdaCount: cards.filter((c) => c.badge === "LAMBDA").length,
     },
   }
 }

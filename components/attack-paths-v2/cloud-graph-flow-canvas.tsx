@@ -38,8 +38,8 @@ function FlowInner({
 
   // Stable key — avoid re-layout when fitView identity changes (was causing infinite loading).
   const layoutKey = useMemo(
-    () => `${viewMode}:${model.width}:${model.height}:${model.cards.length}:${model.edges.length}`,
-    [viewMode, model.width, model.height, model.cards.length, model.edges.length],
+    () => `${viewMode}:${model.width}:${model.height}:${model.cards.length}:${model.frames.length}:${model.edges.length}`,
+    [viewMode, model.width, model.height, model.cards.length, model.frames.length, model.edges.length],
   )
 
   useEffect(() => {
@@ -52,7 +52,7 @@ function FlowInner({
         if (cancelled) return
         setGraph(result)
         requestAnimationFrame(() => {
-          fitViewRef.current({ padding: 0.12, duration: 200 })
+          fitViewRef.current({ padding: 0.08, duration: 250, minZoom: 0.35, maxZoom: 1.2 })
         })
       })
       .catch((err: unknown) => {
@@ -183,7 +183,7 @@ export function CloudGraphFlowCanvas({
   viewMode: ContainmentViewMode
   displaySize?: "inline" | "expanded"
 }) {
-  const height = displaySize === "expanded" ? "calc(92vh - 8rem)" : 420
+  const height = displaySize === "expanded" ? "calc(92vh - 8rem)" : 480
   return (
     <ReactFlowProvider>
       <FlowInner model={model} path={path} viewMode={viewMode} height={height} />
