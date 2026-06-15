@@ -63,6 +63,7 @@ const path = {
   nodes: [],
   edges: [],
   severity: {},
+  damage_capability: { role_name: "alon-demo-ec2-role" },
 } as unknown as IdentityAttackPath
 
 const report = {
@@ -100,5 +101,32 @@ describe("buildContainmentFromArchitecture", () => {
     const a = arch()
     a.computeServices = []
     expect(buildContainmentFromArchitecture(a, path, report)).toBeNull()
+  })
+
+  it("shows foothold in path mode when connectedComputeIds is empty", () => {
+    const a = arch()
+    a.subnets[0].connectedComputeIds = []
+    const m = buildContainmentFromArchitecture(a, path, report, "path")
+    expect(m).not.toBeNull()
+    expect(m!.cards.map((c) => c.title)).toContain("alon-demo-app2")
+    expect(m!.cards.find((c) => c.title === "alon-demo-app2")?.badge).toBe("FOOTHOLD")
+  })
+
+  it("resolves AROA role name via damage_capability.role_name", () => {
+    const a = arch()
+    a.iamRoles[0] = {
+      ...a.iamRoles[0],
+      name: "AROAEXAMPLE123456",
+      shortName: "AROAEXAMPLE123456",
+    }
+    const m = buildContainmentFromArchitecture(a, path, report, "path")
+    expect(m!.cards.map((c) => c.title)).toContain("alon-demo-ec2-role")
+  })
+
+  it("derives region from subnet AZ when architecture.region is missing", () => {
+    const a = arch()
+    a.region = undefined
+    const m = buildContainmentFromArchitecture(a, path, report, "path")
+    expect(m!.meta.region).toBe("eu-west-1")
   })
 })
