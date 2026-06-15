@@ -39,6 +39,7 @@ import type {
 } from "@/components/dependency-map/traffic-flow-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import { isOpaqueIamId } from "./friendly-names"
 
 // ─── Graph-view response shape (forwarded verbatim from the backend) ──
 
@@ -496,7 +497,10 @@ export function buildAttackerArchitecture(
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
-    const display = friendlyName(name, id)
+    let display = friendlyName(name, id)
+    if (isOpaqueIamId(display) && path.damage_capability?.role_name) {
+      display = path.damage_capability.role_name
+    }
     const p = props || {}
     const totalCount = Number(p.allowed_actions_count ?? 0) || 0
     // 2026-05-26 audit fix: trust LIVE evidence over collector scalars.
@@ -1486,21 +1490,51 @@ export function buildAttackerArchitecture(
   // this out as "VPC boundary not drawn at all" (effectively: drawn
   // too small to register as the obvious container).
   const subnetToComputes = new Map<string, string[]>()
+  const linkComputeToSubnet = (computeId: string, subnetId: string) => {
+    if (!subnetId || !computeId) return
+    if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
+    const list = subnetToComputes.get(subnetId)!
+    if (!list.includes(computeId)) list.push(computeId)
+  }
   for (const edge of path.edges ?? []) {
     const t = (edge.type || "").toUpperCase()
     if (t !== "IN_SUBNET") continue
     // Direction: compute -> subnet
-    const subnetId = edge.target
-    const computeId = edge.source
-    if (!subnetId || !computeId) continue
-    if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
-    subnetToComputes.get(subnetId)!.push(computeId)
+    linkComputeToSubnet(edge.source, edge.target)
+  }
+  // path.edges often omits IN_SUBNET — fall back to graph laterals + infra_context.
+  for (const pn of path.nodes ?? []) {
+    const subnetId = pn.infra_context?.subnets?.[0]?.id
+    if (subnetId) {
+      linkComputeToSubnet(pn.id, subnetId)
+      for (const c of computeServices) {
+        if (
+          c.id === pn.id ||
+          c.instanceId === pn.id ||
+          c.name === pn.name ||
+          (c.instanceId && pn.id?.includes(c.instanceId))
+        ) {
+          linkComputeToSubnet(c.id, subnetId)
+        }
+      }
+    }
+    for (const e of graph.laterals_by_node[pn.id] ?? []) {
+      if ((e.type || "").toUpperCase() !== "IN_SUBNET") continue
+      if (e.neighbor_id) linkComputeToSubnet(pn.id, e.neighbor_id)
+    }
   }
   // Wire compute placement onto SubnetNode.connectedComputeIds so downstream
   // renderers (containment map) can place EC2 cards in their subnet.
   for (const sn of subnets) {
     const ids = subnetToComputes.get(sn.id)
     if (ids?.length) sn.connectedComputeIds = ids
+  }
+  // Backfill VPC CIDR from graph nodes when addAsVPC ran without key_properties.
+  for (const v of vpcsById.values()) {
+    if (v.cidrBlock) continue
+    const vpcNode = graph.nodes.find((n) => n.id === v.vpcId)
+    const cidr = vpcNode?.key_properties?.cidr_block
+    if (typeof cidr === "string" && cidr) v.cidrBlock = cidr
   }
 
   // Architecture-wide set of network-scoped card ids — SGs + NACLs.
@@ -1572,6 +1606,20 @@ export function buildAttackerArchitecture(
     if (az) {
       const m = az.match(/^([a-z0-9-]+-\d+)/i)
       if (m) region = m[1]
+    }
+  }
+  if (!region) {
+    for (const pn of path.nodes ?? []) {
+      const fromArn = (pn.id || "").match(/arn:aws:[^:]+:([a-z0-9-]+-\d):/)
+      if (fromArn) {
+        region = fromArn[1]
+        break
+      }
+      const awsRegion = pn.ip_metadata?.aws?.region
+      if (awsRegion) {
+        region = awsRegion
+        break
+      }
     }
   }
 

@@ -24,6 +24,7 @@ import {
   isLambdaType,
   isCardWorkload,
 } from "./containment-model"
+import { isOpaqueIamId } from "./friendly-names"
 
 const norm = (s?: string | null) => (s ?? "").trim().toLowerCase()
 
@@ -115,6 +116,119 @@ function nodeOnPath(id: string, onPath: Set<string>, mode: ContainmentViewMode):
   return onPath.has(norm(id))
 }
 
+function computeOnPath(
+  compute: ServiceNode,
+  onPathIds: Set<string>,
+  pathNodes: IdentityAttackPath["nodes"],
+  mode: ContainmentViewMode,
+  srcLabel: string,
+): boolean {
+  if (mode === "full") return true
+  if (srcLabel && norm(compute.name) === srcLabel) return true
+  if (nodeOnPath(compute.id, onPathIds, mode)) return true
+  if (compute.instanceId && nodeOnPath(compute.instanceId, onPathIds, mode)) return true
+  for (const n of pathNodes ?? []) {
+    if (srcLabel && norm(n.name) === srcLabel && norm(n.name) === norm(compute.name)) return true
+    if (n.id === compute.id || n.id === compute.instanceId) return true
+    if (compute.instanceId && n.id?.includes(compute.instanceId)) return true
+  }
+  return false
+}
+
+function resolveRoleDisplayName(
+  role: { name: string; shortName?: string },
+  path: IdentityAttackPath,
+): string {
+  const fromDamage = path.damage_capability?.role_name?.trim()
+  if (fromDamage && !isOpaqueIamId(fromDamage)) return fromDamage
+  const raw = role.shortName ?? role.name
+  if (!isOpaqueIamId(raw)) return raw
+  const fromNode = (path.nodes ?? []).find(
+    (n) => /role|iam/i.test(n.type ?? "") && n.name && !isOpaqueIamId(n.name),
+  )?.name
+  if (fromNode) return fromNode
+  return raw
+}
+
+function deriveRegion(
+  architecture: SystemArchitecture,
+  path: IdentityAttackPath,
+  fullTopology?: TopologyResponse | null,
+): string {
+  if (architecture.region) return architecture.region
+  for (const sn of architecture.subnets) {
+    if (sn.availabilityZone) {
+      const m = sn.availabilityZone.match(/^([a-z0-9-]+-\d+)/i)
+      if (m) return m[1]
+    }
+  }
+  for (const pn of path.nodes ?? []) {
+    const fromArn = (pn.id || "").match(/arn:aws:[^:]+:([a-z0-9-]+-\d):/)
+    if (fromArn) return fromArn[1]
+    const awsRegion = pn.ip_metadata?.aws?.region
+    if (awsRegion) return awsRegion
+  }
+  const topoVpc = fullTopology?.vpcs?.[0]
+  if (topoVpc && "region" in topoVpc && typeof (topoVpc as { region?: string }).region === "string") {
+    return (topoVpc as { region: string }).region
+  }
+  return "—"
+}
+
+function deriveVpcCidr(
+  architecture: SystemArchitecture,
+  vpcId: string,
+  fullTopology?: TopologyResponse | null,
+): string | undefined {
+  const vpc = architecture.vpcGroups?.find((v) => v.vpcId === vpcId)
+  if (vpc?.cidrBlock) return vpc.cidrBlock
+  const topoVpc = fullTopology?.vpcs?.find((v) => v.id === vpcId) ?? fullTopology?.vpcs?.[0]
+  if (topoVpc?.cidr) return topoVpc.cidr
+  return undefined
+}
+
+function footholdAlreadyPlaced(azMap: Map<string, { subnet: SubnetNode; computes: ServiceNode[] }[]>, foothold: ServiceNode): boolean {
+  for (const rows of azMap.values()) {
+    for (const row of rows) {
+      if (row.computes.some((c) => c.id === foothold.id || norm(c.name) === norm(foothold.name))) return true
+    }
+  }
+  return false
+}
+
+function ensureFootholdSubnetRow(
+  azMap: Map<string, { subnet: SubnetNode; computes: ServiceNode[] }[]>,
+  foothold: ServiceNode,
+  architecture: SystemArchitecture,
+  path: IdentityAttackPath,
+  srcLabel: string,
+  addSubnetRow: (sn: SubnetNode, computes: ServiceNode[]) => void,
+): void {
+  if (footholdAlreadyPlaced(azMap, foothold)) return
+
+  const entryNode = path.nodes?.find((n) => norm(n.name) === srcLabel || n.id === foothold.id)
+  const infraSubnet = entryNode?.infra_context?.subnets?.[0]
+  let sn =
+    architecture.subnets.find((s) => s.connectedComputeIds.includes(foothold.id)) ??
+    architecture.subnets.find((s) => infraSubnet && s.id === infraSubnet.id) ??
+    architecture.subnets[0]
+
+  if (!sn) {
+    sn = {
+      id: infraSubnet?.id ?? "subnet-path",
+      name: infraSubnet?.name ?? "subnet",
+      shortName: infraSubnet?.name ?? "subnet",
+      isPublic: entryNode?.subnet_is_public ?? null,
+      vpcId: entryNode?.infra_context?.vpcs?.[0]?.id ?? architecture.vpcGroups?.[0]?.vpcId,
+      availabilityZone: undefined,
+      cidrBlock: undefined,
+      connectedComputeIds: [foothold.id],
+    }
+  }
+
+  addSubnetRow(sn, [foothold])
+}
+
 /**
  * Build containment layout from SystemArchitecture (graph-view path-scoped).
  * Returns null when there's no compute foothold to anchor (identity-only paths).
@@ -138,8 +252,8 @@ export function buildContainmentFromArchitecture(
   if (!vpc && architecture.subnets.length === 0) return null
 
   const vpcId = vpc?.vpcId ?? architecture.subnets[0]?.vpcId ?? "vpc"
-  const vpcCidr = vpc?.cidrBlock
-  const region = architecture.region ?? "—"
+  const vpcCidr = deriveVpcCidr(architecture, vpcId, fullTopology)
+  const region = deriveRegion(architecture, path, fullTopology)
 
   // Resolve foothold compute — the path entry workload in the architecture.
   let footholdCompute: ServiceNode | null = null
@@ -206,14 +320,25 @@ export function buildContainmentFromArchitecture(
     }
   } else {
     for (const sn of architecture.subnets) {
-      const computes = sn.connectedComputeIds
+      let computes = sn.connectedComputeIds
         .map((id) => computeById.get(id))
         .filter((c): c is ServiceNode => !!c)
-      if (mode === "path" && computes.every((c) => !nodeOnPath(c.id, onPathNodes, mode))) {
-        if (!computes.some((c) => norm(c.name) === srcLabel)) continue
+      const hostsFoothold =
+        sn.connectedComputeIds.includes(footholdCompute!.id) ||
+        computes.some((c) => c.id === footholdCompute!.id || norm(c.name) === srcLabel)
+      if (hostsFoothold && !computes.some((c) => c.id === footholdCompute!.id)) {
+        computes.push(footholdCompute!)
+      }
+      if (
+        mode === "path" &&
+        computes.length > 0 &&
+        !computes.some((c) => computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel))
+      ) {
+        continue
       }
       addSubnetRow(sn, computes)
     }
+    ensureFootholdSubnetRow(azMap, footholdCompute, architecture, path, srcLabel, addSubnetRow)
   }
 
   const azNames = Array.from(azMap.keys()).sort()
@@ -286,7 +411,7 @@ export function buildContainmentFromArchitecture(
       const visible =
         mode === "full"
           ? computes
-          : computes.filter((c) => nodeOnPath(c.id, onPathNodes, mode) || norm(c.name) === srcLabel)
+          : computes.filter((c) => computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel))
       const bodyH = visible.length > 0 ? visible.length * (CARD_H + CARD_GAP) + CARD_GAP : 40
       const subnetH = SUBNET_HEADER + bodyH
       const pub =
@@ -310,7 +435,7 @@ export function buildContainmentFromArchitecture(
         notes.push({ id: `sn-empty-${sn.id}`, x: ax + AZW / 2, y: sy + SUBNET_HEADER + 24, text: "no workloads observed", anchor: "middle" })
       }
       for (const c of visible) {
-        const onPath = nodeOnPath(c.id, onPathNodes, mode) || norm(c.name) === srcLabel
+        const onPath = computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel)
         const isFoothold = c.id === footholdCompute!.id || norm(c.name) === srcLabel
         const layer: Layer = onPath ? "path" : "ctx"
         cards.push({
@@ -404,6 +529,7 @@ export function buildContainmentFromArchitecture(
   let rxPos = regionX + REGION_PAD
   if (role) {
     const rw = 280
+    const roleTitle = resolveRoleDisplayName(role, path)
     const roleSub = profile ? `via ${profile.shortName ?? profile.name}` : "IAM role"
     cards.push({
       id: role.id,
@@ -413,7 +539,7 @@ export function buildContainmentFromArchitecture(
       h: REGIONAL_CARD_H,
       cat: "security",
       icon: "⚿",
-      title: role.shortName ?? role.name,
+      title: roleTitle,
       sub: roleSub,
       badge: excess.length > 0 ? shortAction(excess[0]) : role.gapCount > 0 ? `${role.gapCount} unused` : undefined,
       onPath: true,

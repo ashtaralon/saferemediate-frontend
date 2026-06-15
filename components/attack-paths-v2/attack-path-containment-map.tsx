@@ -48,10 +48,11 @@ export function AttackPathContainmentMap({
   // Default: "Just this path" (spec §3). Full environment merges topology-aws siblings.
   const [viewMode, setViewMode] = useState<ContainmentViewMode>("path")
 
-  const fetchUrl =
-    viewMode === "full" && systemName
-      ? `/api/proxy/topology-aws/${encodeURIComponent(systemName)}`
-      : null
+  // Fetch topology-aws for metadata fallbacks (region, VPC CIDR) even in path mode;
+  // sibling workloads are only merged when viewMode === "full".
+  const fetchUrl = systemName
+    ? `/api/proxy/topology-aws/${encodeURIComponent(systemName)}`
+    : null
   const { data: fullTopology } = useCachedFetch<TopologyResponse>(fetchUrl, {
     cacheKey: `topology-aws:${systemName}`,
   })
@@ -63,7 +64,7 @@ export function AttackPathContainmentMap({
       path,
       report,
       viewMode,
-      viewMode === "full" ? fullTopology : null,
+      fullTopology,
     )
   }, [architecture, path, report, viewMode, fullTopology])
 
