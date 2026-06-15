@@ -386,7 +386,7 @@ export function PathAnalysisPanel({
           damage-aware card, and per-plane detail all move into "Supporting
           evidence" below so the clean light card is the default view. */}
       <div className="px-6 py-5 border-b border-border" style={{ background: "#eef1f5" }}>
-        <AttackPathCardLight path={path} jewel={jewel} systemName={systemName} />
+        <AttackPathCardLight path={path} jewel={jewel} systemName={systemName} architecture={architecture} />
       </div>
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}

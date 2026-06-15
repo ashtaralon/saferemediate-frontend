@@ -36,6 +36,7 @@ import { useClosurePreview } from "./use-closure-preview"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { classifyPathShape } from "./path-shape"
 import { AttackPathContainmentMap } from "./attack-path-containment-map"
+import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 // ── Mockup palette (cyntro_attack-path-card_design.html :root) ──────────────
 const C = {
@@ -174,10 +175,12 @@ export function AttackPathCardLightView({
   report,
   path,
   systemName,
+  architecture,
 }: {
   report: AttackPathReport
   path: IdentityAttackPath
   systemName?: string | null
+  architecture?: SystemArchitecture | null
 }) {
   const cs = report.current_state
   const diff = report.remediation_diff
@@ -267,12 +270,12 @@ export function AttackPathCardLightView({
             the facade serializes hops.nodes sparse — so a real path never loses
             its map. */}
         {(nodes.length >= 2 || (!!cs.source_label && !!cs.target_label)) && (
-          <Section title="The path" hint="the attacker's route across your real AWS architecture">
+          <Section title="The attack map" hint="the attacker's route across your real AWS architecture">
             <div
               className="rounded-2xl p-5"
               style={{ background: C.card, boxShadow: "0 1px 2px rgba(20,30,50,.05),0 6px 22px rgba(20,30,50,.05)" }}
             >
-              <AttackPathContainmentMap path={path} report={report} systemName={systemName} />
+              <AttackPathContainmentMap path={path} report={report} architecture={architecture} systemName={systemName} />
             </div>
           </Section>
         )}
@@ -595,10 +598,12 @@ export function AttackPathCardLight({
   path,
   jewel,
   systemName,
+  architecture,
 }: {
   path: IdentityAttackPath
   jewel?: CrownJewelSummary | null
   systemName?: string | null
+  architecture?: SystemArchitecture | null
 }) {
   const { closure } = useClosurePreview(path)
   const { report, source, loading, error, retry } = useAttackPathReport(path, jewel, closure)
@@ -644,7 +649,7 @@ export function AttackPathCardLight({
           compiled in-browser.
         </div>
       )}
-      <AttackPathCardLightView report={report} path={path} systemName={systemName} />
+      <AttackPathCardLightView report={report} path={path} systemName={systemName} architecture={architecture} />
     </>
   )
 }

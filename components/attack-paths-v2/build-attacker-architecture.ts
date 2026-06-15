@@ -294,7 +294,7 @@ export function buildAttackerArchitecture(
   // previously dropped via the "ignore" bucket; for a path that goes
   // EC2 → SG → VPC → Subnet → Role the container hop just vanished
   // from the canvas without any indication. Now we surface them.
-  const vpcsById = new Map<string, { vpcId: string; vpcName: string }>()
+  const vpcsById = new Map<string, { vpcId: string; vpcName: string; cidrBlock?: string }>()
 
   // Crown jewel ids from the path so we can tag resource cards.
   const crownJewelIds = new Set(
@@ -882,14 +882,14 @@ export function buildAttackerArchitecture(
   // legit endpoints (USES_VPC / IN_VPC config edges are filtered out
   // separately so they don't draw an extra line, but the visual
   // container box is what the operator actually wants here).
-  const addAsVPC = (id: string, name: string | null) => {
+  const addAsVPC = (id: string, name: string | null, cidrBlock?: string | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "vpc")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
-    vpcsById.set(id, { vpcId: id, vpcName: display })
+    vpcsById.set(id, { vpcId: id, vpcName: display, cidrBlock: cidrBlock || undefined })
   }
   const addAsSubnet = (
     id: string,
@@ -897,6 +897,8 @@ export function buildAttackerArchitecture(
     vpcId: string | null,
     isPublic: boolean | null,
     rt?: { id?: string | null; count?: number | null; isMain?: boolean | null } | null,
+    az?: string | null,
+    cidrBlock?: string | null,
   ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "subnet")
@@ -918,6 +920,8 @@ export function buildAttackerArchitecture(
       // unclassified — per the earlier credibility audit.
       isPublic,
       vpcId: vpcId || undefined,
+      availabilityZone: az || undefined,
+      cidrBlock: cidrBlock || undefined,
       connectedComputeIds: [],
       // Route-table chip metadata (backend feat 9bc86f9). All optional —
       // older backends without the RouteTable enrichment will simply
@@ -1035,7 +1039,9 @@ export function buildAttackerArchitecture(
         addAsPrincipal(node.id, node.name)
       }
     }
-    else if (bucket === "vpc") addAsVPC(node.id, node.name)
+    else if (bucket === "vpc") {
+      addAsVPC(node.id, node.name, (props?.cidr_block as string | undefined) ?? null)
+    }
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
       // service_name is set for VPCEndpoint nodes
@@ -1068,7 +1074,15 @@ export function buildAttackerArchitecture(
         count: (props?.route_table_route_count as number | undefined) ?? null,
         isMain: (props?.route_table_is_main as boolean | undefined) ?? null,
       }
-      addAsSubnet(node.id, node.name, vpcId, isPub, rt)
+      addAsSubnet(
+        node.id,
+        node.name,
+        vpcId,
+        isPub,
+        rt,
+        (props?.availability_zone as string | undefined) ?? null,
+        (props?.cidr_block as string | undefined) ?? null,
+      )
     }
     // 'ignore' — bucket didn't match a node type we render in any lane.
   }
@@ -1482,6 +1496,12 @@ export function buildAttackerArchitecture(
     if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
     subnetToComputes.get(subnetId)!.push(computeId)
   }
+  // Wire compute placement onto SubnetNode.connectedComputeIds so downstream
+  // renderers (containment map) can place EC2 cards in their subnet.
+  for (const sn of subnets) {
+    const ids = subnetToComputes.get(sn.id)
+    if (ids?.length) sn.connectedComputeIds = ids
+  }
 
   // Architecture-wide set of network-scoped card ids — SGs + NACLs.
   // These get added to EVERY subnet's anchor so the outer VPC box
@@ -1534,8 +1554,26 @@ export function buildAttackerArchitecture(
           ...networkAnchorIds,
         ],
       }))
-    return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
+    return { vpcId: v.vpcId, vpcName: v.vpcName, cidrBlock: v.cidrBlock, subnets: groupSubnets }
   })
+
+  // Region — infer from the first ARN in the graph (service slot).
+  let region: string | undefined
+  for (const n of graph.nodes ?? []) {
+    const id = n.id || ""
+    const m = id.match(/arn:aws:[^:]+:([a-z0-9-]+-\d):/)
+    if (m) {
+      region = m[1]
+      break
+    }
+  }
+  if (!region) {
+    const az = subnets.find((s) => s.availabilityZone)?.availabilityZone
+    if (az) {
+      const m = az.match(/^([a-z0-9-]+-\d+)/i)
+      if (m) region = m[1]
+    }
+  }
 
   // ── Mark role↔IP binding twins (Phase 1.1, revised 2026-05-26) ──
   //
@@ -2033,6 +2071,7 @@ export function buildAttackerArchitecture(
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
     totalGaps: 0,
     vpcGroups,
+    region,
     // V2-3 (2026-05-31): on-path classification for the canvas v2
     // dimming layer. Pure passthrough — populated during the path-
     // edge loop (isOnPath=true) and the lateral loop (e.on_path).

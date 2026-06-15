@@ -1,27 +1,23 @@
 "use client"
 
-// Attack Path Containment Map — LIGHT. Renders the selected attack path on the
-// customer's REAL AWS architecture: AWS Cloud > Region > VPC > AZ > Subnet >
-// workloads, plus the IAM role / crown jewel / KMS the path crosses, the
-// Internet Gateway and S3 VPC Endpoint, and the attack edges between them.
-//
-// Three live sources, ZERO hardcoded data (unlike the design mockup it
-// replaces): GET /api/proxy/topology-aws/<system> for the containment shell,
-// the IdentityAttackPath for the spine + IAM/S3/KMS neighbors, and the compiled
-// AttackPathReport for gate states + the excess-capability label.
-//
-// Honest degradation: while topology loads (cold, no cache) or when a system
-// has no VPC topology, we fall back to the proven spine map so a path never
-// loses its picture.
+// Killer containment map — per cyntro_containment-map_binding-spec.md.
+// Renders the attack path on the customer's REAL AWS architecture using the
+// SAME SystemArchitecture object TrafficFlowMap consumes (buildAttackerArchitecture
+// over graph-view). topology-aws is supplementary ONLY for "Full environment"
+// sibling workloads (§3 option b).
 
 import { useMemo, useState } from "react"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import type { AttackPathReport } from "./attack-path-report-types"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { friendlyResourceName } from "./friendly-names"
 import { AttackPathMapLight } from "./attack-path-map-light"
 import {
-  buildContainmentModel,
+  buildContainmentFromArchitecture,
+  type ContainmentViewMode,
+} from "./build-containment-from-architecture"
+import {
   CAT_COLOR,
   type CMCard,
   type CMEdge,
@@ -41,33 +37,42 @@ function truncate(s: string, n: number): string {
 export function AttackPathContainmentMap({
   path,
   report,
+  architecture,
   systemName,
 }: {
   path: IdentityAttackPath
   report: AttackPathReport
+  architecture?: SystemArchitecture | null
   systemName?: string | null
 }) {
-  const [isolated, setIsolated] = useState(false)
-  const fetchUrl = systemName
-    ? `/api/proxy/topology-aws/${encodeURIComponent(systemName)}`
-    : null
-  const { data: topology, loading } = useCachedFetch<TopologyResponse>(fetchUrl, {
+  // Default: "Just this path" (spec §3). Full environment merges topology-aws siblings.
+  const [viewMode, setViewMode] = useState<ContainmentViewMode>("path")
+
+  const fetchUrl =
+    viewMode === "full" && systemName
+      ? `/api/proxy/topology-aws/${encodeURIComponent(systemName)}`
+      : null
+  const { data: fullTopology } = useCachedFetch<TopologyResponse>(fetchUrl, {
     cacheKey: `topology-aws:${systemName}`,
   })
 
-  const model = useMemo<ContainmentModel | null>(
-    () => (topology ? buildContainmentModel(topology, path, report) : null),
-    [topology, path, report],
-  )
+  const model = useMemo<ContainmentModel | null>(() => {
+    if (!architecture) return null
+    return buildContainmentFromArchitecture(
+      architecture,
+      path,
+      report,
+      viewMode,
+      viewMode === "full" ? fullTopology : null,
+    )
+  }, [architecture, path, report, viewMode, fullTopology])
 
-  // No topology to anchor on (loading-cold, error, empty, or a system without a
-  // VPC) → the spine map is the honest fallback. Always a useful picture.
   if (!model) {
     return (
       <div>
-        {loading && systemName ? (
+        {!architecture ? (
           <div className="text-[11px] mb-2" style={{ color: FAINT }}>
-            Loading AWS architecture…
+            Loading attack architecture…
           </div>
         ) : null}
         <AttackPathMapLight path={path} report={report} />
@@ -75,11 +80,13 @@ export function AttackPathContainmentMap({
     )
   }
 
+  const isolated = viewMode === "path"
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: MUTED }}>
-          On your AWS architecture
+          The attack map
           <span className="ml-2 font-normal normal-case" style={{ color: FAINT }}>
             {model.meta.vpcId} · {model.meta.region}
           </span>
@@ -90,19 +97,19 @@ export function AttackPathContainmentMap({
         >
           <button
             type="button"
-            onClick={() => setIsolated(false)}
+            onClick={() => setViewMode("full")}
             className="px-3 py-1.5 transition-colors"
-            style={isolated ? { background: "#fff", color: MUTED } : { background: INK, color: "#fff" }}
+            style={viewMode === "full" ? { background: INK, color: "#fff" } : { background: "#fff", color: MUTED }}
           >
-            Show full environment
+            Full environment
           </button>
           <button
             type="button"
-            onClick={() => setIsolated(true)}
+            onClick={() => setViewMode("path")}
             className="px-3 py-1.5 transition-colors"
-            style={isolated ? { background: INK, color: "#fff" } : { background: "#fff", color: MUTED }}
+            style={viewMode === "path" ? { background: INK, color: "#fff" } : { background: "#fff", color: MUTED }}
           >
-            Isolate the path
+            Just this path
           </button>
         </div>
       </div>
@@ -143,20 +150,14 @@ export function AttackPathContainmentMap({
           ))}
         </defs>
 
-        {/* Outer containment frames (cloud / region / vpc) */}
-        {model.frames
-          .filter((f) => f.layer === "frame")
-          .map((f) => (
+        {model.frames.filter((f) => f.layer === "frame").map((f) => (
+          <Frame key={f.id} frame={f} />
+        ))}
+
+        <g className="apc-ctx">
+          {model.frames.filter((f) => f.layer === "ctx").map((f) => (
             <Frame key={f.id} frame={f} />
           ))}
-
-        {/* Context layer — dims on "Isolate the path" */}
-        <g className="apc-ctx">
-          {model.frames
-            .filter((f) => f.layer === "ctx")
-            .map((f) => (
-              <Frame key={f.id} frame={f} />
-            ))}
           {model.notes.map((n) => (
             <text
               key={n.id}
@@ -180,7 +181,6 @@ export function AttackPathContainmentMap({
           ))}
         </g>
 
-        {/* Path layer — always full opacity, on top */}
         {model.edges.filter((e) => e.layer === "path").map((e) => (
           <Edge key={e.id} edge={e} flow />
         ))}
@@ -314,7 +314,7 @@ function EdgeLabel({ x, y, text, color }: { x: number; y: number; text: string; 
 
 function Legend() {
   const items: { sw?: string; ln?: string; dash?: boolean; label: string }[] = [
-    { sw: CAT_COLOR.compute.c, label: "Compute · EC2 / λ" },
+    { sw: CAT_COLOR.compute.c, label: "Compute · EC2" },
     { sw: CAT_COLOR.network.c, label: "Networking · IGW / VPCE" },
     { sw: CAT_COLOR.storage.c, label: "Storage · S3" },
     { sw: CAT_COLOR.security.c, label: "Security · IAM / KMS" },
@@ -349,7 +349,6 @@ function Legend() {
   )
 }
 
-// ── marker helpers — one arrowhead def per distinct edge color ──────────────
 function markerId(color: string): string {
   return color.replace("#", "")
 }
