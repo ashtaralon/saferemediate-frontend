@@ -1,6 +1,6 @@
 /**
- * ContainmentModel → React Flow + ELK layered/orthogonal layout.
- * Same data as the SVG builder; presentation-only relayout.
+ * ContainmentModel → React Flow layout.
+ * Tries flat ELK (fast); falls back to builder coordinates so the map never hangs.
  */
 
 import type { Edge, Node } from "reactflow"
@@ -13,39 +13,16 @@ import type { FlowEdgeData } from "./cloud-graph-edges"
 import type { ContainmentViewMode } from "./build-containment-from-architecture"
 
 const elk = new ELK()
+const ELK_TIMEOUT_MS = 3000
 
-const ELK_ROOT_OPTS: Record<string, string> = {
+const ELK_FLAT_OPTS: Record<string, string> = {
   "elk.algorithm": "layered",
   "elk.direction": "RIGHT",
   "elk.edgeRouting": "ORTHOGONAL",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "64",
-  "elk.spacing.nodeNode": "28",
-  "elk.layered.spacing.edgeNodeBetweenLayers": "24",
-  "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
-  "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-  "elk.padding": "[top=40,left=20,bottom=20,right=20]",
-}
-
-const CONTAINER_PAD: Record<ContainerKind, string> = {
-  cloud: "[top=44,left=24,bottom=24,right=24]",
-  region: "[top=40,left=20,bottom=20,right=20]",
-  vpc: "[top=36,left=16,bottom=16,right=16]",
-  az: "[top=32,left=14,bottom=14,right=14]",
-  subnet: "[top=28,left=12,bottom=12,right=12]",
-}
-
-interface ElkNode {
-  id: string
-  width?: number
-  height?: number
-  children?: ElkNode[]
-  layoutOptions?: Record<string, string>
-}
-
-interface ElkEdge {
-  id: string
-  sources: string[]
-  targets: string[]
+  "elk.layered.spacing.nodeNodeBetweenLayers": "56",
+  "elk.spacing.nodeNode": "24",
+  "elk.layered.spacing.edgeNodeBetweenLayers": "20",
+  "elk.padding": "[top=24,left=24,bottom=24,right=24]",
 }
 
 function cardVariant(card: CMCard): "protagonist" | "standard" | "chip" {
@@ -85,65 +62,29 @@ function frameContains(outer: CMFrame, inner: { x: number; y: number; w: number;
 }
 
 function findParentFrameId(card: CMCard, frames: CMFrame[]): string | null {
-  const subnets = frames.filter((f) => f.kind === "subnet")
-  for (const sn of subnets) {
-    if (frameContains(sn, card)) return sn.id
-  }
-  const azs = frames.filter((f) => f.kind === "az")
-  for (const az of azs) {
-    if (frameContains(az, card)) return az.id
-  }
-  const vpcs = frames.filter((f) => f.kind === "vpc")
-  for (const vpc of vpcs) {
-    if (frameContains(vpc, card)) return vpc.id
-  }
-  const regions = frames.filter((f) => f.kind === "region")
-  for (const r of regions) {
-    if (frameContains(r, card)) return r.id
-  }
-  const clouds = frames.filter((f) => f.kind === "cloud")
-  for (const c of clouds) {
-    if (frameContains(c, card)) return c.id
+  for (const kind of ["subnet", "az", "vpc", "region", "cloud"] as const) {
+    const match = frames.find((f) => f.kind === kind && frameContains(f, card))
+    if (match) return match.id
   }
   return null
 }
 
-function frameParentKind(kind: CMFrame["kind"]): CMFrame["kind"] | null {
-  switch (kind) {
-    case "subnet":
-      return "az"
-    case "az":
-      return "vpc"
-    case "vpc":
-      return "region"
-    case "region":
-      return "cloud"
-    default:
-      return null
+function frameParentId(frame: CMFrame, frames: CMFrame[]): string | undefined {
+  const order: CMFrame["kind"][] = ["subnet", "az", "vpc", "region", "cloud"]
+  const idx = order.indexOf(frame.kind)
+  for (let i = idx + 1; i < order.length; i++) {
+    const parent = frames.find((p) => p.kind === order[i] && frameContains(p, frame))
+    if (parent) return parent.id
   }
-}
-
-function buildFrameTree(frames: CMFrame[]): Map<string, CMFrame[]> {
-  const children = new Map<string, CMFrame[]>()
-  for (const f of frames) {
-    const parentKind = frameParentKind(f.kind)
-    if (!parentKind) continue
-    const parent = frames.find((p) => p.kind === parentKind && frameContains(p, f))
-    if (!parent) continue
-    if (!children.has(parent.id)) children.set(parent.id, [])
-    children.get(parent.id)!.push(f)
-  }
-  return children
+  return undefined
 }
 
 function resolveCardEndpoint(id: string | undefined, cards: CMCard[]): string | undefined {
   if (!id) return undefined
   if (cards.some((c) => c.id === id)) return id
-  if (id === "user" && cards.some((c) => c.id === "user")) return "user"
   return id
 }
 
-/** Order path edges by real attack flow: path.nodes chain, then spine synthetics. */
 export function orderPathFlowEdges(
   path: IdentityAttackPath,
   edges: CMEdge[],
@@ -162,13 +103,12 @@ export function orderPathFlowEdges(
   for (let i = 0; i < nodes.length - 1; i++) {
     const a = nodes[i]
     const b = nodes[i + 1]
-    const direct = byPair.get(`${a.id}→${b.id}`) ?? byPair.get(`${a.id}→${b.id}`)
+    const direct = byPair.get(`${a.id}→${b.id}`)
     if (direct && !seen.has(direct.id)) {
       ordered.push(direct)
       seen.add(direct.id)
       continue
     }
-    // Try matching card ids (foothold may differ from path node id)
     for (const e of pathLayer) {
       if (seen.has(e.id)) continue
       if (
@@ -182,14 +122,7 @@ export function orderPathFlowEdges(
     }
   }
 
-  const spineOrder = [
-    "syn-user-igw",
-    "syn-igw-foot",
-    "syn-foot-role",
-    "syn-role-jewel",
-    "syn-jewel-kms",
-  ]
-  for (const id of spineOrder) {
+  for (const id of ["syn-user-igw", "syn-igw-foot", "syn-foot-role", "syn-role-jewel", "syn-jewel-kms"]) {
     const e = pathLayer.find((x) => x.id === id)
     if (e && !seen.has(e.id)) {
       ordered.push(e)
@@ -207,183 +140,15 @@ export function orderPathFlowEdges(
   return ordered.map((e, i) => ({ edgeId: e.id, step: i + 1 }))
 }
 
-function elkCardNode(card: CMCard): ElkNode {
-  const { w, h } = cardDimensions(card)
-  return { id: card.id, width: w, height: h }
-}
-
-function elkFrameNode(frame: CMFrame, childElk: ElkNode[]): ElkNode {
-  return {
-    id: frame.id,
-    layoutOptions: {
-      "elk.padding": CONTAINER_PAD[frame.kind as ContainerKind] ?? CONTAINER_PAD.vpc,
-      "elk.algorithm": frame.kind === "subnet" ? "box" : "layered",
-    },
-    children: childElk,
-  }
-}
-
-export interface CloudGraphFlowResult {
-  nodes: Node[]
-  edges: Edge<FlowEdgeData>[]
-  pathSequence: { edgeId: string; step: number }[]
-}
-
-export async function layoutCloudGraphFlow(
+function buildRfEdges(
   model: ContainmentModel,
-  path: IdentityAttackPath,
   viewMode: ContainmentViewMode,
-): Promise<CloudGraphFlowResult> {
-  const cardIds = new Set(model.cards.map((c) => c.id))
-  const pathSequence = orderPathFlowEdges(path, model.edges, cardIds)
-  const stepByEdge = new Map(pathSequence.map((p) => [p.edgeId, p.step]))
-  const pathNodeIds = new Set(
-    model.cards.filter((c) => c.onPath || c.layer === "path").map((c) => c.id),
-  )
-  for (const n of path.nodes ?? []) pathNodeIds.add(n.id)
-
-  const frameChildren = buildFrameTree(model.frames)
-  const cardsByParent = new Map<string, CMCard[]>()
-  const rootCards: CMCard[] = []
-
-  for (const card of model.cards) {
-    const parentId = findParentFrameId(card, model.frames)
-    if (parentId) {
-      if (!cardsByParent.has(parentId)) cardsByParent.set(parentId, [])
-      cardsByParent.get(parentId)!.push(card)
-    } else {
-      rootCards.push(card)
-    }
-  }
-
-  function buildElkSubtree(frame: CMFrame): ElkNode {
-    const childFrames = frameChildren.get(frame.id) ?? []
-    const childElk: ElkNode[] = [
-      ...(cardsByParent.get(frame.id) ?? []).map(elkCardNode),
-      ...childFrames.map(buildElkSubtree),
-    ]
-    if (childElk.length === 0 && frame.h < 80) {
-      return {
-        id: frame.id,
-        width: Math.max(frame.w, 120),
-        height: 36,
-        layoutOptions: { "elk.padding": "[top=8,left=8,bottom=8,right=8]" },
-      }
-    }
-    return elkFrameNode(frame, childElk)
-  }
-
-  const cloudFrame = model.frames.find((f) => f.kind === "cloud")
-  const regionFrame = model.frames.find((f) => f.kind === "region")
-  const rootChildren: ElkNode[] = []
-
-  if (rootCards.length) {
-    rootChildren.push(...rootCards.map(elkCardNode))
-  }
-
-  if (cloudFrame) {
-    const cloudChildren = (frameChildren.get(cloudFrame.id) ?? []).map(buildElkSubtree)
-    rootChildren.push(elkFrameNode(cloudFrame, cloudChildren))
-  } else if (regionFrame) {
-    rootChildren.push(buildElkSubtree(regionFrame))
-  }
-
-  const elkEdges: ElkEdge[] = []
-  for (const e of model.edges) {
-    const src = resolveCardEndpoint(e.sourceId, model.cards)
-    const tgt = resolveCardEndpoint(e.targetId, model.cards)
-    if (!src || !tgt || !cardIds.has(src) || !cardIds.has(tgt)) continue
-    elkEdges.push({ id: e.id, sources: [src], targets: [tgt] })
-  }
-
-  const elkGraph = {
-    id: "root",
-    layoutOptions: ELK_ROOT_OPTS,
-    children: rootChildren,
-    edges: elkEdges,
-  }
-
-  const layouted = await elk.layout(elkGraph)
-
-  const rfNodes: Node[] = []
-  const cardById = new Map(model.cards.map((c) => [c.id, c]))
-  const frameById = new Map(model.frames.map((f) => [f.id, f]))
+  stepByEdge: Map<string, number>,
+  cardIds: Set<string>,
+): Edge<FlowEdgeData>[] {
   const dimCtx = viewMode === "path"
-
-  function walk(
-    n: { id: string; x?: number; y?: number; width?: number; height?: number; children?: typeof layouted.children },
-    parentId?: string,
-    parentAbs = { x: 0, y: 0 },
-  ) {
-    const absX = n.x ?? 0
-    const absY = n.y ?? 0
-    const relX = parentId ? absX - parentAbs.x : absX
-    const relY = parentId ? absY - parentAbs.y : absY
-
-    const card = cardById.get(n.id)
-    const frame = frameById.get(n.id)
-
-    if (card) {
-      const variant = cardVariant(card)
-      const dimmed = dimCtx && !card.onPath && card.layer !== "path"
-      rfNodes.push({
-        id: card.id,
-        type: "resource",
-        parentId,
-        extent: parentId ? "parent" : undefined,
-        position: { x: relX, y: relY },
-        data: {
-          title: card.title,
-          sub: card.sub,
-          typeLabel: cardTypeLabel(card),
-          cat: card.cat,
-          badge: card.badge,
-          onPath: card.onPath,
-          variant,
-          dimmed,
-          copyValue: card.sub?.startsWith("i-") ? card.sub : card.title,
-        },
-        style: { width: cardDimensions(card).w },
-        draggable: false,
-        selectable: true,
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-      })
-    } else if (frame) {
-      rfNodes.push({
-        id: frame.id,
-        type: "container",
-        parentId,
-        extent: parentId ? "parent" : undefined,
-        position: { x: relX, y: relY },
-        data: {
-          label: frame.label,
-          sub: frame.sub,
-          kind: frame.kind as ContainerKind,
-          dimmed: dimCtx && frame.layer === "ctx",
-        },
-        style: {
-          width: n.width ?? frame.w,
-          height: n.height ?? frame.h,
-          zIndex: frame.kind === "cloud" ? 0 : frame.kind === "subnet" ? 4 : 2,
-        },
-        draggable: false,
-        selectable: false,
-      })
-    }
-
-    const nextAbs = { x: absX, y: absY }
-    const isParent = !!frame || n.id === "root"
-    for (const ch of n.children ?? []) {
-      walk(ch, isParent || frame ? n.id : parentId, isParent || frame ? nextAbs : parentAbs)
-    }
-  }
-
-  for (const ch of layouted.children ?? []) {
-    walk(ch)
-  }
-
   const rfEdges: Edge<FlowEdgeData>[] = []
+
   for (const e of model.edges) {
     const src = resolveCardEndpoint(e.sourceId, model.cards)
     const tgt = resolveCardEndpoint(e.targetId, model.cards)
@@ -391,9 +156,6 @@ export async function layoutCloudGraphFlow(
 
     const step = stepByEdge.get(e.id)
     const isPathLayer = e.layer === "path"
-    const pulseDelay = step != null ? (step - 1) * 0.35 : 0
-    const dimmed = dimCtx && !isPathLayer
-
     rfEdges.push({
       id: e.id,
       source: src,
@@ -410,20 +172,208 @@ export async function layoutCloudGraphFlow(
         edgeStyle: e.style,
         layer: e.layer,
         step,
-        pulseDelay,
-        dimmed,
+        pulseDelay: step != null ? (step - 1) * 0.35 : 0,
+        dimmed: dimCtx && !isPathLayer,
         animate: isPathLayer && step != null,
       },
       zIndex: isPathLayer ? 10 : 1,
     })
   }
+  return rfEdges
+}
 
-  // React Flow requires parent nodes before their children.
-  rfNodes.sort((a, b) => {
+function makeResourceNode(
+  card: CMCard,
+  position: { x: number; y: number },
+  parentId: string | undefined,
+  dimCtx: boolean,
+): Node {
+  const variant = cardVariant(card)
+  const dimmed = dimCtx && !card.onPath && card.layer !== "path"
+  const { w } = cardDimensions(card)
+  return {
+    id: card.id,
+    type: "resource",
+    parentId,
+    extent: parentId ? "parent" : undefined,
+    position,
+    data: {
+      title: card.title,
+      sub: card.sub,
+      typeLabel: cardTypeLabel(card),
+      cat: card.cat,
+      badge: card.badge,
+      onPath: card.onPath,
+      variant,
+      dimmed,
+      copyValue: card.sub?.startsWith("i-") ? card.sub : card.title,
+    },
+    style: { width: w },
+    draggable: false,
+    selectable: true,
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
+  }
+}
+
+function makeContainerNode(frame: CMFrame, position: { x: number; y: number }, parentId: string | undefined, dimCtx: boolean): Node {
+  return {
+    id: frame.id,
+    type: "container",
+    parentId,
+    extent: parentId ? "parent" : undefined,
+    position,
+    data: {
+      label: frame.label,
+      sub: frame.sub,
+      kind: frame.kind as ContainerKind,
+      dimmed: dimCtx && frame.layer === "ctx",
+    },
+    style: {
+      width: frame.w,
+      height: frame.h,
+      zIndex: frame.kind === "cloud" ? 0 : frame.kind === "subnet" ? 4 : 2,
+    },
+    draggable: false,
+    selectable: false,
+  }
+}
+
+function sortParentsFirst(nodes: Node[]): Node[] {
+  return [...nodes].sort((a, b) => {
     if (a.parentId === b.id) return 1
     if (b.parentId === a.id) return -1
     return 0
   })
+}
 
-  return { nodes: rfNodes, edges: rfEdges, pathSequence }
+/** Reliable layout — uses coordinates from buildContainmentFromArchitecture. */
+function layoutFromContainmentCoordinates(
+  model: ContainmentModel,
+  path: IdentityAttackPath,
+  viewMode: ContainmentViewMode,
+): CloudGraphFlowResult {
+  const cardIds = new Set(model.cards.map((c) => c.id))
+  const pathSequence = orderPathFlowEdges(path, model.edges, cardIds)
+  const stepByEdge = new Map(pathSequence.map((p) => [p.edgeId, p.step]))
+  const dimCtx = viewMode === "path"
+
+  const frameAbs = new Map(model.frames.map((f) => [f.id, { x: f.x, y: f.y }]))
+  const rfNodes: Node[] = []
+
+  const frameOrder = ["cloud", "region", "vpc", "az", "subnet"] as const
+  for (const kind of frameOrder) {
+    for (const frame of model.frames.filter((f) => f.kind === kind)) {
+      const parentId = frameParentId(frame, model.frames)
+      const parentAbs = parentId ? frameAbs.get(parentId) : { x: 0, y: 0 }
+      const abs = frameAbs.get(frame.id)!
+      rfNodes.push(
+        makeContainerNode(
+          frame,
+          { x: abs.x - (parentAbs?.x ?? 0), y: abs.y - (parentAbs?.y ?? 0) },
+          parentId,
+          dimCtx,
+        ),
+      )
+    }
+  }
+
+  for (const card of model.cards) {
+    const parentId = findParentFrameId(card, model.frames) ?? undefined
+    const parentAbs = parentId ? frameAbs.get(parentId) : { x: 0, y: 0 }
+    rfNodes.push(
+      makeResourceNode(
+        card,
+        { x: card.x - (parentAbs?.x ?? 0), y: card.y - (parentAbs?.y ?? 0) },
+        parentId,
+        dimCtx,
+      ),
+    )
+  }
+
+  return {
+    nodes: sortParentsFirst(rfNodes),
+    edges: buildRfEdges(model, viewMode, stepByEdge, cardIds),
+    pathSequence,
+  }
+}
+
+/** Flat ELK — cards only (no compound nesting) to avoid browser hangs. */
+async function layoutElkFlat(
+  model: ContainmentModel,
+  path: IdentityAttackPath,
+  viewMode: ContainmentViewMode,
+): Promise<CloudGraphFlowResult> {
+  const cardIds = new Set(model.cards.map((c) => c.id))
+  const pathSequence = orderPathFlowEdges(path, model.edges, cardIds)
+  const stepByEdge = new Map(pathSequence.map((p) => [p.edgeId, p.step]))
+  const dimCtx = viewMode === "path"
+
+  if (model.cards.length === 0) {
+    return layoutFromContainmentCoordinates(model, path, viewMode)
+  }
+
+  const elkEdges = model.edges
+    .map((e) => {
+      const src = resolveCardEndpoint(e.sourceId, model.cards)
+      const tgt = resolveCardEndpoint(e.targetId, model.cards)
+      if (!src || !tgt || !cardIds.has(src) || !cardIds.has(tgt)) return null
+      return { id: e.id, sources: [src], targets: [tgt] }
+    })
+    .filter(Boolean) as { id: string; sources: string[]; targets: string[] }[]
+
+  const layouted = await elk.layout({
+    id: "root",
+    layoutOptions: ELK_FLAT_OPTS,
+    children: model.cards.map((c) => {
+      const { w, h } = cardDimensions(c)
+      return { id: c.id, width: w, height: h }
+    }),
+    edges: elkEdges,
+  })
+
+  const positions = new Map<string, { x: number; y: number }>()
+  for (const ch of layouted.children ?? []) {
+    positions.set(ch.id, { x: ch.x ?? 0, y: ch.y ?? 0 })
+  }
+
+  const rfNodes: Node[] = model.cards.map((card) => {
+    const pos = positions.get(card.id) ?? { x: card.x, y: card.y }
+    return makeResourceNode(card, pos, undefined, dimCtx)
+  })
+
+  return {
+    nodes: rfNodes,
+    edges: buildRfEdges(model, viewMode, stepByEdge, cardIds),
+    pathSequence,
+  }
+}
+
+export interface CloudGraphFlowResult {
+  nodes: Node[]
+  edges: Edge<FlowEdgeData>[]
+  pathSequence: { edgeId: string; step: number }[]
+}
+
+export async function layoutCloudGraphFlow(
+  model: ContainmentModel,
+  path: IdentityAttackPath,
+  viewMode: ContainmentViewMode,
+): Promise<CloudGraphFlowResult> {
+  // Coordinate layout is reliable (same geometry as the data builder). Try flat ELK
+  // only when the graph is small; always fall back on timeout/error.
+  if (model.cards.length <= 24) {
+    try {
+      const result = await Promise.race([
+        layoutElkFlat(model, path, viewMode),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("ELK layout timeout")), ELK_TIMEOUT_MS)
+        }),
+      ])
+      if (result.nodes.length > 0) return result
+    } catch {
+      // fall through
+    }
+  }
+  return layoutFromContainmentCoordinates(model, path, viewMode)
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactFlow, {
   Background,
   Controls,
@@ -13,7 +13,7 @@ import "reactflow/dist/style.css"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { ContainmentModel } from "./containment-model"
 import type { ContainmentViewMode } from "./build-containment-from-architecture"
-import { layoutCloudGraphFlow } from "./build-cloud-graph-flow"
+import { layoutCloudGraphFlow, type CloudGraphFlowResult } from "./build-cloud-graph-flow"
 import { cloudGraphNodeTypes } from "./cloud-graph-nodes"
 import { cloudGraphEdgeTypes } from "./cloud-graph-edges"
 import { CG } from "./cloud-graph-tokens"
@@ -29,28 +29,41 @@ function FlowInner({
   viewMode: ContainmentViewMode
   height: number | string
 }) {
-  const [nodes, setNodes] = useState<Node[]>([])
-  const [edges, setEdges] = useState<ReturnType<typeof layoutCloudGraphFlow> extends Promise<infer R> ? R["edges"] : never>([])
-  const [loading, setLoading] = useState(true)
+  const [graph, setGraph] = useState<CloudGraphFlowResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
   const { fitView } = useReactFlow()
+  const fitViewRef = useRef(fitView)
+  fitViewRef.current = fitView
+
+  // Stable key — avoid re-layout when fitView identity changes (was causing infinite loading).
+  const layoutKey = useMemo(
+    () => `${viewMode}:${model.width}:${model.height}:${model.cards.length}:${model.edges.length}`,
+    [viewMode, model.width, model.height, model.cards.length, model.edges.length],
+  )
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    void layoutCloudGraphFlow(model, path, viewMode).then((result) => {
-      if (cancelled) return
-      setNodes(result.nodes)
-      setEdges(result.edges)
-      setLoading(false)
-      requestAnimationFrame(() => {
-        fitView({ padding: 0.12, duration: 200 })
+    setGraph(null)
+    setError(null)
+
+    void layoutCloudGraphFlow(model, path, viewMode)
+      .then((result) => {
+        if (cancelled) return
+        setGraph(result)
+        requestAnimationFrame(() => {
+          fitViewRef.current({ padding: 0.12, duration: 200 })
+        })
       })
-    })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "Layout failed")
+      })
+
     return () => {
       cancelled = true
     }
-  }, [model, path, viewMode, fitView])
+  }, [layoutKey, model, path, viewMode])
 
   const pathNodeIds = useMemo(() => {
     const ids = new Set<string>()
@@ -58,6 +71,9 @@ function FlowInner({
     for (const c of model.cards.filter((c) => c.onPath)) ids.add(c.id)
     return ids
   }, [path.nodes, model.cards])
+
+  const nodes = graph?.nodes ?? []
+  const edges = graph?.edges ?? []
 
   const styledNodes = useMemo(() => {
     if (!focusNodeId) return nodes
@@ -93,7 +109,15 @@ function FlowInner({
 
   const onPaneClick = useCallback(() => setFocusNodeId(null), [])
 
-  if (loading) {
+  if (error) {
+    return (
+      <div className="flex items-center justify-center px-4 text-center text-[11px]" style={{ height, color: CG.attack }}>
+        Cloud graph layout failed: {error}
+      </div>
+    )
+  }
+
+  if (!graph) {
     return (
       <div className="flex items-center justify-center text-[11px]" style={{ height, color: CG.faint }}>
         Laying out cloud graph…
@@ -126,7 +150,7 @@ function FlowInner({
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         fitView
-        minZoom={0.35}
+        minZoom={0.2}
         maxZoom={1.8}
         nodesDraggable={false}
         nodesConnectable={false}
