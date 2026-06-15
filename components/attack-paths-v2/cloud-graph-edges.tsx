@@ -8,15 +8,19 @@ import {
   type EdgeProps,
 } from "reactflow"
 import { CG } from "./cloud-graph-tokens"
+import type { Layer } from "./containment-model"
 
 export interface FlowEdgeData {
   label?: string
   edgeStyle: "path" | "enc" | "priv"
-  layer: "path" | "ctx"
+  /** Mirrors CMEdge.layer — accepts "frame" for containment-internal edges
+   * even though the renderer only reacts to "path" today. */
+  layer: Layer
   step?: number
   pulseDelay?: number
   dimmed?: boolean
   animate?: boolean
+  flowActive?: boolean
 }
 
 export const CloudGraphEdge = memo(function CloudGraphEdge({
@@ -37,7 +41,8 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 8,
+    borderRadius: 10,
+    offset: 28,
   })
 
   const style = data?.edgeStyle ?? "path"
@@ -47,7 +52,10 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
   const dash =
     style === "enc" ? "6 4" : style === "priv" ? "2 5" : undefined
   const opacity = data?.dimmed ? 0.15 : style === "priv" ? 0.4 : 1
-  const animate = data?.animate !== false && style === "path" && data?.layer === "path"
+  const animate =
+    data?.animate !== false &&
+    style === "path" &&
+    (data?.layer === "path" || data?.flowActive === true)
   const pulseDelay = data?.pulseDelay ?? 0
 
   return (

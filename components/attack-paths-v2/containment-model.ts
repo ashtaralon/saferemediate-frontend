@@ -89,6 +89,15 @@ export interface CMCard {
   onPath: boolean
   layer: Layer
 }
+
+/** Pixel height of a resource card in React Flow — must match cloud-graph-nodes ResourceNode. */
+export function cmCardRenderHeight(card: Pick<CMCard, "cat" | "badge" | "onPath" | "title">): number {
+  if (card.cat === "user") return 36
+  if (card.badge === "FOOTHOLD" || card.badge === "CROWN JEWEL" || card.badge === "ENCRYPTS") return 76
+  if (card.cat === "security" && card.onPath) return 76
+  if (card.cat === "network" && !/gateway|igw/i.test(card.title) && !card.onPath) return 44
+  return card.onPath ? 76 : 68
+}
 export interface CMNote {
   id: string
   x: number
@@ -108,6 +117,11 @@ export interface CMEdge {
   /** React Flow spine — real endpoint ids when known */
   sourceId?: string
   targetId?: string
+  /** Live telemetry from Neo4j / CloudTrail / VPC Flow Logs */
+  observed?: boolean | null
+  hitCount?: number | null
+  bytes?: number | null
+  flowActive?: boolean
 }
 export interface ContainmentModel {
   width: number
@@ -235,7 +249,7 @@ const CARD_GAP = 8
 const SUBNET_PAD = 12
 const REGIONAL_CARD_H = 50
 
-interface Anchor {
+export interface Anchor {
   cx: number
   cy: number
   x: number

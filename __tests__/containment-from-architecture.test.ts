@@ -5,18 +5,18 @@ import {
   buildContainmentFromArchitecture,
   edgeLabelForRelationship,
 } from "@/components/attack-paths-v2/build-containment-from-architecture"
-import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
+import type { SystemArchitecture, NodeType } from "@/components/dependency-map/traffic-flow-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
 
 function arch(): SystemArchitecture {
   return {
     computeServices: [
-      { id: "i-0aa725", name: "alon-demo-app2", shortName: "alon-demo-app2", type: "ec2instance", instanceId: "i-0aa725bf8ff4c2001" },
+      { id: "i-0aa725", name: "alon-demo-app2", shortName: "alon-demo-app2", type: "ec2instance" as unknown as NodeType, instanceId: "i-0aa725bf8ff4c2001" },
     ],
     resources: [
-      { id: "arn:aws:s3:::logs", name: "saferemediate-logs", shortName: "saferemediate-logs", type: "s3bucket", isCrownJewel: true },
-      { id: "key-1", name: "cyntro-demo-cmk", shortName: "cyntro-demo-cmk", type: "kmskey" },
+      { id: "arn:aws:s3:::logs", name: "saferemediate-logs", shortName: "saferemediate-logs", type: "s3bucket" as unknown as NodeType, isCrownJewel: true },
+      { id: "key-1", name: "cyntro-demo-cmk", shortName: "cyntro-demo-cmk", type: "kmskey" as unknown as NodeType },
     ],
     subnets: [
       {
@@ -42,6 +42,7 @@ function arch(): SystemArchitecture {
       { id: "igw-1", name: "igw", shortName: "igw-1", vpcId: "vpc-086bcc", kind: "InternetGateway", kindLabel: "IGW" },
       { id: "vpce-1", name: "vpce", shortName: "vpce-1", vpcId: "vpc-086bcc", kind: "VPCEndpoint", kindLabel: "VPCE · s3", serviceHint: "s3" },
     ],
+    vpcEndpoints: [],
     flows: [],
     edges: [
       { id: "e1", source_aws_id: "i-0aa725", target_aws_id: "role-1", relationship: "HAS_INSTANCE_PROFILE", observed: true, hit_count: 1, bytes: null, first_seen: null, last_seen: null, port: null, protocol: null },
@@ -91,6 +92,7 @@ describe("buildContainmentFromArchitecture", () => {
     const titles = m!.cards.map((c) => c.title)
     expect(titles).toContain("alon-demo-app2")
     expect(titles).toContain("alon-demo-ec2-role")
+    expect(titles).toContain("alon-demo-ec2-profile")
     expect(titles.some((t) => t.includes("saferemediate-logs"))).toBe(true)
     expect(m!.cards.find((c) => c.title === "alon-demo-app2")?.badge).toBe("FOOTHOLD")
     const labels = m!.edges.map((e) => e.label).filter(Boolean)

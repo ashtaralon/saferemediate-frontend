@@ -11,6 +11,7 @@ export interface ContainerNodeData {
   sub?: string
   kind: ContainerKind
   dimmed?: boolean
+  isPublicSubnet?: boolean
 }
 
 export interface ResourceNodeData {
@@ -35,6 +36,20 @@ function truncate(s: string, max: number): string {
   if (!s || s.length <= max) return s
   return `${s.slice(0, max - 1)}…`
 }
+
+export const NoteNode = memo(function NoteNode({ data }: NodeProps<{ text: string; anchor?: string }>) {
+  return (
+    <div
+      className="pointer-events-none text-[10px] italic whitespace-nowrap"
+      style={{
+        color: CG.faint,
+        textAlign: data.anchor === "middle" ? "center" : "left",
+      }}
+    >
+      {data.text}
+    </div>
+  )
+})
 
 export const LaneBackdropNode = memo(function LaneBackdropNode({ data }: NodeProps<LaneNodeData>) {
   return (
@@ -66,7 +81,12 @@ export const ContainerNode = memo(function ContainerNode({ data }: NodeProps<Con
           : data.kind === "subnet"
             ? "#9cd49b"
             : "#9aa8b8"
-  const fill = CG.container[data.kind]
+  const fill =
+    data.kind === "subnet"
+      ? data.isPublicSubnet
+        ? "rgba(46,158,91,0.12)"
+        : "rgba(46,115,232,0.08)"
+      : CG.container[data.kind]
   const dash = data.kind === "region" || data.kind === "az" ? "6 4" : undefined
   return (
     <div
@@ -97,7 +117,6 @@ export const ContainerNode = memo(function ContainerNode({ data }: NodeProps<Con
 
 export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<ResourceNodeData>) {
   const color = typeColorForCategory(data.cat)
-  const h = data.variant === "chip" ? 44 : data.variant === "protagonist" ? 76 : 68
   const badgeW = data.badge ? data.badge.length * 5.5 + 16 : 0
   const titleMax = data.variant === "chip" ? 22 : 28
 
@@ -114,10 +133,9 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
 
   return (
     <div
-      className="relative rounded-lg bg-white transition-all duration-200 cursor-default"
+      className="relative rounded-lg bg-white transition-all duration-200 cursor-default h-full box-border"
       style={{
         width: "100%",
-        minHeight: h,
         opacity,
         border: `${sw}px solid ${stroke}`,
         boxShadow: data.onPath ? CG.shadow : "0 1px 2px rgba(16,24,40,.03)",
@@ -126,8 +144,10 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
       title={[data.title, data.sub].filter(Boolean).join(" · ")}
       onDoubleClick={onCopy}
     >
+      <Handle type="target" position={Position.Top} style={{ opacity: 0, width: 1, height: 1 }} />
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 1, height: 1 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 1, height: 1 }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, width: 1, height: 1 }} />
 
       <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg" style={{ background: color }} />
 
@@ -184,4 +204,5 @@ export const cloudGraphNodeTypes = {
   lane: LaneBackdropNode,
   container: ContainerNode,
   resource: ResourceNode,
+  note: NoteNode,
 }

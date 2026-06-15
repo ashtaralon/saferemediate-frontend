@@ -42,7 +42,7 @@ export function AttackPathContainmentMap({
   systemName?: string | null
   slot?: "flow" | "hero"
 }) {
-  const [viewMode, setViewMode] = useState<ContainmentViewMode>(slot === "flow" ? "path" : "full")
+  const [viewMode, setViewMode] = useState<ContainmentViewMode>("full")
   const [enlargedOpen, setEnlargedOpen] = useState(false)
 
   const fetchUrl = systemName
