@@ -9,6 +9,7 @@ import {
 } from "reactflow"
 import { CG } from "./cloud-graph-tokens"
 import type { Layer } from "./containment-model"
+import { SPINE_EDGE } from "./cloud-graph-semantic"
 
 export interface FlowEdgeData {
   label?: string
@@ -46,16 +47,34 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
   })
 
   const style = data?.edgeStyle ?? "path"
+  // Visual-priority rule for path-class edges: spine dominates (thick, bright,
+  // animated); off-spine path edges recede (thin + low opacity). Encryption
+  // and private-route edges keep their semantic colors regardless — they're
+  // category indicators, not attack-priority signals.
+  const isSpine = style === "path" && data?.layer === "path"
+  const spineToken = isSpine ? SPINE_EDGE.onSpine : SPINE_EDGE.offSpine
   const color =
-    style === "enc" ? CG.encrypt : style === "priv" ? CG.priv : CG.attack
-  const strokeWidth = style === "path" ? 2 : 1.5
+    style === "enc" ? CG.encrypt :
+    style === "priv" ? CG.priv :
+    spineToken.stroke
+  const strokeWidth =
+    style === "enc" ? 1.5 :
+    style === "priv" ? 1.5 :
+    spineToken.width
   const dash =
     style === "enc" ? "6 4" : style === "priv" ? "2 5" : undefined
-  const opacity = data?.dimmed ? 0.15 : style === "priv" ? 0.4 : 1
+  const opacity = data?.dimmed
+    ? 0.15
+    : style === "priv"
+      ? 0.4
+      : style === "path"
+        ? spineToken.opacity
+        : 1
   const animate =
     data?.animate !== false &&
     style === "path" &&
-    (data?.layer === "path" || data?.flowActive === true)
+    (isSpine || data?.flowActive === true) &&
+    spineToken.animate
   const pulseDelay = data?.pulseDelay ?? 0
 
   return (
