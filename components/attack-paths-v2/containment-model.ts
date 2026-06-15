@@ -105,6 +105,9 @@ export interface CMEdge {
   labelX?: number
   labelY?: number
   layer: Layer
+  /** React Flow spine — real endpoint ids when known */
+  sourceId?: string
+  targetId?: string
 }
 export interface ContainmentModel {
   width: number

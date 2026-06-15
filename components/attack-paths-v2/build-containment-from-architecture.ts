@@ -252,6 +252,11 @@ function ensureAttackPathSpine(
     hasInternetEntry: boolean
     igwAnchor?: Anchor
     igwH: number
+    igwId?: string
+    footholdId?: string
+    roleId?: string
+    jewelId?: string
+    kmsId?: string
     gates: AttackPathReport["gates"]
     profileName: string | null
     excess: string[]
@@ -270,6 +275,8 @@ function ensureAttackPathSpine(
       labelX: anchors.user.cx,
       labelY: (anchors.user.y + igwAnchor.y) / 2,
       layer: "path",
+      sourceId: "user",
+      targetId: opts.igwId,
     })
   }
   if (igwAnchor && anchors.foothold) {
@@ -279,6 +286,8 @@ function ensureAttackPathSpine(
       style: "path",
       color: EDGE_COLOR.path,
       layer: "path",
+      sourceId: opts.igwId,
+      targetId: opts.footholdId,
     })
   }
   if (anchors.foothold && anchors.role) {
@@ -291,6 +300,8 @@ function ensureAttackPathSpine(
       labelX: (anchors.foothold.cx + anchors.role.cx) / 2,
       labelY: (anchors.foothold.cy + anchors.role.cy) / 2,
       layer: "path",
+      sourceId: opts.footholdId,
+      targetId: opts.roleId,
     })
   }
   if (anchors.role && anchors.jewel) {
@@ -303,6 +314,8 @@ function ensureAttackPathSpine(
       labelX: (anchors.role.cx + anchors.jewel.cx) / 2,
       labelY: anchors.role.cy - 8,
       layer: "path",
+      sourceId: opts.roleId,
+      targetId: opts.jewelId,
     })
   }
   if (anchors.jewel && anchors.kms) {
@@ -317,6 +330,8 @@ function ensureAttackPathSpine(
         labelX: (anchors.jewel.cx + kmsAnchor.cx) / 2,
         labelY: anchors.jewel.cy + 12,
         layer: "path",
+        sourceId: opts.jewelId,
+        targetId: opts.kmsId,
       })
     }
   }
@@ -349,6 +364,8 @@ function ensurePathSpineFromPathNodes(
       labelX: (src.cx + tgt.cx) / 2,
       labelY: (src.cy + tgt.cy) / 2,
       layer: "path",
+      sourceId: a.id,
+      targetId: b.id,
     })
   }
 }
@@ -973,6 +990,8 @@ export function buildContainmentFromArchitecture(
       labelX: (src.cx + tgt.cx) / 2,
       labelY: (src.cy + tgt.cy) / 2,
       layer: onPathEdges.has(e.id) ? "path" : "ctx",
+      sourceId: e.source_aws_id,
+      targetId: e.target_aws_id,
     })
   }
 
@@ -980,6 +999,11 @@ export function buildContainmentFromArchitecture(
     hasInternetEntry,
     igwAnchor,
     igwH,
+    igwId: igw?.id,
+    footholdId: footholdCompute?.id,
+    roleId: role?.id,
+    jewelId: jewel?.id,
+    kmsId: kms?.id,
     gates,
     profileName,
     excess,
