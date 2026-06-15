@@ -42,8 +42,12 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 10,
-    offset: 28,
+    borderRadius: 14,
+    // Larger offset routes edges further from node bodies so they stop
+    // crossing through the middle of cards (was 28; lines were drawing
+    // on top of node content). 64 gives enough room for the smoothstep
+    // bend to clear the card without producing huge detours.
+    offset: 64,
   })
 
   const style = data?.edgeStyle ?? "path"
@@ -104,7 +108,7 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
           />
           <circle r={3.5} fill={color} opacity={0.95} className="cg-flow-dot">
             <animateMotion
-              dur="1.2s"
+              dur="3s"
               repeatCount="indefinite"
               begin={`${pulseDelay}s`}
               path={path}

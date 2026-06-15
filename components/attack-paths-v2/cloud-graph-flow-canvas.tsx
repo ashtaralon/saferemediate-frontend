@@ -136,7 +136,7 @@ function FlowInner({
         }
         @keyframes cg-dash { to { stroke-dashoffset: -32; } }
         .cg-flow-dash {
-          animation: cg-dash 1.2s ease-in-out infinite;
+          animation: cg-dash 3.5s ease-in-out infinite;
         }
         @media (prefers-reduced-motion: reduce) {
           .cg-flow-dash, .cg-flow-dot { display: none; }
@@ -150,9 +150,10 @@ function FlowInner({
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         fitView
-        minZoom={0.35}
+        fitViewOptions={{ padding: 0.12, minZoom: 0.55, maxZoom: 1.1 }}
+        minZoom={0.4}
         maxZoom={1.4}
-        defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.95 }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable

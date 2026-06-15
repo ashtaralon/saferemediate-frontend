@@ -101,14 +101,22 @@ export const ContainerNode = memo(function ContainerNode({ data }: NodeProps<Con
       }}
     >
       <div
-        className="absolute left-3 top-2.5 text-[11px] font-bold uppercase tracking-[0.06em] pointer-events-none select-none"
-        style={{ color: data.kind === "subnet" ? "#2f7a2a" : stroke }}
+        className="absolute left-3 top-2.5 text-[12px] font-extrabold uppercase tracking-[0.08em] pointer-events-none select-none"
+        style={{
+          color:
+            data.kind === "subnet"
+              ? data.isPublicSubnet ? "#1f6024" : "#1b4cb2"
+              : data.kind === "vpc" ? "#247a1f"
+              : data.kind === "region" ? "#1b4cb2"
+              : data.kind === "cloud" ? "#22303f"
+              : stroke,
+        }}
         title={data.label}
       >
         {truncate(data.label, 52)}
       </div>
       {data.sub ? (
-        <div className="absolute left-3 top-[22px] text-[10px] pointer-events-none" style={{ color: CG.faint }}>
+        <div className="absolute left-3 top-[24px] text-[10px] font-mono pointer-events-none" style={{ color: CG.muted }}>
           {truncate(data.sub, 48)}
         </div>
       ) : null}
