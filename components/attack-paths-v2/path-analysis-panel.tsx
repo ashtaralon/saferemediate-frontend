@@ -20,6 +20,7 @@ import { HardeningPanel } from "./hardening-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import { AttackPathCardLightView } from "./attack-path-card-light"
 import { AttackPathContainmentMap } from "./attack-path-containment-map"
+import { AttackSpineStrip } from "./attack-spine-strip"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { useClosurePreview } from "./use-closure-preview"
 import {
@@ -341,6 +342,11 @@ export function PathAnalysisPanel({
                 Dev bridge report (?reportBridge=1) — backend report unavailable; values compiled in-browser.
               </div>
             )}
+            {/* CISO 5-second surface — the four-card kill chain that the entire
+                rest of the page exists to explain. Always rendered first. */}
+            <div className="mb-4">
+              <AttackSpineStrip report={report} path={path} />
+            </div>
             <AttackPathCardLightView
               report={report}
               path={path}
