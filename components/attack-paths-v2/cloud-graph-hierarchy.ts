@@ -301,6 +301,56 @@ export function enforceAnchoring(
     lastProtagonist = cur
   }
 
+  // ── A7: Intra-class sibling separation ──
+  //
+  // A3 enforces gaps between protagonist nodes of DIFFERENT classes. Same-
+  // class siblings (e.g. two CROWN JEWELs reachable from the same identity)
+  // are A3-exempt by design — they're parallel targets, not sequenced. But
+  // without ANY separation they can stack on top of each other in DOM space,
+  // which is exactly what the C2 acceptance test catches.
+  //
+  // For each semantic class with ≥2 nodes, stack siblings in the zone's
+  // declared pack direction with the zone's gapPx, sorted by current
+  // position so the ordering reads naturally.
+  const byClass = new Map<SemanticClass, PositionedNode[]>()
+  for (const n of out) {
+    if (!byClass.has(n.semantic)) byClass.set(n.semantic, [])
+    byClass.get(n.semantic)!.push(n)
+  }
+  for (const [semClass, siblings] of byClass) {
+    if (siblings.length < 2) continue
+    const zone = LAYOUT_ZONES[semClass]
+    if (zone.pack === "vertical") {
+      siblings.sort((a, b) => a.y - b.y || a.x - b.x)
+      for (let i = 1; i < siblings.length; i++) {
+        const prev = siblings[i - 1]
+        const minY = prev.y + prev.height + zone.gapPx
+        if (siblings[i].y < minY) {
+          violations.push({
+            rule: "A7",
+            nodeId: siblings[i].id,
+            detail: `${semClass} sibling ${siblings[i].id}.y=${siblings[i].y.toFixed(1)} overlaps ${prev.id}.y=${prev.y.toFixed(1)} (vertical pack gap ${zone.gapPx}px)`,
+          })
+          siblings[i].y = minY
+        }
+      }
+    } else {
+      siblings.sort((a, b) => a.x - b.x || a.y - b.y)
+      for (let i = 1; i < siblings.length; i++) {
+        const prev = siblings[i - 1]
+        const minX = prev.x + prev.width + zone.gapPx
+        if (siblings[i].x < minX) {
+          violations.push({
+            rule: "A7",
+            nodeId: siblings[i].id,
+            detail: `${semClass} sibling ${siblings[i].id}.x=${siblings[i].x.toFixed(1)} overlaps ${prev.id}.x=${prev.x.toFixed(1)} (horizontal pack gap ${zone.gapPx}px)`,
+          })
+          siblings[i].x = minX
+        }
+      }
+    }
+  }
+
   return { nodes: out, violations }
 }
 
