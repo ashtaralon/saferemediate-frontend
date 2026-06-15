@@ -137,10 +137,13 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
   }, [data.copyValue, data.title])
 
   // Attack-path-priority rule — semantic class drives border/glow/opacity so
-  // ENTRY / IDENTITY / JEWEL visually dominate, CONTROL / OFF_SPINE recede.
+  // ENTRY / IDENTITY / NETWORK / JEWEL visually dominate, CONTROL / OFF_SPINE
+  // recede. Title is needed to split cat="network" into NETWORK (conduit) vs
+  // CONTROL (config metadata).
   const semantic = classifyNodeSemantic({
     cat: data.cat,
     badge: data.badge,
+    title: data.title,
     onPath: data.onPath,
   })
   const token = SEMANTIC_TOKENS[semantic]
