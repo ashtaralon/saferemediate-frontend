@@ -156,14 +156,51 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
     return { minX, minY, w: maxX - minX, h: maxY - minY }
   }, [positions, topology, backdrop])
 
-  const chainPoints = chain
-    .map((h) => positions.get(h.node_id))
-    .filter((p): p is Position => Boolean(p))
+  // Per-hop positions WITH duplicate offset.
+  // When the same node_id appears multiple times (e.g. EC2 footprint
+  // touched repeatedly by Internet → SG → IAM transitions), each occurrence
+  // gets a tiny circular offset around the base position so badges 1/3/5
+  // don't stack invisibly. This is presentation-only; the slot-mapper's
+  // deterministic position stays the canonical one.
+  const occurrenceMap = useMemo(() => {
+    const counts = new Map<string, number>()
+    return chain.map((h) => {
+      const n = counts.get(h.node_id) ?? 0
+      counts.set(h.node_id, n + 1)
+      return n
+    })
+  }, [chain])
+  const totalOccurrences = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const h of chain) m.set(h.node_id, (m.get(h.node_id) ?? 0) + 1)
+    return m
+  }, [chain])
 
-  // chain path string for animated stroke
-  const chainPath = chainPoints.length > 1
-    ? chainPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
+  const hopPositions = useMemo(
+    () =>
+      chain.map((h, idx) => {
+        const base = positions.get(h.node_id)
+        if (!base) return null
+        const total = totalOccurrences.get(h.node_id) ?? 1
+        if (total <= 1) return { x: base.x, y: base.y, base }
+        // Distribute occurrences on a small circle around the base point.
+        const occ = occurrenceMap[idx]
+        const radius = 22
+        const theta = (Math.PI * 2 * occ) / total - Math.PI / 2 // start at top
+        return { x: base.x + radius * Math.cos(theta), y: base.y + radius * Math.sin(theta), base }
+      }),
+    [chain, positions, occurrenceMap, totalOccurrences],
+  )
+
+  // chain path string uses offset hop positions so the spine touches every hop
+  const chainPath = hopPositions.filter(Boolean).length > 1
+    ? hopPositions
+        .filter((p): p is { x: number; y: number; base: Position } => Boolean(p))
+        .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+        .join(" ")
     : ""
+
+  const chainPoints = hopPositions.filter((p): p is { x: number; y: number; base: Position } => Boolean(p))
 
   // approximate total length so the dash animation feels right at any zoom
   const chainLength = useMemo(() => {
@@ -210,27 +247,40 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
         </filter>
       </defs>
 
-      {/* ── VPC banner (above the AZ row, not inside it) ─────────────── */}
-      <rect
-        x={topology.vpc.x}
-        y={topology.vpc.y - 26}
-        width={topology.vpc.w}
-        height={22}
-        rx={6}
-        fill="#0b1220"
-        stroke="#334155"
-        strokeWidth={1}
-      />
-      <text
-        x={topology.vpc.x + 12}
-        y={topology.vpc.y - 10}
-        fill="#94a3b8"
-        fontSize={11}
-        fontWeight={600}
-        letterSpacing="0.12em"
-      >
-        VPC · {topology.system}
-      </text>
+      {/* ── VPC banner — anchored ABOVE the highest subnet (not above
+           topology.vpc.y, which can sit below subnets when the adapter
+           returns absolute coords instead of vpc-relative). ─────────── */}
+      {(() => {
+        const subList = Object.values(topology.subnets)
+        const topSubnetY = subList.length
+          ? Math.min(...subList.map((s) => s.y))
+          : topology.vpc.y
+        const bannerY = topSubnetY - 30
+        return (
+          <>
+            <rect
+              x={topology.vpc.x}
+              y={bannerY}
+              width={topology.vpc.w}
+              height={22}
+              rx={6}
+              fill="#0b1220"
+              stroke="#334155"
+              strokeWidth={1}
+            />
+            <text
+              x={topology.vpc.x + 12}
+              y={bannerY + 15}
+              fill="#94a3b8"
+              fontSize={11}
+              fontWeight={600}
+              letterSpacing="0.12em"
+            >
+              VPC · {topology.system}
+            </text>
+          </>
+        )
+      })()}
 
       {/* VPC frame */}
       <rect
@@ -288,27 +338,34 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
         </g>
       ))}
 
-      {/* ── Backdrop tiles (every resource in the system, muted) ──── */}
-      {backdrop.map((t) => (
-        <g key={`bg-${t.node_id}`} opacity={0.45}>
-          <rect
-            x={t.x}
-            y={t.y}
-            width={44}
-            height={28}
-            rx={4}
-            fill="#1e293b"
-            stroke="#334155"
-            strokeWidth={0.75}
-          />
-          <text x={t.x + 22} y={t.y + 14} textAnchor="middle" fill="#64748b" fontSize={8} fontWeight={600}>
-            {glyph(t.node_type)}
-          </text>
-          <text x={t.x + 22} y={t.y + 24} textAnchor="middle" fill="#475569" fontSize={6}>
-            {(t.name ?? t.node_id).slice(-8)}
-          </text>
-        </g>
-      ))}
+      {/* ── Backdrop tiles (every resource in the system, muted) ────
+           Show glyph + head-of-name (first 8 chars). Tail truncation
+           produced gibberish like "e-pilot" / "be-plot" from lambdas
+           ending in -pilot. */}
+      {backdrop.map((t) => {
+        const nm = (t.name ?? t.node_id.split(":").pop() ?? t.node_id).replace(/^[^a-zA-Z0-9]+/, "")
+        const labelHead = nm.length > 9 ? `${nm.slice(0, 8)}…` : nm
+        return (
+          <g key={`bg-${t.node_id}`} opacity={0.5}>
+            <rect
+              x={t.x}
+              y={t.y}
+              width={44}
+              height={28}
+              rx={4}
+              fill="#1e293b"
+              stroke="#334155"
+              strokeWidth={0.75}
+            />
+            <text x={t.x + 22} y={t.y + 13} textAnchor="middle" fill="#94a3b8" fontSize={8} fontWeight={600}>
+              {glyph(t.node_type)}
+            </text>
+            <text x={t.x + 22} y={t.y + 23} textAnchor="middle" fill="#64748b" fontSize={6}>
+              {labelHead}
+            </text>
+          </g>
+        )
+      })}
 
       {/* ── Crown-jewel column ──────────────────────────────────────── */}
       <line
@@ -417,9 +474,12 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
 
       {/* ── Constraint bands on edges (deduped by gated edge) ───────── */}
       {movementEdges.map((edge) => {
-        const src = positions.get(edge.src)
-        const dst = positions.get(edge.dst)
-        if (!src || !dst) return null
+        // Use the actual rendered hop positions (with duplicate offset)
+        // so the chip sits on the spine, not at a logical midpoint that
+        // floats in empty space when duplicate hops overlap.
+        const srcHop = hopPositions[edge.src_index]
+        const dstHop = hopPositions[edge.dst_index]
+        if (!srcHop || !dstHop) return null
         const compressed = compressConstraintsForEdge(
           `${edge.src}→${edge.dst}`,
           payload.constraint_edges.filter(
@@ -428,8 +488,8 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
           new Date(),
         )
         if (!compressed.visible.length) return null
-        const mx = (src.x + dst.x) / 2
-        const my = (src.y + dst.y) / 2 - 14
+        const mx = (srcHop.x + dstHop.x) / 2
+        const my = (srcHop.y + dstHop.y) / 2 - 14
         const head = compressed.visible[0]
         const headLabel = `${head.node_type}${head.count > 1 ? ` ×${head.count}` : ""}${
           compressed.overflow > 0 ? ` +${compressed.overflow}` : ""
@@ -464,8 +524,9 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
 
       {/* ── Chain hop nodes ─────────────────────────────────────────── */}
       {chain.map((hop, idx) => {
-        const pos = positions.get(hop.node_id)
-        if (!pos) return null
+        const hp = hopPositions[idx]
+        if (!hp) return null
+        const pos = { ...hp.base, x: hp.x, y: hp.y }
         const color = VERDICT_COLOR[hop.verdict] ?? "#94a3b8"
         const isJewel = hop.is_crown_jewel || pos.anchor_kind === "jewel"
         const isLabel = pos.anchor_kind === "label"
