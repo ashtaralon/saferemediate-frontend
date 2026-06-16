@@ -20,6 +20,7 @@ import { HardeningPanel } from "./hardening-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import { AttackPathCardLightView } from "./attack-path-card-light"
 import { AttackPathContainmentMap } from "./attack-path-containment-map"
+import { CyntroAttackMap } from "@/components/attack-map/cyntro-attack-map"
 import { AttackSpineStrip } from "./attack-spine-strip"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { useClosurePreview } from "./use-closure-preview"
@@ -53,6 +54,8 @@ interface PathAnalysisPanelProps {
    *  Pure visual layer — no data/contract impact. Default false so
    *  legacy operators see the unchanged canvas. */
   canvasV2?: boolean
+  /** Opt-in Cyntro attack map stack (?map=cyntro). Default false. */
+  attackMapCyntro?: boolean
 }
 
 // V2-1 helper: middle-truncate a jewel name for the caption strip.
@@ -168,6 +171,7 @@ export function PathAnalysisPanel({
   onToggleExpand,
   architecture,
   canvasV2 = false,
+  attackMapCyntro = false,
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
@@ -413,9 +417,11 @@ export function PathAnalysisPanel({
         <div className="px-6 pt-3 pb-4">
           <div className="px-1 pb-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Cloud Graph
+              {attackMapCyntro ? "Cyntro Attack Map" : "Cloud Graph"}
               <span className="font-normal normal-case ml-2 text-[11px]">
-                Nested region · multi-AZ · subnets · network controls · path between services
+                {attackMapCyntro
+                  ? "Slot-mapper compiler · new stack (?map=cyntro)"
+                  : "Nested region · multi-AZ · subnets · network controls · path between services"}
               </span>
             </p>
           </div>
@@ -424,7 +430,9 @@ export function PathAnalysisPanel({
             style={{ boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }}
             data-testid="attack-path-flow-map-slot"
           >
-            {report ? (
+            {attackMapCyntro ? (
+              <CyntroAttackMap systemName={systemName} path={path} />
+            ) : report ? (
               <AttackPathContainmentMap
                 path={path}
                 report={report}
