@@ -302,9 +302,17 @@ function resolveResourceTile(node: GraphNode, ctx: Context): Position {
   if (!subnet) return driftLane(node, ctx, 'unknown_subnet'); // §6
 
   const groupId = t.membership[node.node_id]?.group_id ?? `${subnet.id}.raw`;
+  // Cross-subnet group leak guard: the backend's TopologySnapshot v1 keeps
+  // sg-cluster ids globally unique by name, not by (subnet, name) — so the
+  // same `sg-cluster-XYZ` id can resolve to one AZ's geometry while the
+  // resource declares another AZ. If that mismatch happens, treat as if
+  // the group is missing and fall back to the resource's own subnet-raw
+  // area. Without this, AZ 1A's resources visibly land inside AZ 1C.
+  const candidate = t.groups[groupId];
+  const groupMatchesSubnet = candidate && candidate.subnet_id === subnet.id;
   const group: GroupBox =
-    t.groups[groupId] ??
-    ({ id: groupId, subnet_id: subnet.id, x: subnet.x + 8, y: subnet.y + 8, w: subnet.w - 16, h: subnet.h - 16, kind: 'subnet_raw', capacity: ctx.density.tiles_per_row * 4 } as GroupBox);
+    (groupMatchesSubnet ? candidate : undefined) ??
+    ({ id: `${subnet.id}.raw`, subnet_id: subnet.id, x: subnet.x + 8, y: subnet.y + 8, w: subnet.w - 16, h: subnet.h - 16, kind: 'subnet_raw', capacity: ctx.density.tiles_per_row * 4 } as GroupBox);
 
   const anchorKey = `${subnet.az}|${subnet.id}|${group.id}`;
 
