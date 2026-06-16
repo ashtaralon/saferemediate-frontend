@@ -1,18 +1,18 @@
 /**
  * View-model adapters: compiler Position IR → reference-style map nodes/edges.
  * Does not alter slot-mapper placement — only labels, icons, and layering.
+ *
+ * Default render mode is PATH FOCUS: chain hops + on-path jewels only.
+ * Backdrop tiles and off-chain jewel stacks caused unreadable sprawl (#M1).
  */
 import {
   compressConstraintsForEdge,
   deriveMovementEdges,
-  resolveTopologySlot,
   type AttackMapPayload,
-  type Context,
   type DensityRules,
   type Fallback,
   type MovementEdge,
   type Position,
-  type TopologyResource,
   type TopologySnapshot,
   type Verdict,
 } from "./slot-mapper"
@@ -60,16 +60,30 @@ export interface MapBounds {
   h: number
 }
 
+export interface ChainStepView {
+  hopIndex: number
+  nodeId: string
+  label: string
+  nodeType: string
+  verdict: Verdict
+  isCrownJewel: boolean
+}
+
 export interface MapViewModel {
   nodes: MapViewNode[]
   movementEdges: MovementEdge[]
   constraintChips: ConstraintChipView[]
   bounds: MapBounds
   chainNodeIds: Set<string>
+  chainSteps: ChainStepView[]
+  chainSubnetIds: Set<string>
+  showDriftLane: boolean
+  scale: number
 }
 
 const CARD_W = 130
 const CARD_H = 60
+const PAD = 48
 
 export function visualTypeFromNodeType(nodeType: string): VisualNodeType {
   switch (nodeType) {
@@ -144,109 +158,75 @@ function posToCard(pos: Position): { x: number; y: number } {
   return { x: pos.x - CARD_W / 2, y: pos.y - CARD_H / 2 }
 }
 
-function backdropNodes(
-  topology: TopologySnapshot,
-  payload: AttackMapPayload,
-  density: DensityRules,
-  chainIds: Set<string>,
-  constraintIds: Set<string>,
-  placed: Set<string>,
-): MapViewNode[] {
-  const nodes: MapViewNode[] = []
-  const ctx: Context = {
-    topology,
-    chain: payload.movement_chain,
-    hop_index: -1,
-    movement_edges: [],
-    constraint_edges: [],
-    density,
-  }
-
-  const addResource = (r: TopologyResource) => {
-    if (chainIds.has(r.node_id) || constraintIds.has(r.node_id) || placed.has(r.node_id)) return
-    const pos = resolveTopologySlot(
-      {
-        node_id: r.node_id,
-        node_type: r.node_type,
-        verdict: "NOT_OBSERVED",
-        subnet_id: r.subnet_id,
-        az: r.az,
-      },
-      ctx,
-    )
-    if (pos.fallback) return
-    placed.add(r.node_id)
-    const { x, y } = posToCard(pos)
-    nodes.push({
-      id: r.node_id,
-      label: shortNodeLabel(r.node_id, r.node_type, r.name),
-      subLabel: shortSubLabel(r.node_id, r.node_type, r.name),
-      visualType: visualTypeFromNodeType(r.node_type),
-      x,
-      y,
-      onChain: false,
-      isCrownJewel: false,
-      muted: true,
-    })
-  }
-
-  for (const r of topology.resources) addResource(r)
-  return nodes
-}
-
-function computeBounds(
+function computeFocusBounds(
   topology: TopologySnapshot,
   positions: Map<string, Position>,
-  nodes: MapViewNode[],
+  chain: AttackMapPayload["movement_chain"],
+  showDriftLane: boolean,
 ): MapBounds {
-  let minX = topology.vpc.x - 48
-  let minY = topology.vpc.y - 96
-  let maxX = topology.crown_jewel_column.x + CARD_W + 24
-  let maxY = topology.drift_lane.y + topology.drift_lane.h + 72
+  const chainPositions = chain
+    .map((h) => positions.get(h.node_id))
+    .filter((p): p is Position => Boolean(p))
 
-  for (const p of positions.values()) {
-    minX = Math.min(minX, p.x - CARD_W / 2 - 12)
-    minY = Math.min(minY, p.y - CARD_H / 2 - 12)
-    maxX = Math.max(maxX, p.x + CARD_W / 2 + 24)
-    maxY = Math.max(maxY, p.y + CARD_H / 2 + 36)
-  }
-  for (const n of nodes) {
-    maxX = Math.max(maxX, n.x + CARD_W + 8)
-    maxY = Math.max(maxY, n.y + CARD_H + 8)
+  if (chainPositions.length === 0) {
+    return {
+      minX: topology.vpc.x - PAD,
+      minY: topology.vpc.y - PAD,
+      w: topology.vpc.w + PAD * 2,
+      h: topology.vpc.h + PAD * 2,
+    }
   }
 
-  return { minX, minY, w: maxX - minX, h: maxY - minY }
+  let minX = topology.vpc.x - PAD
+  let minY = topology.vpc.y - PAD
+  let maxX = topology.crown_jewel_column.x + CARD_W + PAD
+  let maxY = topology.vpc.y + topology.vpc.h + PAD
+
+  for (const p of chainPositions) {
+    minX = Math.min(minX, p.x - CARD_W / 2 - PAD)
+    minY = Math.min(minY, p.y - CARD_H / 2 - PAD)
+    maxX = Math.max(maxX, p.x + CARD_W / 2 + PAD)
+    maxY = Math.max(maxY, p.y + CARD_H / 2 + PAD)
+  }
+
+  if (showDriftLane) {
+    maxY = Math.max(maxY, topology.drift_lane.y + topology.drift_lane.h + PAD)
+  }
+
+  const w = Math.max(maxX - minX, 720)
+  const h = Math.max(maxY - minY, 420)
+  return { minX, minY, w, h }
 }
 
 export function buildMapViewModel(
   payload: AttackMapPayload,
   topology: TopologySnapshot,
   positions: Map<string, Position>,
-  density: DensityRules,
+  _density: DensityRules,
 ): MapViewModel {
   const chain = payload.movement_chain
   const chainIds = new Set(chain.map((h) => h.node_id))
-  const constraintIds = new Set(payload.constraint_edges.map((c) => c.constraint_node_id))
-  const placed = new Set<string>()
   const movementEdges = deriveMovementEdges(chain)
-
-  const nodes: MapViewNode[] = backdropNodes(
-    topology,
-    payload,
-    density,
-    chainIds,
-    constraintIds,
-    placed,
+  const chainSubnetIds = new Set(
+    chain.map((h) => h.subnet_id).filter((id): id is string => Boolean(id)),
   )
+
+  const showDriftLane = chain.some((h) => {
+    const p = positions.get(h.node_id)
+    return Boolean(p?.fallback)
+  })
+
+  const nodes: MapViewNode[] = []
+  const chainSteps: ChainStepView[] = []
 
   chain.forEach((hop, idx) => {
     const pos = positions.get(hop.node_id)
     if (!pos) return
     const { x, y } = posToCard(pos)
-    placed.add(hop.node_id)
+    const label = shortNodeLabel(hop.node_id, hop.node_type)
     nodes.push({
       id: `${hop.node_id}::hop-${idx}`,
-      label: shortNodeLabel(hop.node_id, hop.node_type),
+      label,
       subLabel: shortSubLabel(hop.node_id, hop.node_type),
       visualType: visualTypeFromNodeType(hop.node_type),
       x,
@@ -258,46 +238,19 @@ export function buildMapViewModel(
       muted: false,
       fallback: pos.fallback,
     })
-  })
-
-  for (const jewel of topology.crown_jewels) {
-    if (chainIds.has(jewel.node_id) || placed.has(jewel.node_id)) continue
-    let pos = positions.get(jewel.node_id)
-    if (!pos) {
-      const offChainIdx = topology.crown_jewels.filter(
-        (j) => !chainIds.has(j.node_id),
-      ).indexOf(jewel)
-      const chainJewelCount = chain.filter((h) => h.is_crown_jewel).length
-      pos = {
-        x: topology.crown_jewel_column.x,
-        y:
-          topology.crown_jewel_column.top_y +
-          (offChainIdx + chainJewelCount) * topology.crown_jewel_column.row_height,
-        layer: "L3_resource",
-        z_index: 30,
-        slot_id: `jewel.${jewel.node_id}`,
-        anchor_kind: "jewel",
-        placement_provenance: "hash",
-      }
-    }
-    const { x, y } = posToCard(pos)
-    placed.add(jewel.node_id)
-    nodes.push({
-      id: jewel.node_id,
-      label: shortNodeLabel(jewel.node_id, jewel.node_type, jewel.name),
-      subLabel: shortSubLabel(jewel.node_id, jewel.node_type, jewel.name),
-      visualType: visualTypeFromNodeType(jewel.node_type),
-      x,
-      y,
-      onChain: false,
-      isCrownJewel: true,
-      muted: true,
+    chainSteps.push({
+      hopIndex: idx + 1,
+      nodeId: hop.node_id,
+      label,
+      nodeType: hop.node_type,
+      verdict: hop.verdict,
+      isCrownJewel: Boolean(hop.is_crown_jewel),
     })
-  }
+  })
 
   const constraintChips: ConstraintChipView[] = []
   const now = new Date()
-  movementEdges.forEach((edge, edgeIdx) => {
+  movementEdges.forEach((edge) => {
     const src = positions.get(edge.src)
     const dst = positions.get(edge.dst)
     if (!src || !dst) return
@@ -320,10 +273,9 @@ export function buildMapViewModel(
         severity: head.severity,
       })
     })
-    void edgeIdx
   })
 
-  const bounds = computeBounds(topology, positions, nodes)
+  const bounds = computeFocusBounds(topology, positions, chain, showDriftLane)
 
   return {
     nodes,
@@ -331,6 +283,10 @@ export function buildMapViewModel(
     constraintChips,
     bounds,
     chainNodeIds: chainIds,
+    chainSteps,
+    chainSubnetIds,
+    showDriftLane,
+    scale: 1,
   }
 }
 
@@ -354,4 +310,16 @@ export function chainPathD(
 
   const d = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
   return { d, length: Math.max(40, length), points }
+}
+
+/** Fit content bounds into a viewport (may upscale small paths to fill the frame). */
+export function fitScaleForViewport(
+  bounds: MapBounds,
+  viewportW: number,
+  viewportH: number,
+): number {
+  if (viewportW <= 0 || viewportH <= 0) return 1
+  const sx = viewportW / bounds.w
+  const sy = viewportH / bounds.h
+  return Math.min(sx, sy)
 }
