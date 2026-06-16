@@ -402,7 +402,7 @@ export function AttackMapCanvas({ payload, topology, positions, density }: Attac
               {glyph(j.node_type)}
             </text>
             <text x={x + 16} y={y + 3} fill="#94a3b8" fontSize={8}>
-              {(j.name ?? j.node_id).slice(-14)}
+              {shortLabel(j.node_id, j.node_type, j.name)}
             </text>
           </g>
         )
