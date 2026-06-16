@@ -1,9 +1,9 @@
 /**
- * View-model adapters: compiler Position IR → reference-style map nodes/edges.
- * Does not alter slot-mapper placement — only labels, icons, and layering.
+ * View-model adapters: compiler payload → path-only presentation layout.
  *
- * Default render mode is PATH FOCUS: chain hops + on-path jewels only.
- * Backdrop tiles and off-chain jewel stacks caused unreadable sprawl (#M1).
+ * Slot-mapper positions are NOT used for rendering — only hop order, verdicts,
+ * and constraint edges from the compiler. Cards are laid out linearly 1→N so
+ * only the selected attack path is visible (no VPC/subnet/jewel backdrop).
  */
 import {
   compressConstraintsForEdge,
@@ -76,14 +76,16 @@ export interface MapViewModel {
   bounds: MapBounds
   chainNodeIds: Set<string>
   chainSteps: ChainStepView[]
-  chainSubnetIds: Set<string>
-  showDriftLane: boolean
-  scale: number
+  spinePoints: Array<{ x: number; y: number }>
+  spineLength: number
+  spinePath: string
 }
 
 const CARD_W = 130
 const CARD_H = 60
-const PAD = 48
+const HOP_STEP = CARD_W + 56
+const PAD = 40
+const ROW_H = 160
 
 export function visualTypeFromNodeType(nodeType: string): VisualNodeType {
   switch (nodeType) {
@@ -141,102 +143,110 @@ export function shortNodeLabel(nodeId: string, nodeType: string, name?: string |
   return nodeId.length > 22 ? `${nodeId.slice(0, 12)}…${nodeId.slice(-6)}` : nodeId
 }
 
-function shortSubLabel(nodeId: string, nodeType: string, name?: string | null): string {
-  if (nodeType === "Internet") return "External ingress"
-  if (nodeType === "EC2Instance" && nodeId.startsWith("i-")) return nodeId
-  if (name && name !== shortNodeLabel(nodeId, nodeType, name)) {
-    return name.length > 28 ? `${name.slice(0, 14)}…${name.slice(-10)}` : name
-  }
-  if (nodeId.startsWith("arn:")) {
-    const svc = nodeId.split(":")[2] ?? "aws"
-    return `${svc} resource`
-  }
-  return nodeType.replace(/([A-Z])/g, " $1").trim()
-}
-
-function posToCard(pos: Position): { x: number; y: number } {
-  return { x: pos.x - CARD_W / 2, y: pos.y - CARD_H / 2 }
-}
-
-function computeFocusBounds(
-  topology: TopologySnapshot,
+function hopSubLabel(
+  hop: AttackMapPayload["movement_chain"][number],
   positions: Map<string, Position>,
-  chain: AttackMapPayload["movement_chain"],
-  showDriftLane: boolean,
-): MapBounds {
-  const chainPositions = chain
-    .map((h) => positions.get(h.node_id))
-    .filter((p): p is Position => Boolean(p))
+): string {
+  if (hop.node_type === "Internet") return "External ingress"
+  const parts: string[] = []
+  if (hop.az) parts.push(hop.az.toUpperCase())
+  if (hop.subnet_id) parts.push(`subnet …${hop.subnet_id.slice(-6)}`)
+  const pos = positions.get(hop.node_id)
+  if (pos?.fallback) parts.push(pos.fallback.replace(/_/g, " "))
+  if (parts.length > 0) return parts.join(" · ")
+  return hop.node_type.replace(/([A-Z])/g, " $1").trim()
+}
 
-  if (chainPositions.length === 0) {
-    return {
-      minX: topology.vpc.x - PAD,
-      minY: topology.vpc.y - PAD,
-      w: topology.vpc.w + PAD * 2,
-      h: topology.vpc.h + PAD * 2,
-    }
+/** Linear 1→N layout — one path, no topology chrome. Wraps to a second row after 5 hops. */
+function layoutPathCenters(count: number): Array<{ x: number; y: number }> {
+  if (count === 0) return []
+  const perRow = count <= 5 ? count : Math.ceil(count / 2)
+  const centers: Array<{ x: number; y: number }> = []
+  for (let i = 0; i < count; i++) {
+    const row = count <= 5 ? 0 : Math.floor(i / perRow)
+    const col = count <= 5 ? i : i % perRow
+    const rowCount = row === 0 ? perRow : count - perRow
+    const rowWidth = (rowCount - 1) * HOP_STEP
+    const startX = PAD + CARD_W / 2 + Math.max(0, (perRow - 1) * HOP_STEP - rowWidth) / 2
+    centers.push({
+      x: startX + col * HOP_STEP,
+      y: PAD + CARD_H / 2 + 48 + row * ROW_H,
+    })
   }
+  return centers
+}
 
-  let minX = topology.vpc.x - PAD
-  let minY = topology.vpc.y - PAD
-  let maxX = topology.crown_jewel_column.x + CARD_W + PAD
-  let maxY = topology.vpc.y + topology.vpc.h + PAD
-
-  for (const p of chainPositions) {
-    minX = Math.min(minX, p.x - CARD_W / 2 - PAD)
-    minY = Math.min(minY, p.y - CARD_H / 2 - PAD)
-    maxX = Math.max(maxX, p.x + CARD_W / 2 + PAD)
-    maxY = Math.max(maxY, p.y + CARD_H / 2 + PAD)
+function buildSpine(centers: Array<{ x: number; y: number }>): {
+  path: string
+  length: number
+  points: Array<{ x: number; y: number }>
+} {
+  if (centers.length < 2) return { path: "", length: 0, points: centers }
+  let length = 0
+  for (let i = 1; i < centers.length; i++) {
+    const dx = centers[i].x - centers[i - 1].x
+    const dy = centers[i].y - centers[i - 1].y
+    length += Math.sqrt(dx * dx + dy * dy)
   }
+  const path = centers.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
+  return { path, length: Math.max(40, length), points: centers }
+}
 
-  if (showDriftLane) {
-    maxY = Math.max(maxY, topology.drift_lane.y + topology.drift_lane.h + PAD)
+function boundsFromCenters(centers: Array<{ x: number; y: number }>): MapBounds {
+  if (centers.length === 0) {
+    return { minX: 0, minY: 0, w: 480, h: 220 }
   }
-
-  const w = Math.max(maxX - minX, 720)
-  const h = Math.max(maxY - minY, 420)
-  return { minX, minY, w, h }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const c of centers) {
+    minX = Math.min(minX, c.x - CARD_W / 2 - PAD)
+    minY = Math.min(minY, c.y - CARD_H / 2 - PAD)
+    maxX = Math.max(maxX, c.x + CARD_W / 2 + PAD)
+    maxY = Math.max(maxY, c.y + CARD_H / 2 + PAD)
+  }
+  return {
+    minX: 0,
+    minY: 0,
+    w: Math.max(maxX + PAD, 480),
+    h: Math.max(maxY + PAD, 200),
+  }
 }
 
 export function buildMapViewModel(
   payload: AttackMapPayload,
-  topology: TopologySnapshot,
+  _topology: TopologySnapshot,
   positions: Map<string, Position>,
   _density: DensityRules,
 ): MapViewModel {
   const chain = payload.movement_chain
   const chainIds = new Set(chain.map((h) => h.node_id))
   const movementEdges = deriveMovementEdges(chain)
-  const chainSubnetIds = new Set(
-    chain.map((h) => h.subnet_id).filter((id): id is string => Boolean(id)),
-  )
-
-  const showDriftLane = chain.some((h) => {
-    const p = positions.get(h.node_id)
-    return Boolean(p?.fallback)
-  })
+  const centers = layoutPathCenters(chain.length)
+  const spine = buildSpine(centers)
 
   const nodes: MapViewNode[] = []
   const chainSteps: ChainStepView[] = []
 
   chain.forEach((hop, idx) => {
+    const center = centers[idx]
+    if (!center) return
     const pos = positions.get(hop.node_id)
-    if (!pos) return
-    const { x, y } = posToCard(pos)
     const label = shortNodeLabel(hop.node_id, hop.node_type)
     nodes.push({
       id: `${hop.node_id}::hop-${idx}`,
       label,
-      subLabel: shortSubLabel(hop.node_id, hop.node_type),
+      subLabel: hopSubLabel(hop, positions),
       visualType: visualTypeFromNodeType(hop.node_type),
-      x,
-      y,
+      x: center.x - CARD_W / 2,
+      y: center.y - CARD_H / 2,
       onChain: true,
       hopIndex: idx + 1,
       verdict: hop.verdict,
-      isCrownJewel: Boolean(hop.is_crown_jewel || pos.anchor_kind === "jewel"),
+      isCrownJewel: Boolean(hop.is_crown_jewel || pos?.anchor_kind === "jewel"),
       muted: false,
-      fallback: pos.fallback,
+      fallback: pos?.fallback,
     })
     chainSteps.push({
       hopIndex: idx + 1,
@@ -251,8 +261,10 @@ export function buildMapViewModel(
   const constraintChips: ConstraintChipView[] = []
   const now = new Date()
   movementEdges.forEach((edge) => {
-    const src = positions.get(edge.src)
-    const dst = positions.get(edge.dst)
+    const srcIdx = chain.findIndex((h) => h.node_id === edge.src)
+    const dstIdx = chain.findIndex((h) => h.node_id === edge.dst)
+    const src = centers[srcIdx]
+    const dst = centers[dstIdx]
     if (!src || !dst) return
     const edgeKey = `${edge.src}→${edge.dst}`
     const compressed = compressConstraintsForEdge(
@@ -261,12 +273,10 @@ export function buildMapViewModel(
       now,
     )
     compressed.visible.forEach((head, idx) => {
-      const mx = (src.x + dst.x) / 2
-      const my = (src.y + dst.y) / 2 - 14 + idx * 22
       constraintChips.push({
         id: `${edgeKey}-${head.node_type}-${idx}`,
-        x: mx - 40,
-        y: my - 10,
+        x: (src.x + dst.x) / 2 - 40,
+        y: (src.y + dst.y) / 2 - 28 + idx * 22,
         label: `${head.node_type}${head.count > 1 ? ` ×${head.count}` : ""}${
           compressed.overflow > 0 && idx === 0 ? ` +${compressed.overflow}` : ""
         }`,
@@ -275,7 +285,7 @@ export function buildMapViewModel(
     })
   })
 
-  const bounds = computeFocusBounds(topology, positions, chain, showDriftLane)
+  const bounds = boundsFromCenters(centers)
 
   return {
     nodes,
@@ -284,35 +294,23 @@ export function buildMapViewModel(
     bounds,
     chainNodeIds: chainIds,
     chainSteps,
-    chainSubnetIds,
-    showDriftLane,
-    scale: 1,
+    spinePoints: spine.points,
+    spineLength: spine.length,
+    spinePath: spine.path,
   }
 }
 
+/** @deprecated use MapViewModel.spinePath — kept for tests importing chainPathD */
 export function chainPathD(
   chain: AttackMapPayload["movement_chain"],
   positions: Map<string, Position>,
 ): { d: string; length: number; points: Array<{ x: number; y: number }> } {
-  const points = chain
-    .map((h) => positions.get(h.node_id))
-    .filter((p): p is Position => Boolean(p))
-    .map((p) => ({ x: p.x, y: p.y }))
-
-  if (points.length < 2) return { d: "", length: 0, points }
-
-  let length = 0
-  for (let i = 1; i < points.length; i++) {
-    const dx = points[i].x - points[i - 1].x
-    const dy = points[i].y - points[i - 1].y
-    length += Math.sqrt(dx * dx + dy * dy)
-  }
-
-  const d = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
-  return { d, length: Math.max(40, length), points }
+  const centers = layoutPathCenters(chain.length)
+  const spine = buildSpine(centers)
+  void positions
+  return { d: spine.path, length: spine.length, points: spine.points }
 }
 
-/** Fit content bounds into a viewport (may upscale small paths to fill the frame). */
 export function fitScaleForViewport(
   bounds: MapBounds,
   viewportW: number,
@@ -321,5 +319,5 @@ export function fitScaleForViewport(
   if (viewportW <= 0 || viewportH <= 0) return 1
   const sx = viewportW / bounds.w
   const sy = viewportH / bounds.h
-  return Math.min(sx, sy)
+  return Math.min(sx, sy, 1.5)
 }
