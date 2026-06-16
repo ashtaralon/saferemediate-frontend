@@ -33,6 +33,7 @@ import { useSearchParams } from "next/navigation"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { PathAnalysisPanel } from "./path-analysis-panel"
+import { useAttackMapCyntro } from "@/lib/attack-map/feature-flag"
 import {
   buildAttackerArchitecture,
   type GraphViewResponse,
@@ -115,6 +116,7 @@ export function AttackPathPanel({
   //   - ?canvas=v1   → legacy (rollback escape hatch)
   const searchParams = useSearchParams()
   const canvasV2 = searchParams?.get("canvas") !== "v1"
+  const attackMapCyntro = useAttackMapCyntro()
 
   const fetchUrl = useMemo(() => {
     if (!systemName || !jewelId || !pathId) return null
@@ -317,6 +319,7 @@ export function AttackPathPanel({
       onToggleExpand={onToggleExpand}
       architecture={architecture}
       canvasV2={canvasV2}
+      attackMapCyntro={attackMapCyntro}
     />
   )
 }

@@ -8,13 +8,19 @@ const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ systemName: string }> },
+  { params }: { params: Promise<{ pathId: string }> },
 ) {
   try {
-    const { systemName } = await params
-    const shape = request.nextUrl.searchParams.get("shape") ?? "full"
+    const { pathId } = await params
+    const system = request.nextUrl.searchParams.get("system")
+    if (!system) {
+      return NextResponse.json(
+        { error: "missing_system", detail: "system query param is required" },
+        { status: 400 },
+      )
+    }
 
-    const url = `${BACKEND_URL}/api/topology/${encodeURIComponent(systemName)}?shape=${encodeURIComponent(shape)}`
+    const url = `${BACKEND_URL}/api/attack-path/${encodeURIComponent(pathId)}?system=${encodeURIComponent(system)}`
     const response = await fetch(url, {
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -27,9 +33,9 @@ export async function GET(
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error("[topology proxy]", error)
+    console.error("[attack-map proxy]", error)
     return NextResponse.json(
-      { error: "proxy_failed", detail: "Failed to fetch topology data" },
+      { error: "proxy_failed", detail: "Failed to fetch attack map payload" },
       { status: 500 },
     )
   }
