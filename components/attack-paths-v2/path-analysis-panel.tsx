@@ -54,7 +54,7 @@ interface PathAnalysisPanelProps {
    *  Pure visual layer — no data/contract impact. Default false so
    *  legacy operators see the unchanged canvas. */
   canvasV2?: boolean
-  /** Opt-in Cyntro attack map stack (?map=cyntro). Default false. */
+  /** Cyntro attack map stack. Default true; ?map=legacy for old Cloud Graph. */
   attackMapCyntro?: boolean
 }
 
@@ -171,7 +171,7 @@ export function PathAnalysisPanel({
   onToggleExpand,
   architecture,
   canvasV2 = false,
-  attackMapCyntro = false,
+  attackMapCyntro = true,
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
@@ -420,8 +420,8 @@ export function PathAnalysisPanel({
               {attackMapCyntro ? "Cyntro Attack Map" : "Cloud Graph"}
               <span className="font-normal normal-case ml-2 text-[11px]">
                 {attackMapCyntro
-                  ? "Slot-mapper compiler · new stack (?map=cyntro)"
-                  : "Nested region · multi-AZ · subnets · network controls · path between services"}
+                  ? "Slot-mapper compiler · new stack (?map=legacy for old view)"
+                  : "Legacy Cloud Graph · ?map=legacy"}
               </span>
             </p>
           </div>

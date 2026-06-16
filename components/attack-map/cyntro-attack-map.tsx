@@ -79,7 +79,7 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
             compiler {data.payload.path_id.slice(0, 8)}… · score {data.payload.score}
           </span>
         </p>
-        <span className="text-[10px] text-muted-foreground">?map=cyntro</span>
+        <span className="text-[10px] text-muted-foreground">?map=legacy for old view</span>
       </div>
       <AttackMapCanvas
         payload={data.payload}
