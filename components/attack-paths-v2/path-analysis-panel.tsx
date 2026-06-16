@@ -459,7 +459,7 @@ export function PathAnalysisPanel({
           <div
             className={`relative overflow-auto ${
               attackMapCyntro
-                ? "rounded-[14px]"
+                ? "min-h-[560px] rounded-[14px]"
                 : "rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px]"
             }`}
             style={

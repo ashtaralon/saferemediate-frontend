@@ -48,17 +48,22 @@ export function AttackMapExperience({
 
   const strokeColor = LENS_STROKE[activeLens]
   const { bounds } = model
+  const canvasH = Math.max(bounds.h, 520)
 
   return (
     <div
       className="flex flex-col gap-3 rounded-xl border border-slate-800/60 bg-[#090D16] p-3 shadow-xl"
       data-testid="cyntro-attack-map-experience"
+      data-map-version="v3"
     >
       <div className="flex flex-col gap-3 border-b border-slate-800/40 pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-100">
             <Layers className="h-4 w-4 text-cyan-500" />
             Active Threat Flow Topology
+            <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-cyan-400">
+              v3
+            </span>
           </h2>
           <p className="mt-0.5 font-mono text-[11px] text-slate-500">
             {topology.system} · blast {payload.score}
@@ -99,21 +104,22 @@ export function AttackMapExperience({
         </div>
       </div>
 
-      <div className="relative overflow-x-auto rounded-xl border border-slate-900 bg-slate-950/40 shadow-inner">
+      <div className="relative max-h-[78vh] min-h-[520px] overflow-auto rounded-xl border border-slate-900 bg-slate-950/40 shadow-inner">
         <div
-          className="relative mx-auto select-none"
+          className="relative w-max select-none"
           style={{
             width: `${bounds.w}px`,
-            height: `${Math.max(bounds.h, 480)}px`,
-            minWidth: `${bounds.w}px`,
-            minHeight: "480px",
+            height: `${canvasH}px`,
+            minWidth: "1000px",
+            minHeight: "520px",
           }}
           data-testid="cyntro-attack-map-canvas"
         >
           <svg
-            className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
-            viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`}
-            preserveAspectRatio="xMidYMid meet"
+            className="pointer-events-none absolute left-0 top-0 overflow-visible"
+            width={bounds.w}
+            height={canvasH}
+            viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${canvasH}`}
             aria-hidden
           >
             <defs>
