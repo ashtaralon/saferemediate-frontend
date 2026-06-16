@@ -90,6 +90,7 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
         payload={data.payload}
         topology={data.topology}
         positions={data.positions}
+        density={data.density}
       />
     </div>
   )

@@ -158,6 +158,26 @@ export interface JewelColumn {
   max_columns: number; // hard cap = 3 (§4.5)
 }
 
+/** Background population — every resource and crown jewel in the system,
+ * not just chain hops. The renderer draws muted ghost tiles so AZ/subnet
+ * containers carry visible context instead of looking empty. */
+export interface TopologyResource {
+  node_id: string;
+  node_type: string;
+  name: string | null;
+  subnet_id: string;
+  az: string;
+  group_id: string;
+}
+
+export interface TopologyCrownJewel {
+  node_id: string;
+  node_type: string;
+  name: string | null;
+  column_index: number;
+  row_index: number;
+}
+
 export interface TopologySnapshot {
   system: string;
   vpc: Box;
@@ -165,6 +185,10 @@ export interface TopologySnapshot {
   groups: Record<string, GroupBox>;
   /** node_id → structural anchor. Mirrors the compiler's minimal projection. */
   membership: Record<string, { subnet_id?: string; az?: string; group_id?: string }>;
+  /** All system resources — populates background tiles. Empty array OK. */
+  resources: TopologyResource[];
+  /** All crown jewels — populates jewel column even when off-chain. Empty OK. */
+  crown_jewels: TopologyCrownJewel[];
   crown_jewel_column: JewelColumn;
   /** quarantine lane for nodes the template cannot place (§5 invariant 10/11). */
   drift_lane: Box;

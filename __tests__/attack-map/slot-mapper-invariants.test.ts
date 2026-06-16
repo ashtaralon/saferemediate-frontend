@@ -75,6 +75,8 @@ function makeTopology(opts: {
     subnets,
     groups,
     membership: opts.membership ?? {},
+    resources: [],
+    crown_jewels: [],
     crown_jewel_column: opts.jewel_column ?? makeJewelColumn(),
     drift_lane: { x: 20, y: 620, w: 1060, h: 80 },
     orphan_lane: { x: 20, y: 710, w: 1060, h: 80 },

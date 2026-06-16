@@ -165,6 +165,21 @@ export function adaptTopologyFull(api: TopologySnapshotFullApi): TopologySnapsho
     subnets: subnetBoxes,
     groups: groupBoxes,
     membership,
+    resources: api.resources.map((r) => ({
+      node_id: r.node_id,
+      node_type: r.node_type,
+      name: r.name ?? null,
+      subnet_id: r.subnet_id,
+      az: r.az,
+      group_id: r.group_id,
+    })),
+    crown_jewels: api.crown_jewels.map((j) => ({
+      node_id: j.node_id,
+      node_type: j.node_type,
+      name: j.name ?? null,
+      column_index: j.column_index,
+      row_index: j.row_index,
+    })),
     crown_jewel_column: {
       x: jewelX,
       top_y: vpc.y + 36,
