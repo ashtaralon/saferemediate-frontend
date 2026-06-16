@@ -2,7 +2,10 @@
 
 import { useSearchParams } from "next/navigation"
 
-/** Cyntro attack map stack — default on since #184/#185/#186 shipped.
+/** Cyntro attack map stack — default on (re-enabled 2026-06-17 after
+ * canvas v2: populated backdrop tiles, animated spine, deduped constraint
+ * bands, VPC banner relocated above AZ row, hop ordinal badges on every
+ * chain node).
  *
  * URL convention (mirrors ?canvas=v1 rollback hatch):
  *   - No ?map=        → new Cyntro map (default)
