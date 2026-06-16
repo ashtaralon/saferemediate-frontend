@@ -374,11 +374,12 @@ export function PathAnalysisPanel({
                 Dev bridge report (?reportBridge=1) — backend report unavailable; values compiled in-browser.
               </div>
             )}
-            {/* CISO 5-second surface — the four-card kill chain that the entire
-                rest of the page exists to explain. Always rendered first. */}
-            <div className="mb-4">
-              <AttackSpineStrip report={report} path={path} />
-            </div>
+            {/* CISO 5-second surface — hidden when Cyntro map owns the narrative */}
+            {!attackMapCyntro && (
+              <div className="mb-4">
+                <AttackSpineStrip report={report} path={path} />
+              </div>
+            )}
             <AttackPathCardLightView
               report={report}
               path={path}
@@ -441,21 +442,31 @@ export function PathAnalysisPanel({
             path has nodes: a LINEAR phase-by-phase read of the spine
             whose numbers match the map's step badges, since the lane
             layout makes the numbered spine zigzag on the canvas. */}
-        {(path.nodes?.length ?? 0) > 0 && <KillChainStrip nodes={path.nodes} />}
-        <div className="px-6 pt-3 pb-4">
-          <div className="px-1 pb-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              {attackMapCyntro ? "Cyntro Attack Map" : "Cloud Graph"}
-              <span className="font-normal normal-case ml-2 text-[11px]">
-                {attackMapCyntro
-                  ? "Slot-mapper compiler · new stack (?map=legacy for old view)"
-                  : "Legacy Cloud Graph · ?map=legacy"}
-              </span>
-            </p>
-          </div>
+        {!attackMapCyntro && (path.nodes?.length ?? 0) > 0 && (
+          <KillChainStrip nodes={path.nodes} />
+        )}
+        <div className={`${attackMapCyntro ? "px-3 pt-2 pb-3" : "px-6 pt-3 pb-4"}`}>
+          {!attackMapCyntro && (
+            <div className="px-1 pb-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Cloud Graph
+                <span className="font-normal normal-case ml-2 text-[11px]">
+                  Legacy Cloud Graph · ?map=legacy
+                </span>
+              </p>
+            </div>
+          )}
           <div
-            className="relative rounded-[14px] border border-border bg-card overflow-auto px-1 py-1 max-h-[760px]"
-            style={{ boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }}
+            className={`relative overflow-auto ${
+              attackMapCyntro
+                ? "rounded-[14px]"
+                : "rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px]"
+            }`}
+            style={
+              attackMapCyntro
+                ? undefined
+                : { boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }
+            }
             data-testid="attack-path-flow-map-slot"
           >
             {attackMapCyntro ? (

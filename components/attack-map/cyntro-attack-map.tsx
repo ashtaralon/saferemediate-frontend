@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
-import { AttackMapCanvas } from "./attack-map-canvas"
+import { AttackMapExperience } from "./attack-map-experience"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
@@ -71,22 +71,8 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
   }
 
   return (
-    <div className="space-y-2" data-testid="cyntro-attack-map">
-      <div className="flex items-center justify-between px-2 pt-1">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-violet-400">
-          Cyntro Attack Map
-          <span className="ml-2 font-normal normal-case text-muted-foreground">
-            compiler {data.payload.path_id.slice(0, 8)}… · blast {data.payload.score}
-            {data.payload.blast?.crown_jewels_reachable
-              ? ` · ${data.payload.blast.crown_jewels_reachable} jewel${
-                  data.payload.blast.crown_jewels_reachable === 1 ? "" : "s"
-                }`
-              : ""}
-          </span>
-        </p>
-        <span className="text-[10px] text-muted-foreground">?map=legacy for old view</span>
-      </div>
-      <AttackMapCanvas
+    <div data-testid="cyntro-attack-map">
+      <AttackMapExperience
         payload={data.payload}
         topology={data.topology}
         positions={data.positions}
