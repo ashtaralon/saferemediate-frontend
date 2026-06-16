@@ -116,6 +116,7 @@ export function AttackPathPanel({
   //   - ?canvas=v1   → legacy (rollback escape hatch)
   const searchParams = useSearchParams()
   const canvasV2 = searchParams?.get("canvas") !== "v1"
+  // Map stack: default = Cyntro SVG; ?map=legacy rolls back to containment map.
   const attackMapCyntro = useAttackMapCyntro()
 
   const fetchUrl = useMemo(() => {
