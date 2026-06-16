@@ -76,7 +76,12 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-violet-400">
           Cyntro Attack Map
           <span className="ml-2 font-normal normal-case text-muted-foreground">
-            compiler {data.payload.path_id.slice(0, 8)}… · score {data.payload.score}
+            compiler {data.payload.path_id.slice(0, 8)}… · blast {data.payload.score}
+            {data.payload.blast?.crown_jewels_reachable
+              ? ` · ${data.payload.blast.crown_jewels_reachable} jewel${
+                  data.payload.blast.crown_jewels_reachable === 1 ? "" : "s"
+                }`
+              : ""}
           </span>
         </p>
         <span className="text-[10px] text-muted-foreground">?map=legacy for old view</span>

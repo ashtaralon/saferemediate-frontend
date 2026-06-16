@@ -84,7 +84,10 @@ function killChainPhase(node: PathNodeDetail): KillChainPhase {
   // hint) — identity patterns must win first.
   if (/role|instance.?profile|policy/.test(t)) return "IDENTITY"
   if (/s3|bucket|rds|dynamo|kms|secret/.test(t)) return "DATA"
-  if (/subnet|security.?group|nacl|networkacl|route|vpce|vpc.?endpoint|igw|internet.?gateway|nat/.test(t)) return "NETWORK"
+  // `\bvpc\b` catches bare "vpc" type. Without it, a VPC node falls through
+  // to the ENTRY fallback (#191 — VPC labeled as ENTRY on the chip strip).
+  // VPCE / vpc-endpoint already match before this via `vpce|vpc.?endpoint`.
+  if (/subnet|security.?group|nacl|networkacl|route|vpce|vpc.?endpoint|\bvpc\b|igw|internet.?gateway|nat/.test(t)) return "NETWORK"
   if (isPrincipalNodeType(node.type) || /ec2|lambda|ecs|instance|principal|user/.test(t)) return "ENTRY"
   // Unknown type → fall back to the path tier the backend assigned.
   if (node.tier === "network_control") return "NETWORK"
@@ -96,10 +99,35 @@ function killChainPhase(node: PathNodeDetail): KillChainPhase {
 function KillChainStrip({ nodes }: { nodes: PathNodeDetail[] }) {
   // Segments: every node is its own segment EXCEPT consecutive NETWORK
   // nodes, which collapse into one "NETWORK PASSAGE · n hops" segment
-  // (step range + tooltip list) so the strip stays one line.
+  // (step range + tooltip list) so the strip stays one line. We also drop
+  // consecutive duplicate (id OR name) so InstanceProfile+IAMRole pairs
+  // — both classed as IDENTITY, same name — don't render as two separate
+  // chips (#191 — "IDENTITY cyntro-demo-ec2-s3-role" appeared twice).
   const segments = useMemo(() => {
+    // Step 1: deduplicate consecutive nodes that are functionally identical.
+    // Compare by canonical_id ?? id first; fall back to (phase, name) to
+    // collapse profile-then-role pairs that share a friendly name.
+    const dedup: PathNodeDetail[] = []
+    nodes.forEach((n) => {
+      const prev = dedup[dedup.length - 1]
+      if (prev) {
+        const prevKey = prev.canonical_id ?? prev.id
+        const nKey = n.canonical_id ?? n.id
+        if (prevKey && nKey && prevKey === nKey) return
+        if (
+          killChainPhase(prev) === killChainPhase(n) &&
+          prev.name &&
+          n.name &&
+          prev.name === n.name
+        ) {
+          return
+        }
+      }
+      dedup.push(n)
+    })
+    // Step 2: existing segmentation, applied to the deduped list.
     const segs: Array<{ phase: KillChainPhase; nodes: Array<PathNodeDetail & { step: number }> }> = []
-    nodes.forEach((n, idx) => {
+    dedup.forEach((n, idx) => {
       const phase = killChainPhase(n)
       const entry = { ...n, step: idx + 1 }
       const prev = segs[segs.length - 1]
