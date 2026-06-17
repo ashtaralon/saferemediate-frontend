@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { AttackMapExperience } from "./attack-map-experience"
+import { MapViewToggle } from "./map-view-toggle"
 import { TargetAttackMap } from "./target-attack-map"
 import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
+import { useMapViewVariant } from "@/lib/attack-map/use-map-view-variant"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 
@@ -38,8 +39,7 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
     }
   }, [path])
 
-  const searchParams = useSearchParams()
-  const mapMode = searchParams?.get("map")
+  const { variant, setVariant } = useMapViewVariant()
 
   const { data, loading, error, retry } = useCyntroAttackMap(
     systemName,
@@ -77,8 +77,11 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
   }
 
   return (
-    <div data-testid="cyntro-attack-map">
-      {mapMode === "target" ? (
+    <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
+      <div className="flex justify-end px-1">
+        <MapViewToggle variant={variant} onChange={setVariant} />
+      </div>
+      {variant === "target" ? (
         <TargetAttackMap topo={toTargetTopology(data.payload, data.topology)} />
       ) : (
         <AttackMapExperience
