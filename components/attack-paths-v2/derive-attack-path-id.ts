@@ -52,8 +52,12 @@ export async function deriveAttackPathId(
 
 /** Prefer backend field; derive client-side when prod hasn't shipped attack_path_id yet. */
 export async function resolveClosurePathId(
-  path: Pick<IdentityAttackPath, "id" | "attack_path_id" | "nodes" | "crown_jewel_id">,
+  path: Pick<IdentityAttackPath, "id" | "attack_path_id" | "nodes" | "crown_jewel_id"> & {
+    materialized_path?: { id?: string | null } | null
+  },
 ): Promise<string> {
+  const fromMaterialized = path.materialized_path?.id
+  if (fromMaterialized) return fromMaterialized
   if (path.attack_path_id) return path.attack_path_id
   const derived = await deriveAttackPathId(path.nodes, path.crown_jewel_id)
   return derived ?? path.id

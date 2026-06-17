@@ -17,6 +17,7 @@ import type {
   IdentityAttackPath,
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
 import type { AttackPathReport } from "./attack-path-report-types"
@@ -64,7 +65,7 @@ export function useAttackPathReport(
     // open-ended 30–60s spinner waiting on the 55s proxy abort. A warm backend
     // returns in ~0.3s; 15s comfortably covers a cold Aura/Render wake, and the
     // single retry below gives the now-warm backend a fast second chance.
-    const ATTEMPT_TIMEOUT_MS = 15_000
+    const ATTEMPT_TIMEOUT_MS = 25_000
     const fetchReport = async (pathId: string): Promise<AttackPathReport> => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), ATTEMPT_TIMEOUT_MS)
@@ -77,7 +78,11 @@ export function useAttackPathReport(
         if (r.ok && body && !body.error && Array.isArray(body.claims)) {
           return body as AttackPathReport
         }
-        throw new Error(body?.error ?? `http_${r.status}`)
+        const msg = coerceProxyErrorMessage(
+          body,
+          (body as { error?: string } | null)?.error ?? `http_${r.status}`,
+        )
+        throw new Error(msg)
       } finally {
         clearTimeout(timer)
       }
@@ -95,8 +100,8 @@ export function useAttackPathReport(
         return
       }
 
-      // Backend-first with a single retry (covers cold-start / timeout).
-      for (let attempt = 0; attempt < 2; attempt++) {
+      // Backend-first with retries (cold Render/Aura wake).
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const rep = await fetchReport(pathId)
           if (cancelled) return
@@ -107,8 +112,8 @@ export function useAttackPathReport(
           return
         } catch (e) {
           if (cancelled) return
-          if (attempt === 0) {
-            await new Promise((res) => setTimeout(res, 1200))
+          if (attempt < 2) {
+            await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)))
             continue
           }
           // Final failure. Honest unavailable state — NOT a contradicting

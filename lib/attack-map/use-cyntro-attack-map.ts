@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import {
   layoutPayload,
   type AttackMapPayload,
@@ -22,24 +23,6 @@ interface State {
   data: CyntroAttackMapResult | null
   loading: boolean
   error: string | null
-}
-
-// Coerce an error response body into a readable string. The backend sometimes
-// returns `detail` as an object/array (e.g. FastAPI validation errors); passing
-// that straight to `new Error()` produced a message of "[object Object]" on the
-// map. Always resolve to a string the UI can show.
-function errBodyMessage(body: unknown, fallback: string): string {
-  const d = (body as { detail?: unknown; error?: unknown } | null)?.detail
-    ?? (body as { error?: unknown } | null)?.error
-  if (typeof d === "string" && d.trim()) return d
-  if (d != null) {
-    try {
-      return typeof d === "object" ? JSON.stringify(d) : String(d)
-    } catch {
-      return fallback
-    }
-  }
-  return fallback
 }
 
 export function useCyntroAttackMap(
@@ -81,11 +64,11 @@ export function useCyntroAttackMap(
 
         if (!payloadRes.ok) {
           const body = await payloadRes.json().catch(() => ({}))
-          throw new Error(errBodyMessage(body, `attack-map ${payloadRes.status}`))
+          throw new Error(coerceProxyErrorMessage(body, `attack-map ${payloadRes.status}`))
         }
         if (!topoRes.ok) {
           const body = await topoRes.json().catch(() => ({}))
-          throw new Error(errBodyMessage(body, `topology ${topoRes.status}`))
+          throw new Error(coerceProxyErrorMessage(body, `topology ${topoRes.status}`))
         }
 
         const rawPayload = (await payloadRes.json()) as AttackMapPayload
