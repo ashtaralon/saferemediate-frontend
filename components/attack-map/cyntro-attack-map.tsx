@@ -9,7 +9,7 @@ import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { useMapViewVariant } from "@/lib/attack-map/use-map-view-variant"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
-import { AwsArchitectureAttackMap } from "@/components/attack-paths-v2/aws-architecture-attack-map"
+import { AttackPathContainmentMap } from "@/components/attack-paths-v2/attack-path-containment-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
@@ -71,7 +71,7 @@ export function CyntroAttackMap({
           <MapViewToggle variant={variant} onChange={setVariant} />
         </div>
         {report && architecture ? (
-          <AwsArchitectureAttackMap
+          <AttackPathContainmentMap
             path={path}
             report={report}
             architecture={architecture}

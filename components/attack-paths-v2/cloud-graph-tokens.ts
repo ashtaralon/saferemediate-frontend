@@ -44,3 +44,29 @@ export function typeColorForCategory(cat: string): string {
       return CG.muted
   }
 }
+
+// v3 basis palette — an edge reads by its EVIDENCE, not its hop type:
+//   observed (proven in logs) = green · configured-only (allowed, unproven) = grey
+//   · encryption = teal. Falls back to the model's gate-aware color when the
+//   `observed` boolean isn't carried (spine edges encode basis as a hex color
+//   via gateEdgeColor: OPEN_OBSERVED #c0392b, OPEN_CONFIG #b5710f).
+export const BASIS = {
+  observed: "#16a34a",
+  config: "#9AA6B5",
+  encrypt: "#0A9D87",
+} as const
+
+export function basisEdgeColor(opts: {
+  style?: string
+  observed?: boolean | null
+  modelColor?: string
+  layer?: string
+}): string {
+  if (opts.style === "enc") return BASIS.encrypt
+  if (opts.observed === true) return BASIS.observed
+  if (opts.observed === false) return BASIS.config
+  if (opts.modelColor === "#c0392b") return BASIS.observed
+  if (opts.modelColor === "#b5710f") return BASIS.config
+  if (opts.style === "priv") return BASIS.config
+  return opts.layer === "path" ? BASIS.observed : BASIS.config
+}

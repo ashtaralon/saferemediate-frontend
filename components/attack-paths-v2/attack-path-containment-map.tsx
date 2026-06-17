@@ -15,7 +15,7 @@ import {
 } from "./build-containment-from-architecture"
 import { CAT_COLOR, type TopologyResponse } from "./containment-model"
 import { CloudGraphFlowCanvas } from "./cloud-graph-flow-canvas"
-import { CG } from "./cloud-graph-tokens"
+import { CG, BASIS } from "./cloud-graph-tokens"
 import {
   Dialog,
   DialogContent,
@@ -288,9 +288,9 @@ function Legend({ compact }: { compact?: boolean }) {
     { sw: CAT_COLOR.network.c, label: "Networking · IGW / VPCE" },
     { sw: CAT_COLOR.storage.c, label: "Storage · S3" },
     { sw: CAT_COLOR.security.c, label: "Security · IAM / KMS" },
-    { ln: CG.attack, label: "Attack path (animated pulse)" },
-    { ln: CG.encrypt, dash: true, label: "Encrypts" },
-    { ln: CG.priv, dash: true, label: "Private · unused" },
+    { ln: BASIS.observed, label: "Observed (proven in logs)" },
+    { ln: BASIS.config, dash: true, label: "Configured-only (allowed)" },
+    { ln: BASIS.encrypt, dash: true, label: "Encrypts" },
   ]
   return (
     <div

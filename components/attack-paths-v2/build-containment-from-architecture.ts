@@ -365,6 +365,7 @@ function ensureAttackPathSpine(
       layer: "path",
       sourceId: "user",
       targetId: opts.igwId,
+      observed: gates.network === "OPEN_OBSERVED",
     })
   }
   if (igwAnchor && anchors.foothold) {
@@ -376,6 +377,7 @@ function ensureAttackPathSpine(
       layer: "path",
       sourceId: opts.igwId,
       targetId: opts.footholdId,
+      observed: gates.network === "OPEN_OBSERVED",
     })
   }
   if (anchors.foothold && profileAnchor) {

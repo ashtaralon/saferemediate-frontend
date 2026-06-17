@@ -16,6 +16,7 @@ import {
   enforceContainmentOnModel,
 } from "./cloud-graph-hierarchy"
 import { classifyNodeSemantic } from "./cloud-graph-semantic"
+import { basisEdgeColor } from "./cloud-graph-tokens"
 
 function frameContains(outer: CMFrame, inner: { x: number; y: number; w: number; h: number }): boolean {
   const cx = inner.x + inner.w / 2
@@ -298,12 +299,14 @@ function buildEdges(
         type: MarkerType.ArrowClosed,
         width: isPath ? 16 : 14,
         height: isPath ? 16 : 14,
-        color: e.style === "enc" ? "#0A9D87" : e.style === "priv" ? "#3fa037" : "#D9303F",
+        color: basisEdgeColor({ style: e.style, observed: e.observed, modelColor: e.color, layer: e.layer }),
       },
       data: {
         label: e.label,
         edgeStyle: e.style,
         layer: e.layer,
+        observed: e.observed ?? null,
+        baseColor: e.color,
         step: isPath ? step : undefined,
         pulseDelay: step != null ? (step - 1) * 0.35 : 0,
         dimmed: dimCtx && !isPath && !e.flowActive,

@@ -7,7 +7,7 @@ import {
   getSmoothStepPath,
   type EdgeProps,
 } from "reactflow"
-import { CG } from "./cloud-graph-tokens"
+import { CG, basisEdgeColor } from "./cloud-graph-tokens"
 import type { Layer } from "./containment-model"
 import {
   EDGE_ROUTING_TOKENS,
@@ -20,6 +20,10 @@ export interface FlowEdgeData {
   /** Mirrors CMEdge.layer — accepts "frame" for containment-internal edges
    * even though the renderer only reacts to "path" today. */
   layer: Layer
+  /** Evidence basis from the graph — true = observed in logs, false = configured-only. */
+  observed?: boolean | null
+  /** The model's gate-aware color (fallback when `observed` isn't carried). */
+  baseColor?: string
   step?: number
   pulseDelay?: number
   dimmed?: boolean
@@ -72,13 +76,15 @@ export const CloudGraphEdge = memo(function CloudGraphEdge({
   const token = EDGE_ROUTING_TOKENS[cls]
   const style = data?.edgeStyle ?? "path"
 
-  // Spine = deep slate; infra keeps its category hue; metadata reads gray
-  // (it'll be invisible at opacity 0 anyway).
-  const color =
-    cls === "spine" ? "#2b3a4b" :
-    style === "enc" ? CG.encrypt :
-    style === "priv" ? CG.priv :
-    CG.faint
+  // v3 basis coloring — observed (proven) reads green, configured-only reads
+  // grey, encryption teal. Replaces the old flat-slate spine that discarded the
+  // model's gate-aware basis. metadata edges stay invisible via token.opacity.
+  const color = basisEdgeColor({
+    style,
+    observed: data?.observed,
+    modelColor: data?.baseColor,
+    layer: data?.layer,
+  })
 
   const strokeWidth = token.width
   const dash =

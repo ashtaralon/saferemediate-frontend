@@ -2,8 +2,27 @@
 
 import { memo, useCallback } from "react"
 import { Handle, Position, type NodeProps } from "reactflow"
+import { Server, Globe, Database, KeyRound, User, ArrowRight, Crown, type LucideIcon } from "lucide-react"
 import { CG, typeColorForCategory } from "./cloud-graph-tokens"
 import { classifyNodeSemantic, SEMANTIC_TOKENS } from "./cloud-graph-semantic"
+
+// v3 design language — a real icon per category instead of a 2-letter square.
+function iconForCat(cat: string): LucideIcon {
+  switch (cat) {
+    case "compute":
+      return Server
+    case "network":
+      return Globe
+    case "storage":
+      return Database
+    case "security":
+      return KeyRound
+    case "user":
+      return User
+    default:
+      return ArrowRight
+  }
+}
 
 export type ContainerKind = "cloud" | "region" | "vpc" | "az" | "subnet"
 
@@ -126,8 +145,8 @@ export const ContainerNode = memo(function ContainerNode({ data }: NodeProps<Con
 
 export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<ResourceNodeData>) {
   const color = typeColorForCategory(data.cat)
+  const Icon = iconForCat(data.cat)
   const badgeW = data.badge ? data.badge.length * 5.5 + 16 : 0
-  const titleMax = data.variant === "chip" ? 22 : 28
 
   const onCopy = useCallback(() => {
     const v = data.copyValue ?? data.title
@@ -147,6 +166,7 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
     onPath: data.onPath,
   })
   const token = SEMANTIC_TOKENS[semantic]
+  const isJewel = semantic === "JEWEL"
   // data.dimmed (full-environment "isolate" toggle) and data.focused=false
   // are explicit user-driven overrides — they win over the semantic baseline.
   const opacity =
@@ -178,25 +198,29 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
 
       <div className="flex items-start gap-2 pl-3 pr-2 pt-2">
         <div
-          className="flex shrink-0 items-center justify-center rounded-md border text-[11px] font-bold"
+          className="flex shrink-0 items-center justify-center rounded-md border"
           style={{ width: 24, height: 24, borderColor: color, color }}
         >
-          {data.cat === "compute" ? "EC" : data.cat === "network" ? "NW" : data.cat === "storage" ? "S3" : data.cat === "security" ? "ID" : "→"}
+          <Icon size={14} strokeWidth={2} aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[9px] font-extrabold uppercase tracking-[0.04em]" style={{ color }}>
+          <span
+            className="inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[8.5px] font-semibold"
+            style={{ background: isJewel ? "#fde8e8" : "#eef2f7", color: isJewel ? CG.attack : "#475569" }}
+          >
+            {isJewel ? <Crown size={9} aria-hidden /> : null}
             {data.typeLabel}
-          </div>
+          </span>
           <div
-            className="text-[13px] font-medium leading-tight"
-            style={{ color: CG.ink, fontFamily: data.sub?.startsWith("i-") ? "ui-monospace, monospace" : undefined }}
+            className="text-[12.5px] font-medium leading-[1.18] mt-0.5 line-clamp-2"
+            style={{ color: CG.ink, overflowWrap: "anywhere", fontFamily: data.sub?.startsWith("i-") ? "ui-monospace, monospace" : undefined }}
             title={data.title}
           >
-            {truncate(data.title, titleMax)}
+            {data.title}
           </div>
           {data.sub ? (
-            <div className="text-[11px] mt-0.5 font-mono truncate" style={{ color: CG.faint }} title={data.sub}>
-              {truncate(data.sub, 28)}
+            <div className="text-[10.5px] mt-0.5 font-mono truncate" style={{ color: CG.faint }} title={data.sub}>
+              {data.sub}
             </div>
           ) : null}
         </div>
