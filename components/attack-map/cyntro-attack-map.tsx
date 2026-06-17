@@ -1,8 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { AttackMapExperience } from "./attack-map-experience"
+import { TargetAttackMap } from "./target-attack-map"
+import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
@@ -34,6 +37,9 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
       cancelled = true
     }
   }, [path])
+
+  const searchParams = useSearchParams()
+  const mapMode = searchParams?.get("map")
 
   const { data, loading, error, retry } = useCyntroAttackMap(
     systemName,
@@ -72,12 +78,16 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
 
   return (
     <div data-testid="cyntro-attack-map">
-      <AttackMapExperience
-        payload={data.payload}
-        topology={data.topology}
-        positions={data.positions}
-        density={data.density}
-      />
+      {mapMode === "target" ? (
+        <TargetAttackMap topo={toTargetTopology(data.payload, data.topology)} />
+      ) : (
+        <AttackMapExperience
+          payload={data.payload}
+          topology={data.topology}
+          positions={data.positions}
+          density={data.density}
+        />
+      )}
     </div>
   )
 }
