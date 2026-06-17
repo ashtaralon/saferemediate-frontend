@@ -180,6 +180,9 @@ export function toTargetTopology(
   }
 
   const chainIds = new Set(payload.movement_chain.map((h) => h.node_id))
+  // resolve friendly names for chain hops (hops carry no name) from resources/jewels
+  const nameById = new Map<string, string | null>(topology.resources.map((r) => [r.node_id, r.name]))
+  for (const j of topology.crown_jewels) if (!nameById.has(j.node_id)) nameById.set(j.node_id, j.name)
   const nodeMap = new Map<string, TargetNode>()
 
   const addNode = (
@@ -212,11 +215,12 @@ export function toTargetTopology(
 
   // 1. on-path hops (the spine)
   for (const h of payload.movement_chain as MovementHop[]) {
-    addNode(h.node_id, h.node_type, undefined, h.az, h.subnet_id, true, Boolean(h.is_crown_jewel), h.verdict)
+    addNode(h.node_id, h.node_type, nameById.get(h.node_id), h.az, h.subnet_id, true, Boolean(h.is_crown_jewel), h.verdict)
   }
-  // 2. crown jewels (off-path → muted context)
+  // 2. crown jewels ON THIS PATH only — adding all 14 floods the regional column.
   for (const j of topology.crown_jewels) {
-    addNode(j.node_id, j.node_type, j.name, undefined, undefined, chainIds.has(j.node_id), true)
+    if (!chainIds.has(j.node_id)) continue
+    addNode(j.node_id, j.node_type, j.name, undefined, undefined, true, true)
   }
   // 3. sibling workloads for context (compute/db only, capped)
   let ctx = 0
@@ -224,7 +228,7 @@ export function toTargetTopology(
     if (nodeMap.has(r.node_id)) continue
     const tnt = nodeType(r.node_type)
     if (tnt !== "compute" && tnt !== "lambda" && tnt !== "database") continue
-    if (ctx >= 10) break
+    if (ctx >= 2) break
     addNode(r.node_id, r.node_type, r.name, r.az, r.subnet_id, false, false, "NOT_OBSERVED")
     ctx += 1
   }

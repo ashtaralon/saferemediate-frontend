@@ -51,6 +51,7 @@ import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
 import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
+import { AttackExplorer } from "./attack-explorer"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -125,8 +126,10 @@ export function AttackPathsV2({
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" =
-    modeParam === "exposure"
+  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" =
+    modeParam === "explorer"
+      ? "explorer"
+      : modeParam === "exposure"
       ? "exposure"
       : modeParam === "attacker_v2"
         ? "attacker_v2"
@@ -441,7 +444,7 @@ export function AttackPathsV2({
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral") => {
+  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer") => {
     // Switching to exposure / phase / topology clears the path
     // selection — those aggregate across paths (phase shows every
     // chain targeting the jewel; topology / exposure are jewel-scoped
@@ -623,7 +626,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "explorer" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -656,7 +659,27 @@ export function AttackPathsV2({
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
-        {viewMode === "topology" ? (
+        {viewMode === "explorer" ? (
+          <>
+            <ModeToggle
+              mode={viewMode}
+              onChange={handleSetMode}
+              jewelName={null}
+              pathCount={allPaths.length}
+              isExpanded={isPathExpanded}
+              onToggleExpand={handleToggleExpand}
+              showBeta={showBeta}
+            />
+            <div style={{ height: "calc(100vh - 150px)" }}>
+              <AttackExplorer
+                jewels={jewels}
+                paths={[...allPaths]}
+                systemName={systemName}
+                onOpenFull={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId, mode: "attack-path" })}
+              />
+            </div>
+          </>
+        ) : viewMode === "topology" ? (
           <>
             <ModeToggle
               mode={viewMode}
@@ -847,8 +870,8 @@ function ModeToggle({
   onToggleExpand,
   showBeta = false,
 }: {
-  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral"
-  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral") => void
+  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer"
+  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -858,7 +881,7 @@ function ModeToggle({
       engineering-internal surfaces out of the default operator UI. */
   showBeta?: boolean
 }) {
-  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral"
+  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer"
   // Capability-named tabs — no version stamps in the operator UI.
   // Engineering context (DTO provenance, phase docs) lives in the
   // title tooltips, not the labels.
@@ -868,6 +891,12 @@ function ModeToggle({
       label: "Attack Path",
       title:
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
+    },
+    {
+      key: "explorer",
+      label: "Explorer",
+      title:
+        "Account-wide map — every foothold and crown jewel on the system at once. Click a crown jewel to light up all its connections, or a foothold to see everything it reaches.",
     },
     {
       key: "lateral",

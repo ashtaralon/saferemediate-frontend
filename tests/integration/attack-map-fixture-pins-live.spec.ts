@@ -122,7 +122,7 @@ test.describe("attack-map fixture pins (live)", () => {
       { waitUntil: "domcontentloaded" },
     )
     await expect(page.getByTestId("cyntro-attack-map-experience")).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByText(/path only/i)).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId("cyntro-attack-map-experience")).toContainText(/path only/i)
   })
 
   test("?map=target renders clean grid target map", async ({ page }) => {

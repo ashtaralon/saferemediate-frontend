@@ -21,7 +21,11 @@ export function useMapViewVariant(): {
 
   const m = searchParams?.get("map")
   const variant: MapViewVariant =
-    m === "target" ? "target" : m === "classic" ? "classic" : "aws"
+    m === "target"
+      ? "target"
+      : m === "classic" || m === "cyntro" || m === "1"
+        ? "classic"
+        : "aws"
 
   const setVariant = useCallback(
     (v: MapViewVariant) => {

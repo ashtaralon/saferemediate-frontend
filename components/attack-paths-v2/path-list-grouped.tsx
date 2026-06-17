@@ -323,7 +323,25 @@ export function PathListGrouped({
                     const start =
                       p.nodes?.find((n) => !isPrincipalNodeType(n.type)) ??
                       p.nodes?.[0]
-                    const target = p.nodes?.[p.nodes.length - 1]
+                    // Crown-jewel resolution (Bug #209): the path's nodes[]
+                    // may end at the KMSKey that ENCRYPTS the jewel (compiler
+                    // §5.4 KMS terminus dual-typing — the canvas legitimately
+                    // shows both S3 and KMS at the chain tail). Naïvely
+                    // labelling with nodes[last].name yields chips like
+                    // "alon-demo-app2 → cyntro-demo-cmk" under a list header
+                    // that says "PATHS TO saferemediate-logs". The path
+                    // record's canonical terminus is `crown_jewel_id`; prefer
+                    // that node, then the parent jewel context, then fall
+                    // back to the chain tail.
+                    const jewelNode =
+                      (p.crown_jewel_id &&
+                        p.nodes?.find((n) => n.id === p.crown_jewel_id)) ||
+                      null
+                    const target =
+                      jewelNode ??
+                      (jewel && p.crown_jewel_id === jewel.id
+                        ? ({ id: jewel.id, name: jewel.name, type: jewel.type } as PathNodeDetail)
+                        : p.nodes?.[p.nodes.length - 1])
                     const sevLabel = p.severity?.severity?.toUpperCase() ?? "—"
                     const sevScore = p.severity?.overall_score
                     const hits = observedHits.get(p.id) ?? 0
