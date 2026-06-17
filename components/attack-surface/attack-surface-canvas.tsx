@@ -115,7 +115,7 @@ function FlowInner({
         elementsSelectable
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#1E293B" gap={16} size={1} />
+        <Background color="#1A1A3A" gap={20} size={1} />
         <Controls showInteractive={false} />
         <MiniMap
           pannable

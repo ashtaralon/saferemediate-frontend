@@ -41,16 +41,19 @@ export const AttackSurfaceEdge = memo(function AttackSurfaceEdge({
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 12,
-    offset: 48,
+    borderRadius: 14,
+    offset: 52,
   })
 
   const color = strokeForKind(kind, data?.observed)
-  const strokeWidth = kind === "exfil" ? 3 : 2
-  const dash = kind === "identity" ? "5,5" : undefined
+  const strokeWidth = kind === "exfil" ? 4 : kind === "attack" ? 3 : 2
+  const dash = kind === "identity" ? "6,4" : undefined
   const opacity = data?.dimmed ? 0.15 : data?.onPath === false ? 0.35 : 0.95
   const pulseDelay = data?.pulseDelay ?? 0
   const showLabel = Boolean(data?.label) && data?.onPath !== false
+  const labelColor =
+    kind === "attack" || kind === "exfil" ? "#D90429" : kind === "identity" ? "#FF9F1C" : AS.faint
+  const animateFlow = kind === "attack" || kind === "exfil" || kind === "network"
 
   return (
     <>
@@ -65,7 +68,7 @@ export const AttackSurfaceEdge = memo(function AttackSurfaceEdge({
           opacity,
         }}
       />
-      {kind === "exfil" ? (
+      {(kind === "attack" || kind === "exfil") && (
         <path
           d={path}
           fill="none"
@@ -75,8 +78,8 @@ export const AttackSurfaceEdge = memo(function AttackSurfaceEdge({
           className="as-exfil-pulse"
           style={{ animationDelay: `${pulseDelay}s` }}
         />
-      ) : null}
-      {kind === "network" || kind === "exfil" ? (
+      )}
+      {animateFlow && kind !== "identity" ? (
         <>
           <path
             d={path}
@@ -84,13 +87,13 @@ export const AttackSurfaceEdge = memo(function AttackSurfaceEdge({
             stroke={color}
             strokeWidth={strokeWidth}
             strokeDasharray="6 10"
-            opacity={0.5}
+            opacity={0.55}
             className="as-net-dash"
             style={{ animationDelay: `${pulseDelay}s` }}
           />
           <circle r={3.5} fill={color} opacity={0.95} className="as-flow-dot">
             <animateMotion
-              dur={kind === "exfil" ? "2.4s" : "3s"}
+              dur={kind === "attack" ? "2.2s" : kind === "exfil" ? "2.4s" : "3s"}
               repeatCount="indefinite"
               begin={`${pulseDelay}s`}
               path={path}
@@ -102,12 +105,13 @@ export const AttackSurfaceEdge = memo(function AttackSurfaceEdge({
       {showLabel ? (
         <EdgeLabelRenderer>
           <div
-            className="absolute pointer-events-none nodrag nopan font-mono uppercase"
+            className="absolute pointer-events-none nodrag nopan font-mono"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-              color: kind === "identity" ? AS.identity : AS.faint,
-              fontSize: 10,
-              opacity: data?.dimmed ? 0.2 : 0.9,
+              color: labelColor,
+              fontSize: kind === "exfil" || kind === "attack" ? 10 : 9,
+              fontWeight: kind === "exfil" || kind === "attack" ? "bold" : "normal",
+              opacity: data?.dimmed ? 0.2 : 0.92,
             }}
           >
             {data?.label}

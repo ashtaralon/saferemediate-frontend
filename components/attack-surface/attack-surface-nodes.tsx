@@ -1,28 +1,25 @@
 "use client"
 
-import { memo, useCallback } from "react"
+import { memo, useCallback, useMemo } from "react"
 import { Handle, Position, type NodeProps } from "reactflow"
 import { AS } from "./attack-surface-tokens"
-import type { SurfaceColumnId } from "@/lib/attack-surface/column-schema"
+import type { AwsNodeType } from "@/lib/attack-surface/blueprint-layout"
 
 export interface AttackSurfaceNodeData {
   title: string
   sub?: string
   typeLabel: string
+  displayType: string
+  awsType: AwsNodeType
   cat: string
   onPath: boolean
   isCrownJewel?: boolean
   metric?: string
   badge?: string
+  alertText?: string
   step?: number
   copyValue?: string
   dimmed?: boolean
-}
-
-export interface SurfaceLaneData {
-  label: string
-  columnId?: SurfaceColumnId
-  isJewelZone?: boolean
 }
 
 function truncate(s: string, max: number): string {
@@ -30,43 +27,76 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, max - 1)}…`
 }
 
-export const SurfaceLaneNode = memo(function SurfaceLaneNode({ data }: NodeProps<SurfaceLaneData>) {
-  return (
-    <div
-      className="h-full w-full rounded-xl pointer-events-none"
-      style={{
-        background: AS.lane,
-        border: `1px dashed ${AS.laneBorder}`,
-      }}
-    >
-      <div
-        className="text-center pt-2.5 text-[9px] font-bold uppercase tracking-[0.16em] font-mono"
-        style={{ color: AS.laneLabel }}
-      >
-        {data.label}
-      </div>
-    </div>
-  )
-})
+function shapeStyles(data: AttackSurfaceNodeData): React.CSSProperties {
+  const base: React.CSSProperties = {
+    background: "#0B132B",
+    color: "#FFFFFF",
+    padding: "14px 18px",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: 11,
+    minWidth: 240,
+    boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+    width: "100%",
+    height: "100%",
+    boxSizing: "border-box",
+  }
 
-export const SurfaceJewelZoneNode = memo(function SurfaceJewelZoneNode() {
-  return (
-    <div
-      className="h-full w-full rounded-2xl pointer-events-none"
-      style={{
-        background: AS.jewelGlow,
-        border: `2px solid ${AS.jewelBorder}`,
-        boxShadow: "0 0 15px rgba(255, 159, 28, 0.4)",
-      }}
-    />
-  )
-})
+  switch (data.awsType) {
+    case "COMPUTE":
+      return { ...base, borderRadius: 6, border: "2px solid #00B4D8" }
+    case "SECURITY_GROUP":
+      return {
+        ...base,
+        borderRadius: 4,
+        border: "2px dashed #FF9F1C",
+        boxShadow: "0 0 10px rgba(255, 159, 28, 0.2)",
+        clipPath: "polygon(50% 0%, 100% 18%, 100% 82%, 50% 100%, 0% 82%, 0% 18%)",
+        padding: "18px 20px",
+      }
+    case "NACL":
+    case "ROUTE_TABLE":
+      return { ...base, borderRadius: 0, border: "1px solid #4CC9F0" }
+    case "IAM_ROLE":
+    case "INSTANCE_PROFILE":
+    case "IAM_POLICY":
+      return {
+        ...base,
+        borderRadius: 20,
+        border: "2px solid #48CAE4",
+        background: "#1A1A3A",
+      }
+    case "STORAGE":
+      return {
+        ...base,
+        borderRadius: "50%",
+        border: "3px double #FF9F1C",
+        background: "#250510",
+        boxShadow: "0 0 20px rgba(255, 159, 28, 0.5)",
+        minWidth: 180,
+        minHeight: 180,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        textAlign: "center",
+        padding: "16px",
+      }
+    case "GATEWAY":
+    case "SUBNET":
+    case "VPCE":
+      return { ...base, borderRadius: 6, border: "1px solid #4CC9F0" }
+    case "EXTERNAL":
+      return { ...base, borderRadius: 6, border: "2px solid #D90429", boxShadow: "0 0 12px rgba(217,4,41,0.25)" }
+    default:
+      return { ...base, borderRadius: 8, border: `1px solid ${AS.cardBorder}` }
+  }
+}
 
 export const AttackSurfaceResourceNode = memo(function AttackSurfaceResourceNode({
   data,
 }: NodeProps<AttackSurfaceNodeData>) {
+  const idText = data.sub
+  const styles = useMemo(() => shapeStyles(data), [data])
   const isJewel = Boolean(data.isCrownJewel)
-  const idText = data.metric ?? data.sub
 
   const onCopy = useCallback(() => {
     const v = data.copyValue ?? data.sub ?? data.title
@@ -79,41 +109,31 @@ export const AttackSurfaceResourceNode = memo(function AttackSurfaceResourceNode
 
   return (
     <div
-      className="relative transition-all duration-200 cursor-default h-full box-border font-mono"
-      style={{
-        width: "100%",
-        minWidth: 220,
-        opacity,
-        background: AS.card,
-        color: AS.ink,
-        border: isJewel ? `2px solid ${AS.jewelBorder}` : `1px solid ${AS.cardBorder}`,
-        boxShadow: isJewel ? "0 0 15px rgba(255, 159, 28, 0.4)" : "none",
-        padding: "12px 16px",
-        borderRadius: 8,
-        fontSize: 12,
-      }}
-      title={[data.title, idText].filter(Boolean).join(" · ")}
+      className="relative transition-all duration-200 cursor-default"
+      style={{ ...styles, opacity }}
+      title={[data.title, idText, data.alertText].filter(Boolean).join(" · ")}
       data-testid="attack-surface-node"
+      data-aws-type={data.awsType}
       onDoubleClick={onCopy}
     >
-      <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 1, height: 1 }} />
-      <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 1, height: 1 }} />
+      <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0, width: 1, height: 1 }} />
+      <Handle type="target" position={Position.Left} id="left" style={{ opacity: 0, width: 1, height: 1 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0, width: 1, height: 1 }} />
+      <Handle type="source" position={Position.Right} id="right" style={{ opacity: 0, width: 1, height: 1 }} />
 
-      <div className="flex justify-between items-start mb-1.5 gap-2">
+      <div className="flex justify-between items-start mb-1 gap-2">
         <span
           className="inline-block rounded font-bold uppercase shrink-0"
           style={{
-            background: isJewel ? AS.jewelBorder : AS.typeBadge,
-            color: AS.typeBadgeInk,
+            background: isJewel ? "#FF9F1C" : "#1C2541",
+            color: isJewel ? "#000" : "#4CC9F0",
             padding: "2px 6px",
-            fontSize: 10,
+            fontSize: 9,
           }}
         >
-          {data.typeLabel}
+          {data.displayType}
         </span>
-        {data.badge ? (
-          <span style={{ color: AS.badgeAccent, fontSize: 10 }}>{data.badge}</span>
-        ) : null}
+        {data.badge ? <span style={{ fontSize: 12 }}>{data.badge}</span> : null}
       </div>
 
       <div
@@ -121,23 +141,25 @@ export const AttackSurfaceResourceNode = memo(function AttackSurfaceResourceNode
         style={{ fontSize: 12 }}
         title={data.title}
       >
-        {truncate(data.title, 40)}
+        {truncate(data.title, 42)}
       </div>
 
       {idText ? (
-        <div
-          className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap"
-          style={{ color: AS.faint, fontSize: 10 }}
-          title={idText}
-        >
-          {truncate(idText, 48)}
+        <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "#A0AEC0", fontSize: 9 }}>
+          {truncate(idText, 52)}
+        </div>
+      ) : null}
+
+      {data.alertText ? (
+        <div style={{ color: "#FF4D6D", fontSize: 9, marginTop: 6, fontWeight: "bold" }}>
+          ⚠️ {data.alertText}
         </div>
       ) : null}
 
       {data.step != null ? (
         <div
           className="absolute -left-2 -top-2 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[9px] font-extrabold"
-          style={{ background: AS.exfil, color: "#fff", border: `2px solid ${AS.canvas}` }}
+          style={{ background: "#D90429", color: "#fff", border: `2px solid ${AS.canvas}` }}
         >
           {data.step}
         </div>
@@ -146,8 +168,19 @@ export const AttackSurfaceResourceNode = memo(function AttackSurfaceResourceNode
   )
 })
 
+export const SurfaceJewelZoneNode = memo(function SurfaceJewelZoneNode() {
+  return (
+    <div
+      className="h-full w-full rounded-full pointer-events-none"
+      style={{
+        border: "2px dashed rgba(255, 159, 28, 0.35)",
+        boxShadow: "0 0 28px rgba(255, 159, 28, 0.15)",
+      }}
+    />
+  )
+})
+
 export const attackSurfaceNodeTypes = {
-  surfaceLane: SurfaceLaneNode,
   surfaceJewelZone: SurfaceJewelZoneNode,
   surfaceResource: AttackSurfaceResourceNode,
 }

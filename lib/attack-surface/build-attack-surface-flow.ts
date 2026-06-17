@@ -1,6 +1,5 @@
 /**
- * SystemArchitecture → fixed-column React Flow payload for the Attack Surface Map.
- * Ignores force-directed layout; nodes stack vertically within swimlanes.
+ * SystemArchitecture → blueprint-positioned React Flow payload for the Attack Surface Map.
  */
 
 import type { Edge, Node } from "reactflow"
@@ -16,13 +15,17 @@ import type {
 } from "@/components/dependency-map/traffic-flow-map"
 import type { CanvasEdge } from "@/lib/types/attack-canvas"
 import {
-  SURFACE_COLUMNS,
-  SURFACE_LAYOUT,
-  type SurfaceColumnId,
-} from "./column-schema"
+  blueprintPosition,
+  BLUEPRINT_CANVAS,
+  nodeDimensions,
+  type AwsNodeType,
+  type BlueprintSlot,
+} from "./blueprint-layout"
 import { classifySurfaceEdge } from "./edge-classification"
 import type { AttackSurfaceEdgeData } from "@/components/attack-surface/attack-surface-edges"
 import type { AttackSurfaceNodeData } from "@/components/attack-surface/attack-surface-nodes"
+
+export const SURFACE_ATTACKER_ID = "__surface_attacker__"
 
 export interface SurfaceFlowInput {
   architecture: SystemArchitecture
@@ -30,7 +33,7 @@ export interface SurfaceFlowInput {
 }
 
 export interface SurfaceFlowResult {
-  nodes: Node<AttackSurfaceNodeData | { label: string; columnId?: SurfaceColumnId; isJewelZone?: boolean }>[]
+  nodes: Node<AttackSurfaceNodeData | { isJewelZone?: boolean }>[]
   edges: Edge<AttackSurfaceEdgeData>[]
   width: number
   height: number
@@ -39,7 +42,10 @@ export interface SurfaceFlowResult {
 
 interface SurfaceItem {
   id: string
-  column: SurfaceColumnId
+  layoutSlot: BlueprintSlot
+  layoutIndex: number
+  awsType: AwsNodeType
+  displayType: string
   title: string
   sub?: string
   typeLabel: string
@@ -48,7 +54,11 @@ interface SurfaceItem {
   onPath: boolean
   metric?: string
   badge?: string
+  alertText?: string
   step?: number
+  isEntry?: boolean
+  isGateway?: boolean
+  isCompute?: boolean
 }
 
 function isJewelResource(node: ServiceNode): boolean {
@@ -57,38 +67,9 @@ function isJewelResource(node: ServiceNode): boolean {
   return t === "storage" || t === "database" || t === "dynamodb"
 }
 
-function typeLabelForService(node: ServiceNode): string {
-  switch (node.type) {
-    case "compute":
-      return "EC2"
-    case "lambda":
-      return "LAMBDA"
-    case "storage":
-      return "S3"
-    case "database":
-      return "RDS"
-    case "dynamodb":
-      return "DYNAMODB"
-    case "api_gateway":
-      return "API GATEWAY"
-    case "load_balancer":
-      return "LOAD BALANCER"
-    case "principal":
-      return "PRINCIPAL"
-    case "internet":
-      return "INTERNET"
-    case "api_call":
-      return "API CALL"
-    default:
-      return node.type.toUpperCase().replace(/_/g, " ")
-  }
-}
-
-function catForService(node: ServiceNode): string {
-  if (node.type === "storage" || node.type === "database" || node.type === "dynamodb") return "storage"
-  if (node.type === "principal" || node.type === "internet") return "user"
-  if (node.type === "api_call") return "security"
-  return "compute"
+function onPath(id: string, arch: SystemArchitecture, path: IdentityAttackPath): boolean {
+  if (arch.onPathNodeIds?.has(id)) return true
+  return (path.nodes ?? []).some((n) => n.id === id)
 }
 
 function metricForCheckpoint(cp: SecurityCheckpoint): string | undefined {
@@ -101,190 +82,353 @@ function metricForCheckpoint(cp: SecurityCheckpoint): string | undefined {
   return undefined
 }
 
-function checkpointTypeLabel(cp: SecurityCheckpoint): string {
-  if (cp.type === "security_group") return "SECURITY GROUP"
-  if (cp.type === "nacl") return "NACL"
-  return "IAM ROLE"
+function pushItem(items: SurfaceItem[], seen: Set<string>, item: SurfaceItem): void {
+  if (seen.has(item.id)) return
+  seen.add(item.id)
+  items.push(item)
 }
 
-function checkpointCat(cp: SecurityCheckpoint): string {
-  if (cp.type === "iam_role") return "security"
-  return "network"
+function makeItem(
+  base: Omit<SurfaceItem, "layoutIndex">,
+  slotCounts: Map<BlueprintSlot, number>,
+): SurfaceItem {
+  const layoutIndex = slotCounts.get(base.layoutSlot) ?? 0
+  slotCounts.set(base.layoutSlot, layoutIndex + 1)
+  return { ...base, layoutIndex }
 }
 
-function onPath(
-  id: string,
-  arch: SystemArchitecture,
-  path: IdentityAttackPath,
-): boolean {
-  if (arch.onPathNodeIds?.has(id)) return true
-  return (path.nodes ?? []).some((n) => n.id === id)
-}
-
-function pushService(
+function addAttacker(
   items: SurfaceItem[],
   seen: Set<string>,
-  node: ServiceNode,
-  column: SurfaceColumnId,
   arch: SystemArchitecture,
-  path: IdentityAttackPath,
-  overrides?: Partial<SurfaceItem>,
-): void {
-  if (seen.has(node.id)) return
-  seen.add(node.id)
-  const jewel = isJewelResource(node)
-  items.push({
-    id: node.id,
-    column: jewel && column !== "entry_compute" ? "crown_jewels" : column,
-    title: node.shortName || node.name,
-    sub: node.instanceId ?? node.id,
-    typeLabel: jewel ? "👑 CROWN JEWEL" : typeLabelForService(node),
-    cat: catForService(node),
-    isCrownJewel: jewel,
-    onPath: onPath(node.id, arch, path),
-    ...overrides,
-  })
-}
+  slotCounts: Map<BlueprintSlot, number>,
+): string | null {
+  const entries = [...(arch.entryPoints ?? []), ...(arch.principals ?? [])]
+  if (entries.length === 0) return null
 
-function pushCheckpoint(
-  items: SurfaceItem[],
-  seen: Set<string>,
-  cp: SecurityCheckpoint,
-  column: SurfaceColumnId,
-  arch: SystemArchitecture,
-  path: IdentityAttackPath,
-  typeLabel?: string,
-): void {
-  if (seen.has(cp.id)) return
-  seen.add(cp.id)
-  const isPolicy = /policy/i.test(cp.name) || typeLabel === "IAM POLICY"
-  const metric = metricForCheckpoint(cp)
-  const isRole = cp.type === "iam_role"
-  items.push({
-    id: cp.id,
-    column,
-    title: cp.shortName || cp.name,
-    sub: metric ?? cp.id,
-    typeLabel: typeLabel ?? (isPolicy ? "IAM POLICY" : checkpointTypeLabel(cp)),
-    cat: checkpointCat(cp),
-    onPath: cp.onPath ?? onPath(cp.id, arch, path),
-    metric,
-    badge:
-      cp.onPath === false ? "LATERAL" : isRole && (cp.onPath ?? onPath(cp.id, arch, path)) ? "🔑" : undefined,
-  })
-}
-
-function pushSubnet(
-  items: SurfaceItem[],
-  seen: Set<string>,
-  subnet: SubnetNode,
-  arch: SystemArchitecture,
-  path: IdentityAttackPath,
-): void {
-  if (seen.has(subnet.id)) return
-  seen.add(subnet.id)
-  items.push({
-    id: subnet.id,
-    column: "transit",
-    title: subnet.shortName || subnet.name,
-    sub: subnet.cidrBlock ?? subnet.id,
-    typeLabel: subnet.isPublic ? "PUBLIC SUBNET" : "SUBNET",
-    cat: "network",
-    onPath: onPath(subnet.id, arch, path),
-  })
-
-  if (subnet.routeTableId && !seen.has(subnet.routeTableId)) {
-    seen.add(subnet.routeTableId)
-    items.push({
-      id: subnet.routeTableId,
-      column: "transit",
-      title: subnet.routeTableId,
-      sub:
-        typeof subnet.routeTableCount === "number"
-          ? `${subnet.routeTableCount} routes`
-          : subnet.routeTableId,
-      typeLabel: "ROUTE TABLE",
-      cat: "network",
-      onPath: false,
-    })
-  }
-}
-
-function pushGateway(
-  items: SurfaceItem[],
-  seen: Set<string>,
-  gw: EgressGatewayNode | VPCEndpointNode,
-  arch: SystemArchitecture,
-  path: IdentityAttackPath,
-  kindLabel: string,
-): void {
-  if (seen.has(gw.id)) return
-  seen.add(gw.id)
-  items.push({
-    id: gw.id,
-    column: "transit",
-    title: gw.shortName || gw.name,
-    sub: gw.id,
-    typeLabel: kindLabel,
-    cat: "network",
-    onPath: onPath(gw.id, arch, path),
-  })
-}
-
-export function assignColumnForLabel(labels: string[]): SurfaceColumnId | null {
-  const upper = labels.map((l) => l.toUpperCase())
-  if (upper.some((l) => ["COMPUTE", "WORKLOAD", "CONTAINER"].includes(l))) return "entry_compute"
-  if (upper.some((l) => ["SECURITYGROUP", "NACL"].includes(l))) return "firewalls"
-  if (upper.some((l) => ["ROUTETABLE", "GATEWAY", "VPCENDPOINT"].includes(l))) return "transit"
-  if (upper.some((l) => ["IAMUSER", "IAMROLE", "STS", "IAMPOLICY", "INSTANCEPROFILE"].includes(l)))
-    return "identity"
-  if (upper.some((l) => ["STORAGE", "DATABASE", "SECRETSMANAGER", "SNAPSHOT", "CROWNJEWELS"].includes(l)))
-    return "crown_jewels"
-  return null
+  const primary = entries.find((e) => e.type === "internet" || e.type === "principal") ?? entries[0]
+  pushItem(
+    items,
+    seen,
+    makeItem(
+      {
+        id: SURFACE_ATTACKER_ID,
+        layoutSlot: "attacker",
+        awsType: "EXTERNAL",
+        displayType: "INITIAL ACCESS",
+        title: primary.shortName || primary.name || "ATTACKER (External)",
+        sub: "Compromised API Credentials / Leaked Keys",
+        typeLabel: "ATTACKER",
+        cat: "user",
+        onPath: true,
+        isEntry: true,
+      },
+      slotCounts,
+    ),
+  )
+  return SURFACE_ATTACKER_ID
 }
 
 function collectItems(arch: SystemArchitecture, path: IdentityAttackPath): SurfaceItem[] {
   const items: SurfaceItem[] = []
   const seen = new Set<string>()
+  const slotCounts = new Map<BlueprintSlot, number>()
 
-  for (const n of arch.entryPoints ?? []) pushService(items, seen, n, "entry_compute", arch, path)
-  for (const n of arch.principals ?? []) pushService(items, seen, n, "entry_compute", arch, path)
-  for (const n of arch.computeServices) pushService(items, seen, n, "entry_compute", arch, path)
+  addAttacker(items, seen, arch, slotCounts)
 
-  for (const sg of arch.securityGroups) pushCheckpoint(items, seen, sg, "firewalls", arch, path)
-  for (const nacl of arch.nacls) pushCheckpoint(items, seen, nacl, "firewalls", arch, path)
-
-  for (const subnet of arch.subnets) pushSubnet(items, seen, subnet, arch, path)
-  for (const vpce of arch.vpcEndpoints)
-    pushGateway(items, seen, vpce, arch, path, `VPCE · ${vpce.serviceShort || "endpoint"}`)
-  for (const gw of arch.egressGateways)
-    pushGateway(items, seen, gw, arch, path, gw.kindLabel || "GATEWAY")
-
-  for (const role of arch.iamRoles) pushCheckpoint(items, seen, role, "identity", arch, path)
-  for (const ip of arch.instanceProfiles ?? [])
-    pushCheckpoint(items, seen, ip, "identity", arch, path, "INSTANCE PROFILE")
-  for (const pol of arch.iamPolicies ?? [])
-    pushCheckpoint(items, seen, pol, "identity", arch, path, "IAM POLICY")
-
-  for (const call of arch.apiCalls ?? []) pushService(items, seen, call, "execution", arch, path)
-  for (const gate of arch.exfilGate ?? [])
-    pushService(
+  const igw = arch.egressGateways.find((g) => g.kind === "InternetGateway")
+  if (igw) {
+    pushItem(
       items,
       seen,
-      { id: gate.id, name: gate.name, shortName: gate.shortName, type: "api_call" },
-      "execution",
-      arch,
-      path,
-      { typeLabel: "EXECUTION GATE", cat: "security" },
+      makeItem(
+        {
+          id: igw.id,
+          layoutSlot: "igw",
+          awsType: "GATEWAY",
+          displayType: "INTERNET GATEWAY",
+          title: igw.shortName || igw.name,
+          sub: igw.id,
+          typeLabel: "IGW",
+          cat: "network",
+          onPath: onPath(igw.id, arch, path),
+          isGateway: true,
+        },
+        slotCounts,
+      ),
     )
+  }
+
+  for (const n of arch.computeServices) {
+    const op = onPath(n.id, arch, path)
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: n.id,
+          layoutSlot: "compute",
+          awsType: "COMPUTE",
+          displayType: "EC2 INSTANCE",
+          title: n.shortName || n.name,
+          sub: n.instanceId ?? n.id,
+          typeLabel: "EC2",
+          cat: "compute",
+          onPath: op,
+          isCompute: true,
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const sg of arch.securityGroups) {
+    const op = sg.onPath ?? onPath(sg.id, arch, path)
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: sg.id,
+          layoutSlot: "security_group",
+          awsType: "SECURITY_GROUP",
+          displayType: "SECURITY GROUP (SHIELD)",
+          title: sg.shortName || sg.name,
+          sub: sg.id,
+          typeLabel: "SECURITY GROUP",
+          cat: "network",
+          onPath: op,
+          badge: op ? "🛡️" : undefined,
+          alertText: sg.hasPublicIngress ? "Public ingress exposure" : undefined,
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const nacl of arch.nacls) {
+    const op = nacl.onPath ?? onPath(nacl.id, arch, path)
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: nacl.id,
+          layoutSlot: "nacl",
+          awsType: "NACL",
+          displayType: "NETWORK ACL",
+          title: nacl.shortName || nacl.name,
+          sub: nacl.isDefault ? "Stateless Perimeter Check" : nacl.id,
+          typeLabel: "NACL",
+          cat: "network",
+          onPath: op,
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const subnet of arch.subnets) {
+    const op = onPath(subnet.id, arch, path)
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: subnet.id,
+          layoutSlot: "subnet",
+          awsType: "SUBNET",
+          displayType: subnet.isPublic ? "PUBLIC SUBNET" : "PRIVATE SUBNET",
+          title: subnet.shortName || subnet.name,
+          sub: subnet.cidrBlock ?? subnet.id,
+          typeLabel: "SUBNET",
+          cat: "network",
+          onPath: op,
+        },
+        slotCounts,
+      ),
+    )
+
+    if (subnet.routeTableId && !seen.has(subnet.routeTableId)) {
+      pushItem(
+        items,
+        seen,
+        makeItem(
+          {
+            id: subnet.routeTableId,
+            layoutSlot: "route_table",
+            awsType: "ROUTE_TABLE",
+            displayType: "ROUTE TABLE (LEDGER)",
+            title: subnet.routeTableId,
+            sub:
+              typeof subnet.routeTableCount === "number"
+                ? `Active Data Routes: ${subnet.routeTableCount}`
+                : subnet.routeTableId,
+            typeLabel: "ROUTE TABLE",
+            cat: "network",
+            onPath: false,
+          },
+          slotCounts,
+        ),
+      )
+    }
+  }
+
+  for (const vpce of arch.vpcEndpoints) {
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: vpce.id,
+          layoutSlot: "subnet",
+          awsType: "VPCE",
+          displayType: `VPCE · ${vpce.serviceShort || "endpoint"}`,
+          title: vpce.shortName || vpce.name,
+          sub: vpce.id,
+          typeLabel: "VPCE",
+          cat: "network",
+          onPath: onPath(vpce.id, arch, path),
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const gw of arch.egressGateways) {
+    if (gw.kind === "InternetGateway") continue
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: gw.id,
+          layoutSlot: "igw",
+          awsType: "GATEWAY",
+          displayType: gw.kindLabel || "GATEWAY",
+          title: gw.shortName || gw.name,
+          sub: gw.id,
+          typeLabel: gw.kindLabel,
+          cat: "network",
+          onPath: onPath(gw.id, arch, path),
+          isGateway: true,
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const role of arch.iamRoles) {
+    const op = role.onPath ?? onPath(role.id, arch, path)
+    const metric = metricForCheckpoint(role)
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: role.id,
+          layoutSlot: "iam_role",
+          awsType: "IAM_ROLE",
+          displayType: "IAM ROLE (CAPSULE)",
+          title: role.shortName || role.name,
+          sub: role.id,
+          typeLabel: "IAM ROLE",
+          cat: "security",
+          onPath: op,
+          metric,
+          badge: op ? "🔑" : undefined,
+          alertText: metric ? `${metric} Identified` : undefined,
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const ip of arch.instanceProfiles ?? []) {
+    const op = ip.onPath ?? onPath(ip.id, arch, path)
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: ip.id,
+          layoutSlot: "instance_profile",
+          awsType: "INSTANCE_PROFILE",
+          displayType: "INSTANCE PROFILE",
+          title: ip.shortName || ip.name,
+          sub: "Linked to Workload Metadata",
+          typeLabel: "INSTANCE PROFILE",
+          cat: "security",
+          onPath: op,
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const pol of arch.iamPolicies ?? []) {
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: pol.id,
+          layoutSlot: "iam_role",
+          awsType: "IAM_POLICY",
+          displayType: "IAM POLICY",
+          title: pol.shortName || pol.name,
+          sub: pol.id,
+          typeLabel: "IAM POLICY",
+          cat: "security",
+          onPath: pol.onPath ?? onPath(pol.id, arch, path),
+        },
+        slotCounts,
+      ),
+    )
+  }
+
+  for (const call of arch.apiCalls ?? []) {
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: call.id,
+          layoutSlot: "execution",
+          awsType: "EXECUTION",
+          displayType: "API CALL",
+          title: call.shortName || call.name,
+          sub: call.id,
+          typeLabel: "API CALL",
+          cat: "security",
+          onPath: onPath(call.id, arch, path),
+        },
+        slotCounts,
+      ),
+    )
+  }
 
   for (const res of arch.resources) {
     const jewel = isJewelResource(res)
-    pushService(items, seen, res, jewel ? "crown_jewels" : "execution", arch, path, {
-      isCrownJewel: jewel,
-      typeLabel: jewel ? "👑 CROWN JEWEL" : typeLabelForService(res),
-      badge: jewel ? "CJ" : undefined,
-    })
+    pushItem(
+      items,
+      seen,
+      makeItem(
+        {
+          id: res.id,
+          layoutSlot: jewel ? "crown_jewel" : "execution",
+          awsType: jewel ? "STORAGE" : "EXECUTION",
+          displayType: jewel ? "👑 CROWN JEWEL" : res.type.toUpperCase(),
+          title: res.shortName || res.name,
+          sub: res.id,
+          typeLabel: jewel ? "👑 CROWN JEWEL" : res.type,
+          cat: jewel ? "storage" : "compute",
+          isCrownJewel: jewel,
+          onPath: onPath(res.id, arch, path),
+        },
+        slotCounts,
+      ),
+    )
   }
 
   const stepMap = arch.pathStepByNodeId
@@ -321,84 +465,103 @@ function canvasEdgesFromArch(arch: SystemArchitecture): CanvasEdge[] {
   }))
 }
 
+function synthesizeKillChainEdges(
+  items: SurfaceItem[],
+  edges: Edge<AttackSurfaceEdgeData>[],
+): void {
+  const bySlot = (slot: BlueprintSlot) => items.filter((i) => i.layoutSlot === slot)
+  const attacker = items.find((i) => i.id === SURFACE_ATTACKER_ID)
+  const igw = bySlot("igw")[0]
+  const compute = bySlot("compute").find((i) => i.onPath) ?? bySlot("compute")[0]
+
+  if (attacker && igw) {
+    edges.push({
+      id: "syn-attacker-igw",
+      source: attacker.id,
+      target: igw.id,
+      type: "surfaceEdge",
+      animated: true,
+      data: { flowKind: "attack", label: "Initial Access Vector", onPath: true },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+      zIndex: 40,
+    })
+  }
+
+  if (igw && compute) {
+    edges.push({
+      id: "syn-igw-compute",
+      source: igw.id,
+      target: compute.id,
+      type: "surfaceEdge",
+      animated: true,
+      data: { flowKind: "attack", label: "SSRF → Credential Theft", onPath: true },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+      zIndex: 40,
+    })
+  }
+}
+
+export function assignColumnForLabel(labels: string[]): BlueprintSlot | null {
+  const upper = labels.map((l) => l.toUpperCase())
+  if (upper.some((l) => ["COMPUTE", "WORKLOAD", "CONTAINER"].includes(l))) return "compute"
+  if (upper.some((l) => ["SECURITYGROUP"].includes(l))) return "security_group"
+  if (upper.some((l) => ["NACL"].includes(l))) return "nacl"
+  if (upper.some((l) => ["ROUTETABLE", "GATEWAY", "VPCENDPOINT"].includes(l))) return "route_table"
+  if (upper.some((l) => ["IAMUSER", "IAMROLE", "STS", "IAMPOLICY", "INSTANCEPROFILE"].includes(l)))
+    return "iam_role"
+  if (upper.some((l) => ["STORAGE", "DATABASE", "SECRETSMANAGER", "SNAPSHOT", "CROWNJEWELS"].includes(l)))
+    return "crown_jewel"
+  return null
+}
+
 export function buildAttackSurfaceFlow(input: SurfaceFlowInput): SurfaceFlowResult {
   const { architecture: arch, path } = input
   const items = collectItems(arch, path)
   const itemById = new Map(items.map((i) => [i.id, i]))
 
-  const colCounts = new Map<SurfaceColumnId, number>()
-  for (const col of SURFACE_COLUMNS) colCounts.set(col.id, 0)
-
-  const { cardWidth, cardHeight, cardGap, laneWidth, laneHeader, lanePadTop, lanePadBottom, canvasPadX, canvasPadY } =
-    SURFACE_LAYOUT
-
   const nodes: SurfaceFlowResult["nodes"] = []
-  const yByColumn = new Map<SurfaceColumnId, number>()
+  let maxY = 0
 
-  for (const col of SURFACE_COLUMNS) {
-    yByColumn.set(col.id, lanePadTop)
-  }
-
-  // Lane backdrops (behind cards)
-  let maxColumnHeight = lanePadTop + lanePadBottom
-  for (const col of SURFACE_COLUMNS) {
-    const colItems = items.filter((i) => i.column === col.id)
-    const colHeight =
-      colItems.length === 0
-        ? lanePadTop + lanePadBottom + 80
-        : lanePadTop + colItems.length * (cardHeight + cardGap) - cardGap + lanePadBottom
-    maxColumnHeight = Math.max(maxColumnHeight, colHeight)
-
-    nodes.push({
-      id: `lane-${col.id}`,
-      type: "surfaceLane",
-      position: { x: col.x - 20, y: 0 },
-      data: { label: col.label, columnId: col.id },
-      style: { width: laneWidth, height: colHeight, zIndex: 0 },
-      selectable: false,
-      draggable: false,
-    })
-  }
-
-  // Crown jewel aura in column 6
-  const jewelItems = items.filter((i) => i.column === "crown_jewels")
+  const jewelItems = items.filter((i) => i.isCrownJewel)
   if (jewelItems.length > 0) {
-    const col = SURFACE_COLUMNS.find((c) => c.id === "crown_jewels")!
-    const jewelHeight =
-      lanePadTop + jewelItems.length * (cardHeight + cardGap) - cardGap + lanePadBottom
+    const pos = blueprintPosition("crown_jewel", 0)
+    const size = nodeDimensions("STORAGE", true)
     nodes.push({
       id: "lane-cj-glow",
       type: "surfaceJewelZone",
-      position: { x: col.x - 28, y: laneHeader - 8 },
-      data: { label: "Protected data at rest", isJewelZone: true },
-      style: { width: laneWidth + 16, height: jewelHeight, zIndex: 1 },
+      position: { x: pos.x - 12, y: pos.y - 12 },
+      data: { isJewelZone: true },
+      style: { width: size.width + 24, height: size.height + 24, zIndex: 1 },
       selectable: false,
       draggable: false,
     })
   }
 
   for (const item of items) {
-    const col = SURFACE_COLUMNS.find((c) => c.id === item.column)!
-    const y = yByColumn.get(item.column)!
-    yByColumn.set(item.column, y + cardHeight + cardGap)
+    const pos = blueprintPosition(item.layoutSlot, item.layoutIndex)
+    const dims = nodeDimensions(item.awsType, item.isCrownJewel)
+    maxY = Math.max(maxY, pos.y + dims.height)
 
     nodes.push({
       id: item.id,
       type: "surfaceResource",
-      position: { x: col.x, y },
+      position: pos,
       data: {
         title: item.title,
         sub: item.sub,
         typeLabel: item.typeLabel,
+        displayType: item.displayType,
+        awsType: item.awsType,
         cat: item.cat,
         onPath: item.onPath,
         isCrownJewel: item.isCrownJewel,
         metric: item.metric,
         badge: item.badge,
+        alertText: item.alertText,
         step: item.step,
         copyValue: item.sub ?? item.title,
       },
-      style: { width: cardWidth, height: cardHeight, zIndex: 10 },
+      style: { width: dims.width, height: dims.height, zIndex: 10 },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       draggable: false,
@@ -407,6 +570,7 @@ export function buildAttackSurfaceFlow(input: SurfaceFlowInput): SurfaceFlowResu
 
   const edges: Edge<AttackSurfaceEdgeData>[] = []
   const jewelIds = new Set(items.filter((i) => i.isCrownJewel).map((i) => i.id))
+  const entryIds = new Set(items.filter((i) => i.isEntry || i.isGateway).map((i) => i.id))
 
   for (const e of canvasEdgesFromArch(arch)) {
     const src = itemById.get(e.source_aws_id)
@@ -416,6 +580,8 @@ export function buildAttackSurfaceFlow(input: SurfaceFlowInput): SurfaceFlowResu
     const flowKind = classifySurfaceEdge(e.relationship, {
       targetIsJewel: jewelIds.has(e.target_aws_id),
       observed: e.observed,
+      sourceIsEntry: entryIds.has(e.source_aws_id) || src.isEntry || src.isGateway,
+      targetIsCompute: tgt.isCompute,
     })
 
     const pairKey = `${e.source_aws_id}->${e.target_aws_id}`
@@ -425,33 +591,39 @@ export function buildAttackSurfaceFlow(input: SurfaceFlowInput): SurfaceFlowResu
       arch.pathEdgePairKeys?.has(`${e.target_aws_id}->${e.source_aws_id}`) ||
       (src.onPath && tgt.onPath)
 
+    const label = e.relationship.replace(/_/g, " ")
+    const exfilLabel =
+      flowKind === "exfil" && e.relationship === "ACCESSES_RESOURCE"
+        ? "s3:GetObject Siphoning"
+        : label
+
     edges.push({
       id: e.id,
       source: e.source_aws_id,
       target: e.target_aws_id,
       type: "surfaceEdge",
-      animated: flowKind === "network" || flowKind === "exfil",
+      animated: flowKind === "attack" || flowKind === "exfil" || flowKind === "network",
       data: {
         flowKind,
-        label: e.relationship.replace(/_/g, " "),
+        label: exfilLabel,
         observed: e.observed,
         onPath: Boolean(onPathEdge),
         pulseDelay: (edges.length % 5) * 0.4,
       },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        width: 14,
-        height: 14,
-      },
-      zIndex: flowKind === "exfil" ? 30 : flowKind === "identity" ? 20 : 10,
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+      zIndex: flowKind === "attack" || flowKind === "exfil" ? 30 : flowKind === "identity" ? 20 : 10,
     })
   }
 
-  const rightmost = SURFACE_COLUMNS[SURFACE_COLUMNS.length - 1].x + laneWidth
-  const width = rightmost + canvasPadX
-  const height = maxColumnHeight + canvasPadY + laneHeader
+  synthesizeKillChainEdges(items, edges)
 
   const vpcId = arch.vpcGroups?.[0]?.vpcId ?? arch.workloadNetwork?.vpc_id ?? undefined
 
-  return { nodes, edges, width, height, meta: { region: arch.region, vpcId: vpcId ?? undefined } }
+  return {
+    nodes,
+    edges,
+    width: BLUEPRINT_CANVAS.width,
+    height: Math.max(BLUEPRINT_CANVAS.height, maxY + BLUEPRINT_CANVAS.padY),
+    meta: { region: arch.region, vpcId: vpcId ?? undefined },
+  }
 }

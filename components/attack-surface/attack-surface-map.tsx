@@ -64,24 +64,24 @@ export function AttackSurfaceMap({
   const legend = (
     <div className="flex flex-wrap items-center gap-3 text-[9px] uppercase tracking-wide" style={{ color: AS.muted }}>
       <span className="inline-flex items-center gap-1">
+        <span className="inline-block h-1 w-4 rounded" style={{ background: SURFACE_EDGE_COLORS.attack }} />
+        Breach / exfil
+      </span>
+      <span className="inline-flex items-center gap-1">
         <span className="inline-block h-0.5 w-4 rounded" style={{ background: SURFACE_EDGE_COLORS.network }} />
-        Network flow
+        Network routing
       </span>
       <span className="inline-flex items-center gap-1">
         <span
-          className="inline-block h-0.5 w-4 rounded border-t border-dashed"
+          className="inline-block h-0.5 w-4 border-t border-dashed"
           style={{ borderColor: SURFACE_EDGE_COLORS.identity }}
         />
-        Identity / priv esc
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <span className="inline-block h-1 w-4 rounded" style={{ background: SURFACE_EDGE_COLORS.exfil }} />
-        Exfiltration
+        Identity plane
       </span>
     </div>
   )
 
-  const canvasHeight = slot === "hero" ? 640 : 520
+  const canvasHeight = slot === "hero" ? 680 : 560
 
   const panel = (expanded: boolean) => (
     <div
@@ -98,14 +98,15 @@ export function AttackSurfaceMap({
         style={{ borderColor: AS.laneBorder }}
       >
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: AS.muted }}>
-            Attack Surface Map
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: AS.ink }}>
+            Attack Surface Risk Map
           </p>
-          {headerHint ? (
-            <p className="text-[10px] mt-0.5 font-mono truncate max-w-[min(520px,70vw)]" style={{ color: AS.faint }}>
-              {headerHint}
-            </p>
-          ) : null}
+          <p className="text-[10px] mt-0.5" style={{ color: AS.faint }}>
+            Live Neo4j control-plane path state
+            {headerHint ? (
+              <span className="font-mono ml-1.5">· {headerHint}</span>
+            ) : null}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {legend}
@@ -140,7 +141,7 @@ export function AttackSurfaceMap({
             <>
               <DialogHeader className="shrink-0 gap-0.5 pb-0">
                 <DialogTitle className="text-base" style={{ color: AS.ink }}>
-                  Attack Surface Map
+                  Attack Surface Risk Map
                 </DialogTitle>
                 <DialogDescription style={{ color: AS.faint }}>{headerHint}</DialogDescription>
               </DialogHeader>

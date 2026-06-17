@@ -1,6 +1,6 @@
 /** Maps Neo4j / Canvas relationship types to Attack Surface edge animation styles. */
 
-export type SurfaceFlowKind = "network" | "identity" | "exfil"
+export type SurfaceFlowKind = "attack" | "network" | "identity" | "exfil"
 
 const NETWORK_RELS = new Set([
   "IN_SUBNET",
@@ -41,13 +41,21 @@ const DATA_TO_JEWEL_RELS = new Set([
   "READS_FROM",
   "WRITES_TO",
   "ACCESSES",
+  "ACTUAL_API_CALL",
 ])
 
 export function classifySurfaceEdge(
   relationship: string,
-  opts?: { targetIsJewel?: boolean; observed?: boolean | null },
+  opts?: {
+    targetIsJewel?: boolean
+    observed?: boolean | null
+    sourceIsEntry?: boolean
+    targetIsCompute?: boolean
+  },
 ): SurfaceFlowKind {
   const r = relationship.toUpperCase()
+
+  if (opts?.sourceIsEntry && opts?.targetIsCompute) return "attack"
 
   if (
     EXFIL_RELS.has(r) ||
@@ -61,8 +69,7 @@ export function classifySurfaceEdge(
   if (
     IDENTITY_RELS.has(r) ||
     r.includes("PRIVILEGE_ESCALATION") ||
-    r.includes("ASSUME") ||
-    r === "ACTUAL_API_CALL"
+    r.includes("ASSUME")
   ) {
     return "identity"
   }
@@ -77,7 +84,8 @@ export function classifySurfaceEdge(
 }
 
 export const SURFACE_EDGE_COLORS: Record<SurfaceFlowKind, string> = {
-  network: "#48CAE4",
+  attack: "#D90429",
+  network: "#00B4D8",
   identity: "#FF9F1C",
-  exfil: "#FF4D6D",
+  exfil: "#D90429",
 }
