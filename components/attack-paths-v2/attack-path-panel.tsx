@@ -33,6 +33,7 @@ import { useSearchParams } from "next/navigation"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { PathAnalysisPanel } from "./path-analysis-panel"
+import { useAttackMapCyntro } from "@/lib/attack-map/feature-flag"
 import {
   buildAttackerArchitecture,
   type GraphViewResponse,
@@ -115,6 +116,8 @@ export function AttackPathPanel({
   //   - ?canvas=v1   → legacy (rollback escape hatch)
   const searchParams = useSearchParams()
   const canvasV2 = searchParams?.get("canvas") !== "v1"
+  // Map stack: default = Cyntro SVG; ?map=legacy rolls back to containment map.
+  const attackMapCyntro = useAttackMapCyntro()
 
   const fetchUrl = useMemo(() => {
     if (!systemName || !jewelId || !pathId) return null
@@ -193,8 +196,16 @@ export function AttackPathPanel({
       damage_narrative: payload.damage_narrative,
       reduction_narrative: payload.reduction_narrative,
       reachable_neighbors: payload.reachable_neighbors ?? undefined,
+      // The facade payload carries no authoritative gate state; the backend's
+      // materialized :AttackPath summary (identity/route/data_plane gates) only
+      // rides on the IAP list path. Thread it through from pathFromPage so the
+      // bridge compiler can trust it instead of re-deriving (and downgrading an
+      // OPEN_OBSERVED identity gate to OPEN_CONFIG off a partial edges[]).
+      materialized: pathFromPage?.materialized,
+      materialized_stale: pathFromPage?.materialized_stale,
+      materialized_path: pathFromPage?.materialized_path ?? null,
     }
-  }, [payload])
+  }, [payload, pathFromPage])
 
   const jewelSummary = useMemo<CrownJewelSummary | null>(() => {
     if (!payload || isFacadeError(payload)) return null
@@ -309,6 +320,7 @@ export function AttackPathPanel({
       onToggleExpand={onToggleExpand}
       architecture={architecture}
       canvasV2={canvasV2}
+      attackMapCyntro={attackMapCyntro}
     />
   )
 }

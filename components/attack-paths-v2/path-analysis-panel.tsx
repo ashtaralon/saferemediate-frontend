@@ -2,41 +2,35 @@
 
 // Path Analysis panel — the right column of the v2 page.
 //
-// Slice 1 ships: header (score + 1-line summary + chain), embedded
-// path-filtered TrafficFlowMap (the egress-flow-map style visualization
-// from the design discussion), and stub placeholders for the
-// NETWORK / IDENTITY / DATA plane sections (Slice 2), Potential Damage
-// (Slice 3), and Recommended Hardening (Slice 4).
-//
-// The map is path-filtered: only nodes on THIS path render, with the
-// connection lines through SG / NACL / IAM / VPCE drawn as a single
-// polyline. This is the same TrafficFlowMap renderer we use in the
-// existing attack-paths drill-in, just embedded smaller.
+// Slice 1 ships: header (score + evidence chips), light attack-path hero
+// card, and supporting evidence (damage-aware card, kill-chain strip,
+// containment flow map — nested Cloud Graph (region · VPC · AZ · subnets ·
+// services + animated attack path). Not the legacy lane TrafficFlowMap.
 
 import { useMemo, useRef, useState } from "react"
 import { Crown, ChevronRight, Maximize2, Minimize2, AlertOctagon } from "lucide-react"
-import TrafficFlowMap, {
-  type TrafficFlowMapPathFilter,
-  type SystemArchitecture,
-} from "@/components/dependency-map/traffic-flow-map"
-import { AttackPathFlowViz } from "@/components/identity-attack-paths/attack-path-flow-viz"
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
   PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
-import { filterActivePaths } from "@/lib/active-filters"
 import { NetworkPlanePanel, IdentityPlanePanel, DataPlanePanel } from "./plane-panels"
 import { HardeningPanel } from "./hardening-panel"
-import { AttackerPathMapSection } from "./attacker-path-map"
 import { AtlasInlineSection } from "./atlas-inline-section"
+import { AttackPathCardLightView } from "./attack-path-card-light"
+import { AttackPathContainmentMap } from "./attack-path-containment-map"
+import { CyntroAttackMap } from "@/components/attack-map/cyntro-attack-map"
+import { AttackSpineStrip } from "./attack-spine-strip"
+import { useAttackPathReport } from "./use-attack-path-report"
+import { useClosurePreview } from "./use-closure-preview"
 import {
   DamageScopeDrawer,
   type DamageScopeTarget,
 } from "./damage-scope-drawer"
 import { DamageAwarePathCard } from "./damage-aware-path-card"
 import { useDamageScope } from "./use-damage-scope"
+import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -60,6 +54,8 @@ interface PathAnalysisPanelProps {
    *  Pure visual layer — no data/contract impact. Default false so
    *  legacy operators see the unchanged canvas. */
   canvasV2?: boolean
+  /** Cyntro attack map stack. Default true; ?map=legacy for old Cloud Graph. */
+  attackMapCyntro?: boolean
 }
 
 // V2-1 helper: middle-truncate a jewel name for the caption strip.
@@ -88,7 +84,10 @@ function killChainPhase(node: PathNodeDetail): KillChainPhase {
   // hint) — identity patterns must win first.
   if (/role|instance.?profile|policy/.test(t)) return "IDENTITY"
   if (/s3|bucket|rds|dynamo|kms|secret/.test(t)) return "DATA"
-  if (/subnet|security.?group|nacl|networkacl|route|vpce|vpc.?endpoint|igw|internet.?gateway|nat/.test(t)) return "NETWORK"
+  // `\bvpc\b` catches bare "vpc" type. Without it, a VPC node falls through
+  // to the ENTRY fallback (#191 — VPC labeled as ENTRY on the chip strip).
+  // VPCE / vpc-endpoint already match before this via `vpce|vpc.?endpoint`.
+  if (/subnet|security.?group|nacl|networkacl|route|vpce|vpc.?endpoint|\bvpc\b|igw|internet.?gateway|nat/.test(t)) return "NETWORK"
   if (isPrincipalNodeType(node.type) || /ec2|lambda|ecs|instance|principal|user/.test(t)) return "ENTRY"
   // Unknown type → fall back to the path tier the backend assigned.
   if (node.tier === "network_control") return "NETWORK"
@@ -100,10 +99,35 @@ function killChainPhase(node: PathNodeDetail): KillChainPhase {
 function KillChainStrip({ nodes }: { nodes: PathNodeDetail[] }) {
   // Segments: every node is its own segment EXCEPT consecutive NETWORK
   // nodes, which collapse into one "NETWORK PASSAGE · n hops" segment
-  // (step range + tooltip list) so the strip stays one line.
+  // (step range + tooltip list) so the strip stays one line. We also drop
+  // consecutive duplicate (id OR name) so InstanceProfile+IAMRole pairs
+  // — both classed as IDENTITY, same name — don't render as two separate
+  // chips (#191 — "IDENTITY cyntro-demo-ec2-s3-role" appeared twice).
   const segments = useMemo(() => {
+    // Step 1: deduplicate consecutive nodes that are functionally identical.
+    // Compare by canonical_id ?? id first; fall back to (phase, name) to
+    // collapse profile-then-role pairs that share a friendly name.
+    const dedup: PathNodeDetail[] = []
+    nodes.forEach((n) => {
+      const prev = dedup[dedup.length - 1]
+      if (prev) {
+        const prevKey = prev.canonical_id ?? prev.id
+        const nKey = n.canonical_id ?? n.id
+        if (prevKey && nKey && prevKey === nKey) return
+        if (
+          killChainPhase(prev) === killChainPhase(n) &&
+          prev.name &&
+          n.name &&
+          prev.name === n.name
+        ) {
+          return
+        }
+      }
+      dedup.push(n)
+    })
+    // Step 2: existing segmentation, applied to the deduped list.
     const segs: Array<{ phase: KillChainPhase; nodes: Array<PathNodeDetail & { step: number }> }> = []
-    nodes.forEach((n, idx) => {
+    dedup.forEach((n, idx) => {
       const phase = killChainPhase(n)
       const entry = { ...n, step: idx + 1 }
       const prev = segs[segs.length - 1]
@@ -175,66 +199,22 @@ export function PathAnalysisPanel({
   onToggleExpand,
   architecture,
   canvasV2 = false,
+  attackMapCyntro = true,
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
   )
   const [damageScopeOpen, setDamageScopeOpen] = useState(false)
   const damageScopePortalContainerRef = useRef<HTMLDivElement | null>(null)
-  // Flow Map = rich TrafficFlowMap (Stack sidebar, ROUTE TABLES, EGRESS
-  // GATEWAYS, lateral pivots). Lateral Movement = the 5-column lane
-  // diagram (Entry → Compute → Identity → Pivot → Crown Jewel) from
-  // Identity Attack Paths — same view operators had under the "Lanes"
-  // toggle before Attack Paths v2 dropped it.
-  const [mapView, setMapView] = useState<"flow" | "lateral">("flow")
   const [technicalOpen, setTechnicalOpen] = useState(false)
-  // Supporting evidence is collapsible but DEFAULT OPEN — the flow map is
-  // still the demo hero; the toggle just lets the operator focus the
-  // decision panel above when they want to.
+  // Flow map — lane-based TrafficFlowMap (stack columns + numbered path)
+  // with optional nested architecture containment tab.
   const [evidenceOpen, setEvidenceOpen] = useState(true)
 
-  const lateralPaths = useMemo(() => filterActivePaths([path]), [path])
+  const { closure } = useClosurePreview(path)
+  const { report, source, loading: reportLoading, error: reportError, retry: reportRetry } =
+    useAttackPathReport(path, jewel, closure)
 
-  // Build the TrafficFlowMap pathFilter shape from the path's nodes
-  // and edges. The filter tells the map "show only these nodes; draw
-  // the polyline through these checkpoint hops." applyPathFilter()
-  // in traffic-flow-map.tsx consumes this and reduces the unfiltered
-  // System Architecture down to the path-relevant subset.
-  const pathFilter = useMemo<TrafficFlowMapPathFilter>(() => {
-    const nodeIds = path.nodes?.map((n) => n.id) ?? []
-    const pathNodes = (path.nodes ?? []).map((n) => ({
-      id: n.id,
-      name: n.name,
-      type: n.type,
-      tier: n.tier,
-      lane: n.lane,
-    }))
-    const pathEdges = (path.edges ?? []).map((e) => ({
-      source: e.source,
-      target: e.target,
-      type: e.type,
-      label: e.label,
-      port: e.port,
-      protocol: e.protocol,
-      bytes: e.traffic_bytes,
-      hits: e.hit_count,
-      is_observed: e.is_observed,
-    }))
-    // The crown-jewel node is the LAST node on the path. The map
-    // renders it with the crown icon overlay so the operator sees
-    // visually which resource is the attack target vs. waypoints.
-    const crownJewelIds = jewel ? [jewel.id] : []
-    return {
-      nodeIds,
-      pathNodes,
-      pathEdges,
-      crownJewelIds,
-      jewelName: jewel?.name,
-      pathLabel: `Path → ${jewel?.name ?? path.id}`,
-    }
-  }, [path, jewel])
-
-  const start = path.nodes?.[0]
   const sevTone = severityTone(path.severity?.severity)
   const sevLabel = (path.severity?.severity || "—").toUpperCase()
   const sevScore = path.severity?.overall_score
@@ -379,22 +359,45 @@ export function PathAnalysisPanel({
         </div>
       </div>
 
-      {/* HERO — attacker path map (story view): kill-chain spine + THE GAP +
-          live before/diff/after. First content block, above the technical
-          panels. Composes ClosureOutcomePanel internally, so the standalone
-          closure section is removed (no double render). */}
-      <div className="px-6 py-4 border-b border-border">
-        <AttackerPathMapSection path={path} />
+      {/* HERO — light prod attack-path card (cyntro_attack-path-card_design.html).
+          Pure renderer of the real backend AttackPathReport: header + risk +
+          "how real" gates + the fix you approve. The flow map, the dark
+          damage-aware card, and per-plane detail all move into "Supporting
+          evidence" below so the clean light card is the default view. */}
+      <div className="px-6 py-5 border-b border-border" style={{ background: "#eef1f5" }}>
+        {reportLoading && !report ? (
+          <p className="text-[12px] text-muted-foreground">Loading attack path report…</p>
+        ) : report ? (
+          <>
+            {source === "bridge" && (
+              <div className="rounded-lg px-3 py-2 mb-3 text-[11px] font-semibold bg-amber-500/10 text-amber-700">
+                Dev bridge report (?reportBridge=1) — backend report unavailable; values compiled in-browser.
+              </div>
+            )}
+            {/* CISO 5-second surface — hidden when Cyntro map owns the narrative */}
+            {!attackMapCyntro && (
+              <div className="mb-4">
+                <AttackSpineStrip report={report} path={path} />
+              </div>
+            )}
+            <AttackPathCardLightView
+              report={report}
+              path={path}
+              systemName={systemName}
+              architecture={architecture}
+            />
+          </>
+        ) : (
+          <p className="text-[12px] text-muted-foreground">
+            Report unavailable{reportError ? `: ${reportError}` : ""}.
+            {reportError && (
+              <button type="button" className="ml-2 underline" onClick={reportRetry}>
+                Retry
+              </button>
+            )}
+          </p>
+        )}
       </div>
-
-      <DamageAwarePathCard
-        path={path}
-        jewel={jewel}
-        systemName={systemName}
-        scope={damageScopeData}
-        scopeLoading={damageScopeLoading}
-        scopeError={damageScopeError}
-      />
 
       {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
       <div className="border-b border-border bg-muted/30">
@@ -411,102 +414,84 @@ export function PathAnalysisPanel({
           </button>
           {evidenceOpen && (
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Network topology, lateral movement, and per-plane signals
+              Architecture flow map, lateral movement, and per-plane signals
             </p>
           )}
         </div>
         {evidenceOpen && (
         <>
+        {/* Dark damage-aware card — demoted from hero into supporting
+            evidence (the light card above now owns the damage/fix story).
+            Kept here so its damage-scope drawer + per-cell detail stay
+            available for the operator drilling in. */}
+        {report && (
+          <div className="px-6 pt-4">
+            <DamageAwarePathCard
+              report={report}
+              path={path}
+              jewel={jewel}
+              systemName={systemName}
+              scope={damageScopeData}
+              scopeLoading={damageScopeLoading}
+              scopeError={damageScopeError}
+            />
+          </div>
+        )}
         {/* Kill-chain strip (2026-06-11) — replaces the canvasV2-gated
             "ENTRY → via N hops → REACHES" caption. Always on when the
             path has nodes: a LINEAR phase-by-phase read of the spine
             whose numbers match the map's step badges, since the lane
             layout makes the numbered spine zigzag on the canvas. */}
-        {(path.nodes?.length ?? 0) > 0 && <KillChainStrip nodes={path.nodes} />}
-        <div className="px-6 pt-4 pb-2 flex items-center justify-between gap-3">
-          <div className="inline-flex items-center bg-muted rounded p-0.5 border border-border shrink-0">
-            <button
-              type="button"
-              onClick={() => setMapView("flow")}
-              className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
-                mapView === "flow"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Rich system map — Stack Components sidebar, ROUTE TABLES, EGRESS GATEWAYS, lateral pivot edges"
-            >
-              Flow Map
-            </button>
-            <button
-              type="button"
-              onClick={() => setMapView("lateral")}
-              className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
-                mapView === "lateral"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="5-column lateral movement layout — Entry · Compute · Identity · Pivot · Crown Jewel"
-            >
-              Lateral Movement
-            </button>
-          </div>
-          <div className="text-[10px] text-muted-foreground text-right min-w-0">
-            {mapView === "flow"
-              ? "click a data resource (canvas or Storage sidebar) for damage scope"
-              : "Entry → Compute → Identity → Pivot → Crown Jewel"}
-          </div>
-        </div>
-        {/* Fixed-height container so the map fits the 3-column panel
-            without dominating the page. 520px shows two lanes worth
-            of content (compute row + resources row) cleanly on
-            alon-prod-sized data. */}
-        <div className="px-6 pb-4">
+        {!attackMapCyntro && (path.nodes?.length ?? 0) > 0 && (
+          <KillChainStrip nodes={path.nodes} />
+        )}
+        <div className={`${attackMapCyntro ? "px-3 pt-2 pb-3" : "px-6 pt-3 pb-4"}`}>
+          {!attackMapCyntro && (
+            <div className="px-1 pb-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Cloud Graph
+                <span className="font-normal normal-case ml-2 text-[11px]">
+                  Legacy Cloud Graph · ?map=legacy
+                </span>
+              </p>
+            </div>
+          )}
           <div
-            className="relative rounded-xl border border-border bg-card overflow-hidden"
-            style={{ height: "520px" }}
+            className={`relative overflow-auto ${
+              attackMapCyntro
+                ? "min-h-[560px] rounded-[14px]"
+                : "rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px]"
+            }`}
+            style={
+              attackMapCyntro
+                ? undefined
+                : { boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }
+            }
+            data-testid="attack-path-flow-map-slot"
           >
-            {mapView === "flow" ? (
-              <TrafficFlowMap
+            {attackMapCyntro ? (
+              <CyntroAttackMap systemName={systemName} path={path} />
+            ) : report ? (
+              <AttackPathContainmentMap
+                path={path}
+                report={report}
+                architecture={architecture ?? null}
                 systemName={systemName}
-                architectureOverride={architecture ?? null}
-                pathFilter={pathFilter}
-                titleOverride=""
-                innerTitleOverride="Flow Map"
-                innerSubtitleOverride="On-path chain + lateral pivots"
-                pathBadgeOverride={pathFilter.pathLabel}
-                observedMode={true}
-                jewelEmphasis={canvasV2}
-                jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
-                canvasV2={canvasV2}
-                entryNodeId={canvasV2 ? start?.id : undefined}
-                fullscreenContainerRef={damageScopePortalContainerRef}
-                onDamageScopeDataNode={(node) => {
-                  setDamageScopeTarget({
-                    nodeId: node.id,
-                    nodeName: node.name,
-                    nodeType: node.type,
-                    systemName,
-                    pathId: path.id,
-                  })
-                  setDamageScopeOpen(true)
-                }}
+                slot="flow"
               />
+            ) : reportLoading ? (
+              <p className="text-[11px] text-muted-foreground px-2 py-12 text-center">Building the cloud graph…</p>
             ) : (
-              <div className="h-full overflow-auto">
-                <AttackPathFlowViz
-                  paths={lateralPaths}
-                  selectedPathIndex={0}
-                  onNodeClick={() => {}}
-                  selectedNodeId={null}
-                />
-              </div>
+              <p className="text-[11px] text-muted-foreground px-2 py-12 text-center">
+                Cloud graph unavailable{reportError ? ` (${reportError})` : ""}.
+                {reportError && (
+                  <button type="button" className="ml-2 underline" onClick={reportRetry}>
+                    Retry
+                  </button>
+                )}
+              </p>
             )}
           </div>
-          {/* ATLAS — Phase 3.2.4 (2026-05-27). Inline catalog-driven
-              chain search for this path. Sits in the empty space under
-              the Flow Map so the operator sees ATLAS without switching
-              tabs. Auto-derives foothold (EC2/Lambda) + target (jewel)
-              from the path itself — no inputs. */}
           <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
         </div>
         </>
