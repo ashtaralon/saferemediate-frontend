@@ -45,6 +45,19 @@ export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
         >
           Grid
         </button>
+        <button
+          type="button"
+          data-testid="map-view-aws"
+          aria-pressed={variant === "aws"}
+          onClick={() => onChange("aws")}
+          className={`rounded-md px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
+            variant === "aws"
+              ? "bg-background text-foreground shadow-sm border border-border/60"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          AWS
+        </button>
       </div>
     </div>
   )

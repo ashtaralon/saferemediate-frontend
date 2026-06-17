@@ -470,7 +470,12 @@ export function PathAnalysisPanel({
             data-testid="attack-path-flow-map-slot"
           >
             {attackMapCyntro ? (
-              <CyntroAttackMap systemName={systemName} path={path} />
+              <CyntroAttackMap
+                systemName={systemName}
+                path={path}
+                report={report}
+                architecture={architecture ?? null}
+              />
             ) : report ? (
               <AttackPathContainmentMap
                 path={path}

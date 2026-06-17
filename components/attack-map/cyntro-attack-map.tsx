@@ -9,15 +9,27 @@ import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { useMapViewVariant } from "@/lib/attack-map/use-map-view-variant"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
+import { AwsArchitectureAttackMap } from "@/components/attack-paths-v2/aws-architecture-attack-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
+import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 interface CyntroAttackMapProps {
   systemName: string
   path: IdentityAttackPath
   enabled?: boolean
+  /** Live report + synthesized architecture for the AWS Architecture view. */
+  report?: AttackPathReport | null
+  architecture?: SystemArchitecture | null
 }
 
-export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAttackMapProps) {
+export function CyntroAttackMap({
+  systemName,
+  path,
+  enabled = true,
+  report,
+  architecture,
+}: CyntroAttackMapProps) {
   const [pathId, setPathId] = useState<string | null>(null)
   const [pathIdError, setPathIdError] = useState<string | null>(null)
 
@@ -46,6 +58,30 @@ export function CyntroAttackMap({ systemName, path, enabled = true }: CyntroAtta
     pathId,
     enabled && Boolean(pathId),
   )
+
+  // AWS Architecture view — independent of the Cyntro-map payload above; it
+  // renders the live ContainmentModel from report + synthesized architecture.
+  if (variant === "aws") {
+    return (
+      <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
+        <div className="flex justify-end px-1">
+          <MapViewToggle variant={variant} onChange={setVariant} />
+        </div>
+        {report && architecture ? (
+          <AwsArchitectureAttackMap
+            path={path}
+            report={report}
+            architecture={architecture}
+            systemName={systemName}
+          />
+        ) : (
+          <p className="px-2 py-12 text-center text-[12px] text-muted-foreground">
+            AWS architecture view needs the live report &amp; topology for this path — switch to Classic or Grid, or retry once it loads.
+          </p>
+        )}
+      </div>
+    )
+  }
 
   if (!pathId || (loading && !data)) {
     return (
