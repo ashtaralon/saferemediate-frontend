@@ -9,7 +9,7 @@ import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { useMapViewVariant } from "@/lib/attack-map/use-map-view-variant"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
-import { AttackPathContainmentMap } from "@/components/attack-paths-v2/attack-path-containment-map"
+import { AttackSurfaceMap } from "@/components/attack-surface/attack-surface-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
@@ -59,19 +59,18 @@ export function CyntroAttackMap({
     enabled && Boolean(pathId),
   )
 
-  // AWS Architecture view — independent of the Cyntro-map payload above; it
-  // renders the live ContainmentModel from report + synthesized architecture.
+  // Attack Surface Map — fixed swimlane kill-chain layout from report + architecture.
   if (variant === "aws") {
     return (
       <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3 px-1">
           <p className="text-[11px] text-muted-foreground">
-            Full account topology with path overlay
+            Kill-chain swimlanes · entry → firewalls → transit → identity → crown jewels
           </p>
           <MapViewToggle variant={variant} onChange={setVariant} />
         </div>
         {report && architecture ? (
-          <AttackPathContainmentMap
+          <AttackSurfaceMap
             path={path}
             report={report}
             architecture={architecture}
@@ -79,7 +78,7 @@ export function CyntroAttackMap({
           />
         ) : (
           <p className="px-2 py-12 text-center text-[12px] text-muted-foreground">
-            AWS architecture view needs the live report &amp; topology for this path — switch to Classic or Grid, or retry once it loads.
+            Surface map needs the live report &amp; topology for this path — switch to Classic or Grid, or retry once it loads.
           </p>
         )}
       </div>

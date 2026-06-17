@@ -56,7 +56,7 @@ export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          AWS
+          Surface
         </button>
       </div>
     </div>

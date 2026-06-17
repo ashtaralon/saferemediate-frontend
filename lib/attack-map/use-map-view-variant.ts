@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 export type MapViewVariant = "classic" | "target" | "aws"
 
 /**
- * aws     — AWS architecture view (Cloud·Region·VPC·AZ·subnet boxes) — DEFAULT
+ * aws     — Attack Surface Map (fixed swimlane kill-chain) — DEFAULT
  * classic — path-only linear spine (?map=classic)
  * target  — subnet-row × AZ-column grid (?map=target)
  */
