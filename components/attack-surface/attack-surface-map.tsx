@@ -6,7 +6,7 @@ import type { IdentityAttackPath } from "@/components/identity-attack-paths/type
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
 import { buildVpcCanvasModel } from "@/lib/attack-surface/build-vpc-canvas-model"
-import { AwsAttackVpcCanvas } from "./aws-attack-vpc-canvas"
+import { AwsVpcFlowCanvas } from "./aws-vpc-flow-canvas"
 import {
   Dialog,
   DialogContent,
@@ -100,7 +100,7 @@ export function AttackSurfaceMap({
           ) : null}
         </div>
       </div>
-      <AwsAttackVpcCanvas
+      <AwsVpcFlowCanvas
         architecture={architecture}
         path={path}
         height={expanded ? "min(78vh, 820px)" : canvasHeight}
