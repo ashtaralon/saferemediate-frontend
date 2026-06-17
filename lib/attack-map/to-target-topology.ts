@@ -43,6 +43,8 @@ export interface TargetNode {
   jewelTier?: string
   onPath: boolean
   verdict?: Verdict
+  /** Sibling workload that shares the on-path IAM role (blast.shared_workloads). */
+  sharedRoleHub?: boolean
 }
 
 export interface TargetEdge {
@@ -69,6 +71,8 @@ export interface TargetTopology {
   system: string
   score: number
   jewelsReachable: number
+  /** Role-hub fan-out count — prefer role_reachable_jewels when backend provides it. */
+  roleJewelCount: number
   /** Lateral-movement blast surface — other workloads that share the on-path role. */
   sharedWorkloads: string[]
 }
@@ -196,9 +200,12 @@ export function toTargetTopology(
     onPath: boolean,
     isJewel: boolean,
     verdict?: Verdict,
+    sharedRoleHub = false,
   ) => {
     if (nodeMap.has(nodeId)) {
-      if (onPath) nodeMap.get(nodeId)!.onPath = true
+      const existing = nodeMap.get(nodeId)!
+      if (onPath) existing.onPath = true
+      if (sharedRoleHub) existing.sharedRoleHub = true
       return
     }
     nodeMap.set(nodeId, {
@@ -212,6 +219,7 @@ export function toTargetTopology(
       jewelTier: isJewel ? jewelTier(payload.score) : undefined,
       onPath,
       verdict,
+      sharedRoleHub: sharedRoleHub || undefined,
     })
   }
 
@@ -233,6 +241,16 @@ export function toTargetTopology(
     if (ctx >= 2) break
     addNode(r.node_id, r.node_type, r.name, r.az, r.subnet_id, false, false, "NOT_OBSERVED")
     ctx += 1
+  }
+  // 4. blast.shared_workloads — explicit siblings on the same IAM role hub
+  const sharedNames = payload.blast?.shared_workloads ?? []
+  for (const wName of sharedNames) {
+    const match = topology.resources.find(
+      (r) => r.name === wName || (r.name && wName.includes(r.name)) || r.node_id.includes(wName),
+    )
+    if (match) {
+      addNode(match.node_id, match.node_type, match.name, match.az, match.subnet_id, false, false, "ALLOWED", true)
+    }
   }
 
   // edges from consecutive hops
@@ -267,6 +285,9 @@ export function toTargetTopology(
 
   const gaps = (payload.collection_gaps ?? []).map((g) => ({ label: g, status: "MEDIUM" }))
 
+  const roleJewels = payload.blast?.role_reachable_jewels ?? []
+  const roleJewelCount = roleJewels.length > 0 ? roleJewels.length : (payload.blast?.crown_jewels_reachable ?? 0)
+
   return {
     nodes: [...nodeMap.values()],
     edges,
@@ -275,6 +296,7 @@ export function toTargetTopology(
     system: payload.system ?? topology.system,
     score: payload.score,
     jewelsReachable: payload.blast?.crown_jewels_reachable ?? 0,
-    sharedWorkloads: payload.blast?.shared_workloads ?? [],
+    roleJewelCount,
+    sharedWorkloads: sharedNames,
   }
 }

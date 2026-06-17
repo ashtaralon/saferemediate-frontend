@@ -68,7 +68,8 @@ function nodeIcon(type: TargetNodeType, dark: boolean) {
 }
 
 export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
-  const [activeLens, setActiveLens] = useState<TargetLens>("reachability")
+  const hasRoleHub = topo.sharedWorkloads.length > 0 || topo.roleJewelCount > 1
+  const [activeLens, setActiveLens] = useState<TargetLens>(hasRoleHub ? "lateral" : "reachability")
   const [isDark, setIsDark] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(
     topo.nodes.find((n) => n.onPath)?.id ?? topo.nodes[0]?.id ?? null,
@@ -142,8 +143,11 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
           </h2>
           <p className={`mt-0.5 font-mono text-[11px] ${isDark ? "text-slate-500" : "text-slate-400"}`}>
             {topo.system} · blast {topo.score}
-            {topo.jewelsReachable > 0
-              ? ` · ${topo.jewelsReachable} jewel${topo.jewelsReachable === 1 ? "" : "s"} at risk`
+            {topo.roleJewelCount > 0
+              ? ` · ${topo.roleJewelCount} jewel${topo.roleJewelCount === 1 ? "" : "s"} at risk`
+              : ""}
+            {topo.sharedWorkloads.length > 0
+              ? ` · ${topo.sharedWorkloads.length + 1} workloads share role`
               : ""}
           </p>
         </div>
@@ -259,7 +263,10 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
               if (!rp) return null
               const amber = isDark ? "#fbbf24" : "#d97706"
               const sibs = topo.nodes.filter(
-                (n) => (n.type === "compute" || n.type === "lambda") && n.id !== role!.id,
+                (n) =>
+                  n.sharedRoleHub ||
+                  ((n.type === "compute" || n.type === "lambda") &&
+                    topo.sharedWorkloads.some((w) => n.label.includes(w) || w.includes(n.label))),
               )
               return (
                 <g>
@@ -276,7 +283,7 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
                     )
                   })}
                   <text x={rp.x} y={rp.y - 36} textAnchor="middle" fontSize={9} fontWeight={700} fill={amber}>
-                    {`shared hub · ${topo.sharedWorkloads.length + 1} workloads → ${topo.jewelsReachable || 1} jewel${topo.jewelsReachable === 1 ? "" : "s"}`}
+                    {`shared hub · ${topo.sharedWorkloads.length + 1} workloads → ${topo.roleJewelCount || 1} jewel${topo.roleJewelCount === 1 ? "" : "s"}`}
                   </text>
                 </g>
               )
@@ -337,6 +344,11 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
                   {node.isCrownJewel && node.jewelTier && (
                     <span className={`rounded px-1 font-mono text-[7px] font-extrabold ${isDark ? "bg-amber-500/10 text-amber-400" : "bg-amber-100 text-amber-800"}`}>
                       CJ-{node.jewelTier}
+                    </span>
+                  )}
+                  {node.type === "iam" && hasRoleHub && (
+                    <span className={`rounded px-1 font-mono text-[7px] font-extrabold ${isDark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>
+                      {topo.roleJewelCount}J
                     </span>
                   )}
                 </div>
