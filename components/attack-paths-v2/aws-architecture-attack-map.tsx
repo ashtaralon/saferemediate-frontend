@@ -73,7 +73,7 @@ function jewelKind(name: string, type: string): string {
   return "s3"
 }
 
-type Card = { id: string; x: number; y: number; w: number; h: number; icon: string; title: string; sub?: string; onPath: boolean; accent: string; badge?: string; badgeColor: string }
+type Card = { id: string; x: number; y: number; w: number; h: number; icon: string; title: string; sub?: string; onPath: boolean; accent: string; badge?: string; badgeColor: string; stack?: number }
 type Frame = { id: string; x: number; y: number; w: number; h: number; rx: number; stroke: string; fill: string; sw: number; dash?: string; label: string; title: string; sub?: string }
 type Edge = { d: string; observed?: boolean; dashed?: boolean; label?: string; lx?: number; ly?: number }
 type Model = { W: number; H: number; frames: Frame[]; cards: Card[]; infraEdges: Edge[]; flowEdges: Edge[]; region: string; azCount: number; vpcLabel: string; access?: string }
@@ -136,14 +136,23 @@ export function AwsArchitectureAttackMap({
           )
         })}
         {model.cards.map((c) => (
-          <foreignObject key={c.id} x={c.x} y={c.y} width={c.w} height={c.h}>
-            <div style={{ boxSizing: "border-box", height: "100%", display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "center", padding: "8px 6px 6px", borderRadius: 9, background: CG.surface, border: `1.6px solid ${c.onPath ? c.accent : CG.border}`, boxShadow: c.onPath ? `0 0 0 2px ${c.accent}22, ${CG.shadow}` : CG.shadow, position: "relative" }} title={c.title}>
-              {c.badge && <span style={{ position: "absolute", top: -9, fontSize: 7.5, fontWeight: 800, letterSpacing: ".04em", padding: "1px 6px", borderRadius: 5, color: "#fff", background: c.badgeColor, whiteSpace: "nowrap" }}>{c.badge}</span>}
-              <Icon kind={c.icon} />
-              <div style={{ fontFamily: "var(--font-mono-stack, monospace)", fontSize: 9.5, lineHeight: 1.15, color: CG.ink, textAlign: "center", wordBreak: "break-word", maxWidth: c.w - 8, fontWeight: c.onPath ? 600 : 400 }}>{c.title}</div>
-              {c.sub && <div style={{ fontSize: 8, color: CG.faint, textAlign: "center" }}>{c.sub}</div>}
-            </div>
-          </foreignObject>
+          <g key={c.id}>
+            {c.stack && c.stack > 1 ? (
+              <>
+                <rect x={c.x + 10} y={c.y + 10} width={c.w} height={c.h} rx={9} fill={CG.surface} stroke={CG.border} strokeWidth={1.3} />
+                <rect x={c.x + 5} y={c.y + 5} width={c.w} height={c.h} rx={9} fill={CG.surface} stroke={CG.border} strokeWidth={1.3} />
+              </>
+            ) : null}
+            <foreignObject x={c.x} y={c.y - 14} width={c.w} height={c.h + 14}>
+              <div style={{ boxSizing: "border-box", height: c.h, marginTop: 14, display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "center", padding: "8px 6px 6px", borderRadius: 9, background: CG.surface, border: `1.6px solid ${c.onPath ? c.accent : CG.border}`, boxShadow: c.onPath ? `0 0 0 2px ${c.accent}22, ${CG.shadow}` : CG.shadow, position: "relative" }} title={c.stack && c.stack > 1 ? `${c.title} — runs in ${c.stack} AZs` : c.title}>
+                {c.badge && <span style={{ position: "absolute", top: -9, fontSize: 7.5, fontWeight: 800, letterSpacing: ".04em", padding: "1px 6px", borderRadius: 5, color: "#fff", background: c.badgeColor, whiteSpace: "nowrap" }}>{c.badge}</span>}
+                {c.stack && c.stack > 1 ? <span style={{ position: "absolute", top: 3, right: 3, fontSize: 7.5, fontWeight: 700, padding: "1px 5px", borderRadius: 5, color: "#fff", background: CAT.network }}>{`×${c.stack}`}</span> : null}
+                <Icon kind={c.icon} />
+                <div style={{ fontFamily: "var(--font-mono-stack, monospace)", fontSize: 9.5, lineHeight: 1.15, color: CG.ink, textAlign: "center", wordBreak: "break-word", maxWidth: c.w - 8, fontWeight: c.onPath ? 600 : 400 }}>{c.title}</div>
+                {c.sub && <div style={{ fontSize: 8, color: CG.faint, textAlign: "center" }}>{c.sub}</div>}
+              </div>
+            </foreignObject>
+          </g>
         ))}
       </svg>
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", padding: "9px 13px", borderTop: `1px solid ${CG.border}`, fontSize: 11, color: CG.muted }}>
@@ -151,6 +160,7 @@ export function AwsArchitectureAttackMap({
         <Legend color={CFG} dashed label="configured-only (allowed, unproven)" />
         <Legend color="#8c4fff" dashed label="network / access route (IGW · NAT · VPCE)" />
         {model.access && <span style={{ color: CG.ink }}>{model.access}</span>}
+        <span style={{ color: CG.faint }}>tiers grouped by role · ×N = same-function / multi-AZ resources collapsed</span>
         <span style={{ color: CG.faint, marginLeft: "auto" }}>region {model.region} · {model.azCount} AZ · {model.vpcLabel}</span>
       </div>
     </div>
@@ -174,14 +184,20 @@ function buildFromTopology(topo: TopologyResponse, arch: SystemArchitecture | nu
   if (!vpcs.length) return null
   const region = vpcs[0].region || arch?.region || "—"
 
-  const opIds = new Set<string>(), opNames = new Set<string>()
-  for (const n of path.nodes ?? []) { if (n.id) opIds.add(n.id); if (n.canonical_id) opIds.add(n.canonical_id); if (n.name) opNames.add(norm(n.name)) }
+  const opNames = new Set<string>()
+  for (const n of path.nodes ?? []) { if (n.name) opNames.add(norm(n.name)) }
   const sourceLabel = norm(report?.current_state?.source_label)
   const targetLabel = norm(report?.current_state?.target_label)
-  const onPathW = (w: TopoWorkload) => opIds.has(w.id) || opNames.has(norm(w.name))
-  const isDb = (w: TopoWorkload) => /rds|aurora|database|\bdb\b/i.test(`${w.type} ${w.name}`)
-  const tierOf = (s: { is_public: boolean; name: string; workloads: TopoWorkload[] }): "public" | "app" | "data" =>
-    s.is_public ? "public" : s.workloads.some(isDb) || /data|db|rds/i.test(s.name) ? "data" : "app"
+  const onPathName = (n: string) => opNames.has(norm(n))
+  // Canonical 3-tier classification by ROLE so the reference Public/App/Data
+  // structure renders from the real workloads even when the underlying subnets
+  // are flat (e.g. a default VPC where every subnet routes to the IGW).
+  const roleTier = (w: TopoWorkload): "public" | "app" | "data" => {
+    const t = `${w.type} ${w.name}`.toLowerCase()
+    if (/rds|aurora|dynamo|database|\bdb\b|elasticache|redis|memcached/.test(t)) return "data"
+    if (/alb|elb|nlb|load.?balancer|bastion|\bnat\b|gateway|frontend|web[-_]?server|reverse.?proxy|waf|ingress|public|api[-_]?gw|apigateway/.test(t)) return "public"
+    return "app"
+  }
   const tiers: Array<"public" | "app" | "data"> = ["public", "app", "data"]
 
   const azInnerW = G.subnetPadX * 2 + G.perRow * G.cardW + (G.perRow - 1) * G.cardGap
@@ -203,19 +219,39 @@ function buildFromTopology(topo: TopologyResponse, arch: SystemArchitecture | nu
     const vpcY = cursorY
     const vpcInnerY0 = vpcY + G.vpcPad + 22 + G.igwH + 12 // header + IGW band
 
-    // per (azIndex, tier) subnet metas
-    const tierBandH: Record<string, number> = { public: 0, app: 0, data: 0 }
-    const azTierSubs = azs.map((az) => {
-      const byTier: Record<string, typeof az.subnets> = { public: [], app: [], data: [] }
-      for (const s of az.subnets ?? []) { if ((s.workloads ?? []).length) byTier[tierOf(s)].push(s) }
-      return byTier
-    })
-    const subnetH = (subs: TopoVPC["azs"][number]["subnets"]) => {
-      let h = 0
-      for (const s of subs) { const rows = Math.max(1, Math.ceil((s.workloads?.length || 1) / G.perRow)); h += G.subnetHeaderH + rows * G.cardH + (rows - 1) * G.cardGap + 14 + 12 }
-      return Math.max(h, G.subnetHeaderH + G.cardH + 22)
+    // Collapse duplicates into ONE stacked card with a ×N count:
+    //  • the SAME workload spanning multiple AZs (VPC Lambda with an ENI per AZ)
+    //  • SAME-FUNCTION siblings (name minus a trailing -N/_N, e.g. App-1/App-2)
+    type UN = { w: TopoWorkload; azIdx: number[]; cidr: string | null }
+    const uniq = new Map<string, UN>()
+    azs.forEach((az, ai) => { for (const s of az.subnets ?? []) for (const w of s.workloads ?? []) {
+      const e = uniq.get(w.name) || { w, azIdx: [], cidr: s.cidr }
+      if (!e.azIdx.includes(ai)) e.azIdx.push(ai)
+      uniq.set(w.name, e)
+    } })
+    const baseName = (n: string) => n.replace(/[-_]\s*\d+$/, "")
+    type WL = { title: string; kind: string; cidr: string | null; stack: number; members: string[] }
+    const groups = new Map<string, WL & { tier: "public" | "app" | "data"; az: number }>()
+    for (const [name, e] of uniq) {
+      const tier = roleTier(e.w)
+      const key = `${tier}|${baseName(name)}`
+      const az0 = Math.min(...e.azIdx)
+      const g = groups.get(key)
+      if (!g) groups.set(key, { title: baseName(name), kind: tier === "data" ? jewelKind(name, e.w.type) : computeKind(e.w.type), cidr: e.cidr, stack: 0, members: [name], tier, az: az0 })
+      else { g.members.push(name); g.az = Math.min(g.az, az0) }
     }
-    for (const t of tiers) for (const bt of azTierSubs) if (bt[t].length) tierBandH[t] = Math.max(tierBandH[t], subnetH(bt[t]))
+    const azBands: Array<Record<string, WL[]>> = azs.map(() => ({ public: [], app: [], data: [] }))
+    for (const g of groups.values()) {
+      const instances = g.members.length
+      const azSpan = instances === 1 ? (uniq.get(g.members[0])?.azIdx.length ?? 1) : 0
+      azBands[g.az][g.tier].push({ title: instances > 1 ? g.title : g.members[0], kind: g.kind, cidr: g.cidr, stack: Math.max(instances, azSpan), members: g.members })
+    }
+    const bandH = (items: WL[]) => {
+      const rows = Math.max(1, Math.ceil(items.length / G.perRow))
+      return G.subnetHeaderH + rows * G.cardH + (rows - 1) * G.cardGap + 26
+    }
+    const tierBandH: Record<string, number> = { public: 0, app: 0, data: 0 }
+    for (const t of tiers) for (const ab of azBands) if (ab[t].length) tierBandH[t] = Math.max(tierBandH[t], bandH(ab[t]))
     const presentTiers = tiers.filter((t) => tierBandH[t] > 0)
 
     const bandY: Record<string, number> = {}
@@ -223,7 +259,9 @@ function buildFromTopology(topo: TopologyResponse, arch: SystemArchitecture | nu
     for (const t of presentTiers) { bandY[t] = yc; yc += tierBandH[t] + 16 }
     const azBoxH = yc - vpcInnerY0
     const azX0 = vpcX + G.vpcPad + G.azPadX
-    const vpcInnerW = G.vpcPad * 2 + azs.length * azW + (azs.length - 1) * G.colGap
+    const activeAZ = azs.map((_, ai) => ai).filter((ai) => tiers.some((t) => azBands[ai][t].length > 0))
+    const nAZ = Math.max(1, activeAZ.length)
+    const vpcInnerW = G.vpcPad * 2 + nAZ * azW + (nAZ - 1) * G.colGap
 
     // VPC + IGW
     const igwCx = vpcX + vpcInnerW / 2, igwCy = vpcY + G.vpcPad + 22 + G.igwH / 2
@@ -232,27 +270,27 @@ function buildFromTopology(topo: TopologyResponse, arch: SystemArchitecture | nu
     placed.set(`__igw-${vi}`, { cx: igwCx, cy: igwCy })
 
     azs.forEach((az, ai) => {
-      const ax = azX0 + ai * (azW + G.colGap)
+      const slot = activeAZ.indexOf(ai)
+      if (slot < 0) return
+      const ax = azX0 + slot * (azW + G.colGap)
       frames.push({ id: `az-${vi}-${ai}`, x: ax, y: vpcInnerY0, w: azW, h: azBoxH, rx: 9, stroke: FR.az.s, fill: FR.az.f, sw: 1.3, dash: FR.az.d, label: FR.az.l, title: `Availability Zone · ${az.name}` })
       for (const t of presentTiers) {
-        const subs = azTierSubs[ai][t]
-        if (!subs.length) continue
+        const items = azBands[ai][t]
+        if (!items.length) continue
         const sx = ax + G.azPadX, sy = bandY[t], sw = azInnerW, sh = tierBandH[t] - 12, ti = TIER[t]
-        frames.push({ id: `sn-${vi}-${ai}-${t}`, x: sx, y: sy, w: sw, h: sh, rx: 8, stroke: ti.s, fill: ti.f, sw: 1.3, label: ti.l, title: ti.label, sub: subs[0]?.cidr || undefined })
-        let cy = sy + G.subnetHeaderH
-        for (const s of subs) {
-          (s.workloads ?? []).forEach((wl, idx) => {
-            const col = idx % G.perRow, row = Math.floor(idx / G.perRow)
-            const cx = sx + G.subnetPadX + col * (G.cardW + G.cardGap), yy = cy + row * (G.cardH + G.cardGap)
-            const op = onPathW(wl)
-            const isFoot = op && norm(wl.name) === sourceLabel
-            cards.push({ id: wl.id, x: cx, y: yy, w: G.cardW, h: G.cardH, icon: computeKind(wl.type), title: wl.name, onPath: op, accent: CAT.compute, badge: isFoot ? "FOOTHOLD" : undefined, badgeColor: CAT.compute })
-            placed.set(wl.id, { cx: cx + G.cardW / 2, cy: yy + G.cardH / 2 })
-            if (op) placed.set(`name:${norm(wl.name)}`, { cx: cx + G.cardW / 2, cy: yy + G.cardH / 2 })
-          })
-          const rows = Math.max(1, Math.ceil((s.workloads?.length || 1) / G.perRow))
-          cy += G.subnetHeaderH + rows * G.cardH + (rows - 1) * G.cardGap + 14 + 12
-        }
+        frames.push({ id: `sn-${vi}-${ai}-${t}`, x: sx, y: sy, w: sw, h: sh, rx: 8, stroke: ti.s, fill: ti.f, sw: 1.3, label: ti.l, title: ti.label, sub: items[0]?.cidr || undefined })
+        const cy = sy + G.subnetHeaderH
+        items.forEach((it, idx) => {
+          const col = idx % G.perRow, row = Math.floor(idx / G.perRow)
+          const cx = sx + G.subnetPadX + col * (G.cardW + G.cardGap), yy = cy + row * (G.cardH + G.cardGap)
+          const op = it.members.some(onPathName)
+          const isFoot = it.members.some((m) => norm(m) === sourceLabel)
+          const multiInstance = it.members.length > 1
+          const sub = it.stack > 1 ? (multiInstance ? `×${it.stack}` : `×${it.stack} AZ`) : undefined
+          const center = { cx: cx + G.cardW / 2, cy: yy + G.cardH / 2 }
+          cards.push({ id: `wl-${vi}-${ai}-${t}-${idx}`, x: cx, y: yy, w: G.cardW, h: G.cardH, icon: it.kind, title: it.title, sub, stack: it.stack, onPath: op, accent: CAT.compute, badge: isFoot ? "FOOTHOLD" : undefined, badgeColor: CAT.compute })
+          for (const m of it.members) placed.set(`name:${norm(m)}`, center)
+        })
       }
     })
 
@@ -293,7 +331,7 @@ function buildFromTopology(topo: TopologyResponse, arch: SystemArchitecture | nu
   if (footAnchor && jp) {
     if (vpce) {
       flowEdges.push({ d: curve(footAnchor.cx, footAnchor.cy, vpce.cx, vpce.cy), observed })
-      flowEdges.push({ d: curve(vpce.cx, vpce.cy, jp.cx, jp.cy), observed, label: "via S3 VPCE", lx: (vpce.cx + jp.cx) / 2, ly: (vpce.cy + jp.cy) / 2 - 7 })
+      flowEdges.push({ d: curve(vpce.cx, vpce.cy, jp.cx, jp.cy), observed, label: "via VPCE", lx: (vpce.cx + jp.cx) / 2, ly: (vpce.cy + jp.cy) / 2 - 9 })
     } else if (igwAnchors[0]) {
       const ig = igwAnchors[0]
       flowEdges.push({ d: curve(footAnchor.cx, footAnchor.cy, ig.cx, ig.cy), observed })
