@@ -1,14 +1,12 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Maximize2 } from "lucide-react"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import type { AttackPathReport } from "@/components/attack-paths-v2/attack-path-report-types"
-import { buildAttackSurfaceFlow } from "@/lib/attack-surface/build-attack-surface-flow"
-import { SURFACE_EDGE_COLORS } from "@/lib/attack-surface/edge-classification"
-import { AttackSurfaceCanvas } from "./attack-surface-canvas"
-import { AS } from "./attack-surface-tokens"
+import { buildVpcCanvasModel } from "@/lib/attack-surface/build-vpc-canvas-model"
+import { AwsAttackVpcCanvas } from "./aws-attack-vpc-canvas"
 import {
   Dialog,
   DialogContent,
@@ -16,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useState } from "react"
 
 export function AttackSurfaceMap({
   path,
@@ -33,19 +30,18 @@ export function AttackSurfaceMap({
 }) {
   const [enlargedOpen, setEnlargedOpen] = useState(false)
 
-  const preview = useMemo(
-    () => buildAttackSurfaceFlow({ architecture, path }),
+  const model = useMemo(
+    () => buildVpcCanvasModel(architecture, path),
     [architecture, path],
   )
 
-  if (preview.nodes.filter((n) => n.type === "surfaceResource").length === 0) {
+  if (!model) {
     return (
       <div
-        className="rounded-[14px] border px-2 py-3"
-        style={{ borderColor: AS.laneBorder, background: AS.surface }}
+        className="rounded-[14px] border border-border bg-card px-2 py-3"
         data-testid="attack-surface-map"
       >
-        <p className="text-[11px] px-2 py-8 text-center" style={{ color: AS.faint }}>
+        <p className="text-[11px] px-2 py-8 text-center text-muted-foreground">
           No attack-surface nodes for this path — check graph-view synthesis.
         </p>
       </div>
@@ -53,69 +49,49 @@ export function AttackSurfaceMap({
   }
 
   const headerHint = [
-    preview.meta.region,
-    preview.meta.vpcId,
+    architecture.region,
+    architecture.vpcGroups?.[0]?.vpcId ?? architecture.workloadNetwork?.vpc_id,
     systemName,
     report.current_state?.target_label,
   ]
     .filter(Boolean)
     .join(" · ")
 
-  const legend = (
-    <div className="flex flex-wrap items-center gap-3 text-[9px] uppercase tracking-wide" style={{ color: AS.muted }}>
-      <span className="inline-flex items-center gap-1">
-        <span className="inline-block h-1 w-4 rounded" style={{ background: SURFACE_EDGE_COLORS.attack }} />
-        Breach / exfil
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <span className="inline-block h-0.5 w-4 rounded" style={{ background: SURFACE_EDGE_COLORS.network }} />
-        Network routing
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <span
-          className="inline-block h-0.5 w-4 border-t border-dashed"
-          style={{ borderColor: SURFACE_EDGE_COLORS.identity }}
-        />
-        Identity plane
-      </span>
-    </div>
-  )
-
-  const canvasHeight = slot === "hero" ? 680 : 560
+  const canvasHeight = slot === "hero" ? 720 : 580
 
   const panel = (expanded: boolean) => (
     <div
-      className="rounded-[14px] border overflow-hidden"
-      style={{
-        borderColor: AS.laneBorder,
-        background: AS.canvas,
-        boxShadow: expanded ? "none" : "0 8px 32px rgba(0,0,0,0.35)",
-      }}
+      className="rounded-[14px] border border-border overflow-hidden bg-[#F5F5F5] shadow-sm"
       data-testid="attack-surface-map"
     >
-      <div
-        className="flex items-center justify-between gap-2 flex-wrap px-3 pt-2.5 pb-2 border-b"
-        style={{ borderColor: AS.laneBorder }}
-      >
+      <div className="flex items-center justify-between gap-2 flex-wrap px-3 pt-2.5 pb-2 border-b border-border bg-white">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: AS.ink }}>
-            Attack Surface Risk Map
+          <p className="text-[12px] font-bold tracking-wide text-foreground">
+            ATTACK SURFACE RISK MAP
           </p>
-          <p className="text-[10px] mt-0.5" style={{ color: AS.faint }}>
+          <p className="text-[10px] mt-0.5 text-muted-foreground">
             Live Neo4j control-plane path state
-            {headerHint ? (
-              <span className="font-mono ml-1.5">· {headerHint}</span>
-            ) : null}
+            {headerHint ? <span className="font-mono ml-1.5">· {headerHint}</span> : null}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {legend}
+        <div className="flex items-center gap-3 text-[9px] uppercase tracking-wide text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-0.5 w-4 bg-[#D90429]" />
+            Attack / exfil
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-0.5 w-4 bg-[#00B4D8]" />
+            Network
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-0.5 w-4 border-t border-dashed border-[#FF9F1C]" />
+            Identity
+          </span>
           {!expanded && slot === "flow" ? (
             <button
               type="button"
               onClick={() => setEnlargedOpen(true)}
-              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors hover:bg-white/5"
-              style={{ borderColor: AS.laneBorder, color: AS.muted }}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium hover:bg-muted"
               aria-label="Enlarge attack surface map"
             >
               <Maximize2 className="h-3 w-3" />
@@ -124,7 +100,11 @@ export function AttackSurfaceMap({
           ) : null}
         </div>
       </div>
-      <AttackSurfaceCanvas architecture={architecture} path={path} height={expanded ? "min(72vh, 720px)" : canvasHeight} />
+      <AwsAttackVpcCanvas
+        architecture={architecture}
+        path={path}
+        height={expanded ? "min(78vh, 820px)" : canvasHeight}
+      />
     </div>
   )
 
@@ -133,17 +113,14 @@ export function AttackSurfaceMap({
       {!enlargedOpen && panel(false)}
       <Dialog open={enlargedOpen} onOpenChange={setEnlargedOpen}>
         <DialogContent
-          className="flex flex-col gap-2 overflow-hidden p-3 sm:max-w-[min(1400px,98vw)] w-[98vw] max-h-[94vh]"
+          className="flex flex-col gap-2 overflow-hidden p-3 sm:max-w-[min(1280px,98vw)] w-[98vw] max-h-[94vh]"
           data-testid="attack-surface-map-enlarged"
-          style={{ background: AS.canvas, borderColor: AS.laneBorder }}
         >
           {enlargedOpen && (
             <>
               <DialogHeader className="shrink-0 gap-0.5 pb-0">
-                <DialogTitle className="text-base" style={{ color: AS.ink }}>
-                  Attack Surface Risk Map
-                </DialogTitle>
-                <DialogDescription style={{ color: AS.faint }}>{headerHint}</DialogDescription>
+                <DialogTitle>Attack Surface Risk Map</DialogTitle>
+                <DialogDescription>{headerHint}</DialogDescription>
               </DialogHeader>
               {panel(true)}
             </>
