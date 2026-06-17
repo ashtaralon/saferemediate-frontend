@@ -69,6 +69,8 @@ export interface TargetTopology {
   system: string
   score: number
   jewelsReachable: number
+  /** Lateral-movement blast surface — other workloads that share the on-path role. */
+  sharedWorkloads: string[]
 }
 
 const EXTERNAL_TYPES = new Set([
@@ -273,5 +275,6 @@ export function toTargetTopology(
     system: payload.system ?? topology.system,
     score: payload.score,
     jewelsReachable: payload.blast?.crown_jewels_reachable ?? 0,
+    sharedWorkloads: payload.blast?.shared_workloads ?? [],
   }
 }

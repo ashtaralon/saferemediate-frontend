@@ -3,6 +3,7 @@
  * Shadow persistence uses /api/proxy/remediation/execute mode=shadow (canonical).
  */
 import { test, expect } from "@playwright/test"
+import { authedApi, seedAuthCookie } from "./live-auth"
 
 const SYSTEM = "alon-prod"
 const PATH_ID = "path-5203dfee3012"
@@ -25,15 +26,7 @@ async function openDamageScopeDrawer(page: import("@playwright/test").Page) {
 test.describe("damage-scope LP modal handoff live", () => {
   test.beforeEach(async ({ page, context }) => {
     test.setTimeout(180_000)
-    const base = process.env.FRONTEND_URL || "http://localhost:3000"
-    await context.addCookies([
-      {
-        name: "cyntro_auth",
-        value: "authenticated",
-        domain: new URL(base).hostname,
-        path: "/",
-      },
-    ])
+    await seedAuthCookie(context)
     await page.goto(
       `/attack-paths-v2?system=${SYSTEM}&jewel=${JEWEL_ID}&path=${PATH_ID}&mode=attack-path`,
       { waitUntil: "domcontentloaded" },
@@ -56,8 +49,10 @@ test.describe("damage-scope LP modal handoff live", () => {
 
   test("canonical shadow execute persists ShadowIAMRemediation for path role", async ({
     page,
-    request,
+    playwright,
   }) => {
+    const request = await authedApi(playwright)
+    try {
     await openDamageScopeDrawer(page)
     await page.getByTestId("damage-scope-cta").click({ timeout: 60_000 })
     const modal = page.getByTestId("iam-permission-analysis-modal")
@@ -103,6 +98,9 @@ test.describe("damage-scope LP modal handoff live", () => {
       await page.waitForTimeout(5000)
     }
     expect(found).toBe(true)
+    } finally {
+      await request.dispose()
+    }
   })
 
   test("drawer opens in fullscreen canvas and is inside fullscreen subtree", async ({

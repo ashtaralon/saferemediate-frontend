@@ -250,6 +250,37 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
                 </g>
               )
             })}
+
+            {/* lateral lens: shared-identity blast surface — sibling workloads
+                that run the same on-path role can each reach the jewel. */}
+            {activeLens === "lateral" && (() => {
+              const role = topo.nodes.find((n) => n.type === "iam" && n.onPath)
+              const rp = role ? positions[role.id] : null
+              if (!rp) return null
+              const amber = isDark ? "#fbbf24" : "#d97706"
+              const sibs = topo.nodes.filter(
+                (n) => (n.type === "compute" || n.type === "lambda") && n.id !== role!.id,
+              )
+              return (
+                <g>
+                  {sibs.map((n) => {
+                    const p = positions[n.id]
+                    if (!p) return null
+                    return (
+                      <g key={`lat-${n.id}`}>
+                        <path d={`M ${p.x} ${p.y} L ${rp.x} ${rp.y}`} fill="none" stroke={amber} strokeWidth={1.8} strokeDasharray="5 4" opacity={0.85} markerEnd="url(#tam-arrow-lateral)" />
+                        <circle r="3.4" fill={amber}>
+                          <animateMotion path={`M ${p.x} ${p.y} L ${rp.x} ${rp.y}`} dur="2.6s" repeatCount="indefinite" />
+                        </circle>
+                      </g>
+                    )
+                  })}
+                  <text x={rp.x} y={rp.y - 36} textAnchor="middle" fontSize={9} fontWeight={700} fill={amber}>
+                    {`shared hub · ${topo.sharedWorkloads.length + 1} workloads → ${topo.jewelsReachable || 1} jewel${topo.jewelsReachable === 1 ? "" : "s"}`}
+                  </text>
+                </g>
+              )
+            })()}
           </svg>
 
           {/* node cards */}

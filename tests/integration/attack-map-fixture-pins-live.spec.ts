@@ -16,6 +16,7 @@
  * Companion unit tests: __tests__/attack-map/slot-mapper-invariants.test.ts.
  */
 import { test, expect } from "@playwright/test"
+import { authedApi, seedAuthCookie } from "./live-auth"
 
 const SYSTEM = "alon-prod"
 
@@ -30,88 +31,91 @@ const FIXTURES = [
 
 const CONSTRAINT_NODE_TYPES = new Set(["KMSKey", "SCP", "ResourcePolicy", "TrustPolicy"])
 
-async function authedContext(context: import("@playwright/test").BrowserContext, base: string) {
-  await context.addCookies([
-    {
-      name: "cyntro_auth",
-      value: "authenticated",
-      domain: new URL(base).hostname,
-      path: "/",
-    },
-  ])
-}
-
 test.describe("attack-map fixture pins (live)", () => {
   test.beforeEach(async ({ context }) => {
     test.setTimeout(180_000)
-    const base = process.env.FRONTEND_URL || "http://localhost:3000"
-    await authedContext(context, base)
+    await seedAuthCookie(context)
   })
 
   for (const fx of FIXTURES) {
-    test(`§8 contract intact: ${fx.label}`, async ({ request }) => {
-      const res = await request.get(`/api/proxy/attack-map/${fx.path_id}?system=${SYSTEM}`)
-      expect(res.ok(), `proxy returned ${res.status()}`).toBe(true)
-      const payload = await res.json()
+    test(`§8 contract intact: ${fx.label}`, async ({ playwright }) => {
+      const api = await authedApi(playwright)
+      try {
+        const res = await api.get(`/api/proxy/attack-map/${fx.path_id}?system=${SYSTEM}`)
+        expect(res.ok(), `proxy returned ${res.status()}`).toBe(true)
+        const payload = await res.json()
 
-      // §8 mandatory fields
-      expect(payload.system).toBe(SYSTEM)
-      expect(payload.path_id).toBe(fx.path_id)
-      expect(Array.isArray(payload.movement_chain)).toBe(true)
-      expect(Array.isArray(payload.constraint_edges)).toBe(true)
-      expect(payload.blast).toBeDefined()
-      expect(typeof payload.blast.crown_jewels_reachable).toBe("number")
-      expect(Array.isArray(payload.collection_gaps)).toBe(true)
+        // §8 mandatory fields
+        expect(payload.system).toBe(SYSTEM)
+        expect(payload.path_id).toBe(fx.path_id)
+        expect(Array.isArray(payload.movement_chain)).toBe(true)
+        expect(Array.isArray(payload.constraint_edges)).toBe(true)
+        expect(payload.blast).toBeDefined()
+        expect(typeof payload.blast.crown_jewels_reachable).toBe("number")
+        expect(Array.isArray(payload.collection_gaps)).toBe(true)
 
-      // §5 invariant 2 — movement/constraint disjoint by type.
-      for (const hop of payload.movement_chain) {
-        expect(
-          CONSTRAINT_NODE_TYPES.has(hop.node_type),
-          `constraint type ${hop.node_type} leaked into movement_chain`,
-        ).toBe(false)
-        expect(["ENTRY", "SEEN", "ALLOWED", "NOT_OBSERVED", "BLOCKED"]).toContain(hop.verdict)
-      }
+        // §5 invariant 2 — movement/constraint disjoint by type, except KMS (etc.)
+        // as crown-jewel terminus (EC2 → KMS paths; golden fixture #2).
+        for (const hop of payload.movement_chain) {
+          const terminusJewel =
+            hop.is_crown_jewel === true && CONSTRAINT_NODE_TYPES.has(hop.node_type)
+          if (!terminusJewel) {
+            expect(
+              CONSTRAINT_NODE_TYPES.has(hop.node_type),
+              `constraint type ${hop.node_type} leaked into movement_chain`,
+            ).toBe(false)
+          }
+          expect(["ENTRY", "SEEN", "ALLOWED", "NOT_OBSERVED", "BLOCKED"]).toContain(hop.verdict)
+        }
 
-      // §5 invariant 3 — every constraint has appears_as, severity, gates_movement_edge.
-      const movementIds = new Set<string>(payload.movement_chain.map((h: { node_id: string }) => h.node_id))
-      for (const c of payload.constraint_edges) {
-        expect(["constraint", "terminus"]).toContain(c.appears_as)
-        expect(["critical", "high", "medium", "low"]).toContain(c.severity)
-        expect(typeof c.gates_movement_edge).toBe("string")
-        expect(c.gates_movement_edge).toContain("→")
-        // §6 invariant 4 — gates_movement_edge references real chain hops.
-        const [src, dst] = c.gates_movement_edge.split("→").map((s: string) => s.trim())
-        expect(movementIds.has(src), `constraint gate src ${src} not in chain`).toBe(true)
-        expect(movementIds.has(dst), `constraint gate dst ${dst} not in chain`).toBe(true)
+        // §5 invariant 3 — every constraint has appears_as, severity, gates_movement_edge.
+        const movementIds = new Set<string>(payload.movement_chain.map((h: { node_id: string }) => h.node_id))
+        for (const c of payload.constraint_edges) {
+          expect(["constraint", "terminus"]).toContain(c.appears_as)
+          expect(["critical", "high", "medium", "low"]).toContain(c.severity)
+          expect(typeof c.gates_movement_edge).toBe("string")
+          expect(c.gates_movement_edge).toContain("→")
+          // §6 invariant 4 — gates_movement_edge references real chain hops.
+          const [src, dst] = c.gates_movement_edge.split("→").map((s: string) => s.trim())
+          expect(movementIds.has(src), `constraint gate src ${src} not in chain`).toBe(true)
+          expect(movementIds.has(dst), `constraint gate dst ${dst} not in chain`).toBe(true)
+        }
+      } finally {
+        await api.dispose()
       }
     })
   }
 
-  test("§4.3 strict projection — topology minimal ⊆ full", async ({ request }) => {
-    const [fullRes, minRes] = await Promise.all([
-      request.get(`/api/proxy/topology/${SYSTEM}?shape=full`),
-      request.get(`/api/proxy/topology/${SYSTEM}?shape=minimal`),
-    ])
-    expect(fullRes.ok()).toBe(true)
-    expect(minRes.ok()).toBe(true)
+  test("§4.3 strict projection — topology minimal ⊆ full", async ({ playwright }) => {
+    const api = await authedApi(playwright)
+    try {
+      const [fullRes, minRes] = await Promise.all([
+        api.get(`/api/proxy/topology/${SYSTEM}?shape=full`),
+        api.get(`/api/proxy/topology/${SYSTEM}?shape=minimal`),
+      ])
+      expect(fullRes.ok()).toBe(true)
+      expect(minRes.ok()).toBe(true)
 
-    const full = await fullRes.json()
-    const min = await minRes.json()
+      const full = await fullRes.json()
+      const min = await minRes.json()
 
-    expect(min.system_name).toBe(full.system_name)
-    expect(min.topology_version).toBe(full.topology_version)
-    expect(min.schema_version).toBe(full.schema_version)
+      expect(min.system_name).toBe(full.system_name)
+      expect(min.topology_version).toBe(full.topology_version)
+      expect(min.schema_version).toBe(full.schema_version)
 
-    const fullSubnets = new Set<string>(full.subnets.map((s: { subnet_id: string }) => s.subnet_id))
-    const fullNodes = new Set<string>([
-      ...full.resources.map((r: { node_id: string }) => r.node_id),
-      ...full.crown_jewels.map((j: { node_id: string }) => j.node_id),
-    ])
-    for (const s of min.subnet_ids) {
-      expect(fullSubnets.has(s), `minimal subnet ${s} absent from full`).toBe(true)
-    }
-    for (const n of min.node_ids) {
-      expect(fullNodes.has(n), `minimal node ${n} absent from full`).toBe(true)
+      const fullSubnets = new Set<string>(full.subnets.map((s: { subnet_id: string }) => s.subnet_id))
+      const fullNodes = new Set<string>([
+        ...full.resources.map((r: { node_id: string }) => r.node_id),
+        ...full.crown_jewels.map((j: { node_id: string }) => j.node_id),
+      ])
+      for (const s of min.subnet_ids) {
+        expect(fullSubnets.has(s), `minimal subnet ${s} absent from full`).toBe(true)
+      }
+      for (const n of min.node_ids) {
+        expect(fullNodes.has(n), `minimal node ${n} absent from full`).toBe(true)
+      }
+    } finally {
+      await api.dispose()
     }
   })
 
