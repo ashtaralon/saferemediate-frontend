@@ -12,11 +12,12 @@ import { useSearchParams } from "next/navigation"
  *   - ?map=cyntro     → new map (explicit; keeps old bookmarks working)
  *   - ?map=legacy     → old Cloud Graph containment map
  *   - ?map=v1         → alias for legacy
+ *   - ?map=target     → clean subnet-grid map (preview; same Cyntro stack)
  */
 export function useAttackMapCyntro(): boolean {
   const searchParams = useSearchParams()
   const v = searchParams?.get("map")
   if (v === "legacy" || v === "v1") return false
-  if (v === "cyntro" || v === "1") return true
+  if (v === "cyntro" || v === "target" || v === "1") return true
   return true
 }

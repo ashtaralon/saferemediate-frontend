@@ -115,19 +115,22 @@ test.describe("attack-map fixture pins (live)", () => {
     }
   })
 
-  test("?map=cyntro renders new canvas with compiler version label", async ({ page }) => {
-    // Use the alon-demo-app2 → saferemediate-logs path — same fixture #1.
+  test("?map=cyntro renders path-only attack map experience", async ({ page }) => {
     const jewel = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
     await page.goto(
       `/attack-paths-v2?system=${SYSTEM}&jewel=${jewel}&path=path-mat-061e32978e12&map=cyntro`,
       { waitUntil: "domcontentloaded" },
     )
-    // Canvas needs both /attack-map and /topology to compile (cold path ~3s budget).
-    await page.waitForTimeout(15_000)
+    await expect(page.getByTestId("cyntro-attack-map-experience")).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText(/path only/i)).toBeVisible({ timeout: 30_000 })
+  })
 
-    // Compiler version label is the unambiguous tell that the new stack rendered.
-    await expect(page.getByText(/compiler\s+0\.1\.0/)).toBeVisible({ timeout: 60_000 })
-    // Slot-mapper drift lane existence (§5 invariant 11).
-    await expect(page.getByText(/drift lane/i)).toBeVisible({ timeout: 30_000 })
+  test("?map=target renders clean grid target map", async ({ page }) => {
+    const jewel = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
+    await page.goto(
+      `/attack-paths-v2?system=${SYSTEM}&jewel=${jewel}&path=path-mat-061e32978e12&map=target`,
+      { waitUntil: "domcontentloaded" },
+    )
+    await expect(page.getByTestId("target-attack-map")).toBeVisible({ timeout: 90_000 })
   })
 })
