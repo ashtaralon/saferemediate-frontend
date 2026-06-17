@@ -399,7 +399,32 @@ export function PathAnalysisPanel({
         )}
       </div>
 
-      {/* Supporting evidence — flow map + plane breakdown (not the hero) */}
+      {/* Attack map — primary visual; always visible (not inside Supporting evidence) */}
+      {attackMapCyntro && (
+        <div className="border-b border-border bg-background">
+          <div className="px-6 pt-4 pb-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+              Attack map
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Toggle <span className="font-mono">AWS</span> · <span className="font-mono">Classic</span> · <span className="font-mono">Grid</span> on the right — Grid shows lateral blast surface
+            </p>
+          </div>
+          <div
+            className="relative overflow-auto min-h-[560px] rounded-[14px] px-3 pt-2 pb-4"
+            data-testid="attack-path-flow-map-slot"
+          >
+            <CyntroAttackMap
+              systemName={systemName}
+              path={path}
+              report={report}
+              architecture={architecture ?? null}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Supporting evidence — damage card + plane breakdown (map is above when Cyntro) */}
       <div className="border-b border-border bg-muted/30">
         <div className="px-6 pt-3 pb-1">
           <button
@@ -414,7 +439,7 @@ export function PathAnalysisPanel({
           </button>
           {evidenceOpen && (
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Architecture flow map, lateral movement, and per-plane signals
+              Damage matrix, plane signals, and technical detail
             </p>
           )}
         </div>
@@ -445,38 +470,22 @@ export function PathAnalysisPanel({
         {!attackMapCyntro && (path.nodes?.length ?? 0) > 0 && (
           <KillChainStrip nodes={path.nodes} />
         )}
-        <div className={`${attackMapCyntro ? "px-3 pt-2 pb-3" : "px-6 pt-3 pb-4"}`}>
-          {!attackMapCyntro && (
-            <div className="px-1 pb-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                Cloud Graph
-                <span className="font-normal normal-case ml-2 text-[11px]">
-                  Legacy Cloud Graph · ?map=legacy
-                </span>
-              </p>
-            </div>
-          )}
+        {!attackMapCyntro && (
+        <div className="px-6 pt-3 pb-4">
+          <div className="px-1 pb-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Cloud Graph
+              <span className="font-normal normal-case ml-2 text-[11px]">
+                Legacy Cloud Graph · ?map=legacy
+              </span>
+            </p>
+          </div>
           <div
-            className={`relative overflow-auto ${
-              attackMapCyntro
-                ? "min-h-[560px] rounded-[14px]"
-                : "rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px]"
-            }`}
-            style={
-              attackMapCyntro
-                ? undefined
-                : { boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }
-            }
+            className="relative overflow-auto rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px]"
+            style={{ boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }}
             data-testid="attack-path-flow-map-slot"
           >
-            {attackMapCyntro ? (
-              <CyntroAttackMap
-                systemName={systemName}
-                path={path}
-                report={report}
-                architecture={architecture ?? null}
-              />
-            ) : report ? (
+            {report ? (
               <AttackPathContainmentMap
                 path={path}
                 report={report}
@@ -499,6 +508,12 @@ export function PathAnalysisPanel({
           </div>
           <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
         </div>
+        )}
+        {attackMapCyntro && (
+          <div className="px-6 pt-2 pb-4">
+            <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
+          </div>
+        )}
         </>
         )}
       </div>

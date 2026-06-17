@@ -64,7 +64,10 @@ export function CyntroAttackMap({
   if (variant === "aws") {
     return (
       <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
-        <div className="flex justify-end px-1">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <p className="text-[11px] text-muted-foreground">
+            Full account topology with path overlay
+          </p>
           <MapViewToggle variant={variant} onChange={setVariant} />
         </div>
         {report && architecture ? (
@@ -114,7 +117,10 @@ export function CyntroAttackMap({
 
   return (
     <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
-      <div className="flex justify-end px-1">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <p className="text-[11px] text-muted-foreground">
+          {variant === "target" ? "Subnet grid · reachability / lateral / exfil lenses" : "Path-only spine · constraint bands"}
+        </p>
         <MapViewToggle variant={variant} onChange={setVariant} />
       </div>
       {variant === "target" ? (

@@ -15,8 +15,8 @@ export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
       role="group"
       aria-label="Map view"
     >
-      <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-        Map
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-foreground">
+        Map view
       </span>
       <div className="flex rounded-lg border border-border bg-muted/50 p-0.5 shadow-inner">
         <button
