@@ -8,6 +8,22 @@ export interface MapViewToggleProps {
 }
 
 export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
+  const btn = (v: MapViewVariant, label: string, testId: string) => (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-pressed={variant === v}
+      onClick={() => onChange(v)}
+      className={`rounded-md px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
+        variant === v
+          ? "bg-background text-foreground shadow-sm border border-border/60"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {label}
+    </button>
+  )
+
   return (
     <div
       className="flex items-center gap-2"
@@ -19,45 +35,10 @@ export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
         Map view
       </span>
       <div className="flex rounded-lg border border-border bg-muted/50 p-0.5 shadow-inner">
-        <button
-          type="button"
-          data-testid="map-view-classic"
-          aria-pressed={variant === "classic"}
-          onClick={() => onChange("classic")}
-          className={`rounded-md px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
-            variant === "classic"
-              ? "bg-background text-foreground shadow-sm border border-border/60"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Classic
-        </button>
-        <button
-          type="button"
-          data-testid="map-view-target"
-          aria-pressed={variant === "target"}
-          onClick={() => onChange("target")}
-          className={`rounded-md px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
-            variant === "target"
-              ? "bg-background text-foreground shadow-sm border border-border/60"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Grid
-        </button>
-        <button
-          type="button"
-          data-testid="map-view-aws"
-          aria-pressed={variant === "aws"}
-          onClick={() => onChange("aws")}
-          className={`rounded-md px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
-            variant === "aws"
-              ? "bg-background text-foreground shadow-sm border border-border/60"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Surface
-        </button>
+        {btn("classic", "Classic", "map-view-classic")}
+        {btn("target", "Grid", "map-view-target")}
+        {btn("surface", "Surface", "map-view-surface")}
+        {btn("aws", "AWS", "map-view-aws")}
       </div>
     </div>
   )
