@@ -1,13 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { AttackMapExperience } from "./attack-map-experience"
 import { MapViewToggle } from "./map-view-toggle"
 import { TargetAttackMap } from "./target-attack-map"
+import { TopologyAttackGraph } from "./topology-attack-graph"
 import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { useMapViewVariant } from "@/lib/attack-map/use-map-view-variant"
+import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import { resolveClosurePathId } from "@/components/attack-paths-v2/derive-attack-path-id"
 import { AttackSurfaceMap } from "@/components/attack-surface/attack-surface-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
@@ -61,6 +63,31 @@ export function CyntroAttackMap({
 
   const needsCompiler = variant === "classic" || variant === "target"
 
+  // Synthesize a CrownJewelSummary for the topology variant from the path +
+  // (optional) report. v1 only renders the current jewel in the left rail;
+  // v2 will accept a jewels[] prop from the parent so the rail lists all
+  // jewels reachable in the system.
+  const topologyJewel: CrownJewelSummary | null = useMemo(() => {
+    const cjId = path.crown_jewel_id || ""
+    if (!cjId) return null
+    const cjNode =
+      (path.nodes ?? []).find((n) => n.id === cjId || n.canonical_id === cjId) ?? null
+    const targetLabel = report?.current_state?.target_label || cjNode?.name || cjId
+    const cjType = cjNode?.type || "S3Bucket"
+    return {
+      id: cjId,
+      canonical_id: cjId.startsWith("arn:") ? cjId : (cjNode?.canonical_id ?? null),
+      name: targetLabel,
+      type: cjType,
+      severity: (report?.current_state?.severity?.toUpperCase() as CrownJewelSummary["severity"]) || "HIGH",
+      path_count: 1,
+      highest_risk_score: report?.current_state?.exposure_score ?? 0,
+      is_internet_exposed: false,
+      data_classification: null,
+      priority_score: 0,
+    }
+  }, [path, report])
+
   const { data, loading, error, retry } = useCyntroAttackMap(
     systemName,
     pathId,
@@ -73,6 +100,25 @@ export function CyntroAttackMap({
       <MapViewToggle variant={variant} onChange={setVariant} />
     </div>
   )
+
+  if (variant === "topology") {
+    return (
+      <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
+        {header}
+        {topologyJewel ? (
+          <TopologyAttackGraph
+            systemName={systemName}
+            initialJewel={topologyJewel}
+            jewels={[topologyJewel]}
+          />
+        ) : (
+          <p className="px-2 py-12 text-center text-[12px] text-muted-foreground">
+            Attack Graph needs a crown jewel on this path. Try another path or switch to a different map.
+          </p>
+        )}
+      </div>
+    )
+  }
 
   if (variant === "surface") {
     return (
