@@ -49,6 +49,7 @@ import { AttackerViewV3 } from "./attacker-view-v3"
 import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
+import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
 import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
 import { AttackExplorer } from "./attack-explorer"
@@ -693,7 +694,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "explorer" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "explorer" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -764,7 +765,17 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            <TopologyView systemName={systemName} selectedPath={selectedPath ?? null} />
+            {jewels.length > 0 ? (
+              <TopologyAttackGraph
+                systemName={systemName}
+                initialJewel={selectedJewel ?? jewels[0]}
+                jewels={jewels}
+              />
+            ) : (
+              <div className="flex h-[760px] items-center justify-center text-sm text-slate-400">
+                No crown jewels on this system yet — connect collectors to populate.
+              </div>
+            )}
           </>
         ) : !selectedJewelId ? (
           // 2026-05-30: aggregated view replaces the old "select a
