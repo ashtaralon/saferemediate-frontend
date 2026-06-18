@@ -137,16 +137,21 @@ interface NodePos {
 }
 
 // ─── derived containment from real topology + path hops ─────────────────────
+interface VpcLayoutInfo {
+  vpc: TopologyVpc
+  /** Subnets in this VPC, ordered public-first, filtered to non-empty subnets only. */
+  subnets: TopologySubnet[]
+  /** Distinct AZs across hops that touch this VPC. */
+  azs: string[]
+}
+
 interface DerivedContainment {
-  /** VPC whose subnets/AZs match the most path hops. null when topology has no data. */
-  primaryVpc: TopologyVpc | null
-  /** Region label — real, from primaryVpc.region. Falls back to "REGION · unknown". */
+  /** Every VPC that has at least one path hop touching it. Empty when no
+   *  topology data. Ordered: most-hop-traversed first. */
+  vpcsToRender: VpcLayoutInfo[]
+  /** Region label — real, from any VPC.region or AZ prefix. */
   regionLabel: string
-  /** AZ label — real, the unique AZ shown across path hops. Multi-AZ → composite label. */
-  azLabel: string
-  /** Real subnets in the primary VPC + most-relevant AZ, ordered public-first. */
-  subnetsToRender: TopologySubnet[]
-  /** Subnet IDs referenced by path hops that are NOT in the topology snapshot. */
+  /** Subnet IDs referenced by path hops that are NOT in any rendered VPC. */
   offSnapshotSubnetIds: string[]
 }
 
@@ -156,75 +161,96 @@ function isRealAz(s: string): boolean {
   return /^[a-z]{2}-[a-z]+-\d+[a-z]$/.test(s)
 }
 
-/** Choose the VPC that covers the most path hops (by az/subnet match). */
+/** Decide which VPCs the canvas should render — every VPC with at least
+ *  one path hop touching it, plus their subnets that are actually used.
+ *  Empty VPCs and empty subnets are dropped so the canvas isn't wasted
+ *  on inert containers. Every field comes from Neo4j (via topology-aws). */
 function deriveContainment(
   paths: ConvergencePath[],
   topology: AwsTopology | null,
 ): DerivedContainment {
   const hops = paths.flatMap((p) => p.hops)
   const hopAzs = new Set<string>(hops.map((h) => h.az || "").filter(isRealAz))
-  // Subnet IDs that show up as Subnet-type hops (these are real ids in our path data).
+  // Subnet IDs that show up as Subnet-type hops (real ids in our path data).
   const hopSubnetIds = new Set<string>(
     hops.filter((h) => (h.node_type || "").toLowerCase() === "subnet").map((h) => h.node_id),
   )
 
   const vpcs = topology?.vpcs ?? []
-  let bestVpc: TopologyVpc | null = null
-  let bestMatch = -1
+  // Score every VPC by how many path hops touch it (subnet matches × 6,
+  // AZ matches × 4 — subnets are stronger evidence). Anything that scores
+  // > 0 gets rendered, in descending score order.
+  const scored: Array<{ vpc: TopologyVpc; score: number; subnets: TopologySubnet[]; azs: string[] }> = []
   for (const v of vpcs) {
-    let m = 0
+    let score = 0
+    const usedSubnets = new Set<string>()
+    const usedAzs = new Set<string>()
     for (const az of v.azs) {
-      if (hopAzs.has(az.az)) m += 4
+      if (hopAzs.has(az.az)) {
+        score += 4
+        usedAzs.add(az.az)
+      }
       for (const sn of az.subnets) {
-        if (hopSubnetIds.has(sn.id)) m += 6
+        if (hopSubnetIds.has(sn.id)) {
+          score += 6
+          usedSubnets.add(sn.id)
+          if (az.az) usedAzs.add(az.az)
+        }
       }
     }
-    if (m > bestMatch) {
-      bestMatch = m
-      bestVpc = v
-    }
-  }
-  // Fallback: if no match, take the first VPC if any. Be explicit when null.
-  if (!bestVpc && vpcs.length > 0) bestVpc = vpcs[0]
-
-  const knownSubnetIds = new Set<string>(
-    (bestVpc?.azs ?? []).flatMap((a) => a.subnets.map((s) => s.id)),
-  )
-  const offSnapshotSubnetIds = Array.from(hopSubnetIds).filter((id) => !knownSubnetIds.has(id))
-
-  // Collect every subnet in the primary VPC across every AZ. Order them
-  // public-first so the rendered lanes read top-to-bottom: Public → Private →
-  // Unknown. This is the AWS-architecture mental model.
-  const subnetsToRender: TopologySubnet[] = (bestVpc?.azs ?? [])
-    .flatMap((a) => a.subnets)
-    .sort((a, b) => {
-      const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
-      const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
-      if (av !== bv) return av - bv
-      return (a.name || a.id).localeCompare(b.name || b.id)
+    if (score === 0) continue
+    // Only include subnets actually traversed by a path. Public-first ordering.
+    const subnets: TopologySubnet[] = v.azs
+      .flatMap((a) => a.subnets)
+      .filter((s) => usedSubnets.has(s.id))
+      .sort((a, b) => {
+        const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
+        const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
+        if (av !== bv) return av - bv
+        return (a.name || a.id).localeCompare(b.name || b.id)
+      })
+    scored.push({
+      vpc: v,
+      score,
+      subnets,
+      azs: Array.from(usedAzs).sort(),
     })
+  }
+  scored.sort((a, b) => b.score - a.score)
 
-  // Prefer explicit VPC.region; fall back to the common region prefix of real
-  // AZs in path hops (e.g. all hops in eu-west-1a/b/c → "eu-west-1"). This is
-  // derivation from real hop data, not invention — every AZ comes from Neo4j.
+  // If nothing matched, fall back to the first VPC so the operator sees
+  // SOMETHING — but with no subnet rendering (none are "used"). Helps
+  // when paths are pure-identity and don't traverse network at all.
+  if (scored.length === 0 && vpcs.length > 0) {
+    scored.push({ vpc: vpcs[0], score: 0, subnets: [], azs: [] })
+  }
+
+  const vpcsToRender: VpcLayoutInfo[] = scored.map((s) => ({
+    vpc: s.vpc,
+    subnets: s.subnets,
+    azs: s.azs,
+  }))
+
+  // Off-snapshot: any Subnet-hop id that isn't in ANY rendered VPC.
+  const allRenderedSubnetIds = new Set<string>(
+    vpcsToRender.flatMap((v) => v.vpc.azs.flatMap((a) => a.subnets.map((s) => s.id))),
+  )
+  const offSnapshotSubnetIds = Array.from(hopSubnetIds).filter(
+    (id) => !allRenderedSubnetIds.has(id),
+  )
+
+  // Region label — prefer any VPC.region; fall back to common AZ prefix.
   const azList = Array.from(hopAzs).sort()
   const azRegionPrefixes = new Set(
     azList.map((a) => a.replace(/[a-z]$/, "")).filter(Boolean),
   )
   const region =
-    bestVpc?.region ||
+    vpcsToRender.find((v) => v.vpc.region)?.vpc.region ||
     (vpcs[0]?.region ?? null) ||
     (azRegionPrefixes.size === 1 ? Array.from(azRegionPrefixes)[0] : null)
   const regionLabel = region ? `REGION · ${region}` : "REGION · unknown"
 
-  const azLabel =
-    azList.length === 0
-      ? "AZ · unknown"
-      : azList.length === 1
-        ? `AZ · ${azList[0]}`
-        : `AZ · ${azList.join(" · ")}`
-
-  return { primaryVpc: bestVpc, regionLabel, azLabel, subnetsToRender, offSnapshotSubnetIds }
+  return { vpcsToRender, regionLabel, offSnapshotSubnetIds }
 }
 
 // ─── center SVG canvas ──────────────────────────────────────────────────────
@@ -268,7 +294,9 @@ function TopologyCanvas({
     // not an inference.
     const hopToSubnet = new Map<string, string>()
     const knownSubnetIds = new Set(
-      containment.primaryVpc?.azs.flatMap((a) => a.subnets.map((s) => s.id)) ?? [],
+      containment.vpcsToRender.flatMap((v) =>
+        v.vpc.azs.flatMap((a) => a.subnets.map((s) => s.id)),
+      ),
     )
     for (const p of data.paths) {
       // Find this path's Subnet hop (whose id is in the topology snapshot).
@@ -335,35 +363,145 @@ function TopologyCanvas({
       byBucket[hopBucket(h, hopToSubnet)].push(h)
     }
 
+    // ── per-VPC layout band computation ─────────────────────────────────
+    // Each VPC stacks vertically inside the Region frame. The Region is
+    // x=30 y=84 w=820 h=636. We allocate vertical bands per VPC,
+    // proportional to its subnet count (so a 6-subnet VPC gets ~2x the
+    // height of a 2-subnet VPC).
+    const REGION_X = 46
+    const REGION_W = 814
+    const REGION_INNER_TOP = 108
+    const REGION_INNER_H = 612
+    const VPC_GAP = 10
+    const vpcWeights = containment.vpcsToRender.map((v) =>
+      Math.max(1, v.subnets.length),
+    )
+    const totalWeight = vpcWeights.reduce((s, w) => s + w, 0) || 1
+    const totalGap = Math.max(0, containment.vpcsToRender.length - 1) * VPC_GAP
+    const availableH = REGION_INNER_H - totalGap
+    const vpcLayouts = containment.vpcsToRender.map((v, i) => {
+      const h = Math.floor((vpcWeights[i] / totalWeight) * availableH)
+      const y =
+        REGION_INNER_TOP +
+        vpcWeights
+          .slice(0, i)
+          .reduce(
+            (s, w) => s + Math.floor((w / totalWeight) * availableH) + VPC_GAP,
+            0,
+          )
+      // Reserve right slice of each VPC for egress chips (IGW/VPCE).
+      const EGRESS_W = 100
+      return {
+        info: v,
+        x: REGION_X,
+        y,
+        w: REGION_W - EGRESS_W,
+        h,
+        egressX: REGION_X + REGION_W - EGRESS_W + 24,
+      }
+    })
+
+    // Per-subnet box positions within each VPC.
+    const subnetBoxes = new Map<
+      string,
+      { x: number; y: number; w: number; h: number }
+    >()
+    // Per-VPC quick lookups for egress + identity placement.
+    const vpcEgressX = new Map<string, number>()
+    const vpcIdentityBand = new Map<string, { x: number; y: number; w: number }>()
+    for (const layout of vpcLayouts) {
+      const { info, x, y, w, h, egressX } = layout
+      // Inside the VPC frame: 22px header, 20px identity footer.
+      const innerTop = y + 28
+      const innerBottom = y + h - 26
+      const innerH = innerBottom - innerTop
+      const nSubnets = info.subnets.length
+      if (nSubnets > 0) {
+        const laneH = Math.max(48, Math.floor(innerH / nSubnets))
+        info.subnets.forEach((sn, si) => {
+          subnetBoxes.set(sn.id, {
+            x: x + 10,
+            y: innerTop + si * laneH,
+            w: w - 20,
+            h: laneH - 4,
+          })
+        })
+      }
+      vpcEgressX.set(info.vpc.id, egressX)
+      vpcIdentityBand.set(info.vpc.id, {
+        x: x + 14,
+        y: y + h - 18,
+        w: w - 28,
+      })
+    }
+
+    // Find which VPC a hop belongs to (via its resolved subnet membership).
+    const subnetToVpc = new Map<string, string>()
+    for (const layout of vpcLayouts) {
+      for (const sn of layout.info.vpc.azs.flatMap((a) => a.subnets)) {
+        subnetToVpc.set(sn.id, layout.info.vpc.id)
+      }
+    }
+    const hopToVpc = new Map<string, string>()
+    for (const [hopId, snId] of hopToSubnet.entries()) {
+      const v = subnetToVpc.get(snId)
+      if (v) hopToVpc.set(hopId, v)
+    }
+    // Identity / network-unknown hops in a path also belong to the VPC
+    // that path's subnet hop resolved to. Walk paths to assign them.
+    for (const p of data.paths) {
+      const pathSubnet = p.hops.find(
+        (h) =>
+          (h.node_type || "").toLowerCase() === "subnet" &&
+          knownSubnetIds.has(h.node_id),
+      )?.node_id
+      const pathVpc = pathSubnet ? subnetToVpc.get(pathSubnet) : null
+      if (!pathVpc) continue
+      for (const h of p.hops) {
+        if (!hopToVpc.has(h.node_id)) hopToVpc.set(h.node_id, pathVpc)
+      }
+    }
+
     // ── Internet (real :Internet hops, outside the AWS Cloud frame) ──
     byBucket.internet.forEach((h, i) => {
-      pos[h.node_id] = { x: 220 + i * 130, y: 36 }
+      pos[h.node_id] = { x: 240 + i * 130, y: 38 }
     })
 
-    // ── Egress via Internet Gateway — VPC right edge, upper slot ──
-    byBucket.igw.forEach((h, i) => {
-      pos[h.node_id] = { x: 510, y: 150 + i * 56 }
-    })
+    // ── IGW / VPCE chips at their VPC's right egress slot ──
+    // Group by VPC so multiple IGWs in one VPC stack vertically.
+    const igwsByVpc = new Map<string, ConvergenceHop[]>()
+    const vpcesByVpc = new Map<string, ConvergenceHop[]>()
+    for (const h of byBucket.igw) {
+      const v = hopToVpc.get(h.node_id) ?? vpcLayouts[0]?.info.vpc.id ?? "_"
+      if (!igwsByVpc.has(v)) igwsByVpc.set(v, [])
+      igwsByVpc.get(v)!.push(h)
+    }
+    for (const h of byBucket.vpce) {
+      const v = hopToVpc.get(h.node_id) ?? vpcLayouts[0]?.info.vpc.id ?? "_"
+      if (!vpcesByVpc.has(v)) vpcesByVpc.set(v, [])
+      vpcesByVpc.get(v)!.push(h)
+    }
+    for (const layout of vpcLayouts) {
+      const igws = igwsByVpc.get(layout.info.vpc.id) ?? []
+      const vpces = vpcesByVpc.get(layout.info.vpc.id) ?? []
+      const slotTop = layout.y + 40
+      const slotBot = layout.y + layout.h - 60
+      const slotH = Math.max(60, slotBot - slotTop)
+      igws.forEach((h, i) => {
+        pos[h.node_id] = {
+          x: layout.egressX,
+          y: slotTop + i * 50,
+        }
+      })
+      vpces.forEach((h, i) => {
+        pos[h.node_id] = {
+          x: layout.egressX,
+          y: slotTop + slotH - 30 - i * 50,
+        }
+      })
+    }
 
-    // ── Egress via VPC Endpoint — VPC right edge, lower slot ──
-    byBucket.vpce.forEach((h, i) => {
-      pos[h.node_id] = { x: 510, y: 480 + i * 56 }
-    })
-
-    // ── In-subnet network hops — positioned inside their actual subnet box ──
-    // Subnet box positions must match the layout used by <AzColumn> below.
-    const azX = 64
-    const azY = 148
-    const azInnerTop = azY + 26
-    const azInnerH = 456 - 30
-    const numSubnets = containment.subnetsToRender.length
-    const laneH =
-      numSubnets > 0 ? Math.max(60, Math.floor(azInnerH / numSubnets)) : 0
-    const subnetBoxY = new Map<string, number>()
-    containment.subnetsToRender.forEach((sn, snIdx) => {
-      subnetBoxY.set(sn.id, azInnerTop + snIdx * laneH)
-    })
-    // Group in-subnet hops by which subnet they belong to.
+    // ── In-subnet network hops — placed inside their subnet box ──
     const inSubnetBySubnet = new Map<string, ConvergenceHop[]>()
     for (const h of byBucket.in_subnet) {
       const sn = hopToSubnet.get(h.node_id)
@@ -372,37 +510,57 @@ function TopologyCanvas({
       inSubnetBySubnet.get(sn)!.push(h)
     }
     inSubnetBySubnet.forEach((chips, snId) => {
-      const baseY = subnetBoxY.get(snId)
-      if (baseY == null) return
-      const startX = azX + 40
+      const box = subnetBoxes.get(snId)
+      if (!box) return
+      const startX = box.x + 26
+      const startY = box.y + 24
+      const stride = Math.max(56, Math.floor((box.w - 40) / 8))
       chips.forEach((h, i) => {
-        pos[h.node_id] = { x: startX + (i % 7) * 65, y: baseY + 32 + Math.floor(i / 7) * 30 }
+        pos[h.node_id] = {
+          x: startX + (i % 7) * stride,
+          y: startY + Math.floor(i / 7) * 28,
+        }
       })
     })
 
-    // ── Identity strip — bottom of VPC frame ──
-    byBucket.identity.forEach((h, i) => {
-      pos[h.node_id] = { x: 90 + (i % 6) * 75, y: 640 + Math.floor(i / 6) * 36 }
+    // ── Identity hops — inside their VPC's identity band ──
+    const identityByVpc = new Map<string, ConvergenceHop[]>()
+    for (const h of byBucket.identity) {
+      const v = hopToVpc.get(h.node_id) ?? vpcLayouts[0]?.info.vpc.id ?? "_"
+      if (!identityByVpc.has(v)) identityByVpc.set(v, [])
+      identityByVpc.get(v)!.push(h)
+    }
+    identityByVpc.forEach((chips, vpcId) => {
+      const band = vpcIdentityBand.get(vpcId)
+      if (!band) {
+        // No VPC found — fall back to canvas bottom
+        chips.forEach((h, i) => {
+          pos[h.node_id] = { x: 80 + (i % 6) * 75, y: 730 - Math.floor(i / 6) * 28 }
+        })
+        return
+      }
+      const stride = Math.max(60, Math.floor((band.w - 20) / 8))
+      chips.forEach((h, i) => {
+        pos[h.node_id] = { x: band.x + 20 + (i % 7) * stride, y: band.y }
+      })
     })
 
-    // ── Network hops with no subnet membership — explicit "subnet unknown"
-    //    cluster ABOVE identity strip, INSIDE the VPC frame but outside subnet
-    //    boxes. We do not guess where they live. ──
+    // ── Network-unknown hops — bottom strip below all VPCs, honest cluster ──
     byBucket.network_unknown.forEach((h, i) => {
-      pos[h.node_id] = { x: 90 + (i % 6) * 75, y: 596 + Math.floor(i / 6) * 30 }
+      pos[h.node_id] = { x: 80 + (i % 7) * 70, y: 728 + Math.floor(i / 7) * 22 }
     })
 
     // ── Data plane hops (non-crown-jewel) — off-VPC band, lower ──
     byBucket.data.forEach((h, i) => {
-      pos[h.node_id] = { x: 900, y: 480 + i * 60 }
+      pos[h.node_id] = { x: 920, y: 460 + i * 60 }
     })
 
     // ── Crown jewels — off-VPC band, upper ──
     byBucket.crown_jewel.forEach((h, i) => {
-      pos[h.node_id] = { x: 900, y: 180 + i * 80 }
+      pos[h.node_id] = { x: 920, y: 170 + i * 80 }
     })
 
-    // ── Other (shouldn't be common) — top-left fallback so they're not silently lost ──
+    // ── Other — top-left fallback so they're not silently lost ──
     byBucket.other.forEach((h, i) => {
       pos[h.node_id] = { x: 40, y: 730 - i * 28 }
     })
@@ -410,12 +568,45 @@ function TopologyCanvas({
     // Selected jewel always gets a position even if it wasn't traversed.
     const jewelKey = jewel.canonical_id ?? jewel.id
     if (!pos[jewelKey]) {
-      pos[jewelKey] = { x: 900, y: 180 + byBucket.crown_jewel.length * 80 }
+      pos[jewelKey] = { x: 920, y: 170 + byBucket.crown_jewel.length * 80 }
     }
     return pos
   }, [data.paths, jewel.canonical_id, jewel.id, containment])
 
-  const crossesAZb = false // multi-AZ rendering: future iteration; v1 = single AZ column
+  // Recompute VPC layouts for the SVG render (same math as positions block).
+  const vpcLayouts = useMemo(() => {
+    const REGION_X = 46
+    const REGION_W = 814
+    const REGION_INNER_TOP = 108
+    const REGION_INNER_H = 612
+    const VPC_GAP = 10
+    const weights = containment.vpcsToRender.map((v) =>
+      Math.max(1, v.subnets.length),
+    )
+    const totalW = weights.reduce((s, w) => s + w, 0) || 1
+    const totalGap = Math.max(0, containment.vpcsToRender.length - 1) * VPC_GAP
+    const availableH = REGION_INNER_H - totalGap
+    return containment.vpcsToRender.map((v, i) => {
+      const h = Math.floor((weights[i] / totalW) * availableH)
+      const y =
+        REGION_INNER_TOP +
+        weights
+          .slice(0, i)
+          .reduce(
+            (s, w) => s + Math.floor((w / totalW) * availableH) + VPC_GAP,
+            0,
+          )
+      const EGRESS_W = 100
+      return {
+        info: v,
+        x: REGION_X,
+        y,
+        w: REGION_W - EGRESS_W,
+        h,
+        egressX: REGION_X + REGION_W - EGRESS_W + 24,
+      }
+    })
+  }, [containment.vpcsToRender])
 
   return (
     <svg viewBox="0 0 980 760" preserveAspectRatio="xMidYMid meet" className="block w-full h-full">
@@ -438,48 +629,85 @@ function TopologyCanvas({
       {/* nested containers — labels derived from real topology + path hops */}
       <Container x={14} y={60} w={952} h={680} stroke={T.aws} label="AWS CLOUD" />
       <Container x={30} y={84} w={820} h={648} stroke={T.region} label={containment.regionLabel} />
-      <Container
-        x={46}
-        y={108}
-        w={crossesAZb ? 770 : 470}
-        h={612}
-        stroke={T.vpc}
-        label={
-          containment.primaryVpc
-            ? `VPC · ${shortLabel(containment.primaryVpc.name || containment.primaryVpc.id, 28)}${containment.primaryVpc.cidr ? ` · ${containment.primaryVpc.cidr}` : ""}`
-            : "VPC · not in snapshot"
-        }
-      />
 
-      {/* AZ column — real subnets from /api/topology-aws, ordered public-first.
-         Each lane is a real :Subnet with real name/CIDR/is_public. */}
-      <AzColumn x={64} y={148} label={containment.azLabel} subnets={containment.subnetsToRender} />
+      {/* ── Per-VPC frames stacked vertically ─────────────────────────── */}
+      {vpcLayouts.map((vl) => {
+        const azPart = vl.info.azs.length ? ` · AZ ${vl.info.azs.join(" · ")}` : ""
+        const vpcLabel = `VPC · ${shortLabel(vl.info.vpc.name || vl.info.vpc.id, 22)}${vl.info.vpc.cidr ? ` · ${vl.info.vpc.cidr}` : ""}${azPart}`
+        return (
+          <g key={vl.info.vpc.id}>
+            <Container x={vl.x} y={vl.y} w={vl.w} h={vl.h} stroke={T.vpc} label={vpcLabel} />
+            {/* subnet lanes inside this VPC */}
+            {vl.info.subnets.length > 0 ? (
+              vl.info.subnets.map((sn, si) => {
+                const laneH = Math.max(48, Math.floor((vl.h - 54) / vl.info.subnets.length))
+                return (
+                  <SubnetLane
+                    key={sn.id}
+                    x={vl.x + 10}
+                    y={vl.y + 28 + si * laneH}
+                    w={vl.w - 20}
+                    h={laneH - 4}
+                    subnet={sn}
+                  />
+                )
+              })
+            ) : (
+              <text
+                x={vl.x + 18}
+                y={vl.y + vl.h / 2}
+                fontSize={11}
+                fill={T.textFaint}
+                fontFamily="ui-monospace,monospace"
+              >
+                No subnets touched by paths in this VPC
+              </text>
+            )}
+            {/* identity band label */}
+            <text
+              x={vl.x + 14}
+              y={vl.y + vl.h - 24}
+              fontSize={8.5}
+              fontWeight={700}
+              fill={T.identity}
+              style={{ letterSpacing: "0.08em" }}
+            >
+              IDENTITY · profiles + roles
+            </text>
+          </g>
+        )
+      })}
 
-      {/* off-snapshot indicator — honest about subnets we don't have data for */}
+      {/* off-VPC column header */}
+      <OffVpcLabel cx={920} y={148} />
+
+      {/* off-snapshot indicator — honest about subnets paths reference that
+         aren't in the topology snapshot. Lives in a footer band so it
+         doesn't overlap any VPC content. */}
       {containment.offSnapshotSubnetIds.length > 0 && (
         <g>
           <rect
-            x={52}
-            y={596}
-            width={460}
-            height={18}
-            rx={4}
+            x={36}
+            y={744}
+            width={820}
+            height={14}
+            rx={3}
             fill="rgba(229,72,77,0.08)"
             stroke={T.sevHigh}
             strokeOpacity={0.5}
             strokeDasharray="3 3"
           />
-          <text x={62} y={609} fontSize={10} fill={T.sevHigh} fontFamily="ui-monospace,monospace">
+          <text
+            x={46}
+            y={754}
+            fontSize={9}
+            fill={T.sevHigh}
+            fontFamily="ui-monospace,monospace"
+          >
             {containment.offSnapshotSubnetIds.length} subnet(s) referenced by paths but missing from topology snapshot
           </text>
         </g>
       )}
-
-      {/* identity strip under the VPC */}
-      <IdentityStrip x={46} y={620} w={crossesAZb ? 770 : 470} />
-
-      {/* off-VPC column */}
-      <OffVpcLabel cx={880} y={120} />
 
       {/* draw nodes — anchors come from positions[], ring color from real plane */}
       {Object.entries(positions).map(([nodeId, p]) => {
@@ -573,64 +801,53 @@ function Container({ x, y, w, h, stroke, label }: { x: number; y: number; w: num
   )
 }
 
-function AzColumn({ x, y, label, subnets }: { x: number; y: number; label: string; subnets: TopologySubnet[] }) {
-  const W = 720
-  const H = 456
-  const innerTop = y + 26
-  const innerH = H - 30
-  // Render one lane per real subnet. If none came back from /api/topology-aws,
-  // show an honest empty state instead of inventing labels.
-  const renderableSubnets = subnets.length > 0 ? subnets : null
-  const laneH = renderableSubnets ? Math.max(60, Math.floor(innerH / renderableSubnets.length)) : 0
-  return (
-    <g>
-      <rect x={x} y={y} width={W} height={H} rx={8} fill="rgba(76,141,255,0.03)" stroke={T.region} strokeWidth={1} strokeOpacity={0.35} strokeDasharray="3 4" />
-      <text x={x + 12} y={y + 16} fontSize={9.5} fontWeight={700} fill={T.region} style={{ letterSpacing: "0.1em" }}>
-        {label}
-      </text>
-      {renderableSubnets ? (
-        renderableSubnets.map((sn, i) => (
-          <SubnetLane
-            key={sn.id}
-            x={x + 10}
-            y={innerTop + i * laneH}
-            h={laneH - 6}
-            subnet={sn}
-          />
-        ))
-      ) : (
-        <text x={x + 12} y={y + 60} fontSize={10} fill={T.textFaint} fontFamily="ui-monospace,monospace">
-          No subnets in topology snapshot for this VPC.
-        </text>
-      )}
-    </g>
-  )
-}
-
-function SubnetLane({ x, y, h, subnet }: { x: number; y: number; h: number; subnet: TopologySubnet }) {
+function SubnetLane({
+  x,
+  y,
+  w,
+  h,
+  subnet,
+}: {
+  x: number
+  y: number
+  w: number
+  h: number
+  subnet: TopologySubnet
+}) {
   const isPublic = subnet.is_public === true
   const isPrivate = subnet.is_public === false
   const color = isPublic ? T.publicLane : isPrivate ? T.privateLane : T.textFaint
-  const tint = isPublic ? "rgba(79,174,111,0.06)" : isPrivate ? "rgba(58,110,165,0.07)" : "rgba(140,140,140,0.04)"
+  const tint = isPublic
+    ? "rgba(79,174,111,0.06)"
+    : isPrivate
+      ? "rgba(58,110,165,0.07)"
+      : "rgba(140,140,140,0.04)"
   const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "VISIBILITY UNKNOWN"
   const name = shortLabel(subnet.name || subnet.id, 28)
   const cidr = subnet.cidr ? ` · ${subnet.cidr}` : ""
   return (
     <g>
-      <rect x={x} y={y} width={700} height={h} rx={6} fill={tint} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
-      <text x={x + 10} y={y + 13} fontSize={8.5} fontWeight={700} fill={color} style={{ letterSpacing: "0.04em" }}>
-        {kindLabel} · {name}{cidr}
-      </text>
-    </g>
-  )
-}
-
-function IdentityStrip({ x, y, w }: { x: number; y: number; w: number }) {
-  return (
-    <g>
-      <rect x={x + 4} y={y - 6} width={w - 8} height={34} rx={6} fill="rgba(199,146,234,0.05)" stroke={T.identity} strokeWidth={1} strokeOpacity={0.4} strokeDasharray="3 4" />
-      <text x={x + 14} y={y + 8} fontSize={8.5} fontWeight={700} fill={T.identity} style={{ letterSpacing: "0.08em" }}>
-        IDENTITY &amp; ACCESS (profiles + roles)
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        rx={6}
+        fill={tint}
+        stroke={color}
+        strokeWidth={1}
+        strokeOpacity={0.5}
+      />
+      <text
+        x={x + 10}
+        y={y + 14}
+        fontSize={9.5}
+        fontWeight={700}
+        fill={color}
+        style={{ letterSpacing: "0.04em" }}
+      >
+        {kindLabel} · {name}
+        {cidr}
       </text>
     </g>
   )
