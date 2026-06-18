@@ -59,19 +59,33 @@ const T = {
   identity: "#C792EA",
 } as const
 
-// ─── derived hop classification ─────────────────────────────────────────────
-type LaneKey = "public" | "app" | "data" | "external" | "identity" | "netinfra"
+// ─── data-only hop classification ───────────────────────────────────────────
+// Buckets are determined ONLY by real Neo4j fields. No inference, no fallback.
+type HopBucket =
+  | "internet"      // node_type = Internet
+  | "igw"           // node_type = InternetGateway
+  | "vpce"          // node_type = VPCEndpoint
+  | "in_subnet"     // resolved to a real subnet_id (either explicit or path-neighbor)
+  | "identity"      // plane = identity
+  | "data"          // plane = data, not a crown jewel
+  | "crown_jewel"   // is_crown_jewel = true
+  | "network_unknown" // plane = network but no subnet_id and not IGW/VPCE/Internet
+  | "other"         // anything else (we render but don't position into a band)
 
-function hopLane(h: ConvergenceHop): LaneKey {
-  if (h.is_crown_jewel) return "external"
+function hopBucket(h: ConvergenceHop, hopToSubnet: Map<string, string>): HopBucket {
+  const t = (h.node_type || "").toLowerCase()
   const plane = (h.plane || "").toLowerCase()
-  const ntype = (h.node_type || "").toLowerCase()
-  if (plane === "iam" || /role|profile|policy|user/i.test(ntype)) return "identity"
-  if (/routetable|nacl|vpcendpoint|vpce|igw|natgateway|nat/i.test(ntype)) return "netinfra"
-  if (h.subnet_id == null && /s3|kms|dynamodb|secret|rds/i.test(ntype)) return "external"
-  if (h.subnet_public === true) return "public"
-  if (/rds|database|aurora/i.test(ntype)) return "data"
-  return "app"
+  if (h.is_crown_jewel) return "crown_jewel"
+  if (t === "internet") return "internet"
+  if (t === "internetgateway" || t === "igw") return "igw"
+  if (t === "vpcendpoint" || t === "vpce") return "vpce"
+  if (plane === "identity") return "identity"
+  if (plane === "data") return "data"
+  if (plane === "network") {
+    if (hopToSubnet.get(h.node_id)) return "in_subnet"
+    return "network_unknown"
+  }
+  return "other"
 }
 
 function hopIcon(h: ConvergenceHop): string {
@@ -229,84 +243,154 @@ function TopologyCanvas({
     () => deriveContainment(data.paths, topology),
     [data.paths, topology],
   )
-  // Compute positions for every hop id across all paths.
+  // ─── compute positions purely from real Neo4j fields ────────────────────
+  // No node_type-based lane guessing. No `__internet__` synthetic anchors.
+  // No hardcoded categories. Every coordinate is derived from one of:
+  //   - hop.subnet_id (explicit) or path-neighbor subnet (real adjacency)
+  //   - hop.node_type (Internet / InternetGateway / VPCEndpoint discrete)
+  //   - hop.plane (network / identity / data — backend-set)
+  //   - hop.is_crown_jewel
+  //   - hop ORDER in the path (real edge sequence from Neo4j)
+  // Hops we can't categorize land in an explicit "Subnet unknown" cluster
+  // rather than being shoved into a guessed lane.
   const positions = useMemo<Record<string, NodePos>>(() => {
     const pos: Record<string, NodePos> = {}
-    const allHops: ConvergenceHop[] = data.paths.flatMap((p) => p.hops)
 
-    // group hops by lane + by az
-    const lanes: Record<LaneKey, ConvergenceHop[]> = {
-      public: [],
-      app: [],
-      data: [],
-      external: [],
-      identity: [],
-      netinfra: [],
+    // Path-neighbor inference for subnet membership — when a hop has subnet_id
+    // null but an adjacent hop in the same path is a :Subnet node, the path's
+    // own edge sequence (a real Neo4j traversal) tells us which subnet the
+    // hop belongs to. This is data, not heuristic.
+    const hopToSubnet = new Map<string, string>()
+    const knownSubnetIds = new Set(
+      containment.primaryVpc?.azs.flatMap((a) => a.subnets.map((s) => s.id)) ?? [],
+    )
+    for (const p of data.paths) {
+      for (let i = 0; i < p.hops.length; i++) {
+        const h = p.hops[i]
+        if (h.subnet_id && knownSubnetIds.has(h.subnet_id)) {
+          hopToSubnet.set(h.node_id, h.subnet_id)
+          continue
+        }
+        if ((h.node_type || "").toLowerCase() === "subnet" && knownSubnetIds.has(h.node_id)) {
+          hopToSubnet.set(h.node_id, h.node_id)
+          continue
+        }
+        // Look at the immediately adjacent hops for a Subnet node we know.
+        for (const j of [i - 1, i + 1]) {
+          if (j < 0 || j >= p.hops.length) continue
+          const n = p.hops[j]
+          if ((n.node_type || "").toLowerCase() === "subnet" && knownSubnetIds.has(n.node_id)) {
+            hopToSubnet.set(h.node_id, n.node_id)
+            break
+          }
+        }
+      }
     }
+
+    // Unique hop list — same id can appear across multiple paths.
     const seen = new Set<string>()
-    for (const h of allHops) {
+    const uniqHops: ConvergenceHop[] = []
+    for (const h of data.paths.flatMap((p) => p.hops)) {
       if (seen.has(h.node_id)) continue
       seen.add(h.node_id)
-      lanes[hopLane(h)].push(h)
+      uniqHops.push(h)
     }
 
-    // ─── ENTRY / external principals at the top, outside cloud frame ─
-    const externalSources = data.paths
-      .filter((p) => p.source_kind === "external" || /external|principal|public/i.test(p.source_kind ?? ""))
-      .map((p) => p.source || "ext")
-    const uniqExt = Array.from(new Set(externalSources))
-    uniqExt.forEach((id, i) => {
-      pos[id] = { x: 90 + i * 90, y: 36 }
-    })
-    // Always render an Internet anchor so the canvas reads as "from outside"
-    pos["__internet__"] = { x: 300, y: 36 }
+    // Bucket by REAL field. No falls-through-to-guess.
+    const byBucket: Record<HopBucket, ConvergenceHop[]> = {
+      internet: [],
+      igw: [],
+      vpce: [],
+      in_subnet: [],
+      identity: [],
+      data: [],
+      crown_jewel: [],
+      network_unknown: [],
+      other: [],
+    }
+    for (const h of uniqHops) {
+      byBucket[hopBucket(h, hopToSubnet)].push(h)
+    }
 
-    // ─── public lane (top of AZ box) ─
-    const azYBase = 148
-    lanes.public.forEach((h, i) => {
-      pos[h.node_id] = { x: 110 + (i % 4) * 92, y: azYBase + 60 + Math.floor(i / 4) * 70 }
-    })
-    // ─── app lane ─
-    lanes.app.forEach((h, i) => {
-      pos[h.node_id] = { x: 110 + (i % 4) * 92, y: azYBase + 220 + Math.floor(i / 4) * 70 }
-    })
-    // ─── data lane ─
-    lanes.data.forEach((h, i) => {
-      pos[h.node_id] = { x: 110 + (i % 3) * 110, y: azYBase + 390 + Math.floor(i / 3) * 70 }
+    // ── Internet (real :Internet hops, outside the AWS Cloud frame) ──
+    byBucket.internet.forEach((h, i) => {
+      pos[h.node_id] = { x: 220 + i * 130, y: 36 }
     })
 
-    // ─── network infra waypoints (route tables / NACLs / VPCE) ─
-    let vpceX = 0
-    lanes.netinfra.forEach((h, i) => {
-      const t = (h.node_type || "").toLowerCase()
-      if (/vpce|vpcendpoint/.test(t)) {
-        vpceX = 540
-        pos[h.node_id] = { x: vpceX, y: 430 }
-      } else {
-        pos[h.node_id] = { x: 110 + i * 80, y: azYBase + 360 }
-      }
+    // ── Egress via Internet Gateway — VPC right edge, upper slot ──
+    byBucket.igw.forEach((h, i) => {
+      pos[h.node_id] = { x: 510, y: 150 + i * 56 }
     })
 
-    // ─── identity strip — under the VPC frame ─
-    const stripY = 632
-    const stripX0 = 150
-    const stripStep = Math.min(120, 480 / Math.max(lanes.identity.length, 1))
-    lanes.identity.forEach((h, i) => {
-      pos[h.node_id] = { x: stripX0 + i * stripStep, y: stripY }
+    // ── Egress via VPC Endpoint — VPC right edge, lower slot ──
+    byBucket.vpce.forEach((h, i) => {
+      pos[h.node_id] = { x: 510, y: 480 + i * 56 }
     })
 
-    // ─── off-VPC crown jewels — right column ─
-    const cjX = 880
-    lanes.external.forEach((h, i) => {
-      pos[h.node_id] = { x: cjX, y: 150 + i * 90 }
+    // ── In-subnet network hops — positioned inside their actual subnet box ──
+    // Subnet box positions must match the layout used by <AzColumn> below.
+    const azX = 64
+    const azY = 148
+    const azInnerTop = azY + 26
+    const azInnerH = 456 - 30
+    const numSubnets = containment.subnetsToRender.length
+    const laneH =
+      numSubnets > 0 ? Math.max(60, Math.floor(azInnerH / numSubnets)) : 0
+    const subnetBoxY = new Map<string, number>()
+    containment.subnetsToRender.forEach((sn, snIdx) => {
+      subnetBoxY.set(sn.id, azInnerTop + snIdx * laneH)
     })
-    // ensure the current jewel always has a position even if it never appeared as a hop
+    // Group in-subnet hops by which subnet they belong to.
+    const inSubnetBySubnet = new Map<string, ConvergenceHop[]>()
+    for (const h of byBucket.in_subnet) {
+      const sn = hopToSubnet.get(h.node_id)
+      if (!sn) continue
+      if (!inSubnetBySubnet.has(sn)) inSubnetBySubnet.set(sn, [])
+      inSubnetBySubnet.get(sn)!.push(h)
+    }
+    inSubnetBySubnet.forEach((chips, snId) => {
+      const baseY = subnetBoxY.get(snId)
+      if (baseY == null) return
+      const startX = azX + 40
+      chips.forEach((h, i) => {
+        pos[h.node_id] = { x: startX + (i % 7) * 65, y: baseY + 32 + Math.floor(i / 7) * 30 }
+      })
+    })
+
+    // ── Identity strip — bottom of VPC frame ──
+    byBucket.identity.forEach((h, i) => {
+      pos[h.node_id] = { x: 90 + (i % 6) * 75, y: 640 + Math.floor(i / 6) * 36 }
+    })
+
+    // ── Network hops with no subnet membership — explicit "subnet unknown"
+    //    cluster ABOVE identity strip, INSIDE the VPC frame but outside subnet
+    //    boxes. We do not guess where they live. ──
+    byBucket.network_unknown.forEach((h, i) => {
+      pos[h.node_id] = { x: 90 + (i % 6) * 75, y: 596 + Math.floor(i / 6) * 30 }
+    })
+
+    // ── Data plane hops (non-crown-jewel) — off-VPC band, lower ──
+    byBucket.data.forEach((h, i) => {
+      pos[h.node_id] = { x: 900, y: 480 + i * 60 }
+    })
+
+    // ── Crown jewels — off-VPC band, upper ──
+    byBucket.crown_jewel.forEach((h, i) => {
+      pos[h.node_id] = { x: 900, y: 180 + i * 80 }
+    })
+
+    // ── Other (shouldn't be common) — top-left fallback so they're not silently lost ──
+    byBucket.other.forEach((h, i) => {
+      pos[h.node_id] = { x: 40, y: 730 - i * 28 }
+    })
+
+    // Selected jewel always gets a position even if it wasn't traversed.
     const jewelKey = jewel.canonical_id ?? jewel.id
     if (!pos[jewelKey]) {
-      pos[jewelKey] = { x: cjX, y: 150 + lanes.external.length * 90 }
+      pos[jewelKey] = { x: 900, y: 180 + byBucket.crown_jewel.length * 80 }
     }
     return pos
-  }, [data.paths, jewel.canonical_id, jewel.id])
+  }, [data.paths, jewel.canonical_id, jewel.id, containment])
 
   const crossesAZb = false // multi-AZ rendering: future iteration; v1 = single AZ column
 
@@ -344,9 +428,6 @@ function TopologyCanvas({
         }
       />
 
-      {/* internet + external sources above the cloud */}
-      <NodeChip x={pos(positions, "__internet__").x} y={pos(positions, "__internet__").y} icon="🌐" label="Internet" ring={T.textFaint} bright />
-
       {/* AZ column — real subnets from /api/topology-aws, ordered public-first.
          Each lane is a real :Subnet with real name/CIDR/is_public. */}
       <AzColumn x={64} y={148} label={containment.azLabel} subnets={containment.subnetsToRender} />
@@ -377,25 +458,27 @@ function TopologyCanvas({
       {/* off-VPC column */}
       <OffVpcLabel cx={880} y={120} />
 
-      {/* draw nodes — anchors live in positions[] map */}
+      {/* draw nodes — anchors come from positions[], ring color from real plane */}
       {Object.entries(positions).map(([nodeId, p]) => {
-        if (nodeId === "__internet__") return null
-        // find the hop record for this id (first across all paths)
         const hop = data.paths.flatMap((pa) => pa.hops).find((h) => h.node_id === nodeId)
         if (!hop) return null
-        const lane = hopLane(hop)
-        const onPath = true
         const isJewel = hop.is_crown_jewel
-        const ring =
-          isJewel
-            ? T.sevCritical
-            : lane === "identity"
-              ? T.identity
-              : lane === "netinfra"
-                ? T.sevLow
-                : onPath
-                  ? T.accent
-                  : T.textFaint
+        const plane = (hop.plane || "").toLowerCase()
+        const t = (hop.node_type || "").toLowerCase()
+        // Ring color is derived from the real plane field + a couple discrete
+        // node_type buckets (IGW / VPCE) so the egress mechanism is visually
+        // distinct. Nothing inferred from labels or names.
+        const ring = isJewel
+          ? T.sevCritical
+          : plane === "identity"
+            ? T.identity
+            : t === "internetgateway" || t === "igw"
+              ? T.sevHigh
+              : t === "vpcendpoint" || t === "vpce"
+                ? T.observed
+                : t === "internet"
+                  ? T.textFaint
+                  : T.accent
         const label = shortLabel(hop.name || hop.node_id, 22)
         return (
           <NodeChip
