@@ -33,7 +33,7 @@ import type {
   ConvergencePath,
 } from "@/lib/attack-paths/convergence-types"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
-import { useAwsTopology, type AwsTopology, type TopologyVpc } from "@/lib/attack-paths/use-aws-topology"
+import { useAwsTopology, type AwsTopology, type TopologyVpc, type TopologySubnet } from "@/lib/attack-paths/use-aws-topology"
 
 // ─── theme tokens (mirroring the mockup CSS variables) ──────────────────────
 const T = {
@@ -130,6 +130,8 @@ interface DerivedContainment {
   regionLabel: string
   /** AZ label — real, the unique AZ shown across path hops. Multi-AZ → composite label. */
   azLabel: string
+  /** Real subnets in the primary VPC + most-relevant AZ, ordered public-first. */
+  subnetsToRender: TopologySubnet[]
   /** Subnet IDs referenced by path hops that are NOT in the topology snapshot. */
   offSnapshotSubnetIds: string[]
 }
@@ -176,6 +178,18 @@ function deriveContainment(
   )
   const offSnapshotSubnetIds = Array.from(hopSubnetIds).filter((id) => !knownSubnetIds.has(id))
 
+  // Collect every subnet in the primary VPC across every AZ. Order them
+  // public-first so the rendered lanes read top-to-bottom: Public → Private →
+  // Unknown. This is the AWS-architecture mental model.
+  const subnetsToRender: TopologySubnet[] = (bestVpc?.azs ?? [])
+    .flatMap((a) => a.subnets)
+    .sort((a, b) => {
+      const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
+      const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
+      if (av !== bv) return av - bv
+      return (a.name || a.id).localeCompare(b.name || b.id)
+    })
+
   // Prefer explicit VPC.region; fall back to the common region prefix of real
   // AZs in path hops (e.g. all hops in eu-west-1a/b/c → "eu-west-1"). This is
   // derivation from real hop data, not invention — every AZ comes from Neo4j.
@@ -196,7 +210,7 @@ function deriveContainment(
         ? `AZ · ${azList[0]}`
         : `AZ · ${azList.join(" · ")}`
 
-  return { primaryVpc: bestVpc, regionLabel, azLabel, offSnapshotSubnetIds }
+  return { primaryVpc: bestVpc, regionLabel, azLabel, subnetsToRender, offSnapshotSubnetIds }
 }
 
 // ─── center SVG canvas ──────────────────────────────────────────────────────
@@ -333,8 +347,9 @@ function TopologyCanvas({
       {/* internet + external sources above the cloud */}
       <NodeChip x={pos(positions, "__internet__").x} y={pos(positions, "__internet__").y} icon="🌐" label="Internet" ring={T.textFaint} bright />
 
-      {/* AZ column — single-AZ rendering for v1; label reflects real AZs in path data */}
-      <AzColumn x={64} y={148} label={containment.azLabel} />
+      {/* AZ column — real subnets from /api/topology-aws, ordered public-first.
+         Each lane is a real :Subnet with real name/CIDR/is_public. */}
+      <AzColumn x={64} y={148} label={containment.azLabel} subnets={containment.subnetsToRender} />
 
       {/* off-snapshot indicator — honest about subnets we don't have data for */}
       {containment.offSnapshotSubnetIds.length > 0 && (
@@ -452,28 +467,53 @@ function Container({ x, y, w, h, stroke, label }: { x: number; y: number; w: num
   )
 }
 
-function AzColumn({ x, y, label }: { x: number; y: number; label: string }) {
+function AzColumn({ x, y, label, subnets }: { x: number; y: number; label: string; subnets: TopologySubnet[] }) {
   const W = 720
   const H = 456
+  const innerTop = y + 26
+  const innerH = H - 30
+  // Render one lane per real subnet. If none came back from /api/topology-aws,
+  // show an honest empty state instead of inventing labels.
+  const renderableSubnets = subnets.length > 0 ? subnets : null
+  const laneH = renderableSubnets ? Math.max(60, Math.floor(innerH / renderableSubnets.length)) : 0
   return (
     <g>
       <rect x={x} y={y} width={W} height={H} rx={8} fill="rgba(76,141,255,0.03)" stroke={T.region} strokeWidth={1} strokeOpacity={0.35} strokeDasharray="3 4" />
       <text x={x + 12} y={y + 16} fontSize={9.5} fontWeight={700} fill={T.region} style={{ letterSpacing: "0.1em" }}>
         {label}
       </text>
-      <SubnetLane x={x + 10} y={y + 26} h={96} color={T.publicLane} label="Public Subnets (Ingress / Egress)" tint="rgba(79,174,111,0.06)" />
-      <SubnetLane x={x + 10} y={y + 130} h={150} color={T.privateLane} label="Application Subnet (Private)" tint="rgba(58,110,165,0.07)" />
-      <SubnetLane x={x + 10} y={y + 288} h={150} color={T.privateLane} label="Data Subnet (Private)" tint="rgba(58,110,165,0.07)" />
+      {renderableSubnets ? (
+        renderableSubnets.map((sn, i) => (
+          <SubnetLane
+            key={sn.id}
+            x={x + 10}
+            y={innerTop + i * laneH}
+            h={laneH - 6}
+            subnet={sn}
+          />
+        ))
+      ) : (
+        <text x={x + 12} y={y + 60} fontSize={10} fill={T.textFaint} fontFamily="ui-monospace,monospace">
+          No subnets in topology snapshot for this VPC.
+        </text>
+      )}
     </g>
   )
 }
 
-function SubnetLane({ x, y, h, color, label, tint }: { x: number; y: number; h: number; color: string; label: string; tint: string }) {
+function SubnetLane({ x, y, h, subnet }: { x: number; y: number; h: number; subnet: TopologySubnet }) {
+  const isPublic = subnet.is_public === true
+  const isPrivate = subnet.is_public === false
+  const color = isPublic ? T.publicLane : isPrivate ? T.privateLane : T.textFaint
+  const tint = isPublic ? "rgba(79,174,111,0.06)" : isPrivate ? "rgba(58,110,165,0.07)" : "rgba(140,140,140,0.04)"
+  const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "VISIBILITY UNKNOWN"
+  const name = shortLabel(subnet.name || subnet.id, 28)
+  const cidr = subnet.cidr ? ` · ${subnet.cidr}` : ""
   return (
     <g>
-      <rect x={x} y={y} width={700} height={h} rx={6} fill={tint} stroke={color} strokeWidth={1} strokeOpacity={0.4} />
-      <text x={x + 10} y={y + 15} fontSize={8.5} fontWeight={700} fill={color} style={{ letterSpacing: "0.04em" }}>
-        {label}
+      <rect x={x} y={y} width={700} height={h} rx={6} fill={tint} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
+      <text x={x + 10} y={y + 13} fontSize={8.5} fontWeight={700} fill={color} style={{ letterSpacing: "0.04em" }}>
+        {kindLabel} · {name}{cidr}
       </text>
     </g>
   )
