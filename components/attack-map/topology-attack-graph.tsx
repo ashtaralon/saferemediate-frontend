@@ -694,6 +694,9 @@ function TopologyCanvas({
     }
 
     // ── In-subnet network hops — placed inside their subnet box ──
+    // Group by node_type ROW: workload chips on row 1, SG/NACL/Subnet
+    // metadata chips on row 2, so workload labels don't overlap each
+    // other and so the "what's running here" reading stays clean.
     const inSubnetBySubnet = new Map<string, ConvergenceHop[]>()
     for (const h of byBucket.in_subnet) {
       const sn = hopToSubnet.get(h.node_id)
@@ -701,16 +704,37 @@ function TopologyCanvas({
       if (!inSubnetBySubnet.has(sn)) inSubnetBySubnet.set(sn, [])
       inSubnetBySubnet.get(sn)!.push(h)
     }
+    const isWorkloadType = (h: ConvergenceHop) => {
+      const t = (h.node_type || "").toLowerCase()
+      return t === "ec2instance" || t === "lambdafunction" || t === "rdsinstance"
+    }
     inSubnetBySubnet.forEach((chips, snId) => {
       const box = subnetBoxes.get(snId)
       if (!box) return
-      const startX = box.x + 26
-      const startY = box.y + 24
-      const stride = Math.max(56, Math.floor((box.w - 40) / 8))
-      chips.forEach((h, i) => {
+      // Split workloads from metadata.
+      const workloads = chips.filter(isWorkloadType)
+      const meta = chips.filter((h) => !isWorkloadType(h))
+      // 4 chips per row in the top band — workloads sit above the metadata
+      // strip and have room for their labels.
+      const colsW = 4
+      const strideW = Math.max(80, Math.floor((box.w - 50) / colsW))
+      const startX = box.x + 32
+      const startY = box.y + 36
+      workloads.forEach((h, i) => {
         pos[h.node_id] = {
-          x: startX + (i % 7) * stride,
-          y: startY + Math.floor(i / 7) * 28,
+          x: startX + (i % colsW) * strideW,
+          y: startY + Math.floor(i / colsW) * 38,
+        }
+      })
+      // Metadata strip — smaller stride, sits at the box bottom so it
+      // doesn't push workloads around.
+      const colsM = 8
+      const strideM = Math.max(50, Math.floor((box.w - 40) / colsM))
+      const metaY = box.y + box.h - 20
+      meta.forEach((h, i) => {
+        pos[h.node_id] = {
+          x: startX + (i % colsM) * strideM,
+          y: metaY,
         }
       })
     })
@@ -738,6 +762,16 @@ function TopologyCanvas({
         }
       }
     }
+    // Lookup table for clamping identity chips to their host VPC bounds.
+    const vpcBoundsById = new Map<string, { x: number; y: number; w: number; h: number }>()
+    for (const layout of vpcLayouts) {
+      vpcBoundsById.set(layout.info.vpc.id, {
+        x: layout.x,
+        y: layout.y,
+        w: layout.w,
+        h: layout.h,
+      })
+    }
     const identityByVpc = new Map<string, ConvergenceHop[]>()
     const identityStackByWorkload = new Map<string, number>()
     for (const h of byBucket.identity) {
@@ -745,7 +779,21 @@ function TopologyCanvas({
       const workloadPos = workloadId ? pos[workloadId] : null
       if (workloadPos) {
         const stack = identityStackByWorkload.get(workloadId!) ?? 0
-        pos[h.node_id] = { x: workloadPos.x, y: workloadPos.y + 50 + stack * 36 }
+        // Clamp the identity chip to stay inside the workload's VPC frame
+        // so role chips never spill onto the left margin (no off-canvas).
+        const vpcId = hopToVpc.get(workloadId!) ?? null
+        const vpc = vpcId ? vpcBoundsById.get(vpcId) : null
+        let ix = workloadPos.x
+        let iy = workloadPos.y + 46 + stack * 32
+        if (vpc) {
+          const minX = vpc.x + 24
+          const maxX = vpc.x + vpc.w - 24
+          const minY = vpc.y + 28
+          const maxY = vpc.y + vpc.h - 22
+          ix = Math.max(minX, Math.min(maxX, ix))
+          iy = Math.max(minY, Math.min(maxY, iy))
+        }
+        pos[h.node_id] = { x: ix, y: iy }
         identityStackByWorkload.set(workloadId!, stack + 1)
         continue
       }
@@ -952,7 +1000,9 @@ function TopologyCanvas({
                 : t === "internet"
                   ? T.textFaint
                   : T.accent
-        const label = shortLabel(hop.name || hop.node_id, 22)
+        // Tighter chip labels to reduce horizontal overlap when chips
+        // cluster (e.g. multiple EC2 instances in one subnet box).
+        const label = shortLabel(hop.name || hop.node_id, 16)
         return (
           <NodeChip
             key={nodeId}
