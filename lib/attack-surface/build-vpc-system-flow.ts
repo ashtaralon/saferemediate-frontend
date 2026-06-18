@@ -182,7 +182,7 @@ export function buildVpcSystemFlow(
       id: `sys-${agg.key}`,
       source: src,
       target: agg.jewelId,
-      type: "attackSurfaceEdge",
+      type: "surfaceEdge",
       data: {
         flowKind: agg.observed ? "exfil" : "attack",
         onPath: hot,
