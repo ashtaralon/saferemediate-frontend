@@ -13,7 +13,8 @@ import "reactflow/dist/style.css"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { ContainmentModel } from "./containment-model"
 import type { ContainmentViewMode } from "./build-containment-from-architecture"
-import { layoutCloudGraphFlow, type CloudGraphFlowResult } from "./build-cloud-graph-flow"
+import type { CloudGraphFlowResult } from "./build-cloud-graph-flow"
+import { layoutCloudGraphLinear } from "./build-cloud-graph-linear"
 import { cloudGraphNodeTypes } from "./cloud-graph-nodes"
 import { cloudGraphEdgeTypes } from "./cloud-graph-edges"
 import { CG } from "./cloud-graph-tokens"
@@ -47,7 +48,7 @@ function FlowInner({
     setGraph(null)
     setError(null)
 
-    void layoutCloudGraphFlow(model, path, viewMode)
+    void layoutCloudGraphLinear(model, path, viewMode)
       .then((result) => {
         if (cancelled) return
         setGraph(result)

@@ -1209,7 +1209,11 @@ export function buildAttackerArchitecture(
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
     const pathNodeBucket = pathNodeTypeByKey.get(pathNodeId)
     for (const e of edges) {
-      const neighborId = e.neighbor_id
+      // Inline IAM policies (and other inline-only nodes) arrive with an empty
+      // neighbor_id — their stable identifier is the ARN (e.g.
+      // "inline/<role>/<policy>"). Fall back to it so they aren't silently
+      // dropped before reaching their bucket branch below.
+      const neighborId = e.neighbor_id || e.neighbor_arn || ""
       if (!neighborId) continue
 
       // Branch A — edge between two path nodes (on_path=true). The
@@ -1950,7 +1954,10 @@ export function buildAttackerArchitecture(
   //     attachments to the cards we rendered (NACL, SG, IP, IGW, Role).
   for (const [pathNodeId, neighbors] of Object.entries(graph.laterals_by_node)) {
     for (const e of neighbors) {
-      const neighborId = e.neighbor_id
+      // Same inline-node fallback as the node pass: inline IAM policies carry
+      // their id in neighbor_arn (neighbor_id is empty), so without this the
+      // HAS_POLICY edge is never built and the policy is dropped in path mode.
+      const neighborId = e.neighbor_id || e.neighbor_arn || ""
       if (!neighborId) continue
       const source = e.direction === "out" ? pathNodeId : neighborId
       const target = e.direction === "out" ? neighborId : pathNodeId

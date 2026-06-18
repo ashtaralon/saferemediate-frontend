@@ -765,8 +765,15 @@ export function buildContainmentFromArchitecture(
   )
   const entryNode = path.nodes?.find((n) => norm(n.name) === srcLabel)
   const explicitIE = entryNode?.is_internet_exposed
-  const hasInternetEntry =
-    explicitIE === true || (explicitIE !== false && footholdSubnet?.isPublic === true && !!igw)
+  // An InternetGateway only lands in egressGateways when the path's subnet
+  // actually ROUTES_VIA it (build-attacker-architecture egress lateral + Rule
+  // B), so its presence IS the internet-routability signal. We deliberately do
+  // NOT gate on footholdSubnet.isPublic: the collector's public flag is mapped
+  // from the wrong field upstream (subnet carries `public`, the mapper reads
+  // `isPublic`) and is unreliable. explicitIE === false still suppresses entry
+  // when the backend positively knows the foothold isn't internet-exposed.
+  void footholdSubnet
+  const hasInternetEntry = explicitIE === true || (explicitIE !== false && !!igw)
 
   let y = M
   if (hasInternetEntry) {
@@ -792,7 +799,7 @@ export function buildContainmentFromArchitecture(
   const cloudY = y
   const regionY = cloudY + 28
   let igwH = cmCardRenderHeight({ cat: "network", onPath: true, title: "Internet Gateway" })
-  const vpcY = regionY + (hasInternetEntry && igw ? igwH + 10 : 24)
+  const vpcY = regionY + (igw ? igwH + 10 : 24)
   const azY = vpcY + 40
 
   // The SG that secures the foothold is folded ONTO the compute card (shown
@@ -1177,7 +1184,11 @@ export function buildContainmentFromArchitecture(
   })
 
   let igwAnchor: Anchor | undefined
-  if (igw && hasInternetEntry) {
+  // Render the real IGW whenever it's a relevant egress on this path (present in
+  // egressGateways), not only on internet INGRESS. The path's subnet ROUTES_VIA
+  // it and the jewel EXFILTRATES_VIA it, so the gateway is real even when the
+  // foothold itself isn't internet-exposed (is_internet_exposed === false).
+  if (igw) {
     const iw = 132
     const ix = cloudX + cloudW / 2 - iw / 2
     const iy = regionY + 6

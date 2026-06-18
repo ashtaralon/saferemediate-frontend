@@ -5,7 +5,6 @@ import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { AttackMapExperience } from "./attack-map-experience"
 import { MapViewToggle } from "./map-view-toggle"
 import { TargetAttackMap } from "./target-attack-map"
-import { AwsAttackMap3D } from "./aws-attack-map-3d"
 import { toTargetTopology } from "@/lib/attack-map/to-target-topology"
 import { useCyntroAttackMap } from "@/lib/attack-map/use-cyntro-attack-map"
 import { useMapViewVariant } from "@/lib/attack-map/use-map-view-variant"
@@ -26,7 +25,6 @@ interface CyntroAttackMapProps {
 
 const VARIANT_HINT: Record<string, string> = {
   surface: "VPC attack surface · nested subnet + SG shield · live Neo4j path",
-  aws: "3-D blast radius · network (X) · identity (Y) · data depth (Z)",
   target: "Subnet grid · reachability / lateral / exfil lenses",
   classic: "Path-only spine · constraint bands",
 }
@@ -61,8 +59,7 @@ export function CyntroAttackMap({
 
   const { variant, setVariant } = useMapViewVariant()
 
-  const needsCompiler =
-    variant === "aws" || variant === "classic" || variant === "target"
+  const needsCompiler = variant === "classic" || variant === "target"
 
   const { data, loading, error, retry } = useCyntroAttackMap(
     systemName,
@@ -90,7 +87,7 @@ export function CyntroAttackMap({
           />
         ) : (
           <p className="px-2 py-12 text-center text-[12px] text-muted-foreground">
-            Surface map needs the live report &amp; topology for this path — switch to AWS, Classic, or Grid, or retry once it loads.
+            Surface map needs the live report &amp; topology for this path — switch to Classic or Grid, or retry once it loads.
           </p>
         )}
       </div>
@@ -135,13 +132,7 @@ export function CyntroAttackMap({
   return (
     <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
       {header}
-      {variant === "aws" ? (
-        <AwsAttackMap3D
-          payload={data.payload}
-          topology={data.topology}
-          density={data.density}
-        />
-      ) : variant === "target" ? (
+      {variant === "target" ? (
         <TargetAttackMap topo={toTargetTopology(data.payload, data.topology)} />
       ) : (
         <AttackMapExperience

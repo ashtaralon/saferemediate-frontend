@@ -339,7 +339,7 @@ export interface CloudGraphFlowResult {
   height: number
 }
 
-function layoutContainmentNested(
+export function layoutContainmentNested(
   model: ContainmentModel,
   path: IdentityAttackPath,
   viewMode: ContainmentViewMode,

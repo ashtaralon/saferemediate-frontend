@@ -4,11 +4,10 @@ import { useCallback } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 /** Cyntro map presentation within the attack-path panel (not legacy cloud graph). */
-export type MapViewVariant = "classic" | "target" | "surface" | "aws"
+export type MapViewVariant = "classic" | "target" | "surface"
 
 /**
  * surface — Attack Surface Map (VPC nested groups) — DEFAULT
- * aws     — 3-D attack path map (?map=aws)
  * classic — path-only linear spine (?map=classic)
  * target  — subnet-row × AZ-column grid (?map=target)
  */
@@ -22,22 +21,16 @@ export function useMapViewVariant(): {
 
   const m = searchParams?.get("map")
   const variant: MapViewVariant =
-    m === "aws"
-      ? "aws"
-      : m === "target"
-        ? "target"
-        : m === "classic" || m === "cyntro" || m === "1"
-          ? "classic"
-          : m === "surface"
-            ? "surface"
-            : "surface"
+    m === "target"
+      ? "target"
+      : m === "classic" || m === "cyntro" || m === "1"
+        ? "classic"
+        : "surface"
 
   const setVariant = useCallback(
     (v: MapViewVariant) => {
       const params = new URLSearchParams(searchParams?.toString() ?? "")
-      if (v === "aws") {
-        params.set("map", "aws")
-      } else if (v === "target") {
+      if (v === "target") {
         params.set("map", "target")
       } else if (v === "classic") {
         params.set("map", "classic")
