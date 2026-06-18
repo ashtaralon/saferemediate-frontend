@@ -52,6 +52,14 @@ import TopologyView from "./topology-view"
 import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
 import { AttackExplorer } from "./attack-explorer"
+import { ConvergencePathList } from "./convergence-path-list"
+import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
+import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
+import {
+  iapPathsToConvergence,
+  matchConvergencePathId,
+} from "@/lib/attack-paths/iap-to-convergence"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -126,11 +134,13 @@ export function AttackPathsV2({
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" =
+  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence" =
     modeParam === "explorer"
       ? "explorer"
       : modeParam === "exposure"
       ? "exposure"
+      : modeParam === "convergence"
+        ? "convergence"
       : modeParam === "attacker_v2"
         ? "attacker_v2"
         : modeParam === "phase"
@@ -343,6 +353,62 @@ export function AttackPathsV2({
     },
   )
 
+  const selectedJewel = useMemo(
+    () => jewels.find((j) => j.id === selectedJewelId) ?? null,
+    [jewels, selectedJewelId],
+  )
+
+  const convergenceFetchUrl = useMemo(() => {
+    if (viewMode !== "convergence" || !systemName || !selectedJewel) return null
+    return buildConvergenceFetchUrl(systemName, selectedJewel)
+  }, [viewMode, systemName, selectedJewel])
+
+  const {
+    data: convergenceData,
+    loading: convergenceLoading,
+    error: convergenceError,
+    retry: convergenceRetry,
+  } = useCachedFetch<CrownJewelConvergence>(convergenceFetchUrl, {
+    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}`,
+  })
+
+  const iapConvergenceFallback = useMemo(() => {
+    if (!systemName || !selectedJewel || jewelPaths.length === 0) return null
+    return iapPathsToConvergence(systemName, selectedJewel, jewelPaths)
+  }, [systemName, selectedJewel, jewelPaths])
+
+  const convergenceSource = useMemo((): "live" | "fallback" => {
+    if (convergenceData?.paths?.length) return "live"
+    return "fallback"
+  }, [convergenceData])
+
+  const effectiveConvergenceData = useMemo((): CrownJewelConvergence | null => {
+    if (convergenceData?.paths?.length) return convergenceData
+    return iapConvergenceFallback
+  }, [convergenceData, iapConvergenceFallback])
+
+  const convergencePathId = useMemo(
+    () =>
+      effectiveConvergenceData
+        ? matchConvergencePathId(
+            effectiveConvergenceData.paths,
+            selectedPathId,
+            jewelPaths,
+          )
+        : null,
+    [effectiveConvergenceData, selectedPathId, jewelPaths],
+  )
+
+  // Auto-select first convergence path when entering the tab.
+  useEffect(() => {
+    if (viewMode !== "convergence") return
+    if (!effectiveConvergenceData?.paths?.length) return
+    if (convergencePathId) return
+    const firstId = effectiveConvergenceData.paths[0]?.path_id
+    if (firstId) setUrl({ path: firstId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, effectiveConvergenceData, convergencePathId])
+
   // Auto-select the first exfil path when data arrives + URL doesn't
   // already specify one (or specifies a stale id no longer in the
   // list). Backend pre-sorts paths[] highest-traffic first, so this
@@ -385,6 +451,7 @@ export function AttackPathsV2({
   // un-selected lower in the list. Auto-selecting the most-observed
   // path means operators see the real attack first.
   useEffect(() => {
+    if (viewMode === "convergence") return
     if (!selectedJewelId) return
     if (selectedPathId) return
     if (jewelPaths.length === 0) return
@@ -413,7 +480,7 @@ export function AttackPathsV2({
     // current URL params so its identity changes on every render; we
     // only want to trigger when jewel selection or path-set changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedJewelId, selectedPathId, jewelPaths])
+  }, [selectedJewelId, selectedPathId, jewelPaths, viewMode])
 
   // Selection helpers — write to URL so deep links work and the
   // browser back button restores state.
@@ -444,7 +511,7 @@ export function AttackPathsV2({
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer") => {
+  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence") => {
     // Switching to exposure / phase / topology clears the path
     // selection — those aggregate across paths (phase shows every
     // chain targeting the jewel; topology / exposure are jewel-scoped
@@ -641,8 +708,15 @@ export function AttackPathsV2({
             paths={exfilData?.paths ?? []}
             selectedPathId={selectedExfilPathId}
             onSelectPath={handleSelectExfilPath}
-            jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
+            jewelName={selectedJewel?.name ?? null}
             loading={exfilLoading}
+          />
+        ) : viewMode === "convergence" ? (
+          <ConvergencePathList
+            paths={effectiveConvergenceData?.paths ?? []}
+            selectedPathId={convergencePathId}
+            onSelectPath={handleSelectPath}
+            loading={convergenceLoading && !effectiveConvergenceData}
           />
         ) : (
           <PathListGrouped
@@ -813,8 +887,26 @@ export function AttackPathsV2({
                   jewelId={selectedJewelId}
                   pathId={selectedPath.id}
                   pathFromPage={selectedPath}
-                  jewelFromPage={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                  jewelFromPage={selectedJewel}
                   siblingPathsFromPage={jewelPaths}
+                />
+              )
+            ) : viewMode === "convergence" ? (
+              selectedJewel ? (
+                <CrownJewelConvergenceView
+                  jewel={selectedJewel}
+                  data={effectiveConvergenceData}
+                  loading={convergenceLoading && !effectiveConvergenceData}
+                  error={convergenceSource === "live" ? convergenceError : null}
+                  retry={convergenceRetry}
+                  selectedPathId={convergencePathId}
+                  source={convergenceSource}
+                />
+              ) : (
+                <EmptyState
+                  title="Select a crown jewel"
+                  subtitle="Convergence fans every materialized path to the jewel over real subnet and security-group placement."
+                  large
                 />
               )
             ) : !selectedPath || !selectedJewelId ? (
@@ -870,8 +962,8 @@ function ModeToggle({
   onToggleExpand,
   showBeta = false,
 }: {
-  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer"
-  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer") => void
+  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence"
+  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -881,7 +973,7 @@ function ModeToggle({
       engineering-internal surfaces out of the default operator UI. */
   showBeta?: boolean
 }) {
-  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer"
+  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence"
   // Capability-named tabs — no version stamps in the operator UI.
   // Engineering context (DTO provenance, phase docs) lives in the
   // title tooltips, not the labels.
@@ -903,6 +995,12 @@ function ModeToggle({
       label: "Lateral Movement",
       title:
         "Where this path's identity can pivot next — for each role on the path, the other resources it can also reach (real sibling-neighbor graph data).",
+    },
+    {
+      key: "convergence",
+      label: "Convergence",
+      title:
+        "Every path to this crown jewel, fanned over real AWS subnet and security-group placement — observed vs configured paths ranked together.",
     },
     {
       key: "exposure",

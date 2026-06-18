@@ -20,7 +20,7 @@ import { HardeningPanel } from "./hardening-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import { AttackPathCardLightView } from "./attack-path-card-light"
 import { AttackPathContainmentMap } from "./attack-path-containment-map"
-import { CyntroAttackMap } from "@/components/attack-map/cyntro-attack-map"
+import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { AttackSpineStrip } from "./attack-spine-strip"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { useClosurePreview } from "./use-closure-preview"
@@ -407,18 +407,24 @@ export function PathAnalysisPanel({
               Attack map
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Toggle <span className="font-mono">Surface</span> · <span className="font-mono">Classic</span> · <span className="font-mono">Grid</span> — legacy Cloud Graph: <span className="font-mono">?map=legacy</span>
+              All paths to this crown jewel, placed on the live VPC topology.
+              Observed (CloudTrail) vs configured. Legacy map:{" "}
+              <span className="font-mono">?map=legacy</span>
             </p>
           </div>
           <div
             className="relative overflow-auto min-h-[560px] rounded-[14px] px-3 pt-2 pb-4"
             data-testid="attack-path-flow-map-slot"
           >
-            <CyntroAttackMap
+            <ConvergenceMapLoader
               systemName={systemName}
-              path={path}
-              report={report}
-              architecture={architecture ?? null}
+              cjArn={
+                jewel?.canonical_id ??
+                (jewel?.id.startsWith("arn:") ? jewel.id : null) ??
+                null
+              }
+              cjName={jewel?.name ?? jewel?.id ?? null}
+              initialSelectedPathId={path.attack_path_id ?? path.id ?? null}
             />
           </div>
         </div>
