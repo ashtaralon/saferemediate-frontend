@@ -85,9 +85,20 @@ const isCompute = (c: CMCard) => c.cat === "compute"
  * bucketed by AWS layer. Nothing on the path is dropped — internet, IGW, the
  * subnet's NACL, both IAM policies, etc. all get a place.
  */
+/** Map a reachable-neighbor AWS type to a card category for coloring. */
+function lateralCat(type: string): CMCard["cat"] {
+  const t = (type || "").toLowerCase()
+  if (/s3|bucket|dynamo|rds|efs|table/.test(t)) return "storage"
+  if (/kms|key|secret|role|policy|iam|principal|user/.test(t)) return "security"
+  if (/vpc|subnet|sg|securitygroup|nacl|igw|gateway|network/.test(t)) return "network"
+  if (/ec2|instance|lambda|ecs|eks|compute/.test(t)) return "compute"
+  return "user"
+}
+
 export function buildLinearModel(
   model: ContainmentModel,
   _viewMode: ContainmentViewMode,
+  path?: IdentityAttackPath,
 ): ContainmentModel {
   const cards = model.cards
   const find = (pred: (c: CMCard) => boolean) => cards.find(pred)
@@ -184,8 +195,10 @@ export function buildLinearModel(
 
   // Column 4 — IAM role (+ its policies stacked beneath)
   const identityCards = [role, ...policies].filter(Boolean) as CMCard[]
+  const identityX = x
+  let identitySpan: { top: number; bottom: number } | null = null
   if (identityCards.length > 0) {
-    stackColumn(identityCards, x, out)
+    identitySpan = stackColumn(identityCards, x, out)
     x += CARD_W + GAP_X
   }
 
@@ -203,6 +216,55 @@ export function buildLinearModel(
     x += CARD_W + GAP_X
   }
 
+  // ── Lateral reach — where each role on the path can ALSO pivot. Real data
+  //    from path.reachable_neighbors (the same signal the Lateral Movement tab
+  //    renders), drawn here as dashed branch nodes hanging below the role so the
+  //    map shows blast radius, not just the single spine. Capped to keep it
+  //    legible; the jewel itself is excluded (it's already on the spine). ──
+  const MAX_LATERAL = 5
+  const lateralEdges: (CMEdge | null)[] = []
+  const groups = path?.reachable_neighbors ?? []
+  if (role && identitySpan && groups.length > 0) {
+    const grp =
+      groups.find(
+        (g) => g.role_id === role.id || g.role_name === role.title || g.role_id === role.title,
+      ) ?? (groups.length === 1 ? groups[0] : undefined)
+    if (grp) {
+      const jewelId = jewel?.id
+      const shown = grp.neighbors.filter((n) => `lat-${n.id}` !== jewelId && n.id !== jewelId).slice(0, MAX_LATERAL)
+      let ly = identitySpan.bottom + 30
+      for (const nb of shown) {
+        const card: CMCard = {
+          id: `lat-${nb.id}`,
+          x: identityX,
+          y: ly,
+          w: CARD_W,
+          h: 50,
+          cat: lateralCat(nb.type),
+          icon: "",
+          title: nb.name,
+          sub: nb.type,
+          badge: nb.is_internet_exposed ? "INTERNET" : undefined,
+          onPath: false,
+          layer: "ctx",
+        }
+        out.push(card)
+        lateralEdges.push({
+          id: `lat-edge-${role.id}__${nb.id}`,
+          d: "",
+          style: "priv",
+          color: "#9AA6B5",
+          label: "can also reach",
+          layer: "ctx",
+          sourceId: role.id,
+          targetId: card.id,
+          observed: nb.edge_types.some((t) => /ACTUAL|ACCESS|OBSERVED/i.test(t)) || null,
+        })
+        ly += card.h + 12
+      }
+    }
+  }
+
   // ── synthesize the spine (mirrors the Neo4j hop chain) ──
   const profile = workCards.find(isProfile)
   const roleObserved =
@@ -218,6 +280,7 @@ export function buildLinearModel(
     spineEdge(role, jewel, { label: "accesses", observed: roleObserved }),
     ...kmsCards.map((k) => spineEdge(jewel, k, { label: "encrypted by", style: "enc" })),
     igw ? spineEdge(jewel, igw, { label: "exfiltrates via IGW", style: "priv" }) : null,
+    ...lateralEdges,
   ].filter(Boolean) as CMEdge[]
 
   const width = x + PAD
@@ -242,5 +305,5 @@ export async function layoutCloudGraphLinear(
   path: IdentityAttackPath,
   viewMode: ContainmentViewMode,
 ): Promise<CloudGraphFlowResult> {
-  return layoutContainmentNested(buildLinearModel(model, viewMode), path, viewMode)
+  return layoutContainmentNested(buildLinearModel(model, viewMode, path), path, viewMode)
 }
