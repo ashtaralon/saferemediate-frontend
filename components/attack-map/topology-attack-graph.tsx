@@ -291,6 +291,23 @@ function shortLabel(s: string, max = 22): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
+/** Distinct edge color per path index — picked to be readable on the dark
+ *  topology canvas (saturated, well-spaced on the hue wheel). Wraps with
+ *  modulo so we never run out of colors. */
+const PATH_COLORS = [
+  "#00C2A8", // teal
+  "#E2A93B", // amber
+  "#FF8C61", // coral
+  "#C792EA", // purple
+  "#4C8DFF", // blue
+  "#7DD181", // green
+  "#FF6BAA", // pink
+  "#FFCB6B", // yellow
+] as const
+function pathColor(idx: number): string {
+  return PATH_COLORS[idx % PATH_COLORS.length]
+}
+
 // ─── ranked path utilities ──────────────────────────────────────────────────
 function pathScore(p: ConvergencePath): number {
   if (typeof p.score === "number" && p.score > 0) return p.score
@@ -698,9 +715,40 @@ function TopologyCanvas({
       })
     })
 
-    // ── Identity hops — inside their VPC's identity band ──
+    // ── Identity hops — placed adjacent to the workload they secure ──
+    // For each identity hop, walk paths to find its associated workload
+    // (EC2/Lambda/RDS — the closest preceding workload hop in the same
+    // path). Position the identity chip below that workload chip so the
+    // role/profile reads as "owned by this workload" without ambiguity.
+    // Falls back to the VPC's identity band when no workload is found
+    // (orphan roles, paths starting from an identity).
+    const identityToWorkload = new Map<string, string>()
+    const workloadTypes = new Set(["ec2instance", "lambdafunction", "rdsinstance"])
+    for (const p of data.paths) {
+      let lastWorkload: string | null = null
+      for (const h of p.hops) {
+        const t = (h.node_type || "").toLowerCase()
+        if (workloadTypes.has(t)) {
+          lastWorkload = h.node_id
+          continue
+        }
+        const plane = (h.plane || "").toLowerCase()
+        if (plane === "identity" && lastWorkload && !identityToWorkload.has(h.node_id)) {
+          identityToWorkload.set(h.node_id, lastWorkload)
+        }
+      }
+    }
     const identityByVpc = new Map<string, ConvergenceHop[]>()
+    const identityStackByWorkload = new Map<string, number>()
     for (const h of byBucket.identity) {
+      const workloadId = identityToWorkload.get(h.node_id)
+      const workloadPos = workloadId ? pos[workloadId] : null
+      if (workloadPos) {
+        const stack = identityStackByWorkload.get(workloadId!) ?? 0
+        pos[h.node_id] = { x: workloadPos.x, y: workloadPos.y + 50 + stack * 36 }
+        identityStackByWorkload.set(workloadId!, stack + 1)
+        continue
+      }
       const v = hopToVpc.get(h.node_id) ?? vpcLayouts[0]?.info.vpc.id ?? "_"
       if (!identityByVpc.has(v)) identityByVpc.set(v, [])
       identityByVpc.get(v)!.push(h)
@@ -708,7 +756,6 @@ function TopologyCanvas({
     identityByVpc.forEach((chips, vpcId) => {
       const band = vpcIdentityBand.get(vpcId)
       if (!band) {
-        // No VPC found — fall back to canvas bottom
         chips.forEach((h, i) => {
           pos[h.node_id] = { x: 80 + (i % 6) * 75, y: 730 - Math.floor(i / 6) * 28 }
         })
@@ -920,13 +967,16 @@ function TopologyCanvas({
         )
       })}
 
-      {/* edges */}
+      {/* edges — each path gets its own color so the operator can trace
+         which workload uses which IGW vs VPCE. Selected path gets full
+         opacity + thicker stroke; unselected paths dim. Configured-only
+         edges (no observed traffic) stay dashed regardless of color. */}
       {data.paths.map((p, i) => {
         const dim = selectedPathIdx != null && selectedPathIdx !== i
         const obs = p.confidence === "observed"
-        const color = obs ? T.observed : T.configured
-        const op = dim ? 0.1 : obs ? 1 : 0.8
-        const sw = selectedPathIdx === i ? 3.5 : obs ? 2.6 : 1.7
+        const color = pathColor(i)
+        const op = dim ? 0.08 : obs ? 0.95 : 0.65
+        const sw = selectedPathIdx === i ? 3.5 : obs ? 2.4 : 1.6
         return p.hops.slice(0, -1).map((h, j) => {
           const a = positions[h.node_id]
           const b = positions[p.hops[j + 1].node_id]
@@ -942,11 +992,10 @@ function TopologyCanvas({
                 strokeWidth={sw}
                 strokeOpacity={op}
                 strokeDasharray={obs ? undefined : "5 5"}
-                markerEnd={obs ? "url(#aObs)" : "url(#aCfg)"}
               />
               {obs && op > 0.5 && (
-                <circle r={3} fill={T.observed} filter="url(#tag-glow)">
-                  <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
+                <circle r={2.5} fill={color} filter="url(#tag-glow)">
+                  <animateMotion dur="2.4s" repeatCount="indefinite" path={d} />
                 </circle>
               )}
             </g>
@@ -1213,15 +1262,24 @@ function PathRail({
         const sev = severityFromScore(dmg)
         const sevColor = sev === "critical" ? T.sevCritical : sev === "high" ? T.sevHigh : T.sevMedium
         const active = selectedIdx === originalIndex
+        // Path color matches the canvas edge color so the operator can
+        // visually trace which workload uses which IGW/VPCE.
+        const edgeColor = pathColor(originalIndex)
         return (
           <button
             key={p.path_id}
             type="button"
             onClick={() => onSelect(active ? null : originalIndex)}
+            onMouseEnter={() => {
+              if (selectedIdx == null) onSelect(originalIndex)
+            }}
+            onMouseLeave={() => {
+              if (selectedIdx === originalIndex) onSelect(null)
+            }}
             className="block w-full cursor-pointer text-left transition-colors"
             style={{
               background: active ? T.surface2 : "transparent",
-              borderLeft: `4px solid ${obs ? T.observed : T.configured}`,
+              borderLeft: `4px solid ${edgeColor}`,
               borderBottom: `1px solid ${T.border}`,
               padding: "10px 14px",
               color: T.text,
