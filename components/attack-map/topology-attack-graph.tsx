@@ -88,27 +88,202 @@ function hopBucket(h: ConvergenceHop, hopToSubnet: Map<string, string>): HopBuck
   return "other"
 }
 
-function hopIcon(h: ConvergenceHop): string {
+/** Discrete kind tag for SVG icon glyph rendering. Drives <IconGlyph>. */
+type IconKind =
+  | "s3"
+  | "kms"
+  | "dynamodb"
+  | "rds"
+  | "secret"
+  | "lambda"
+  | "ec2"
+  | "iamrole"
+  | "profile"
+  | "igw"
+  | "nat"
+  | "vpce"
+  | "routetable"
+  | "nacl"
+  | "sg"
+  | "internet"
+  | "subnet"
+  | "generic"
+
+function hopIconKind(h: ConvergenceHop): IconKind {
   const t = (h.node_type || "").toLowerCase()
   if (h.is_crown_jewel) {
-    if (/s3/.test(t)) return "🪣"
-    if (/kms/.test(t)) return "🗝"
-    if (/dynamodb/.test(t)) return "⬡"
-    if (/rds|database/.test(t)) return "🗄"
-    if (/secret/.test(t)) return "🔐"
-    return "◆"
+    if (/s3/.test(t)) return "s3"
+    if (/kms/.test(t)) return "kms"
+    if (/dynamodb/.test(t)) return "dynamodb"
+    if (/rds|database|aurora/.test(t)) return "rds"
+    if (/secret/.test(t)) return "secret"
+    return "generic"
   }
-  if (/lambda/.test(t)) return "λ"
-  if (/role/.test(t)) return "🔑"
-  if (/profile/.test(t)) return "🪪"
-  if (/igw|internetgateway/.test(t)) return "🌐"
-  if (/nat/.test(t)) return "🔀"
-  if (/vpce|vpcendpoint/.test(t)) return "🔌"
-  if (/routetable/.test(t)) return "🧭"
-  if (/nacl/.test(t)) return "⛔"
-  if (/sg|securitygroup/.test(t)) return "🛡"
-  if (/rds|database/.test(t)) return "🗄"
-  return "🖥"
+  if (/lambda/.test(t)) return "lambda"
+  if (/role/.test(t)) return "iamrole"
+  if (/profile/.test(t)) return "profile"
+  if (/igw|internetgateway/.test(t)) return "igw"
+  if (/nat/.test(t)) return "nat"
+  if (/vpce|vpcendpoint/.test(t)) return "vpce"
+  if (/routetable/.test(t)) return "routetable"
+  if (/nacl/.test(t)) return "nacl"
+  if (/sg|securitygroup/.test(t)) return "sg"
+  if (/rds|database/.test(t)) return "rds"
+  if (/internet/.test(t)) return "internet"
+  if (/subnet/.test(t)) return "subnet"
+  return "ec2"
+}
+
+/** Inline SVG icon glyph — drawn into the topology canvas at (x, y), 14×14
+ *  centered. Stroke uses `color`. Designed for legibility at 1× zoom; the
+ *  shapes are deliberately abstract so they survive aggressive font scaling.
+ *  Replaces the emoji glyphs (🪣 🔌 🌐 🔑 etc.) the canvas was using. */
+function IconGlyph({ x, y, kind, color }: { x: number; y: number; kind: IconKind; color: string }) {
+  // All shapes live in a 14×14 box centered at (0,0). Translate to (x, y).
+  const stroke = { stroke: color, strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" }
+  let body: React.ReactNode = null
+  switch (kind) {
+    case "s3":
+    case "rds":
+      // Cylinder for object stores / databases.
+      body = (
+        <>
+          <ellipse cx={0} cy={-4.5} rx={5.5} ry={1.8} {...stroke} />
+          <path d="M -5.5 -4.5 L -5.5 4.5 C -5.5 6.3 -2.8 6.5 0 6.5 C 2.8 6.5 5.5 6.3 5.5 4.5 L 5.5 -4.5" {...stroke} />
+          <path d="M -5.5 -0.5 C -5.5 1.3 -2.8 1.5 0 1.5 C 2.8 1.5 5.5 1.3 5.5 -0.5" {...stroke} strokeOpacity={0.55} />
+        </>
+      )
+      break
+    case "kms":
+    case "secret":
+      // Key — circle bow + shaft + teeth.
+      body = (
+        <>
+          <circle cx={-3} cy={-1} r={3.2} {...stroke} />
+          <path d="M -0.2 0.8 L 6 0.8 M 4.2 0.8 L 4.2 3.2 M 6 0.8 L 6 3" {...stroke} />
+        </>
+      )
+      break
+    case "iamrole":
+      // Person silhouette (identity / role).
+      body = (
+        <>
+          <circle cx={0} cy={-3.2} r={2.4} {...stroke} />
+          <path d="M -4.5 6 C -4.5 1.8 -2 0.5 0 0.5 C 2 0.5 4.5 1.8 4.5 6" {...stroke} />
+        </>
+      )
+      break
+    case "profile":
+      // ID badge — rounded rect + bar.
+      body = (
+        <>
+          <rect x={-5.5} y={-4.5} width={11} height={9} rx={1.5} {...stroke} />
+          <path d="M -3 -1.5 L 3 -1.5 M -3 1 L 1 1" {...stroke} />
+        </>
+      )
+      break
+    case "ec2":
+      // Server stack — 2 horizontal rectangles with a status dot.
+      body = (
+        <>
+          <rect x={-5.5} y={-4.5} width={11} height={4} rx={1} {...stroke} />
+          <rect x={-5.5} y={0.5} width={11} height={4} rx={1} {...stroke} />
+          <circle cx={-3} cy={-2.5} r={0.6} fill={color} />
+          <circle cx={-3} cy={2.5} r={0.6} fill={color} />
+        </>
+      )
+      break
+    case "lambda":
+      // Lightning bolt.
+      body = (
+        <path d="M -1 -6 L -4 1 L 0 1 L -2 6 L 5 -1 L 0 -1 L 2 -6 Z" stroke={color} strokeWidth={1.2} strokeLinejoin="round" fill={color} fillOpacity={0.25} />
+      )
+      break
+    case "igw":
+      // Globe — circle with equator + meridian.
+      body = (
+        <>
+          <circle cx={0} cy={0} r={5.5} {...stroke} />
+          <ellipse cx={0} cy={0} rx={2.4} ry={5.5} {...stroke} strokeOpacity={0.7} />
+          <path d="M -5.3 0 L 5.3 0" {...stroke} strokeOpacity={0.7} />
+        </>
+      )
+      break
+    case "nat":
+      // Bidirectional arrow exchange.
+      body = (
+        <>
+          <path d="M -5 -2 L 5 -2 L 3 -4 M 5 -2 L 3 0" {...stroke} />
+          <path d="M 5 3 L -5 3 L -3 1 M -5 3 L -3 5" {...stroke} />
+        </>
+      )
+      break
+    case "vpce":
+      // Plug — rectangle body + 2 prongs.
+      body = (
+        <>
+          <rect x={-3} y={-5.5} width={6} height={7} rx={1.2} {...stroke} />
+          <path d="M -1 -5.5 L -1 -7.5 M 1 -5.5 L 1 -7.5" {...stroke} />
+          <path d="M 0 1.5 L 0 6" {...stroke} />
+        </>
+      )
+      break
+    case "routetable":
+      // Branching arrows.
+      body = (
+        <>
+          <path d="M -5 0 L 5 0" {...stroke} />
+          <path d="M 0 0 L 0 -4 L 4 -4" {...stroke} />
+          <path d="M 0 0 L 0 4 L 4 4" {...stroke} />
+          <path d="M 2 -6 L 4 -4 L 2 -2" {...stroke} />
+          <path d="M 2 6 L 4 4 L 2 2" {...stroke} />
+        </>
+      )
+      break
+    case "nacl":
+      // Shield with bar (blocks).
+      body = (
+        <>
+          <path d="M 0 -6 L 5.5 -3 L 5.5 1.5 C 5.5 4 3 6 0 6.5 C -3 6 -5.5 4 -5.5 1.5 L -5.5 -3 Z" {...stroke} />
+          <path d="M -2 0 L 2 0" {...stroke} strokeWidth={1.6} />
+        </>
+      )
+      break
+    case "sg":
+      // Shield with checkmark.
+      body = (
+        <>
+          <path d="M 0 -6 L 5.5 -3 L 5.5 1.5 C 5.5 4 3 6 0 6.5 C -3 6 -5.5 4 -5.5 1.5 L -5.5 -3 Z" {...stroke} />
+          <path d="M -2.4 0.2 L -0.5 2 L 2.8 -1.2" {...stroke} />
+        </>
+      )
+      break
+    case "dynamodb":
+      // Hexagon (NoSQL "table" cell).
+      body = (
+        <path d="M 0 -6 L 5 -3 L 5 3 L 0 6 L -5 3 L -5 -3 Z" {...stroke} />
+      )
+      break
+    case "internet":
+      // Cloud silhouette.
+      body = (
+        <path d="M -4 2.5 C -6 2.5 -6 -1 -3.5 -1.2 C -3 -3.8 1 -4 2 -1.5 C 4.5 -1.8 5.5 1.8 3.5 2.5 Z" {...stroke} />
+      )
+      break
+    case "subnet":
+      // Dotted square (subnet container).
+      body = (
+        <rect x={-5} y={-5} width={10} height={10} rx={1} strokeDasharray="2 2" {...stroke} />
+      )
+      break
+    case "generic":
+    default:
+      // Diamond fallback.
+      body = (
+        <path d="M 0 -6 L 6 0 L 0 6 L -6 0 Z" {...stroke} />
+      )
+  }
+  return <g transform={`translate(${x}, ${y})`}>{body}</g>
 }
 
 function shortLabel(s: string, max = 22): string {
@@ -736,7 +911,7 @@ function TopologyCanvas({
             key={nodeId}
             x={p.x}
             y={p.y}
-            icon={hopIcon(hop)}
+            iconKind={hopIconKind(hop)}
             label={label}
             ring={ring}
             bright={true}
@@ -861,27 +1036,79 @@ function OffVpcLabel({ cx, y }: { cx: number; y: number }) {
   )
 }
 
-function NodeChip({ x, y, icon, label, ring, bright, crown, sg }: { x: number; y: number; icon: string; label: string; ring: string; bright: boolean; crown?: boolean; sg?: string }) {
+function NodeChip({
+  x,
+  y,
+  iconKind,
+  label,
+  ring,
+  bright,
+  crown,
+  sg,
+}: {
+  x: number
+  y: number
+  iconKind: IconKind
+  label: string
+  ring: string
+  bright: boolean
+  crown?: boolean
+  sg?: string
+}) {
   const op = bright ? 1 : 0.35
   return (
     <g opacity={op}>
       {sg ? (
         <>
-          <rect x={x - 30} y={y - 22} width={64} height={50} rx={6} fill="none" stroke={T.sevHigh} strokeWidth={1} strokeOpacity={0.55} strokeDasharray="3 3" />
-          <text x={x} y={y - 26} textAnchor="middle" fontSize={7.5} fontWeight={700} fill={T.sevHigh} fillOpacity={0.9}>
+          <rect
+            x={x - 32}
+            y={y - 24}
+            width={68}
+            height={52}
+            rx={6}
+            fill="none"
+            stroke={T.sevHigh}
+            strokeWidth={1}
+            strokeOpacity={0.55}
+            strokeDasharray="3 3"
+          />
+          <text
+            x={x}
+            y={y - 28}
+            textAnchor="middle"
+            fontSize={8.5}
+            fontWeight={700}
+            fill={T.sevHigh}
+            fillOpacity={0.9}
+          >
             {shortLabel(sg, 14)}
           </text>
         </>
       ) : null}
-      <ellipse cx={x} cy={y + 13} rx={15} ry={4} fill="#000" fillOpacity={0.25} />
+      <ellipse cx={x} cy={y + 14} rx={16} ry={4} fill="#000" fillOpacity={0.25} />
       {crown ? (
-        <circle cx={x} cy={y} r={34} fill="rgba(229,72,77,0.08)" stroke={T.sevCritical} strokeWidth={1} strokeDasharray="3 4" />
+        <circle
+          cx={x}
+          cy={y}
+          r={36}
+          fill="rgba(229,72,77,0.08)"
+          stroke={T.sevCritical}
+          strokeWidth={1}
+          strokeDasharray="3 4"
+        />
       ) : null}
-      <circle cx={x} cy={y} r={13} fill={T.surface2} stroke={ring} strokeWidth={1.6} />
-      <text x={x} y={y + 5} textAnchor="middle" fontSize={12}>
-        {icon}
-      </text>
-      <text x={x} y={y + 24} textAnchor="middle" fontSize={7.8} fill={T.textMuted} fontFamily="ui-monospace, monospace">
+      <circle cx={x} cy={y} r={14} fill={T.surface2} stroke={ring} strokeWidth={1.6} />
+      <IconGlyph x={x} y={y} kind={iconKind} color={ring} />
+      <text
+        x={x}
+        y={y + 26}
+        textAnchor="middle"
+        fontSize={8.8}
+        fontWeight={500}
+        fill={T.text}
+        fillOpacity={0.9}
+        fontFamily="ui-monospace, monospace"
+      >
         {label}
       </text>
     </g>
