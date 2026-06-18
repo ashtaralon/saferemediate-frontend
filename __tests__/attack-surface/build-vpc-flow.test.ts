@@ -108,7 +108,7 @@ describe("buildVpcFlowGraph", () => {
     const compute = graph!.nodes.find((n) => n.id === "i-0aa725")
     const sg = graph!.nodes.find((n) => n.id === "sg-02a2ccfe185765527")
 
-    expect(vpc?.type).toBe("awsGroup")
+    expect(vpc?.type).toBe("group")
     expect(vpc?.style?.width).toBe(1100)
     expect(subnet?.parentId).toBe(VPC_CONTAINER_ID)
     expect(subnet?.data).toMatchObject({

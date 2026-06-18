@@ -65,7 +65,7 @@ export function CyntroAttackMap({
       <div data-testid="cyntro-attack-map" className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3 px-1">
           <p className="text-[11px] text-muted-foreground">
-            Kill-chain swimlanes · entry → firewalls → transit → identity → crown jewels
+            VPC attack surface · nested subnet + SG shield · live Neo4j path
           </p>
           <MapViewToggle variant={variant} onChange={setVariant} />
         </div>

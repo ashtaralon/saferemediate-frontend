@@ -80,16 +80,16 @@ export function buildVpcFlowGraph(
     })
   }
 
-  // VPC boundary group
+  // VPC boundary group (React Flow native group + label overlay)
   nodes.push({
     id: VPC_CONTAINER_ID,
-    type: "awsGroup",
+    type: "group",
     position: { x: 50, y: 150 },
-    data: { label: model.vpcLabel ? `${model.vpcLabel}` : "VPC BOUNDARY" },
+    data: { label: model.vpcLabel ? `${model.vpcLabel}` : "VPC BOUNDARY", variant: "vpc" },
     style: {
       width: 1100,
       height: 650,
-      backgroundColor: "transparent",
+      backgroundColor: "rgba(46, 125, 50, 0.04)",
       border: "2px solid #2E7D32",
       borderRadius: 4,
       zIndex: 0,
@@ -105,7 +105,7 @@ export function buildVpcFlowGraph(
   nodes.push({
     id: APP_SUBNET_ID,
     parentId: VPC_CONTAINER_ID,
-    type: "awsGroup",
+    type: "group",
     extent: "parent",
     position: { x: 50, y: 120 },
     data: { label: subnetLabel, variant: "subnet" },
@@ -183,7 +183,7 @@ export function buildVpcFlowGraph(
   nodes.push({
     id: DATA_SUBNET_ID,
     parentId: VPC_CONTAINER_ID,
-    type: "awsGroup",
+    type: "group",
     extent: "parent",
     position: { x: 50, y: 490 },
     data: { label: model.dataSubnetLabel, variant: "subnet" },

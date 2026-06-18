@@ -407,7 +407,7 @@ export function PathAnalysisPanel({
               Attack map
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Toggle <span className="font-mono">AWS</span> · <span className="font-mono">Classic</span> · <span className="font-mono">Grid</span> on the right — Grid shows lateral blast surface
+              Toggle <span className="font-mono">Surface</span> (VPC attack board) · <span className="font-mono">Classic</span> · <span className="font-mono">Grid</span> — legacy Cloud Graph: add <span className="font-mono">?map=legacy</span>
             </p>
           </div>
           <div

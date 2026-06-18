@@ -25,8 +25,10 @@ export function placeAzNetworkControls(opts: {
   anchors: Record<string, Anchor>
   onPathNodeIds: Set<string>
   mode: ContainmentViewMode
+  /** SGs folded onto their compute card — don't also emit them as control chips. */
+  skipSgIds?: Set<string>
 }): void {
-  const { architecture, azName, ax, azY, azW, cardH, cards, anchors, onPathNodeIds, mode } = opts
+  const { architecture, azName, ax, azY, azW, cardH, cards, anchors, onPathNodeIds, mode, skipSgIds } = opts
   const azKey = norm(azName)
   const chipH = Math.min(44, cardH)
 
@@ -60,9 +62,10 @@ export function placeAzNetworkControls(opts: {
 
   const azSgs = architecture.securityGroups.filter(
     (s) =>
-      mode === "full" ||
-      onPathNodeIds.has(s.id) ||
-      s.onPath !== false,
+      !skipSgIds?.has(s.id) &&
+      (mode === "full" ||
+        onPathNodeIds.has(s.id) ||
+        s.onPath !== false),
   )
   const sgList = azSgs.length > 0 ? azSgs : architecture.securityGroups.slice(0, 1)
   sgList.forEach((sg, i) => {

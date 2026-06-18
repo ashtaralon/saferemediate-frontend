@@ -795,6 +795,13 @@ export function buildContainmentFromArchitecture(
   const vpcY = regionY + (hasInternetEntry && igw ? igwH + 10 : 24)
   const azY = vpcY + 40
 
+  // The SG that secures the foothold is folded ONTO the compute card (shown
+  // with the service it protects) rather than exiled to the control band, so
+  // skip it when placing standalone SG chips.
+  const foldSg = architecture.securityGroups[0]
+  const foldSgId = foldSg?.id
+  const skipSgIds = foldSgId ? new Set([foldSgId]) : undefined
+
   let maxAzBottom = azY
   azNames.forEach((azName, ai) => {
     const ax = vpcX + AZ_GAP + ai * (laneW + AZ_GAP)
@@ -811,6 +818,7 @@ export function buildContainmentFromArchitecture(
       anchors,
       onPathNodeIds: onPathNodes,
       mode,
+      skipSgIds,
     })
 
     let sy = azY + AZ_HEADER
@@ -835,16 +843,17 @@ export function buildContainmentFromArchitecture(
       const bodyH =
         visible.length > 0
           ? visible.reduce((sum, c) => {
-              const draft: Pick<CMCard, "cat" | "badge" | "onPath" | "title"> = {
+              const draftIsFoothold = c.id === footholdCompute!.id || norm(c.name) === srcLabel
+              const draft: Pick<CMCard, "cat" | "badge" | "onPath" | "title" | "sgName"> = {
                 cat: workloadCategory(c.type),
                 onPath: computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel),
                 title: c.name,
-                badge:
-                  c.id === footholdCompute!.id || norm(c.name) === srcLabel
-                    ? "FOOTHOLD"
-                    : isLambdaType(c.type)
-                      ? "LAMBDA"
-                      : undefined,
+                badge: draftIsFoothold
+                  ? "FOOTHOLD"
+                  : isLambdaType(c.type)
+                    ? "LAMBDA"
+                    : undefined,
+                sgName: draftIsFoothold && foldSg ? (foldSg.shortName ?? foldSg.name) : undefined,
               }
               return sum + cmCardRenderHeight(draft) + CARD_GAP
             }, CARD_GAP)
@@ -893,11 +902,16 @@ export function buildContainmentFromArchitecture(
         const onPath = computeOnPath(c, onPathNodes, path.nodes, mode, srcLabel)
         const isFoothold = c.id === footholdCompute!.id || norm(c.name) === srcLabel
         const layer: Layer = onPath ? "path" : "ctx"
-        const cardDraft: Pick<CMCard, "cat" | "badge" | "onPath" | "title"> = {
+        const sgName = isFoothold && foldSg ? (foldSg.shortName ?? foldSg.name) : undefined
+        const sgPublic = sgName
+          ? Boolean(foldSg?.hasPublicIngress) || /public/i.test(foldSg?.name ?? "")
+          : undefined
+        const cardDraft: Pick<CMCard, "cat" | "badge" | "onPath" | "title" | "sgName"> = {
           cat: workloadCategory(c.type),
           onPath,
           title: c.name,
           badge: isFoothold ? "FOOTHOLD" : isLambdaType(c.type) ? "LAMBDA" : undefined,
+          sgName,
         }
         const ch = cmCardRenderHeight(cardDraft)
         cards.push({
@@ -913,6 +927,8 @@ export function buildContainmentFromArchitecture(
           badge: cardDraft.badge,
           onPath,
           layer,
+          sgName,
+          sgPublic,
         })
         anchors[c.id] = { x: cx, y: cardY, w: cw, h: ch, cx: cx + cw / 2, cy: cardY + ch / 2 }
         if (isFoothold) anchors.foothold = anchors[c.id]
@@ -1061,7 +1077,7 @@ export function buildContainmentFromArchitecture(
     }
   }
 
-  let rxPos = identityX + identityStack.width + 28
+  let rxPos = identityX + identityStack.width + 14
   let regionalMaxH = Math.max(identityStack.bottom - regionalCardsY, 0)
   if (jewel) {
     const jw = mode === "path" ? 200 : 240

@@ -103,7 +103,9 @@ export function AttackSurfaceMap({
       <AwsVpcFlowCanvas
         architecture={architecture}
         path={path}
-        height={expanded ? "min(78vh, 820px)" : canvasHeight}
+        report={report}
+        systemName={systemName}
+        height={expanded ? 720 : canvasHeight}
       />
     </div>
   )

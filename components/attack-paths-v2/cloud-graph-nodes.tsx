@@ -2,7 +2,7 @@
 
 import { memo, useCallback } from "react"
 import { Handle, Position, type NodeProps } from "reactflow"
-import { Server, Globe, Database, KeyRound, User, ArrowRight, Crown, type LucideIcon } from "lucide-react"
+import { Server, Globe, Database, KeyRound, User, ArrowRight, Crown, ShieldAlert, type LucideIcon } from "lucide-react"
 import { CG, typeColorForCategory } from "./cloud-graph-tokens"
 import { classifyNodeSemantic, SEMANTIC_TOKENS } from "./cloud-graph-semantic"
 
@@ -46,6 +46,9 @@ export interface ResourceNodeData {
   focused?: boolean
   step?: number
   copyValue?: string
+  /** Folded SG shown inline on the compute card it secures. */
+  sgName?: string
+  sgPublic?: boolean
 }
 
 export interface LaneNodeData {
@@ -221,6 +224,20 @@ export const ResourceNode = memo(function ResourceNode({ data }: NodeProps<Resou
           {data.sub ? (
             <div className="text-[10.5px] mt-0.5 font-mono truncate" style={{ color: CG.faint }} title={data.sub}>
               {data.sub}
+            </div>
+          ) : null}
+          {data.sgName ? (
+            <div
+              className="mt-1 flex items-center gap-1 rounded px-1.5 py-[2px] text-[9.5px] font-medium"
+              style={{
+                background: data.sgPublic ? "#fbe3e5" : "#eef2f7",
+                color: data.sgPublic ? CG.attack : "#475569",
+              }}
+              title={`Security group: ${data.sgName}${data.sgPublic ? " · public ingress (0.0.0.0/0)" : ""}`}
+            >
+              <ShieldAlert size={10} strokeWidth={2} aria-hidden />
+              <span className="truncate font-mono">{data.sgName}</span>
+              {data.sgPublic ? <span className="ml-auto shrink-0 font-bold uppercase">public</span> : null}
             </div>
           ) : null}
         </div>

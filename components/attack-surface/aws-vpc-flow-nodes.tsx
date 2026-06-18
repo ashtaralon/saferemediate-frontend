@@ -248,6 +248,7 @@ export const AwsCrownJewelNode = memo(function AwsCrownJewelNode({
 })
 
 export const awsVpcFlowNodeTypes = {
+  group: AwsGroupNode,
   awsGroup: AwsGroupNode,
   awsComputeNode: AwsComputeNode,
   awsSecurityGroupOverlay: AwsSecurityGroupOverlay,

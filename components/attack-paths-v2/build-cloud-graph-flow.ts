@@ -203,6 +203,8 @@ function makeResourceNode(
       dimmed,
       step,
       copyValue: card.sub?.startsWith("i-") ? card.sub : card.title,
+      sgName: card.sgName,
+      sgPublic: card.sgPublic,
     },
     style: { width: card.w, height: card.h, zIndex: 5 },
     draggable: false,

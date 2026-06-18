@@ -88,15 +88,22 @@ export interface CMCard {
   badge?: string
   onPath: boolean
   layer: Layer
+  /** Folded security group rendered INSIDE this (compute) card — the SG that
+   *  secures the service, shown with it rather than banished to the control
+   *  band. Set on the foothold/compute card by build-containment. */
+  sgName?: string
+  sgPublic?: boolean
 }
 
 /** Pixel height of a resource card in React Flow — must match cloud-graph-nodes ResourceNode. */
-export function cmCardRenderHeight(card: Pick<CMCard, "cat" | "badge" | "onPath" | "title">): number {
+export function cmCardRenderHeight(card: Pick<CMCard, "cat" | "badge" | "onPath" | "title" | "sgName">): number {
+  // A folded SG adds one inline row inside the card.
+  const sgExtra = card.sgName ? 18 : 0
   if (card.cat === "user") return 36
-  if (card.badge === "FOOTHOLD" || card.badge === "CROWN JEWEL" || card.badge === "ENCRYPTS") return 76
+  if (card.badge === "FOOTHOLD" || card.badge === "CROWN JEWEL" || card.badge === "ENCRYPTS") return 76 + sgExtra
   if (card.cat === "security" && card.onPath) return 76
   if (card.cat === "network" && !/gateway|igw/i.test(card.title) && !card.onPath) return 44
-  return card.onPath ? 76 : 68
+  return (card.onPath ? 76 : 68) + sgExtra
 }
 export interface CMNote {
   id: string
