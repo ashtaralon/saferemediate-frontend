@@ -1024,11 +1024,15 @@ function ModeToggle({
       title:
         "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
     },
-    // Legacy dark-canvas engineering views (typed-DTO Attack Map, 9-lane
-    // Phases, AWS Topology). Retired from the default light surface (2026-06-14)
-    // — the light Attack Path card + map is the canonical per-path view now.
-    // Kept behind ?beta=1 (not deleted) so engineering can still reach the
-    // edge-proven canvases for debugging until they're ported to light.
+    // 2026-06-18: Topology is the new CISO-facing 3-pane Attack Graph on
+    // AWS Topology — promoted out of beta. Attacker Map + Phases stay
+    // behind ?beta=1 as the legacy engineering canvases.
+    {
+      key: "topology" as TabKey,
+      label: "Topology",
+      title:
+        "3-pane Attack Graph on AWS topology — crown jewels left, real VPC containment center, paths ranked by damage right. Every node from Neo4j.",
+    },
     ...(showBeta
       ? [
           {
@@ -1042,12 +1046,6 @@ function ModeToggle({
             label: "Phases (beta)",
             title:
               "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
-          },
-          {
-            key: "topology" as TabKey,
-            label: "Topology (beta)",
-            title:
-              "AWS reference-architecture containment — VPC > AZ > Subnet > workloads, with Security Groups as boundaries. Every node sourced from Neo4j.",
           },
         ]
       : []),
