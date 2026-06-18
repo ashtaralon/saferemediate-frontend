@@ -256,33 +256,56 @@ function TopologyCanvas({
   const positions = useMemo<Record<string, NodePos>>(() => {
     const pos: Record<string, NodePos> = {}
 
-    // Path-neighbor inference for subnet membership — when a hop has subnet_id
-    // null but an adjacent hop in the same path is a :Subnet node, the path's
-    // own edge sequence (a real Neo4j traversal) tells us which subnet the
-    // hop belongs to. This is data, not heuristic.
+    // Path-scoped subnet resolution.
+    //
+    // Each path is a single Neo4j MATCH chain that traverses one network
+    // path. Every network-plane hop in that chain transits the same subnet
+    // (there is one Subnet hop per path). So for each path P: find P's
+    // Subnet hop, then assign every network-plane hop in P to that subnet.
+    // The hop's explicit subnet_id (when present) wins over the path scope.
+    //
+    // This is a real Neo4j-encoded fact — the path is a graph traversal,
+    // not an inference.
     const hopToSubnet = new Map<string, string>()
     const knownSubnetIds = new Set(
       containment.primaryVpc?.azs.flatMap((a) => a.subnets.map((s) => s.id)) ?? [],
     )
     for (const p of data.paths) {
-      for (let i = 0; i < p.hops.length; i++) {
-        const h = p.hops[i]
+      // Find this path's Subnet hop (whose id is in the topology snapshot).
+      const subnetHop = p.hops.find(
+        (h) =>
+          (h.node_type || "").toLowerCase() === "subnet" &&
+          knownSubnetIds.has(h.node_id),
+      )
+      const pathScopeSubnet = subnetHop?.node_id ?? null
+      for (const h of p.hops) {
+        const existing = hopToSubnet.get(h.node_id)
+        if (existing) continue // first assignment wins (stable across paths)
+        const planeIsNetwork = (h.plane || "").toLowerCase() === "network"
+        const t = (h.node_type || "").toLowerCase()
+        // Explicit subnet_id on the hop is the strongest signal.
         if (h.subnet_id && knownSubnetIds.has(h.subnet_id)) {
           hopToSubnet.set(h.node_id, h.subnet_id)
           continue
         }
-        if ((h.node_type || "").toLowerCase() === "subnet" && knownSubnetIds.has(h.node_id)) {
+        // A Subnet hop maps to itself.
+        if (t === "subnet" && knownSubnetIds.has(h.node_id)) {
           hopToSubnet.set(h.node_id, h.node_id)
           continue
         }
-        // Look at the immediately adjacent hops for a Subnet node we know.
-        for (const j of [i - 1, i + 1]) {
-          if (j < 0 || j >= p.hops.length) continue
-          const n = p.hops[j]
-          if ((n.node_type || "").toLowerCase() === "subnet" && knownSubnetIds.has(n.node_id)) {
-            hopToSubnet.set(h.node_id, n.node_id)
-            break
-          }
+        // Other network-plane hops in this path inherit the path's subnet.
+        // IGW / VPCE / Internet are deliberately excluded — they're egress
+        // mechanisms at the VPC boundary, not subnet-bound.
+        if (
+          planeIsNetwork &&
+          pathScopeSubnet &&
+          t !== "internetgateway" &&
+          t !== "igw" &&
+          t !== "vpcendpoint" &&
+          t !== "vpce" &&
+          t !== "internet"
+        ) {
+          hopToSubnet.set(h.node_id, pathScopeSubnet)
         }
       }
     }
