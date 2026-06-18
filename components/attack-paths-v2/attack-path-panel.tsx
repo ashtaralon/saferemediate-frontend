@@ -321,6 +321,7 @@ export function AttackPathPanel({
       architecture={architecture}
       canvasV2={canvasV2}
       attackMapCyntro={attackMapCyntro}
+      siblingPaths={siblingPathsFromPage ?? []}
     />
   )
 }

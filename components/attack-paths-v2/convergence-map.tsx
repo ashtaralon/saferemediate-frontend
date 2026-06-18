@@ -9,10 +9,12 @@ export function ConvergenceMap({
   data,
   selectedPathId,
   onSelectPath,
+  source = "live",
 }: {
   data: CrownJewelConvergence
   selectedPathId: string | null
   onSelectPath: (pathId: string | null) => void
+  source?: "live" | "fallback"
 }) {
   const topo = useMemo(
     () => convergenceToTargetTopology(data, selectedPathId),
@@ -27,6 +29,11 @@ export function ConvergenceMap({
         <span>{data.paths_total} paths</span>
         <span>{data.observed_paths} observed</span>
         {data.cj_type ? <span>{data.cj_type}</span> : null}
+        {source === "fallback" ? (
+          <span className="text-amber-600 dark:text-amber-400">
+            offline preview — convergence API unavailable
+          </span>
+        ) : null}
         {topChoke ? (
           <span>
             choke {topChoke[0].split("/").pop()} ×{topChoke[1]}

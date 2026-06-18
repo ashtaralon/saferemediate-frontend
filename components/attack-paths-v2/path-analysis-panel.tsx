@@ -56,6 +56,8 @@ interface PathAnalysisPanelProps {
   canvasV2?: boolean
   /** Cyntro attack map stack. Default true; ?map=legacy for old Cloud Graph. */
   attackMapCyntro?: boolean
+  /** Other paths to the same jewel — convergence fallback when API is down. */
+  siblingPaths?: IdentityAttackPath[]
 }
 
 // V2-1 helper: middle-truncate a jewel name for the caption strip.
@@ -200,6 +202,7 @@ export function PathAnalysisPanel({
   architecture,
   canvasV2 = false,
   attackMapCyntro = true,
+  siblingPaths = [],
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
@@ -425,6 +428,10 @@ export function PathAnalysisPanel({
               }
               cjName={jewel?.name ?? jewel?.id ?? null}
               initialSelectedPathId={path.attack_path_id ?? path.id ?? null}
+              fallbackJewel={jewel}
+              fallbackPaths={
+                siblingPaths.length > 0 ? siblingPaths : [path]
+              }
             />
           </div>
         </div>
