@@ -19,7 +19,7 @@ const AwsAttackMap3DScene = dynamic(
   },
 )
 
-const MAP_BUILD = "aws-3d-v1"
+const MAP_BUILD = "aws-3d-v2"
 
 type CameraPreset = "iso" | "network" | "identity" | "data"
 
@@ -115,7 +115,18 @@ export function AwsAttackMap3D({ payload, topology, density }: AwsAttackMap3DPro
       </div>
 
       <div className="grid gap-0 lg:grid-cols-[1fr_220px]">
-        <div className="h-[min(68vh,620px)] min-h-[520px] w-full">
+        <div className="relative h-[min(68vh,620px)] min-h-[520px] w-full">
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center gap-4 px-3">
+            <span className="rounded-full border border-sky-500/20 bg-sky-950/60 px-2 py-0.5 font-mono text-[8px] text-sky-300/80 backdrop-blur">
+              X · Network
+            </span>
+            <span className="rounded-full border border-violet-500/20 bg-violet-950/60 px-2 py-0.5 font-mono text-[8px] text-violet-300/80 backdrop-blur">
+              Y · Identity
+            </span>
+            <span className="rounded-full border border-emerald-500/20 bg-emerald-950/60 px-2 py-0.5 font-mono text-[8px] text-emerald-300/80 backdrop-blur">
+              Z · Data depth
+            </span>
+          </div>
           <AwsAttackMap3DScene
             scene={scene}
             selectedNodeId={selectedNodeId}

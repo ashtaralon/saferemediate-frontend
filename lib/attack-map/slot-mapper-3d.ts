@@ -1,10 +1,10 @@
 /**
- * 3-D slot mapper — extends deterministic 2-D positions into (x, y, z) world space.
+ * 3-D slot mapper — path-centric kill-chain layout with topology-aware offsets.
  *
  * Axes (map_detailed_plan.md §4.1):
- *   X — network plane (VPC → subnet → group), from slot-mapper x
- *   Y — identity plane (IAM strips above workloads)
- *   Z — data sensitivity depth (path progression + crown jewels)
+ *   X — network progression along the attack chain
+ *   Y — identity plane (roles / SG above workloads)
+ *   Z — data depth (deeper toward crown jewels)
  */
 
 import {
@@ -15,8 +15,13 @@ import {
   type MovementHop,
   type Position,
   type TopologySnapshot,
+  type Verdict,
 } from "./slot-mapper"
-import { shortNodeLabel, visualTypeFromNodeType, type VisualNodeType } from "./map-view-model"
+import {
+  shortNodeLabel,
+  visualTypeFromNodeType,
+  type VisualNodeType,
+} from "./map-view-model"
 
 export interface Node3D {
   id: string
@@ -26,10 +31,12 @@ export interface Node3D {
   label: string
   nodeType: string
   visualType: VisualNodeType
+  verdict: Verdict
   hopIndex: number
   onChain: boolean
   isCrownJewel: boolean
   riskScore: number
+  accentColor: string
   layer: Position["layer"]
 }
 
@@ -39,6 +46,7 @@ export interface Edge3D {
   target: string
   kind: "movement" | "constraint"
   onPath: boolean
+  verdict?: Verdict
 }
 
 export interface Scene3DBounds {
@@ -56,12 +64,13 @@ export interface AttackMapScene3D {
   bounds: Scene3DBounds
   pathNodeIds: string[]
   center: { x: number; y: number; z: number }
+  /** Recommended camera distance from scene center */
+  cameraDistance: number
 }
 
-const WORLD_SCALE = 0.028
-const IDENTITY_LIFT = 2.8
-const HOP_DEPTH = 1.35
-const JEWEL_DEPTH_BONUS = 2.2
+const HOP_SPACING_X = 4.4
+const HOP_SPACING_Z = 2.6
+const TOPOLOGY_NUDGE = 0.018
 
 const IDENTITY_TYPES = new Set([
   "IAMRole",
@@ -73,20 +82,50 @@ const IDENTITY_TYPES = new Set([
   "SecurityGroup",
 ])
 
-function dataDepth(hop: MovementHop, hopIndex: number): number {
-  let z = hopIndex * HOP_DEPTH
-  if (hop.is_crown_jewel) z += JEWEL_DEPTH_BONUS
-  if (hop.node_type === "KMSKey" || hop.node_type === "Secret") z += 1.5
-  if (hop.node_type === "S3Bucket" || hop.node_type.includes("RDS")) z += 1
-  if (hop.node_type === "Internet" || hop.node_type === "ExternalPrincipal") z = -1.2
-  return z
+export function nodeAccentColor(visualType: VisualNodeType, isCrownJewel: boolean): string {
+  if (isCrownJewel) return "#f59e0b"
+  switch (visualType) {
+    case "threat":
+      return "#fb7185"
+    case "alb":
+      return "#22d3ee"
+    case "nat":
+      return "#64748b"
+    case "compute":
+      return "#94a3b8"
+    case "database":
+      return "#fbbf24"
+    case "s3":
+      return "#a78bfa"
+    case "kms":
+      return "#34d399"
+    case "bastion":
+      return "#818cf8"
+    case "identity":
+      return "#60a5fa"
+    default:
+      return "#cbd5e1"
+  }
 }
 
-function identityElevation(pos: Position, nodeType: string): number {
-  if (pos.layer === "L4_identity" || pos.anchor_kind === "strip") return IDENTITY_LIFT
-  if (IDENTITY_TYPES.has(nodeType)) return IDENTITY_LIFT * 0.65
-  if (pos.layer === "L6_constraint") return 0.6
-  return 0
+function elevationForHop(hop: MovementHop, visualType: VisualNodeType): number {
+  if (IDENTITY_TYPES.has(hop.node_type) || visualType === "identity") return 3.4
+  if (visualType === "threat") return 0.15
+  if (visualType === "alb" || visualType === "nat") return 1.4
+  if (hop.is_crown_jewel) return 1.8
+  if (visualType === "s3" || visualType === "database" || visualType === "kms") return 1.2
+  return 0.55
+}
+
+function depthForHop(hop: MovementHop, hopIndex: number, chainLen: number): number {
+  const progress = chainLen <= 1 ? 0 : hopIndex / (chainLen - 1)
+  let z = hopIndex * HOP_SPACING_Z
+  if (hop.is_crown_jewel) z += 2.4
+  if (hop.node_type === "KMSKey" || hop.node_type === "Secret") z += 1.2
+  if (hop.node_type === "Internet" || hop.node_type === "ExternalPrincipal") z = -0.8
+  // Slight arc so the path reads as a staircase, not a flat line
+  z += Math.sin(progress * Math.PI) * 0.6
+  return z
 }
 
 function riskFromHop(hop: MovementHop, pathScore: number): number {
@@ -105,9 +144,24 @@ function riskFromHop(hop: MovementHop, pathScore: number): number {
   }
 }
 
+function topologyNudge(
+  hop: MovementHop,
+  hopIndex: number,
+  positions2d: Map<string, Position>,
+  centerX: number,
+): { dx: number; dz: number } {
+  const pos = positions2d.get(hop.node_id)
+  if (!pos) return { dx: 0, dz: 0 }
+  const dx = (pos.x - centerX) * TOPOLOGY_NUDGE
+  const dz = (pos.y - 300) * TOPOLOGY_NUDGE * 0.35
+  // Keep nudge small so path order stays readable
+  const damp = 1 - hopIndex * 0.04
+  return { dx: dx * damp, dz: dz * damp }
+}
+
 function computeBounds(nodes: Node3D[]): Scene3DBounds {
   if (nodes.length === 0) {
-    return { minX: -4, maxX: 4, minY: -1, maxY: 4, minZ: -2, maxZ: 8 }
+    return { minX: -6, maxX: 6, minY: -1, maxY: 5, minZ: -2, maxZ: 10 }
   }
   let minX = Infinity
   let maxX = -Infinity
@@ -123,7 +177,7 @@ function computeBounds(nodes: Node3D[]): Scene3DBounds {
     minZ = Math.min(minZ, n.z)
     maxZ = Math.max(maxZ, n.z)
   }
-  const pad = 2.5
+  const pad = 3
   return {
     minX: minX - pad,
     maxX: maxX + pad,
@@ -134,8 +188,42 @@ function computeBounds(nodes: Node3D[]): Scene3DBounds {
   }
 }
 
+function layoutChainNodes(
+  payload: AttackMapPayload,
+  positions2d: Map<string, Position>,
+  centerX: number,
+): Node3D[] {
+  const chain = payload.movement_chain
+  const n = chain.length
+  const xStart = -((n - 1) * HOP_SPACING_X) / 2
+
+  return chain.map((hop, hopIndex) => {
+    const visualType = visualTypeFromNodeType(hop.node_type)
+    const nudge = topologyNudge(hop, hopIndex, positions2d, centerX)
+    const pos2d = positions2d.get(hop.node_id)
+
+    return {
+      id: hop.node_id,
+      x: xStart + hopIndex * HOP_SPACING_X + nudge.dx,
+      y: elevationForHop(hop, visualType),
+      z: depthForHop(hop, hopIndex, n) + nudge.dz,
+      label: shortNodeLabel(hop.node_id, hop.node_type),
+      nodeType: hop.node_type,
+      visualType,
+      verdict: hop.verdict,
+      hopIndex,
+      onChain: true,
+      isCrownJewel: Boolean(hop.is_crown_jewel),
+      riskScore: riskFromHop(hop, payload.score),
+      accentColor: nodeAccentColor(visualType, Boolean(hop.is_crown_jewel)),
+      layer: pos2d?.layer ?? "L5_movement",
+    }
+  })
+}
+
 /**
- * Build a 3-D scene from compiler payload + topology using the 2-D slot mapper as ground truth.
+ * Build a 3-D scene from compiler payload + topology.
+ * Primary layout: readable kill-chain staircase; topology nudges preserve VPC context.
  */
 export function layoutPayload3D(
   payload: AttackMapPayload,
@@ -144,64 +232,64 @@ export function layoutPayload3D(
   prior2d?: Map<string, Position>,
 ): AttackMapScene3D {
   const positions2d = layoutPayload(payload, topology, density, prior2d)
-  const chainIds = new Set(payload.movement_chain.map((h) => h.node_id))
   const pathNodeIds = payload.movement_chain.map((h) => h.node_id)
+  const chainIds = new Set(pathNodeIds)
 
   const xs = [...positions2d.values()].map((p) => p.x)
   const centerX = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
 
-  const nodes: Node3D[] = []
-
-  payload.movement_chain.forEach((hop, hopIndex) => {
-    const pos = positions2d.get(hop.node_id)
-    if (!pos) return
-    const x = (pos.x - centerX) * WORLD_SCALE
-    const y = identityElevation(pos, hop.node_type)
-    const z = dataDepth(hop, hopIndex)
-    nodes.push({
-      id: hop.node_id,
-      x,
-      y,
-      z,
-      label: shortNodeLabel(hop.node_id, hop.node_type),
-      nodeType: hop.node_type,
-      visualType: visualTypeFromNodeType(hop.node_type),
-      hopIndex,
-      onChain: true,
-      isCrownJewel: Boolean(hop.is_crown_jewel),
-      riskScore: riskFromHop(hop, payload.score),
-      layer: pos.layer,
-    })
-  })
+  const nodes = layoutChainNodes(payload, positions2d, centerX)
 
   for (const c of payload.constraint_edges) {
     if (nodes.some((n) => n.id === c.constraint_node_id)) continue
     const pos = positions2d.get(c.constraint_node_id)
     if (!pos) continue
+
+    let x = 0
+    let y = 2.2
+    let z = 1
+    if (c.gates_movement_edge?.includes("→")) {
+      const [src, dst] = c.gates_movement_edge.split("→")
+      const a = nodes.find((n) => n.id === src.trim())
+      const b = nodes.find((n) => n.id === dst.trim())
+      if (a && b) {
+        x = (a.x + b.x) / 2
+        y = Math.max(a.y, b.y) + 1.6
+        z = (a.z + b.z) / 2
+      }
+    }
+
+    const visualType = visualTypeFromNodeType(c.constraint_node_type)
     nodes.push({
       id: c.constraint_node_id,
-      x: (pos.x - centerX) * WORLD_SCALE,
-      y: identityElevation(pos, c.constraint_node_type) + 0.5,
-      z: 0.8,
+      x,
+      y,
+      z,
       label: c.constraint_node_type,
       nodeType: c.constraint_node_type,
-      visualType: visualTypeFromNodeType(c.constraint_node_type),
+      visualType,
+      verdict: c.verdict,
       hopIndex: -1,
       onChain: false,
       isCrownJewel: c.appears_as === "terminus",
       riskScore: c.severity === "critical" ? 90 : c.severity === "high" ? 70 : 45,
+      accentColor: nodeAccentColor(visualType, c.appears_as === "terminus"),
       layer: pos.layer,
     })
   }
 
   const movement = deriveMovementEdges(payload.movement_chain)
-  const edges: Edge3D[] = movement.map((e) => ({
-    id: `${e.src}→${e.dst}`,
-    source: e.src,
-    target: e.dst,
-    kind: "movement",
-    onPath: chainIds.has(e.src) && chainIds.has(e.dst),
-  }))
+  const edges: Edge3D[] = movement.map((e, i) => {
+    const srcHop = payload.movement_chain[i]
+    return {
+      id: `${e.src}→${e.dst}`,
+      source: e.src,
+      target: e.dst,
+      kind: "movement",
+      onPath: chainIds.has(e.src) && chainIds.has(e.dst),
+      verdict: srcHop?.verdict,
+    }
+  })
 
   for (const c of payload.constraint_edges) {
     if (!c.gates_movement_edge?.includes("→")) continue
@@ -212,6 +300,7 @@ export function layoutPayload3D(
       target: dst.trim(),
       kind: "constraint",
       onPath: true,
+      verdict: c.verdict,
     })
   }
 
@@ -221,8 +310,21 @@ export function layoutPayload3D(
     y: (bounds.minY + bounds.maxY) / 2,
     z: (bounds.minZ + bounds.maxZ) / 2,
   }
+  const span = Math.max(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+    8,
+  )
 
-  return { nodes, edges, bounds, pathNodeIds, center }
+  return {
+    nodes,
+    edges,
+    bounds,
+    pathNodeIds,
+    center,
+    cameraDistance: span * 0.95 + 6,
+  }
 }
 
 export function riskColor(score: number): string {
@@ -230,4 +332,19 @@ export function riskColor(score: number): string {
   if (score >= 55) return "#f97316"
   if (score >= 35) return "#eab308"
   return "#22c55e"
+}
+
+export function verdictEdgeColor(verdict?: Verdict): string {
+  switch (verdict) {
+    case "ENTRY":
+      return "#38bdf8"
+    case "SEEN":
+      return "#22d3ee"
+    case "ALLOWED":
+      return "#fb923c"
+    case "BLOCKED":
+      return "#f87171"
+    default:
+      return "#64748b"
+  }
 }
