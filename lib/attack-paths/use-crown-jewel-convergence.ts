@@ -37,7 +37,13 @@ export function useCrownJewelConvergence(
 
     const url = buildConvergenceFetchUrl(systemName, jewel)
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 30_000)
+    // Proxy route maxDuration is 60s and the backend fetch budget is 55s;
+    // mirror that here so the client doesn't give up before the proxy does.
+    // (Vercel function timeouts surfaced as opaque "signal is aborted" before.)
+    const timer = setTimeout(
+      () => ctrl.abort(new DOMException("Backend slow — no response in 55s", "TimeoutError")),
+      55_000,
+    )
 
     fetch(url, { cache: "no-store", signal: ctrl.signal })
       .then(async (r) => {
@@ -54,7 +60,8 @@ export function useCrownJewelConvergence(
       .catch((e) => {
         if (cancelled) return
         setData(null)
-        setError(String((e as Error).message ?? e))
+        const m = (e as Error).message ?? String(e)
+        setError(m.includes("aborted without reason") ? "Backend slow — no response in 55s" : m)
       })
       .finally(() => {
         clearTimeout(timer)
