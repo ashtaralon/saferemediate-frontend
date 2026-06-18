@@ -8,6 +8,7 @@ export interface TopologySubnet {
   name: string | null
   cidr: string | null
   is_public: boolean | null
+  route_table_id?: string | null
   workloads?: Array<{ id?: string; name?: string }>
 }
 

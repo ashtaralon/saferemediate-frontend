@@ -916,7 +916,6 @@ function TopologyCanvas({
             ring={ring}
             bright={true}
             crown={isJewel}
-            sg={hop.security_groups?.[0]}
           />
         )
       })}
@@ -1000,6 +999,7 @@ function SubnetLane({
   const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "VISIBILITY UNKNOWN"
   const name = shortLabel(subnet.name || subnet.id, 28)
   const cidr = subnet.cidr ? ` · ${subnet.cidr}` : ""
+  const rt = subnet.route_table_id
   return (
     <g>
       <rect
@@ -1024,6 +1024,35 @@ function SubnetLane({
         {kindLabel} · {name}
         {cidr}
       </text>
+      {/* Route table tag — real :Subnet.route_table_id from topology-aws.
+         Rendered at the top-right of the subnet box so it reads as "this
+         subnet's RT" without competing with the workload chips inside. */}
+      {rt ? (
+        <g>
+          <rect
+            x={x + w - 116}
+            y={y + 4}
+            width={108}
+            height={14}
+            rx={3}
+            fill="rgba(76,141,255,0.10)"
+            stroke={T.sevLow}
+            strokeWidth={0.8}
+            strokeOpacity={0.55}
+          />
+          <IconGlyph x={x + w - 105} y={y + 11} kind="routetable" color={T.sevLow} />
+          <text
+            x={x + w - 92}
+            y={y + 14}
+            fontSize={8.6}
+            fontWeight={600}
+            fill={T.sevLow}
+            fontFamily="ui-monospace,monospace"
+          >
+            RT · {shortLabel(rt, 14)}
+          </text>
+        </g>
+      ) : null}
     </g>
   )
 }
@@ -1044,7 +1073,6 @@ function NodeChip({
   ring,
   bright,
   crown,
-  sg,
 }: {
   x: number
   y: number
@@ -1053,38 +1081,10 @@ function NodeChip({
   ring: string
   bright: boolean
   crown?: boolean
-  sg?: string
 }) {
   const op = bright ? 1 : 0.35
   return (
     <g opacity={op}>
-      {sg ? (
-        <>
-          <rect
-            x={x - 32}
-            y={y - 24}
-            width={68}
-            height={52}
-            rx={6}
-            fill="none"
-            stroke={T.sevHigh}
-            strokeWidth={1}
-            strokeOpacity={0.55}
-            strokeDasharray="3 3"
-          />
-          <text
-            x={x}
-            y={y - 28}
-            textAnchor="middle"
-            fontSize={8.5}
-            fontWeight={700}
-            fill={T.sevHigh}
-            fillOpacity={0.9}
-          >
-            {shortLabel(sg, 14)}
-          </text>
-        </>
-      ) : null}
       <ellipse cx={x} cy={y + 14} rx={16} ry={4} fill="#000" fillOpacity={0.25} />
       {crown ? (
         <circle
