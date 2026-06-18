@@ -1140,6 +1140,26 @@ export function IAMPermissionAnalysisModal({
     else if (score < T_AUTO) distance = `${T_AUTO - score} below AUTO`
     else distance = 'cleared all thresholds'
 
+    // CROSS-SYSTEM ROUTING GATE — sharing across multiple systems is a
+    // routing eligibility gate, not just a confidence input. A role with
+    // cross-system dependencies should NOT auto-route to STAGED/AUTO
+    // even at high confidence; the operator must verify each dependent
+    // system uses none of the proposed-removed permissions before
+    // narrowing the role. The score still reflects the engine's
+    // calibrated confidence; the routing chip is force-downgraded to
+    // MANUAL_REVIEW with an explicit cross-system reason. Without this
+    // gate, a role shared by 3 systems with score 80 would route
+    // STAGED_AUTO and approve narrowing 10 permissions that any of the
+    // 3 systems might depend on — a real foot-gun.
+    const consumerCount = safetyContext?.consumer_count ?? 0
+    const crossSystemGated = consumerCount > 1 && (stateName === 'STAGED_AUTO' || stateName === 'AUTO')
+    if (crossSystemGated) {
+      stateName = 'MANUAL_REVIEW'
+      stateLabel = 'Cross-system review required'
+      stateBlurb = `Role shared across ${consumerCount} systems — narrowing affects all of them. Verify each dependent system does not use the proposed-removed permissions before approving.`
+      stateColor = '#9a3412'; stateBg = '#fff7ed'; stateBorder = '#fed7aa'; stateIcon = '⚠'
+    }
+
     return (
       <div className="p-4 rounded-xl border-2" style={{ backgroundColor: stateBg, borderColor: stateBorder }}>
         <div className="flex items-start justify-between gap-4">
@@ -1204,10 +1224,17 @@ export function IAMPermissionAnalysisModal({
           const rawScore = cg.evidence_overall_confidence
           const reasons = cg.calibration_reasons
           if (typeof rawScore !== 'number' || !reasons || Object.keys(reasons).length === 0) return null
-          const reasonNames = Object.keys(reasons)
-            .map(r => r.replace(/_/g, ' ').replace('penalty', '').trim())
+          // Per-dimension penalty names with explicit point contributions —
+          // operators can read exactly which dimension drove the calibration
+          // delta instead of an opaque "missing dimension" label.
+          const reasonEntries = Object.entries(reasons)
+            .map(([key, factor]) => {
+              const name = key.replace(/_/g, ' ').replace('penalty', '').trim()
+              const pts = Math.round((1 - (factor as number)) * Math.round(rawScore))
+              return name && pts > 0 ? `${name}: −${pts} pts` : null
+            })
             .filter(Boolean)
-          const factor = Object.values(reasons).reduce((acc, m) => acc * (m as number), 1)
+          const factor: number = Object.values(reasons).reduce<number>((acc, m) => acc * (m as number), 1)
           const reductionPct = Math.round((1 - factor) * 100)
           return (
             <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ borderColor: stateBorder, color: stateColor, opacity: 0.85 }}>
@@ -1217,7 +1244,7 @@ export function IAMPermissionAnalysisModal({
                 <span className="font-bold">Calibrated {Math.round(score)}</span>
                 <span className="opacity-70 ml-1">(−{reductionPct}%)</span>
               </span>
-              <span className="opacity-80">Reasons: {reasonNames.join(', ')}</span>
+              <span className="opacity-80">{reasonEntries.length > 0 ? reasonEntries.join(' · ') : 'Reasons: composite calibration'}</span>
             </div>
           )
         })()}
@@ -1257,22 +1284,48 @@ export function IAMPermissionAnalysisModal({
       not_computed: '#9ca3af',
     }
 
+    // Compute Behavioral evidence with an Observability cap.
+    // The substrate-reality fix: a high event count combined with low
+    // observability coverage is a contradiction (where did the events
+    // come from if no sources are active?). The honest calibration is
+    // to cap Behavioral at the Observability score — we cannot claim
+    // more behavioral trust than the evidence-source coverage supports.
+    // Without this cap, the modal displays the contradiction directly
+    // (Behavioral 100, Observability 0) which shreds the trust story
+    // — a CISO reads it as "the engine doesn't know what it doesn't
+    // know." See review 2026-06-14.
+    const behavioralRaw = events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0
+    const coverageScore = tel != null ? Math.round(tel * 100) : null
+    const behavioralCapped = coverageScore != null
+      ? Math.min(behavioralRaw, coverageScore)
+      : behavioralRaw
+    const behavioralCapApplied = coverageScore != null && coverageScore < behavioralRaw
+
     const dimensions: Dim[] = [
       {
         key: 'behavioral',
         name: 'Behavioral evidence',
-        score: events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0,
-        status: events > 200 ? 'pass' : events > 50 ? 'partial' : events > 0 ? 'partial' : 'fail',
-        data: `${obs} days of observation · ${events.toLocaleString()} events captured`,
-        hint: events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
+        score: behavioralCapped,
+        status: behavioralCapped >= 75 ? 'pass' : behavioralCapped >= 40 ? 'partial' : 'fail',
+        data: behavioralCapApplied
+          ? `${obs} days of observation · ${events.toLocaleString()} events captured · score capped by Observability coverage`
+          : `${obs} days of observation · ${events.toLocaleString()} events captured`,
+        hint: behavioralCapApplied
+          ? 'Behavioral evidence cannot exceed Observability coverage — enable the missing sources to raise this score.'
+          : events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
       },
       {
         key: 'coverage',
         name: 'Observability coverage',
-        score: tel != null ? Math.round(tel * 100) : null,
+        score: coverageScore,
         status: tel == null ? 'not_computed' : tel >= 0.85 ? 'pass' : tel >= 0.5 ? 'partial' : 'fail',
+        // Reconcile with the Behavioral evidence line: if events were captured
+        // but coverage is low, surface BOTH numbers honestly so the operator
+        // doesn't see a "0% sources / 500 events" contradiction without context.
         data: tel != null
-          ? `${Math.round(tel * 100)}% of evidence sources active`
+          ? events > 0
+            ? `${Math.round(tel * 100)}% of expected sources active · ${events.toLocaleString()} events from active source(s)`
+            : `${Math.round(tel * 100)}% of evidence sources active`
           : 'coverage not measured',
         hint: tel != null && tel < 0.85 ? 'Enable the missing evidence sources in this account.' : undefined,
       },
@@ -1306,13 +1359,18 @@ export function IAMPermissionAnalysisModal({
       },
       {
         key: 'calibration',
-        name: 'Live calibration',
+        // Renamed from "Live calibration" — "live" implied customer-specific
+        // history but this score is a Cyntro-fleet baseline against similar
+        // role shapes. Customer-specific history would be a separate
+        // dimension (and would only be meaningful after the customer has
+        // accumulated their own remediation outcomes). Don't conflate.
+        name: 'Fleet pattern confidence',
         score: sv?.health?.historical_success != null ? Math.round(sv.health.historical_success * 100) : null,
         status: sv?.health?.historical_success == null
           ? 'not_computed'
           : sv.health.historical_success >= 0.9 ? 'pass' : 'partial',
         data: sv?.health?.historical_success != null
-          ? `${Math.round(sv.health.historical_success * 100)}% historical success on similar remediations`
+          ? `${Math.round(sv.health.historical_success * 100)}% Cyntro-fleet historical success on similar role shapes (not customer-specific history)`
           : 'no L2 outcomes yet (v5 Phase 2)',
       },
       {
@@ -1324,9 +1382,20 @@ export function IAMPermissionAnalysisModal({
       },
     ]
 
-    // Find weakest dimension that drove the verdict (computed dims only).
-    const computedFails = dimensions
-      .filter(d => d.status !== 'not_computed' && d.status !== 'pass')
+    // Hide v5 Phase 2 placeholder rows from the visible breakdown.
+    // Unscored placeholder dimensions (Counterfactual replay, Drift &
+    // freshness, Live/Fleet calibration when not yet wired) appear in
+    // the dimension list as structural scaffolding, but rendering them
+    // in the operator-facing breakdown adds visual noise without
+    // contributing to the composite. Show only the dimensions that
+    // actually scored (status != 'not_computed'). When the v5 Phase 2
+    // substrate ships, those rows will naturally appear because their
+    // status flips from 'not_computed' to a real value.
+    const visibleDimensions = dimensions.filter(d => d.status !== 'not_computed')
+
+    // Find weakest dimension that drove the verdict (visible scored dims only).
+    const computedFails = visibleDimensions
+      .filter(d => d.status !== 'pass')
       .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
     const weakest = computedFails[0]
 
@@ -1341,7 +1410,7 @@ export function IAMPermissionAnalysisModal({
           </div>
         </div>
         <div className="space-y-1">
-          {dimensions.map(d => {
+          {visibleDimensions.map(d => {
             const isWeakest = weakest && d.key === weakest.key
             return (
               <div
