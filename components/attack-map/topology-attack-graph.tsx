@@ -675,7 +675,7 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
         />
       ) : (
         <aside className="overflow-y-auto p-4 text-[11px]" style={{ background: T.surface, color: T.textMuted, borderLeft: `1px solid ${T.border}` }}>
-          {loading ? "Loading paths…" : "No paths available."}
+          {loading ? "Loading paths…" : error ? "Paths unavailable — see canvas." : "No paths available."}
         </aside>
       )}
     </div>
