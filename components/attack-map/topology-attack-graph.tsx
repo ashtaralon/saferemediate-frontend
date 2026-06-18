@@ -33,6 +33,7 @@ import type {
   ConvergencePath,
 } from "@/lib/attack-paths/convergence-types"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
+import { useAwsTopology, type AwsTopology, type TopologyVpc } from "@/lib/attack-paths/use-aws-topology"
 
 // ─── theme tokens (mirroring the mockup CSS variables) ──────────────────────
 const T = {
@@ -121,16 +122,99 @@ interface NodePos {
   y: number
 }
 
+// ─── derived containment from real topology + path hops ─────────────────────
+interface DerivedContainment {
+  /** VPC whose subnets/AZs match the most path hops. null when topology has no data. */
+  primaryVpc: TopologyVpc | null
+  /** Region label — real, from primaryVpc.region. Falls back to "REGION · unknown". */
+  regionLabel: string
+  /** AZ label — real, the unique AZ shown across path hops. Multi-AZ → composite label. */
+  azLabel: string
+  /** Subnet IDs referenced by path hops that are NOT in the topology snapshot. */
+  offSnapshotSubnetIds: string[]
+}
+
+/** True for strings that look like a real AWS AZ id (e.g. eu-west-1a, us-east-2c).
+ *  Filters out garbage values like the bare letter "a" some hops carry. */
+function isRealAz(s: string): boolean {
+  return /^[a-z]{2}-[a-z]+-\d+[a-z]$/.test(s)
+}
+
+/** Choose the VPC that covers the most path hops (by az/subnet match). */
+function deriveContainment(
+  paths: ConvergencePath[],
+  topology: AwsTopology | null,
+): DerivedContainment {
+  const hops = paths.flatMap((p) => p.hops)
+  const hopAzs = new Set<string>(hops.map((h) => h.az || "").filter(isRealAz))
+  // Subnet IDs that show up as Subnet-type hops (these are real ids in our path data).
+  const hopSubnetIds = new Set<string>(
+    hops.filter((h) => (h.node_type || "").toLowerCase() === "subnet").map((h) => h.node_id),
+  )
+
+  const vpcs = topology?.vpcs ?? []
+  let bestVpc: TopologyVpc | null = null
+  let bestMatch = -1
+  for (const v of vpcs) {
+    let m = 0
+    for (const az of v.azs) {
+      if (hopAzs.has(az.az)) m += 4
+      for (const sn of az.subnets) {
+        if (hopSubnetIds.has(sn.id)) m += 6
+      }
+    }
+    if (m > bestMatch) {
+      bestMatch = m
+      bestVpc = v
+    }
+  }
+  // Fallback: if no match, take the first VPC if any. Be explicit when null.
+  if (!bestVpc && vpcs.length > 0) bestVpc = vpcs[0]
+
+  const knownSubnetIds = new Set<string>(
+    (bestVpc?.azs ?? []).flatMap((a) => a.subnets.map((s) => s.id)),
+  )
+  const offSnapshotSubnetIds = Array.from(hopSubnetIds).filter((id) => !knownSubnetIds.has(id))
+
+  // Prefer explicit VPC.region; fall back to the common region prefix of real
+  // AZs in path hops (e.g. all hops in eu-west-1a/b/c → "eu-west-1"). This is
+  // derivation from real hop data, not invention — every AZ comes from Neo4j.
+  const azList = Array.from(hopAzs).sort()
+  const azRegionPrefixes = new Set(
+    azList.map((a) => a.replace(/[a-z]$/, "")).filter(Boolean),
+  )
+  const region =
+    bestVpc?.region ||
+    (vpcs[0]?.region ?? null) ||
+    (azRegionPrefixes.size === 1 ? Array.from(azRegionPrefixes)[0] : null)
+  const regionLabel = region ? `REGION · ${region}` : "REGION · unknown"
+
+  const azLabel =
+    azList.length === 0
+      ? "AZ · unknown"
+      : azList.length === 1
+        ? `AZ · ${azList[0]}`
+        : `AZ · ${azList.join(" · ")}`
+
+  return { primaryVpc: bestVpc, regionLabel, azLabel, offSnapshotSubnetIds }
+}
+
 // ─── center SVG canvas ──────────────────────────────────────────────────────
 function TopologyCanvas({
   jewel,
   data,
   selectedPathIdx,
+  topology,
 }: {
   jewel: CrownJewelSummary
   data: { paths: ConvergencePath[] }
   selectedPathIdx: number | null
+  topology: AwsTopology | null
 }) {
+  const containment = useMemo(
+    () => deriveContainment(data.paths, topology),
+    [data.paths, topology],
+  )
   // Compute positions for every hop id across all paths.
   const positions = useMemo<Record<string, NodePos>>(() => {
     const pos: Record<string, NodePos> = {}
@@ -230,23 +314,47 @@ function TopologyCanvas({
         </marker>
       </defs>
 
-      {/* nested containers */}
+      {/* nested containers — labels derived from real topology + path hops */}
       <Container x={14} y={60} w={952} h={680} stroke={T.aws} label="AWS CLOUD" />
-      <Container x={30} y={84} w={820} h={648} stroke={T.region} label="REGION · eu-west-1" />
+      <Container x={30} y={84} w={820} h={648} stroke={T.region} label={containment.regionLabel} />
       <Container
         x={46}
         y={108}
         w={crossesAZb ? 770 : 470}
         h={612}
         stroke={T.vpc}
-        label={`VPC · ${shortLabel(jewel.name || jewel.id, 28)}`}
+        label={
+          containment.primaryVpc
+            ? `VPC · ${shortLabel(containment.primaryVpc.name || containment.primaryVpc.id, 28)}${containment.primaryVpc.cidr ? ` · ${containment.primaryVpc.cidr}` : ""}`
+            : "VPC · not in snapshot"
+        }
       />
 
       {/* internet + external sources above the cloud */}
       <NodeChip x={pos(positions, "__internet__").x} y={pos(positions, "__internet__").y} icon="🌐" label="Internet" ring={T.textFaint} bright />
 
-      {/* single AZ column for v1 */}
-      <AzColumn x={64} y={148} label="AZ · eu-west-1a" />
+      {/* AZ column — single-AZ rendering for v1; label reflects real AZs in path data */}
+      <AzColumn x={64} y={148} label={containment.azLabel} />
+
+      {/* off-snapshot indicator — honest about subnets we don't have data for */}
+      {containment.offSnapshotSubnetIds.length > 0 && (
+        <g>
+          <rect
+            x={52}
+            y={596}
+            width={460}
+            height={18}
+            rx={4}
+            fill="rgba(229,72,77,0.08)"
+            stroke={T.sevHigh}
+            strokeOpacity={0.5}
+            strokeDasharray="3 3"
+          />
+          <text x={62} y={609} fontSize={10} fill={T.sevHigh} fontFamily="ui-monospace,monospace">
+            {containment.offSnapshotSubnetIds.length} subnet(s) referenced by paths but missing from topology snapshot
+          </text>
+        </g>
+      )}
 
       {/* identity strip under the VPC */}
       <IdentityStrip x={46} y={620} w={crossesAZb ? 770 : 470} />
@@ -582,6 +690,7 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
   const [selectedJewel, setSelectedJewel] = useState<CrownJewelSummary>(initialJewel)
   const [selectedPathIdx, setSelectedPathIdx] = useState<number | null>(null)
   const { data, loading, error, retry } = useCrownJewelConvergence(systemName, selectedJewel)
+  const { data: topology, error: topologyError } = useAwsTopology(systemName)
 
   return (
     <div
@@ -634,7 +743,7 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
           style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textMuted }}
         >
           <span className="font-bold" style={{ color: T.text }}>{shortLabel(selectedJewel.name, 40)}</span>
-          {data ? ` — ${data.paths_total} paths · placed on real VPC topology` : ""}
+          {data ? ` — ${data.paths_total} paths${topology && !topologyError ? " · placed on real VPC topology" : " · topology snapshot pending"}` : ""}
         </div>
         {loading && !data ? (
           <div className="flex h-full flex-col items-center justify-center gap-2" style={{ color: T.textMuted }}>
@@ -655,13 +764,17 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
             </button>
           </div>
         ) : (
-          <TopologyCanvas jewel={selectedJewel} data={data} selectedPathIdx={selectedPathIdx} />
+          <TopologyCanvas jewel={selectedJewel} data={data} selectedPathIdx={selectedPathIdx} topology={topology} />
         )}
         <div
           className="absolute bottom-2.5 left-4 z-10 rounded-md border px-2.5 py-1.5 font-mono text-[10px]"
           style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textFaint, maxWidth: "64%" }}
         >
-          live geometry · real AWS containment hierarchy · names/structure from Neo4j
+          {topology && !topologyError
+            ? `live geometry · ${topology.vpcs?.length ?? 0} VPC(s) from /api/topology-aws · paths from /by-crown-jewel`
+            : topologyError
+              ? `topology snapshot unavailable (${topologyError}) — VPC/AZ labels may be approximate`
+              : "loading topology snapshot…"}
         </div>
       </div>
 
