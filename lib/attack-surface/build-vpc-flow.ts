@@ -3,7 +3,7 @@
  */
 
 import type { Edge, Node } from "reactflow"
-import { MarkerType, Position } from "reactflow"
+import { MarkerType } from "reactflow"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import type { CanvasEdge } from "@/lib/types/attack-canvas"
@@ -244,8 +244,6 @@ export function buildVpcFlowGraph(
       source: e.source_aws_id,
       target: e.target_aws_id,
       type: "surfaceEdge",
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
       animated: flowKind === "attack" || flowKind === "exfil" || flowKind === "network",
       data: {
         flowKind,

@@ -7,6 +7,12 @@ import {
   shapeSystemAttackGraph,
 } from "@/lib/attack-surface/shape-system-attack-graph"
 import type { TopologyResponse } from "@/components/attack-paths-v2/containment-model"
+import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+
+const mkJewel = (id: string, name: string, type: string): CrownJewelSummary => ({
+  id, name, type, severity: "HIGH", path_count: 0, highest_risk_score: 0,
+  is_internet_exposed: false, data_classification: null, priority_score: 0,
+})
 
 const paths: IdentityAttackPath[] = [
   {
@@ -57,7 +63,7 @@ const topology: TopologyResponse = {
 
 describe("shapeSystemAttackGraph", () => {
   it("aggregates footholds and jewels across all paths", () => {
-    const graph = shapeSystemAttackGraph("demo", [{ id: "jewel-a", name: "data-bucket", type: "S3Bucket" }], paths, topology)
+    const graph = shapeSystemAttackGraph("demo", [mkJewel("jewel-a", "data-bucket", "S3Bucket")], paths, topology)
 
     expect(graph.footholds).toHaveLength(2)
     expect(graph.jewels).toHaveLength(1)
@@ -77,7 +83,7 @@ describe("shapeSystemAttackGraph", () => {
   })
 
   it("selection hot checks match Explorer semantics", () => {
-    const graph = shapeSystemAttackGraph("demo", [{ id: "jewel-a", name: "j", type: "S3Bucket" }], paths, null)
+    const graph = shapeSystemAttackGraph("demo", [mkJewel("jewel-a", "j", "S3Bucket")], paths, null)
     const edge = graph.aggregatedEdges[0]!
     expect(isAggregatedEdgeHot(edge, { kind: "jewel", key: "jewel-a" })).toBe(true)
     expect(isAggregatedEdgeHot(edge, { kind: "jewel", key: "other" })).toBe(false)

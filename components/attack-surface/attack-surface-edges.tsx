@@ -79,7 +79,7 @@ export const AttackSurfaceEdge = memo(function AttackSurfaceEdge({
           style={{ animationDelay: `${pulseDelay}s` }}
         />
       )}
-      {animateFlow && kind !== "identity" ? (
+      {animateFlow ? (
         <>
           <path
             d={path}

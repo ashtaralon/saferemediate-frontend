@@ -205,7 +205,7 @@ describe("buildAttackSurfaceFlow", () => {
     expect(jewel.data).toMatchObject({ isCrownJewel: true, awsType: "STORAGE" })
 
     const roleNode = resourceNodes.find((n) => n.id === "role-1")!
-    expect(roleNode.data?.alertText).toContain("23 Unused Permissions")
+    expect((roleNode.data as { alertText?: string })?.alertText).toContain("23 Unused Permissions")
 
     expect(result.edges.find((e) => e.id === "e-net")?.data?.flowKind).toBe("network")
     expect(result.edges.find((e) => e.id === "e-id")?.data?.flowKind).toBe("identity")

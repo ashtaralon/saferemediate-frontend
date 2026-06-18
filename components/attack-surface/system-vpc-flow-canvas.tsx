@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactFlow, {
   Background,
   Controls,
@@ -44,8 +44,8 @@ function FlowInner({
   useEffect(() => {
     if (!nodes.length) return
     const t = window.setTimeout(() => {
-      fitRef.current({ padding: 0.1, duration: 320, minZoom: 0.25, maxZoom: 1.1 })
-    }, 80)
+      fitRef.current({ padding: 0.22, duration: 360, minZoom: 0.42, maxZoom: 1.05 })
+    }, 100)
     return () => window.clearTimeout(t)
   }, [nodes.length, edges.length, pixelHeight, selection?.kind, selection?.key])
 
@@ -95,9 +95,9 @@ function FlowInner({
         edgeTypes={attackSurfaceEdgeTypes}
         style={{ width: "100%", height: "100%" }}
         fitView
-        fitViewOptions={{ padding: 0.12, minZoom: 0.25, maxZoom: 1.1 }}
-        minZoom={0.15}
-        maxZoom={1.4}
+        fitViewOptions={{ padding: 0.22, minZoom: 0.42, maxZoom: 1.05 }}
+        minZoom={0.35}
+        maxZoom={1.2}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
@@ -118,7 +118,7 @@ export interface SystemVpcFlowCanvasProps {
   graph: SystemAttackGraph
   selection: AttackGraphSelection
   onSelectionChange: (s: AttackGraphSelection) => void
-  height?: number
+  height?: number | "fill"
 }
 
 export function SystemVpcFlowCanvas({
@@ -126,8 +126,26 @@ export function SystemVpcFlowCanvas({
   graph,
   selection,
   onSelectionChange,
-  height = 560,
+  height = "fill",
 }: SystemVpcFlowCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [pixelHeight, setPixelHeight] = useState(560)
+
+  useEffect(() => {
+    if (typeof height === "number") {
+      setPixelHeight(height)
+      return
+    }
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      setPixelHeight(Math.max(480, el.clientHeight))
+    })
+    ro.observe(el)
+    setPixelHeight(Math.max(480, el.clientHeight))
+    return () => ro.disconnect()
+  }, [height])
+
   const flow = useMemo(
     () => buildVpcSystemFlow(topology, graph, selection),
     [topology, graph, selection],
@@ -136,8 +154,8 @@ export function SystemVpcFlowCanvas({
   if (!flow) {
     return (
       <div
-        className="flex items-center justify-center text-[12px] text-[#8195b1]"
-        style={{ height }}
+        ref={containerRef}
+        className="flex h-full min-h-[480px] items-center justify-center text-[12px] text-[#8195b1]"
       >
         VPC topology unavailable for this system.
       </div>
@@ -145,15 +163,17 @@ export function SystemVpcFlowCanvas({
   }
 
   return (
-    <ReactFlowProvider>
-      <FlowInner
-        nodes={flow.nodes}
-        edges={flow.edges}
-        graph={graph}
-        selection={selection}
-        onSelectionChange={onSelectionChange}
-        pixelHeight={height}
-      />
-    </ReactFlowProvider>
+    <div ref={containerRef} className="h-full min-h-[480px] w-full">
+      <ReactFlowProvider>
+        <FlowInner
+          nodes={flow.nodes}
+          edges={flow.edges}
+          graph={graph}
+          selection={selection}
+          onSelectionChange={onSelectionChange}
+          pixelHeight={pixelHeight}
+        />
+      </ReactFlowProvider>
+    </div>
   )
 }

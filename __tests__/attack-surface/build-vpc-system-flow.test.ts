@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest"
 import { buildVpcSystemFlow } from "@/lib/attack-surface/build-vpc-system-flow"
 import { shapeSystemAttackGraph } from "@/lib/attack-surface/shape-system-attack-graph"
 import type { TopologyResponse } from "@/components/attack-paths-v2/containment-model"
-import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import type { CrownJewelSummary, IdentityAttackPath } from "@/components/identity-attack-paths/types"
+
+const mkJewel = (id: string, name: string, type: string): CrownJewelSummary => ({
+  id, name, type, severity: "HIGH", path_count: 0, highest_risk_score: 0,
+  is_internet_exposed: false, data_classification: null, priority_score: 0,
+})
 
 const topology: TopologyResponse = {
   system_name: "demo",
@@ -46,7 +51,7 @@ describe("buildVpcSystemFlow", () => {
   it("places all footholds and jewels with aggregated edges", () => {
     const graph = shapeSystemAttackGraph(
       "demo",
-      [{ id: "arn:aws:s3:::secrets", name: "secrets", type: "S3Bucket" }],
+      [mkJewel("arn:aws:s3:::secrets", "secrets", "S3Bucket")],
       paths,
       topology,
     )
@@ -60,7 +65,7 @@ describe("buildVpcSystemFlow", () => {
   it("dims non-selected nodes when jewel is selected", () => {
     const graph = shapeSystemAttackGraph(
       "demo",
-      [{ id: "arn:aws:s3:::secrets", name: "secrets", type: "S3Bucket" }],
+      [mkJewel("arn:aws:s3:::secrets", "secrets", "S3Bucket")],
       paths,
       topology,
     )
