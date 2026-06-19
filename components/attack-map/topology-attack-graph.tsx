@@ -458,10 +458,19 @@ function deriveContainment(
       if (b === "az-unknown") return -1
       return a.localeCompare(b)
     })
-    const azColumns: AzColumnInfo[] = azKeysSorted.map((azKey) => ({
-      az: azKey === "az-unknown" ? "" : azKey,
-      subnets: (byAz.get(azKey) ?? []).slice().sort(publicFirst),
-    }))
+    // Filter AZs to only those PATH HOPS actually traverse. AZ columns
+    // with zero traffic for the selected jewel are dropped so the canvas
+    // never visually implies cross-AZ activity that doesn't exist in
+    // Neo4j. If NO AZ is traversed (orphan-role-only paths, no network
+    // hops at all), fall back to rendering every AZ so the operator
+    // still sees the topology shape.
+    const anyTraversedAz = azKeysSorted.some((k) => hopAzs.has(k))
+    const azColumns: AzColumnInfo[] = azKeysSorted
+      .filter((azKey) => !anyTraversedAz || hopAzs.has(azKey) || azKey === "az-unknown" && byAz.get(azKey)?.some((sn) => hopSubnetIds.has(sn.id)))
+      .map((azKey) => ({
+        az: azKey === "az-unknown" ? "" : azKey,
+        subnets: (byAz.get(azKey) ?? []).slice().sort(publicFirst),
+      }))
     // Flat list kept for legacy callers (no-op for current consumers but
     // makes the diff smaller).
     const subnets: TopologySubnet[] = azColumns.flatMap((c) => c.subnets)
@@ -1018,7 +1027,13 @@ function TopologyCanvas({
 
       {/* ── Per-VPC frames stacked vertically ─────────────────────────── */}
       {vpcLayouts.map((vl) => {
-        const azPart = vl.info.azs.length ? ` · AZ ${vl.info.azs.join(" · ")}` : ""
+        // List only the AZs whose columns actually render — matches the
+        // path-traversed filter so the header doesn't claim AZs the
+        // canvas has hidden.
+        const renderedAzs = vl.info.azColumns
+          .map((c) => c.az)
+          .filter((az) => az !== "")
+        const azPart = renderedAzs.length ? ` · AZ ${renderedAzs.join(" · ")}` : ""
         const vpcLabel = `VPC · ${shortLabel(vl.info.vpc.name || vl.info.vpc.id, 22)}${vl.info.vpc.cidr ? ` · ${vl.info.vpc.cidr}` : ""}${azPart}`
         // Topology-level IGWs / VPCEs attached to this VPC. Rendered at the
         // VPC's right egress slot — always shown, dim when no path uses
