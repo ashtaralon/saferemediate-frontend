@@ -1142,10 +1142,21 @@ function TopologyCanvas({
         const sw = selectedPathIdx === i ? 3.5 : obs ? 2.4 : 1.6
         return p.hops.slice(0, -1).map((h, j) => {
           const a = positions[h.node_id]
-          const b = positions[p.hops[j + 1].node_id]
+          const next = p.hops[j + 1]
+          const b = positions[next.node_id]
           if (!a || !b) return null
           const mx = (a.x + b.x) / 2
           const d = `M${a.x},${a.y} C ${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`
+          // Real Neo4j edge type from the backend; null when no single
+          // direct raw edge connects these two consecutive hops. "~"
+          // prefix marks a reversed lookup — show with ~ kept so the
+          // operator sees the direction caveat.
+          const edgeType = next.edge_type_from_prev
+          // Show label only on the highlighted path (selected or single
+          // path) — labeling every edge across 8 paths is unreadable.
+          const showLabel = !!edgeType && (selectedPathIdx === i)
+          const labelX = mx
+          const labelY = (a.y + b.y) / 2
           return (
             <g key={`${i}-${j}`}>
               <path
@@ -1161,6 +1172,31 @@ function TopologyCanvas({
                   <animateMotion dur="2.4s" repeatCount="indefinite" path={d} />
                 </circle>
               )}
+              {showLabel && edgeType ? (
+                <g>
+                  <rect
+                    x={labelX - (edgeType.length * 3.4 + 6)}
+                    y={labelY - 7}
+                    width={edgeType.length * 6.8 + 12}
+                    height={14}
+                    rx={3}
+                    fill={T.bg}
+                    stroke={color}
+                    strokeOpacity={0.55}
+                  />
+                  <text
+                    x={labelX}
+                    y={labelY + 3}
+                    textAnchor="middle"
+                    fontSize={8.5}
+                    fontWeight={600}
+                    fill={color}
+                    fontFamily="ui-monospace,monospace"
+                  >
+                    {edgeType}
+                  </text>
+                </g>
+              ) : null}
             </g>
           )
         })
