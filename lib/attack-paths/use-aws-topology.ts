@@ -15,13 +15,21 @@ export interface TopologySubnet {
   name: string | null
   cidr: string | null
   is_public: boolean | null
+  /** AZ id this subnet belongs to. Populated by backend ≥ 2026-06-19;
+   *  older responses may leave it null and rely on the wrapping
+   *  TopologyAZ.az / .name. */
+  az?: string | null
   route_table_id?: string | null
   workloads?: TopologyWorkload[]
   nacl_ids?: string[]
 }
 
 export interface TopologyAZ {
-  az: string
+  /** Canonical AZ id (e.g. "eu-west-1a"). Backend ≥ 2026-06-19. */
+  az?: string | null
+  /** Legacy AZ id field — older backends emitted `name` instead of `az`.
+   *  Readers should accept either. */
+  name?: string | null
   subnets: TopologySubnet[]
 }
 

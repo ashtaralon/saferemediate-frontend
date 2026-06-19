@@ -340,9 +340,20 @@ interface NodePos {
 }
 
 // ─── derived containment from real topology + path hops ─────────────────────
+interface AzColumnInfo {
+  az: string
+  /** Subnets in this AZ, ordered public-first (architectural mental model
+   *  matches the reference VPC diagram — public ingress/egress subnets on
+   *  top, private application/data subnets below). */
+  subnets: TopologySubnet[]
+}
+
 interface VpcLayoutInfo {
   vpc: TopologyVpc
-  /** Subnets in this VPC, ordered public-first, filtered to non-empty subnets only. */
+  /** Subnets grouped by AZ — one column per AZ, like the reference
+   *  multilevel-VPC diagram. Within each column, public-first. */
+  azColumns: AzColumnInfo[]
+  /** Flat list (legacy callers that don't care about AZ grouping). */
   subnets: TopologySubnet[]
   /** Distinct AZs across hops that touch this VPC. */
   azs: string[]
@@ -381,44 +392,76 @@ function deriveContainment(
 
   const vpcs = topology?.vpcs ?? []
   // Render EVERY VPC and EVERY subnet the endpoint returns — full Neo4j
-  // topology, not just the path-traversed slice. Path edges then overlay
-  // on top. The score is now used only for ordering (most path-relevant
-  // VPC at the top), not for filtering.
-  const scored: Array<{ vpc: TopologyVpc; score: number; subnets: TopologySubnet[]; azs: string[] }> = []
+  // topology. Path edges overlay on top.
+  const scored: Array<{
+    vpc: TopologyVpc
+    score: number
+    subnets: TopologySubnet[]
+    azs: string[]
+    azColumns: AzColumnInfo[]
+  }> = []
+  const publicFirst = (a: TopologySubnet, b: TopologySubnet) => {
+    const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
+    const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
+    if (av !== bv) return av - bv
+    return (a.name || a.id).localeCompare(b.name || b.id)
+  }
   for (const v of vpcs) {
     let score = 0
     const allAzs = new Set<string>()
+    // Group subnets by their actual AZ. The backend currently emits the
+    // AZ id under `az.az` (canonical) AND `az.name` (legacy alias) — read
+    // whichever is populated. The per-subnet `az` field is the strongest
+    // signal: if set, it wins over the wrapping AZ object.
+    const byAz = new Map<string, TopologySubnet[]>()
+    const wrapperAzKey = (az: { az?: string | null; name?: string | null }): string => {
+      const raw = (az.az ?? az.name) || ""
+      return raw && isRealAz(raw) ? raw : "az-unknown"
+    }
     for (const az of v.azs) {
-      if (az.az) allAzs.add(az.az)
-      if (hopAzs.has(az.az)) score += 4
+      const wrapperKey = wrapperAzKey(az as { az?: string | null; name?: string | null })
+      if (wrapperKey !== "az-unknown") {
+        allAzs.add(wrapperKey)
+        if (hopAzs.has(wrapperKey)) score += 4
+      }
       for (const sn of az.subnets) {
         if (hopSubnetIds.has(sn.id)) score += 6
+        const subnetAz = (sn as unknown as { az?: string | null }).az || null
+        const azKey =
+          subnetAz && isRealAz(subnetAz) ? subnetAz : wrapperKey
+        if (azKey !== "az-unknown") allAzs.add(azKey)
+        if (!byAz.has(azKey)) byAz.set(azKey, [])
+        byAz.get(azKey)!.push(sn)
       }
     }
-    // ALL subnets in the VPC — ordered public-first, then by name.
-    const subnets: TopologySubnet[] = v.azs
-      .flatMap((a) => a.subnets)
-      .sort((a, b) => {
-        const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
-        const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
-        if (av !== bv) return av - bv
-        return (a.name || a.id).localeCompare(b.name || b.id)
-      })
+    // Sort AZs ascending (eu-west-1a, 1b, 1c) so columns read L→R.
+    const azKeysSorted = Array.from(byAz.keys()).sort((a, b) => {
+      if (a === "az-unknown") return 1
+      if (b === "az-unknown") return -1
+      return a.localeCompare(b)
+    })
+    const azColumns: AzColumnInfo[] = azKeysSorted.map((azKey) => ({
+      az: azKey === "az-unknown" ? "" : azKey,
+      subnets: (byAz.get(azKey) ?? []).slice().sort(publicFirst),
+    }))
+    // Flat list kept for legacy callers (no-op for current consumers but
+    // makes the diff smaller).
+    const subnets: TopologySubnet[] = azColumns.flatMap((c) => c.subnets)
     scored.push({
       vpc: v,
       score,
       subnets,
       azs: Array.from(allAzs).sort(),
+      azColumns,
     })
   }
-  // Path-traversed VPCs render first (score > 0), then any other VPCs the
-  // endpoint returned so the operator sees the full topology.
   scored.sort((a, b) => b.score - a.score)
 
   const vpcsToRender: VpcLayoutInfo[] = scored.map((s) => ({
     vpc: s.vpc,
     subnets: s.subnets,
     azs: s.azs,
+    azColumns: s.azColumns,
   }))
 
   // Off-snapshot: any Subnet-hop id that isn't in ANY rendered VPC.
@@ -591,32 +634,49 @@ function TopologyCanvas({
       }
     })
 
-    // Per-subnet box positions within each VPC.
+    // Per-subnet box positions within each VPC — laid out in AZ columns
+    // matching the reference VPC diagram. Each VPC's interior splits
+    // horizontally into N AZ columns (eu-west-1a / 1b / 1c …); within
+    // each AZ column subnets stack vertically, public-first.
     const subnetBoxes = new Map<
       string,
       { x: number; y: number; w: number; h: number }
     >()
-    // Per-VPC quick lookups for egress + identity placement.
+    // Per-VPC AZ column bounding boxes (for column-header rendering).
+    const azColumnBoxes = new Map<
+      string,
+      Array<{ az: string; x: number; y: number; w: number; h: number }>
+    >()
     const vpcEgressX = new Map<string, number>()
     const vpcIdentityBand = new Map<string, { x: number; y: number; w: number }>()
     for (const layout of vpcLayouts) {
       const { info, x, y, w, h, egressX } = layout
-      // Inside the VPC frame: 22px header, 20px identity footer.
-      const innerTop = y + 28
+      // Inside the VPC frame: 22px header (VPC label band) + AZ column
+      // header (16px) at top, identity band (22px) at bottom.
+      const innerTop = y + 44
       const innerBottom = y + h - 26
       const innerH = innerBottom - innerTop
-      const nSubnets = info.subnets.length
-      if (nSubnets > 0) {
-        const laneH = Math.max(48, Math.floor(innerH / nSubnets))
-        info.subnets.forEach((sn, si) => {
+      const columns = info.azColumns
+      const nCols = Math.max(1, columns.length)
+      const colW = Math.floor((w - 20) / nCols)
+      const azBoxes: Array<{ az: string; x: number; y: number; w: number; h: number }> = []
+      columns.forEach((col, ci) => {
+        const colX = x + 10 + ci * colW
+        const colY = innerTop
+        azBoxes.push({ az: col.az, x: colX, y: colY, w: colW - 4, h: innerH })
+        const nSubnets = col.subnets.length
+        if (nSubnets === 0) return
+        const laneH = Math.max(54, Math.floor(innerH / nSubnets))
+        col.subnets.forEach((sn, si) => {
           subnetBoxes.set(sn.id, {
-            x: x + 10,
-            y: innerTop + si * laneH,
-            w: w - 20,
+            x: colX + 4,
+            y: colY + si * laneH,
+            w: colW - 12,
             h: laneH - 4,
           })
         })
-      }
+      })
+      azColumnBoxes.set(info.vpc.id, azBoxes)
       vpcEgressX.set(info.vpc.id, egressX)
       vpcIdentityBand.set(info.vpc.id, {
         x: x + 14,
@@ -950,32 +1010,88 @@ function TopologyCanvas({
         return (
           <g key={vl.info.vpc.id}>
             <Container x={vl.x} y={vl.y} w={vl.w} h={vl.h} stroke={T.vpc} label={vpcLabel} />
-            {/* subnet lanes inside this VPC */}
-            {vl.info.subnets.length > 0 ? (
-              vl.info.subnets.map((sn, si) => {
-                const laneH = Math.max(48, Math.floor((vl.h - 54) / vl.info.subnets.length))
+            {/* AZ columns inside the VPC — each AZ gets its own vertical
+               column, like the reference VPC architecture diagram. Within
+               each AZ column, subnets stack vertically with public on top.
+               Geometry must mirror the positions[] block above. */}
+            {(() => {
+              const columns = vl.info.azColumns
+              if (columns.length === 0) {
                 return (
-                  <SubnetLane
-                    key={sn.id}
-                    x={vl.x + 10}
-                    y={vl.y + 28 + si * laneH}
-                    w={vl.w - 20}
-                    h={laneH - 4}
-                    subnet={sn}
-                  />
+                  <text
+                    x={vl.x + 18}
+                    y={vl.y + vl.h / 2}
+                    fontSize={11}
+                    fill={T.textFaint}
+                    fontFamily="ui-monospace,monospace"
+                  >
+                    No subnets in topology snapshot
+                  </text>
+                )
+              }
+              const innerTop = vl.y + 44
+              const innerH = vl.h - 70
+              const colW = Math.floor((vl.w - 20) / columns.length)
+              return columns.map((col, ci) => {
+                const colX = vl.x + 10 + ci * colW
+                return (
+                  <g key={`${vl.info.vpc.id}-${col.az || "az-unknown"}`}>
+                    {/* AZ column outline + header label */}
+                    <rect
+                      x={colX}
+                      y={innerTop - 18}
+                      width={colW - 4}
+                      height={innerH + 22}
+                      rx={6}
+                      fill="rgba(76,141,255,0.03)"
+                      stroke={T.region}
+                      strokeWidth={1}
+                      strokeOpacity={0.35}
+                      strokeDasharray="3 4"
+                    />
+                    <text
+                      x={colX + 8}
+                      y={innerTop - 5}
+                      fontSize={9.5}
+                      fontWeight={700}
+                      fill={T.region}
+                      style={{ letterSpacing: "0.1em" }}
+                    >
+                      AZ · {col.az || "unknown"}
+                    </text>
+                    {/* Subnet lanes inside this AZ column */}
+                    {col.subnets.length > 0 ? (
+                      col.subnets.map((sn, si) => {
+                        const laneH = Math.max(
+                          54,
+                          Math.floor(innerH / col.subnets.length),
+                        )
+                        return (
+                          <SubnetLane
+                            key={sn.id}
+                            x={colX + 4}
+                            y={innerTop + si * laneH}
+                            w={colW - 12}
+                            h={laneH - 4}
+                            subnet={sn}
+                          />
+                        )
+                      })
+                    ) : (
+                      <text
+                        x={colX + 10}
+                        y={innerTop + 24}
+                        fontSize={10}
+                        fill={T.textFaint}
+                        fontFamily="ui-monospace,monospace"
+                      >
+                        No subnets in this AZ
+                      </text>
+                    )}
+                  </g>
                 )
               })
-            ) : (
-              <text
-                x={vl.x + 18}
-                y={vl.y + vl.h / 2}
-                fontSize={11}
-                fill={T.textFaint}
-                fontFamily="ui-monospace,monospace"
-              >
-                No subnets in topology snapshot
-              </text>
-            )}
+            })()}
             {/* identity band label */}
             <text
               x={vl.x + 14}
