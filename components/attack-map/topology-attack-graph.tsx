@@ -400,7 +400,25 @@ function deriveContainment(
     azs: string[]
     azColumns: AzColumnInfo[]
   }> = []
+  // Sort subnets within an AZ column so the visual reads top-to-bottom
+  // like the AWS reference architecture diagram. Every sort dimension
+  // reads a real Neo4j field — the name is what AWS stores from the
+  // operator's intent at creation time, `is_public` is the route-table
+  // truth. No invented tier labels.
+  //   1. Subnets the operator NAMED with "Public" → top
+  //   2. Then is_public=true (route-table-derived)
+  //   3. Then alphabetical
+  //   …Subnets NAMED "Private" → bottom
+  const subnetIntentBucket = (s: TopologySubnet): number => {
+    const n = (s.name || "").toLowerCase()
+    if (n.includes("public")) return 0
+    if (n.includes("private")) return 2
+    return 1 // no intent name — sort between
+  }
   const publicFirst = (a: TopologySubnet, b: TopologySubnet) => {
+    const ai = subnetIntentBucket(a)
+    const bi = subnetIntentBucket(b)
+    if (ai !== bi) return ai - bi
     const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
     const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
     if (av !== bv) return av - bv
