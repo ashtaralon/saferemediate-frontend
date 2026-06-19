@@ -308,18 +308,29 @@ function pathColor(idx: number): string {
   return PATH_COLORS[idx % PATH_COLORS.length]
 }
 
-// ─── ranked path utilities ──────────────────────────────────────────────────
-function pathScore(p: ConvergencePath): number {
-  if (typeof p.score === "number" && p.score > 0) return p.score
-  // fallback synthesis when backend score is missing
-  const d = p.damage?.length ?? 0
-  const worst = (p.damage?.[0] || "").toUpperCase()
-  return (worst === "DELETE" ? 70 : worst === "WRITE" ? 55 : worst === "READ" ? 35 : 20) + d * 4
+// ─── path severity from REAL backend fields, no synthesis ─────────────────
+// The backend exposes `p.severity` as a numeric string ("60", "55", ...).
+// Older code synthesized a "damage score" from p.damage[] verbs when the
+// backend value was missing — that fabrication has been removed. Honest
+// signal only: real number if backend says so, null otherwise.
+function pathSeverityNumber(p: ConvergencePath): number | null {
+  const raw = (p as unknown as { severity?: unknown }).severity
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    const n = Number(raw)
+    if (Number.isFinite(n)) return n
+  }
+  return null
 }
 
-function severityFromScore(s: number): "critical" | "high" | "medium" {
-  if (s >= 80) return "critical"
-  if (s >= 55) return "high"
+/** Mapping from real severity number to a tier label. Threshold cutoffs
+ *  are a product config, NOT data — kept explicit + commented so anyone
+ *  changing them knows what they're doing. When the backend value is
+ *  null we return null, never inventing a tier. */
+function severityTierFromNumber(s: number | null): "critical" | "high" | "medium" | null {
+  if (s == null) return null
+  if (s >= 70) return "critical"
+  if (s >= 50) return "high"
   return "medium"
 }
 
@@ -1416,22 +1427,45 @@ function PathRail({
 }) {
   const ranked = useMemo(() => {
     return paths
-      .map((p, originalIndex) => ({ p, originalIndex, dmg: pathScore(p) }))
-      .sort((a, b) => b.dmg - a.dmg)
+      .map((p, originalIndex) => ({
+        p,
+        originalIndex,
+        sev: pathSeverityNumber(p),
+      }))
+      .sort((a, b) => {
+        // Real severity first (descending). Paths with no severity
+        // sort to the bottom — we surface them, but don't pretend.
+        const av = a.sev ?? -Infinity
+        const bv = b.sev ?? -Infinity
+        return bv - av
+      })
   }, [paths])
+
+  // Honest header — the rail ranks by REAL severity from the backend.
+  // Paths missing severity are surfaced with an explicit "—" badge so
+  // operators see them and know the field wasn't supplied.
+  const anyMissing = ranked.some((r) => r.sev == null)
 
   return (
     <aside className="overflow-y-auto" style={{ background: T.surface, borderLeft: `1px solid ${T.border}` }}>
       <h3 className="px-4 pt-3.5 pb-2 text-[10.5px] font-bold uppercase tracking-[0.13em]" style={{ color: T.textMuted }}>
-        Paths to {shortLabel(jewelName, 28)} · ranked by damage
+        Paths to {shortLabel(jewelName, 28)} · ranked by severity
       </h3>
-      {ranked.map(({ p, originalIndex, dmg }, displayIdx) => {
+      {anyMissing ? (
+        <div
+          className="px-4 pb-2 text-[10px] leading-[1.5]"
+          style={{ color: T.textFaint }}
+        >
+          Some paths show — for severity because the backend hasn&apos;t
+          computed it yet.
+        </div>
+      ) : null}
+      {ranked.map(({ p, originalIndex, sev }, displayIdx) => {
         const obs = p.confidence === "observed"
-        const sev = severityFromScore(dmg)
-        const sevColor = sev === "critical" ? T.sevCritical : sev === "high" ? T.sevHigh : T.sevMedium
+        const tier = severityTierFromNumber(sev)
+        const sevColor =
+          tier === "critical" ? T.sevCritical : tier === "high" ? T.sevHigh : tier === "medium" ? T.sevMedium : T.textFaint
         const active = selectedIdx === originalIndex
-        // Path color matches the canvas edge color so the operator can
-        // visually trace which workload uses which IGW/VPCE.
         const edgeColor = pathColor(originalIndex)
         return (
           <button
@@ -1462,8 +1496,12 @@ function PathRail({
                 bg={obs ? `${T.observed}26` : `${T.configured}22`}
                 ink={obs ? T.observed : T.configured}
               />
-              <span className="ml-auto font-mono text-[14px] font-extrabold" style={{ color: sevColor }}>
-                {Math.round(dmg)}
+              <span
+                className="ml-auto font-mono text-[14px] font-extrabold"
+                style={{ color: sevColor }}
+                title={sev != null ? `Severity from backend: ${sev}` : "Severity not supplied by backend"}
+              >
+                {sev != null ? sev : "—"}
               </span>
             </div>
             <div className="mt-1.5 ml-6 font-mono text-[10px] leading-[1.6]" style={{ color: T.textMuted }}>
