@@ -10,6 +10,14 @@ export interface ConvergenceHop {
   az?: string | null
   security_groups: string[]
   is_crown_jewel: boolean
+  /** Real Neo4j edge type linking this hop to the prior hop in the
+   *  rendered chain (e.g. IN_SUBNET, ROUTES_VIA, USES_ROLE,
+   *  ACCESSES_RESOURCE). null when no single direct raw edge connects
+   *  the two consecutive hops — honest "no labeled relationship".
+   *  Leading "~" marks a reversed lookup (raw edge encoded in opposite
+   *  direction of rendered walk). Field is additive; older backends
+   *  that don't emit it simply leave it undefined. */
+  edge_type_from_prev?: string | null
 }
 
 export interface ConvergencePath {
