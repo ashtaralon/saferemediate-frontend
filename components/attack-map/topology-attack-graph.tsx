@@ -369,32 +369,24 @@ function deriveContainment(
   )
 
   const vpcs = topology?.vpcs ?? []
-  // Score every VPC by how many path hops touch it (subnet matches × 6,
-  // AZ matches × 4 — subnets are stronger evidence). Anything that scores
-  // > 0 gets rendered, in descending score order.
+  // Render EVERY VPC and EVERY subnet the endpoint returns — full Neo4j
+  // topology, not just the path-traversed slice. Path edges then overlay
+  // on top. The score is now used only for ordering (most path-relevant
+  // VPC at the top), not for filtering.
   const scored: Array<{ vpc: TopologyVpc; score: number; subnets: TopologySubnet[]; azs: string[] }> = []
   for (const v of vpcs) {
     let score = 0
-    const usedSubnets = new Set<string>()
-    const usedAzs = new Set<string>()
+    const allAzs = new Set<string>()
     for (const az of v.azs) {
-      if (hopAzs.has(az.az)) {
-        score += 4
-        usedAzs.add(az.az)
-      }
+      if (az.az) allAzs.add(az.az)
+      if (hopAzs.has(az.az)) score += 4
       for (const sn of az.subnets) {
-        if (hopSubnetIds.has(sn.id)) {
-          score += 6
-          usedSubnets.add(sn.id)
-          if (az.az) usedAzs.add(az.az)
-        }
+        if (hopSubnetIds.has(sn.id)) score += 6
       }
     }
-    if (score === 0) continue
-    // Only include subnets actually traversed by a path. Public-first ordering.
+    // ALL subnets in the VPC — ordered public-first, then by name.
     const subnets: TopologySubnet[] = v.azs
       .flatMap((a) => a.subnets)
-      .filter((s) => usedSubnets.has(s.id))
       .sort((a, b) => {
         const av = a.is_public === true ? 0 : a.is_public === false ? 1 : 2
         const bv = b.is_public === true ? 0 : b.is_public === false ? 1 : 2
@@ -405,17 +397,12 @@ function deriveContainment(
       vpc: v,
       score,
       subnets,
-      azs: Array.from(usedAzs).sort(),
+      azs: Array.from(allAzs).sort(),
     })
   }
+  // Path-traversed VPCs render first (score > 0), then any other VPCs the
+  // endpoint returned so the operator sees the full topology.
   scored.sort((a, b) => b.score - a.score)
-
-  // If nothing matched, fall back to the first VPC so the operator sees
-  // SOMETHING — but with no subnet rendering (none are "used"). Helps
-  // when paths are pure-identity and don't traverse network at all.
-  if (scored.length === 0 && vpcs.length > 0) {
-    scored.push({ vpc: vpcs[0], score: 0, subnets: [], azs: [] })
-  }
 
   const vpcsToRender: VpcLayoutInfo[] = scored.map((s) => ({
     vpc: s.vpc,
@@ -708,23 +695,56 @@ function TopologyCanvas({
       const t = (h.node_type || "").toLowerCase()
       return t === "ec2instance" || t === "lambdafunction" || t === "rdsinstance"
     }
+    // First pass: position EVERY workload from the topology snapshot so
+    // the canvas reflects what Neo4j has, not just what the paths touch.
+    // Each subnet's `workloads` come from /api/topology-aws which reads
+    // (w)-[:IN_SUBNET]->(s) edges. Path-touched workloads will overwrite
+    // these positions later if they end up in different subnets.
+    for (const layout of vpcLayouts) {
+      for (const sn of layout.info.subnets) {
+        const box = subnetBoxes.get(sn.id)
+        if (!box) continue
+        const topoWorkloads = sn.workloads ?? []
+        const colsW = 4
+        const strideW = Math.max(80, Math.floor((box.w - 50) / colsW))
+        const startX = box.x + 32
+        const startY = box.y + 36
+        topoWorkloads.forEach((w, i) => {
+          const id = w.id
+          if (!id) return
+          pos[id] = {
+            x: startX + (i % colsW) * strideW,
+            y: startY + Math.floor(i / colsW) * 38,
+          }
+        })
+      }
+    }
+
+    // Second pass: position path-touched chips in their subnet box. These
+    // ride alongside topology workloads but get bright colors in render.
     inSubnetBySubnet.forEach((chips, snId) => {
       const box = subnetBoxes.get(snId)
       if (!box) return
       // Split workloads from metadata.
       const workloads = chips.filter(isWorkloadType)
       const meta = chips.filter((h) => !isWorkloadType(h))
-      // 4 chips per row in the top band — workloads sit above the metadata
-      // strip and have room for their labels.
       const colsW = 4
       const strideW = Math.max(80, Math.floor((box.w - 50) / colsW))
       const startX = box.x + 32
       const startY = box.y + 36
-      workloads.forEach((h, i) => {
+      // Path-touched workloads keep their topology-assigned position when
+      // present (matched by id). Otherwise grid into the top band.
+      const topoIds = new Set((vpcLayouts
+        .flatMap((vl) => vl.info.subnets)
+        .find((s) => s.id === snId)?.workloads ?? []).map((w) => w.id))
+      let gridIdx = 0
+      workloads.forEach((h) => {
+        if (topoIds.has(h.node_id) && pos[h.node_id]) return
         pos[h.node_id] = {
-          x: startX + (i % colsW) * strideW,
-          y: startY + Math.floor(i / colsW) * 38,
+          x: startX + (gridIdx % colsW) * strideW,
+          y: startY + Math.floor(gridIdx / colsW) * 38,
         }
+        gridIdx++
       })
       // Metadata strip — smaller stride, sits at the box bottom so it
       // doesn't push workloads around.
@@ -843,6 +863,13 @@ function TopologyCanvas({
     return pos
   }, [data.paths, jewel.canonical_id, jewel.id, containment])
 
+  // Set of every node_id that appears in any path hop — used to decide if a
+  // topology entity should render bright (in a path) or muted (just exists).
+  const pathHopIds = useMemo(
+    () => new Set(data.paths.flatMap((p) => p.hops.map((h) => h.node_id))),
+    [data.paths],
+  )
+
   // Recompute VPC layouts for the SVG render (same math as positions block).
   const vpcLayouts = useMemo(() => {
     const REGION_X = 46
@@ -904,6 +931,11 @@ function TopologyCanvas({
       {vpcLayouts.map((vl) => {
         const azPart = vl.info.azs.length ? ` · AZ ${vl.info.azs.join(" · ")}` : ""
         const vpcLabel = `VPC · ${shortLabel(vl.info.vpc.name || vl.info.vpc.id, 22)}${vl.info.vpc.cidr ? ` · ${vl.info.vpc.cidr}` : ""}${azPart}`
+        // Topology-level IGWs / VPCEs attached to this VPC. Rendered at the
+        // VPC's right egress slot — always shown, dim when no path uses
+        // them so the operator sees the full topology, not the path slice.
+        const vpcIgws = vl.info.vpc.internet_gateways ?? []
+        const vpcVpces = vl.info.vpc.vpc_endpoints ?? []
         return (
           <g key={vl.info.vpc.id}>
             <Container x={vl.x} y={vl.y} w={vl.w} h={vl.h} stroke={T.vpc} label={vpcLabel} />
@@ -930,7 +962,7 @@ function TopologyCanvas({
                 fill={T.textFaint}
                 fontFamily="ui-monospace,monospace"
               >
-                No subnets touched by paths in this VPC
+                No subnets in topology snapshot
               </text>
             )}
             {/* identity band label */}
@@ -944,6 +976,68 @@ function TopologyCanvas({
             >
               IDENTITY · profiles + roles
             </text>
+            {/* Topology-level IGW / VPCE chips at the right egress slot.
+               Always rendered from the topology snapshot; muted when no
+               path uses them. */}
+            {vpcIgws.map((g, i) => {
+              const inPath = !!(g.id && positions[g.id])
+              if (inPath) return null // path-hop renderer will draw it bright
+              return (
+                <NodeChip
+                  key={`vpc-igw-${vl.info.vpc.id}-${g.id ?? i}`}
+                  x={vl.egressX}
+                  y={vl.y + 50 + i * 50}
+                  iconKind="igw"
+                  label={shortLabel(g.name || g.id || "IGW", 16)}
+                  ring={T.sevHigh}
+                  bright={false}
+                />
+              )
+            })}
+            {vpcVpces.map((g, i) => {
+              const inPath = !!(g.id && positions[g.id])
+              if (inPath) return null
+              return (
+                <NodeChip
+                  key={`vpc-vpce-${vl.info.vpc.id}-${g.id ?? i}`}
+                  x={vl.egressX}
+                  y={vl.y + vl.h - 70 - i * 50}
+                  iconKind="vpce"
+                  label={shortLabel(g.name || g.id || "VPCE", 16)}
+                  ring={T.observed}
+                  bright={false}
+                />
+              )
+            })}
+            {/* Topology-level workloads from subnet.workloads[]. Muted unless
+               a path hop touches them. Their positions were assigned in the
+               positions[] block above so chip positioning here matches. */}
+            {vl.info.subnets.flatMap((sn) =>
+              (sn.workloads ?? []).map((w) => {
+                if (!w.id) return null
+                const inPath = pathHopIds.has(w.id)
+                if (inPath) return null // bright render below handles it
+                const p = positions[w.id]
+                if (!p) return null
+                const kind: IconKind =
+                  (w.type || "").toLowerCase().includes("lambda")
+                    ? "lambda"
+                    : (w.type || "").toLowerCase().includes("rds")
+                      ? "rds"
+                      : "ec2"
+                return (
+                  <NodeChip
+                    key={`topo-wl-${w.id}`}
+                    x={p.x}
+                    y={p.y}
+                    iconKind={kind}
+                    label={shortLabel(w.name || w.id, 16)}
+                    ring={T.textFaint}
+                    bright={false}
+                  />
+                )
+              }),
+            )}
           </g>
         )
       })}
