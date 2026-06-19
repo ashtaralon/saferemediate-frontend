@@ -3,18 +3,37 @@
 import { useEffect, useState } from "react"
 
 /** Subset of the topology-aws response we read. */
+export interface TopologyWorkload {
+  id?: string
+  name?: string
+  type?: string | null
+  sg_ids?: string[]
+}
+
 export interface TopologySubnet {
   id: string
   name: string | null
   cidr: string | null
   is_public: boolean | null
   route_table_id?: string | null
-  workloads?: Array<{ id?: string; name?: string }>
+  workloads?: TopologyWorkload[]
+  nacl_ids?: string[]
 }
 
 export interface TopologyAZ {
   az: string
   subnets: TopologySubnet[]
+}
+
+export interface TopologyGateway {
+  id?: string
+  name?: string
+  service?: string | null
+}
+
+export interface TopologySG {
+  id?: string
+  name?: string
 }
 
 export interface TopologyVpc {
@@ -23,7 +42,10 @@ export interface TopologyVpc {
   cidr: string | null
   region: string | null
   azs: TopologyAZ[]
-  internet_gateways?: Array<{ id?: string; name?: string }>
+  internet_gateways?: TopologyGateway[]
+  vpc_endpoints?: TopologyGateway[]
+  security_groups?: TopologySG[]
+  nacls?: Array<{ id?: string; name?: string }>
 }
 
 export interface AwsTopology {
