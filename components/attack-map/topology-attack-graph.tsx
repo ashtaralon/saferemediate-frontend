@@ -1108,6 +1108,13 @@ function TopologyCanvas({
         // Tighter chip labels to reduce horizontal overlap when chips
         // cluster (e.g. multiple EC2 instances in one subnet box).
         const label = shortLabel(hop.name || hop.node_id, 16)
+        // Detect backend-synthesized hops. The /by-crown-jewel endpoint
+        // emits an "Internet" hop with id `internet:0.0.0.0/0` to denote
+        // egress destination — there's no matching :Internet node in
+        // Neo4j. Tag it so the operator never mistakes it for a real
+        // AWS resource.
+        const synthesized =
+          t === "internet" || (hop.node_id || "").startsWith("internet:")
         return (
           <NodeChip
             key={nodeId}
@@ -1118,6 +1125,7 @@ function TopologyCanvas({
             ring={ring}
             bright={true}
             crown={isJewel}
+            synthesized={synthesized}
           />
         )
       })}
@@ -1277,6 +1285,7 @@ function NodeChip({
   ring,
   bright,
   crown,
+  synthesized,
 }: {
   x: number
   y: number
@@ -1285,6 +1294,12 @@ function NodeChip({
   ring: string
   bright: boolean
   crown?: boolean
+  /** When true, the chip represents a backend-synthesized abstraction
+   *  (e.g. the "Internet" hop in by-crown-jewel responses — id
+   *  `internet:0.0.0.0/0`, no matching Neo4j node). Renders with a
+   *  dashed ring and a small "synth" tag so the operator never mistakes
+   *  it for a real AWS resource. */
+  synthesized?: boolean
 }) {
   const op = bright ? 1 : 0.35
   return (
@@ -1301,8 +1316,29 @@ function NodeChip({
           strokeDasharray="3 4"
         />
       ) : null}
-      <circle cx={x} cy={y} r={14} fill={T.surface2} stroke={ring} strokeWidth={1.6} />
+      <circle
+        cx={x}
+        cy={y}
+        r={14}
+        fill={T.surface2}
+        stroke={ring}
+        strokeWidth={1.6}
+        strokeDasharray={synthesized ? "2 2" : undefined}
+      />
       <IconGlyph x={x} y={y} kind={iconKind} color={ring} />
+      {synthesized ? (
+        <text
+          x={x}
+          y={y - 18}
+          textAnchor="middle"
+          fontSize={7.5}
+          fontWeight={700}
+          fill={T.textFaint}
+          style={{ letterSpacing: "0.08em" }}
+        >
+          SYNTH
+        </text>
+      ) : null}
       <text
         x={x}
         y={y + 26}
