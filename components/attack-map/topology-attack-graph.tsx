@@ -25,7 +25,7 @@
 // Data: real `CrownJewelConvergence` via useCrownJewelConvergence(). No mocks.
 // Missing data → honest empty/loading/error states per CLAUDE.md rule #1.
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type {
@@ -1169,10 +1169,11 @@ function TopologyCanvas({
                 />
               )
             })}
-            {/* Topology-level workloads from subnet.workloads[]. Muted unless
-               a path hop touches them. Their positions were assigned in the
-               positions[] block above so chip positioning here matches. */}
-            {vl.info.subnets.flatMap((sn) =>
+            {/* Topology-level workloads from subnet.workloads[]. Muted when
+               no path hop touches them. Hidden ENTIRELY when a single path
+               is selected — the canvas tells one clean story instead of
+               "everything that exists". */}
+            {selectedPathIdx == null && vl.info.subnets.flatMap((sn) =>
               (sn.workloads ?? []).map((w) => {
                 if (!w.id) return null
                 const inPath = pathHopIds.has(w.id)
@@ -1233,8 +1234,17 @@ function TopologyCanvas({
         </g>
       )}
 
-      {/* draw nodes — anchors come from positions[], ring color from real plane */}
-      {Object.entries(positions).map(([nodeId, p]) => {
+      {/* draw nodes — only chips on the selected path render bright. When
+         nothing's selected (rare — auto-select picks one on data load),
+         we render all path-touched chips. Topology-only chips (workloads
+         that aren't in any path) are rendered separately + muted under
+         the VPC-frame block; they're omitted entirely when a path is
+         selected so the canvas tells one clean story. */}
+      {(() => {
+        const selPath = selectedPathIdx != null ? data.paths[selectedPathIdx] : null
+        const visibleIds = selPath ? new Set(selPath.hops.map((h) => h.node_id)) : null
+        return Object.entries(positions).map(([nodeId, p]) => {
+        if (visibleIds && !visibleIds.has(nodeId)) return null
         const hop = data.paths.flatMap((pa) => pa.hops).find((h) => h.node_id === nodeId)
         if (!hop) return null
         const isJewel = hop.is_crown_jewel
@@ -1277,17 +1287,19 @@ function TopologyCanvas({
             synthesized={synthesized}
           />
         )
-      })}
+      })
+      })()}
 
       {/* edges — each path gets its own color so the operator can trace
-         which workload uses which IGW vs VPCE. Selected path gets full
-         opacity + thicker stroke; unselected paths dim. Configured-only
-         edges (no observed traffic) stay dashed regardless of color. */}
+         which workload uses which IGW vs VPCE. When a path is selected
+         we render ONLY that path so the canvas tells one clean story
+         (operator switches paths via the right rail). When nothing's
+         selected we render every path. */}
       {data.paths.map((p, i) => {
-        const dim = selectedPathIdx != null && selectedPathIdx !== i
+        if (selectedPathIdx != null && selectedPathIdx !== i) return null
         const obs = p.confidence === "observed"
         const color = pathColor(i)
-        const op = dim ? 0.08 : obs ? 0.95 : 0.65
+        const op = obs ? 0.95 : 0.65
         const sw = selectedPathIdx === i ? 3.5 : obs ? 2.4 : 1.6
         return p.hops.slice(0, -1).map((h, j) => {
           const a = positions[h.node_id]
@@ -1766,6 +1778,29 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
   const [selectedPathIdx, setSelectedPathIdx] = useState<number | null>(null)
   const { data, loading, error, retry } = useCrownJewelConvergence(systemName, selectedJewel)
   const { data: topology, error: topologyError } = useAwsTopology(systemName)
+
+  // Auto-select the highest-severity path on data load so the canvas
+  // shows ONE clean flow by default instead of all paths crisscrossing.
+  // The right rail acts as the table of contents; clicking a path
+  // switches the canvas to that path's chain. Resets to null when the
+  // jewel changes so we re-pick from the new path set.
+  useEffect(() => {
+    if (selectedPathIdx !== null) return
+    if (!data || !data.paths || data.paths.length === 0) return
+    // Pick the path with the highest backend severity. severity is a
+    // numeric string per backend contract; fall back to index 0.
+    let bestIdx = 0
+    let bestSev = -Infinity
+    data.paths.forEach((p, i) => {
+      const raw = (p as unknown as { severity?: unknown }).severity
+      const num = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : NaN
+      if (Number.isFinite(num) && num > bestSev) {
+        bestSev = num
+        bestIdx = i
+      }
+    })
+    setSelectedPathIdx(bestIdx)
+  }, [data, selectedPathIdx])
 
   return (
     <div
