@@ -1078,9 +1078,16 @@ function ModeToggle({
           </button>
         ))}
       </div>
-      {/* Quiet context — mode descriptions live in the tab tooltips. */}
+      {/* Quiet context — mode descriptions live in the tab tooltips. The
+         path count is suppressed in topology mode because the canvas
+         displays its own count from /by-crown-jewel (different endpoint,
+         different number). Showing both invites confusion. */}
       <div className="text-[10px] text-muted-foreground min-w-0 truncate flex-1">
-        {jewelName ? `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}` : null}
+        {jewelName
+          ? mode === "topology"
+            ? jewelName
+            : `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}`
+          : null}
       </div>
       <button
         onClick={onToggleExpand}
