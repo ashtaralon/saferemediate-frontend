@@ -1190,7 +1190,7 @@ function SubnetLane({
       ? "rgba(58,110,165,0.07)"
       : "rgba(140,140,140,0.04)"
   const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "VISIBILITY UNKNOWN"
-  const name = shortLabel(subnet.name || subnet.id, 28)
+  const name = shortLabel(subnet.name || subnet.id, 38)
   const cidr = subnet.cidr ? ` · ${subnet.cidr}` : ""
   const rt = subnet.route_table_id
   return (
@@ -1344,7 +1344,7 @@ function CrownJewelRail({
             }}
           >
             <div className="flex items-center gap-2">
-              <span className="text-[15px]">🪣</span>
+              <RailJewelIcon type={j.type} color={sevColor} />
               <span className="flex-1 truncate font-mono text-[11px] leading-tight" style={{ wordBreak: "break-all" }}>
                 {j.name || j.id}
               </span>
@@ -1364,6 +1364,30 @@ function CrownJewelRail({
         <code> SECURED_BY</code> → SG group, <code>ROUTES_VIA</code> → VPCE.
       </div>
     </nav>
+  )
+}
+
+/** Small inline-SVG icon for the crown-jewel rail cards. Wraps <IconGlyph>
+ *  inside an HTML-embeddable 18×18 SVG so the rail (HTML, not SVG canvas)
+ *  can render the same icon vocabulary the canvas uses. */
+function RailJewelIcon({ type, color }: { type: string; color: string }) {
+  const t = (type || "").toUpperCase().replace(/\s+/g, "")
+  const kind: IconKind =
+    t.includes("S3") ? "s3"
+      : t.includes("KMS") ? "kms"
+      : t.includes("DYNAMO") ? "dynamodb"
+      : t.includes("RDS") || t.includes("AURORA") ? "rds"
+      : t.includes("SECRET") ? "secret"
+      : "generic"
+  return (
+    <svg
+      width={18}
+      height={18}
+      viewBox="-9 -9 18 18"
+      style={{ display: "inline-block", flex: "0 0 auto" }}
+    >
+      <IconGlyph x={0} y={0} kind={kind} color={color} />
+    </svg>
   )
 }
 
