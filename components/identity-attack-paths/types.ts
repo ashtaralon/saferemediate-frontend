@@ -571,6 +571,56 @@ export interface PathEdgeDetail {
   hit_count?: number
 }
 
+/** ATT&CK-style Initial Access category — how an attacker first reaches
+ *  the workload/identity that starts an attack path. Categories follow
+ *  alon@2026-06-20 taxonomy; backend authoritative source is the
+ *  `initial_access_classifier.py` that writes (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->().
+ *
+ *  Mapping to AWS surfaces:
+ *    LEAKED_ACCESS_KEY        — IAM long-term key in code/Slack/repo
+ *    IMDS_CREDENTIAL_THEFT    — EC2 IMDSv1 + reachable workload SSRF
+ *    EXPOSED_S3_BUCKET        — bucket policy/ACL allows anonymous
+ *    EXPOSED_RDS_SNAPSHOT     — public RDS / EBS snapshot
+ *    EXPOSED_K8S_WORKLOAD     — EKS/Fargate public ingress
+ *    EXPOSED_ECR_IMAGE        — public ECR registry
+ *    EXPOSED_WORKLOAD_RCE     — Lambda URL / ALB-fronted workload reachable to internet
+ *    COGNITO_OR_FEDERATED_IDP — OIDC/SAML/Cognito trust path
+ *    CONSOLE_OR_CLOUDSHELL    — human session via AWS Console / CloudShell
+ *    CROSS_ACCOUNT_TRUST      — role trusts external AWS account
+ *    UNKNOWN                  — no identified initial access in graph today (honest)
+ */
+export type InitialAccessCategory =
+  | "LEAKED_ACCESS_KEY"
+  | "IMDS_CREDENTIAL_THEFT"
+  | "EXPOSED_S3_BUCKET"
+  | "EXPOSED_RDS_SNAPSHOT"
+  | "EXPOSED_K8S_WORKLOAD"
+  | "EXPOSED_ECR_IMAGE"
+  | "EXPOSED_WORKLOAD_RCE"
+  | "COGNITO_OR_FEDERATED_IDP"
+  | "CONSOLE_OR_CLOUDSHELL"
+  | "CROSS_ACCOUNT_TRUST"
+  | "UNKNOWN"
+
+/** Backend-emitted Initial Access classification per attack path.
+ *  Single source of truth lives in Neo4j as INITIAL_ACCESS_VIA edge.
+ *  FE falls back to inline derivation from node enrichment when this
+ *  field is absent (migration window before BE-A.2 lands). */
+export interface InitialAccess {
+  category: InitialAccessCategory
+  /** Node id of the pivot — the chip the attacker first lands on
+   *  (workload, IDP, console session, external account). Null when
+   *  category is UNKNOWN or category is identity-level (e.g. leaked key). */
+  pivot_node_id?: string | null
+  /** Plain-English attacker narrative — one sentence. */
+  attacker_narrative?: string | null
+  /** observed = CloudTrail-evidenced; config = graph-state-derived;
+   *  inferred = heuristic match (e.g. IMDSv1 + public IP). */
+  confidence?: "observed" | "config" | "inferred"
+  /** Structured evidence facts — schema depends on category. */
+  evidence?: Record<string, unknown>
+}
+
 export interface IdentityAttackPath {
   id: string
   /** Neo4j :AttackPath id (sha256). Closure-preview expects this, not `id`. */
@@ -586,6 +636,12 @@ export interface IdentityAttackPath {
   lanes?: LaneDefinition[]
   risk_reduction?: RiskReduction | null
   target_blast_radius?: TargetBlastRadius | null
+  /** ATT&CK Initial Access classification (alon@2026-06-20). Backend
+   *  authoritative source: classifiers/initial_access_classifier.py
+   *  writes (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->(). Optional —
+   *  FE falls back to inline derivation from node enrichment until
+   *  the backend classifier ships. */
+  initial_access?: InitialAccess | null
   // Phase 0: classifies path as identity / network / hybrid / configured.
   // Replaces the old hard filter that dropped non-identity paths.
   path_kind_tag?: "identity" | "network" | "hybrid" | "configured"
