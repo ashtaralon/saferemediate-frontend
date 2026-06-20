@@ -414,7 +414,26 @@ export interface PathNodeDetail {
   // two cases: when this node IS a Subnet (its own classification), and
   // when this node is an EC2/Lambda (the public flag of its containing
   // subnet, surfaced inline to save a round-trip). null = unknown.
+  // @deprecated since 2026-06-20 (BE-A.1) — prefer subnet_ingress_class
+  // for the typed 4-state classification. is_public collapses 4 states
+  // into 1 bit; readers should migrate.
   subnet_is_public?: boolean | null
+  /** Typed ingress posture of the subnet this node sits in (or its own
+   *  for Subnet nodes). Mirrors `IngressClass` from use-aws-topology;
+   *  written by `classifiers/ingress_classifier.py` and surfaced via
+   *  BE-A.1 (api/identity_attack_paths.py:_enrich_subnet_typed_classes).
+   *  Drives `classifyInitialAccess()` — `PUBLIC_INGRESS` on an EC2
+   *  workload → `IMDS_CREDENTIAL_THEFT` Initial Access category. */
+  subnet_ingress_class?:
+    | "PUBLIC_INGRESS"
+    | "ELB_FACING"
+    | "PRIVATE"
+    | "UNKNOWN"
+    | null
+  /** Typed egress mechanisms of the subnet this node sits in. Mirrors
+   *  `EgressClass[]` from use-aws-topology. List because a subnet can
+   *  carry multiple egress paths (e.g. IGW_DIRECT + VPC_ENDPOINT_ONLY). */
+  subnet_egress_classes?: string[] | null
   // NetworkEndpoint enrichment (org, country, asn, AWS service hint).
   ip_metadata?: {
     kind?: "internal" | "aws" | "external" | "unknown"

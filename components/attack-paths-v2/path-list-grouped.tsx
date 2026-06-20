@@ -147,24 +147,33 @@ function classifyInitialAccess(path: IdentityAttackPath): InitialAccessCategory 
   }
 
   // IMDS_CREDENTIAL_THEFT — EC2 workload reachable from the internet.
-  // Reachability today via either is_internet_exposed (workload signal)
-  // OR subnet_is_public (inherited from the subnet classifier).
+  // BE-A.1 (2026-06-20) added subnet_ingress_class as the typed signal
+  // sourced from HAS_INGRESS_CLASS edges. We prefer it because it
+  // distinguishes PUBLIC_INGRESS (real triple match: IGW + public IP +
+  // open SG) from a subnet that merely routes via an IGW but has no
+  // actual ingress posture. Falls back to is_internet_exposed /
+  // subnet_is_public on responses that pre-date the BE-A.1 deploy.
   const wType = (workload?.type || "").toLowerCase()
-  if (wType.includes("ec2") &&
-      (workload?.is_internet_exposed === true || workload?.subnet_is_public === true)) {
+  const subnetIngress = workload?.subnet_ingress_class
+  const reachable =
+    subnetIngress === "PUBLIC_INGRESS" ||
+    subnetIngress === "ELB_FACING" ||
+    workload?.is_internet_exposed === true ||
+    workload?.subnet_is_public === true
+  if (wType.includes("ec2") && reachable) {
     return "IMDS_CREDENTIAL_THEFT"
   }
 
   // EXPOSED_K8S_WORKLOAD — EKS / Fargate / ECS container reachable.
   if ((wType.includes("eks") || wType.includes("fargate") ||
        wType.includes("ecs") || wType.includes("container")) &&
-      workload?.is_internet_exposed === true) {
+      reachable) {
     return "EXPOSED_K8S_WORKLOAD"
   }
 
   // EXPOSED_WORKLOAD_RCE — any other workload (Lambda URL, etc.)
   // reachable from the internet.
-  if (workload?.is_internet_exposed === true) return "EXPOSED_WORKLOAD_RCE"
+  if (reachable) return "EXPOSED_WORKLOAD_RCE"
 
   // No identified initial access in current graph state — honest.
   return "UNKNOWN"
