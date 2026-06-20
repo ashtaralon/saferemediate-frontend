@@ -21,6 +21,10 @@ export interface TopologySubnet {
   az?: string | null
   route_table_id?: string | null
   workloads?: TopologyWorkload[]
+  /** Backend currently emits `nacl_id` (singular, first NACL only, may be
+   *  null). Plural `nacl_ids` is reserved for a future multi-NACL response.
+   *  Readers should accept either. */
+  nacl_id?: string | null
   nacl_ids?: string[]
 }
 
