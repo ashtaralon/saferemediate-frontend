@@ -1499,6 +1499,105 @@ function Container({ x, y, w, h, stroke, label }: { x: number; y: number; w: num
   )
 }
 
+/** Map an ingress class to its display attributes. Single source of
+ *  truth for how the FE renders each enum value; readers of `ingress_class`
+ *  go through this function so future polish (icon, tooltip copy) stays
+ *  centralised. Falls back to is_public bool when the backend hasn't
+ *  emitted `ingress_class` yet (old API). */
+function ingressDisplay(
+  ingressClass: string | null | undefined,
+  isPublicCompat: boolean | null,
+): { label: string; color: string; tint: string; warn: boolean } {
+  const cls =
+    ingressClass ??
+    (isPublicCompat === true
+      ? "PUBLIC_INGRESS"
+      : isPublicCompat === false
+        ? "PRIVATE"
+        : "UNKNOWN")
+  switch (cls) {
+    case "PUBLIC_INGRESS":
+      return {
+        label: "PUBLIC",
+        color: T.sevCritical,
+        tint: "rgba(229,72,77,0.10)",
+        warn: true,
+      }
+    case "ELB_FACING":
+      return {
+        label: "ELB-FACING",
+        color: T.sevHigh,
+        tint: "rgba(245,128,62,0.10)",
+        warn: false,
+      }
+    case "PRIVATE":
+      return {
+        label: "PRIVATE",
+        color: T.privateLane,
+        tint: "rgba(58,110,165,0.08)",
+        warn: false,
+      }
+    case "UNKNOWN":
+    default:
+      return {
+        label: "?",
+        color: T.textFaint,
+        tint: "rgba(140,140,140,0.05)",
+        warn: false,
+      }
+  }
+}
+
+/** Short, monospace label for the egress mechanism. Plural input —
+ *  shown joined when a subnet has multiple egress paths. Empty / missing
+ *  on old backend responses → returns null so the chip is omitted. */
+function egressDisplay(
+  classes: string[] | null | undefined,
+): { label: string; color: string } | null {
+  if (!classes || classes.length === 0) return null
+  // Pick the highest-risk class to color the chip; the label shows all.
+  const riskOrder = [
+    "IGW_DIRECT",
+    "NAT_INSTANCE",
+    "FORWARD_PROXY",
+    "EGRESS_FIREWALL",
+    "NAT_GATEWAY",
+    "TRANSIT_GATEWAY_EGRESS",
+    "VPN_OR_DX_EGRESS",
+    "IPV6_EGRESS_ONLY_IGW",
+    "VPC_ENDPOINT_ONLY",
+    "NO_EGRESS",
+    "UNKNOWN",
+  ]
+  const top = riskOrder.find((c) => classes.includes(c)) ?? classes[0]
+  const color =
+    top === "IGW_DIRECT" || top === "NAT_INSTANCE" || top === "FORWARD_PROXY"
+      ? T.sevHigh
+      : top === "NAT_GATEWAY" || top === "EGRESS_FIREWALL"
+        ? T.sevMedium
+        : top === "VPC_ENDPOINT_ONLY"
+          ? T.observed
+          : top === "NO_EGRESS"
+            ? T.textFaint
+            : T.sevLow
+  // Compact label: each class abbreviated to the chip width budget.
+  const ABBREV: Record<string, string> = {
+    IGW_DIRECT: "IGW",
+    NAT_GATEWAY: "NAT-GW",
+    NAT_INSTANCE: "NAT-EC2",
+    EGRESS_FIREWALL: "FW",
+    FORWARD_PROXY: "PROXY",
+    TRANSIT_GATEWAY_EGRESS: "TGW",
+    VPN_OR_DX_EGRESS: "VPN/DX",
+    IPV6_EGRESS_ONLY_IGW: "v6-IGW",
+    VPC_ENDPOINT_ONLY: "VPCE",
+    NO_EGRESS: "NO-EGRESS",
+    UNKNOWN: "?",
+  }
+  const label = classes.map((c) => ABBREV[c] ?? c).join(" + ")
+  return { label, color }
+}
+
 function SubnetLane({
   x,
   y,
@@ -1512,20 +1611,28 @@ function SubnetLane({
   h: number
   subnet: TopologySubnet
 }) {
-  const isPublic = subnet.is_public === true
-  const isPrivate = subnet.is_public === false
-  const color = isPublic ? T.publicLane : isPrivate ? T.privateLane : T.textFaint
-  const tint = isPublic
-    ? "rgba(79,174,111,0.08)"
-    : isPrivate
-      ? "rgba(58,110,165,0.06)"
-      : "rgba(140,140,140,0.04)"
-  // Visual encoding for visibility: solid border = public (high security
-  // signal, must be visible), dashed = private (the safe state — quieter),
-  // dotted = unknown (honest about missing route-table evidence).
-  const strokeDash = isPublic ? undefined : isPrivate ? "5 4" : "2 3"
-  const strokeWidth = isPublic ? 1.4 : 1
-  const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "?"
+  // Migration window readers:
+  //   - `subnet.ingress_class` + `subnet.egress_classes` are the new
+  //     model-level signals (backend PR #163, classifier PR #162).
+  //   - `subnet.is_public` is the 1-bit legacy compat field.
+  // ingressDisplay() falls back to is_public when the new field is
+  // absent, so this code works against both old and new backends.
+  const ingress = ingressDisplay(subnet.ingress_class, subnet.is_public)
+  const egress = egressDisplay(
+    (subnet.egress_classes as string[] | null | undefined) ?? null,
+  )
+  const color = ingress.color
+  const tint = ingress.tint
+  // Visual encoding for visibility: solid border = exposed (must be
+  // visible), dashed = private (quieter), dotted = unknown.
+  const strokeDash =
+    ingress.label === "PUBLIC" || ingress.label === "ELB-FACING"
+      ? undefined
+      : ingress.label === "PRIVATE"
+        ? "5 4"
+        : "2 3"
+  const strokeWidth = ingress.warn ? 1.6 : ingress.label === "PRIVATE" ? 1 : 1
+  const kindLabel = ingress.label
   const name = shortLabel(subnet.name || subnet.id, 32)
   const cidr = subnet.cidr ? subnet.cidr : ""
   const rt = subnet.route_table_id
@@ -1534,9 +1641,10 @@ function SubnetLane({
   const nacl =
     (subnet as unknown as { nacl_id?: string | null }).nacl_id ??
     (subnet.nacl_ids && subnet.nacl_ids.length > 0 ? subnet.nacl_ids[0] : null)
-  // Pill geometry — visibility pill on the LEFT of the header so the public/
-  // private read is the first thing the operator sees.
-  const pillW = isPublic ? 48 : isPrivate ? 54 : 22
+  // Pill geometry — ingress pill on the LEFT of the header so the
+  // exposure read is the first thing the operator sees. Width scales
+  // with label length so PUBLIC, ELB-FACING and PRIVATE all fit.
+  const pillW = kindLabel.length * 7 + 14
   const pillX = x + 8
   const pillY = y + 4
   // RT + NACL chips on the RIGHT of the header — stacked vertically when
@@ -1559,7 +1667,9 @@ function SubnetLane({
         strokeOpacity={0.7}
         strokeDasharray={strokeDash}
       />
-      {/* Visibility pill — left of header, real boolean from is_public */}
+      {/* Ingress pill — left of header. Color + label come from the
+         backend ingress_class enum (PUBLIC_INGRESS / ELB_FACING /
+         PRIVATE / UNKNOWN) with fallback to is_public bool for compat. */}
       <rect
         x={pillX}
         y={pillY}
@@ -1567,7 +1677,7 @@ function SubnetLane({
         height={13}
         rx={6.5}
         fill={color}
-        fillOpacity={isPublic ? 0.28 : 0.18}
+        fillOpacity={ingress.warn ? 0.32 : 0.18}
         stroke={color}
         strokeWidth={0.8}
         strokeOpacity={0.7}
@@ -1583,30 +1693,68 @@ function SubnetLane({
       >
         {kindLabel}
       </text>
-      {/* Subnet name + CIDR — right after the pill */}
-      <text
-        x={pillX + pillW + 8}
-        y={pillY + 10}
-        fontSize={9.5}
-        fontWeight={600}
-        fill={T.text}
-        fillOpacity={0.92}
-        fontFamily="ui-monospace,monospace"
-      >
-        {name}
-      </text>
-      {cidr ? (
-        <text
-          x={pillX + pillW + 8}
-          y={pillY + 22}
-          fontSize={8.6}
-          fontWeight={500}
-          fill={T.textMuted}
-          fontFamily="ui-monospace,monospace"
-        >
-          {cidr}
-        </text>
+      {/* Egress chip — sits next to the ingress pill. Honest about the
+         specific mechanism (IGW vs NAT-GW vs VPCE vs ...). Omitted
+         entirely on old backend responses (egress_classes absent). */}
+      {egress ? (
+        <>
+          <rect
+            x={pillX + pillW + 6}
+            y={pillY}
+            width={egress.label.length * 5.5 + 16}
+            height={13}
+            rx={3}
+            fill={egress.color}
+            fillOpacity={0.14}
+            stroke={egress.color}
+            strokeWidth={0.7}
+            strokeOpacity={0.55}
+          />
+          <text
+            x={pillX + pillW + 14}
+            y={pillY + 10}
+            fontSize={8.4}
+            fontWeight={600}
+            fill={egress.color}
+            fontFamily="ui-monospace,monospace"
+            style={{ letterSpacing: "0.04em" }}
+          >
+            via {egress.label}
+          </text>
+        </>
       ) : null}
+      {/* Subnet name + CIDR — right after the pill + egress chip. */}
+      {(() => {
+        const nameX =
+          pillX + pillW + 8 + (egress ? egress.label.length * 5.5 + 22 : 0)
+        return (
+          <>
+            <text
+              x={nameX}
+              y={pillY + 10}
+              fontSize={9.5}
+              fontWeight={600}
+              fill={T.text}
+              fillOpacity={0.92}
+              fontFamily="ui-monospace,monospace"
+            >
+              {name}
+            </text>
+            {cidr ? (
+              <text
+                x={nameX}
+                y={pillY + 22}
+                fontSize={8.6}
+                fontWeight={500}
+                fill={T.textMuted}
+                fontFamily="ui-monospace,monospace"
+              >
+                {cidr}
+              </text>
+            ) : null}
+          </>
+        )
+      })()}
       {/* Route table chip — real :Subnet.route_table_id from topology-aws.
          Stacked top-right above the NACL chip so both subnet-level controls
          (routing + L4 ACL) sit together where the operator looks for
