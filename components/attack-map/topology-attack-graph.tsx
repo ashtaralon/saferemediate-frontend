@@ -323,6 +323,79 @@ function pathSeverityNumber(p: ConvergencePath): number | null {
   return null
 }
 
+// ─── narrative step model (kill-chain strip) ──────────────────────────────
+/** Plain-English verbs for the real Neo4j edge types we render. Used by
+ *  the narrative strip to translate `edge_type_from_prev` into readable
+ *  step labels. Unknown edges fall through to a lowercased version of
+ *  the raw type so the operator still sees something honest. */
+const EDGE_VERBS: Record<string, string> = {
+  IN_SUBNET: "in subnet",
+  ASSOCIATED_WITH: "via NACL",
+  ROUTES_VIA: "routes via",
+  REACHES: "reachable from",
+  HAS_INSTANCE_PROFILE: "wears profile",
+  USES_ROLE: "as IAM role",
+  SECURED_BY: "behind SG",
+  HAS_POLICY: "with policy",
+  ACCESSES_RESOURCE: "reads",
+  EXFILTRATES_VIA: "exfils via",
+  TRUSTS: "trusts",
+  CAN_ASSUME: "can assume",
+  HAS_PROFILE: "owns profile",
+}
+
+function semanticVerb(edgeType: string | null | undefined): string {
+  if (!edgeType) return "step"
+  const clean = edgeType.replace(/^~/, "")
+  return EDGE_VERBS[clean] ?? edgeType.toLowerCase().replace(/_/g, " ")
+}
+
+type NarrativeLayer = "ENTRY" | "NETWORK" | "IDENTITY" | "DATA"
+
+function narrativeLayer(h: ConvergenceHop): NarrativeLayer {
+  if (h.is_crown_jewel) return "DATA"
+  const plane = (h.plane || "").toLowerCase()
+  if (plane === "identity") return "IDENTITY"
+  if (plane === "data") return "DATA"
+  const t = (h.node_type || "").toLowerCase()
+  if (t === "internet") return "ENTRY"
+  return "NETWORK"
+}
+
+interface NarrativeStep {
+  ordinal: number
+  iconKind: IconKind
+  verb: string
+  subject: string
+  targetNodeId: string
+  layer: NarrativeLayer
+}
+
+/** Walk a path's hops, returning one narrative step per hop. Step #1 is
+ *  always labeled "START" because there's no prior hop to derive an edge
+ *  verb from. Every subsequent verb comes straight from the hop's real
+ *  `edge_type_from_prev`. */
+function buildNarrative(path: ConvergencePath): NarrativeStep[] {
+  return path.hops.map((h, i) => ({
+    ordinal: i + 1,
+    iconKind: hopIconKind(h),
+    verb: i === 0 ? "START" : semanticVerb(h.edge_type_from_prev),
+    subject: h.name || h.node_id,
+    targetNodeId: h.node_id,
+    layer: narrativeLayer(h),
+  }))
+}
+
+function narrativeLayerColor(l: NarrativeLayer): string {
+  return l === "ENTRY"
+    ? T.aws
+    : l === "NETWORK"
+      ? T.region
+      : l === "IDENTITY"
+        ? T.identity
+        : T.sevCritical
+}
+
 /** Mapping from real severity number to a tier label. Threshold cutoffs
  *  are a product config, NOT data — kept explicit + commented so anyone
  *  changing them knows what they're doing. When the backend value is
@@ -519,11 +592,16 @@ function TopologyCanvas({
   data,
   selectedPathIdx,
   topology,
+  pulsedNodeId,
 }: {
   jewel: CrownJewelSummary
   data: { paths: ConvergencePath[] }
   selectedPathIdx: number | null
   topology: AwsTopology | null
+  /** Hop id currently hovered/clicked in the narrative strip. When set,
+   *  the matching chip on the canvas gets a pulsing ring so the operator
+   *  can see which architectural element a narrative step refers to. */
+  pulsedNodeId: string | null
 }) {
   const containment = useMemo(
     () => deriveContainment(data.paths, topology),
@@ -693,7 +771,7 @@ function TopologyCanvas({
         azBoxes.push({ az: col.az, x: colX, y: colY, w: colW - 4, h: innerH })
         const nSubnets = col.subnets.length
         if (nSubnets === 0) return
-        const laneH = Math.max(54, Math.floor(innerH / nSubnets))
+        const laneH = Math.max(72, Math.floor(innerH / nSubnets))
         col.subnets.forEach((sn, si) => {
           subnetBoxes.set(sn.id, {
             x: colX + 4,
@@ -806,7 +884,7 @@ function TopologyCanvas({
         const colsW = 4
         const strideW = Math.max(80, Math.floor((box.w - 50) / colsW))
         const startX = box.x + 32
-        const startY = box.y + 36
+        const startY = box.y + 46
         topoWorkloads.forEach((w, i) => {
           const id = w.id
           if (!id) return
@@ -1096,7 +1174,7 @@ function TopologyCanvas({
                     {col.subnets.length > 0 ? (
                       col.subnets.map((sn, si) => {
                         const laneH = Math.max(
-                          54,
+                          72,
                           Math.floor(innerH / col.subnets.length),
                         )
                         return (
@@ -1125,7 +1203,23 @@ function TopologyCanvas({
                 )
               })
             })()}
-            {/* identity band label */}
+            {/* IDENTITY lane — dedicated band at the bottom of each VPC
+               for InstanceProfile / IAMRole chips. The tinted background
+               makes the identity layer visually distinct from the network
+               layer above it, so the role chips don't read as "extra
+               clutter at the bottom of the canvas". */}
+            <rect
+              x={vl.x + 8}
+              y={vl.y + vl.h - 36}
+              width={vl.w - 16}
+              height={28}
+              rx={4}
+              fill="rgba(199,146,234,0.08)"
+              stroke={T.identity}
+              strokeWidth={1}
+              strokeOpacity={0.45}
+              strokeDasharray="3 4"
+            />
             <text
               x={vl.x + 14}
               y={vl.y + vl.h - 24}
@@ -1362,6 +1456,27 @@ function TopologyCanvas({
           )
         })
       })}
+
+      {/* Pulse ring — driven by the narrative strip's hover/click. When a
+         step in the kill chain is focused the matching chip gets an
+         animated ring so the operator can see where in the topology the
+         narrative is pointing. No-op when nothing is pulsed. */}
+      {pulsedNodeId && positions[pulsedNodeId] ? (
+        <g>
+          <circle
+            cx={positions[pulsedNodeId].x}
+            cy={positions[pulsedNodeId].y}
+            r={20}
+            fill="none"
+            stroke={T.accent}
+            strokeWidth={2}
+            strokeOpacity={0.85}
+          >
+            <animate attributeName="r" from={18} to={36} dur="1.2s" repeatCount="indefinite" />
+            <animate attributeName="stroke-opacity" from={0.9} to={0} dur="1.2s" repeatCount="indefinite" />
+          </circle>
+        </g>
+      ) : null}
     </svg>
   )
 }
@@ -1401,14 +1516,35 @@ function SubnetLane({
   const isPrivate = subnet.is_public === false
   const color = isPublic ? T.publicLane : isPrivate ? T.privateLane : T.textFaint
   const tint = isPublic
-    ? "rgba(79,174,111,0.06)"
+    ? "rgba(79,174,111,0.08)"
     : isPrivate
-      ? "rgba(58,110,165,0.07)"
+      ? "rgba(58,110,165,0.06)"
       : "rgba(140,140,140,0.04)"
-  const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "VISIBILITY UNKNOWN"
-  const name = shortLabel(subnet.name || subnet.id, 38)
-  const cidr = subnet.cidr ? ` · ${subnet.cidr}` : ""
+  // Visual encoding for visibility: solid border = public (high security
+  // signal, must be visible), dashed = private (the safe state — quieter),
+  // dotted = unknown (honest about missing route-table evidence).
+  const strokeDash = isPublic ? undefined : isPrivate ? "5 4" : "2 3"
+  const strokeWidth = isPublic ? 1.4 : 1
+  const kindLabel = isPublic ? "PUBLIC" : isPrivate ? "PRIVATE" : "?"
+  const name = shortLabel(subnet.name || subnet.id, 32)
+  const cidr = subnet.cidr ? subnet.cidr : ""
   const rt = subnet.route_table_id
+  // Backend emits singular `nacl_id` (first NACL only); accept plural too
+  // for forward compatibility when backend gains multi-NACL support.
+  const nacl =
+    (subnet as unknown as { nacl_id?: string | null }).nacl_id ??
+    (subnet.nacl_ids && subnet.nacl_ids.length > 0 ? subnet.nacl_ids[0] : null)
+  // Pill geometry — visibility pill on the LEFT of the header so the public/
+  // private read is the first thing the operator sees.
+  const pillW = isPublic ? 48 : isPrivate ? 54 : 22
+  const pillX = x + 8
+  const pillY = y + 4
+  // RT + NACL chips on the RIGHT of the header — stacked vertically when
+  // both are present so they don't overflow.
+  const rightChipW = 108
+  const rightChipX = x + w - rightChipW - 6
+  const rtY = y + 4
+  const naclY = rt ? y + 22 : y + 4
   return (
     <g>
       <rect
@@ -1419,29 +1555,68 @@ function SubnetLane({
         rx={6}
         fill={tint}
         stroke={color}
-        strokeWidth={1}
-        strokeOpacity={0.5}
+        strokeWidth={strokeWidth}
+        strokeOpacity={0.7}
+        strokeDasharray={strokeDash}
+      />
+      {/* Visibility pill — left of header, real boolean from is_public */}
+      <rect
+        x={pillX}
+        y={pillY}
+        width={pillW}
+        height={13}
+        rx={6.5}
+        fill={color}
+        fillOpacity={isPublic ? 0.28 : 0.18}
+        stroke={color}
+        strokeWidth={0.8}
+        strokeOpacity={0.7}
       />
       <text
-        x={x + 10}
-        y={y + 14}
-        fontSize={9.5}
+        x={pillX + pillW / 2}
+        y={pillY + 10}
+        textAnchor="middle"
+        fontSize={8.8}
         fontWeight={700}
         fill={color}
-        style={{ letterSpacing: "0.04em" }}
+        style={{ letterSpacing: "0.08em" }}
       >
-        {kindLabel} · {name}
-        {cidr}
+        {kindLabel}
       </text>
-      {/* Route table tag — real :Subnet.route_table_id from topology-aws.
-         Rendered at the top-right of the subnet box so it reads as "this
-         subnet's RT" without competing with the workload chips inside. */}
+      {/* Subnet name + CIDR — right after the pill */}
+      <text
+        x={pillX + pillW + 8}
+        y={pillY + 10}
+        fontSize={9.5}
+        fontWeight={600}
+        fill={T.text}
+        fillOpacity={0.92}
+        fontFamily="ui-monospace,monospace"
+      >
+        {name}
+      </text>
+      {cidr ? (
+        <text
+          x={pillX + pillW + 8}
+          y={pillY + 22}
+          fontSize={8.6}
+          fontWeight={500}
+          fill={T.textMuted}
+          fontFamily="ui-monospace,monospace"
+        >
+          {cidr}
+        </text>
+      ) : null}
+      {/* Route table chip — real :Subnet.route_table_id from topology-aws.
+         Stacked top-right above the NACL chip so both subnet-level controls
+         (routing + L4 ACL) sit together where the operator looks for
+         network posture without competing with workload chips inside. */}
       {rt ? (
         <g>
           <rect
-            x={x + w - 116}
-            y={y + 4}
-            width={108}
+            x={rightChipX}
+            y={rtY}
+            width={rightChipW}
             height={14}
             rx={3}
             fill="rgba(76,141,255,0.10)"
@@ -1449,16 +1624,45 @@ function SubnetLane({
             strokeWidth={0.8}
             strokeOpacity={0.55}
           />
-          <IconGlyph x={x + w - 105} y={y + 11} kind="routetable" color={T.sevLow} />
+          <IconGlyph x={rightChipX + 11} y={rtY + 7} kind="routetable" color={T.sevLow} />
           <text
-            x={x + w - 92}
-            y={y + 14}
+            x={rightChipX + 24}
+            y={rtY + 10}
             fontSize={8.6}
             fontWeight={600}
             fill={T.sevLow}
             fontFamily="ui-monospace,monospace"
           >
             RT · {shortLabel(rt, 14)}
+          </text>
+        </g>
+      ) : null}
+      {/* NACL chip — real :Subnet.nacl_ids[0] from topology-aws. NACLs are
+         a subnet-level control, so they live in the subnet header beside
+         the route table rather than as separate canvas chips. */}
+      {nacl ? (
+        <g>
+          <rect
+            x={rightChipX}
+            y={naclY}
+            width={rightChipW}
+            height={14}
+            rx={3}
+            fill="rgba(255,107,170,0.08)"
+            stroke={T.identity}
+            strokeWidth={0.8}
+            strokeOpacity={0.55}
+          />
+          <IconGlyph x={rightChipX + 11} y={naclY + 7} kind="nacl" color={T.identity} />
+          <text
+            x={rightChipX + 24}
+            y={naclY + 10}
+            fontSize={8.6}
+            fontWeight={600}
+            fill={T.identity}
+            fontFamily="ui-monospace,monospace"
+          >
+            NACL · {shortLabel(nacl, 12)}
           </text>
         </g>
       ) : null}
@@ -1763,6 +1967,102 @@ function PathRail({
   )
 }
 
+// ─── narrative strip (numbered kill chain across the top of the canvas) ──
+function NarrativeStrip({
+  path,
+  onPulse,
+}: {
+  path: ConvergencePath | null
+  onPulse: (nodeId: string | null) => void
+}) {
+  const steps = useMemo<NarrativeStep[]>(
+    () => (path ? buildNarrative(path) : []),
+    [path],
+  )
+  if (!path) {
+    return (
+      <div
+        className="px-4 py-2 text-[10.5px]"
+        style={{
+          color: T.textFaint,
+          background: "rgba(13,27,42,0.55)",
+          borderBottom: `1px solid ${T.border}`,
+        }}
+      >
+        Pick a path on the right rail to see its kill chain.
+      </div>
+    )
+  }
+  return (
+    <div
+      className="flex items-stretch gap-2 px-3 py-2 overflow-x-auto"
+      style={{
+        background: "rgba(13,27,42,0.55)",
+        borderBottom: `1px solid ${T.border}`,
+      }}
+    >
+      {steps.map((s, i) => {
+        const color = narrativeLayerColor(s.layer)
+        return (
+          <button
+            key={`${s.targetNodeId}-${i}`}
+            type="button"
+            onMouseEnter={() => onPulse(s.targetNodeId)}
+            onMouseLeave={() => onPulse(null)}
+            onFocus={() => onPulse(s.targetNodeId)}
+            onBlur={() => onPulse(null)}
+            onClick={() => onPulse(s.targetNodeId)}
+            className="flex-shrink-0 rounded text-left transition-colors hover:bg-white/5"
+            style={{
+              borderLeft: `3px solid ${color}`,
+              borderTop: `1px solid ${color}33`,
+              borderRight: `1px solid ${color}33`,
+              borderBottom: `1px solid ${color}33`,
+              background: `${color}11`,
+              color: T.text,
+              minWidth: 110,
+              maxWidth: 174,
+              padding: "5px 8px 6px 9px",
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-[10px] font-bold" style={{ color }}>
+                {s.ordinal}
+              </span>
+              <svg
+                width={11}
+                height={11}
+                viewBox="-7 -7 14 14"
+                style={{ display: "block", flex: "0 0 auto" }}
+              >
+                <IconGlyph x={0} y={0} kind={s.iconKind} color={color} />
+              </svg>
+              <span
+                className="font-mono text-[8.4px] font-bold uppercase tracking-wider"
+                style={{ color, opacity: 0.95 }}
+              >
+                {s.layer}
+              </span>
+            </div>
+            <div
+              className="mt-1 font-mono text-[9.5px] leading-tight"
+              style={{ color: T.textMuted }}
+            >
+              {s.verb}
+            </div>
+            <div
+              className="mt-0.5 font-mono text-[10.5px] font-medium truncate"
+              style={{ color: T.text, opacity: 0.92 }}
+            >
+              {shortLabel(s.subject, 22)}
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── top-level shell ────────────────────────────────────────────────────────
 export interface TopologyAttackGraphProps {
   systemName: string
@@ -1776,6 +2076,10 @@ export interface TopologyAttackGraphProps {
 export function TopologyAttackGraph({ systemName, initialJewel, jewels }: TopologyAttackGraphProps) {
   const [selectedJewel, setSelectedJewel] = useState<CrownJewelSummary>(initialJewel)
   const [selectedPathIdx, setSelectedPathIdx] = useState<number | null>(null)
+  // Hop id currently hovered/clicked in the narrative strip. The canvas
+  // renders an animated ring on the corresponding chip so the operator can
+  // visually link a kill-chain step to its architectural element.
+  const [pulsedNodeId, setPulsedNodeId] = useState<string | null>(null)
   const { data, loading, error, retry } = useCrownJewelConvergence(systemName, selectedJewel)
   const { data: topology, error: topologyError } = useAwsTopology(systemName)
 
@@ -1846,45 +2150,63 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
       {/* left rail */}
       <CrownJewelRail jewels={jewels} selectedId={selectedJewel.id} onSelect={(j) => { setSelectedJewel(j); setSelectedPathIdx(null) }} />
 
-      {/* center stage */}
-      <div className="relative overflow-hidden" style={{ background: `radial-gradient(1200px 700px at 60% -10%, #11283d 0%, transparent 60%), ${T.bg}` }}>
-        <div
-          className="absolute top-2.5 left-4 z-10 rounded-md border px-3 py-1.5 font-mono text-[11.5px]"
-          style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textMuted }}
-        >
-          <span className="font-bold" style={{ color: T.text }}>{shortLabel(selectedJewel.name, 40)}</span>
-          {data ? ` — ${data.paths_total} paths${topology && !topologyError ? " · placed on real VPC topology" : " · topology snapshot pending"}` : ""}
-        </div>
-        {loading && !data ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2" style={{ color: T.textMuted }}>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="text-[12px]">Loading topology…</span>
+      {/* center stage — vertical flex so the narrative strip sits above
+         the SVG canvas with no overlap. The strip translates the selected
+         path's edges into plain-English steps; hover/click each step to
+         pulse the corresponding chip in the topology. */}
+      <div
+        className="flex flex-col overflow-hidden"
+        style={{ background: `radial-gradient(1200px 700px at 60% -10%, #11283d 0%, transparent 60%), ${T.bg}` }}
+      >
+        <NarrativeStrip
+          path={data && selectedPathIdx != null ? data.paths[selectedPathIdx] ?? null : null}
+          onPulse={setPulsedNodeId}
+        />
+        <div className="relative flex-1 overflow-hidden">
+          <div
+            className="absolute top-2.5 left-4 z-10 rounded-md border px-3 py-1.5 font-mono text-[11.5px]"
+            style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textMuted }}
+          >
+            <span className="font-bold" style={{ color: T.text }}>{shortLabel(selectedJewel.name, 40)}</span>
+            {data ? ` — ${data.paths_total} paths${topology && !topologyError ? " · placed on real VPC topology" : " · topology snapshot pending"}` : ""}
           </div>
-        ) : error || !data ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center" style={{ color: T.textMuted }}>
-            <AlertTriangle className="h-5 w-5" style={{ color: T.sevMedium }} />
-            <p className="max-w-md text-[12px]">{error ?? "convergence API unavailable"}</p>
-            <button
-              type="button"
-              onClick={retry}
-              className="inline-flex items-center gap-2 rounded border px-3 py-1.5 text-[12px]"
-              style={{ borderColor: T.border, color: T.text }}
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Retry
-            </button>
+          {loading && !data ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2" style={{ color: T.textMuted }}>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-[12px]">Loading topology…</span>
+            </div>
+          ) : error || !data ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center" style={{ color: T.textMuted }}>
+              <AlertTriangle className="h-5 w-5" style={{ color: T.sevMedium }} />
+              <p className="max-w-md text-[12px]">{error ?? "convergence API unavailable"}</p>
+              <button
+                type="button"
+                onClick={retry}
+                className="inline-flex items-center gap-2 rounded border px-3 py-1.5 text-[12px]"
+                style={{ borderColor: T.border, color: T.text }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </button>
+            </div>
+          ) : (
+            <TopologyCanvas
+              jewel={selectedJewel}
+              data={data}
+              selectedPathIdx={selectedPathIdx}
+              topology={topology}
+              pulsedNodeId={pulsedNodeId}
+            />
+          )}
+          <div
+            className="absolute bottom-2.5 left-4 z-10 rounded-md border px-2.5 py-1.5 font-mono text-[10px]"
+            style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textFaint, maxWidth: "64%" }}
+          >
+            {topology && !topologyError
+              ? `live geometry · ${topology.vpcs?.length ?? 0} VPC(s) from /api/topology-aws · paths from /by-crown-jewel`
+              : topologyError
+                ? `topology snapshot unavailable (${topologyError}) — VPC/AZ labels may be approximate`
+                : "loading topology snapshot…"}
           </div>
-        ) : (
-          <TopologyCanvas jewel={selectedJewel} data={data} selectedPathIdx={selectedPathIdx} topology={topology} />
-        )}
-        <div
-          className="absolute bottom-2.5 left-4 z-10 rounded-md border px-2.5 py-1.5 font-mono text-[10px]"
-          style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textFaint, maxWidth: "64%" }}
-        >
-          {topology && !topologyError
-            ? `live geometry · ${topology.vpcs?.length ?? 0} VPC(s) from /api/topology-aws · paths from /by-crown-jewel`
-            : topologyError
-              ? `topology snapshot unavailable (${topologyError}) — VPC/AZ labels may be approximate`
-              : "loading topology snapshot…"}
         </div>
       </div>
 
