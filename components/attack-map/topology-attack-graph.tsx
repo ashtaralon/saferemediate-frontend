@@ -1695,38 +1695,50 @@ function SubnetLane({
       </text>
       {/* Egress chip — sits next to the ingress pill. Honest about the
          specific mechanism (IGW vs NAT-GW vs VPCE vs ...). Omitted
-         entirely on old backend responses (egress_classes absent). */}
-      {egress ? (
-        <>
-          <rect
-            x={pillX + pillW + 6}
-            y={pillY}
-            width={egress.label.length * 5.5 + 16}
-            height={13}
-            rx={3}
-            fill={egress.color}
-            fillOpacity={0.14}
-            stroke={egress.color}
-            strokeWidth={0.7}
-            strokeOpacity={0.55}
-          />
-          <text
-            x={pillX + pillW + 14}
-            y={pillY + 10}
-            fontSize={8.4}
-            fontWeight={600}
-            fill={egress.color}
-            fontFamily="ui-monospace,monospace"
-            style={{ letterSpacing: "0.04em" }}
-          >
-            via {egress.label}
-          </text>
-        </>
-      ) : null}
-      {/* Subnet name + CIDR — right after the pill + egress chip. */}
+         entirely on old backend responses (egress_classes absent).
+         Geometry uses the FULL displayed string ("via <label>", 4 extra
+         chars) for chip width + downstream name x-offset so the subnet
+         name doesn't overlap the chip's tail. */}
       {(() => {
-        const nameX =
-          pillX + pillW + 8 + (egress ? egress.label.length * 5.5 + 22 : 0)
+        if (!egress) return null
+        const displayed = `via ${egress.label}`
+        const chipW = displayed.length * 5.2 + 14
+        return (
+          <>
+            <rect
+              x={pillX + pillW + 6}
+              y={pillY}
+              width={chipW}
+              height={13}
+              rx={3}
+              fill={egress.color}
+              fillOpacity={0.14}
+              stroke={egress.color}
+              strokeWidth={0.7}
+              strokeOpacity={0.55}
+            />
+            <text
+              x={pillX + pillW + 6 + chipW / 2}
+              y={pillY + 10}
+              textAnchor="middle"
+              fontSize={8.4}
+              fontWeight={600}
+              fill={egress.color}
+              fontFamily="ui-monospace,monospace"
+              style={{ letterSpacing: "0.04em" }}
+            >
+              {displayed}
+            </text>
+          </>
+        )
+      })()}
+      {/* Subnet name + CIDR — right after the pill + egress chip.
+         x-offset uses the same chip-width math so the name starts AFTER
+         the chip, not on top of it. */}
+      {(() => {
+        const displayed = egress ? `via ${egress.label}` : ""
+        const chipW = egress ? displayed.length * 5.2 + 14 : 0
+        const nameX = pillX + pillW + 8 + (egress ? chipW + 8 : 0)
         return (
           <>
             <text
