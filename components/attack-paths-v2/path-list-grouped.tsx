@@ -1,21 +1,31 @@
 "use client"
 
-// Path list grouped by source-type. Per the 2026-05-21 design discussion,
-// operators think "I have a Lambda problem" vs "I have an EC2 problem"
-// before they think about severity — so the primary grouping is source
-// type, with paths inside each group ranked by severity.
+// Path list grouped by ATT&CK Initial Access category (alon@2026-06-20).
+// Replaces the prior workload-type grouping ("FROM EC2 / FROM LAMBDA")
+// because workload type doesn't answer the operator's first question —
+// "how does an attacker actually break in?" Categories follow the
+// ATT&CK Cloud Matrix's Initial Access tactic mapped to AWS surfaces.
 //
-// Source-type classification is from the FIRST node on the path (the
-// entry node, tier='entry'). Common starts: Lambda, EC2, Principal
-// (CloudTrail IAM activity), HumanIdentity, IAMUser, ExternalIP. Less
-// common: StepFunction, ECSTask. Anything we can't classify falls into
-// "OTHER" — operator-visible so they can flag mis-classification.
+// Source-of-truth: the backend INITIAL_ACCESS_VIA edge per AttackPath,
+// surfaced as path.initial_access.category. Until the backend
+// classifier (BE-A.2) ships, the FE derives the category inline from
+// signals already present on PathNodeDetail (is_internet_exposed,
+// subnet_is_public, has_console_access, has_mfa, ARN structure).
+//
+// Path rows still show the workload as the "source" line (option a per
+// 2026-06-20 design) — what changes is the GROUP HEADER, which now
+// answers "how does the attacker get in?" instead of "what kind of
+// workload is this?".
 
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Server, Zap, Cloud, User, Globe, Box, Crown, Database, AlertOctagon } from "lucide-react"
+import {
+  ChevronDown, ChevronRight, Server, Crown, Database, Globe, Globe2, Box,
+  Terminal, KeyRound, ShieldCheck, HelpCircle, Cloud,
+} from "lucide-react"
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
+  InitialAccessCategory,
   PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
@@ -33,107 +43,131 @@ interface PathListGroupedProps {
   onSelectPath: (pathId: string) => void
 }
 
-// Bucket → operator-readable label + icon + color tone. The bucket
-// names are operator-facing (not raw AWS labels) per the design
-// principle that internal labels leak the integration list. "From
-// External" reads better than "From CloudTrailPrincipal".
-const SOURCE_BUCKETS: Record<
-  string,
+// ATT&CK Initial Access bucket → operator-readable label + icon + tone.
+// Categories follow alon@2026-06-20 taxonomy. Labels are operator-facing
+// English (not raw AWS surface names) per the design principle that
+// internal labels leak the integration list. "FROM EC2 IMDS THEFT"
+// reads better than "FROM EC2" because it answers HOW.
+const INITIAL_ACCESS_BUCKETS: Record<
+  InitialAccessCategory,
   { label: string; icon: any; tone: string }
 > = {
-  root: { label: "FROM ROOT CREDENTIALS", icon: AlertOctagon, tone: "text-red-600 dark:text-red-400" },
-  lambda: { label: "FROM LAMBDA", icon: Zap, tone: "text-orange-600 dark:text-orange-400" },
-  ec2: { label: "FROM EC2", icon: Server, tone: "text-blue-600 dark:text-blue-400" },
-  ecs: { label: "FROM ECS / CONTAINER", icon: Box, tone: "text-sky-600 dark:text-sky-400" },
-  human: { label: "FROM HUMAN USER", icon: User, tone: "text-emerald-600 dark:text-emerald-400" },
-  external: { label: "FROM EXTERNAL", icon: Globe, tone: "text-red-600 dark:text-red-400" },
-  external_account: { label: "FROM EXTERNAL ACCOUNT", icon: Globe, tone: "text-red-600 dark:text-red-400" },
-  service: { label: "FROM AWS SERVICE", icon: Cloud, tone: "text-violet-600 dark:text-violet-400" },
-  database: { label: "FROM DATABASE", icon: Database, tone: "text-purple-600 dark:text-purple-400" },
-  other: { label: "FROM OTHER", icon: Box, tone: "text-muted-foreground" },
+  LEAKED_ACCESS_KEY: { label: "FROM LEAKED ACCESS KEY", icon: KeyRound, tone: "text-red-600 dark:text-red-400" },
+  IMDS_CREDENTIAL_THEFT: { label: "FROM EC2 IMDS THEFT", icon: Server, tone: "text-orange-600 dark:text-orange-400" },
+  EXPOSED_S3_BUCKET: { label: "FROM EXPOSED S3 BUCKET", icon: Database, tone: "text-red-600 dark:text-red-400" },
+  EXPOSED_RDS_SNAPSHOT: { label: "FROM EXPOSED RDS / EBS SNAPSHOT", icon: Database, tone: "text-red-600 dark:text-red-400" },
+  EXPOSED_K8S_WORKLOAD: { label: "FROM EXPOSED EKS / FARGATE", icon: Box, tone: "text-red-600 dark:text-red-400" },
+  EXPOSED_ECR_IMAGE: { label: "FROM EXPOSED ECR IMAGE", icon: Box, tone: "text-amber-600 dark:text-amber-400" },
+  EXPOSED_WORKLOAD_RCE: { label: "FROM PUBLIC-FACING WORKLOAD", icon: Globe2, tone: "text-red-600 dark:text-red-400" },
+  COGNITO_OR_FEDERATED_IDP: { label: "FROM FEDERATED IDP", icon: ShieldCheck, tone: "text-violet-600 dark:text-violet-400" },
+  CONSOLE_OR_CLOUDSHELL: { label: "FROM CONSOLE / CLOUDSHELL", icon: Terminal, tone: "text-amber-600 dark:text-amber-400" },
+  CROSS_ACCOUNT_TRUST: { label: "FROM EXTERNAL ACCOUNT", icon: Globe, tone: "text-red-600 dark:text-red-400" },
+  UNKNOWN: { label: "FROM UNKNOWN ENTRY", icon: HelpCircle, tone: "text-muted-foreground" },
 }
 
-function nodeTypeBucket(type: string | undefined): keyof typeof SOURCE_BUCKETS | null {
-  const t = (type || "").toLowerCase()
-  if (t.includes("lambda")) return "lambda"
-  if (t.includes("ec2")) return "ec2"
-  if (t.includes("ecs") || t.includes("container") || t.includes("eks") || t === "fargate") return "ecs"
-  if (t.includes("human") || t === "iamuser") return "human"
-  if (t === "rdsinstance" || t.includes("dynamodb") || t.includes("redshift") || t.includes("elasticache")) return "database"
+const ARN_PRINCIPAL_RE = /^arn:aws:[^:]+:[^:]*:(\d+):/
+
+/** Find the path's ARN reference account by walking from node 1 onward.
+ *  Used to detect cross-account paths without a hardcoded customer id —
+ *  the path's own target chip provides the reference. */
+function pathRefAccount(nodes: PathNodeDetail[]): string | null {
+  for (let i = 1; i < nodes.length; i++) {
+    const m = (nodes[i].id || "").match(ARN_PRINCIPAL_RE)
+    if (m) return m[1]
+  }
   return null
 }
 
-// Classify a path's "source" for grouping. Real path shape is:
-//   node[0] = CloudTrailPrincipal (the identity that authenticated)
-//   node[1] = workload that carries the role (EC2 / Lambda / etc)
-//   node[2..] = network gates / role / target
-//
-// The operator-meaningful "source" is the WORKLOAD (node 1) because
-// that's the resource they'd remediate. Node 0 being CloudTrailPrincipal
-// is shared across most paths so grouping by it tells you nothing.
-//
-// Special cases that override:
-//   - CloudTrailPrincipal.name = 'root' → FROM ROOT (operator-critical signal)
-//   - CloudTrailPrincipal carries an external-account ARN → FROM EXTERNAL ACCOUNT
-//   - Workload node missing → fall back to node-0 type
-function classifySource(nodes: PathNodeDetail[] | undefined): keyof typeof SOURCE_BUCKETS {
-  if (!nodes || nodes.length === 0) return "other"
-  const first = nodes[0]
-  const second = nodes[1]
+/** Classify a path into an ATT&CK Initial Access category.
+ *
+ *  Single source of truth lives in the graph as
+ *  (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->() — exposed on the path as
+ *  `path.initial_access.category`. When the backend has computed it,
+ *  we cite it directly. Otherwise we fall back to inline derivation
+ *  from per-node signals the FE already has (is_internet_exposed,
+ *  subnet_is_public, has_console_access, has_mfa, ARN structure).
+ *
+ *  The fallback only fires during the migration window (before BE-A.2
+ *  ships). Once the backend writes the edge, every path gets a
+ *  category from the same source and the FE stops re-deriving.
+ */
+function classifyInitialAccess(path: IdentityAttackPath): InitialAccessCategory {
+  // Backend wrote it — single source of truth wins.
+  const fromBackend = path.initial_access?.category
+  if (fromBackend) return fromBackend
 
-  // Root-credential signal — surface as its own bucket so operators
-  // see it instantly. Two paths with "root" as the principal name on
-  // alon-prod today; the design doc specifically calls this out as
-  // the kind of finding the page should NOT bury.
-  // Post 2026-05-22 canonical-type fix: root arrives as AWSPrincipal
-  // (was CloudTrailPrincipal); the type check is widened to any
-  // principal-like wrapper so the bucket keeps catching it.
-  if (isPrincipalNodeType(first.type) && first.name === "root") {
-    return "root"
-  }
+  const nodes = path.nodes ?? []
+  if (nodes.length === 0) return "UNKNOWN"
+  const principal = nodes[0]
+  const workload = nodes[1]
+  const jewel = nodes.find((n) => n.tier === "crown_jewel") ?? nodes[nodes.length - 1]
 
-  // External-account principal — an ARN that's not from the same
-  // account as the path's TARGET landed on a workload here. Sprint 4
-  // territory (cross-account).
-  //
-  // 2026-05-30: removed hardcoded "745783559495" reference account
-  // (was Cyntro's demo customer). The path's target node carries its
-  // own account id in the ARN; we derive the reference from there.
-  // On multi-tenant deploys this means cross-account detection just
-  // works without per-customer config — service-agnostic by
-  // construction.
-  if (isPrincipalNodeType(first.type) && /^arn:aws:[^:]+:[^:]*:(\d+):/.test(first.id || "")) {
-    const acct = (first.id.match(/^arn:aws:[^:]+:[^:]*:(\d+):/) || [])[1]
-    // Reference account: walk the path looking for any ARN-bearing
-    // node and pull its account id. Skip the principal node itself.
-    // Falls back to "no detection" rather than guessing if the path
-    // has no ARN-bearing node.
-    let refAccount: string | null = null
-    for (let i = 1; i < nodes.length; i++) {
-      const m = (nodes[i].id || "").match(/^arn:aws:[^:]+:[^:]*:(\d+):/)
-      if (m) {
-        refAccount = m[1]
-        break
-      }
+  // CROSS_ACCOUNT_TRUST — principal ARN account differs from the
+  // reference account derived from the path's downstream chips.
+  if (isPrincipalNodeType(principal.type)) {
+    const m = (principal.id || "").match(ARN_PRINCIPAL_RE)
+    if (m) {
+      const acct = m[1]
+      const ref = pathRefAccount(nodes)
+      if (acct && ref && acct !== ref) return "CROSS_ACCOUNT_TRUST"
     }
-    if (acct && refAccount && acct !== refAccount) return "external_account"
   }
 
-  // The workload carrying the role is the operator-meaningful source.
-  const fromWorkload = nodeTypeBucket(second?.type)
-  if (fromWorkload) return fromWorkload
+  // COGNITO_OR_FEDERATED_IDP — principal id matches OIDC / SAML / Cognito pattern.
+  const pid = (principal.id || "").toLowerCase()
+  if (/oidc|saml|cognito|federated/.test(pid)) return "COGNITO_OR_FEDERATED_IDP"
 
-  // Fall back to the first node type when there's no workload on node 1.
-  const fromFirst = nodeTypeBucket(first.type)
-  if (fromFirst) return fromFirst
-
-  // CloudTrailPrincipal with no workload → AWS service identity.
-  const t = (first.type || "").toLowerCase()
-  if (t.includes("principal") || t === "awsprincipal" || t === "cloudtrailprincipal") {
-    return "service"
+  // CONSOLE_OR_CLOUDSHELL — IAM user with console access enabled.
+  const pType = (principal.type || "").toLowerCase()
+  if ((pType.includes("user") || pType === "humanidentity") &&
+      principal.has_console_access === true) {
+    return "CONSOLE_OR_CLOUDSHELL"
   }
-  if (t.includes("external") || t === "internet" || t === "cidrblock") return "external"
-  return "other"
+
+  // LEAKED_ACCESS_KEY — IAM user with no MFA AND path is observed
+  // (real CloudTrail evidence the key is in use).
+  if ((pType.includes("user") || pType === "iamuser") &&
+      principal.has_mfa === false &&
+      path.evidence_type === "observed") {
+    return "LEAKED_ACCESS_KEY"
+  }
+
+  // EXPOSED_S3_BUCKET — crown jewel itself is internet-exposed and is S3.
+  // 1-hop path where the bucket is the entry.
+  const jewelType = (jewel?.type || "").toLowerCase()
+  if (jewelType.includes("s3") && jewel?.is_internet_exposed === true) {
+    return "EXPOSED_S3_BUCKET"
+  }
+
+  // EXPOSED_RDS_SNAPSHOT — crown jewel is RDS/EBS and reachable.
+  if ((jewelType.includes("rds") || jewelType.includes("aurora") ||
+       jewelType.includes("ebs") || jewelType.includes("snapshot")) &&
+      jewel?.is_internet_exposed === true) {
+    return "EXPOSED_RDS_SNAPSHOT"
+  }
+
+  // IMDS_CREDENTIAL_THEFT — EC2 workload reachable from the internet.
+  // Reachability today via either is_internet_exposed (workload signal)
+  // OR subnet_is_public (inherited from the subnet classifier).
+  const wType = (workload?.type || "").toLowerCase()
+  if (wType.includes("ec2") &&
+      (workload?.is_internet_exposed === true || workload?.subnet_is_public === true)) {
+    return "IMDS_CREDENTIAL_THEFT"
+  }
+
+  // EXPOSED_K8S_WORKLOAD — EKS / Fargate / ECS container reachable.
+  if ((wType.includes("eks") || wType.includes("fargate") ||
+       wType.includes("ecs") || wType.includes("container")) &&
+      workload?.is_internet_exposed === true) {
+    return "EXPOSED_K8S_WORKLOAD"
+  }
+
+  // EXPOSED_WORKLOAD_RCE — any other workload (Lambda URL, etc.)
+  // reachable from the internet.
+  if (workload?.is_internet_exposed === true) return "EXPOSED_WORKLOAD_RCE"
+
+  // No identified initial access in current graph state — honest.
+  return "UNKNOWN"
 }
 
 // Severity → tone for the per-path chip. Theme-aware (light + dark)
@@ -178,13 +212,13 @@ export function PathListGrouped({
     return map
   }, [paths])
 
-  // Group paths by source bucket. Each bucket holds its paths sorted
-  // descending by OBSERVED HIT COUNT (real CloudTrail/flow-log evidence)
-  // then by severity, then by hop count.
+  // Group paths by ATT&CK Initial Access category. Each bucket holds
+  // its paths sorted descending by OBSERVED HIT COUNT (real CloudTrail/
+  // flow-log evidence) then by severity, then by hop count.
   const grouped = useMemo(() => {
-    const buckets = new Map<keyof typeof SOURCE_BUCKETS, IdentityAttackPath[]>()
+    const buckets = new Map<InitialAccessCategory, IdentityAttackPath[]>()
     for (const p of paths) {
-      const bucket = classifySource(p.nodes)
+      const bucket = classifyInitialAccess(p)
       if (!buckets.has(bucket)) buckets.set(bucket, [])
       buckets.get(bucket)!.push(p)
     }
@@ -267,7 +301,7 @@ export function PathListGrouped({
         <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
             {paths.length} path{paths.length === 1 ? "" : "s"} ·{" "}
-            {grouped.length} source type{grouped.length === 1 ? "" : "s"}
+            {grouped.length} initial-access categor{grouped.length === 1 ? "y" : "ies"}
           </span>
           <MaterializedScopeBadge
             surfaced={paths.length}
@@ -285,7 +319,7 @@ export function PathListGrouped({
       {/* Grouped path list */}
       <div className="divide-y divide-border">
         {grouped.map(([bucket, bucketPaths]) => {
-          const meta = SOURCE_BUCKETS[bucket]
+          const meta = INITIAL_ACCESS_BUCKETS[bucket]
           const Icon = meta.icon
           const isCollapsed = collapsed.has(bucket as string)
           return (
