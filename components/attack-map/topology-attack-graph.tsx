@@ -1533,6 +1533,32 @@ function TopologyCanvas({
           // prefix marks a reversed lookup — show with ~ kept so the
           // operator sees the direction caveat.
           const edgeType = next.edge_type_from_prev
+          // 2026-06-22 — when the rendered hop is a data-plane reach
+          // (ACCESSES_RESOURCE / ACTUAL_S3_ACCESS / READS_FROM /
+          // WRITES_TO), append the source subnet's network route so the
+          // operator can see whether the traffic stays in-VPC (VPCE) or
+          // egresses over the Internet (IGW). Without this label, the
+          // most security-relevant fact (privacy of the data path) is
+          // invisible. Empty routes_via array → no suffix (honest).
+          const isDataPlaneEdge = !!edgeType && [
+            "ACCESSES_RESOURCE", "ACTUAL_S3_ACCESS",
+            "READS_FROM", "WRITES_TO", "ACTUAL_API_CALL",
+          ].includes(String(edgeType).replace(/^~/, ""))
+          const gatewayShort = (g: string): string => {
+            switch (g) {
+              case "InternetGateway":  return "IGW"
+              case "NATGateway":       return "NAT"
+              case "VPCEndpoint":      return "VPCE"
+              case "TransitGateway":   return "TGW"
+              case "EgressOnlyInternetGateway": return "EIGW"
+              default:                 return g
+            }
+          }
+          const routes = isDataPlaneEdge ? (p.routes_via || []) : []
+          const routeSuffix = routes.length > 0
+            ? " · via " + routes.map(gatewayShort).join("+")
+            : ""
+          const labelText = (edgeType || "") + routeSuffix
           // Show label only on the highlighted path (selected or single
           // path) — labeling every edge across 8 paths is unreadable.
           const showLabel = !!edgeType && (selectedPathIdx === i)
@@ -1556,9 +1582,9 @@ function TopologyCanvas({
               {showLabel && edgeType ? (
                 <g>
                   <rect
-                    x={labelX - (edgeType.length * 3.4 + 6)}
+                    x={labelX - (labelText.length * 3.4 + 6)}
                     y={labelY - 7}
-                    width={edgeType.length * 6.8 + 12}
+                    width={labelText.length * 6.8 + 12}
                     height={14}
                     rx={3}
                     fill={T.bg}
@@ -1574,7 +1600,7 @@ function TopologyCanvas({
                     fill={color}
                     fontFamily="ui-monospace,monospace"
                   >
-                    {edgeType}
+                    {labelText}
                   </text>
                 </g>
               ) : null}
