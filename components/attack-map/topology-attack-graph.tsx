@@ -371,12 +371,66 @@ interface NarrativeStep {
   layer: NarrativeLayer
 }
 
+/** Plain-English label for each ATT&CK Initial Access category.
+ *  Used by the narrative-strip START chip when `path.initial_access`
+ *  is populated by the backend (BE-A.3). */
+const INITIAL_ACCESS_LABEL: Record<string, string> = {
+  LEAKED_ACCESS_KEY: "Leaked Access Key",
+  IMDS_CREDENTIAL_THEFT: "IMDS Credential Theft",
+  EXPOSED_S3_BUCKET: "Exposed S3 Bucket",
+  EXPOSED_RDS_SNAPSHOT: "Exposed RDS/EBS Snapshot",
+  EXPOSED_K8S_WORKLOAD: "Exposed K8s Workload",
+  EXPOSED_ECR_IMAGE: "Exposed ECR Image",
+  EXPOSED_WORKLOAD_RCE: "Exposed Workload RCE",
+  COGNITO_OR_FEDERATED_IDP: "Federated IDP Compromise",
+  CONSOLE_OR_CLOUDSHELL: "Console / CloudShell",
+  CROSS_ACCOUNT_TRUST: "External Account",
+}
+
+/** Picks the most actionable initial-access edge for display. Order:
+ *  highest-impact / lowest-effort attack first. UNKNOWN is honest
+ *  fallback when nothing else hits. */
+const INITIAL_ACCESS_PRIORITY = [
+  "EXPOSED_S3_BUCKET",
+  "LEAKED_ACCESS_KEY",
+  "IMDS_CREDENTIAL_THEFT",
+  "EXPOSED_RDS_SNAPSHOT",
+  "EXPOSED_K8S_WORKLOAD",
+  "EXPOSED_ECR_IMAGE",
+  "EXPOSED_WORKLOAD_RCE",
+  "CROSS_ACCOUNT_TRUST",
+  "COGNITO_OR_FEDERATED_IDP",
+  "CONSOLE_OR_CLOUDSHELL",
+]
+
+function pickPrimaryInitialAccess(
+  edges: ConvergencePath["initial_access"],
+): ConvergencePath["initial_access"][number] | null {
+  if (!edges || edges.length === 0) return null
+  // Skip UNKNOWN unless it's the only entry — operator-meaningful
+  // categories take precedence.
+  const meaningful = edges.filter((e) => e.category && e.category !== "UNKNOWN")
+  const pool = meaningful.length > 0 ? meaningful : edges
+  for (const cat of INITIAL_ACCESS_PRIORITY) {
+    const hit = pool.find((e) => e.category === cat)
+    if (hit) return hit
+  }
+  return pool[0]
+}
+
 /** Walk a path's hops, returning one narrative step per hop. Step #1 is
  *  always labeled "START" because there's no prior hop to derive an edge
  *  verb from. Every subsequent verb comes straight from the hop's real
- *  `edge_type_from_prev`. */
+ *  `edge_type_from_prev`.
+ *
+ *  When `path.initial_access` carries a real ATT&CK category with a
+ *  pivot distinct from hop[0] (the typical role-as-entry case where
+ *  the attacker actually starts by compromising a back-step workload
+ *  like an IMDSv1 EC2), we PREPEND an ENTRY card and reframe hop[0]
+ *  as the lateral/credential-theft step. IAM is then the credential
+ *  the attacker steals, never the entry — per alon@2026-06-20. */
 function buildNarrative(path: ConvergencePath): NarrativeStep[] {
-  return path.hops.map((h, i) => ({
+  const baseSteps: NarrativeStep[] = path.hops.map((h, i) => ({
     ordinal: i + 1,
     iconKind: hopIconKind(h),
     verb: i === 0 ? "START" : semanticVerb(h.edge_type_from_prev),
@@ -384,6 +438,45 @@ function buildNarrative(path: ConvergencePath): NarrativeStep[] {
     targetNodeId: h.node_id,
     layer: narrativeLayer(h),
   }))
+
+  const ia = pickPrimaryInitialAccess(path.initial_access)
+  if (!ia || !ia.pivot_node_id || !ia.category || ia.category === "UNKNOWN") {
+    return baseSteps
+  }
+  const firstHop = path.hops[0]
+  if (firstHop && ia.pivot_node_id === firstHop.node_id) {
+    // Forward-entry path — pivot IS the first hop. Just relabel the
+    // START verb with the category so the operator still sees the
+    // attack mechanism. No prepended card.
+    return baseSteps.map((s, i) =>
+      i === 0
+        ? {
+            ...s,
+            verb: INITIAL_ACCESS_LABEL[ia.category] || ia.category,
+            layer: "ENTRY",
+          }
+        : s,
+    )
+  }
+
+  // Back-step path — prepend an ENTRY card for the pivot, then reframe
+  // the first hop verb as "steals creds for" (credential theft) so the
+  // role is contextualised as a target the attacker reaches via
+  // compromising the workload, not the entry point itself.
+  const entryStep: NarrativeStep = {
+    ordinal: 0,  // re-numbered below
+    iconKind: "ec2",  // back-step pivots today are EC2 / Lambda
+    verb: INITIAL_ACCESS_LABEL[ia.category] || ia.category,
+    subject: ia.pivot_name || ia.pivot_node_id,
+    targetNodeId: ia.pivot_node_id,
+    layer: "ENTRY",
+  }
+  const reframed: NarrativeStep[] = baseSteps.map((s, i) =>
+    i === 0
+      ? { ...s, verb: "steals creds for" }
+      : s,
+  )
+  return [entryStep, ...reframed].map((s, i) => ({ ...s, ordinal: i + 1 }))
 }
 
 function narrativeLayerColor(l: NarrativeLayer): string {

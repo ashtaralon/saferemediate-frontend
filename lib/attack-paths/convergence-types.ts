@@ -20,6 +20,23 @@ export interface ConvergenceHop {
   edge_type_from_prev?: string | null
 }
 
+/** ATT&CK Initial Access edge per path (BE-A.3 / alon@2026-06-20).
+ *  IAM role is the credential the attacker steals, NOT the entry —
+ *  so for paths starting on an identity, `pivot_node_id` points at
+ *  the BACK-STEP workload the attacker reaches first (EC2 with IMDSv1,
+ *  exposed S3 bucket, public RDS snapshot, etc.). `via_role_id`
+ *  records the lateral hop. The FE topology canvas narrative-strip
+ *  START chip reads `pivot_name` so the role never appears as the
+ *  attacker's entry point. */
+export interface InitialAccessEdge {
+  category: string
+  pivot_node_id?: string | null
+  pivot_name?: string | null
+  via_role_id?: string | null
+  attacker_narrative?: string | null
+  verdict_confidence?: "observed" | "config" | "inferred" | null
+}
+
 export interface ConvergencePath {
   path_id: string
   source?: string | null
@@ -35,6 +52,9 @@ export interface ConvergencePath {
   role_assumption_observed: boolean
   cj_target_id?: string | null
   hops: ConvergenceHop[]
+  /** Multi-edge: one entry per category. Empty list when classifier
+   *  hasn't run for this system yet (migration window). */
+  initial_access?: InitialAccessEdge[]
 }
 
 export interface CrownJewelConvergence {
