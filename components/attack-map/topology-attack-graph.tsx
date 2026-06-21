@@ -1458,10 +1458,45 @@ function TopologyCanvas({
          selected so the canvas tells one clean story. */}
       {(() => {
         const selPath = selectedPathIdx != null ? data.paths[selectedPathIdx] : null
-        const visibleIds = selPath ? new Set(selPath.hops.map((h) => h.node_id)) : null
+        // 2026-06-22 — C: include the back-step pivot in the visible set
+        // when a path is selected. The pivot lives in path.initial_access
+        // (not path.hops) and points at the EC2 / Lambda the attacker
+        // actually compromised. Without this it disappeared from the
+        // canvas the moment a path was selected, leaving the operator
+        // looking at a role chip with no attacker entry.
+        const visibleIds = selPath
+          ? new Set([
+              ...selPath.hops.map((h) => h.node_id),
+              ...((selPath.initial_access || [])
+                .map((ia) => ia.pivot_node_id)
+                .filter((id): id is string => !!id)),
+            ])
+          : null
+        // Synthesized hop lookup for back-step pivots so the chip renderer
+        // below can resolve name/type even though the pivot isn't in hops.
+        const pivotHopByNodeId = new Map<string, ConvergenceHop>()
+        for (const p of data.paths) {
+          for (const ia of (p.initial_access || [])) {
+            if (ia.pivot_node_id && !pivotHopByNodeId.has(ia.pivot_node_id)) {
+              pivotHopByNodeId.set(ia.pivot_node_id, {
+                node_id: ia.pivot_node_id,
+                node_type: "ec2instance",
+                name: ia.pivot_name ?? ia.pivot_node_id,
+                plane: "ingress",
+                subnet_id: null,
+                subnet_public: null,
+                az: null,
+                security_groups: [],
+                is_crown_jewel: false,
+                edge_type_from_prev: null,
+              })
+            }
+          }
+        }
         return Object.entries(positions).map(([nodeId, p]) => {
         if (visibleIds && !visibleIds.has(nodeId)) return null
         const hop = data.paths.flatMap((pa) => pa.hops).find((h) => h.node_id === nodeId)
+          ?? pivotHopByNodeId.get(nodeId)
         if (!hop) return null
         const isJewel = hop.is_crown_jewel
         const plane = (hop.plane || "").toLowerCase()
@@ -1490,6 +1525,17 @@ function TopologyCanvas({
         // AWS resource.
         const synthesized =
           t === "internet" || (hop.node_id || "").startsWith("internet:")
+        // D, 2026-06-22 — surface the SGs attached to this hop as a
+        // secondary line under the chip when path is selected. SGs are
+        // the cut point for network-level fixes; the operator needs
+        // them visible at the choice level, not buried in a side panel.
+        // Limit to first 2 + "(+N more)" if longer to avoid bleed.
+        const sgs = (hop.security_groups || []).filter(Boolean)
+        const sublabel = sgs.length > 0
+          ? (sgs.length <= 2
+              ? "SG: " + sgs.map((s) => shortLabel(s, 10)).join(",")
+              : `SG: ${shortLabel(sgs[0], 10)} (+${sgs.length - 1})`)
+          : undefined
         return (
           <NodeChip
             key={nodeId}
@@ -1501,6 +1547,7 @@ function TopologyCanvas({
             bright={true}
             crown={isJewel}
             synthesized={synthesized}
+            sublabel={sublabel}
           />
         )
       })
@@ -1999,6 +2046,7 @@ function NodeChip({
   bright,
   crown,
   synthesized,
+  sublabel,
 }: {
   x: number
   y: number
@@ -2013,6 +2061,9 @@ function NodeChip({
    *  dashed ring and a small "synth" tag so the operator never mistakes
    *  it for a real AWS resource. */
   synthesized?: boolean
+  /** Optional secondary line under the label — used to surface
+   *  inline context like the attached SG name(s) (D, 2026-06-22). */
+  sublabel?: string
 }) {
   const op = bright ? 1 : 0.35
   return (
@@ -2064,6 +2115,20 @@ function NodeChip({
       >
         {label}
       </text>
+      {sublabel ? (
+        <text
+          x={x}
+          y={y + 37}
+          textAnchor="middle"
+          fontSize={7.5}
+          fontWeight={400}
+          fill={T.textMuted}
+          fillOpacity={0.85}
+          fontFamily="ui-monospace, monospace"
+        >
+          {sublabel}
+        </text>
+      ) : null}
     </g>
   )
 }
