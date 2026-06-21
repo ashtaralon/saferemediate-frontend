@@ -2083,13 +2083,38 @@ function CrownJewelRail({
                 {j.name || j.id}
               </span>
               <span className="font-mono text-[17px] font-extrabold" style={{ color: sevColor }}>
-                {j.path_count ?? 0}
+                {/* P0.5 — primary count = in_system only. Cross-system
+                    paths surface in the secondary line below so the
+                    headline never lies (e.g. saferemediate-access-logs
+                    was showing 14 in-rail but 0 in the drill-in). */}
+                {(j.class_counts?.in_system != null
+                  ? j.class_counts.in_system
+                  : (j.path_count ?? 0))}
               </span>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               <Chip text={sev} bg={`${sevColor}26`} ink={sevColor} />
               <Chip text={j.type} bg={T.surface2} ink={T.textMuted} border={T.border} />
             </div>
+            {(() => {
+              // P0.5 secondary line — cross-system breakdown.
+              const cc = j.class_counts ?? {}
+              const parts: string[] = []
+              if ((cc.service_linked ?? 0) > 0)  parts.push(`+${cc.service_linked} service-linked (gated)`)
+              if ((cc.platform_access ?? 0) > 0) parts.push(`+${cc.platform_access} platform-access`)
+              if ((cc.external_pivot ?? 0) > 0)  parts.push(`+${cc.external_pivot} external-pivot`)
+              if ((cc.unclassified ?? 0) > 0)    parts.push(`+${cc.unclassified} unclassified`)
+              if (!parts.length) return null
+              return (
+                <div
+                  className="mt-1 text-[9.5px] leading-[1.5] font-mono"
+                  style={{ color: T.textFaint }}
+                  title="Paths to this jewel that aren't in-system. Service-linked already hidden by the phantom gate; platform-access is expected Cyntro infra; external-pivot is sibling-tenant exposure (low confidence until classifier sweeps every source system)."
+                >
+                  {parts.join(" · ")}
+                </div>
+              )
+            })()}
           </button>
         )
       })}

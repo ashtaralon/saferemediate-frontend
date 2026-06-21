@@ -722,6 +722,15 @@ export interface CrownJewelSummary {
   // state. Synthesized paths are suppressed backend-side; the UI must
   // not render a path count or severity score for this jewel.
   paths_not_computed?: boolean
+  /** P0.5 — per-class breakdown of paths reaching this jewel.
+   *  Keys: in_system | service_linked | platform_access | external_pivot
+   *  | unclassified. `unclassified` is populated only when the
+   *  path_classification_classifier hasn't run yet for the path's
+   *  source system (e.g. cyntroprod's paths into alon-prod). The CJ
+   *  list left rail renders `in_system` as the primary count and the
+   *  rest as a secondary "+N service-linked · +N platform-access · …"
+   *  line so the headline never lies about cross-system exposure. */
+  class_counts?: Record<string, number>
 }
 
 // Tier-1: system-level posture summary attached to the top of the
