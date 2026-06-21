@@ -405,7 +405,7 @@ const INITIAL_ACCESS_PRIORITY = [
 
 function pickPrimaryInitialAccess(
   edges: ConvergencePath["initial_access"],
-): ConvergencePath["initial_access"][number] | null {
+): NonNullable<ConvergencePath["initial_access"]>[number] | null {
   if (!edges || edges.length === 0) return null
   // Skip UNKNOWN unless it's the only entry — operator-meaningful
   // categories take precedence.
@@ -429,6 +429,35 @@ function pickPrimaryInitialAccess(
  *  like an IMDSv1 EC2), we PREPEND an ENTRY card and reframe hop[0]
  *  as the lateral/credential-theft step. IAM is then the credential
  *  the attacker steals, never the entry — per alon@2026-06-20. */
+
+/** Effective hops for canvas + right-rail rendering. When the path has
+ *  an INITIAL_ACCESS_VIA edge pointing at a back-step workload distinct
+ *  from hops[0], we synthesize a stub hop for the pivot and prepend it.
+ *  The canvas then draws the curve from pivot→role (positions[pivot]
+ *  resolves from the AWS topology layout), and the right rail renders
+ *  pivot at the head of the hop chain. 2026-06-21 — fixes the surfaces
+ *  that were still showing the role as start despite the back-step
+ *  model being live in the narrative strip. */
+function getEffectiveHops(path: ConvergencePath): ConvergenceHop[] {
+  const ia = pickPrimaryInitialAccess(path.initial_access)
+  if (!ia?.pivot_node_id) return path.hops
+  const first = path.hops[0]
+  if (first?.node_id === ia.pivot_node_id) return path.hops
+  const pivotHop: ConvergenceHop = {
+    node_id: ia.pivot_node_id,
+    node_type: "entry_workload",
+    name: ia.pivot_name ?? null,
+    plane: "ingress",
+    subnet_id: null,
+    subnet_public: null,
+    az: null,
+    security_groups: [],
+    is_crown_jewel: false,
+    edge_type_from_prev: null,
+  }
+  return [pivotHop, ...path.hops]
+}
+
 function buildNarrative(path: ConvergencePath): NarrativeStep[] {
   const baseSteps: NarrativeStep[] = path.hops.map((h, i) => ({
     ordinal: i + 1,
@@ -1488,9 +1517,13 @@ function TopologyCanvas({
         const color = pathColor(i)
         const op = obs ? 0.95 : 0.65
         const sw = selectedPathIdx === i ? 3.5 : obs ? 2.4 : 1.6
-        return p.hops.slice(0, -1).map((h, j) => {
+        // 2026-06-21 — render curve from back-step pivot when present,
+        // not the literal hops[0] (which is the role for orphan paths).
+        // Honors the same back-step model the narrative strip uses.
+        const effectiveHops = getEffectiveHops(p)
+        return effectiveHops.slice(0, -1).map((h, j) => {
           const a = positions[h.node_id]
-          const next = p.hops[j + 1]
+          const next = effectiveHops[j + 1]
           const b = positions[next.node_id]
           if (!a || !b) return null
           const mx = (a.x + b.x) / 2
@@ -2195,16 +2228,23 @@ function PathRail({
               </span>
             </div>
             <div className="mt-1.5 ml-6 font-mono text-[10px] leading-[1.6]" style={{ color: T.textMuted }}>
-              {p.hops.map((h, j) => {
-                const last = j === p.hops.length - 1
-                const lbl = shortLabel(h.name || h.node_id, 18)
-                return (
-                  <span key={j}>
-                    <span style={{ color: last ? T.sevCritical : T.text }}>{lbl}</span>
-                    {!last && <span style={{ color: T.textFaint, padding: "0 3px" }}>→</span>}
-                  </span>
-                )
-              })}
+              {(() => {
+                // 2026-06-21 — same back-step model: when the path has
+                // an INITIAL_ACCESS_VIA pivot distinct from hops[0],
+                // render the pivot as the head of the hop chain so the
+                // role no longer appears as the path's "from" service.
+                const effectiveHops = getEffectiveHops(p)
+                return effectiveHops.map((h, j) => {
+                  const last = j === effectiveHops.length - 1
+                  const lbl = shortLabel(h.name || h.node_id, 18)
+                  return (
+                    <span key={j}>
+                      <span style={{ color: last ? T.sevCritical : T.text }}>{lbl}</span>
+                      {!last && <span style={{ color: T.textFaint, padding: "0 3px" }}>→</span>}
+                    </span>
+                  )
+                })
+              })()}
             </div>
             {p.damage?.length ? (
               <div className="mt-1.5 ml-6 flex flex-wrap gap-1.5">
