@@ -74,8 +74,19 @@ export async function GET(
   // Cache key includes every query param that affects the response so
   // toggling include_stale / include_deleted / enriched forces a fresh
   // fetch instead of reading the wrong shape.
+  //
+  // Schema version bumps when the upstream response shape changes in a
+  // way that makes old cached payloads materially wrong for the UI.
+  // 2026-06-21:p0gate — backend P0 phantom-path gate
+  // (path_eligibility_classifier) now hides AWSServiceRoleFor* paths;
+  // pre-gate cached payloads would still surface ~29 paths on alon-prod
+  // that the gated backend response no longer includes. Bumping the key
+  // invalidates every Vercel edge-cached payload + every in-memory
+  // per-instance cache atomically on deploy.
+  const SCHEMA_VERSION = "2026-06-21:p0gate"
   const cacheKey = [
     "identity-attack-paths",
+    SCHEMA_VERSION,
     systemName,
     maxJewels,
     maxPathsPerJewel,
