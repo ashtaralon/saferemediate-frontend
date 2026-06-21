@@ -8478,7 +8478,7 @@ export default function TrafficFlowMap({
 
   if (loading && !architecture) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-card">
+      <div className="dark h-full w-full flex items-center justify-center bg-card">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-foreground text-sm font-medium">Building Architecture...</p>
@@ -8489,7 +8489,7 @@ export default function TrafficFlowMap({
 
   if (error && !architecture) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-card p-4">
+      <div className="dark h-full w-full flex items-center justify-center bg-card p-4">
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-center max-w-sm">
           <p className="text-red-600 dark:text-red-400 font-medium mb-2">Error</p>
           <p className="text-muted-foreground text-sm mb-4">{error}</p>
@@ -8502,7 +8502,14 @@ export default function TrafficFlowMap({
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full flex flex-row bg-card overflow-hidden">
+    // `dark` class scopes the bright-theme design tokens (bg-card,
+    // border-border, text-muted-foreground, etc.) back to their dark
+    // values (.dark block in app/globals.css → Cyntro navy palette).
+    // Reverts only TrafficFlowMap to dark without unwinding the
+    // 92d9bc1 bright-theme conversion elsewhere; preserves the F4
+    // audit fix + all subsequent commits' work. User request
+    // 2026-06-09: "revert the traffic flow map to be dark mode".
+    <div ref={containerRef} className="dark h-full w-full flex flex-row bg-card overflow-hidden">
       {/* Stack Components Sidebar */}
       {sidebarOpen && architecture && (
         <StackSidebar
