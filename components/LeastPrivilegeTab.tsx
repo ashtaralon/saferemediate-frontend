@@ -18,6 +18,7 @@ import type { BlastRadiusScore } from '@/lib/types'
 import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
+import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -1467,12 +1468,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
   }
 
+  // The Trust Exposure lens has its OWN independent fetch
+  // (/api/proxy/resource-risk/by-system/[system]), so it must render ABOVE
+  // the gap-analysis loading/error guards below — otherwise a slow or 502'd
+  // least-privilege/issues fetch hides trust findings that loaded fine.
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
-          <p style={{ color: "var(--text-secondary)" }}>Loading resource risk findings...</p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
+            <p style={{ color: "var(--text-secondary)" }}>Loading resource risk findings...</p>
+          </div>
         </div>
       </div>
     )
@@ -1480,12 +1488,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   if (error) {
     return (
-      <div className="rounded-lg border p-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
-        <div className="flex items-center gap-3">
-          <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
-          <div>
-            <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="rounded-lg border p-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
+            <div>
+              <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1521,15 +1532,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     // (A) Filter scope: a system is selected but has no LP issues in scope.
     if (isSystemScoped) {
       return (
-        <div className="text-center py-12">
-          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
-          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-            No LP issues for system <span className="font-mono">{systemName}</span>
-          </p>
-          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-            This system has no resources flagged for least-privilege gap analysis. Other systems
-            in the organization may still have issues — clear the filter or pick another system.
-          </p>
+        <div className="space-y-6">
+          <TrustDormancyLens systemName={systemName} />
+          <div className="text-center py-12">
+            <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+            <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+              No LP issues for system <span className="font-mono">{systemName}</span>
+            </p>
+            <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+              This system has no resources flagged for least-privilege gap analysis. Other systems
+              in the organization may still have issues — clear the filter or pick another system.
+            </p>
+          </div>
         </div>
       )
     }
@@ -1538,16 +1552,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     // genuinely don't know if this means "clean" or "not yet ingested."
     // Lead with the diagnostic, not the conclusion.
     return (
-      <div className="text-center py-12">
-        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-secondary)" }} />
-        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-          No least-privilege resources tracked
-        </p>
-        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          The least-privilege analyzer returned no resources. This usually means the LP collector
-          hasn&apos;t completed an ingestion yet, or the observation window has no eligible roles
-          in scope. It does <em>not</em> mean there are no issues — run the collector and refresh.
-        </p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-secondary)" }} />
+          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+            No least-privilege resources tracked
+          </p>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            The least-privilege analyzer returned no resources. This usually means the LP collector
+            hasn&apos;t completed an ingestion yet, or the observation window has no eligible roles
+            in scope. It does <em>not</em> mean there are no issues — run the collector and refresh.
+          </p>
+        </div>
       </div>
     )
   }
@@ -1556,15 +1573,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // Render before the table so the operator sees the conclusion first.
   if (data.resources.length > 0 && (data.summary?.totalExcessPermissions ?? 0) === 0) {
     return (
-      <div className="text-center py-12">
-        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
-        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-          No LP gaps detected
-        </p>
-        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
-          all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
-        </p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+            No LP gaps detected
+          </p>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
+            all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
+          </p>
+        </div>
       </div>
     )
   }
@@ -1771,6 +1791,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </button>
         </div>
       </div>
+
+      {/* Trust & Dormancy — net-new HAS_RISK findings (broad trust + dormant roles) */}
+      <TrustDormancyLens systemName={systemName} />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
