@@ -6685,12 +6685,21 @@ export default function TrafficFlowMap({
   canvasV2 = false,
   entryNodeId,
   fullscreenContainerRef,
+  onCrownJewelSpotlight,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
   onPathNodeAction?: OnPathNodeAction;
   /** Data-plane nodes (S3, DDB, RDS, KMS, Secrets) → damage-scope drawer */
   onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void;
+  /** Crown Jewel Spotlight (2026-06-22) — when a Resource node carries
+   *  `isCrownJewel=true` AND this callback is provided, the canvas / sidebar
+   *  click is intercepted and routed to Spotlight mode instead of the
+   *  damage-scope drawer. Parent owns the URL sync (?cj=…). Non-CJ resources
+   *  fall through to the existing damage-scope / detail-drawer paths
+   *  unchanged. Real-data only: parent reads /api/proxy/attack-paths/
+   *  <system>/by-crown-jewel via useCrownJewelConvergence. */
+  onCrownJewelSpotlight?: (cj: { id: string; arn?: string | null; name: string; type: string }) => void;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
@@ -8515,6 +8524,23 @@ export default function TrafficFlowMap({
         <StackSidebar
           architecture={architecture}
           onSelectResource={(resource, type) => {
+            // 2026-06-22 Crown Jewel Spotlight: parity with canvas card —
+            // sidebar row click on a CJ-tagged Resource routes to Spotlight
+            // when the parent wires it. Runs BEFORE damage-scope so the new
+            // mode takes precedence; damage-scope still fires for non-CJ
+            // data-plane nodes.
+            if (
+              (resource as ServiceNode).isCrownJewel &&
+              onCrownJewelSpotlight
+            ) {
+              onCrownJewelSpotlight({
+                id: resource.id,
+                arn: (resource as ServiceNode & { arn?: string | null }).arn,
+                name: (resource as { name?: string }).name ?? resource.id,
+                type: (resource as { type?: string }).type ?? 'resource',
+              });
+              return;
+            }
             // Attack Paths v2: Storage/DDB/RDS row click opens damage-scope
             // drawer (same as clicking the canvas node on the right).
             const damageScopeType = resolveDamageScopeNodeType(
@@ -8818,6 +8844,23 @@ export default function TrafficFlowMap({
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
+              // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
+              // to Spotlight when the parent wires the callback. Runs BEFORE
+              // damage-scope so Spotlight wins on CJ clicks; damage-scope
+              // still handles non-CJ data-plane nodes.
+              if (
+                type === 'resource' &&
+                (service as ServiceNode).isCrownJewel &&
+                onCrownJewelSpotlight
+              ) {
+                onCrownJewelSpotlight({
+                  id: service.id,
+                  arn: (service as ServiceNode & { arn?: string | null }).arn,
+                  name: (service as { name?: string }).name ?? service.id,
+                  type: (service as { type?: string }).type ?? 'resource',
+                });
+                return;
+              }
               const damageScopeType = resolveDamageScopeNodeType(service, type);
               if (onDamageScopeDataNode && damageScopeType) {
                 onDamageScopeDataNode({

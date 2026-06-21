@@ -5,6 +5,8 @@ import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, A
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
+import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
+import type { CrownJewelSummary } from './identity-attack-paths/types'
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -167,7 +169,98 @@ export default function DependencyMapTab({
 }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'comprehensive')
-  
+
+  // ── Crown Jewel Spotlight (2026-06-22) ───────────────────────────
+  // Click a CJ-tagged Resource on TFM → Spotlight enters with that jewel.
+  // URL contract: ?cj=<id-or-arn> for Aggregate; ?cj=… &path=<path_id> for
+  // Drill. Real data only — the strip fetches from the live by-crown-jewel
+  // proxy via useCrownJewelConvergence; no mock, no hardcoded paths.
+  const [spotlightJewel, setSpotlightJewel] = useState<CrownJewelSummary | null>(null)
+  const [spotlightPathId, setSpotlightPathId] = useState<string | null>(null)
+
+  // Hydrate Spotlight from URL on first mount + system change so deep-links
+  // (Slack-shared URLs) land directly on the Spotlight view.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const u = new URL(window.location.href)
+      const cj = u.searchParams.get('cj')
+      const pathId = u.searchParams.get('path')
+      if (!cj) {
+        setSpotlightJewel(null)
+        setSpotlightPathId(null)
+        return
+      }
+      // Reconstruct a minimal CrownJewelSummary — the hook reads id /
+      // canonical_id / name. Name and type fields display in the strip
+      // until the real graph data arrives; using cj itself as the
+      // human-readable identifier is honest (the operator pasted it).
+      const isArn = cj.startsWith('arn:')
+      setSpotlightJewel({
+        id: cj,
+        canonical_id: isArn ? cj : null,
+        name: cj,
+        type: 'resource',
+        severity: 'LOW',
+        path_count: 0,
+        highest_risk_score: 0,
+        is_internet_exposed: false,
+        data_classification: null,
+        priority_score: 0,
+      })
+      setSpotlightPathId(pathId)
+    } catch {
+      // No-op — URL parse error shouldn't break the page.
+    }
+  }, [systemName])
+
+  // Push current Spotlight selection back into the URL (no full nav).
+  // Sticky: shareable via copy-link, survives refresh.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const u = new URL(window.location.href)
+      if (spotlightJewel) {
+        u.searchParams.set('cj', spotlightJewel.canonical_id || spotlightJewel.id)
+        if (spotlightPathId) {
+          u.searchParams.set('path', spotlightPathId)
+        } else {
+          u.searchParams.delete('path')
+        }
+      } else {
+        u.searchParams.delete('cj')
+        u.searchParams.delete('path')
+      }
+      window.history.replaceState(null, '', u.toString())
+    } catch {
+      // No-op.
+    }
+  }, [spotlightJewel?.id, spotlightJewel?.canonical_id, spotlightPathId])
+
+  const handleEnterSpotlight = useCallback(
+    (cj: { id: string; arn?: string | null; name: string; type: string }) => {
+      setSpotlightJewel({
+        id: cj.id,
+        canonical_id: cj.arn ?? (cj.id.startsWith('arn:') ? cj.id : null),
+        name: cj.name,
+        type: cj.type,
+        severity: 'LOW',
+        path_count: 0,
+        highest_risk_score: 0,
+        is_internet_exposed: false,
+        data_classification: null,
+        priority_score: 0,
+      })
+      setSpotlightPathId(null)
+    },
+    [],
+  )
+
+  const handleResetSpotlight = useCallback(() => {
+    setSpotlightJewel(null)
+    setSpotlightPathId(null)
+  }, [])
+
   // Update graph engine when prop changes
   useEffect(() => {
     if (defaultGraphEngine) {
@@ -649,7 +742,28 @@ export default function DependencyMapTab({
                 </div>
               </div>
             }>
-              <TrafficFlowMap systemName={systemName} />
+              <div className="flex flex-col h-full">
+                {/* Crown Jewel Spotlight strip — renders above TFM when an
+                    operator has clicked a CJ-tagged Resource node, or when
+                    the URL carries ?cj=… on first load. Real-data only:
+                    the strip fetches /api/proxy/attack-paths/<system>/
+                    by-crown-jewel via useCrownJewelConvergence. */}
+                {spotlightJewel && (
+                  <CJSpotlightStrip
+                    systemName={systemName}
+                    jewel={spotlightJewel}
+                    selectedPathId={spotlightPathId}
+                    onSelectPath={setSpotlightPathId}
+                    onReset={handleResetSpotlight}
+                  />
+                )}
+                <div className="flex-1 min-h-0">
+                  <TrafficFlowMap
+                    systemName={systemName}
+                    onCrownJewelSpotlight={handleEnterSpotlight}
+                  />
+                </div>
+              </div>
             </React.Suspense>
           ) : (
             <React.Suspense fallback={
