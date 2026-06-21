@@ -2086,9 +2086,13 @@ function CrownJewelRail({
                 {/* P0.5 — primary count = in_system only. Cross-system
                     paths surface in the secondary line below so the
                     headline never lies (e.g. saferemediate-access-logs
-                    was showing 14 in-rail but 0 in the drill-in). */}
-                {(j.class_counts?.in_system != null
-                  ? j.class_counts.in_system
+                    was showing 14 in-rail but 0 in the drill-in).
+                    Correctness: when class_counts EXISTS but lacks
+                    in_system, render 0 — the truth. Only fall back
+                    to legacy path_count when class_counts is entirely
+                    absent (BE pre-P0.5 deploy / migration window). */}
+                {(j.class_counts != null
+                  ? (j.class_counts.in_system ?? 0)
                   : (j.path_count ?? 0))}
               </span>
             </div>
