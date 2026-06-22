@@ -325,7 +325,14 @@ export default function DependencyMapTab({
       []
     return Array.isArray(cjs) ? cjs : []
   }, [iapData])
-  const crownJewelsLoading = iapLoading
+  // Treat the in-flight retry state as "still loading" so the picker
+  // doesn't vanish between Retry-click and response. useCachedFetch
+  // doesn't reset its internal `loading` on retry (it stays false after
+  // first fetch resolved/rejected), so without this gate the parent's
+  // "render picker if loading || error || hasData" predicate evaluates
+  // false during retry-in-flight and the picker disappears entirely.
+  const crownJewelsLoading =
+    iapLoading || (iapUrl !== null && iapData === null && iapError === null)
   const crownJewelsError = iapError
   const crownJewelsIsStale = iapIsStale
   const systemCrownJewelIds = useMemo<Set<string>>(() => {
