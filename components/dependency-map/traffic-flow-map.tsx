@@ -8242,17 +8242,17 @@ export default function TrafficFlowMap({
             };
           });
         } catch (bulkErr) {
-          console.warn('[TrafficFlowMap] IAM bulk fetch failed, falling back to per-role:', bulkErr);
-          return Promise.all(
-            archForGaps.iamRoles.map(role =>
-              fetchIAMRoleData(role.name)
-                .then(data => ({ roleId: role.id, ...data }))
-                .catch(err => {
-                  console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
-                  return null;
-                }),
-            ),
-          );
+          // 2026-06-22 P4 audit: REMOVED the per-role N+1 fallback. The
+          // previous fallback fired one /api/proxy/iam-roles/<name> per
+          // role (up to 48 on alon-prod) into the SAME backend that
+          // just failed the bulk request — turning one batch failure
+          // into 48 sequential failures on a saturated DB. Now: log
+          // the failure, return null per role. The enrichment is
+          // best-effort background work; missing IAM gap counts on
+          // the SG chips is a far cheaper failure mode than 48× the
+          // load on a downed backend.
+          console.warn('[TrafficFlowMap] IAM bulk fetch failed — skipping enrichment (no per-role fallback):', bulkErr);
+          return archForGaps.iamRoles.map(() => null);
         }
       };
       loadIamEnrichment().then(iamResults => {
@@ -8300,17 +8300,15 @@ export default function TrafficFlowMap({
             return { sgId: sg.id, rules };
           });
         } catch (bulkErr) {
-          console.warn('[TrafficFlowMap] SG bulk fetch failed, falling back to per-SG:', bulkErr);
-          return Promise.all(
-            archForGaps.securityGroups.map(sg =>
-              fetchSGRules(sg.id)
-                .then(rules => ({ sgId: sg.id, rules }))
-                .catch(err => {
-                  console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
-                  return null;
-                }),
-            ),
-          );
+          // 2026-06-22 P4 audit: REMOVED the per-SG N+1 fallback. Same
+          // logic as the IAM block above — when the batch fails we
+          // were firing /api/proxy/security-groups/<id> per SG (up to
+          // 9 on alon-prod) into the same overloaded DB. Log + skip
+          // enrichment; the SG rules chips render their build-time
+          // seed values, which is honest about what we couldn't load
+          // without compounding the incident.
+          console.warn('[TrafficFlowMap] SG bulk fetch failed — skipping enrichment (no per-SG fallback):', bulkErr);
+          return archForGaps.securityGroups.map(() => null);
         }
       };
       loadSgEnrichment().then(sgRulesResults => {
