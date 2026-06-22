@@ -6,6 +6,7 @@
 // is gating against.
 
 import { Crown, Globe } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
@@ -77,6 +78,29 @@ interface AttackPathsCardProps {
 }
 
 export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = {}) {
+  const router = useRouter()
+
+  // Drill from a row into the system's Topology view with the Crown Jewel
+  // Spotlight strip pre-opened on that jewel. The standalone `/systems`
+  // route reads `?systemName=`, `?tab=` and `?cj=` to render
+  // SystemDetailDashboard → DependencyMapTab → CJSpotlightStrip.
+  //
+  // `tab=dependency-map` is the LEAF id for the Topology tab group
+  // (system-detail-dashboard.tsx tabGroups: `{ id: "topology", leaf:
+  // "dependency-map" }`); the dashboard's activeTab holds leaf ids, not
+  // group ids. Passing `tab=topology` silently falls back to Overview.
+  //
+  // No-op when system_name is missing (the row can't be scoped without it).
+  const handleJewelClick = (jewel: CrownJewel) => {
+    if (!jewel.system_name) return
+    const qs = new URLSearchParams({
+      systemName: jewel.system_name,
+      tab: "dependency-map",
+      cj: jewel.id,
+    })
+    router.push(`/systems?${qs.toString()}`)
+  }
+
   // Action-driving data — strict 10-min staleness. Anything older falls
   // back to the loading skeleton instead of showing stale "top attack
   // path" data, because acting on a 12h-old top path could mean
@@ -180,41 +204,55 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
           const sevClass = SEVERITY_PILL[j.severity] ?? "bg-slate-100 text-slate-600"
           const typeClass = TYPE_TINT[j.type] ?? "bg-slate-100 text-slate-600"
           const priority = j.priority_score ?? j.highest_risk_score ?? 0
+          const drillable = Boolean(j.system_name)
           return (
-            <li
-              key={j.id}
-              className="flex items-center gap-3 rounded-md border border-slate-100 bg-slate-50/40 px-3 py-2 text-sm hover:bg-slate-50"
-            >
-              <span
-                className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${typeClass}`}
+            <li key={j.id}>
+              <button
+                type="button"
+                onClick={() => handleJewelClick(j)}
+                disabled={!drillable}
+                title={
+                  drillable
+                    ? `Open ${j.name || j.id} in System Map with attack paths`
+                    : "No system scope — can't drill from this row"
+                }
+                className={`flex w-full items-center gap-3 rounded-md border border-slate-100 bg-slate-50/40 px-3 py-2 text-left text-sm transition-colors ${
+                  drillable
+                    ? "hover:bg-slate-50 hover:border-slate-200 cursor-pointer"
+                    : "cursor-not-allowed opacity-70"
+                }`}
               >
-                {j.type}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 truncate font-medium text-slate-900">
-                  <span className="truncate">{j.name || j.id}</span>
-                  {j.is_internet_exposed && (
-                    <Globe
-                      className="h-3.5 w-3.5 shrink-0 text-rose-600"
-                      strokeWidth={2.5}
-                    />
-                  )}
+                <span
+                  className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${typeClass}`}
+                >
+                  {j.type}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 truncate font-medium text-slate-900">
+                    <span className="truncate">{j.name || j.id}</span>
+                    {j.is_internet_exposed && (
+                      <Globe
+                        className="h-3.5 w-3.5 shrink-0 text-rose-600"
+                        strokeWidth={2.5}
+                      />
+                    )}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-slate-500">
+                    {j.system_name ?? "—"} · {j.path_count ?? 0} path
+                    {j.path_count === 1 ? "" : "s"}
+                  </div>
                 </div>
-                <div className="mt-0.5 truncate text-xs text-slate-500">
-                  {j.system_name ?? "—"} · {j.path_count ?? 0} path
-                  {j.path_count === 1 ? "" : "s"}
-                </div>
-              </div>
-              <span
-                className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${sevClass}`}
-              >
-                {j.severity}
-              </span>
-              <span
-                className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${priorityToneClass(priority)}`}
-              >
-                {priority.toFixed(0)}
-              </span>
+                <span
+                  className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${sevClass}`}
+                >
+                  {j.severity}
+                </span>
+                <span
+                  className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${priorityToneClass(priority)}`}
+                >
+                  {priority.toFixed(0)}
+                </span>
+              </button>
             </li>
           )
         })}
