@@ -388,6 +388,25 @@ export default function DependencyMapTab({
     return out
   }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
 
+  // Auto-select the first path the moment convergence data lands.
+  // Without this, `spotlightPathId` stays null until the operator
+  // explicitly clicks a row in the strip — and so the canvas dims to
+  // the UNION of every path to the CJ even though the kill-chain in
+  // the strip is already showing path 1 (the strip auto-defaults to
+  // paths[0] when no selectedPathId). That mismatch confused operators
+  // who expected "open spotlight → see this one path on canvas." Now
+  // the URL gets &path=<first_id> on first paint and the single-path
+  // canvas filter applies from the start. Operator can still pick a
+  // different path; clicking ANY row updates `spotlightPathId` via
+  // the existing onSelectPath handler.
+  useEffect(() => {
+    if (!spotlightJewel) return
+    if (spotlightPathId) return
+    const paths = spotlightConvergence.data?.paths
+    if (!paths || paths.length === 0) return
+    setSpotlightPathId(paths[0].path_id)
+  }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
+
   // Update graph engine when prop changes
   useEffect(() => {
     if (defaultGraphEngine) {
