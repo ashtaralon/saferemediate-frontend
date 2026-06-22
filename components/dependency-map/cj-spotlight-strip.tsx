@@ -22,7 +22,7 @@
  */
 
 import { useMemo } from "react"
-import { ChevronDown, ChevronRight, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff, Server, Key, Database, Globe, Network, Cloud } from "lucide-react"
+import { ChevronDown, ChevronRight, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff, Server, Key, Database, Globe, Network, Cloud, Flame } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { ConvergenceHop, ConvergencePath, CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 
@@ -141,6 +141,20 @@ export function CJSpotlightStrip({
           in the strip without leaving Spotlight. Reads selectedPath.hops
           straight from the backend response — no derivation, no mock. */}
       {selectedPath.hops.length > 0 && <HopChain hops={selectedPath.hops} />}
+
+      {/* v1.3 choke points — surface the leverage candidates: nodes that
+          appear on ≥ 2 paths to the CJ. Closing a high-count chokepoint
+          eliminates that many paths simultaneously. Reads
+          data.choke_points (Record<node_id, path_count>) from the
+          backend response. Skips the CJ itself (it's on every path by
+          definition, not a leverage candidate). Uses hop[].name across
+          all paths as the display-name lookup. */}
+      <ChokePoints
+        chokePoints={data.choke_points}
+        cjId={jewel.id}
+        cjCanonicalId={jewel.canonical_id ?? null}
+        paths={data.paths}
+      />
     </StripFrame>
   )
 }
@@ -359,6 +373,86 @@ function HopChainItem({ hop, isLast }: { hop: ConvergenceHop; isLast: boolean })
         </div>
       )}
     </>
+  )
+}
+
+// ─── ChokePoints (v1.3) — leverage-candidate surface ────────────
+
+function ChokePoints({
+  chokePoints,
+  cjId,
+  cjCanonicalId,
+  paths,
+}: {
+  chokePoints: Record<string, number> | undefined
+  cjId: string
+  cjCanonicalId: string | null
+  paths: ConvergencePath[]
+}) {
+  // Build hop_id → display name from the live paths data — no extra
+  // fetch, no derivation. When a chokepoint id has no matching hop
+  // name (rare — only happens if backend trims hops), fall back to
+  // the id itself (honest).
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of paths) {
+      for (const h of p.hops) {
+        if (h.node_id && h.name && !m.has(h.node_id)) {
+          m.set(h.node_id, h.name)
+        }
+      }
+    }
+    return m
+  }, [paths])
+
+  // Sort chokepoints by path-count DESC; drop count < 2 (single-path
+  // entries aren't leverage); drop the CJ itself (on every path by
+  // definition — not a candidate). Top 4 surface inline; rest get a
+  // "+N more" pill.
+  const ranked = useMemo(() => {
+    if (!chokePoints) return []
+    return Object.entries(chokePoints)
+      .filter(([id, count]) => count >= 2 && id !== cjId && id !== cjCanonicalId)
+      .sort((a, b) => b[1] - a[1])
+  }, [chokePoints, cjId, cjCanonicalId])
+
+  if (ranked.length === 0) return null
+
+  const top = ranked.slice(0, 4)
+  const rest = ranked.length - top.length
+
+  return (
+    <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-orange-300 mb-1.5">
+        <Flame className="w-3 h-3" />
+        Choke points · {ranked.length}
+        <span className="text-slate-500 font-normal normal-case tracking-normal">
+          · close these to kill multiple paths at once
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {top.map(([id, count]) => {
+          const name = nameById.get(id) ?? id
+          return (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/40 bg-orange-500/10 px-2 py-1 text-[10px] font-medium text-orange-100"
+              title={`${name}\n${id}\nOn ${count} paths to this CJ`}
+            >
+              <span className="font-mono truncate max-w-[180px]">{truncate(name, 28)}</span>
+              <span className="inline-flex items-center justify-center rounded-full bg-orange-400/30 text-orange-50 text-[9px] font-bold min-w-[18px] h-[14px] px-1">
+                {count}
+              </span>
+            </span>
+          )
+        })}
+        {rest > 0 && (
+          <span className="text-[10px] text-slate-400">
+            +{rest} more
+          </span>
+        )}
+      </div>
+    </div>
   )
 }
 
