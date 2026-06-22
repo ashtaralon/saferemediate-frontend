@@ -6685,12 +6685,29 @@ export default function TrafficFlowMap({
   canvasV2 = false,
   entryNodeId,
   fullscreenContainerRef,
+  onCrownJewelSpotlight,
+  spotlightActiveNodeIds,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
   onPathNodeAction?: OnPathNodeAction;
   /** Data-plane nodes (S3, DDB, RDS, KMS, Secrets) → damage-scope drawer */
   onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void;
+  /** Crown Jewel Spotlight (2026-06-22) — when a Resource node carries
+   *  `isCrownJewel=true` AND this callback is provided, the canvas / sidebar
+   *  click is intercepted and routed to Spotlight mode instead of the
+   *  damage-scope drawer. Parent owns the URL sync (?cj=…). Non-CJ resources
+   *  fall through to the existing damage-scope / detail-drawer paths
+   *  unchanged. Real-data only: parent reads /api/proxy/attack-paths/
+   *  <system>/by-crown-jewel via useCrownJewelConvergence. */
+  onCrownJewelSpotlight?: (cj: { id: string; arn?: string | null; name: string; type: string }) => void;
+  /** Crown Jewel Spotlight v1.2 (2026-06-22) — set of node IDs that
+   *  participate in at least one attack path to the focused CJ. When
+   *  non-empty, TFM dims every node NOT in this set (the canvas
+   *  collapses to the kill-chain spine). Computed by the parent from
+   *  the same by-crown-jewel response that drives the strip — single
+   *  source of truth. Undefined / empty = Spotlight off, no dimming. */
+  spotlightActiveNodeIds?: Set<string>;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
@@ -6961,6 +6978,34 @@ export default function TrafficFlowMap({
 
   // BFS to find nodes within N hops for dependency depth
   const ghostedNodeIds = useMemo(() => {
+    // ── Crown Jewel Spotlight v1.2 (2026-06-22) ──────────────────
+    // When the parent has computed a non-empty spotlightActiveNodeIds
+    // set, that takes precedence: ghost every node NOT on a path to
+    // the focused CJ. The set is the union of source / identity /
+    // cj_target / hop ids from the live by-crown-jewel response —
+    // single source of truth shared with the strip. No heatmap
+    // intersection here on purpose: Spotlight is a scoped view, the
+    // operator already opted in by clicking a CJ.
+    if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0 && architecture) {
+      const allNodeIds = new Set<string>();
+      architecture.computeServices.forEach(n => allNodeIds.add(n.id));
+      architecture.resources.forEach(n => allNodeIds.add(n.id));
+      architecture.securityGroups.forEach(n => allNodeIds.add(n.id));
+      architecture.nacls.forEach(n => allNodeIds.add(n.id));
+      architecture.iamRoles.forEach(n => allNodeIds.add(n.id));
+      (architecture.entryPoints ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.principals ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.instanceProfiles ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.iamPolicies ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.vpcEndpoints ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.egressGateways ?? []).forEach(n => allNodeIds.add(n.id));
+      const ghosted = new Set<string>();
+      allNodeIds.forEach(id => {
+        if (!spotlightActiveNodeIds.has(id)) ghosted.add(id);
+      });
+      return ghosted;
+    }
+    // ── Heatmap mode (existing behavior, unchanged) ──────────────
     if (!heatmapMode || !selectedNodeForHops || !architecture) return new Set<string>();
     const adj = new Map<string, Set<string>>();
     architecture.flows.forEach(f => {
@@ -7001,7 +7046,7 @@ export default function TrafficFlowMap({
     const ghosted = new Set<string>();
     allNodeIds.forEach(id => { if (!visited.has(id)) ghosted.add(id); });
     return ghosted;
-  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture]);
+  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture, spotlightActiveNodeIds]);
 
   const buildArchitecture = useCallback((nodes: any[], edges: any[], iamData: any[]): SystemArchitecture => {
     const extractInstanceId = (id: string | null | undefined): string => {
@@ -8515,6 +8560,23 @@ export default function TrafficFlowMap({
         <StackSidebar
           architecture={architecture}
           onSelectResource={(resource, type) => {
+            // 2026-06-22 Crown Jewel Spotlight: parity with canvas card —
+            // sidebar row click on a CJ-tagged Resource routes to Spotlight
+            // when the parent wires it. Runs BEFORE damage-scope so the new
+            // mode takes precedence; damage-scope still fires for non-CJ
+            // data-plane nodes.
+            if (
+              (resource as ServiceNode).isCrownJewel &&
+              onCrownJewelSpotlight
+            ) {
+              onCrownJewelSpotlight({
+                id: resource.id,
+                arn: (resource as ServiceNode & { arn?: string | null }).arn,
+                name: (resource as { name?: string }).name ?? resource.id,
+                type: (resource as { type?: string }).type ?? 'resource',
+              });
+              return;
+            }
             // Attack Paths v2: Storage/DDB/RDS row click opens damage-scope
             // drawer (same as clicking the canvas node on the right).
             const damageScopeType = resolveDamageScopeNodeType(
@@ -8818,6 +8880,23 @@ export default function TrafficFlowMap({
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
+              // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
+              // to Spotlight when the parent wires the callback. Runs BEFORE
+              // damage-scope so Spotlight wins on CJ clicks; damage-scope
+              // still handles non-CJ data-plane nodes.
+              if (
+                type === 'resource' &&
+                (service as ServiceNode).isCrownJewel &&
+                onCrownJewelSpotlight
+              ) {
+                onCrownJewelSpotlight({
+                  id: service.id,
+                  arn: (service as ServiceNode & { arn?: string | null }).arn,
+                  name: (service as { name?: string }).name ?? service.id,
+                  type: (service as { type?: string }).type ?? 'resource',
+                });
+                return;
+              }
               const damageScopeType = resolveDamageScopeNodeType(service, type);
               if (onDamageScopeDataNode && damageScopeType) {
                 onDamageScopeDataNode({
