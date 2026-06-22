@@ -3141,13 +3141,16 @@ function AnimatedTrafficLine({
       ? 'var(--canvas-danger)'
       : undefined;
 
-  // Ghosted (outside dependency hop radius)
+  // Ghosted (outside spotlight / heatmap radius). 2026-06-23: changed
+  // from opacity={0.08} (faintly visible) to NULL — when the spotlight
+  // is active with a single path selected, every architecture edge
+  // whose endpoints aren't both on the path was rendering as a
+  // background line. With 3000+ flow edges the canvas became an
+  // unreadable tangle even at 8% opacity. Hiding entirely is the only
+  // way to honor "see ONLY this path's flow" — anything visible at all
+  // is noise the operator has to filter mentally.
   if (ghosted) {
-    return (
-      <g opacity={0.08}>
-        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--canvas-config)" strokeWidth={1} strokeLinecap="round" />
-      </g>
-    );
+    return null;
   }
 
   // V2-3 (2026-05-31): top-level opacity for the dim layer + DOM data
@@ -4396,25 +4399,28 @@ export function UnifiedArchitectureDiagram({
   // than the spine).
   const pathEmphasisClass = useCallback(
     (nodeId: string): string => {
-      // Crown Jewel Spotlight emphasis (2026-06-22): when the operator
-      // has picked a single path (parent populated `ghostedNodeIds`
-      // from `spotlightActiveNodeIds`), dim off-path nodes HARD and
-      // ring on-path nodes. Stronger than the legacy attack-path dim
-      // (opacity-70) — the operator deliberately picked one path; the
-      // rest of the architecture should fade so the chain stands out.
-      // Anchor: user feedback 2026-06-22 — "once I choose a specific
-      // path I need to see the flow of just this path, not the entire
-      // services."
-      if (ghostedNodeIds.size > 0) {
-        if (ghostedNodeIds.has(nodeId)) return ' opacity-25';
-        return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
+      // Crown Jewel Spotlight emphasis. POSITIVE check on
+      // spotlightActiveNodeIds, not negative check on ghostedNodeIds —
+      // ghostedNodeIds = (architecture nodes − spotlightActive), so
+      // any node ID outside the architecture's lane arrays (synthetic
+      // nodes, identity tokens, etc.) was NOT in ghostedNodeIds and
+      // therefore got the on-path ring by accident. That surfaced as
+      // unrelated EC2/SG/IAM cards ringed amber even when they
+      // weren't on the path. Anchor: user feedback 2026-06-23 —
+      // "what is this shit... we need to see the flow between the
+      // services that are part of this path."
+      if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0) {
+        if (spotlightActiveNodeIds.has(nodeId)) {
+          return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
+        }
+        return ' opacity-25';
       }
       if (!pathFilterActive) return '';
       return isOnSelectedPath(nodeId)
         ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
         : ' opacity-70';
     },
-    [pathFilterActive, isOnSelectedPath, ghostedNodeIds],
+    [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
   // Numbered step badge — absolute top-left of the card wrapper (which
   // must be position:relative). Renders only for nodes that are actual
