@@ -123,22 +123,27 @@ export function CJSpotlightStrip({
 
   return (
     <StripFrame onReset={onReset} cjName={jewel.name}>
-      {/* Header row — counts + path dropdown */}
+      {/* Header row — counts only. The path picker was a hidden dropdown
+          before; promoted to an always-visible inline list below so the
+          operator sees every path's entry point (EC2 / Lambda / etc.)
+          at a glance without clicking. */}
       <div className="flex items-center gap-3 flex-wrap">
         <SpotlightSummary
           pathsTotal={data.paths_total}
           observedPaths={data.observed_paths}
           chokeCount={Object.keys(data.choke_points || {}).length}
         />
-        <PathDropdown
-          paths={data.paths}
-          selectedPathId={selectedPath.path_id}
-          onSelect={onSelectPath}
-        />
       </div>
 
-      {/* Selected path summary — endpoints-only per FR4 */}
-      <SelectedPathSummary path={selectedPath} cjName={jewel.name} />
+      {/* Inline path list (always visible). Click a row → strip switches
+          to that path AND the TFM canvas filters to only that path's
+          nodes (parent reads `spotlightPathId` in its
+          `spotlightActiveNodeIds` memo and dims everything else). */}
+      <PathList
+        paths={data.paths}
+        selectedPathId={selectedPath.path_id}
+        onSelect={onSelectPath}
+      />
 
       {/* v1.1 hop chain — inline kill-chain visualization. Operator sees
           the full hop path (entry → workload → identity → CJ) directly
@@ -233,6 +238,53 @@ function SpotlightSummary({
   )
 }
 
+function PathList({
+  paths,
+  selectedPathId,
+  onSelect,
+}: {
+  paths: ConvergencePath[]
+  selectedPathId: string
+  onSelect: (id: string | null) => void
+}) {
+  // Always-visible inline list of every attack path to the CJ. Each row
+  // shows the entry point (the EC2 / Lambda / etc. the attacker would
+  // start from), the hop count, severity, observed-vs-capable, and the
+  // Initial Access chips. Click a row → parent updates `spotlightPathId`
+  // → kill-chain below switches AND the TFM canvas filters to that
+  // path's nodes only.
+  //
+  // For long lists the container scrolls — never collapse paths into
+  // a hidden dropdown again; that was the original UX hole operators
+  // hit (couldn't see "this CJ has 6 paths from 4 different EC2s" at
+  // a glance because the dropdown swallowed it).
+  return (
+    <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 overflow-hidden">
+      <div className="px-3 py-1.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+          {paths.length} attack path{paths.length === 1 ? "" : "s"} · click to view
+        </span>
+        <span className="text-[9px] uppercase tracking-wider text-slate-500">
+          sorted worst-first
+        </span>
+      </div>
+      <div className="max-h-[200px] overflow-y-auto py-0.5">
+        {paths.map((p, idx) => (
+          <PathRow
+            key={p.path_id}
+            path={p}
+            idx={idx}
+            isSelected={p.path_id === selectedPathId}
+            onClick={() => onSelect(p.path_id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Kept for any legacy callers; new layout uses the inline `PathList`
+// above. Safe to delete once nothing imports it.
 function PathDropdown({
   paths,
   selectedPathId,

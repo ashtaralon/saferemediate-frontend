@@ -346,16 +346,32 @@ export default function DependencyMapTab({
     }
   }, [systemName, crownJewelsFetchNonce])
 
-  // Union of every node ID that participates in any path to the selected
-  // CJ. TFM dims everything NOT in this set when Spotlight is active.
-  // Empty set when Spotlight off / no data → TFM falls back to its
-  // normal rendering (no dimming). Real-data only: every id comes from
-  // the live by-crown-jewel response.
+  // Set of node IDs the TFM canvas should keep lit when Spotlight is
+  // active; every node NOT in this set is dimmed (ghosted). Two scoping
+  // modes — single-path takes precedence over union:
+  //
+  //   1. `spotlightPathId` set → ONLY the nodes on that specific path.
+  //      Operator clicked a path row in the strip; they want to see
+  //      that one path on the canvas, not the union of all paths to
+  //      the CJ. This is the bug we hit at 2026-06-22 — the strip's
+  //      path picker switched the kill-chain visualization in the
+  //      strip, but the canvas kept dimming to the union, so picking
+  //      path 1/6 vs path 2/6 made no visible canvas difference.
+  //
+  //   2. `spotlightPathId` null → union of every path to the CJ.
+  //      The "show me how reachable this jewel is" view; no specific
+  //      path picked yet (first-mount via ?cj=, no &path=).
+  //
+  // Real-data only: every id comes from the live by-crown-jewel
+  // response. Empty set when Spotlight is off → TFM renders normally.
   const spotlightActiveNodeIds = useMemo<Set<string>>(() => {
     const out = new Set<string>()
     const data = spotlightConvergence.data
     if (!data?.paths || data.paths.length === 0) return out
-    for (const p of data.paths) {
+    const pathsToRender = spotlightPathId
+      ? data.paths.filter((p) => p.path_id === spotlightPathId)
+      : data.paths
+    for (const p of pathsToRender) {
       if (p.source) out.add(p.source)
       if (p.identity) out.add(p.identity)
       if (p.cj_target_id) out.add(p.cj_target_id)
@@ -370,7 +386,7 @@ export default function DependencyMapTab({
       if (spotlightJewel.canonical_id) out.add(spotlightJewel.canonical_id)
     }
     return out
-  }, [spotlightConvergence.data, spotlightJewel])
+  }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
 
   // Update graph engine when prop changes
   useEffect(() => {
