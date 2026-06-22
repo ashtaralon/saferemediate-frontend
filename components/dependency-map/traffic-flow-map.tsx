@@ -4396,12 +4396,25 @@ export function UnifiedArchitectureDiagram({
   // than the spine).
   const pathEmphasisClass = useCallback(
     (nodeId: string): string => {
+      // Crown Jewel Spotlight emphasis (2026-06-22): when the operator
+      // has picked a single path (parent populated `ghostedNodeIds`
+      // from `spotlightActiveNodeIds`), dim off-path nodes HARD and
+      // ring on-path nodes. Stronger than the legacy attack-path dim
+      // (opacity-70) — the operator deliberately picked one path; the
+      // rest of the architecture should fade so the chain stands out.
+      // Anchor: user feedback 2026-06-22 — "once I choose a specific
+      // path I need to see the flow of just this path, not the entire
+      // services."
+      if (ghostedNodeIds.size > 0) {
+        if (ghostedNodeIds.has(nodeId)) return ' opacity-25';
+        return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
+      }
       if (!pathFilterActive) return '';
       return isOnSelectedPath(nodeId)
         ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
         : ' opacity-70';
     },
-    [pathFilterActive, isOnSelectedPath],
+    [pathFilterActive, isOnSelectedPath, ghostedNodeIds],
   );
   // Numbered step badge — absolute top-left of the card wrapper (which
   // must be position:relative). Renders only for nodes that are actual
