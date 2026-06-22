@@ -61,24 +61,12 @@ const ComprehensiveFlowViz = dynamic(
   }
 )
 
-// Lazy load AWSArchitectureDiagram (Full Map Connections with AWS icons and force-directed layout) with SSR disabled
-const AWSArchitectureDiagram = dynamic(
-  () => import('./dependency-map/aws-architecture-diagram'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
-        <div className="text-center">
-          <div className="relative w-16 h-16 mx-auto mb-4">
-            <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
-          </div>
-          <p className="text-slate-400">Loading AWS Architecture...</p>
-        </div>
-      </div>
-    )
-  }
-)
+// AWSArchitectureDiagram (the "Full Map" sub-tab) was retired 2026-06-22
+// per Alon: System Map is the focus, Full Map's force-directed AWS-icon
+// layout was redundant with the Topology · Graph View tab and added
+// cognitive load. TrafficFlowMap is now the only graph engine inside the
+// Topology · Graph View sub-tab. The component file still exists for
+// other consumers (none currently) — clean removal can come later.
 
 // Lazy load Neo4jAWSMap (Neo4j-powered dynamic visualization with animated flows) with SSR disabled
 const Neo4jAWSMap = dynamic(
@@ -164,12 +152,12 @@ type ViewType = 'graph' | 'resource' | 'sankey' | 'flows'
 export default function DependencyMapTab({
   systemName,
   highlightPath,
-  defaultGraphEngine = 'comprehensive',
+  defaultGraphEngine = 'neo4j',
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'comprehensive')
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'neo4j')
 
   // ── Crown Jewel Spotlight (2026-06-22) ───────────────────────────
   // Click a CJ-tagged Resource on TFM → Spotlight enters with that jewel.
@@ -637,35 +625,11 @@ export default function DependencyMapTab({
             </button>
           </div>
 
-          {/* Graph Engine Toggle (only show in graph view) */}
-          {activeView === 'graph' && (
-            <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-              <button
-                onClick={() => handleGraphEngineChange('comprehensive')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'comprehensive'
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Comprehensive 6-Tier View - EC2, Security Groups, IAM, Databases, Storage with all edge types"
-              >
-                <Layers className="w-4 h-4" />
-                Full Map
-              </button>
-              <button
-                onClick={() => handleGraphEngineChange('neo4j')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'neo4j'
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="System Map - Real-time animated data flows with live traffic visualization"
-              >
-                <Activity className="w-4 h-4" />
-                System Map
-              </button>
-            </div>
-          )}
+          {/* Graph engine toggle retired 2026-06-22: Full Map (the
+              `comprehensive` AWSArchitectureDiagram) is dropped. System
+              Map (TrafficFlowMap) is the only engine in the graph view,
+              so a one-option toggle is noise. graphEngine state stays
+              for backwards-compat with the defaultGraphEngine prop. */}
         </div>
 
         {/* Right side: Search + Description + Sync button */}
@@ -709,11 +673,7 @@ export default function DependencyMapTab({
           <div className="text-sm text-slate-500">
             {activeView === 'graph' ? (
               <span>
-                {graphEngine === 'comprehensive'
-                  ? 'AWS Architecture Map • Force-directed layout with official AWS icons • Click nodes for details'
-                  : graphEngine === 'neo4j'
-                  ? 'System Map • Animated data flows with real-time updates • Drag to pan, scroll to zoom'
-                  : 'Graph theory view with all connections • Double-click a node for details'}
+                System Map • Animated data flows with real-time updates • Drag to pan, scroll to zoom
               </span>
             ) : (
               <span>Detailed dependency breakdown of a single resource</span>
@@ -768,64 +728,46 @@ export default function DependencyMapTab({
       {/* View Content */}
       <div className="flex-1 h-[650px]">
         {activeView === 'graph' ? (
-          graphEngine === 'neo4j' ? (
-            <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
-                <div className="text-center">
-                  <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
-                  <p className="text-slate-400 text-xs mt-1">Connecting to Neo4j</p>
-                </div>
+          // Full Map (AWSArchitectureDiagram) retired 2026-06-22 —
+          // TrafficFlowMap is the sole engine inside the graph view.
+          <React.Suspense fallback={
+            <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+              <div className="text-center">
+                <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
+                <p className="text-slate-400 text-xs mt-1">Connecting to Neo4j</p>
               </div>
-            }>
-              <div className="flex flex-col h-full">
-                {/* Crown Jewel Spotlight strip — renders above TFM when an
-                    operator has clicked a CJ-tagged Resource node, or when
-                    the URL carries ?cj=… on first load. Real-data only:
-                    the strip fetches /api/proxy/attack-paths/<system>/
-                    by-crown-jewel via useCrownJewelConvergence. */}
-                {spotlightJewel && (
-                  <CJSpotlightStrip
-                    jewel={spotlightJewel}
-                    selectedPathId={spotlightPathId}
-                    onSelectPath={setSpotlightPathId}
-                    onReset={handleResetSpotlight}
-                    data={spotlightConvergence.data}
-                    loading={spotlightConvergence.loading}
-                    error={spotlightConvergence.error}
-                    retry={spotlightConvergence.retry}
-                  />
-                )}
-                <div className="flex-1 min-h-0">
-                  <TrafficFlowMap
-                    systemName={systemName}
-                    onCrownJewelSpotlight={handleEnterSpotlight}
-                    spotlightActiveNodeIds={
-                      spotlightActiveNodeIds.size > 0 ? spotlightActiveNodeIds : undefined
-                    }
-                  />
-                </div>
+            </div>
+          }>
+            <div className="flex flex-col h-full">
+              {/* Crown Jewel Spotlight strip — renders above TFM when an
+                  operator has clicked a CJ-tagged Resource node, or when
+                  the URL carries ?cj=… on first load. Real-data only:
+                  the strip fetches /api/proxy/attack-paths/<system>/
+                  by-crown-jewel via useCrownJewelConvergence. */}
+              {spotlightJewel && (
+                <CJSpotlightStrip
+                  jewel={spotlightJewel}
+                  selectedPathId={spotlightPathId}
+                  onSelectPath={setSpotlightPathId}
+                  onReset={handleResetSpotlight}
+                  data={spotlightConvergence.data}
+                  loading={spotlightConvergence.loading}
+                  error={spotlightConvergence.error}
+                  retry={spotlightConvergence.retry}
+                />
+              )}
+              <div className="flex-1 min-h-0">
+                <TrafficFlowMap
+                  systemName={systemName}
+                  onCrownJewelSpotlight={handleEnterSpotlight}
+                  spotlightActiveNodeIds={
+                    spotlightActiveNodeIds.size > 0 ? spotlightActiveNodeIds : undefined
+                  }
+                />
               </div>
-            </React.Suspense>
-          ) : (
-            <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
-                <div className="text-center">
-                  <div className="relative w-16 h-16 mx-auto mb-4">
-                    <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
-                    <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
-                  </div>
-                  <p className="text-slate-400">Loading AWS Architecture...</p>
-                </div>
-              </div>
-            }>
-              <AWSArchitectureDiagram
-                systemName={systemName}
-                onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
-                onRefresh={fetchGraphData}
-              />
-            </React.Suspense>
-          )
+            </div>
+          </React.Suspense>
         ) : (
           <ResourceView
             systemName={systemName}
