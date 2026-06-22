@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
 import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
+import { CJPickerStrip } from './dependency-map/cj-picker-strip'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 
@@ -259,21 +260,33 @@ export default function DependencyMapTab({
     spotlightJewel,
   )
 
-  // System-wide Crown Jewel list — drives the always-on amber crown badge
-  // on CJ resource nodes in TFM, regardless of any active path filter or
-  // open Spotlight. Before 2026-06-22 CJs only got the crown badge when
-  // `applyPathFilter` ran on them, so operators viewing the default
-  // System Map had no visual way to tell which resources were jewels.
+  // System-wide Crown Jewel list — drives BOTH the always-on amber crown
+  // badge on CJ resource nodes in TFM AND the picker affordance on the
+  // Topology tab when no Spotlight is currently open. Before 2026-06-22
+  // CJs only got the crown badge when `applyPathFilter` ran on them, so
+  // operators viewing the default System Map had no visual way to tell
+  // which resources were jewels — and they had to drill from the home
+  // dashboard to even reach the Spotlight strip.
   //
   // Real data: hits the per-system IAP endpoint (same source as the
   // home dashboard's Top Damage Paths card via the /all fan-out) and
-  // extracts `crown_jewels[].id` + `canonical_id`. We add BOTH to the
-  // set because the graph stores some CJs by id (resource_id) and some
-  // by canonical ARN (canonical_id), and the TFM resource map can key
-  // on either depending on which collector wrote the node.
-  const [systemCrownJewelIds, setSystemCrownJewelIds] = useState<Set<string>>(
-    () => new Set<string>(),
+  // keeps the full `crown_jewels[]` list so the picker can render rich
+  // rows (severity, paths count, priority score). `systemCrownJewelIds`
+  // is derived from the list — we add BOTH `id` and `canonical_id`
+  // because the graph stores some CJs by id (resource_id) and some by
+  // canonical ARN, depending on which collector wrote the node, and the
+  // TFM resource map can key on either.
+  const [systemCrownJewels, setSystemCrownJewels] = useState<CrownJewelSummary[]>(
+    () => [],
   )
+  const systemCrownJewelIds = useMemo<Set<string>>(() => {
+    const out = new Set<string>()
+    for (const cj of systemCrownJewels) {
+      if (cj?.id) out.add(String(cj.id))
+      if (cj?.canonical_id) out.add(String(cj.canonical_id))
+    }
+    return out
+  }, [systemCrownJewels])
   useEffect(() => {
     if (!systemName) return
     let aborted = false
@@ -282,25 +295,24 @@ export default function DependencyMapTab({
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (aborted || !json) return
-        // Envelope shape: { data: { crown_jewels: [...] } } OR flat
-        // { crown_jewels: [...] } depending on whether `envelope=true`
-        // is honored. Accept both — drop silently if neither matches.
-        const cjs = json?.data?.crown_jewels ?? json?.crown_jewels ?? []
-        if (!Array.isArray(cjs) || cjs.length === 0) {
-          setSystemCrownJewelIds(new Set())
+        // Envelope shape varies by deploy: `{result: {crown_jewels}}`,
+        // `{data: {crown_jewels}}`, or flat `{crown_jewels}`. Try all
+        // three — drop silently if none match.
+        const cjs =
+          json?.result?.crown_jewels ??
+          json?.data?.crown_jewels ??
+          json?.crown_jewels ??
+          []
+        if (!Array.isArray(cjs)) {
+          setSystemCrownJewels([])
           return
         }
-        const next = new Set<string>()
-        for (const cj of cjs) {
-          if (cj?.id) next.add(String(cj.id))
-          if (cj?.canonical_id) next.add(String(cj.canonical_id))
-        }
-        setSystemCrownJewelIds(next)
+        setSystemCrownJewels(cjs as CrownJewelSummary[])
       })
       .catch(() => {
-        // Silent on fetch error — the crown badge is a nice-to-have, not
-        // load-bearing. The rest of TFM (and the Spotlight strip) still
-        // function without it.
+        // Silent on fetch error — the picker + crown badges are
+        // nice-to-haves, not load-bearing. The rest of TFM and any
+        // already-open Spotlight still function without them.
       })
     return () => {
       aborted = true
@@ -792,8 +804,11 @@ export default function DependencyMapTab({
                   operator has clicked a CJ-tagged Resource node, or when
                   the URL carries ?cj=… on first load. Real-data only:
                   the strip fetches /api/proxy/attack-paths/<system>/
-                  by-crown-jewel via useCrownJewelConvergence. */}
-              {spotlightJewel && (
+                  by-crown-jewel via useCrownJewelConvergence.
+                  When no CJ is selected but the system has Crown Jewels,
+                  the picker strip below renders instead so operators can
+                  pick one without leaving the Topology tab. */}
+              {spotlightJewel ? (
                 <CJSpotlightStrip
                   jewel={spotlightJewel}
                   selectedPathId={spotlightPathId}
@@ -804,7 +819,19 @@ export default function DependencyMapTab({
                   error={spotlightConvergence.error}
                   retry={spotlightConvergence.retry}
                 />
-              )}
+              ) : systemCrownJewels.length > 0 ? (
+                <CJPickerStrip
+                  crownJewels={systemCrownJewels}
+                  onSelect={(cj) =>
+                    handleEnterSpotlight({
+                      id: cj.id,
+                      arn: cj.canonical_id ?? null,
+                      name: cj.name,
+                      type: cj.type,
+                    })
+                  }
+                />
+              ) : null}
               <div className="flex-1 min-h-0">
                 <TrafficFlowMap
                   systemName={systemName}
