@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
 import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
+import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -260,6 +261,41 @@ export default function DependencyMapTab({
     setSpotlightJewel(null)
     setSpotlightPathId(null)
   }, [])
+
+  // v1.2 (2026-06-22): single fetch shared between strip + TFM canvas
+  // dimming. Hook returns null data when jewel is null — no fetch fires,
+  // no waste. Strip is now pure presentational (receives data as props),
+  // and TFM gets spotlightActiveNodeIds derived from the same response.
+  const spotlightConvergence = useCrownJewelConvergence(
+    spotlightJewel ? systemName : null,
+    spotlightJewel,
+  )
+
+  // Union of every node ID that participates in any path to the selected
+  // CJ. TFM dims everything NOT in this set when Spotlight is active.
+  // Empty set when Spotlight off / no data → TFM falls back to its
+  // normal rendering (no dimming). Real-data only: every id comes from
+  // the live by-crown-jewel response.
+  const spotlightActiveNodeIds = useMemo<Set<string>>(() => {
+    const out = new Set<string>()
+    const data = spotlightConvergence.data
+    if (!data?.paths || data.paths.length === 0) return out
+    for (const p of data.paths) {
+      if (p.source) out.add(p.source)
+      if (p.identity) out.add(p.identity)
+      if (p.cj_target_id) out.add(p.cj_target_id)
+      for (const h of p.hops || []) {
+        if (h.node_id) out.add(h.node_id)
+      }
+    }
+    // Always include the selected CJ itself (defensive — cj_target_id
+    // is usually populated but the field is optional in the type).
+    if (spotlightJewel) {
+      out.add(spotlightJewel.id)
+      if (spotlightJewel.canonical_id) out.add(spotlightJewel.canonical_id)
+    }
+    return out
+  }, [spotlightConvergence.data, spotlightJewel])
 
   // Update graph engine when prop changes
   useEffect(() => {
@@ -750,17 +786,23 @@ export default function DependencyMapTab({
                     by-crown-jewel via useCrownJewelConvergence. */}
                 {spotlightJewel && (
                   <CJSpotlightStrip
-                    systemName={systemName}
                     jewel={spotlightJewel}
                     selectedPathId={spotlightPathId}
                     onSelectPath={setSpotlightPathId}
                     onReset={handleResetSpotlight}
+                    data={spotlightConvergence.data}
+                    loading={spotlightConvergence.loading}
+                    error={spotlightConvergence.error}
+                    retry={spotlightConvergence.retry}
                   />
                 )}
                 <div className="flex-1 min-h-0">
                   <TrafficFlowMap
                     systemName={systemName}
                     onCrownJewelSpotlight={handleEnterSpotlight}
+                    spotlightActiveNodeIds={
+                      spotlightActiveNodeIds.size > 0 ? spotlightActiveNodeIds : undefined
+                    }
                   />
                 </div>
               </div>

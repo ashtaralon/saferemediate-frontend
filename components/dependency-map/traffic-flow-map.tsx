@@ -6686,6 +6686,7 @@ export default function TrafficFlowMap({
   entryNodeId,
   fullscreenContainerRef,
   onCrownJewelSpotlight,
+  spotlightActiveNodeIds,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -6700,6 +6701,13 @@ export default function TrafficFlowMap({
    *  unchanged. Real-data only: parent reads /api/proxy/attack-paths/
    *  <system>/by-crown-jewel via useCrownJewelConvergence. */
   onCrownJewelSpotlight?: (cj: { id: string; arn?: string | null; name: string; type: string }) => void;
+  /** Crown Jewel Spotlight v1.2 (2026-06-22) — set of node IDs that
+   *  participate in at least one attack path to the focused CJ. When
+   *  non-empty, TFM dims every node NOT in this set (the canvas
+   *  collapses to the kill-chain spine). Computed by the parent from
+   *  the same by-crown-jewel response that drives the strip — single
+   *  source of truth. Undefined / empty = Spotlight off, no dimming. */
+  spotlightActiveNodeIds?: Set<string>;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
@@ -6970,6 +6978,34 @@ export default function TrafficFlowMap({
 
   // BFS to find nodes within N hops for dependency depth
   const ghostedNodeIds = useMemo(() => {
+    // ── Crown Jewel Spotlight v1.2 (2026-06-22) ──────────────────
+    // When the parent has computed a non-empty spotlightActiveNodeIds
+    // set, that takes precedence: ghost every node NOT on a path to
+    // the focused CJ. The set is the union of source / identity /
+    // cj_target / hop ids from the live by-crown-jewel response —
+    // single source of truth shared with the strip. No heatmap
+    // intersection here on purpose: Spotlight is a scoped view, the
+    // operator already opted in by clicking a CJ.
+    if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0 && architecture) {
+      const allNodeIds = new Set<string>();
+      architecture.computeServices.forEach(n => allNodeIds.add(n.id));
+      architecture.resources.forEach(n => allNodeIds.add(n.id));
+      architecture.securityGroups.forEach(n => allNodeIds.add(n.id));
+      architecture.nacls.forEach(n => allNodeIds.add(n.id));
+      architecture.iamRoles.forEach(n => allNodeIds.add(n.id));
+      (architecture.entryPoints ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.principals ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.instanceProfiles ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.iamPolicies ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.vpcEndpoints ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.egressGateways ?? []).forEach(n => allNodeIds.add(n.id));
+      const ghosted = new Set<string>();
+      allNodeIds.forEach(id => {
+        if (!spotlightActiveNodeIds.has(id)) ghosted.add(id);
+      });
+      return ghosted;
+    }
+    // ── Heatmap mode (existing behavior, unchanged) ──────────────
     if (!heatmapMode || !selectedNodeForHops || !architecture) return new Set<string>();
     const adj = new Map<string, Set<string>>();
     architecture.flows.forEach(f => {
@@ -7010,7 +7046,7 @@ export default function TrafficFlowMap({
     const ghosted = new Set<string>();
     allNodeIds.forEach(id => { if (!visited.has(id)) ghosted.add(id); });
     return ghosted;
-  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture]);
+  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture, spotlightActiveNodeIds]);
 
   const buildArchitecture = useCallback((nodes: any[], edges: any[], iamData: any[]): SystemArchitecture => {
     const extractInstanceId = (id: string | null | undefined): string => {

@@ -24,25 +24,32 @@
 import { useMemo } from "react"
 import { ChevronDown, ChevronRight, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff, Server, Key, Database, Globe, Network, Cloud } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
-import type { ConvergenceHop, ConvergencePath } from "@/lib/attack-paths/convergence-types"
-import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
+import type { ConvergenceHop, ConvergencePath, CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 
 interface CJSpotlightStripProps {
-  systemName: string
   jewel: CrownJewelSummary
   selectedPathId: string | null
   onSelectPath: (pathId: string | null) => void
   onReset: () => void
+  // v1.2 (2026-06-22): parent owns the fetch via useCrownJewelConvergence
+  // so the same data drives both the strip AND TFM's canvas dimming.
+  // Strip is now pure presentational — receives the hook's outputs.
+  data: CrownJewelConvergence | null
+  loading: boolean
+  error: string | null
+  retry: () => void
 }
 
 export function CJSpotlightStrip({
-  systemName,
   jewel,
   selectedPathId,
   onSelectPath,
   onReset,
+  data,
+  loading,
+  error,
+  retry,
 }: CJSpotlightStripProps) {
-  const { data, loading, error, retry } = useCrownJewelConvergence(systemName, jewel)
 
   // Selected path object — derived from URL-driven selectedPathId.
   // Backend already sorts paths by priority_score DESC; default to first
