@@ -22,9 +22,9 @@
  */
 
 import { useMemo } from "react"
-import { ChevronDown, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react"
+import { ChevronDown, ChevronRight, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff, Server, Key, Database, Globe, Network, Cloud } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
-import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
+import type { ConvergenceHop, ConvergencePath } from "@/lib/attack-paths/convergence-types"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 
 interface CJSpotlightStripProps {
@@ -128,6 +128,12 @@ export function CJSpotlightStrip({
 
       {/* Selected path summary — endpoints-only per FR4 */}
       <SelectedPathSummary path={selectedPath} cjName={jewel.name} />
+
+      {/* v1.1 hop chain — inline kill-chain visualization. Operator sees
+          the full hop path (entry → workload → identity → CJ) directly
+          in the strip without leaving Spotlight. Reads selectedPath.hops
+          straight from the backend response — no derivation, no mock. */}
+      {selectedPath.hops.length > 0 && <HopChain hops={selectedPath.hops} />}
     </StripFrame>
   )
 }
@@ -290,7 +296,99 @@ function SelectedPathSummary({ path, cjName }: { path: ConvergencePath; cjName: 
   )
 }
 
+// ─── HopChain — v1.1 inline kill-chain ──────────────────────────
+
+function HopChain({ hops }: { hops: ConvergenceHop[] }) {
+  return (
+    <div className="rounded-lg border border-slate-700/40 bg-slate-900/30 px-3 py-2">
+      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+        Kill chain · {hops.length} {hops.length === 1 ? "hop" : "hops"}
+      </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        {hops.map((hop, idx) => (
+          <HopChainItem key={`${hop.node_id}-${idx}`} hop={hop} isLast={idx === hops.length - 1} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HopChainItem({ hop, isLast }: { hop: ConvergenceHop; isLast: boolean }) {
+  const Icon = iconForHop(hop)
+  const accent = planeAccent(hop.plane)
+  const label = hop.name ?? hop.node_id
+  const edgeLabel = hop.edge_type_from_prev?.replace(/^~/, "")
+  return (
+    <>
+      <div
+        className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px]"
+        style={{
+          backgroundColor: `${accent}15`,
+          borderColor: `${accent}40`,
+          color: accent,
+        }}
+        title={`${hop.node_type} · ${hop.plane} plane${hop.subnet_id ? ` · subnet ${hop.subnet_id}` : ""}${
+          hop.subnet_public === true ? " (public)" : hop.subnet_public === false ? " (private)" : ""
+        }${hop.is_crown_jewel ? " · CROWN JEWEL" : ""}`}
+      >
+        {hop.is_crown_jewel ? (
+          <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+        ) : (
+          <Icon className="w-3 h-3 shrink-0" />
+        )}
+        <span className="font-mono text-slate-200 truncate max-w-[140px]">{truncate(label, 22)}</span>
+      </div>
+      {!isLast && (
+        <div className="inline-flex items-center gap-0.5 text-slate-600">
+          {edgeLabel ? (
+            <span
+              className="text-[8px] font-mono text-slate-500 px-1"
+              title={`Edge: ${hop.edge_type_from_prev}${hop.edge_type_from_prev?.startsWith("~") ? " (reversed in graph)" : ""}`}
+            >
+              {edgeLabel}
+            </span>
+          ) : null}
+          <ChevronRight className="w-3 h-3 shrink-0" />
+        </div>
+      )}
+    </>
+  )
+}
+
 // ─── Pure helpers ────────────────────────────────────────────────
+
+function iconForHop(hop: ConvergenceHop) {
+  const t = (hop.node_type || "").toLowerCase()
+  // CJ data-plane targets
+  if (/(s3bucket|s3|bucket|dynamo|rds|secret|kms)/.test(t)) return Database
+  // Identity plane
+  if (/(role|user|policy|principal|identity|profile)/.test(t)) return Key
+  // Network plane
+  if (/(igw|nat|gateway|vpce|endpoint|subnet|nacl|networkinterface)/.test(t)) return Network
+  // Internet / external entry
+  if (/(internet|externalip|external)/.test(t)) return Globe
+  // Compute
+  if (/(ec2|lambda|ecs|workload|container)/.test(t)) return Server
+  // Cloud/service fallback
+  return Cloud
+}
+
+function planeAccent(plane: string | undefined): string {
+  switch ((plane || "").toLowerCase()) {
+    case "network":
+      return "#22d3ee" // cyan
+    case "identity":
+      return "#ec4899" // pink — matches IAM lane
+    case "data":
+      return "#a78bfa" // violet — matches resource lane
+    case "compute":
+      return "#3b82f6" // blue
+    default:
+      return "#94a3b8" // slate
+  }
+}
+
+
 
 function summarizePath(p: ConvergencePath): string {
   const origin = p.source ?? p.hops[0]?.name ?? p.hops[0]?.node_id ?? "?"
