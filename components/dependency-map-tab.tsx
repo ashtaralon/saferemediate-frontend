@@ -7,6 +7,7 @@ import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
 import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
 import { CJPickerStrip } from './dependency-map/cj-picker-strip'
+import { useCachedFetch } from '@/lib/use-cached-fetch'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 
@@ -276,15 +277,57 @@ export default function DependencyMapTab({
   // because the graph stores some CJs by id (resource_id) and some by
   // canonical ARN, depending on which collector wrote the node, and the
   // TFM resource map can key on either.
-  const [systemCrownJewels, setSystemCrownJewels] = useState<CrownJewelSummary[]>(
-    () => [],
-  )
-  const [crownJewelsLoading, setCrownJewelsLoading] = useState(false)
-  const [crownJewelsError, setCrownJewelsError] = useState<string | null>(null)
-  const [crownJewelsFetchNonce, setCrownJewelsFetchNonce] = useState(0)
-  const retryCrownJewels = useCallback(() => {
-    setCrownJewelsFetchNonce((n) => n + 1)
-  }, [])
+  // 2026-06-23: migrated to `useCachedFetch` for stale-while-revalidate.
+  // The IAP backend is intermittently 502'ing under DB saturation, and
+  // the previous plain-`fetch` version surfaced every cold-cycle miss
+  // as "CROWN JEWELS — COULDN'T LOAD" — even when the operator had a
+  // perfectly good list cached in localStorage from a minute ago.
+  // Now the picker:
+  //   - Renders cached jewels immediately on every visit (no skeleton flash)
+  //   - Reads `isStale=true` when displaying older-than-fresh data so it
+  //     can surface an "as of N ago, refreshing" indicator
+  //   - On fresh-fetch failure (502/timeout): keeps showing the cached
+  //     list (up to 7 days old, the hook's hard cap) instead of vanishing
+  //   - Only surfaces an error to the picker UI when there's NO cached
+  //     fallback at all (true first-ever visit)
+  //
+  // Net: operators on alon-prod stop seeing "couldn't load" the moment
+  // their browser has visited once, regardless of what the backend's
+  // doing right now. Real data discipline preserved — cached jewels
+  // came from a real successful past response.
+  type IapResponseShape = {
+    result?: { crown_jewels?: CrownJewelSummary[] }
+    data?: { crown_jewels?: CrownJewelSummary[] }
+    crown_jewels?: CrownJewelSummary[]
+  }
+  const iapUrl = systemName
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    : null
+  const {
+    data: iapData,
+    loading: iapLoading,
+    error: iapError,
+    isStale: iapIsStale,
+    retry: retryCrownJewels,
+  } = useCachedFetch<IapResponseShape>(iapUrl, {
+    cacheKey: `iap-cj-list:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000, // 10 min fresh window
+    fetchInit: { cache: 'no-store' },
+  })
+  const systemCrownJewels = useMemo<CrownJewelSummary[]>(() => {
+    // Envelope shape varies by deploy: `{result: {crown_jewels}}`,
+    // `{data: {crown_jewels}}`, or flat `{crown_jewels}`. Accept all
+    // three — empty array if none match.
+    const cjs =
+      iapData?.result?.crown_jewels ??
+      iapData?.data?.crown_jewels ??
+      iapData?.crown_jewels ??
+      []
+    return Array.isArray(cjs) ? cjs : []
+  }, [iapData])
+  const crownJewelsLoading = iapLoading
+  const crownJewelsError = iapError
+  const crownJewelsIsStale = iapIsStale
   const systemCrownJewelIds = useMemo<Set<string>>(() => {
     const out = new Set<string>()
     for (const cj of systemCrownJewels) {
@@ -293,58 +336,6 @@ export default function DependencyMapTab({
     }
     return out
   }, [systemCrownJewels])
-  useEffect(() => {
-    if (!systemName) return
-    let aborted = false
-    const url = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
-    setCrownJewelsLoading(true)
-    setCrownJewelsError(null)
-    fetch(url, { cache: 'no-store' })
-      .then(async (r) => {
-        if (!r.ok) {
-          const body = await r.text().catch(() => "")
-          throw new Error(
-            body && body.length < 200 ? body : `Backend ${r.status} — try again in a moment`,
-          )
-        }
-        return r.json()
-      })
-      .then((json) => {
-        if (aborted) return
-        // Envelope shape varies by deploy: `{result: {crown_jewels}}`,
-        // `{data: {crown_jewels}}`, or flat `{crown_jewels}`. Try all
-        // three — empty array if none match.
-        const cjs =
-          json?.result?.crown_jewels ??
-          json?.data?.crown_jewels ??
-          json?.crown_jewels ??
-          []
-        if (!Array.isArray(cjs)) {
-          setSystemCrownJewels([])
-          return
-        }
-        setSystemCrownJewels(cjs as CrownJewelSummary[])
-      })
-      .catch((e) => {
-        if (aborted) return
-        // Surface the error so the picker can render a "couldn't load,
-        // retry" affordance instead of vanishing silently. Hiding a
-        // failure made it impossible for operators to tell whether the
-        // system genuinely had no Crown Jewels vs the IAP fetch 502'd.
-        const msg = e instanceof Error ? e.message : String(e)
-        setCrownJewelsError(
-          msg.toLowerCase().includes("aborted")
-            ? "Backend slow — no response within 60s"
-            : msg,
-        )
-      })
-      .finally(() => {
-        if (!aborted) setCrownJewelsLoading(false)
-      })
-    return () => {
-      aborted = true
-    }
-  }, [systemName, crownJewelsFetchNonce])
 
   // Set of node IDs the TFM canvas should keep lit when Spotlight is
   // active; every node NOT in this set is dimmed (ghosted). Two scoping
