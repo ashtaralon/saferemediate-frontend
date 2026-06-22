@@ -6687,6 +6687,7 @@ export default function TrafficFlowMap({
   fullscreenContainerRef,
   onCrownJewelSpotlight,
   spotlightActiveNodeIds,
+  systemCrownJewelIds,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -6708,6 +6709,15 @@ export default function TrafficFlowMap({
    *  the same by-crown-jewel response that drives the strip — single
    *  source of truth. Undefined / empty = Spotlight off, no dimming. */
   spotlightActiveNodeIds?: Set<string>;
+  /** Crown Jewel always-on marking (2026-06-22) — set of node IDs the
+   *  parent knows are Crown Jewels for this system, fetched from the
+   *  per-system attack-paths endpoint. When a resource's id is in this
+   *  set, `isCrownJewel` is forced true so the amber crown badge renders
+   *  in default canvas mode — not only inside an active path filter.
+   *  Without this, operators couldn't tell which canvas nodes were CJs
+   *  unless they opened the Spotlight. Single source of truth: the
+   *  graph's `is_crown_jewel` flag, surfaced via the IAP fan-out. */
+  systemCrownJewelIds?: Set<string>;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
@@ -6786,6 +6796,22 @@ export default function TrafficFlowMap({
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
   const architecture = useMemo(() => {
+    // Always-on Crown Jewel marking pass. Applies AFTER any override /
+    // pathFilter logic so existing `isCrownJewel: true` from
+    // applyPathFilter is preserved (logical OR via `|| existing`).
+    // Without this, the amber crown badge only renders inside a path
+    // filter — operators on the default System Map have no visual way
+    // to spot which resources are crown jewels.
+    const markCjs = (arch: SystemArchitecture | null): SystemArchitecture | null => {
+      if (!arch) return arch;
+      if (!systemCrownJewelIds || systemCrownJewelIds.size === 0) return arch;
+      return {
+        ...arch,
+        resources: arch.resources.map((r) =>
+          systemCrownJewelIds.has(r.id) ? { ...r, isCrownJewel: true } : r,
+        ),
+      };
+    };
     if (architectureOverride) {
       // 2026-06-11 bug fix: callers like the merged Attack Path tab
       // (path-analysis-panel.tsx) pass BOTH architectureOverride AND
@@ -6805,7 +6831,7 @@ export default function TrafficFlowMap({
           buildComputeByInstanceId(architectureOverride.computeServices),
         );
         if (dom.pathStepByNodeId.size > 0) {
-          return {
+          return markCjs({
             ...architectureOverride,
             pathStepByNodeId: dom.pathStepByNodeId,
             pathEdgePairKeys: dom.pathEdgePairKeys,
@@ -6814,14 +6840,14 @@ export default function TrafficFlowMap({
             onPathNodeIds: architectureOverride.onPathNodeIds
               ? new Set([...architectureOverride.onPathNodeIds, ...dom.onPathNodeIds])
               : dom.onPathNodeIds,
-          };
+          });
         }
       }
-      return architectureOverride;
+      return markCjs(architectureOverride);
     }
     if (!rawArchitecture) return null;
-    return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
-  }, [rawArchitecture, pathFilter, architectureOverride]);
+    return markCjs(pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture);
+  }, [rawArchitecture, pathFilter, architectureOverride, systemCrownJewelIds]);
   const setArchitecture = setRawArchitecture;
 
   // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips

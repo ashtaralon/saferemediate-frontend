@@ -259,6 +259,54 @@ export default function DependencyMapTab({
     spotlightJewel,
   )
 
+  // System-wide Crown Jewel list — drives the always-on amber crown badge
+  // on CJ resource nodes in TFM, regardless of any active path filter or
+  // open Spotlight. Before 2026-06-22 CJs only got the crown badge when
+  // `applyPathFilter` ran on them, so operators viewing the default
+  // System Map had no visual way to tell which resources were jewels.
+  //
+  // Real data: hits the per-system IAP endpoint (same source as the
+  // home dashboard's Top Damage Paths card via the /all fan-out) and
+  // extracts `crown_jewels[].id` + `canonical_id`. We add BOTH to the
+  // set because the graph stores some CJs by id (resource_id) and some
+  // by canonical ARN (canonical_id), and the TFM resource map can key
+  // on either depending on which collector wrote the node.
+  const [systemCrownJewelIds, setSystemCrownJewelIds] = useState<Set<string>>(
+    () => new Set<string>(),
+  )
+  useEffect(() => {
+    if (!systemName) return
+    let aborted = false
+    const url = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    fetch(url, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (aborted || !json) return
+        // Envelope shape: { data: { crown_jewels: [...] } } OR flat
+        // { crown_jewels: [...] } depending on whether `envelope=true`
+        // is honored. Accept both — drop silently if neither matches.
+        const cjs = json?.data?.crown_jewels ?? json?.crown_jewels ?? []
+        if (!Array.isArray(cjs) || cjs.length === 0) {
+          setSystemCrownJewelIds(new Set())
+          return
+        }
+        const next = new Set<string>()
+        for (const cj of cjs) {
+          if (cj?.id) next.add(String(cj.id))
+          if (cj?.canonical_id) next.add(String(cj.canonical_id))
+        }
+        setSystemCrownJewelIds(next)
+      })
+      .catch(() => {
+        // Silent on fetch error — the crown badge is a nice-to-have, not
+        // load-bearing. The rest of TFM (and the Spotlight strip) still
+        // function without it.
+      })
+    return () => {
+      aborted = true
+    }
+  }, [systemName])
+
   // Union of every node ID that participates in any path to the selected
   // CJ. TFM dims everything NOT in this set when Spotlight is active.
   // Empty set when Spotlight off / no data → TFM falls back to its
@@ -763,6 +811,9 @@ export default function DependencyMapTab({
                   onCrownJewelSpotlight={handleEnterSpotlight}
                   spotlightActiveNodeIds={
                     spotlightActiveNodeIds.size > 0 ? spotlightActiveNodeIds : undefined
+                  }
+                  systemCrownJewelIds={
+                    systemCrownJewelIds.size > 0 ? systemCrownJewelIds : undefined
                   }
                 />
               </div>
