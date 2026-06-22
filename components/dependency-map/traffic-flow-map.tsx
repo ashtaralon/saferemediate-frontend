@@ -6943,6 +6943,14 @@ export default function TrafficFlowMap({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshStatus, setRefreshStatus] = useState<'idle' | 'fetching' | 'success' | 'error'>('idle');
+  // Enrichment-failure flags (2026-06-22 P4): when an IAM or SG batch
+  // request fails, the per-role / per-SG N+1 fallback was REMOVED (it
+  // compounded the saturation that caused the batch to fail). So the
+  // chips silently fall back to their build-time seed values — which
+  // would have been a silent UX degradation. These flags drive a
+  // toolbar chip that surfaces the gap honestly instead.
+  const [iamEnrichmentFailed, setIamEnrichmentFailed] = useState(false);
+  const [sgEnrichmentFailed, setSgEnrichmentFailed] = useState(false);
   const [lastChanges, setLastChanges] = useState<DataChanges | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false); // Manual refresh by default
   const [refreshInterval, setRefreshInterval] = useState(600); // 10 minutes
@@ -8215,6 +8223,12 @@ export default function TrafficFlowMap({
     setLastUpdated(new Date());
     setRefreshStatus('success');
 
+    // Reset the enrichment-failure flags for this fetch cycle. Either
+    // batch retrying successfully clears its flag below; persistent
+    // failures keep the toolbar chip lit until a retry succeeds.
+    setIamEnrichmentFailed(false);
+    setSgEnrichmentFailed(false);
+
     // Background IAM gap-analysis enrichment. Fires-and-forgets;
     // does NOT block the architecture render.
     if (archForGaps.iamRoles.length > 0) {
@@ -8247,11 +8261,11 @@ export default function TrafficFlowMap({
           // role (up to 48 on alon-prod) into the SAME backend that
           // just failed the bulk request — turning one batch failure
           // into 48 sequential failures on a saturated DB. Now: log
-          // the failure, return null per role. The enrichment is
-          // best-effort background work; missing IAM gap counts on
-          // the SG chips is a far cheaper failure mode than 48× the
-          // load on a downed backend.
+          // the failure, return null per role, AND set the toolbar
+          // chip so the operator sees the gap honestly instead of
+          // reading stale build-time seed counts on the chips.
           console.warn('[TrafficFlowMap] IAM bulk fetch failed — skipping enrichment (no per-role fallback):', bulkErr);
+          setIamEnrichmentFailed(true);
           return archForGaps.iamRoles.map(() => null);
         }
       };
@@ -8304,10 +8318,11 @@ export default function TrafficFlowMap({
           // logic as the IAM block above — when the batch fails we
           // were firing /api/proxy/security-groups/<id> per SG (up to
           // 9 on alon-prod) into the same overloaded DB. Log + skip
-          // enrichment; the SG rules chips render their build-time
-          // seed values, which is honest about what we couldn't load
-          // without compounding the incident.
+          // enrichment AND set the toolbar chip so the operator sees
+          // that SG rule details couldn't load instead of trusting
+          // stale build-time seed values on the chips.
           console.warn('[TrafficFlowMap] SG bulk fetch failed — skipping enrichment (no per-SG fallback):', bulkErr);
+          setSgEnrichmentFailed(true);
           return archForGaps.securityGroups.map(() => null);
         }
       };
@@ -8721,6 +8736,33 @@ export default function TrafficFlowMap({
           {lastUpdated && (
             <span className="text-muted-foreground text-xs">
               Last sync: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+
+          {/* Enrichment-failure indicator. Surfaces honestly when an
+              IAM or SG batch couldn't load, so the operator doesn't
+              read the chips' build-time seed values as live data.
+              Tooltip names exactly which enrichment is missing. Lives
+              right after "Last sync" so it reads as a freshness signal
+              for the detail layer, not a hard error on the canvas
+              (which is fine — it rendered). */}
+          {(iamEnrichmentFailed || sgEnrichmentFailed) && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-[11px] font-medium"
+              title={[
+                iamEnrichmentFailed && "IAM gap counts couldn't load — chips show build-time values",
+                sgEnrichmentFailed && "SG rule details couldn't load — chips show build-time values",
+                "Frontend backed off to avoid compounding backend load. Click Refresh Data to retry.",
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
+              <AlertTriangle className="w-3 h-3" />
+              {iamEnrichmentFailed && sgEnrichmentFailed
+                ? "IAM + SG details unavailable"
+                : iamEnrichmentFailed
+                  ? "IAM details unavailable"
+                  : "SG details unavailable"}
             </span>
           )}
         </div>
