@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
@@ -128,6 +128,7 @@ function setCachedData(key: string, data: any): void {
 }
 
 export default function HomePage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const systemFromUrl = searchParams.get('system')
   // Refresh now always lands on Home (matches the 2026-04-30 rollback
@@ -538,12 +539,21 @@ export default function HomePage() {
     // on the Systems tab leaves activeSection="systems" and the case
     // statement re-renders the systems list — operator's click does
     // nothing visible.
+    //
+    // Push `?system=<name>` so a refresh survives — the page reads
+    // `systemFromUrl` on mount and seeds `selectedSystem` from it,
+    // which makes the short-circuit fire after reload. Without this,
+    // refresh on the system-detail view drops the operator back to
+    // home (URL stayed `/`, state was the only thing remembering the
+    // selection).
     setSelectedSystem(systemName)
     setActiveSection("home")
+    router.replace(`/?system=${encodeURIComponent(systemName)}`, { scroll: false })
   }
 
   const handleBackFromSystem = () => {
     setSelectedSystem(null)
+    router.replace("/", { scroll: false })
   }
 
   // Sidebar click handler — needs to do more than just setActiveSection,
@@ -556,6 +566,7 @@ export default function HomePage() {
   const handleSidebarClick = (id: string) => {
     if (id === "home") {
       setSelectedSystem(null)
+      router.replace("/", { scroll: false })
     }
     setActiveSection(id)
   }
