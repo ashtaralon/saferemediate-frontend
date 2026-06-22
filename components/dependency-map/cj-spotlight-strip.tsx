@@ -21,10 +21,14 @@
  * renders, reports selection up. URL sync is the parent's job.
  */
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff, Server, Key, Database, Globe, Network, Cloud, Flame } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { ConvergenceHop, ConvergencePath, CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
+import {
+  SEVERITY_ACCENT,
+  rankedInitialAccessForPath,
+} from "@/lib/attack-paths/initial-access-labels"
 
 interface CJSpotlightStripProps {
   jewel: CrownJewelSummary
@@ -238,29 +242,161 @@ function PathDropdown({
   selectedPathId: string
   onSelect: (id: string | null) => void
 }) {
+  // v1.4 (2026-06-22): replaced the native <select> with a custom rich
+  // dropdown so each row can render Initial-Access category chips inline.
+  // Native <option> can't render arbitrary JSX. Backend already orders
+  // paths by priority_score DESC; we preserve that order rather than
+  // re-sorting on the FE.
   const selectedIdx = paths.findIndex((p) => p.path_id === selectedPathId)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current || !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [open])
+
   return (
-    <label className="relative inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/60 hover:bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-100 cursor-pointer">
-      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-        Path {selectedIdx + 1}/{paths.length}
-      </span>
-      <select
-        value={selectedPathId}
-        onChange={(e) => onSelect(e.target.value)}
-        className="appearance-none bg-transparent text-[11px] text-slate-100 outline-none cursor-pointer pr-4"
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/60 hover:bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-100"
+        title="Switch path"
       >
-        {paths.map((p, idx) => (
-          <option
-            key={p.path_id}
-            value={p.path_id}
-            className="bg-slate-900 text-slate-100"
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+          Path {selectedIdx + 1}/{paths.length}
+        </span>
+        <span className="truncate max-w-[180px]">
+          {paths[selectedIdx] ? summarizePath(paths[selectedIdx]) : "—"}
+        </span>
+        <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1.5 z-50 w-[520px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 ring-1 ring-black/40">
+          <div className="px-3 py-2 border-b border-slate-800 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+            {paths.length} path{paths.length === 1 ? "" : "s"} — sorted worst-first by priority_score
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto py-1">
+            {paths.map((p, idx) => (
+              <PathRow
+                key={p.path_id}
+                path={p}
+                idx={idx}
+                isSelected={p.path_id === selectedPathId}
+                onClick={() => {
+                  onSelect(p.path_id)
+                  setOpen(false)
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PathRow({
+  path,
+  idx,
+  isSelected,
+  onClick,
+}: {
+  path: ConvergencePath
+  idx: number
+  isSelected: boolean
+  onClick: () => void
+}) {
+  const origin = path.source ?? path.hops[0]?.name ?? path.hops[0]?.node_id ?? "?"
+  const severity = (path.severity ?? "").toUpperCase()
+  const sevAccent = severityAccent(severity)
+  const observed = path.confidence === "observed"
+  const categories = rankedInitialAccessForPath(path)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full text-left px-3 py-2 flex flex-col gap-1 transition-colors ${
+        isSelected ? "bg-slate-800/80" : "hover:bg-slate-800/50"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] font-mono text-slate-500 w-5 shrink-0">{idx + 1}.</span>
+        <span className="text-[10px] font-mono text-slate-200 truncate min-w-0 flex-1" title={origin}>
+          {truncate(origin, 36)}
+        </span>
+        <span className="text-[10px] text-slate-400 shrink-0">
+          {path.hop_count}h
+        </span>
+        {severity && (
+          <span
+            className="inline-flex items-center rounded-full border px-1.5 py-px text-[8px] font-bold uppercase tracking-wider shrink-0"
+            style={{
+              backgroundColor: `${sevAccent}20`,
+              color: sevAccent,
+              borderColor: `${sevAccent}40`,
+            }}
           >
-            {idx + 1}. {summarizePath(p)}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 pointer-events-none" />
-    </label>
+            {severity}
+          </span>
+        )}
+        <span
+          className={`inline-flex items-center rounded-full border px-1.5 py-px text-[8px] font-bold uppercase tracking-wider shrink-0 ${
+            observed
+              ? "border-rose-400/40 bg-rose-500/10 text-rose-200"
+              : "border-amber-400/40 bg-amber-500/10 text-amber-200"
+          }`}
+        >
+          {observed ? "Observed" : "Capable"}
+        </span>
+      </div>
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 pl-7">
+          <InitialAccessChips categories={categories} compact />
+        </div>
+      )}
+    </button>
+  )
+}
+
+function InitialAccessChips({
+  categories,
+  compact = false,
+}: {
+  categories: Array<{
+    category: string
+    label: { label: string; severity: keyof typeof SEVERITY_ACCENT; description: string }
+  }>
+  compact?: boolean
+}) {
+  if (categories.length === 0) return null
+  return (
+    <>
+      {categories.map(({ category, label }) => {
+        const accent = SEVERITY_ACCENT[label.severity]
+        return (
+          <span
+            key={category}
+            className={`inline-flex items-center gap-1 rounded border ${
+              compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+            } font-medium`}
+            style={{
+              backgroundColor: `${accent}15`,
+              color: accent,
+              borderColor: `${accent}40`,
+            }}
+            title={`${category}\n${label.description}`}
+          >
+            {label.label}
+          </span>
+        )
+      })}
+    </>
   )
 }
 
@@ -269,8 +405,12 @@ function SelectedPathSummary({ path, cjName }: { path: ConvergencePath; cjName: 
   const severity = (path.severity ?? "").toUpperCase()
   const sevAccent = severityAccent(severity)
   const observed = path.confidence === "observed"
+  // v1.4: pull engine-classified initial-access categories for this path.
+  // 1:1 verbatim from path.initial_access[].category — no derivation.
+  const categories = rankedInitialAccessForPath(path)
   return (
-    <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-2 flex items-center gap-3 text-[11px]">
+    <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-2 space-y-1.5 text-[11px]">
+      <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <span className="font-mono text-slate-200 truncate" title={originName}>
           {originName}
@@ -313,6 +453,15 @@ function SelectedPathSummary({ path, cjName }: { path: ConvergencePath; cjName: 
           </span>
         )}
       </div>
+      </div>
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mr-1">
+            Initial access
+          </span>
+          <InitialAccessChips categories={categories} />
+        </div>
+      )}
     </div>
   )
 }
