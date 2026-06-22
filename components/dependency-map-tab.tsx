@@ -439,8 +439,14 @@ export default function DependencyMapTab({
         controller.abort('Request timeout after 60 seconds')
       }, 60000) // 60 second client timeout for cold starts
 
-      // Build URL with optional search parameter
-      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`
+      // Build URL with optional search parameter. Params MUST match the
+      // ones TFM uses at traffic-flow-map.tsx:6892 (`includeUnused=true`,
+      // `maxNodes=300`) so both consumers hit the SAME proxy cache key
+      // — without this both call /api/proxy/dependency-map/full with
+      // different query strings, the proxy treats them as separate
+      // cache entries, and the (already-saturated) Neo4j runs the same
+      // dependency-map query twice per page load. (Audit 2026-06-22 P4.)
+      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`
       if (searchQuery) {
         url += `&search=${encodeURIComponent(searchQuery)}`
       }
@@ -527,8 +533,12 @@ export default function DependencyMapTab({
 
     setResourcesLoading(true)
     try {
-      // Use dependency-map endpoint to get resources (same as fetchGraphData)
-      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`, {
+      // Use dependency-map endpoint to get resources (same as fetchGraphData).
+      // Params aligned with TFM (`includeUnused=true`, `maxNodes=300`) so the
+      // proxy cache key matches and a Resource-View switch after a Graph-View
+      // load gets a near-instant cache hit instead of paying the heavy query
+      // a second time. (Audit 2026-06-22 P4.)
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`, {
         cache: 'no-store',
         signal: AbortSignal.timeout(30000),
       })
