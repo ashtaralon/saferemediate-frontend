@@ -23,11 +23,14 @@
  */
 
 import { useEffect, useRef, useState } from "react"
-import { ChevronDown, Crown, Globe, X } from "lucide-react"
+import { AlertTriangle, ChevronDown, Crown, Globe, RefreshCw, X } from "lucide-react"
 import type { CrownJewelSummary } from "../identity-attack-paths/types"
 
 interface CJPickerStripProps {
   crownJewels: CrownJewelSummary[]
+  loading?: boolean
+  error?: string | null
+  onRetry?: () => void
   onSelect: (cj: CrownJewelSummary) => void
 }
 
@@ -46,7 +49,13 @@ const TYPE_TINT: Record<string, string> = {
   IAMRole: "bg-violet-500/15 text-violet-300",
 }
 
-export function CJPickerStrip({ crownJewels, onSelect }: CJPickerStripProps) {
+export function CJPickerStrip({
+  crownJewels,
+  loading = false,
+  error = null,
+  onRetry,
+  onSelect,
+}: CJPickerStripProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
 
@@ -69,6 +78,56 @@ export function CJPickerStrip({ crownJewels, onSelect }: CJPickerStripProps) {
   const totalPaths = sorted.reduce((sum, c) => sum + (c.path_count ?? 0), 0)
   const exposedCount = sorted.filter((c) => c.is_internet_exposed).length
 
+  // Loading state — no data yet. Renders the strip frame with a spinner
+  // so operators know the lookup is in flight (Render cold-cycle can
+  // be 100s+; without this they saw nothing and assumed the system had
+  // no Crown Jewels).
+  if (loading && sorted.length === 0) {
+    return (
+      <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-y border-amber-500/30 px-4 py-2">
+        <div className="flex items-center gap-3 text-xs text-amber-200">
+          <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+          <span className="font-bold uppercase tracking-wider">
+            Loading Crown Jewels…
+          </span>
+          <span className="text-[11px] text-slate-400">
+            Backend may be cold; this can take up to a minute.
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state — explicit "Crown Jewels couldn't load" with retry,
+  // instead of the strip vanishing silently (the prior failure mode
+  // made it look like the system had no Crown Jewels at all).
+  if (error && sorted.length === 0) {
+    return (
+      <div className="bg-gradient-to-r from-rose-500/15 via-rose-500/5 to-transparent border-y border-rose-500/40 px-4 py-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+          <span className="text-xs font-bold uppercase tracking-wider text-rose-200">
+            Crown Jewels — couldn't load
+          </span>
+          <span className="text-[11px] text-rose-300/80 truncate max-w-[480px]" title={error}>
+            {error}
+          </span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-400/40 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-1 text-[11px] font-medium text-rose-100"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Populated state — fall through.
   return (
     <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-y border-amber-500/30 px-4 py-2">
       <div className="flex items-center gap-3 flex-wrap">

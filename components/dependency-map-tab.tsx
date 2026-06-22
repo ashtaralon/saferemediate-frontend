@@ -279,6 +279,12 @@ export default function DependencyMapTab({
   const [systemCrownJewels, setSystemCrownJewels] = useState<CrownJewelSummary[]>(
     () => [],
   )
+  const [crownJewelsLoading, setCrownJewelsLoading] = useState(false)
+  const [crownJewelsError, setCrownJewelsError] = useState<string | null>(null)
+  const [crownJewelsFetchNonce, setCrownJewelsFetchNonce] = useState(0)
+  const retryCrownJewels = useCallback(() => {
+    setCrownJewelsFetchNonce((n) => n + 1)
+  }, [])
   const systemCrownJewelIds = useMemo<Set<string>>(() => {
     const out = new Set<string>()
     for (const cj of systemCrownJewels) {
@@ -291,13 +297,23 @@ export default function DependencyMapTab({
     if (!systemName) return
     let aborted = false
     const url = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    setCrownJewelsLoading(true)
+    setCrownJewelsError(null)
     fetch(url, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.text().catch(() => "")
+          throw new Error(
+            body && body.length < 200 ? body : `Backend ${r.status} — try again in a moment`,
+          )
+        }
+        return r.json()
+      })
       .then((json) => {
-        if (aborted || !json) return
+        if (aborted) return
         // Envelope shape varies by deploy: `{result: {crown_jewels}}`,
         // `{data: {crown_jewels}}`, or flat `{crown_jewels}`. Try all
-        // three — drop silently if none match.
+        // three — empty array if none match.
         const cjs =
           json?.result?.crown_jewels ??
           json?.data?.crown_jewels ??
@@ -309,15 +325,26 @@ export default function DependencyMapTab({
         }
         setSystemCrownJewels(cjs as CrownJewelSummary[])
       })
-      .catch(() => {
-        // Silent on fetch error — the picker + crown badges are
-        // nice-to-haves, not load-bearing. The rest of TFM and any
-        // already-open Spotlight still function without them.
+      .catch((e) => {
+        if (aborted) return
+        // Surface the error so the picker can render a "couldn't load,
+        // retry" affordance instead of vanishing silently. Hiding a
+        // failure made it impossible for operators to tell whether the
+        // system genuinely had no Crown Jewels vs the IAP fetch 502'd.
+        const msg = e instanceof Error ? e.message : String(e)
+        setCrownJewelsError(
+          msg.toLowerCase().includes("aborted")
+            ? "Backend slow — no response within 60s"
+            : msg,
+        )
+      })
+      .finally(() => {
+        if (!aborted) setCrownJewelsLoading(false)
       })
     return () => {
       aborted = true
     }
-  }, [systemName])
+  }, [systemName, crownJewelsFetchNonce])
 
   // Union of every node ID that participates in any path to the selected
   // CJ. TFM dims everything NOT in this set when Spotlight is active.
@@ -819,9 +846,12 @@ export default function DependencyMapTab({
                   error={spotlightConvergence.error}
                   retry={spotlightConvergence.retry}
                 />
-              ) : systemCrownJewels.length > 0 ? (
+              ) : crownJewelsLoading || crownJewelsError || systemCrownJewels.length > 0 ? (
                 <CJPickerStrip
                   crownJewels={systemCrownJewels}
+                  loading={crownJewelsLoading}
+                  error={crownJewelsError}
+                  onRetry={retryCrownJewels}
                   onSelect={(cj) =>
                     handleEnterSpotlight({
                       id: cj.id,
