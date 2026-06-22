@@ -44,6 +44,21 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Allow Vercel cron endpoints. Vercel's cron scheduler makes
+  // unauthenticated GETs to these paths and the auth middleware was
+  // 307'ing them to /login — confirmed in production logs after PR #186
+  // shipped: every cron tick at :50/:00/:10 logged 307, the backend
+  // never got pinged, the Render worker kept cold-cycling, and the IAP
+  // calls kept 502'ing as if the cron had never deployed.
+  //
+  // Safety: these handlers expose no data and only call out to the
+  // backend with the project's own credentials. They're read-only
+  // warmers — even if hit externally, the only effect is keeping the
+  // backend awake, which is exactly their intended job.
+  if (pathname.startsWith("/api/cron/")) {
+    return NextResponse.next()
+  }
+
   // Allow static files and Next.js internals
   if (
     pathname.startsWith("/_next") ||
