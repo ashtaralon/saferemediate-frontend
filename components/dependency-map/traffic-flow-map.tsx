@@ -4268,6 +4268,7 @@ export function UnifiedArchitectureDiagram({
   onSelectAttackPath,
   heatmapMode = false,
   ghostedNodeIds = new Set<string>(),
+  spotlightActiveNodeIds = new Set<string>(),
   highlightedNodeId,
   showVPCBoundaries = false,
   pathMode = false,
@@ -4290,6 +4291,10 @@ export function UnifiedArchitectureDiagram({
   onSelectAttackPath?: (pathId: string | null) => void;
   heatmapMode?: boolean;
   ghostedNodeIds?: Set<string>;
+  /** Positive on-path check (2026-06-23 hotfix). Negative-via-ghosted
+   *  ringed nodes outside the architecture lanes by accident — fixed
+   *  by passing the spotlight's active set through directly. */
+  spotlightActiveNodeIds?: Set<string>;
   highlightedNodeId?: string | null;
   showVPCBoundaries?: boolean;
   // chunk #1.5: forwarded from TrafficFlowMap so compute ServiceNodeBox
@@ -8949,6 +8954,7 @@ export default function TrafficFlowMap({
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
+            spotlightActiveNodeIds={spotlightActiveNodeIds}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy
