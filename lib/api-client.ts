@@ -754,7 +754,11 @@ export async function fetchPostureScore(systemName: string): Promise<PostureScor
 // Attack Chains v2 (v0.2 §3 hop-reified attack paths)
 // ---------------------------------------------------------------------------
 
-import type { AttackChainsResponse } from "@/lib/types"
+import type {
+  AttackChainsResponse,
+  AttackChainsSummaryResponse,
+  AttackChainDetailResponse,
+} from "@/lib/types"
 
 /**
  * Fetch all AttackChain objects targeting a crown jewel. The backend
@@ -801,6 +805,120 @@ export async function fetchChainsForCJ(
       cj: { id: cjId, name: cjId, type: "Unknown" },
       chains: [],
       stats: { total: 0, by_status: {}, total_hops: 0, avg_hop_count: 0 },
+      error: String(e?.message ?? e),
+    }
+  }
+}
+
+/**
+ * List endpoint companion to fetchChainsForCJ — calls the lighter
+ * `/chains-for-cj/summary` proxy that omits hops + node_meta. The
+ * legacy `fetchChainsForCJ` paid a ~9.5s warm cost (and 55s timeouts
+ * on cold) because the backend ran a per-hop `OPTIONAL MATCH` over
+ * every chain's hops; the summary endpoint skips that loop entirely.
+ *
+ * Pair with `fetchChainDetailById` for drill-in: render the list
+ * with summaries, then lazy-fetch detail when the operator clicks
+ * a chain row.
+ *
+ * Error envelope matches `fetchChainsForCJ` — `chains: []` + populated
+ * `error` so callers can render empty-state without try/catch.
+ */
+export async function fetchChainsForCJSummary(
+  cjId: string,
+  opts?: {
+    include_blocked?: boolean
+    rank_by?: "severity" | "freshness" | "foothold"
+    system_name?: string
+    include_out_of_scope?: boolean
+  },
+): Promise<AttackChainsSummaryResponse & { error?: string }> {
+  const qs = new URLSearchParams({ cj_id: cjId })
+  if (opts?.include_blocked) qs.set("include_blocked", "true")
+  if (opts?.rank_by) qs.set("rank_by", opts.rank_by)
+  if (opts?.system_name) qs.set("system_name", opts.system_name)
+  if (opts?.include_out_of_scope) qs.set("include_out_of_scope", "true")
+  try {
+    const res = await fetch(
+      `/api/proxy/attack-chain/chains-for-cj/summary?${qs.toString()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      },
+    )
+    if (!res.ok) {
+      const text = await res.text()
+      return {
+        cj: { id: cjId, name: cjId, type: "Unknown" },
+        chains: [],
+        stats: { total: 0, by_status: {} },
+        endpoint: "summary",
+        error: `proxy ${res.status}: ${text.slice(0, 200)}`,
+      }
+    }
+    return await res.json()
+  } catch (e: any) {
+    return {
+      cj: { id: cjId, name: cjId, type: "Unknown" },
+      chains: [],
+      stats: { total: 0, by_status: {} },
+      endpoint: "summary",
+      error: String(e?.message ?? e),
+    }
+  }
+}
+
+/**
+ * Detail endpoint companion to fetchChainsForCJSummary. Fetches the
+ * full chain object + node_meta for ONE chain_id (the kind of id
+ * surfaced by the summary list). Called when an operator clicks a
+ * chain row in the picker — pays the per-hop enrichment cost for ~10-20
+ * hop ids instead of the ~220 the legacy aggregated endpoint pays.
+ *
+ * Returns `chain: null` + populated `error` when the chain id can't be
+ * resolved (the backend returns 404 for a stale chain id, e.g. when
+ * the underlying workload was flipped to is_active=false between the
+ * summary call and the row click).
+ */
+export async function fetchChainDetailById(
+  chainId: string,
+): Promise<{
+  cj: AttackChainDetailResponse["cj"] | null
+  chain: AttackChainDetailResponse["chain"] | null
+  node_meta: AttackChainDetailResponse["node_meta"]
+  error?: string
+}> {
+  const qs = new URLSearchParams({ chain_id: chainId })
+  try {
+    const res = await fetch(
+      `/api/proxy/attack-chain/chains-for-cj/detail?${qs.toString()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      },
+    )
+    if (!res.ok) {
+      const text = await res.text()
+      return {
+        cj: null,
+        chain: null,
+        node_meta: {},
+        error: `proxy ${res.status}: ${text.slice(0, 200)}`,
+      }
+    }
+    const json: AttackChainDetailResponse = await res.json()
+    return {
+      cj: json.cj,
+      chain: json.chain,
+      node_meta: json.node_meta ?? {},
+    }
+  } catch (e: any) {
+    return {
+      cj: null,
+      chain: null,
+      node_meta: {},
       error: String(e?.message ?? e),
     }
   }
