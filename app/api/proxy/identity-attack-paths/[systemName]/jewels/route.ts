@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -49,6 +49,22 @@ export async function GET(
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
+    const isTimeout =
+      err instanceof Error &&
+      (err.name === "TimeoutError" || err.name === "AbortError" || msg.includes("timeout"))
+    const stale = getStaleCached(cacheKey)
+    if (isTimeout && stale) {
+      console.warn(`[iap-jewels] timeout — serving stale cache systemName=${systemName}`)
+      return NextResponse.json(
+        { ...stale, fromStaleCache: true, staleReason: "timeout" },
+        {
+          headers: {
+            "X-Cache": "STALE",
+            "Cache-Control": "no-store",
+          },
+        },
+      )
+    }
     console.error(`[iap-jewels] systemName=${systemName} error=${msg}`)
     return NextResponse.json(
       { error: "iap_jewels_proxy_error", message: msg, crown_jewels: [] },

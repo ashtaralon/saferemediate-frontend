@@ -20,11 +20,14 @@ const cache = new Map<string, Entry>()
 export function getCached<T = unknown>(key: string): T | null {
   const entry = cache.get(key) as Entry<T> | undefined
   if (!entry) return null
-  if (Date.now() > entry.expiresAt) {
-    cache.delete(key)
-    return null
-  }
+  if (Date.now() > entry.expiresAt) return null
   return entry.data
+}
+
+/** Return cached data even past TTL — for timeout degradation only. */
+export function getStaleCached<T = unknown>(key: string): T | null {
+  const entry = cache.get(key) as Entry<T> | undefined
+  return entry?.data ?? null
 }
 
 export function setCached<T = unknown>(key: string, data: T, ttlMs: number): void {

@@ -1276,16 +1276,17 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   useEffect(() => {
-    // Fetch system metadata once on mount
     fetchSystemMeta()
-    // Fetch on mount
-    fetchAllData()
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
-
-    return () => clearInterval(interval)
   }, [systemName])
+
+  // Overview-only polling — keeps posture-score / gap-analysis / CVE fan-out
+  // from hammering Render while the operator is on Topology or other heavy tabs.
+  useEffect(() => {
+    if (activeTab !== "overview") return
+    fetchAllData()
+    const interval = setInterval(fetchAllData, 30000)
+    return () => clearInterval(interval)
+  }, [systemName, activeTab])
 
   // NOTE: Security findings are now loaded from fetchIssuesSummary() which uses /api/least-privilege/issues
   // The old /api/findings endpoint is empty, so we disabled this useEffect.
