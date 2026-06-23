@@ -39,6 +39,7 @@ import type {
 } from "@/components/dependency-map/traffic-flow-map"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import { isOpaqueIamId } from "./friendly-names"
 
 // ─── Graph-view response shape (forwarded verbatim from the backend) ──
 
@@ -294,7 +295,7 @@ export function buildAttackerArchitecture(
   // previously dropped via the "ignore" bucket; for a path that goes
   // EC2 → SG → VPC → Subnet → Role the container hop just vanished
   // from the canvas without any indication. Now we surface them.
-  const vpcsById = new Map<string, { vpcId: string; vpcName: string }>()
+  const vpcsById = new Map<string, { vpcId: string; vpcName: string; cidrBlock?: string }>()
 
   // Crown jewel ids from the path so we can tag resource cards.
   const crownJewelIds = new Set(
@@ -496,8 +497,15 @@ export function buildAttackerArchitecture(
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
-    const display = friendlyName(name, id)
     const p = props || {}
+    const arn = typeof p.arn === "string" ? p.arn : undefined
+    let display = friendlyName(name, id)
+    if (isOpaqueIamId(display) && arn?.includes(":role/")) {
+      display = arn.split("/").pop() || display
+    }
+    if (isOpaqueIamId(display) && path.damage_capability?.role_name) {
+      display = path.damage_capability.role_name
+    }
     const totalCount = Number(p.allowed_actions_count ?? 0) || 0
     // 2026-05-26 audit fix: trust LIVE evidence over collector scalars.
     // The `used_actions_count` field on cyntro-demo-ec2-s3-role lies
@@ -882,14 +890,14 @@ export function buildAttackerArchitecture(
   // legit endpoints (USES_VPC / IN_VPC config edges are filtered out
   // separately so they don't draw an extra line, but the visual
   // container box is what the operator actually wants here).
-  const addAsVPC = (id: string, name: string | null) => {
+  const addAsVPC = (id: string, name: string | null, cidrBlock?: string | null) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "vpc")
     if (seenByCanonical.has(canon)) return
     seen.add(id)
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
-    vpcsById.set(id, { vpcId: id, vpcName: display })
+    vpcsById.set(id, { vpcId: id, vpcName: display, cidrBlock: cidrBlock || undefined })
   }
   const addAsSubnet = (
     id: string,
@@ -897,6 +905,8 @@ export function buildAttackerArchitecture(
     vpcId: string | null,
     isPublic: boolean | null,
     rt?: { id?: string | null; count?: number | null; isMain?: boolean | null } | null,
+    az?: string | null,
+    cidrBlock?: string | null,
   ) => {
     if (seen.has(id)) return
     const canon = canonicalKey(name, id, "subnet")
@@ -918,6 +928,8 @@ export function buildAttackerArchitecture(
       // unclassified — per the earlier credibility audit.
       isPublic,
       vpcId: vpcId || undefined,
+      availabilityZone: az || undefined,
+      cidrBlock: cidrBlock || undefined,
       connectedComputeIds: [],
       // Route-table chip metadata (backend feat 9bc86f9). All optional —
       // older backends without the RouteTable enrichment will simply
@@ -1035,7 +1047,9 @@ export function buildAttackerArchitecture(
         addAsPrincipal(node.id, node.name)
       }
     }
-    else if (bucket === "vpc") addAsVPC(node.id, node.name)
+    else if (bucket === "vpc") {
+      addAsVPC(node.id, node.name, (props?.cidr_block as string | undefined) ?? null)
+    }
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
       // service_name is set for VPCEndpoint nodes
@@ -1068,7 +1082,15 @@ export function buildAttackerArchitecture(
         count: (props?.route_table_route_count as number | undefined) ?? null,
         isMain: (props?.route_table_is_main as boolean | undefined) ?? null,
       }
-      addAsSubnet(node.id, node.name, vpcId, isPub, rt)
+      addAsSubnet(
+        node.id,
+        node.name,
+        vpcId,
+        isPub,
+        rt,
+        (props?.availability_zone as string | undefined) ?? null,
+        (props?.cidr_block as string | undefined) ?? null,
+      )
     }
     // 'ignore' — bucket didn't match a node type we render in any lane.
   }
@@ -1187,7 +1209,11 @@ export function buildAttackerArchitecture(
   for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
     const pathNodeBucket = pathNodeTypeByKey.get(pathNodeId)
     for (const e of edges) {
-      const neighborId = e.neighbor_id
+      // Inline IAM policies (and other inline-only nodes) arrive with an empty
+      // neighbor_id — their stable identifier is the ARN (e.g.
+      // "inline/<role>/<policy>"). Fall back to it so they aren't silently
+      // dropped before reaching their bucket branch below.
+      const neighborId = e.neighbor_id || e.neighbor_arn || ""
       if (!neighborId) continue
 
       // Branch A — edge between two path nodes (on_path=true). The
@@ -1472,15 +1498,51 @@ export function buildAttackerArchitecture(
   // this out as "VPC boundary not drawn at all" (effectively: drawn
   // too small to register as the obvious container).
   const subnetToComputes = new Map<string, string[]>()
+  const linkComputeToSubnet = (computeId: string, subnetId: string) => {
+    if (!subnetId || !computeId) return
+    if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
+    const list = subnetToComputes.get(subnetId)!
+    if (!list.includes(computeId)) list.push(computeId)
+  }
   for (const edge of path.edges ?? []) {
     const t = (edge.type || "").toUpperCase()
     if (t !== "IN_SUBNET") continue
     // Direction: compute -> subnet
-    const subnetId = edge.target
-    const computeId = edge.source
-    if (!subnetId || !computeId) continue
-    if (!subnetToComputes.has(subnetId)) subnetToComputes.set(subnetId, [])
-    subnetToComputes.get(subnetId)!.push(computeId)
+    linkComputeToSubnet(edge.source, edge.target)
+  }
+  // path.edges often omits IN_SUBNET — fall back to graph laterals + infra_context.
+  for (const pn of path.nodes ?? []) {
+    const subnetId = pn.infra_context?.subnets?.[0]?.id
+    if (subnetId) {
+      linkComputeToSubnet(pn.id, subnetId)
+      for (const c of computeServices) {
+        if (
+          c.id === pn.id ||
+          c.instanceId === pn.id ||
+          c.name === pn.name ||
+          (c.instanceId && pn.id?.includes(c.instanceId))
+        ) {
+          linkComputeToSubnet(c.id, subnetId)
+        }
+      }
+    }
+    for (const e of graph.laterals_by_node[pn.id] ?? []) {
+      if ((e.type || "").toUpperCase() !== "IN_SUBNET") continue
+      if (e.neighbor_id) linkComputeToSubnet(pn.id, e.neighbor_id)
+    }
+  }
+  // Wire compute placement onto SubnetNode.connectedComputeIds so downstream
+  // renderers (containment map) can place EC2 cards in their subnet.
+  for (const sn of subnets) {
+    const ids = subnetToComputes.get(sn.id)
+    if (ids?.length) sn.connectedComputeIds = ids
+  }
+  // Backfill VPC CIDR from graph nodes when addAsVPC ran without key_properties.
+  for (const v of vpcsById.values()) {
+    if (v.cidrBlock) continue
+    const vpcNode = graph.nodes.find((n) => n.id === v.vpcId)
+    const cidr = vpcNode?.key_properties?.cidr_block
+    if (typeof cidr === "string" && cidr) v.cidrBlock = cidr
   }
 
   // Architecture-wide set of network-scoped card ids — SGs + NACLs.
@@ -1534,8 +1596,40 @@ export function buildAttackerArchitecture(
           ...networkAnchorIds,
         ],
       }))
-    return { vpcId: v.vpcId, vpcName: v.vpcName, subnets: groupSubnets }
+    return { vpcId: v.vpcId, vpcName: v.vpcName, cidrBlock: v.cidrBlock, subnets: groupSubnets }
   })
+
+  // Region — infer from the first ARN in the graph (service slot).
+  let region: string | undefined
+  for (const n of graph.nodes ?? []) {
+    const id = n.id || ""
+    const m = id.match(/arn:aws:[^:]+:([a-z0-9-]+-\d):/)
+    if (m) {
+      region = m[1]
+      break
+    }
+  }
+  if (!region) {
+    const az = subnets.find((s) => s.availabilityZone)?.availabilityZone
+    if (az) {
+      const m = az.match(/^([a-z0-9-]+-\d+)/i)
+      if (m) region = m[1]
+    }
+  }
+  if (!region) {
+    for (const pn of path.nodes ?? []) {
+      const fromArn = (pn.id || "").match(/arn:aws:[^:]+:([a-z0-9-]+-\d):/)
+      if (fromArn) {
+        region = fromArn[1]
+        break
+      }
+      const awsRegion = pn.ip_metadata?.aws?.region
+      if (awsRegion) {
+        region = awsRegion
+        break
+      }
+    }
+  }
 
   // ── Mark role↔IP binding twins (Phase 1.1, revised 2026-05-26) ──
   //
@@ -1860,7 +1954,10 @@ export function buildAttackerArchitecture(
   //     attachments to the cards we rendered (NACL, SG, IP, IGW, Role).
   for (const [pathNodeId, neighbors] of Object.entries(graph.laterals_by_node)) {
     for (const e of neighbors) {
-      const neighborId = e.neighbor_id
+      // Same inline-node fallback as the node pass: inline IAM policies carry
+      // their id in neighbor_arn (neighbor_id is empty), so without this the
+      // HAS_POLICY edge is never built and the policy is dropped in path mode.
+      const neighborId = e.neighbor_id || e.neighbor_arn || ""
       if (!neighborId) continue
       const source = e.direction === "out" ? pathNodeId : neighborId
       const target = e.direction === "out" ? neighborId : pathNodeId
@@ -2033,6 +2130,7 @@ export function buildAttackerArchitecture(
     totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
     totalGaps: 0,
     vpcGroups,
+    region,
     // V2-3 (2026-05-31): on-path classification for the canvas v2
     // dimming layer. Pure passthrough — populated during the path-
     // edge loop (isOnPath=true) and the lateral loop (e.on_path).

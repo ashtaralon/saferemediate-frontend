@@ -1,6 +1,70 @@
 import { describe, expect, it } from "vitest"
-import { pathDamageSummary } from "@/components/attack-paths-v2/path-damage-summary"
+import {
+  pathDamageSummary,
+  pathSourceLabel,
+  pathIdentityLabel,
+} from "@/components/attack-paths-v2/path-damage-summary"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+
+const PIVOT = "arn:aws:iam::745783559495:role/cyntro-demo-pivot-role"
+const TREASURY = "arn:aws:iam::745783559495:role/cyntro-demo-treasury-role"
+const PRODDATA = "arn:aws:s3:::cyntro-demo-prod-data-745783559495"
+const ANALYTICS = "arn:aws:s3:::cyntro-demo-analytics-745783559495"
+
+// BE-10: assume chains carry two IAMRole nodes — the source/identity labels
+// must follow the assume edge direction (entry = assume source, identity = the
+// role reaching the jewel), not nodes[0], which duplicated/inverted the spine.
+describe("BE-10 assume-chain spine labels", () => {
+  it("lateral-movement (treasury reaches jewel): entry=pivot, identity=treasury", () => {
+    const path = {
+      crown_jewel_id: PRODDATA,
+      nodes: [
+        { id: TREASURY, type: "IAMRole", name: "cyntro-demo-treasury-role" },
+        { id: PIVOT, type: "IAMRole", name: "cyntro-demo-pivot-role", assume_escalation: true },
+        { id: "bkt", canonical_id: PRODDATA, type: "S3Bucket", name: "cyntro-demo-prod-data" },
+      ],
+      edges: [
+        { source: TREASURY, target: PRODDATA, type: "ACCESSES_RESOURCE", is_observed: false },
+        { source: PIVOT, target: TREASURY, type: "ASSUMES_ROLE_ACTUAL", is_observed: true },
+      ],
+    } as unknown as IdentityAttackPath
+    expect(pathSourceLabel(path)).toBe("cyntro-demo-pivot-role")
+    expect(pathIdentityLabel(path)).toBe("cyntro-demo-treasury-role")
+  })
+
+  it("pivot's-own-reach (pivot reaches jewel): entry=identity=pivot (dedups)", () => {
+    const path = {
+      crown_jewel_id: ANALYTICS,
+      nodes: [
+        { id: PIVOT, type: "IAMRole", name: "cyntro-demo-pivot-role" },
+        { id: TREASURY, type: "IAMRole", name: "cyntro-demo-treasury-role", assume_escalation: true },
+        { id: "bkt2", canonical_id: ANALYTICS, type: "S3Bucket", name: "cyntro-demo-analytics" },
+      ],
+      edges: [
+        { source: PIVOT, target: ANALYTICS, type: "ACCESSES_RESOURCE", is_observed: false },
+        { source: PIVOT, target: TREASURY, type: "ASSUMES_ROLE_ACTUAL", is_observed: true },
+      ],
+    } as unknown as IdentityAttackPath
+    expect(pathSourceLabel(path)).toBe("cyntro-demo-pivot-role")
+    expect(pathIdentityLabel(path)).toBe("cyntro-demo-pivot-role")
+  })
+
+  it("non-assume compute path is unchanged (entry=compute, identity=role)", () => {
+    const path = {
+      crown_jewel_id: PRODDATA,
+      nodes: [
+        { id: "i-1", type: "EC2Instance", name: "web-1" },
+        { id: "r-1", type: "IAMRole", name: "app-role" },
+        { id: "bkt", canonical_id: PRODDATA, type: "S3Bucket", name: "prod-data" },
+      ],
+      edges: [
+        { source: "r-1", target: PRODDATA, type: "ACCESSES_RESOURCE", is_observed: true },
+      ],
+    } as unknown as IdentityAttackPath
+    expect(pathSourceLabel(path)).toBe("web-1")
+    expect(pathIdentityLabel(path)).toBe("app-role")
+  })
+})
 
 describe("pathDamageSummary", () => {
   it("prefers matrix summary over raw dc.summary delete counts", () => {

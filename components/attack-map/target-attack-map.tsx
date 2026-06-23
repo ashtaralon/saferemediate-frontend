@@ -32,8 +32,6 @@ const LENS_COLOR: Record<TargetLens, { dark: string; light: string }> = {
   exfiltration: { dark: "#c084fc", light: "#7c3aed" },
 }
 
-const ROW_Y: Record<string, number> = { public: 110, "private-app": 240, "private-data": 380 }
-const AZ_X: Record<string, number> = { "AZ 1": 300, "AZ 2": 520, "AZ 3": 740 }
 
 function nodeIcon(type: TargetNodeType, dark: boolean) {
   const cls = "w-3.5 h-3.5"
@@ -70,33 +68,59 @@ function nodeIcon(type: TargetNodeType, dark: boolean) {
 }
 
 export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
-  const [activeLens, setActiveLens] = useState<TargetLens>("reachability")
+  const hasRoleHub = topo.sharedWorkloads.length > 0 || topo.roleJewelCount > 1
+  const [activeLens, setActiveLens] = useState<TargetLens>(hasRoleHub ? "lateral" : "reachability")
   const [isDark, setIsDark] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(
     topo.nodes.find((n) => n.onPath)?.id ?? topo.nodes[0]?.id ?? null,
   )
 
-  // ── slot-mapper: subnet-row × AZ-column grid (clean, no overlap) ──
-  const { positions, height } = useMemo(() => {
-    const ext = topo.nodes.filter((n) => n.subnet === "external" && n.type !== "threat")
+  // ── layout: internet (left) · subnet rows (wrap into a grid, never stack) ·
+  //    regional/global column (right). Each tier band grows to fit its rows. ──
+  const TIER_META: { key: string; label: string }[] = [
+    { key: "public", label: "Public subnet · internet-reachable" },
+    { key: "private-app", label: "Private application subnet" },
+    { key: "private-data", label: "Private data subnet" },
+  ]
+  const { positions, height, bands } = useMemo(() => {
     const pos: Record<string, { x: number; y: number }> = {}
-    for (const n of topo.nodes) {
-      if (n.type === "threat") {
-        pos[n.id] = { x: 80, y: 160 }
-        continue
-      }
-      if (n.subnet === "external") {
-        const i = ext.indexOf(n)
-        pos[n.id] = { x: 930, y: 110 + i * 112 }
-        continue
-      }
-      let x = AZ_X[n.az] ?? 520
-      if (n.type === "nat") x += 55
-      else if (n.type === "alb") x -= 55
-      pos[n.id] = { x, y: ROW_Y[n.subnet] ?? 250 }
+    const X0 = 250
+    const X1 = 820
+    const COLS = 4
+    const ROWH = 66
+
+    // internet / threat — far left entry
+    for (const n of topo.nodes) if (n.type === "threat") pos[n.id] = { x: 90, y: 180 }
+
+    // regional / global column — stacked on the right
+    const ext = topo.nodes.filter((n) => n.subnet === "external" && n.type !== "threat")
+    ext.forEach((n, i) => {
+      pos[n.id] = { x: 930, y: 120 + i * 100 }
+    })
+
+    // in-VPC nodes — per tier, wrap into a grid; bands stack and grow
+    const localBands: { key: string; label: string; y: number; h: number }[] = []
+    let cursorY = 78
+    for (const tm of TIER_META) {
+      const list = topo.nodes
+        .filter((n) => n.subnet === tm.key && n.type !== "threat")
+        .sort((a, b) => (a.onPath === b.onPath ? 0 : a.onPath ? -1 : 1) || a.label.localeCompare(b.label))
+      if (!list.length) continue
+      const colsUsed = Math.min(list.length, COLS)
+      const colW = (X1 - X0) / colsUsed
+      const rows = Math.ceil(list.length / colsUsed)
+      list.forEach((node, i) => {
+        const c = i % colsUsed
+        const r = Math.floor(i / colsUsed)
+        pos[node.id] = { x: X0 + (c + 0.5) * colW, y: cursorY + 36 + r * ROWH }
+      })
+      const h = 30 + rows * ROWH
+      localBands.push({ key: tm.key, label: tm.label, y: cursorY, h })
+      cursorY += h + 22
     }
-    const h = Math.max(480, 140 + ext.length * 112)
-    return { positions: pos, height: h }
+
+    const bottom = Math.max(cursorY + 10, 130 + ext.length * 100)
+    return { positions: pos, height: Math.max(480, bottom), bands: localBands }
   }, [topo.nodes])
 
   const lens = LENS_COLOR[activeLens]
@@ -119,8 +143,11 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
           </h2>
           <p className={`mt-0.5 font-mono text-[11px] ${isDark ? "text-slate-500" : "text-slate-400"}`}>
             {topo.system} · blast {topo.score}
-            {topo.jewelsReachable > 0
-              ? ` · ${topo.jewelsReachable} jewel${topo.jewelsReachable === 1 ? "" : "s"} at risk`
+            {topo.roleJewelCount > 0
+              ? ` · ${topo.roleJewelCount} jewel${topo.roleJewelCount === 1 ? "" : "s"} at risk`
+              : ""}
+            {topo.sharedWorkloads.length > 0
+              ? ` · ${topo.sharedWorkloads.length + 1} workloads share role`
               : ""}
           </p>
         </div>
@@ -193,20 +220,14 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
               AWS Cloud · {topo.system}
             </text>
             {/* subnet rows present in the data */}
-            {([
-              { key: "public", y: 78, h: 96, label: "Public subnet · internet-reachable" },
-              { key: "private-app", y: 200, h: 96, label: "Private application subnet" },
-              { key: "private-data", y: 348, h: 96, label: "Private data subnet" },
-            ] as const)
-              .filter((row) => topo.nodes.some((n) => n.subnet === row.key))
-              .map((row) => (
-                <g key={row.key}>
-                  <rect x="166" y={row.y} width="668" height={row.h} rx="10" fill={isDark ? "#0b111e" : "#f1f5f9"} stroke={isDark ? "#1e293b" : "#e2e8f0"} strokeWidth="1" />
-                  <text x="180" y={row.y + 16} fill={isDark ? "#64748b" : "#475569"} fontSize="8" className="font-mono font-semibold uppercase tracking-wider">
-                    {row.label}
-                  </text>
-                </g>
-              ))}
+            {bands.map((row) => (
+              <g key={row.key}>
+                <rect x="166" y={row.y} width="668" height={row.h} rx="10" fill={isDark ? "#0b111e" : "#f1f5f9"} stroke={isDark ? "#1e293b" : "#e2e8f0"} strokeWidth="1" />
+                <text x="180" y={row.y + 16} fill={isDark ? "#64748b" : "#475569"} fontSize="8" className="font-mono font-semibold uppercase tracking-wider">
+                  {row.label}
+                </text>
+              </g>
+            ))}
             {/* external column */}
             <rect x="876" y="40" width="116" height={height - 80} rx="12" fill={isDark ? "#040810" : "#f8fafc"} stroke={isDark ? "#334155" : "#cbd5e1"} strokeWidth="1.5" strokeDasharray="2 4" />
             <text x="886" y="56" fill={isDark ? "#475569" : "#64748b"} fontSize="8" className="font-mono font-bold uppercase tracking-wider">
@@ -233,6 +254,40 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
                 </g>
               )
             })}
+
+            {/* lateral lens: shared-identity blast surface — sibling workloads
+                that run the same on-path role can each reach the jewel. */}
+            {activeLens === "lateral" && (() => {
+              const role = topo.nodes.find((n) => n.type === "iam" && n.onPath)
+              const rp = role ? positions[role.id] : null
+              if (!rp) return null
+              const amber = isDark ? "#fbbf24" : "#d97706"
+              const sibs = topo.nodes.filter(
+                (n) =>
+                  n.sharedRoleHub ||
+                  ((n.type === "compute" || n.type === "lambda") &&
+                    topo.sharedWorkloads.some((w) => n.label.includes(w) || w.includes(n.label))),
+              )
+              return (
+                <g>
+                  {sibs.map((n) => {
+                    const p = positions[n.id]
+                    if (!p) return null
+                    return (
+                      <g key={`lat-${n.id}`}>
+                        <path d={`M ${p.x} ${p.y} L ${rp.x} ${rp.y}`} fill="none" stroke={amber} strokeWidth={1.8} strokeDasharray="5 4" opacity={0.85} markerEnd="url(#tam-arrow-lateral)" />
+                        <circle r="3.4" fill={amber}>
+                          <animateMotion path={`M ${p.x} ${p.y} L ${rp.x} ${rp.y}`} dur="2.6s" repeatCount="indefinite" />
+                        </circle>
+                      </g>
+                    )
+                  })}
+                  <text x={rp.x} y={rp.y - 36} textAnchor="middle" fontSize={9} fontWeight={700} fill={amber}>
+                    {`shared hub · ${topo.sharedWorkloads.length + 1} workloads → ${topo.roleJewelCount || 1} jewel${topo.roleJewelCount === 1 ? "" : "s"}`}
+                  </text>
+                </g>
+              )
+            })()}
           </svg>
 
           {/* node cards */}
@@ -241,6 +296,23 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
             if (!c) return null
             const isSel = selectedId === node.id
             const dim = !node.onPath && !node.isCrownJewel && node.type !== "threat"
+            // network controls (SG/NACL) are not workloads — render as a compact chip
+            if (node.type === "sg") {
+              return (
+                <button
+                  type="button"
+                  key={node.id}
+                  onClick={() => setSelectedId(node.id)}
+                  style={{ left: c.x - 52, top: c.y - 13 }}
+                  className={`absolute z-10 flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[9px] transition-all ${
+                    isDark ? "border-cyan-500/40 bg-slate-950/90 text-cyan-300" : "border-cyan-300 bg-cyan-50 text-cyan-700"
+                  } ${isSel ? "ring-2 ring-cyan-400" : ""} ${dim ? "opacity-60" : ""}`}
+                >
+                  <Shield className="h-3 w-3 shrink-0" />
+                  <span className="max-w-[90px] truncate">{node.label}</span>
+                </button>
+              )
+            }
             return (
               <button
                 type="button"
@@ -272,6 +344,11 @@ export function TargetAttackMap({ topo }: { topo: TargetTopology }) {
                   {node.isCrownJewel && node.jewelTier && (
                     <span className={`rounded px-1 font-mono text-[7px] font-extrabold ${isDark ? "bg-amber-500/10 text-amber-400" : "bg-amber-100 text-amber-800"}`}>
                       CJ-{node.jewelTier}
+                    </span>
+                  )}
+                  {node.type === "iam" && hasRoleHub && (
+                    <span className={`rounded px-1 font-mono text-[7px] font-extrabold ${isDark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>
+                      {topo.roleJewelCount}J
                     </span>
                   )}
                 </div>

@@ -377,6 +377,13 @@ export interface PathNodeDetail {
   // muted for roles; IAMUser without MFA is a HARD signal.
   has_mfa?: boolean | null
   has_console_access?: boolean | null
+  // BE-2: role injected into the spine because an observed role→role assume
+  // edge reached it (lateral movement); it is the assume edge's *target*, not
+  // the path's entry. Used to keep spine ordering honest (BE-9).
+  assume_escalation?: boolean
+  // BE-2: terminal jewel node synthesized from a dangling edge target (orphan-
+  // role / chain paths omit it from nodes[]). tier is "crown_jewel" here.
+  synthesized_terminal?: boolean
   // 2026-05-23: soft-delete flag surfaced through the response so the
   // frontend's client-side stale gate (lib/active-filters.ts) can drop
   // paths through inactive nodes even when localStorage SWR serves a
@@ -407,7 +414,26 @@ export interface PathNodeDetail {
   // two cases: when this node IS a Subnet (its own classification), and
   // when this node is an EC2/Lambda (the public flag of its containing
   // subnet, surfaced inline to save a round-trip). null = unknown.
+  // @deprecated since 2026-06-20 (BE-A.1) — prefer subnet_ingress_class
+  // for the typed 4-state classification. is_public collapses 4 states
+  // into 1 bit; readers should migrate.
   subnet_is_public?: boolean | null
+  /** Typed ingress posture of the subnet this node sits in (or its own
+   *  for Subnet nodes). Mirrors `IngressClass` from use-aws-topology;
+   *  written by `classifiers/ingress_classifier.py` and surfaced via
+   *  BE-A.1 (api/identity_attack_paths.py:_enrich_subnet_typed_classes).
+   *  Drives `classifyInitialAccess()` — `PUBLIC_INGRESS` on an EC2
+   *  workload → `IMDS_CREDENTIAL_THEFT` Initial Access category. */
+  subnet_ingress_class?:
+    | "PUBLIC_INGRESS"
+    | "ELB_FACING"
+    | "PRIVATE"
+    | "UNKNOWN"
+    | null
+  /** Typed egress mechanisms of the subnet this node sits in. Mirrors
+   *  `EgressClass[]` from use-aws-topology. List because a subnet can
+   *  carry multiple egress paths (e.g. IGW_DIRECT + VPC_ENDPOINT_ONLY). */
+  subnet_egress_classes?: string[] | null
   // NetworkEndpoint enrichment (org, country, asn, AWS service hint).
   ip_metadata?: {
     kind?: "internal" | "aws" | "external" | "unknown"
@@ -564,6 +590,56 @@ export interface PathEdgeDetail {
   hit_count?: number
 }
 
+/** ATT&CK-style Initial Access category — how an attacker first reaches
+ *  the workload/identity that starts an attack path. Categories follow
+ *  alon@2026-06-20 taxonomy; backend authoritative source is the
+ *  `initial_access_classifier.py` that writes (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->().
+ *
+ *  Mapping to AWS surfaces:
+ *    LEAKED_ACCESS_KEY        — IAM long-term key in code/Slack/repo
+ *    IMDS_CREDENTIAL_THEFT    — EC2 IMDSv1 + reachable workload SSRF
+ *    EXPOSED_S3_BUCKET        — bucket policy/ACL allows anonymous
+ *    EXPOSED_RDS_SNAPSHOT     — public RDS / EBS snapshot
+ *    EXPOSED_K8S_WORKLOAD     — EKS/Fargate public ingress
+ *    EXPOSED_ECR_IMAGE        — public ECR registry
+ *    EXPOSED_WORKLOAD_RCE     — Lambda URL / ALB-fronted workload reachable to internet
+ *    COGNITO_OR_FEDERATED_IDP — OIDC/SAML/Cognito trust path
+ *    CONSOLE_OR_CLOUDSHELL    — human session via AWS Console / CloudShell
+ *    CROSS_ACCOUNT_TRUST      — role trusts external AWS account
+ *    UNKNOWN                  — no identified initial access in graph today (honest)
+ */
+export type InitialAccessCategory =
+  | "LEAKED_ACCESS_KEY"
+  | "IMDS_CREDENTIAL_THEFT"
+  | "EXPOSED_S3_BUCKET"
+  | "EXPOSED_RDS_SNAPSHOT"
+  | "EXPOSED_K8S_WORKLOAD"
+  | "EXPOSED_ECR_IMAGE"
+  | "EXPOSED_WORKLOAD_RCE"
+  | "COGNITO_OR_FEDERATED_IDP"
+  | "CONSOLE_OR_CLOUDSHELL"
+  | "CROSS_ACCOUNT_TRUST"
+  | "UNKNOWN"
+
+/** Backend-emitted Initial Access classification per attack path.
+ *  Single source of truth lives in Neo4j as INITIAL_ACCESS_VIA edge.
+ *  FE falls back to inline derivation from node enrichment when this
+ *  field is absent (migration window before BE-A.2 lands). */
+export interface InitialAccess {
+  category: InitialAccessCategory
+  /** Node id of the pivot — the chip the attacker first lands on
+   *  (workload, IDP, console session, external account). Null when
+   *  category is UNKNOWN or category is identity-level (e.g. leaked key). */
+  pivot_node_id?: string | null
+  /** Plain-English attacker narrative — one sentence. */
+  attacker_narrative?: string | null
+  /** observed = CloudTrail-evidenced; config = graph-state-derived;
+   *  inferred = heuristic match (e.g. IMDSv1 + public IP). */
+  confidence?: "observed" | "config" | "inferred"
+  /** Structured evidence facts — schema depends on category. */
+  evidence?: Record<string, unknown>
+}
+
 export interface IdentityAttackPath {
   id: string
   /** Neo4j :AttackPath id (sha256). Closure-preview expects this, not `id`. */
@@ -579,6 +655,12 @@ export interface IdentityAttackPath {
   lanes?: LaneDefinition[]
   risk_reduction?: RiskReduction | null
   target_blast_radius?: TargetBlastRadius | null
+  /** ATT&CK Initial Access classification (alon@2026-06-20). Backend
+   *  authoritative source: classifiers/initial_access_classifier.py
+   *  writes (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->(). Optional —
+   *  FE falls back to inline derivation from node enrichment until
+   *  the backend classifier ships. */
+  initial_access?: InitialAccess | null
   // Phase 0: classifies path as identity / network / hybrid / configured.
   // Replaces the old hard filter that dropped non-identity paths.
   path_kind_tag?: "identity" | "network" | "hybrid" | "configured"
@@ -640,6 +722,15 @@ export interface CrownJewelSummary {
   // state. Synthesized paths are suppressed backend-side; the UI must
   // not render a path count or severity score for this jewel.
   paths_not_computed?: boolean
+  /** P0.5 — per-class breakdown of paths reaching this jewel.
+   *  Keys: in_system | service_linked | platform_access | external_pivot
+   *  | unclassified. `unclassified` is populated only when the
+   *  path_classification_classifier hasn't run yet for the path's
+   *  source system (e.g. cyntroprod's paths into alon-prod). The CJ
+   *  list left rail renders `in_system` as the primary count and the
+   *  rest as a secondary "+N service-linked · +N platform-access · …"
+   *  line so the headline never lies about cross-system exposure. */
+  class_counts?: Record<string, number>
 }
 
 // Tier-1: system-level posture summary attached to the top of the

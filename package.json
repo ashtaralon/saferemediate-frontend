@@ -59,6 +59,7 @@
     "cytoscape-dagre": "2.5.0",
     "dagre": "0.8.5",
     "date-fns": "4.1.0",
+    "elkjs": "0.9.3",
     "embla-carousel-react": "8.5.1",
     "html2canvas": "1.4.1",
     "input-otp": "1.4.1",

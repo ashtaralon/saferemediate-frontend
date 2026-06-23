@@ -2,6 +2,7 @@
  * LIVE Playwright — Damage-Aware Path Card renders on Attack Paths v2.
  */
 import { test, expect } from "@playwright/test"
+import { seedAuthCookie } from "./live-auth"
 
 const SYSTEM = "alon-prod"
 const PATH_ID = "path-5203dfee3012"
@@ -10,15 +11,7 @@ const JEWEL_ID = encodeURIComponent("arn:aws:s3:::saferemediate-logs-74578355949
 test.describe("damage-aware path card live", () => {
   test.beforeEach(async ({ page, context }) => {
     test.setTimeout(180_000)
-    const base = process.env.FRONTEND_URL || "http://localhost:3000"
-    await context.addCookies([
-      {
-        name: "cyntro_auth",
-        value: "authenticated",
-        domain: new URL(base).hostname,
-        path: "/",
-      },
-    ])
+    await seedAuthCookie(context)
     await page.goto(
       `/attack-paths-v2?system=${SYSTEM}&jewel=${JEWEL_ID}&path=${PATH_ID}&mode=attack-path`,
       { waitUntil: "domcontentloaded" },

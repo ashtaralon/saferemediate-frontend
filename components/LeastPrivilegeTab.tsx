@@ -18,6 +18,7 @@ import type { BlastRadiusScore } from '@/lib/types'
 import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
+import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -87,6 +88,7 @@ interface GapResource {
   accessorCount?: number
   totalHits?: number
   principals?: string[]
+  findingClass?: 'permission_gap' | 'posture' | 'rule_gap'
   evidence: {
     dataSources: string[]
     observationDays: number
@@ -143,6 +145,13 @@ interface GapResource {
       severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
       rule: string
       message: string
+      // IAM escalation primitive detector (unified/escalation/detector.py)
+      primitive?: string
+      evidence_actions?: string[]
+      evidence_resources?: string[]
+      confidence?: string
+      severity_bump?: number
+      detector_version?: string
     }>
   }
   // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
@@ -691,6 +700,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             // transform, otherwise every row falls back to 'removable' and
             // the Coverage/Audit subtabs render empty.
             category: r.category,
+            findingClass: r.findingClass ?? r.finding_class,
             countsTowardSummary: r.countsTowardSummary ?? r.counts_toward_summary,
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
@@ -738,7 +748,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               flowlogs: r.evidence?.flowlogs || null,
               resourcePolicies: r.evidence?.resourcePolicies || null,
               confidence_breakdown: r.evidence?.confidence_breakdown || null,
-              rule_states: r.evidence?.rule_states || null  // Security Group rule states
+              rule_states: r.evidence?.rule_states || null,  // Security Group rule states
+              // Posture findings (RDS / Lambda / EC2) carry violatedRules in API evidence.
+              violatedRules: r.evidence?.violatedRules || undefined
             },
             severity: normalizeLpSeverity(r.severity),
             confidence: r.confidence || 0,
@@ -869,7 +881,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   const isRemediatedResource = (resource: GapResource) =>
-    !!(resource.remediatedAt || (resource.resourceType === 'IAMRole' && resource.allowedCount === 0))
+    !!(
+      resource.remediatedAt ||
+      (
+        resource.resourceType === 'IAMRole' &&
+        resource.allowedCount === 0 &&
+        // Sync-incomplete / never-measured roles normalize null→0 — not remediated.
+        // Rows with open posture/escalation violations must stay in active inventory.
+        (resource.evidence?.violatedRules?.length ?? 0) === 0
+      )
+    )
 
   const getUsageMetricsForResource = (resource: GapResource) => {
     if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
@@ -913,7 +934,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   type RowMetricDisplay =
     | { kind: 'percent'; pct: number }
     | { kind: 'count'; count: number; label: string }
-    | { kind: 'na' }
+    | { kind: 'na'; title?: string }
+
+  const isPermissionGapRow = (resource: GapResource): boolean =>
+    resource.findingClass === 'permission_gap' ||
+    (!resource.findingClass && resource.resourceType === 'IAMRole')
 
   const getRowMetricDisplay = (
     resource: GapResource,
@@ -922,22 +947,53 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const t = resource.resourceType
     const sev = (resource.severity || '').toUpperCase()
     const violations = resource.evidence?.violatedRules?.length ?? 0
+    const findingClass = resource.findingClass
 
     // Pure-posture resource types — RDS, Lambda, EC2 workload exposure.
-    // Always count-based; percentage is never meaningful for these.
-    if (t === 'RDSInstance' || t === 'LambdaFunction' || t === 'EC2Instance') {
+    if (t === 'RDSInstance' || t === 'LambdaFunction' || t === 'EC2Instance' || findingClass === 'posture') {
       const count = violations
         || ((resource.evidence as unknown as { allFindingIds?: string[] })?.allFindingIds?.length ?? 0)
-      return count > 0
-        ? { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
-        : { kind: 'na' }
+      if (count > 0) {
+        return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+      }
+      if (resource.blastRadius && (sev === 'CRITICAL' || sev === 'HIGH')) {
+        const rationale = resource.blastRadius.rationale?.[0]
+        return {
+          kind: 'na',
+          title: rationale
+            ? `Posture / exposure finding — severity from blast radius: ${rationale}`
+            : 'Posture finding — severity from blast radius, not permission gap',
+        }
+      }
+      return { kind: 'na', title: 'Posture finding — gap % does not apply' }
     }
 
-    // S3: the public-policy posture case fires CRITICAL/HIGH with gap=0
-    // because every action is in use. Show the issue count instead of "0%".
+    // S3 public-policy posture: only count real violatedRules entries.
     if (t === 'S3Bucket' && metrics.gapPct === 0 && (sev === 'CRITICAL' || sev === 'HIGH')) {
-      const count = violations || 1
-      return { kind: 'count', count, label: count === 1 ? 'issue' : 'issues' }
+      if (violations > 0) {
+        return {
+          kind: 'count',
+          count: violations,
+          label: violations === 1 ? 'issue' : 'issues',
+        }
+      }
+      const rationale = resource.blastRadius?.rationale?.[0]
+      return {
+        kind: 'na',
+        title: rationale
+          ? `Exposure finding — ${rationale}. See Blast Radius and expanded panel.`
+          : 'Exposure finding — severity from blast radius, not unused permissions',
+      }
+    }
+
+    // SG with violatedRules (new public-ingress behavioral analyzer) —
+    // show "N issues" pill same as RDS/Lambda/EC2 posture rows.
+    if (t === 'SecurityGroup' && violations > 0) {
+      return {
+        kind: 'count',
+        count: violations,
+        label: violations === 1 ? 'issue' : 'issues',
+      }
     }
 
     // SG chain-aware exposed-rule shape: gap=0 (no unused) but exposed>0.
@@ -951,6 +1007,27 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
 
     return { kind: 'percent', pct: metrics.gapPct }
+  }
+
+  const isIamEscalationRule = (rule: string | undefined): boolean =>
+    !!rule?.startsWith('iam.escalation.')
+
+  const getPosturePanelDescription = (resource: GapResource): string => {
+    const rules = resource.evidence?.violatedRules ?? []
+    if (rules.some((v) => isIamEscalationRule(v.rule))) {
+      return 'Toxic privilege combinations observed in CloudTrail — the role actually used these together. Narrow or split to bound blast radius if compromised.'
+    }
+    const resourceType = resource.resourceType
+    if (resourceType === 'SecurityGroup') {
+      return 'Per-port public-ingress analysis from VPC Flow Logs and SG rules. Each issue is a concrete narrow-or-close recommendation — see Risk Details.'
+    }
+    if (resourceType === 'RDSInstance') {
+      return 'Configuration assertions from AWS RDS describe-db-instances. Each issue is a one-shot fix — see Risk Details for the list.'
+    }
+    if (resourceType === 'LambdaFunction' || resourceType === 'EC2Instance') {
+      return 'Workload posture assertions from AWS configuration. Each issue is a one-shot fix — see Risk Details for the list.'
+    }
+    return 'Configuration posture issues detected. See Risk Details for the list.'
   }
 
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
@@ -1391,12 +1468,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
   }
 
+  // The Trust Exposure lens has its OWN independent fetch
+  // (/api/proxy/resource-risk/by-system/[system]), so it must render ABOVE
+  // the gap-analysis loading/error guards below — otherwise a slow or 502'd
+  // least-privilege/issues fetch hides trust findings that loaded fine.
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
-          <p style={{ color: "var(--text-secondary)" }}>Analyzing least privilege gaps...</p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
+            <p style={{ color: "var(--text-secondary)" }}>Loading resource risk findings...</p>
+          </div>
         </div>
       </div>
     )
@@ -1404,12 +1488,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   if (error) {
     return (
-      <div className="rounded-lg border p-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
-        <div className="flex items-center gap-3">
-          <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
-          <div>
-            <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="rounded-lg border p-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
+            <div>
+              <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1445,15 +1532,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     // (A) Filter scope: a system is selected but has no LP issues in scope.
     if (isSystemScoped) {
       return (
-        <div className="text-center py-12">
-          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
-          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-            No LP issues for system <span className="font-mono">{systemName}</span>
-          </p>
-          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-            This system has no resources flagged for least-privilege gap analysis. Other systems
-            in the organization may still have issues — clear the filter or pick another system.
-          </p>
+        <div className="space-y-6">
+          <TrustDormancyLens systemName={systemName} />
+          <div className="text-center py-12">
+            <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+            <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+              No LP issues for system <span className="font-mono">{systemName}</span>
+            </p>
+            <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+              This system has no resources flagged for least-privilege gap analysis. Other systems
+              in the organization may still have issues — clear the filter or pick another system.
+            </p>
+          </div>
         </div>
       )
     }
@@ -1462,16 +1552,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     // genuinely don't know if this means "clean" or "not yet ingested."
     // Lead with the diagnostic, not the conclusion.
     return (
-      <div className="text-center py-12">
-        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-secondary)" }} />
-        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-          No least-privilege resources tracked
-        </p>
-        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          The least-privilege analyzer returned no resources. This usually means the LP collector
-          hasn&apos;t completed an ingestion yet, or the observation window has no eligible roles
-          in scope. It does <em>not</em> mean there are no issues — run the collector and refresh.
-        </p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-secondary)" }} />
+          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+            No least-privilege resources tracked
+          </p>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            The least-privilege analyzer returned no resources. This usually means the LP collector
+            hasn&apos;t completed an ingestion yet, or the observation window has no eligible roles
+            in scope. It does <em>not</em> mean there are no issues — run the collector and refresh.
+          </p>
+        </div>
       </div>
     )
   }
@@ -1480,15 +1573,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // Render before the table so the operator sees the conclusion first.
   if (data.resources.length > 0 && (data.summary?.totalExcessPermissions ?? 0) === 0) {
     return (
-      <div className="text-center py-12">
-        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
-        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-          No LP gaps detected
-        </p>
-        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
-          all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
-        </p>
+      <div className="space-y-6">
+        <TrustDormancyLens systemName={systemName} />
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+            No LP gaps detected
+          </p>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
+            all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
+          </p>
+        </div>
       </div>
     )
   }
@@ -1664,9 +1760,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         <div className="flex items-center gap-3">
           <BackToDashboard />
           <div>
-            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Resource Risk</h2>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              GAP between allowed and actual permissions
+              Permission gaps, posture exposure, and network rule findings
               {data?.fromCache && (
                 <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
                   (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
@@ -1695,6 +1791,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </button>
         </div>
       </div>
+
+      {/* Trust & Dormancy — net-new HAS_RISK findings (broad trust + dormant roles) */}
+      <TrustDormancyLens systemName={systemName} />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
@@ -1969,12 +2068,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             <span>Type</span>
             <span
               className="text-center inline-flex items-center justify-center gap-1 cursor-help"
-              title="Permission Gap — share of granted permissions never observed being used in the observation window. Higher = more cleanup opportunity."
+              title="Row signal — permission gap % for IAM, issue/exposed counts for posture and SG rules, or — when severity is blast-radius-driven."
             >
-              Gap % <span className="text-[10px] opacity-60">ⓘ</span>
+              Signal <span className="text-[10px] opacity-60">ⓘ</span>
             </span>
-            <span className="text-center">Used</span>
-            <span className="text-center">Unused</span>
+            <span
+              className="text-center"
+              title="Permissions observed in the window — meaningful for IAM permission-gap rows only"
+            >
+              Used
+            </span>
+            <span
+              className="text-center"
+              title="Unused granted permissions — meaningful for IAM permission-gap rows only"
+            >
+              Unused
+            </span>
             <span
               className="text-center inline-flex items-center justify-center gap-1 cursor-help"
               title="Blast Radius Score (BRS v1.1) — breach impact IF this resource is compromised right now. Combines Damage-on-Compromise, Identity Privilege, Network Exposure, Lateral Movement. Shown with confidence (HIGH/MED/LOW) based on observation evidence."
@@ -2125,7 +2234,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <span
                               className="text-xs"
                               style={{ color: "var(--text-muted)" }}
-                              title="Posture finding — percentage doesn't apply. See Risk Details for the issues."
+                              title={display.title || "Posture finding — percentage doesn't apply. See Risk Details for the issues."}
                             >
                               —
                             </span>
@@ -2133,12 +2242,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         })()}
                       </div>
 
-                      {/* Used */}
-                      <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{metrics.usedCount}</div>
+                      {/* Used — IAM permission-gap rows only */}
+                      <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {isPermissionGapRow(resource) ? metrics.usedCount : '—'}
+                      </div>
 
-                      {/* Unused */}
-                      <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
-                        {metrics.unusedCount}
+                      {/* Unused — IAM permission-gap rows only */}
+                      <div
+                        className="text-center text-sm font-medium"
+                        style={{
+                          color: isPermissionGapRow(resource)
+                            ? (metrics.unusedCount > 0 ? '#ef4444' : '#22c55e')
+                            : 'var(--text-muted)',
+                        }}
+                        title={isPermissionGapRow(resource) ? undefined : 'Not a permission-gap row'}
+                      >
+                        {isPermissionGapRow(resource) ? metrics.unusedCount : '—'}
                       </div>
 
                       {/* Blast Radius — breach impact (v1.1). Shows score · band · confidence. */}
@@ -2342,16 +2461,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
                             <BarChart3 className="w-3.5 h-3.5" />
-                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security'
+                            {(resource.evidence?.violatedRules?.length ?? 0) > 0
+                              ? (resource.resourceType === 'SecurityGroup' ? 'Public Ingress' : 'Posture Issues')
+                              : resource.resourceType === 'SecurityGroup' ? 'Rule Security'
                               : resource.resourceType === 'S3Bucket' ? 'Access Analysis'
                               : resource.resourceType === 'RDSInstance' ? 'Posture Issues'
                               : 'Privilege Analysis'}
                           </h4>
-                          {/* Posture rows (RDS today; S3 public-policy and EC2 workload
-                              exposure tomorrow) don't carry a permission-gap metric.
-                              Render the violation count + severity instead of the
-                              over-privileged-percentage bar. */}
-                          {resource.resourceType === 'RDSInstance' && (resource.evidence?.violatedRules?.length ?? 0) > 0 ? (
+                          {/* Posture rows render violation count + severity instead
+                              of the over-privileged-percentage bar. Fires on any
+                              row with violatedRules — not gated on resource type. */}
+                          {(resource.evidence?.violatedRules?.length ?? 0) > 0 ? (
                             <>
                               <div className="flex items-center gap-3 mb-2">
                                 <span className="text-3xl font-bold" style={{ color: sevColor }}>
@@ -2362,8 +2482,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 </span>
                               </div>
                               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                                Configuration assertions from AWS RDS describe-db-instances.
-                                Each issue is a one-shot fix — see Risk Details for the list.
+                                {getPosturePanelDescription(resource)}
                               </p>
                               {/* Severity-tally bar instead of used/unused — one segment per violation. */}
                               <div className="h-3 rounded-full overflow-hidden flex gap-0.5" style={{ background: "var(--bg-primary)" }}>
@@ -2538,53 +2657,79 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </div>
                           )}
 
-                          {/* RDS Instance: posture violation list. Each row is a
-                              concrete config flip (publicly_accessible, storage
-                              encryption, IAM-DB auth, backups, deletion protection).
-                              Severity per-rule comes from the backend's
-                              _determine_severity-equivalent for RDS posture. */}
-                          {resource.resourceType === 'RDSInstance' && (
+                          {/* Posture violation list — RDS/SG/Lambda rows, plus IAM rows
+                              that carry iam.escalation.* primitive detections. */}
+                          {(resource.evidence?.violatedRules?.length ?? 0) > 0 &&
+                            (resource.resourceType !== 'IAMRole' ||
+                              (resource.evidence?.violatedRules ?? []).some((v) => isIamEscalationRule(v.rule))) && (
                             <div className="space-y-2">
-                              {(resource.evidence?.violatedRules?.length ?? 0) === 0 ? (
-                                <p className="text-xs" style={{ color: "#22c55e" }}>No posture issues found.</p>
-                              ) : (
-                                <>
-                                  <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                                    {resource.evidence?.violatedRules?.length} violation{resource.evidence?.violatedRules?.length === 1 ? '' : 's'}
-                                  </div>
-                                  <div className="space-y-1.5 max-h-44 overflow-y-auto">
-                                    {(resource.evidence?.violatedRules ?? []).map((v, i) => {
-                                      const sevColor =
-                                        v.severity === 'CRITICAL' ? '#ef4444' :
-                                        v.severity === 'HIGH' ? '#f97316' :
-                                        v.severity === 'MEDIUM' ? '#eab308' :
-                                        '#22c55e'
-                                      return (
-                                        <div
-                                          key={i}
-                                          className="flex items-start gap-2 p-2 rounded border"
-                                          style={{ borderColor: `${sevColor}40`, background: `${sevColor}08` }}
-                                        >
-                                          <span
-                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
-                                            style={{ background: sevColor, color: 'white' }}
+                              {(() => {
+                                const violatedRules = resource.evidence?.violatedRules ?? []
+                                const escalationRules = violatedRules.filter((v) => isIamEscalationRule(v.rule))
+                                const isIamEscalation =
+                                  resource.resourceType === 'IAMRole' && escalationRules.length > 0
+                                const listRules = isIamEscalation ? escalationRules : violatedRules
+                                const countLabel = isIamEscalation
+                                  ? `${escalationRules.length} escalation pattern${escalationRules.length === 1 ? '' : 's'}`
+                                  : `${violatedRules.length} ${resource.resourceType === 'SecurityGroup' ? 'public port' : 'violation'}${violatedRules.length === 1 ? '' : 's'}`
+                                return (
+                                  <>
+                                    <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                                      {countLabel}
+                                    </div>
+                                    <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                                      {listRules.map((v, i) => {
+                                        const ruleSevColor =
+                                          v.severity === 'CRITICAL' ? '#ef4444' :
+                                          v.severity === 'HIGH' ? '#f97316' :
+                                          v.severity === 'MEDIUM' ? '#eab308' :
+                                          '#22c55e'
+                                        const observedActions = v.evidence_actions ?? []
+                                        return (
+                                          <div
+                                            key={i}
+                                            className="flex items-start gap-2 p-2 rounded border"
+                                            style={{ borderColor: `${ruleSevColor}40`, background: `${ruleSevColor}08` }}
                                           >
-                                            {v.severity}
-                                          </span>
-                                          <div className="flex-1 min-w-0">
-                                            <div className="text-xs font-mono mb-0.5" style={{ color: sevColor }}>
-                                              {v.rule}
-                                            </div>
-                                            <div className="text-xs leading-snug" style={{ color: "var(--text-secondary)" }}>
-                                              {v.message}
+                                            <span
+                                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
+                                              style={{ background: ruleSevColor, color: 'white' }}
+                                            >
+                                              {v.severity}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="text-xs font-mono mb-0.5" style={{ color: ruleSevColor }}>
+                                                {v.rule}
+                                              </div>
+                                              <div className="text-xs leading-snug" style={{ color: "var(--text-secondary)" }}>
+                                                {v.message}
+                                              </div>
+                                              {observedActions.length > 0 && (
+                                                <div className="mt-1.5">
+                                                  <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>
+                                                    Observed:
+                                                  </span>
+                                                  <div className="flex flex-wrap gap-1 mt-0.5">
+                                                    {observedActions.map((action, j) => (
+                                                      <span
+                                                        key={j}
+                                                        className="px-2 py-0.5 rounded text-xs font-mono"
+                                                        style={{ background: `${ruleSevColor}15`, color: ruleSevColor }}
+                                                      >
+                                                        {action}
+                                                      </span>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                </>
-                              )}
+                                        )
+                                      })}
+                                    </div>
+                                  </>
+                                )
+                              })()}
                             </div>
                           )}
                         </div>

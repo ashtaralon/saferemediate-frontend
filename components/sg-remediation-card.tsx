@@ -42,7 +42,9 @@ import { dispatchRemediationChanged } from "@/lib/remediation-events"
 
 interface RuleTraffic {
   connection_count: number
-  unique_sources?: string[]
+  unique_source_count?: number
+  unique_sources?: string[] | number
+  sample_sources?: string[]
   bytes_transferred?: number
   packets_transferred?: number
   last_seen?: string | null
@@ -163,22 +165,18 @@ const INITIAL_OVERRIDE: OverrideState = {
 //
 // Bypass: protected rules are EXCLUDED from the remediable average, not
 // included with a ceiling of 100. They have no execution semantics.
-type RuleAction =
-  | "safe_to_remove"
-  | "verify_first"
-  | "investigate_first"
-  | "protected"
-
-const SENSITIVE_PORTS = new Set([22, 3389, 3306, 5432, 27017, 6379, 9200, 11211])
+import {
+  classifyRule,
+  isSensitiveExposure,
+  ruleEvidenceNarrative,
+  rulePeer,
+  type RuleAction,
+} from "@/lib/sg-rule-classifier"
 
 // Per-action execution ceilings (0-100). Aligned with routing thresholds:
 //   AUTO        ≥ 90 (SG narrowing) / 92 (SG deletion)
 //   STAGED_AUTO ≥ 70 / 75
 //   SUGGEST     ≥ 40
-// safe_to_remove can ride raw score up to AUTO. verify_first caps at
-// 74 — clears narrowing-STAGED but not narrowing-AUTO, and falls to
-// SUGGEST for deletion. investigate_first caps at 39 — never reaches
-// any auto band, always SUGGEST or INSUFFICIENT_DATA.
 function actionCeiling(action: RuleAction): number {
   switch (action) {
     case "safe_to_remove":
@@ -188,121 +186,9 @@ function actionCeiling(action: RuleAction): number {
     case "investigate_first":
       return 39
     case "protected":
-      return 100 // excluded from remediable avg; ceiling is a no-op
+      return 100
   }
 }
-
-function isSensitiveExposure(rule: RuleAnalysis): boolean {
-  if (!rule.is_public) return false
-  const m = /^(\d+)(?:-(\d+))?$/.exec(rule.port_range)
-  if (!m) return false
-  const lo = parseInt(m[1], 10)
-  const hi = m[2] ? parseInt(m[2], 10) : lo
-  for (const p of SENSITIVE_PORTS) {
-    if (p >= lo && p <= hi) return true
-  }
-  return false
-}
-
-// Observation-window adequacy: 14d is the floor below which "no traffic"
-// is too thin a signal to act on. Mirrors the v4.4 §11M5 freshness gate
-// philosophy — when window is short and a rule is idle, we don't know
-// if the rule is dead or just hasn't fired this week.
-const MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT = 14
-
-// Peer of a rule = the OTHER end (not the SG itself). For inbound rules
-// the peer lives in `source`; for outbound rules the peer lives in
-// `destination`. Backend sg_gap_analysis.py:731-732 sets outbound
-// `source` to the OWN sg-id and `destination` to the actual CIDR / SG
-// reference. Reading `source` for outbound treats every rule as if it
-// referenced itself — wrong classification + misleading display.
-function rulePeer(rule: RuleAnalysis): string {
-  const isOutbound = rule.direction === "outbound" || rule.direction === "egress"
-  return (isOutbound ? rule.destination : rule.source) || ""
-}
-
-function classifyRule(
-  rule: RuleAnalysis,
-  observationDays: number,
-): RuleAction {
-  // ── SAFETY GATE — outbound ALL rules force-protected (2026-06-14) ──
-  //
-  // The classifier substrate for egress is currently wrong: it reads
-  // SG-level (SG)-[:HAS_TRAFFIC]->(TrafficPattern) — which is zero-
-  // counter for egress by construction — instead of the workload-level
-  // (workload)-[:ACTUAL_TRAFFIC]->() edges that actually carry
-  // observed outbound flow. As a result, the default-permissive
-  // outbound-ALL rule appears as "no traffic observed" and the
-  // confidence score can climb above 85, routing it to safe_to_remove.
-  //
-  // Empirical case (alon-prod, cyntrotest-sg, 2026-06-13): outbound
-  // ALL rule scored SAFE TO REMOVE @ 85% confidence; attached EC2
-  // i-0662a9c68ba77f837 had 1000 outbound ACTUAL_TRAFFIC edges
-  // through it. Applying would have killed internet egress for the
-  // workload.
-  //
-  // Until the classifier reads ACTUAL_TRAFFIC for egress, force every
-  // outbound-ALL rule into "protected" — visible, but uncheckable
-  // and excluded from the remediable average. PROTECTED bucket is the
-  // right home: not silently hidden, not silently downgraded;
-  // operator can still see + simulate, but cannot apply.
-  //
-  // Remove this gate when sg_gap_analysis._compute_rule_traffic() is
-  // updated to use workload ACTUAL_TRAFFIC for outbound rules.
-  if (
-    (rule.direction === "outbound" || rule.direction === "egress") &&
-    (rule.protocol || "").toLowerCase() === "all"
-  ) {
-    return "protected"
-  }
-
-  const hasTraffic = (rule.traffic?.connection_count ?? 0) > 0
-  const sensitive = isSensitiveExposure(rule)
-  const conf = rule.recommendation?.confidence ?? 0
-  const isSgRef = rulePeer(rule).startsWith("sg-")
-  const windowAdequate =
-    (observationDays || 0) >= MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT
-
-  // SG reference + active traffic → protected (control-plane / LB wiring
-  // confirmed live). Operator should not auto-remove.
-  if (isSgRef && hasTraffic) return "protected"
-
-  // SG reference + no traffic + thin window → still protected. We
-  // haven't watched long enough to call this rule dead. Avoid burning
-  // operator-review cycles on rules that just haven't fired this week.
-  if (isSgRef && !hasTraffic && !windowAdequate) return "protected"
-
-  // SG reference + no traffic + adequate window → verify_first. Operator
-  // hand-review with the dependency-graph context; could legitimately
-  // be a deprecated app's leftover.
-  if (isSgRef && !hasTraffic && windowAdequate) return "verify_first"
-
-  // Sensitive + active traffic → protected. DB/SSH actively used; don't
-  // touch even if confidence is high.
-  if (sensitive && hasTraffic) return "protected"
-
-  // Sensitive + public → investigate_first regardless of traffic.
-  // Sensitive public exposure is high-confidence risky (we KNOW this
-  // is a misconfig pattern) but low-safety to mutate without operator
-  // approval — exactly the case the action ceiling exists to gate.
-  if (sensitive) return "investigate_first"
-
-  // Idle rule + thin window → investigate_first. Same reasoning as
-  // SG-ref + thin window, but for non-ref rules. The score itself is
-  // probably already low; the ceiling enforces it.
-  if (!hasTraffic && !windowAdequate) return "investigate_first"
-
-  // Has traffic on a non-sensitive, non-public rule → verify_first.
-  if (hasTraffic) return "verify_first"
-
-  // Score-only partition (only reached when window is adequate AND no
-  // traffic AND not sensitive AND not an SG ref).
-  if (conf >= 85) return "safe_to_remove"
-  if (conf >= 60) return "verify_first"
-  return "investigate_first"
-}
-
-// ── Visual tokens (match IAM modal) ───────────────────────────────
 
 const ACTION_STYLE: Record<
   RuleAction,
@@ -321,7 +207,7 @@ const ACTION_STYLE: Record<
     border: "#fed7aa",
   },
   investigate_first: {
-    label: "Investigate first",
+    label: "Review & close",
     color: "#dc2626",
     bg: "#fef2f2",
     border: "#fecaca",
@@ -411,7 +297,7 @@ function routingFromScore(score: number, operation: Operation): RoutingState {
     name: "INSUFFICIENT_DATA",
     label: "Not enough data to remediate safely",
     blurb:
-      "Security Group visible but Cyntro lacks the evidence to act. Improve coverage or override.",
+      "Auto-remediation pipeline blocked (coverage or risk shape). Manual Apply still requires acknowledgment — run Simulate first; investigate rules are misconfigurations to close, not dependencies to keep.",
     color: "#991b1b",
     bg: "#fef2f2",
     border: "#fecaca",
@@ -444,10 +330,28 @@ export function SGRemediationCard({
     fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
       cache: "no-store",
     })
-      .then((r) => r.json())
-      .then((d: SGGapResponse) => {
+      .then(async (r) => {
+        const d = (await r.json()) as SGGapResponse & {
+          detail?: string
+          error?: string
+        }
         if (cancelled) return
-        if (d?.error) setErr(d.message || "Backend error")
+        if (!r.ok) {
+          setErr(
+            d?.detail ||
+              d?.error ||
+              d?.message ||
+              `Backend ${r.status}`,
+          )
+          return
+        }
+        if (d?.error) {
+          setErr(
+            d.message ||
+              d.detail ||
+              "Backend error",
+          )
+        }
         setData(d)
       })
       .catch((e) => {
@@ -665,11 +569,12 @@ export function SGRemediationCard({
           return
         }
         const impact = Array.isArray(d?.potential_impact) ? d.potential_impact : []
+        const isSafe = d?.is_safe === true && impact.length === 0
         setRuleSimResults((prev) => ({
           ...prev,
           [rule.rule_id]: {
             kind: "result",
-            is_safe: d?.is_safe !== false && impact.length === 0,
+            is_safe: isSafe,
             warnings: Array.isArray(d?.safety_warnings) ? d.safety_warnings : [],
             impact: impact.map((i: any) => ({
               active_connections: i?.active_connections ?? 0,
@@ -753,7 +658,7 @@ export function SGRemediationCard({
               .map((i: any) =>
                 typeof i === "string"
                   ? i
-                  : i?.reason || i?.message || JSON.stringify(i),
+                  : i?.warning || i?.reason || i?.message || JSON.stringify(i),
               )
               .filter(Boolean)
             setPreflight({ kind: "blocked", reasons, warnings })
@@ -831,7 +736,7 @@ export function SGRemediationCard({
         reasons.push(
           typeof i === "string"
             ? i
-            : i?.reason || i?.message || JSON.stringify(i),
+            : i?.warning || i?.reason || i?.message || JSON.stringify(i),
         )
       }
     }
@@ -1347,6 +1252,20 @@ export function SGRemediationCard({
                   {style.label} ({rules.length})
                 </span>
               </div>
+              {a === "investigate_first" && rules.length > 0 && (
+                <div
+                  className="px-3 py-2 text-[11px] border-b"
+                  style={{
+                    borderColor: style.border,
+                    color: style.color,
+                    backgroundColor: style.bg,
+                  }}
+                >
+                  Misconfiguration candidates — close or restrict after review. Not
+                  &quot;keep because traffic exists&quot;; high-volume public hits are often
+                  internet scan noise. Simulate shows blast radius; Apply needs acknowledgment.
+                </div>
+              )}
               <div className="divide-y" style={{ borderColor: style.border }}>
                 {rules.map((rule) => {
                   const isSelected = selected.has(rule.rule_id)
@@ -1362,11 +1281,12 @@ export function SGRemediationCard({
                   // that so the operator sees WHY this rule routes to
                   // verify_first instead of safe_to_remove.
                   const peer = rulePeer(rule)
-                  const isSgRef = peer.startsWith("sg-")
-                  const reasonText =
-                    rule._action === "verify_first" && isSgRef && conn === 0
-                      ? "References another security group — verify dependency before removing"
-                      : rule.recommendation?.reason || "—"
+                  const reasonText = ruleEvidenceNarrative(
+                    rule,
+                    rule._action,
+                    observationDays,
+                    rule.recommendation?.reason,
+                  )
                   const simState = ruleSimResults[rule.rule_id]
                   return (
                     <div key={rule.rule_id}>
@@ -1569,9 +1489,15 @@ export function SGRemediationCard({
                               simState.rules_matched > 0 &&
                               simState.is_safe && (
                                 <div className="text-emerald-700">
-                                  <span className="font-semibold">✓ Safe to remove.</span>{" "}
-                                  No active connections found for this rule. A rollback
-                                  snapshot will be captured before any change.
+                                  <span className="font-semibold">✓ No workload blast radius.</span>{" "}
+                                  Simulate found no observed connections that depend on this
+                                  rule. A rollback snapshot is captured before any change.
+                                  {rule._action === "investigate_first" && (
+                                    <span className="block mt-1 text-amber-800 font-medium">
+                                      Routing still requires human approval — this is not
+                                      auto-eligible despite a clean simulate.
+                                    </span>
+                                  )}
                                   {simState.warnings.length > 0 && (
                                     <ul className="mt-1 ml-3 list-disc text-[var(--muted-foreground,#6b7280)] space-y-0.5">
                                       {simState.warnings.map((w, i) => (
@@ -1585,7 +1511,13 @@ export function SGRemediationCard({
                               simState.rules_matched > 0 &&
                               !simState.is_safe && (
                                 <div className="text-rose-700">
-                                  <span className="font-semibold">⊘ Would impact live traffic.</span>
+                                  <span className="font-semibold">
+                                    ⊘ Observed traffic on this rule.
+                                  </span>
+                                  <span className="block mt-0.5 text-[var(--muted-foreground,#6b7280)]">
+                                    For public sensitive ports this is often scan noise —
+                                    closing is still recommended after operator review.
+                                  </span>
                                   <ul className="mt-1 ml-3 list-disc space-y-0.5">
                                     {simState.impact.map((i, idx) => (
                                       <li key={idx}>

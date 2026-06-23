@@ -316,6 +316,10 @@ export interface SubnetNode {
   shortName: string;
   isPublic: boolean | null;
   vpcId?: string;
+  /** Availability zone (e.g. eu-west-1b) — from graph key_properties.availability_zone */
+  availabilityZone?: string;
+  /** Subnet CIDR block — from graph key_properties.cidr_block */
+  cidrBlock?: string;
   // Compute node ids that live in this subnet (via IN_SUBNET edges).
   // Lets the connection-line renderer draw compute→subnet edges so the
   // path reads "EC2 → Subnet → SG → NACL → IAM" visually.
@@ -426,7 +430,9 @@ export interface SystemArchitecture {
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
-  vpcGroups?: Array<{ vpcId: string; vpcName: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
+  vpcGroups?: Array<{ vpcId: string; vpcName: string; cidrBlock?: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
+  /** AWS region (e.g. eu-west-1) — inferred from node ARNs in the graph */
+  region?: string;
   /** EXFIL view authoritative VPC posture for the selected path's
    *  workload(s). Resolved on the backend by direct RUNS_IN_VPC /
    *  IN_SUBNET / SECURED_BY traversal. Drives the evidence-backed
@@ -3135,13 +3141,16 @@ function AnimatedTrafficLine({
       ? 'var(--canvas-danger)'
       : undefined;
 
-  // Ghosted (outside dependency hop radius)
+  // Ghosted (outside spotlight / heatmap radius). 2026-06-23: changed
+  // from opacity={0.08} (faintly visible) to NULL — when the spotlight
+  // is active with a single path selected, every architecture edge
+  // whose endpoints aren't both on the path was rendering as a
+  // background line. With 3000+ flow edges the canvas became an
+  // unreadable tangle even at 8% opacity. Hiding entirely is the only
+  // way to honor "see ONLY this path's flow" — anything visible at all
+  // is noise the operator has to filter mentally.
   if (ghosted) {
-    return (
-      <g opacity={0.08}>
-        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--canvas-config)" strokeWidth={1} strokeLinecap="round" />
-      </g>
-    );
+    return null;
   }
 
   // V2-3 (2026-05-31): top-level opacity for the dim layer + DOM data
@@ -4259,6 +4268,7 @@ export function UnifiedArchitectureDiagram({
   onSelectAttackPath,
   heatmapMode = false,
   ghostedNodeIds = new Set<string>(),
+  spotlightActiveNodeIds = new Set<string>(),
   highlightedNodeId,
   showVPCBoundaries = false,
   pathMode = false,
@@ -4281,6 +4291,10 @@ export function UnifiedArchitectureDiagram({
   onSelectAttackPath?: (pathId: string | null) => void;
   heatmapMode?: boolean;
   ghostedNodeIds?: Set<string>;
+  /** Positive on-path check (2026-06-23 hotfix). Negative-via-ghosted
+   *  ringed nodes outside the architecture lanes by accident — fixed
+   *  by passing the spotlight's active set through directly. */
+  spotlightActiveNodeIds?: Set<string>;
   highlightedNodeId?: string | null;
   showVPCBoundaries?: boolean;
   // chunk #1.5: forwarded from TrafficFlowMap so compute ServiceNodeBox
@@ -4390,12 +4404,28 @@ export function UnifiedArchitectureDiagram({
   // than the spine).
   const pathEmphasisClass = useCallback(
     (nodeId: string): string => {
+      // Crown Jewel Spotlight emphasis. POSITIVE check on
+      // spotlightActiveNodeIds, not negative check on ghostedNodeIds —
+      // ghostedNodeIds = (architecture nodes − spotlightActive), so
+      // any node ID outside the architecture's lane arrays (synthetic
+      // nodes, identity tokens, etc.) was NOT in ghostedNodeIds and
+      // therefore got the on-path ring by accident. That surfaced as
+      // unrelated EC2/SG/IAM cards ringed amber even when they
+      // weren't on the path. Anchor: user feedback 2026-06-23 —
+      // "what is this shit... we need to see the flow between the
+      // services that are part of this path."
+      if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0) {
+        if (spotlightActiveNodeIds.has(nodeId)) {
+          return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
+        }
+        return ' opacity-25';
+      }
       if (!pathFilterActive) return '';
       return isOnSelectedPath(nodeId)
         ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
         : ' opacity-70';
     },
-    [pathFilterActive, isOnSelectedPath],
+    [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
   // Numbered step badge — absolute top-left of the card wrapper (which
   // must be position:relative). Renders only for nodes that are actual
@@ -6679,12 +6709,39 @@ export default function TrafficFlowMap({
   canvasV2 = false,
   entryNodeId,
   fullscreenContainerRef,
+  onCrownJewelSpotlight,
+  spotlightActiveNodeIds,
+  systemCrownJewelIds,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
   onPathNodeAction?: OnPathNodeAction;
   /** Data-plane nodes (S3, DDB, RDS, KMS, Secrets) → damage-scope drawer */
   onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void;
+  /** Crown Jewel Spotlight (2026-06-22) — when a Resource node carries
+   *  `isCrownJewel=true` AND this callback is provided, the canvas / sidebar
+   *  click is intercepted and routed to Spotlight mode instead of the
+   *  damage-scope drawer. Parent owns the URL sync (?cj=…). Non-CJ resources
+   *  fall through to the existing damage-scope / detail-drawer paths
+   *  unchanged. Real-data only: parent reads /api/proxy/attack-paths/
+   *  <system>/by-crown-jewel via useCrownJewelConvergence. */
+  onCrownJewelSpotlight?: (cj: { id: string; arn?: string | null; name: string; type: string }) => void;
+  /** Crown Jewel Spotlight v1.2 (2026-06-22) — set of node IDs that
+   *  participate in at least one attack path to the focused CJ. When
+   *  non-empty, TFM dims every node NOT in this set (the canvas
+   *  collapses to the kill-chain spine). Computed by the parent from
+   *  the same by-crown-jewel response that drives the strip — single
+   *  source of truth. Undefined / empty = Spotlight off, no dimming. */
+  spotlightActiveNodeIds?: Set<string>;
+  /** Crown Jewel always-on marking (2026-06-22) — set of node IDs the
+   *  parent knows are Crown Jewels for this system, fetched from the
+   *  per-system attack-paths endpoint. When a resource's id is in this
+   *  set, `isCrownJewel` is forced true so the amber crown badge renders
+   *  in default canvas mode — not only inside an active path filter.
+   *  Without this, operators couldn't tell which canvas nodes were CJs
+   *  unless they opened the Spotlight. Single source of truth: the
+   *  graph's `is_crown_jewel` flag, surfaced via the IAP fan-out. */
+  systemCrownJewelIds?: Set<string>;
   // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
   // Provided by the attack-paths parent; the Topology tab does not
   // pass this, so the chip is suppressed there.
@@ -6763,6 +6820,22 @@ export default function TrafficFlowMap({
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
   const architecture = useMemo(() => {
+    // Always-on Crown Jewel marking pass. Applies AFTER any override /
+    // pathFilter logic so existing `isCrownJewel: true` from
+    // applyPathFilter is preserved (logical OR via `|| existing`).
+    // Without this, the amber crown badge only renders inside a path
+    // filter — operators on the default System Map have no visual way
+    // to spot which resources are crown jewels.
+    const markCjs = (arch: SystemArchitecture | null): SystemArchitecture | null => {
+      if (!arch) return arch;
+      if (!systemCrownJewelIds || systemCrownJewelIds.size === 0) return arch;
+      return {
+        ...arch,
+        resources: arch.resources.map((r) =>
+          systemCrownJewelIds.has(r.id) ? { ...r, isCrownJewel: true } : r,
+        ),
+      };
+    };
     if (architectureOverride) {
       // 2026-06-11 bug fix: callers like the merged Attack Path tab
       // (path-analysis-panel.tsx) pass BOTH architectureOverride AND
@@ -6782,7 +6855,7 @@ export default function TrafficFlowMap({
           buildComputeByInstanceId(architectureOverride.computeServices),
         );
         if (dom.pathStepByNodeId.size > 0) {
-          return {
+          return markCjs({
             ...architectureOverride,
             pathStepByNodeId: dom.pathStepByNodeId,
             pathEdgePairKeys: dom.pathEdgePairKeys,
@@ -6791,14 +6864,14 @@ export default function TrafficFlowMap({
             onPathNodeIds: architectureOverride.onPathNodeIds
               ? new Set([...architectureOverride.onPathNodeIds, ...dom.onPathNodeIds])
               : dom.onPathNodeIds,
-          };
+          });
         }
       }
-      return architectureOverride;
+      return markCjs(architectureOverride);
     }
     if (!rawArchitecture) return null;
-    return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
-  }, [rawArchitecture, pathFilter, architectureOverride]);
+    return markCjs(pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture);
+  }, [rawArchitecture, pathFilter, architectureOverride, systemCrownJewelIds]);
   const setArchitecture = setRawArchitecture;
 
   // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips
@@ -6894,6 +6967,14 @@ export default function TrafficFlowMap({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshStatus, setRefreshStatus] = useState<'idle' | 'fetching' | 'success' | 'error'>('idle');
+  // Enrichment-failure flags (2026-06-22 P4): when an IAM or SG batch
+  // request fails, the per-role / per-SG N+1 fallback was REMOVED (it
+  // compounded the saturation that caused the batch to fail). So the
+  // chips silently fall back to their build-time seed values — which
+  // would have been a silent UX degradation. These flags drive a
+  // toolbar chip that surfaces the gap honestly instead.
+  const [iamEnrichmentFailed, setIamEnrichmentFailed] = useState(false);
+  const [sgEnrichmentFailed, setSgEnrichmentFailed] = useState(false);
   const [lastChanges, setLastChanges] = useState<DataChanges | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false); // Manual refresh by default
   const [refreshInterval, setRefreshInterval] = useState(600); // 10 minutes
@@ -6955,6 +7036,34 @@ export default function TrafficFlowMap({
 
   // BFS to find nodes within N hops for dependency depth
   const ghostedNodeIds = useMemo(() => {
+    // ── Crown Jewel Spotlight v1.2 (2026-06-22) ──────────────────
+    // When the parent has computed a non-empty spotlightActiveNodeIds
+    // set, that takes precedence: ghost every node NOT on a path to
+    // the focused CJ. The set is the union of source / identity /
+    // cj_target / hop ids from the live by-crown-jewel response —
+    // single source of truth shared with the strip. No heatmap
+    // intersection here on purpose: Spotlight is a scoped view, the
+    // operator already opted in by clicking a CJ.
+    if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0 && architecture) {
+      const allNodeIds = new Set<string>();
+      architecture.computeServices.forEach(n => allNodeIds.add(n.id));
+      architecture.resources.forEach(n => allNodeIds.add(n.id));
+      architecture.securityGroups.forEach(n => allNodeIds.add(n.id));
+      architecture.nacls.forEach(n => allNodeIds.add(n.id));
+      architecture.iamRoles.forEach(n => allNodeIds.add(n.id));
+      (architecture.entryPoints ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.principals ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.instanceProfiles ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.iamPolicies ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.vpcEndpoints ?? []).forEach(n => allNodeIds.add(n.id));
+      (architecture.egressGateways ?? []).forEach(n => allNodeIds.add(n.id));
+      const ghosted = new Set<string>();
+      allNodeIds.forEach(id => {
+        if (!spotlightActiveNodeIds.has(id)) ghosted.add(id);
+      });
+      return ghosted;
+    }
+    // ── Heatmap mode (existing behavior, unchanged) ──────────────
     if (!heatmapMode || !selectedNodeForHops || !architecture) return new Set<string>();
     const adj = new Map<string, Set<string>>();
     architecture.flows.forEach(f => {
@@ -6995,7 +7104,7 @@ export default function TrafficFlowMap({
     const ghosted = new Set<string>();
     allNodeIds.forEach(id => { if (!visited.has(id)) ghosted.add(id); });
     return ghosted;
-  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture]);
+  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture, spotlightActiveNodeIds]);
 
   const buildArchitecture = useCallback((nodes: any[], edges: any[], iamData: any[]): SystemArchitecture => {
     const extractInstanceId = (id: string | null | undefined): string => {
@@ -8138,6 +8247,12 @@ export default function TrafficFlowMap({
     setLastUpdated(new Date());
     setRefreshStatus('success');
 
+    // Reset the enrichment-failure flags for this fetch cycle. Either
+    // batch retrying successfully clears its flag below; persistent
+    // failures keep the toolbar chip lit until a retry succeeds.
+    setIamEnrichmentFailed(false);
+    setSgEnrichmentFailed(false);
+
     // Background IAM gap-analysis enrichment. Fires-and-forgets;
     // does NOT block the architecture render.
     if (archForGaps.iamRoles.length > 0) {
@@ -8165,17 +8280,17 @@ export default function TrafficFlowMap({
             };
           });
         } catch (bulkErr) {
-          console.warn('[TrafficFlowMap] IAM bulk fetch failed, falling back to per-role:', bulkErr);
-          return Promise.all(
-            archForGaps.iamRoles.map(role =>
-              fetchIAMRoleData(role.name)
-                .then(data => ({ roleId: role.id, ...data }))
-                .catch(err => {
-                  console.warn(`[TrafficFlowMap] IAM lookup failed for ${role.name}:`, err);
-                  return null;
-                }),
-            ),
-          );
+          // 2026-06-22 P4 audit: REMOVED the per-role N+1 fallback. The
+          // previous fallback fired one /api/proxy/iam-roles/<name> per
+          // role (up to 48 on alon-prod) into the SAME backend that
+          // just failed the bulk request — turning one batch failure
+          // into 48 sequential failures on a saturated DB. Now: log
+          // the failure, return null per role, AND set the toolbar
+          // chip so the operator sees the gap honestly instead of
+          // reading stale build-time seed counts on the chips.
+          console.warn('[TrafficFlowMap] IAM bulk fetch failed — skipping enrichment (no per-role fallback):', bulkErr);
+          setIamEnrichmentFailed(true);
+          return archForGaps.iamRoles.map(() => null);
         }
       };
       loadIamEnrichment().then(iamResults => {
@@ -8223,17 +8338,16 @@ export default function TrafficFlowMap({
             return { sgId: sg.id, rules };
           });
         } catch (bulkErr) {
-          console.warn('[TrafficFlowMap] SG bulk fetch failed, falling back to per-SG:', bulkErr);
-          return Promise.all(
-            archForGaps.securityGroups.map(sg =>
-              fetchSGRules(sg.id)
-                .then(rules => ({ sgId: sg.id, rules }))
-                .catch(err => {
-                  console.warn(`[TrafficFlowMap] SG inspector failed for ${sg.id}:`, err);
-                  return null;
-                }),
-            ),
-          );
+          // 2026-06-22 P4 audit: REMOVED the per-SG N+1 fallback. Same
+          // logic as the IAM block above — when the batch fails we
+          // were firing /api/proxy/security-groups/<id> per SG (up to
+          // 9 on alon-prod) into the same overloaded DB. Log + skip
+          // enrichment AND set the toolbar chip so the operator sees
+          // that SG rule details couldn't load instead of trusting
+          // stale build-time seed values on the chips.
+          console.warn('[TrafficFlowMap] SG bulk fetch failed — skipping enrichment (no per-SG fallback):', bulkErr);
+          setSgEnrichmentFailed(true);
+          return archForGaps.securityGroups.map(() => null);
         }
       };
       loadSgEnrichment().then(sgRulesResults => {
@@ -8472,7 +8586,7 @@ export default function TrafficFlowMap({
 
   if (loading && !architecture) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-card">
+      <div className="dark h-full w-full flex items-center justify-center bg-card">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-foreground text-sm font-medium">Building Architecture...</p>
@@ -8483,7 +8597,7 @@ export default function TrafficFlowMap({
 
   if (error && !architecture) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-card p-4">
+      <div className="dark h-full w-full flex items-center justify-center bg-card p-4">
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-center max-w-sm">
           <p className="text-red-600 dark:text-red-400 font-medium mb-2">Error</p>
           <p className="text-muted-foreground text-sm mb-4">{error}</p>
@@ -8496,12 +8610,36 @@ export default function TrafficFlowMap({
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full flex flex-row bg-card overflow-hidden">
+    // `dark` class scopes the bright-theme design tokens (bg-card,
+    // border-border, text-muted-foreground, etc.) back to their dark
+    // values (.dark block in app/globals.css → Cyntro navy palette).
+    // Reverts only TrafficFlowMap to dark without unwinding the
+    // 92d9bc1 bright-theme conversion elsewhere; preserves the F4
+    // audit fix + all subsequent commits' work. User request
+    // 2026-06-09: "revert the traffic flow map to be dark mode".
+    <div ref={containerRef} className="dark h-full w-full flex flex-row bg-card overflow-hidden">
       {/* Stack Components Sidebar */}
       {sidebarOpen && architecture && (
         <StackSidebar
           architecture={architecture}
           onSelectResource={(resource, type) => {
+            // 2026-06-22 Crown Jewel Spotlight: parity with canvas card —
+            // sidebar row click on a CJ-tagged Resource routes to Spotlight
+            // when the parent wires it. Runs BEFORE damage-scope so the new
+            // mode takes precedence; damage-scope still fires for non-CJ
+            // data-plane nodes.
+            if (
+              (resource as ServiceNode).isCrownJewel &&
+              onCrownJewelSpotlight
+            ) {
+              onCrownJewelSpotlight({
+                id: resource.id,
+                arn: (resource as ServiceNode & { arn?: string | null }).arn,
+                name: (resource as { name?: string }).name ?? resource.id,
+                type: (resource as { type?: string }).type ?? 'resource',
+              });
+              return;
+            }
             // Attack Paths v2: Storage/DDB/RDS row click opens damage-scope
             // drawer (same as clicking the canvas node on the right).
             const damageScopeType = resolveDamageScopeNodeType(
@@ -8622,6 +8760,33 @@ export default function TrafficFlowMap({
           {lastUpdated && (
             <span className="text-muted-foreground text-xs">
               Last sync: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+
+          {/* Enrichment-failure indicator. Surfaces honestly when an
+              IAM or SG batch couldn't load, so the operator doesn't
+              read the chips' build-time seed values as live data.
+              Tooltip names exactly which enrichment is missing. Lives
+              right after "Last sync" so it reads as a freshness signal
+              for the detail layer, not a hard error on the canvas
+              (which is fine — it rendered). */}
+          {(iamEnrichmentFailed || sgEnrichmentFailed) && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-[11px] font-medium"
+              title={[
+                iamEnrichmentFailed && "IAM gap counts couldn't load — chips show build-time values",
+                sgEnrichmentFailed && "SG rule details couldn't load — chips show build-time values",
+                "Frontend backed off to avoid compounding backend load. Click Refresh Data to retry.",
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
+              <AlertTriangle className="w-3 h-3" />
+              {iamEnrichmentFailed && sgEnrichmentFailed
+                ? "IAM + SG details unavailable"
+                : iamEnrichmentFailed
+                  ? "IAM details unavailable"
+                  : "SG details unavailable"}
             </span>
           )}
         </div>
@@ -8789,6 +8954,7 @@ export default function TrafficFlowMap({
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
+            spotlightActiveNodeIds={spotlightActiveNodeIds}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy
@@ -8805,6 +8971,23 @@ export default function TrafficFlowMap({
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
             onSelectService={(service, type) => {
+              // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
+              // to Spotlight when the parent wires the callback. Runs BEFORE
+              // damage-scope so Spotlight wins on CJ clicks; damage-scope
+              // still handles non-CJ data-plane nodes.
+              if (
+                type === 'resource' &&
+                (service as ServiceNode).isCrownJewel &&
+                onCrownJewelSpotlight
+              ) {
+                onCrownJewelSpotlight({
+                  id: service.id,
+                  arn: (service as ServiceNode & { arn?: string | null }).arn,
+                  name: (service as { name?: string }).name ?? service.id,
+                  type: (service as { type?: string }).type ?? 'resource',
+                });
+                return;
+              }
               const damageScopeType = resolveDamageScopeNodeType(service, type);
               if (onDamageScopeDataNode && damageScopeType) {
                 onDamageScopeDataNode({

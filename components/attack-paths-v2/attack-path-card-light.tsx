@@ -185,9 +185,25 @@ export function AttackPathCardLightView({
   const diff = report.remediation_diff
   const nodes = path.nodes ?? []
   const sourceNode = nodes[0]
-  const targetNode = nodes[nodes.length - 1]
+  // The crown jewel is the node matching the report's target (by name/id), NOT
+  // blindly nodes[last] — the backend chain can carry a trailing node past the
+  // jewel (e.g. the bucket's KMS key), which would mistype an S3 bucket as a
+  // KMS key. Prefer the authoritative jewel service from damage_capability.
+  const targetNode =
+    nodes.find((n) => n.name === cs.target_label || n.canonical_id === cs.target_label || n.id === cs.target_label) ??
+    nodes.filter((n) => n.tier === "crown_jewel").slice(-1)[0] ??
+    nodes[nodes.length - 1]
   const sourceMeta = awsNodeMeta(sourceNode?.type ?? "")
-  const targetMeta = awsNodeMeta(targetNode?.type ?? "")
+  // Bug #209: when damage_capability.jewel_service disagrees with the
+  // resolved targetNode.type (e.g. backend stamped "kms" because the
+  // damage-scope walked through the bucket's KMS terminus), prefer the
+  // node we actually resolved as the crown jewel. The targetNode picker
+  // above is already authoritative — it matches on cs.target_label /
+  // tier="crown_jewel" before falling back. jewel_service only wins when
+  // we couldn't resolve a real node, which prevents the
+  // "EC2 alon-demo-app2 → KMS KEY saferemediate-logs-…" mismatch where
+  // the label said KMS but the name was an S3 bucket.
+  const targetMeta = awsNodeMeta(targetNode?.type || path.damage_capability?.jewel_service || "")
 
   const severity = cs.severity ?? path.severity?.severity
   const pathScore = path.severity?.overall_score

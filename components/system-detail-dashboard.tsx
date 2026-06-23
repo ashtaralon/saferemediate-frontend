@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
+import { LightRouteIsland } from "./attack-paths-v2/light-route-island"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
 import { DecisionRoutingCard } from "./dashboard/v3/decision-routing-card"
@@ -203,10 +204,17 @@ const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
 // the legacy AttackPathsTab — operators were getting two different
 // visual languages for the same concept across the org-level and
 // per-system views.
+// 2026-06-14 — the per-system Attack Paths tab now renders the v2 3-column
+// surface (light card hero + grouped path list + crown-jewel rail), the same
+// component served at /attack-paths-v2, embedded here so the dashboard tab IS
+// the canonical surface (no second visual language). `embedded` contains the
+// height and drops the standalone header/back-nav; `systemName` is passed so
+// the prop wins over ?system and locks it to the dashboard's selection. The
+// legacy IdentityAttackPaths component is retired from this tab.
 const SystemAttackPaths = dynamic(
   () =>
-    import("./identity-attack-paths/identity-attack-paths").then(
-      (m) => ({ default: m.IdentityAttackPaths }),
+    import("./attack-paths-v2/attack-paths-v2").then(
+      (m) => ({ default: m.AttackPathsV2 }),
     ),
   {
     ssr: false,
@@ -1574,7 +1582,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       label: "Risk",
       icon: ShieldAlert,
       children: [
-        { id: "least-privilege", label: "Least Privilege" },
+        { id: "least-privilege", label: "Resource Risk" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
         { id: "attacker-map", label: "Attacker Map" },
@@ -2573,9 +2581,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       )}
 
       {activeTab === "attack-paths" && (
+        <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} embedded />
         </div>
+        </LightRouteIsland>
       )}
 
       {activeTab === "attacker-map" && (

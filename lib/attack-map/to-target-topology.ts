@@ -43,6 +43,8 @@ export interface TargetNode {
   jewelTier?: string
   onPath: boolean
   verdict?: Verdict
+  /** Sibling workload that shares the on-path IAM role (blast.shared_workloads). */
+  sharedRoleHub?: boolean
 }
 
 export interface TargetEdge {
@@ -69,6 +71,10 @@ export interface TargetTopology {
   system: string
   score: number
   jewelsReachable: number
+  /** Role-hub fan-out count — prefer role_reachable_jewels when backend provides it. */
+  roleJewelCount: number
+  /** Lateral-movement blast surface — other workloads that share the on-path role. */
+  sharedWorkloads: string[]
 }
 
 const EXTERNAL_TYPES = new Set([
@@ -180,6 +186,9 @@ export function toTargetTopology(
   }
 
   const chainIds = new Set(payload.movement_chain.map((h) => h.node_id))
+  // resolve friendly names for chain hops (hops carry no name) from resources/jewels
+  const nameById = new Map<string, string | null>(topology.resources.map((r) => [r.node_id, r.name]))
+  for (const j of topology.crown_jewels) if (!nameById.has(j.node_id)) nameById.set(j.node_id, j.name)
   const nodeMap = new Map<string, TargetNode>()
 
   const addNode = (
@@ -191,9 +200,12 @@ export function toTargetTopology(
     onPath: boolean,
     isJewel: boolean,
     verdict?: Verdict,
+    sharedRoleHub = false,
   ) => {
     if (nodeMap.has(nodeId)) {
-      if (onPath) nodeMap.get(nodeId)!.onPath = true
+      const existing = nodeMap.get(nodeId)!
+      if (onPath) existing.onPath = true
+      if (sharedRoleHub) existing.sharedRoleHub = true
       return
     }
     nodeMap.set(nodeId, {
@@ -207,16 +219,18 @@ export function toTargetTopology(
       jewelTier: isJewel ? jewelTier(payload.score) : undefined,
       onPath,
       verdict,
+      sharedRoleHub: sharedRoleHub || undefined,
     })
   }
 
   // 1. on-path hops (the spine)
   for (const h of payload.movement_chain as MovementHop[]) {
-    addNode(h.node_id, h.node_type, undefined, h.az, h.subnet_id, true, Boolean(h.is_crown_jewel), h.verdict)
+    addNode(h.node_id, h.node_type, nameById.get(h.node_id), h.az, h.subnet_id, true, Boolean(h.is_crown_jewel), h.verdict)
   }
-  // 2. crown jewels (off-path → muted context)
+  // 2. crown jewels ON THIS PATH only — adding all 14 floods the regional column.
   for (const j of topology.crown_jewels) {
-    addNode(j.node_id, j.node_type, j.name, undefined, undefined, chainIds.has(j.node_id), true)
+    if (!chainIds.has(j.node_id)) continue
+    addNode(j.node_id, j.node_type, j.name, undefined, undefined, true, true)
   }
   // 3. sibling workloads for context (compute/db only, capped)
   let ctx = 0
@@ -224,9 +238,19 @@ export function toTargetTopology(
     if (nodeMap.has(r.node_id)) continue
     const tnt = nodeType(r.node_type)
     if (tnt !== "compute" && tnt !== "lambda" && tnt !== "database") continue
-    if (ctx >= 10) break
+    if (ctx >= 2) break
     addNode(r.node_id, r.node_type, r.name, r.az, r.subnet_id, false, false, "NOT_OBSERVED")
     ctx += 1
+  }
+  // 4. blast.shared_workloads — explicit siblings on the same IAM role hub
+  const sharedNames = payload.blast?.shared_workloads ?? []
+  for (const wName of sharedNames) {
+    const match = topology.resources.find(
+      (r) => r.name === wName || (r.name && wName.includes(r.name)) || r.node_id.includes(wName),
+    )
+    if (match) {
+      addNode(match.node_id, match.node_type, match.name, match.az, match.subnet_id, false, false, "ALLOWED", true)
+    }
   }
 
   // edges from consecutive hops
@@ -261,6 +285,9 @@ export function toTargetTopology(
 
   const gaps = (payload.collection_gaps ?? []).map((g) => ({ label: g, status: "MEDIUM" }))
 
+  const roleJewels = payload.blast?.role_reachable_jewels ?? []
+  const roleJewelCount = roleJewels.length > 0 ? roleJewels.length : (payload.blast?.crown_jewels_reachable ?? 0)
+
   return {
     nodes: [...nodeMap.values()],
     edges,
@@ -269,5 +296,7 @@ export function toTargetTopology(
     system: payload.system ?? topology.system,
     score: payload.score,
     jewelsReachable: payload.blast?.crown_jewels_reachable ?? 0,
+    roleJewelCount,
+    sharedWorkloads: sharedNames,
   }
 }

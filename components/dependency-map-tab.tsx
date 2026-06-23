@@ -1,10 +1,15 @@
 'use client'
 
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
+import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
+import { CJPickerStrip } from './dependency-map/cj-picker-strip'
+import { useCachedFetch } from '@/lib/use-cached-fetch'
+import type { CrownJewelSummary } from './identity-attack-paths/types'
+import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -58,24 +63,12 @@ const ComprehensiveFlowViz = dynamic(
   }
 )
 
-// Lazy load AWSArchitectureDiagram (Full Map Connections with AWS icons and force-directed layout) with SSR disabled
-const AWSArchitectureDiagram = dynamic(
-  () => import('./dependency-map/aws-architecture-diagram'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
-        <div className="text-center">
-          <div className="relative w-16 h-16 mx-auto mb-4">
-            <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
-          </div>
-          <p className="text-slate-400">Loading AWS Architecture...</p>
-        </div>
-      </div>
-    )
-  }
-)
+// AWSArchitectureDiagram (the "Full Map" sub-tab) was retired 2026-06-22
+// per Alon: System Map is the focus, Full Map's force-directed AWS-icon
+// layout was redundant with the Topology · Graph View tab and added
+// cognitive load. TrafficFlowMap is now the only graph engine inside the
+// Topology · Graph View sub-tab. The component file still exists for
+// other consumers (none currently) — clean removal can come later.
 
 // Lazy load Neo4jAWSMap (Neo4j-powered dynamic visualization with animated flows) with SSR disabled
 const Neo4jAWSMap = dynamic(
@@ -161,13 +154,257 @@ type ViewType = 'graph' | 'resource' | 'sankey' | 'flows'
 export default function DependencyMapTab({
   systemName,
   highlightPath,
-  defaultGraphEngine = 'comprehensive',
+  defaultGraphEngine = 'neo4j',
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'comprehensive')
-  
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'neo4j')
+
+  // ── Crown Jewel Spotlight (2026-06-22) ───────────────────────────
+  // Click a CJ-tagged Resource on TFM → Spotlight enters with that jewel.
+  // URL contract: ?cj=<id-or-arn> for Aggregate; ?cj=… &path=<path_id> for
+  // Drill. Real data only — the strip fetches from the live by-crown-jewel
+  // proxy via useCrownJewelConvergence; no mock, no hardcoded paths.
+  const [spotlightJewel, setSpotlightJewel] = useState<CrownJewelSummary | null>(null)
+  const [spotlightPathId, setSpotlightPathId] = useState<string | null>(null)
+
+  // Hydrate Spotlight from URL on first mount + system change so deep-links
+  // (Slack-shared URLs) land directly on the Spotlight view.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const u = new URL(window.location.href)
+      const cj = u.searchParams.get('cj')
+      const pathId = u.searchParams.get('path')
+      if (!cj) {
+        setSpotlightJewel(null)
+        setSpotlightPathId(null)
+        return
+      }
+      // Reconstruct a minimal CrownJewelSummary — the hook reads id /
+      // canonical_id / name. Name and type fields display in the strip
+      // until the real graph data arrives; using cj itself as the
+      // human-readable identifier is honest (the operator pasted it).
+      const isArn = cj.startsWith('arn:')
+      setSpotlightJewel({
+        id: cj,
+        canonical_id: isArn ? cj : null,
+        name: cj,
+        type: 'resource',
+        severity: 'LOW',
+        path_count: 0,
+        highest_risk_score: 0,
+        is_internet_exposed: false,
+        data_classification: null,
+        priority_score: 0,
+      })
+      setSpotlightPathId(pathId)
+    } catch {
+      // No-op — URL parse error shouldn't break the page.
+    }
+  }, [systemName])
+
+  // Push current Spotlight selection back into the URL (no full nav).
+  // Sticky: shareable via copy-link, survives refresh.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const u = new URL(window.location.href)
+      if (spotlightJewel) {
+        u.searchParams.set('cj', spotlightJewel.canonical_id || spotlightJewel.id)
+        if (spotlightPathId) {
+          u.searchParams.set('path', spotlightPathId)
+        } else {
+          u.searchParams.delete('path')
+        }
+      } else {
+        u.searchParams.delete('cj')
+        u.searchParams.delete('path')
+      }
+      window.history.replaceState(null, '', u.toString())
+    } catch {
+      // No-op.
+    }
+  }, [spotlightJewel?.id, spotlightJewel?.canonical_id, spotlightPathId])
+
+  const handleEnterSpotlight = useCallback(
+    (cj: { id: string; arn?: string | null; name: string; type: string }) => {
+      setSpotlightJewel({
+        id: cj.id,
+        canonical_id: cj.arn ?? (cj.id.startsWith('arn:') ? cj.id : null),
+        name: cj.name,
+        type: cj.type,
+        severity: 'LOW',
+        path_count: 0,
+        highest_risk_score: 0,
+        is_internet_exposed: false,
+        data_classification: null,
+        priority_score: 0,
+      })
+      setSpotlightPathId(null)
+    },
+    [],
+  )
+
+  const handleResetSpotlight = useCallback(() => {
+    setSpotlightJewel(null)
+    setSpotlightPathId(null)
+  }, [])
+
+  // v1.2 (2026-06-22): single fetch shared between strip + TFM canvas
+  // dimming. Hook returns null data when jewel is null — no fetch fires,
+  // no waste. Strip is now pure presentational (receives data as props),
+  // and TFM gets spotlightActiveNodeIds derived from the same response.
+  const spotlightConvergence = useCrownJewelConvergence(
+    spotlightJewel ? systemName : null,
+    spotlightJewel,
+  )
+
+  // System-wide Crown Jewel list — drives BOTH the always-on amber crown
+  // badge on CJ resource nodes in TFM AND the picker affordance on the
+  // Topology tab when no Spotlight is currently open. Before 2026-06-22
+  // CJs only got the crown badge when `applyPathFilter` ran on them, so
+  // operators viewing the default System Map had no visual way to tell
+  // which resources were jewels — and they had to drill from the home
+  // dashboard to even reach the Spotlight strip.
+  //
+  // Real data: hits the per-system IAP endpoint (same source as the
+  // home dashboard's Top Damage Paths card via the /all fan-out) and
+  // keeps the full `crown_jewels[]` list so the picker can render rich
+  // rows (severity, paths count, priority score). `systemCrownJewelIds`
+  // is derived from the list — we add BOTH `id` and `canonical_id`
+  // because the graph stores some CJs by id (resource_id) and some by
+  // canonical ARN, depending on which collector wrote the node, and the
+  // TFM resource map can key on either.
+  // 2026-06-23: migrated to `useCachedFetch` for stale-while-revalidate.
+  // The IAP backend is intermittently 502'ing under DB saturation, and
+  // the previous plain-`fetch` version surfaced every cold-cycle miss
+  // as "CROWN JEWELS — COULDN'T LOAD" — even when the operator had a
+  // perfectly good list cached in localStorage from a minute ago.
+  // Now the picker:
+  //   - Renders cached jewels immediately on every visit (no skeleton flash)
+  //   - Reads `isStale=true` when displaying older-than-fresh data so it
+  //     can surface an "as of N ago, refreshing" indicator
+  //   - On fresh-fetch failure (502/timeout): keeps showing the cached
+  //     list (up to 7 days old, the hook's hard cap) instead of vanishing
+  //   - Only surfaces an error to the picker UI when there's NO cached
+  //     fallback at all (true first-ever visit)
+  //
+  // Net: operators on alon-prod stop seeing "couldn't load" the moment
+  // their browser has visited once, regardless of what the backend's
+  // doing right now. Real data discipline preserved — cached jewels
+  // came from a real successful past response.
+  type IapResponseShape = {
+    result?: { crown_jewels?: CrownJewelSummary[] }
+    data?: { crown_jewels?: CrownJewelSummary[] }
+    crown_jewels?: CrownJewelSummary[]
+  }
+  const iapUrl = systemName
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    : null
+  const {
+    data: iapData,
+    loading: iapLoading,
+    error: iapError,
+    isStale: iapIsStale,
+    retry: retryCrownJewels,
+  } = useCachedFetch<IapResponseShape>(iapUrl, {
+    cacheKey: `iap-cj-list:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000, // 10 min fresh window
+    fetchInit: { cache: 'no-store' },
+  })
+  const systemCrownJewels = useMemo<CrownJewelSummary[]>(() => {
+    // Envelope shape varies by deploy: `{result: {crown_jewels}}`,
+    // `{data: {crown_jewels}}`, or flat `{crown_jewels}`. Accept all
+    // three — empty array if none match.
+    const cjs =
+      iapData?.result?.crown_jewels ??
+      iapData?.data?.crown_jewels ??
+      iapData?.crown_jewels ??
+      []
+    return Array.isArray(cjs) ? cjs : []
+  }, [iapData])
+  // Treat the in-flight retry state as "still loading" so the picker
+  // doesn't vanish between Retry-click and response. useCachedFetch
+  // doesn't reset its internal `loading` on retry (it stays false after
+  // first fetch resolved/rejected), so without this gate the parent's
+  // "render picker if loading || error || hasData" predicate evaluates
+  // false during retry-in-flight and the picker disappears entirely.
+  const crownJewelsLoading =
+    iapLoading || (iapUrl !== null && iapData === null && iapError === null)
+  const crownJewelsError = iapError
+  const crownJewelsIsStale = iapIsStale
+  const systemCrownJewelIds = useMemo<Set<string>>(() => {
+    const out = new Set<string>()
+    for (const cj of systemCrownJewels) {
+      if (cj?.id) out.add(String(cj.id))
+      if (cj?.canonical_id) out.add(String(cj.canonical_id))
+    }
+    return out
+  }, [systemCrownJewels])
+
+  // Set of node IDs the TFM canvas should keep lit when Spotlight is
+  // active; every node NOT in this set is dimmed (ghosted). Two scoping
+  // modes — single-path takes precedence over union:
+  //
+  //   1. `spotlightPathId` set → ONLY the nodes on that specific path.
+  //      Operator clicked a path row in the strip; they want to see
+  //      that one path on the canvas, not the union of all paths to
+  //      the CJ. This is the bug we hit at 2026-06-22 — the strip's
+  //      path picker switched the kill-chain visualization in the
+  //      strip, but the canvas kept dimming to the union, so picking
+  //      path 1/6 vs path 2/6 made no visible canvas difference.
+  //
+  //   2. `spotlightPathId` null → union of every path to the CJ.
+  //      The "show me how reachable this jewel is" view; no specific
+  //      path picked yet (first-mount via ?cj=, no &path=).
+  //
+  // Real-data only: every id comes from the live by-crown-jewel
+  // response. Empty set when Spotlight is off → TFM renders normally.
+  const spotlightActiveNodeIds = useMemo<Set<string>>(() => {
+    const out = new Set<string>()
+    const data = spotlightConvergence.data
+    if (!data?.paths || data.paths.length === 0) return out
+    const pathsToRender = spotlightPathId
+      ? data.paths.filter((p) => p.path_id === spotlightPathId)
+      : data.paths
+    for (const p of pathsToRender) {
+      if (p.source) out.add(p.source)
+      if (p.identity) out.add(p.identity)
+      if (p.cj_target_id) out.add(p.cj_target_id)
+      for (const h of p.hops || []) {
+        if (h.node_id) out.add(h.node_id)
+      }
+    }
+    // Always include the selected CJ itself (defensive — cj_target_id
+    // is usually populated but the field is optional in the type).
+    if (spotlightJewel) {
+      out.add(spotlightJewel.id)
+      if (spotlightJewel.canonical_id) out.add(spotlightJewel.canonical_id)
+    }
+    return out
+  }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
+
+  // Auto-select the first path the moment convergence data lands.
+  // Without this, `spotlightPathId` stays null until the operator
+  // explicitly clicks a row in the strip — and so the canvas dims to
+  // the UNION of every path to the CJ even though the kill-chain in
+  // the strip is already showing path 1 (the strip auto-defaults to
+  // paths[0] when no selectedPathId). That mismatch confused operators
+  // who expected "open spotlight → see this one path on canvas." Now
+  // the URL gets &path=<first_id> on first paint and the single-path
+  // canvas filter applies from the start. Operator can still pick a
+  // different path; clicking ANY row updates `spotlightPathId` via
+  // the existing onSelectPath handler.
+  useEffect(() => {
+    if (!spotlightJewel) return
+    if (spotlightPathId) return
+    const paths = spotlightConvergence.data?.paths
+    if (!paths || paths.length === 0) return
+    setSpotlightPathId(paths[0].path_id)
+  }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
+
   // Update graph engine when prop changes
   useEffect(() => {
     if (defaultGraphEngine) {
@@ -219,8 +456,14 @@ export default function DependencyMapTab({
         controller.abort('Request timeout after 60 seconds')
       }, 60000) // 60 second client timeout for cold starts
 
-      // Build URL with optional search parameter
-      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`
+      // Build URL with optional search parameter. Params MUST match the
+      // ones TFM uses at traffic-flow-map.tsx:6892 (`includeUnused=true`,
+      // `maxNodes=300`) so both consumers hit the SAME proxy cache key
+      // — without this both call /api/proxy/dependency-map/full with
+      // different query strings, the proxy treats them as separate
+      // cache entries, and the (already-saturated) Neo4j runs the same
+      // dependency-map query twice per page load. (Audit 2026-06-22 P4.)
+      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`
       if (searchQuery) {
         url += `&search=${encodeURIComponent(searchQuery)}`
       }
@@ -307,8 +550,12 @@ export default function DependencyMapTab({
 
     setResourcesLoading(true)
     try {
-      // Use dependency-map endpoint to get resources (same as fetchGraphData)
-      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`, {
+      // Use dependency-map endpoint to get resources (same as fetchGraphData).
+      // Params aligned with TFM (`includeUnused=true`, `maxNodes=300`) so the
+      // proxy cache key matches and a Resource-View switch after a Graph-View
+      // load gets a near-instant cache hit instead of paying the heavy query
+      // a second time. (Audit 2026-06-22 P4.)
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`, {
         cache: 'no-store',
         signal: AbortSignal.timeout(30000),
       })
@@ -508,35 +755,11 @@ export default function DependencyMapTab({
             </button>
           </div>
 
-          {/* Graph Engine Toggle (only show in graph view) */}
-          {activeView === 'graph' && (
-            <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-              <button
-                onClick={() => handleGraphEngineChange('comprehensive')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'comprehensive'
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Comprehensive 6-Tier View - EC2, Security Groups, IAM, Databases, Storage with all edge types"
-              >
-                <Layers className="w-4 h-4" />
-                Full Map
-              </button>
-              <button
-                onClick={() => handleGraphEngineChange('neo4j')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'neo4j'
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="System Map - Real-time animated data flows with live traffic visualization"
-              >
-                <Activity className="w-4 h-4" />
-                System Map
-              </button>
-            </div>
-          )}
+          {/* Graph engine toggle retired 2026-06-22: Full Map (the
+              `comprehensive` AWSArchitectureDiagram) is dropped. System
+              Map (TrafficFlowMap) is the only engine in the graph view,
+              so a one-option toggle is noise. graphEngine state stays
+              for backwards-compat with the defaultGraphEngine prop. */}
         </div>
 
         {/* Right side: Search + Description + Sync button */}
@@ -580,11 +803,7 @@ export default function DependencyMapTab({
           <div className="text-sm text-slate-500">
             {activeView === 'graph' ? (
               <span>
-                {graphEngine === 'comprehensive'
-                  ? 'AWS Architecture Map • Force-directed layout with official AWS icons • Click nodes for details'
-                  : graphEngine === 'neo4j'
-                  ? 'System Map • Animated data flows with real-time updates • Drag to pan, scroll to zoom'
-                  : 'Graph theory view with all connections • Double-click a node for details'}
+                System Map • Animated data flows with real-time updates • Drag to pan, scroll to zoom
               </span>
             ) : (
               <span>Detailed dependency breakdown of a single resource</span>
@@ -639,37 +858,70 @@ export default function DependencyMapTab({
       {/* View Content */}
       <div className="flex-1 h-[650px]">
         {activeView === 'graph' ? (
-          graphEngine === 'neo4j' ? (
-            <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
-                <div className="text-center">
-                  <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
-                  <p className="text-slate-400 text-xs mt-1">Connecting to Neo4j</p>
-                </div>
+          // Full Map (AWSArchitectureDiagram) retired 2026-06-22 —
+          // TrafficFlowMap is the sole engine inside the graph view.
+          <React.Suspense fallback={
+            <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+              <div className="text-center">
+                <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
+                <p className="text-slate-400 text-xs mt-1">Connecting to Neo4j</p>
               </div>
-            }>
-              <TrafficFlowMap systemName={systemName} />
-            </React.Suspense>
-          ) : (
-            <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
-                <div className="text-center">
-                  <div className="relative w-16 h-16 mx-auto mb-4">
-                    <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
-                    <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
-                  </div>
-                  <p className="text-slate-400">Loading AWS Architecture...</p>
-                </div>
+            </div>
+          }>
+            <div className="flex flex-col h-full">
+              {/* Crown Jewel Spotlight strip — renders above TFM when an
+                  operator has clicked a CJ-tagged Resource node, or when
+                  the URL carries ?cj=… on first load. Real-data only:
+                  the strip fetches /api/proxy/attack-paths/<system>/
+                  by-crown-jewel via useCrownJewelConvergence.
+                  2026-06-23: picker now renders ALWAYS (above the spotlight)
+                  so operators can switch CJs in 2 clicks from anywhere
+                  instead of having to Reset → re-trigger picker → click.
+                  The picker's dropdown highlights the current selection
+                  so it doubles as a "current CJ" indicator. */}
+              {(crownJewelsLoading || crownJewelsError || systemCrownJewels.length > 0) && (
+                <CJPickerStrip
+                  crownJewels={systemCrownJewels}
+                  loading={crownJewelsLoading}
+                  error={crownJewelsError}
+                  onRetry={retryCrownJewels}
+                  onSelect={(cj) =>
+                    handleEnterSpotlight({
+                      id: cj.id,
+                      arn: cj.canonical_id ?? null,
+                      name: cj.name,
+                      type: cj.type,
+                    })
+                  }
+                />
+              )}
+              {spotlightJewel && (
+                <CJSpotlightStrip
+                  jewel={spotlightJewel}
+                  selectedPathId={spotlightPathId}
+                  onSelectPath={setSpotlightPathId}
+                  onReset={handleResetSpotlight}
+                  data={spotlightConvergence.data}
+                  loading={spotlightConvergence.loading}
+                  error={spotlightConvergence.error}
+                  retry={spotlightConvergence.retry}
+                />
+              )}
+              <div className="flex-1 min-h-0">
+                <TrafficFlowMap
+                  systemName={systemName}
+                  onCrownJewelSpotlight={handleEnterSpotlight}
+                  spotlightActiveNodeIds={
+                    spotlightActiveNodeIds.size > 0 ? spotlightActiveNodeIds : undefined
+                  }
+                  systemCrownJewelIds={
+                    systemCrownJewelIds.size > 0 ? systemCrownJewelIds : undefined
+                  }
+                />
               </div>
-            }>
-              <AWSArchitectureDiagram
-                systemName={systemName}
-                onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
-                onRefresh={fetchGraphData}
-              />
-            </React.Suspense>
-          )
+            </div>
+          </React.Suspense>
         ) : (
           <ResourceView
             systemName={systemName}

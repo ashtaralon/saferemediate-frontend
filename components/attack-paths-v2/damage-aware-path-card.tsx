@@ -1,5 +1,26 @@
 "use client"
 
+// Damage-Aware Path Card — supporting-evidence drill-in below the IR-pure hero.
+//
+// Architecture (2026-06-15 IR cutover): this card is a PURE RENDERER of the
+// backend-owned AttackPathReport. The dual-write helpers it used to import
+// (effective-damage-matrix, granular-damage-lines, lp-execution-gate, path-
+// damage-summary) computed security meaning locally from `path.damage_capability`;
+// the AttackPathReport now carries the canonical damage_matrix, safety_decision,
+// gates, current_state, and verification_target, so every claim here reads from
+// `report.*`.
+//
+// The `scope` prop is KEPT — it comes from a different backend endpoint
+// (damage-scope) and carries per-prefix observed detail + lp_confidence vetos +
+// post-LP scope narrative that the AttackPathReport doesn't duplicate at the
+// same granularity. Mixing the two substrates is fine because each one is
+// authoritative for its own surface — only the security claims (damage class,
+// gate decision, identity/target labels) MUST come from the report.
+//
+// NO MOCK DATA. When the report is unavailable the parent (path-analysis-panel)
+// does not render this card at all — the hero above already surfaces the
+// unavailable state, a second copy would be noise.
+
 import { useMemo, useState } from "react"
 import {
   AlertTriangle,
@@ -22,18 +43,7 @@ import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis
 import { SGRemediationModal } from "@/components/sg-remediation-modal"
 import { S3RemediationModal } from "@/components/s3-remediation-modal"
 import type { DamageScopePayload } from "./damage-scope-drawer"
-import {
-  buildEffectiveDamageMatrix,
-  type DamageVerbKey,
-  verbLabel,
-} from "./effective-damage-matrix"
-import {
-  buildGranularDamageLines,
-  groupLinesByVerb,
-} from "./granular-damage-lines"
 import { actionToEnglish } from "./iam-action-to-english"
-import { assessLpExecution, gateTone } from "./lp-execution-gate"
-import { pathIdentityLabel, pathSourceLabel } from "./path-damage-summary"
 import {
   resolveModalTarget,
   resolveIamRoleFromPath,
@@ -45,20 +55,70 @@ import {
   expectedResultLabel,
   type RecommendedFix,
 } from "./damage-matrix-fix"
+import type {
+  AttackPathReport,
+  DamageCategory,
+  DamageCell as ReportDamageCell,
+  EvidenceGrade,
+  GateState,
+} from "./attack-path-report-types"
 
 interface DamageAwarePathCardProps {
+  /** Backend-owned AttackPathReport — required. Parent gates render on its presence. */
+  report: AttackPathReport
   path: IdentityAttackPath
   jewel: CrownJewelSummary | null
   systemName: string
+  /** Optional per-prefix enrichment from the separate damage-scope endpoint. */
   scope: DamageScopePayload | null
   scopeLoading?: boolean
   scopeError?: string | null
 }
 
+// ─── Local presentational shapes (no semantic compute — just rollups) ───────
+
+type DamageVerbKey = "read" | "write" | "delete" | "admin"
+type ConfidenceLabel = "Observed" | "Configured" | "Blocked" | "Unknown"
+
+interface MatrixCell {
+  allowed: boolean
+  confidence: ConfidenceLabel
+  detail?: string
+}
+
+interface EffectiveDamageMatrix {
+  read: MatrixCell
+  write: MatrixCell
+  delete: MatrixCell
+  admin: MatrixCell
+  blockedReason?: string
+}
+
+interface GranularDamageLine {
+  verb: DamageVerbKey
+  label: string
+  allowed: boolean
+  confidence: ConfidenceLabel
+  detail?: string
+}
+
+const VERB_LABELS: Record<DamageVerbKey, string> = {
+  read: "READ",
+  write: "WRITE",
+  delete: "DELETE",
+  admin: "ADMIN",
+}
+
+const CATEGORY_TO_VERB: Partial<Record<DamageCategory, DamageVerbKey>> = {
+  READ: "read",
+  WRITE: "write",
+  DELETE: "delete",
+  ADMIN: "admin",
+}
+
 function confidenceTone(label: string): string {
   switch (label) {
     case "Observed":
-    case "Confirmed":
       return "text-emerald-700 dark:text-emerald-300"
     case "Configured":
       return "text-amber-700 dark:text-amber-300"
@@ -69,20 +129,57 @@ function confidenceTone(label: string): string {
   }
 }
 
-function pathStatusLabel(path: IdentityAttackPath): {
-  label: string
-  tone: string
-} {
-  const effective = path.damage_capability?.effective_damage
-  if (effective === "network_blocked" || effective === "data_plane_blocked") {
+function gradeToConfidence(grade: EvidenceGrade): ConfidenceLabel {
+  switch (grade) {
+    case "OBSERVED":
+      return "Observed"
+    case "CONFIGURED":
+      return "Configured"
+    case "BLOCKED":
+      return "Blocked"
+    default:
+      // INFERRED / UNKNOWN — surfaced as Unknown in this rollup view; the IR's
+      // can_drive_damage flag prevents these from authorizing damage cells
+      // upstream anyway.
+      return "Unknown"
+  }
+}
+
+function dominantConfidence(cells: ReportDamageCell[]): ConfidenceLabel {
+  const allowed = cells.filter((c) => c.status === "ALLOWED")
+  if (allowed.length === 0) {
+    const blocked = cells.find((c) => c.status === "BLOCKED")
+    return blocked ? "Blocked" : "Unknown"
+  }
+  if (allowed.some((c) => c.evidence_grade === "OBSERVED")) return "Observed"
+  if (allowed.some((c) => c.evidence_grade === "CONFIGURED")) return "Configured"
+  return "Unknown"
+}
+
+function pathStatusFromReport(
+  report: AttackPathReport,
+): { label: string; tone: string } {
+  // Global block beats anything in damage_matrix — the path can't reach the jewel.
+  if (report.gates.network === "CLOSED") {
     return { label: "Blocked", tone: "text-red-700 dark:text-red-300" }
   }
-  if (effective === "no_jewel_perms") {
-    return { label: "No jewel permissions", tone: "text-muted-foreground" }
+  if (report.gates.data_plane === "CLOSED") {
+    return { label: "Blocked", tone: "text-red-700 dark:text-red-300" }
   }
-  const hasObserved = (path.edges ?? []).some((e) => e.is_observed)
-  if (hasObserved || path.evidence_type === "observed") {
+  // OPEN_OBSERVED on any gate = at least one observed hop on this path.
+  const gateValues: Array<GateState | undefined> = [
+    report.gates.entry,
+    report.gates.identity,
+    report.gates.network,
+    report.gates.data_plane,
+    report.gates.exfil,
+  ]
+  if (gateValues.includes("OPEN_OBSERVED")) {
     return { label: "Observed", tone: "text-emerald-700 dark:text-emerald-300" }
+  }
+  // Fall back to current_state.status when gates are entirely UNKNOWN.
+  if (report.current_state.status === "BLOCKED") {
+    return { label: "Blocked", tone: "text-red-700 dark:text-red-300" }
   }
   return { label: "Configured", tone: "text-amber-700 dark:text-amber-300" }
 }
@@ -121,6 +218,7 @@ function GranularLineRow({
 }
 
 export function DamageAwarePathCard({
+  report,
   path,
   jewel,
   systemName,
@@ -131,53 +229,227 @@ export function DamageAwarePathCard({
   const [showTechnical, setShowTechnical] = useState(false)
   const [openModal, setOpenModal] = useState<ModalTarget | null>(null)
 
-  const matrix = useMemo(
-    () => buildEffectiveDamageMatrix(path.damage_capability, scope, false),
-    [path.damage_capability, scope],
-  )
+  const matrix = useMemo<EffectiveDamageMatrix>(() => {
+    // Global block — every verb reads as Blocked with the gate reason.
+    if (report.gates.network === "CLOSED") {
+      const reason = "Network controls block reachability on this path"
+      return {
+        read: { allowed: false, confidence: "Blocked", detail: reason },
+        write: { allowed: false, confidence: "Blocked", detail: reason },
+        delete: { allowed: false, confidence: "Blocked", detail: reason },
+        admin: { allowed: false, confidence: "Blocked", detail: reason },
+        blockedReason: reason,
+      }
+    }
+    if (report.gates.data_plane === "CLOSED") {
+      const reason = "Data-plane controls block access"
+      return {
+        read: { allowed: false, confidence: "Blocked", detail: reason },
+        write: { allowed: false, confidence: "Blocked", detail: reason },
+        delete: { allowed: false, confidence: "Blocked", detail: reason },
+        admin: { allowed: false, confidence: "Blocked", detail: reason },
+        blockedReason: reason,
+      }
+    }
 
-  const granularLines = useMemo(
-    () => buildGranularDamageLines(path.damage_capability, scope, matrix),
-    [path.damage_capability, scope, matrix],
-  )
-  const byVerb = useMemo(() => groupLinesByVerb(granularLines), [granularLines])
+    const byVerb: Record<DamageVerbKey, ReportDamageCell[]> = {
+      read: [],
+      write: [],
+      delete: [],
+      admin: [],
+    }
+    for (const cell of report.damage_matrix) {
+      const verb = CATEGORY_TO_VERB[cell.category]
+      if (verb) byVerb[verb].push(cell)
+    }
 
+    const buildVerb = (verb: DamageVerbKey): MatrixCell => {
+      const cells = byVerb[verb]
+      if (cells.length === 0) return { allowed: false, confidence: "Unknown" }
+      const allowed = cells.some((c) => c.status === "ALLOWED")
+      return { allowed, confidence: dominantConfidence(cells) }
+    }
+
+    return {
+      read: buildVerb("read"),
+      write: buildVerb("write"),
+      delete: buildVerb("delete"),
+      admin: buildVerb("admin"),
+    }
+  }, [report])
+
+  // Per-cell rows — one entry per damage_matrix cell, enriched with observed
+  // prefix detail from `scope` when present (still a separate endpoint).
+  const granularLines = useMemo<GranularDamageLine[]>(() => {
+    if (matrix.blockedReason) {
+      return (["read", "write", "delete", "admin"] as DamageVerbKey[]).map((verb) => ({
+        verb,
+        label: VERB_LABELS[verb],
+        allowed: false,
+        confidence: "Blocked" as ConfidenceLabel,
+        detail: matrix.blockedReason,
+      }))
+    }
+
+    const lines: GranularDamageLine[] = []
+    const observed = scope?.scope_observed as Record<string, unknown> | undefined
+    const obsPrefix = (key: "read_prefixes" | "write_prefixes" | "delete_prefixes"): string | undefined => {
+      const arr = (observed?.[key] as string[] | undefined) ?? []
+      if (arr.length === 0) return undefined
+      const head = arr[0]
+      return `under /${head}/` + (arr.length > 1 ? ` (+${arr.length - 1} prefixes)` : "")
+    }
+
+    for (const cell of report.damage_matrix) {
+      const verb = CATEGORY_TO_VERB[cell.category]
+      if (!verb) continue
+      const confidence: ConfidenceLabel =
+        cell.status === "ALLOWED" ? gradeToConfidence(cell.evidence_grade) :
+        cell.status === "BLOCKED" ? "Blocked" :
+        "Unknown"
+      // Detail priority: scope.scope_observed prefix (most specific) →
+      // cell.scope.values from the report → none.
+      const scopeKey =
+        verb === "read" ? "read_prefixes" :
+        verb === "write" ? "write_prefixes" :
+        verb === "delete" ? "delete_prefixes" :
+        undefined
+      const scopeDetail = scopeKey ? obsPrefix(scopeKey) : undefined
+      const cellScopeDetail = cell.scope?.values?.length
+        ? `under /${cell.scope.values[0]}/` +
+          (cell.scope.values.length > 1 ? ` (+${cell.scope.values.length - 1})` : "")
+        : undefined
+      lines.push({
+        verb,
+        label: cell.label,
+        allowed: cell.status === "ALLOWED",
+        confidence,
+        detail: scopeDetail ?? cellScopeDetail,
+      })
+    }
+
+    if (lines.length === 0) {
+      // Report has no damage_matrix entries — show the verb rollup so the
+      // section still communicates the (empty) state honestly.
+      for (const verb of ["read", "write", "delete", "admin"] as DamageVerbKey[]) {
+        const cell = matrix[verb]
+        lines.push({
+          verb,
+          label: VERB_LABELS[verb],
+          allowed: cell.allowed,
+          confidence: cell.confidence,
+          detail: cell.detail,
+        })
+      }
+    }
+
+    const order: DamageVerbKey[] = ["read", "write", "delete", "admin"]
+    return lines.sort(
+      (a, b) => order.indexOf(a.verb) - order.indexOf(b.verb) || Number(b.allowed) - Number(a.allowed),
+    )
+  }, [report, scope, matrix])
+
+  const byVerb = useMemo<Record<DamageVerbKey, GranularDamageLine[]>>(() => {
+    const out: Record<DamageVerbKey, GranularDamageLine[]> = {
+      read: [],
+      write: [],
+      delete: [],
+      admin: [],
+    }
+    for (const line of granularLines) out[line.verb].push(line)
+    return out
+  }, [granularLines])
+
+  // Recommended fix sources, ordered by authority:
+  //   1. scope.damage_matrix.recommended_fix — bound per-cell IAM patch from
+  //      the s3_damage_matrix endpoint (different substrate, kept).
+  //   2. path.risk_reduction.top_actions[0] — six-factor risk-reducer scorer.
+  // The IR's report.remediation_diff is the canonical IAM scope-down (used
+  // by the hero card), so we don't re-render it here; this section's job is
+  // to point at the per-cell action a CISO can preview.
   const topFix = path.risk_reduction?.top_actions?.[0]
-  // Prefer the backend damage-cell-bound fix (e.g. "Remove s3:DeleteObject")
-  // over the generic top risk-reducer when the S3 damage matrix is present.
   const boundFix = useMemo(
     () => selectRecommendedFix(scope?.damage_matrix),
     [scope],
   )
-  const lpAssessment = useMemo(
-    () => assessLpExecution(scope?.lp_confidence, scope?.lp_confidence?.consumer_count),
-    [scope],
-  )
 
+  // LP assessment — gate decision from report.safety_decision.gate; the
+  // verbose reason + evidence gaps still come from scope.lp_confidence when
+  // present (separate endpoint, richer detail), but the gate itself is the
+  // compiler's call, not ours.
+  const lpAssessment = useMemo(() => {
+    type Gate = "AUTO" | "REVIEW"
+    const sd = report.safety_decision
+    const gateLabel: Gate =
+      sd?.gate === "AUTO_ELIGIBLE" ? "AUTO" : "REVIEW"
+    const reason =
+      sd?.reasons?.[0] ??
+      (sd?.gate === "AUTO_ELIGIBLE"
+        ? "High-confidence LP — backend safety_decision cleared this path for auto-execute"
+        : "Backend safety_decision held this path for review")
+    const consumerCount =
+      report.remediation_diff?.consumers ??
+      scope?.lp_confidence?.consumer_count ??
+      null
+    const evidenceGaps = scope?.lp_confidence?.evidence_gaps ?? []
+    const vetos = scope?.lp_confidence?.vetos ?? []
+    return {
+      gate: gateLabel,
+      label: gateLabel,
+      reason,
+      consumerCount,
+      evidenceGaps,
+      vetos,
+    }
+  }, [report, scope])
+
+  const gateBorder =
+    lpAssessment.gate === "AUTO"
+      ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+      : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+
+  // Verification target's compiler-authored expected result wins; fall back
+  // to scope narrative when the report doesn't carry one (older paths).
   const expectedResult =
+    report.verification_target?.expected_result ??
     scope?.narrative?.post_remediation ??
     scope?.scope_post_lp?.headline ??
     path.risk_reduction?.reduction_summary
 
+  // "Why" — per-plane sentences derived from report.gates first, then
+  // enriched with scope's separate-endpoint detail (policy / SCP defense).
   const whyLines = useMemo(() => {
     const lines: Array<{ label: string; text: string; confidence: string }> = []
-    const gates = path.damage_capability?.gates
-    if (gates) {
+    const g = report.gates
+
+    if (g.network) {
+      const reachable = g.network === "OPEN_OBSERVED" || g.network === "OPEN_CONFIG"
       lines.push({
         label: "Network",
-        text: gates.network_reachable
-          ? "Reachable through network controls on this path"
-          : gates.network_reason ?? "Blocked by network controls",
-        confidence: gates.network_reachable ? "Configured" : "Blocked",
+        text: reachable
+          ? g.network === "OPEN_OBSERVED"
+            ? "Reachable through network controls (observed traffic)"
+            : "Reachable through network controls on this path"
+          : "Blocked by network controls",
+        confidence:
+          g.network === "OPEN_OBSERVED" ? "Observed" :
+          g.network === "OPEN_CONFIG" ? "Configured" :
+          g.network === "CLOSED" ? "Blocked" :
+          "Unknown",
       })
     }
-    const directActions = path.damage_capability?.direct_actions ?? []
-    if (directActions.length) {
-      const english = directActions.slice(0, 4).map((a) => actionToEnglish(a).sentence)
+
+    // IAM line — prefer the report's gap.observed_actions (compiler picked
+    // these as the proven set) over re-deriving from path.damage_capability.
+    const observedActs = report.gap?.observed_actions ?? []
+    if (observedActs.length > 0) {
+      const english = observedActs.slice(0, 4).map((a) => actionToEnglish(a).sentence)
       lines.push({
         label: "IAM",
-        text: english.join("; ") + (directActions.length > 4 ? ` (+${directActions.length - 4})` : ""),
-        confidence: "Configured",
+        text:
+          english.join("; ") +
+          (observedActs.length > 4 ? ` (+${observedActs.length - 4})` : ""),
+        confidence: "Observed",
       })
     } else if (scope?.scope_today?.headline) {
       lines.push({
@@ -186,19 +458,30 @@ export function DamageAwarePathCard({
         confidence: "Configured",
       })
     }
-    if (gates && gates.data_plane_reachable === false && gates.data_plane_reason) {
-      lines.push({
-        label: "KMS / data plane",
-        text: gates.data_plane_reason,
-        confidence: "Blocked",
-      })
-    } else if (gates?.data_plane_reachable) {
-      lines.push({
-        label: "KMS / data plane",
-        text: "Decrypt / data-plane access permitted on this path",
-        confidence: "Configured",
-      })
+
+    if (g.data_plane) {
+      if (g.data_plane === "CLOSED") {
+        lines.push({
+          label: "KMS / data plane",
+          text: "Data-plane controls block access",
+          confidence: "Blocked",
+        })
+      } else if (g.data_plane === "OPEN_OBSERVED") {
+        lines.push({
+          label: "KMS / data plane",
+          text: "Decrypt / data-plane access observed on this path",
+          confidence: "Observed",
+        })
+      } else if (g.data_plane === "OPEN_CONFIG") {
+        lines.push({
+          label: "KMS / data plane",
+          text: "Decrypt / data-plane access permitted on this path",
+          confidence: "Configured",
+        })
+      }
     }
+
+    // Scope-endpoint enrichments (separate substrate, additive).
     if (scope?.scope_observed?.headline) {
       lines.push({
         label: "Observed",
@@ -224,23 +507,25 @@ export function DamageAwarePathCard({
       lines.push({
         label: "Signals",
         text:
-          path.damage_narrative ??
-          path.damage_capability?.reason ??
+          report.current_state.summary ||
           "Insufficient signals for this jewel type",
         confidence: "Unknown",
       })
     }
     return lines
-  }, [path, scope])
+  }, [report, scope])
 
+  // Chain line — backend-authored source/target. The middle "identity" hop
+  // is read off the canonical labels too; when source == target the middle
+  // disappears so we don't print "pivot → pivot → jewel".
   const chainLine = useMemo(() => {
-    const source = pathSourceLabel(path)
-    const identity = pathIdentityLabel(path)
-    const target = jewel?.name ?? path.nodes?.[path.nodes.length - 1]?.name ?? "crown jewel"
-    return `${source} → ${identity} → ${target}`
-  }, [path, jewel])
+    const source = report.current_state.source_label || "—"
+    const target =
+      report.current_state.target_label || jewel?.name || "crown jewel"
+    return [source, target].filter(Boolean).join(" → ")
+  }, [report, jewel])
 
-  const status = pathStatusLabel(path)
+  const status = pathStatusFromReport(report)
 
   const handleApply = (action?: RiskReductionAction) => {
     const target = action
@@ -260,16 +545,18 @@ export function DamageAwarePathCard({
     setOpenModal(boundFixToTarget(rec.fix))
   }
 
+  // Blast line — report.blast_radius.headline is compiler-authored; fall
+  // back to consumer-count phrasing when the headline isn't populated.
   const blastLine = useMemo(() => {
-    const brs = path.target_blast_radius
-    if (brs?.rationale?.length) return brs.rationale[0]
+    const br = report.blast_radius
+    if (br?.headline) return br.headline
     const n = lpAssessment.consumerCount
     if (n != null && n > 1) {
       return `${n} workloads share this role — LP change may affect more than this path`
     }
     if (n === 1) return "Role attached to 1 workload"
     return null
-  }, [path, lpAssessment.consumerCount])
+  }, [report, lpAssessment.consumerCount])
 
   return (
     <>
@@ -313,8 +600,8 @@ export function DamageAwarePathCard({
                 </>
               )}
             </div>
-            {path.damage_narrative && (
-              <p className="text-[12px] text-foreground leading-snug">{path.damage_narrative}</p>
+            {report.current_state.summary && (
+              <p className="text-[12px] text-foreground leading-snug">{report.current_state.summary}</p>
             )}
           </section>
 
@@ -335,7 +622,7 @@ export function DamageAwarePathCard({
                   return (
                     <div key={verb}>
                       <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
-                        {verbLabel(verb)}
+                        {VERB_LABELS[verb]}
                       </div>
                       {lines.map((line, i) => (
                         <GranularLineRow
@@ -460,7 +747,7 @@ export function DamageAwarePathCard({
           <div className="flex flex-wrap items-center gap-3 text-[10px]">
             <span className="text-muted-foreground uppercase tracking-wider">LP confidence</span>
             <span
-              className={`font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${gateTone(lpAssessment.gate)}`}
+              className={`font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${gateBorder}`}
               title={lpAssessment.reason}
             >
               {lpAssessment.label}

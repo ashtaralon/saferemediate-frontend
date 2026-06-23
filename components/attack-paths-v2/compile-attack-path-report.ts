@@ -32,9 +32,12 @@ import type {
   DamageCell,
   EvidenceGrade,
   GateState,
+  MicroEnforcement,
   MissingEvidence,
+  RiskReduction,
 } from "./attack-path-report-types"
 import { pathSourceLabel, pathIdentityLabel } from "./path-damage-summary"
+import { classifyPathShape, damageVerbPhrase, pathDamageTypes } from "./path-shape"
 
 const COMPILER_VERSION = "bridge-0.1.0"
 
@@ -49,6 +52,26 @@ function grade(
 ): Pick<Claim, "grade" | "can_drive_damage" | "can_drive_remediation"> {
   const authoritative = g === "OBSERVED" || g === "CONFIGURED" || g === "BLOCKED"
   return { grade: g, can_drive_damage: authoritative, can_drive_remediation: authoritative }
+}
+
+/** Map a backend gate string (materialized :AttackPath vocabulary) to the
+ *  GateState enum. Returns undefined for absent/unrecognized values so the
+ *  caller can fall back to FE claim-derivation. */
+export function toGateState(s?: string | null): GateState | undefined {
+  switch ((s ?? "").toUpperCase()) {
+    case "OPEN_OBSERVED":
+      return "OPEN_OBSERVED"
+    case "OPEN_CONFIG":
+      return "OPEN_CONFIG"
+    case "CLOSED":
+      return "CLOSED"
+    case "BLOCKED":
+      return "BLOCKED"
+    case "UNKNOWN":
+      return "UNKNOWN"
+    default:
+      return undefined
+  }
 }
 
 /** R1 — derive a gate from its required claims' grades. */
@@ -146,6 +169,16 @@ export function compileAttackPathReport(
   const roleLabel = pathIdentityLabel(path)
   const targetLabel = jewel?.name ?? dc?.jewel_name ?? jewelNode?.name ?? "crown jewel"
 
+  // Closure diff (the FE's authoritative "excess to strip" signal) and path
+  // shape — needed up-front so the identity claims + narrative branch per shape
+  // (spec §1.1) instead of always rendering the Shape-A compute-excess story.
+  const removed = closure?.diff.removed_actions ?? []
+  const kept = closure?.diff.kept_actions ?? []
+  const scoped = closure?.diff.scoped_to_prefixes ?? []
+  const shape = classifyPathShape(path, closure ? removed : undefined)
+  const damageTypes = pathDamageTypes(path)
+  const damageVerbs = damageVerbPhrase(damageTypes)
+
   const claims: Claim[] = []
   const missing: MissingEvidence[] = []
 
@@ -185,14 +218,40 @@ export function compileAttackPathReport(
   claims.push(...entryClaims)
 
   // ── Identity claims (R1: observed only if evidence touches the identity) ─
+  // Branch by shape: the IMDS instance-credential chain is a COMPUTE primitive
+  // — emit it only when a workload is actually on the path (Shape A / hybrid),
+  // never on an identity-only assume path (Shape B) where it would assert a
+  // compromise that isn't there. Shape B's identity story is the assume hop.
   const identityClaims: Claim[] = []
-  if (roleNode || dc?.role_name) {
+  if (shape.hasCompute && (roleNode || dc?.role_name)) {
     identityClaims.push({
       id: "identity.imds_chain",
       text: `If ${sourceLabel} is compromised, instance credentials via IMDS resolve to ${roleLabel}`,
       source_refs: [{ kind: "model_rule", id: "imds_instance_profile_chain" }],
       ...grade("INFERRED"), // modeled attacker primitive — narrative only (R2)
     })
+  }
+  if (shape.hasAssume && shape.assume) {
+    // Shape B — the sts:AssumeRole pivot (entry → assumes → assumed). Observed
+    // in CloudTrail → OPEN_OBSERVED; trust-policy-only → OPEN_CONFIG (spec §4.1).
+    const a = shape.assume
+    identityClaims.push({
+      id: "identity.assume_hop",
+      text: a.observed
+        ? `An attacker holding \`${a.entryRole}\` can assume \`${a.assumedRole}\` — Cyntro observed this sts:AssumeRole call${
+            a.hitCount ? ` (${a.hitCount}×)` : ""
+          } in CloudTrail. No workload compromise is needed; the identity already has standing access`
+        : `\`${a.entryRole}\` is permitted to assume \`${a.assumedRole}\` (sts:AssumeRole allowed by trust policy; not yet observed in CloudTrail)`,
+      source_refs: [
+        {
+          kind: "neo4j_edge",
+          property: "ASSUMES_ROLE_ACTUAL",
+          value: a.observed,
+        },
+      ],
+      ...grade(a.observed ? "OBSERVED" : "CONFIGURED"),
+    })
+  } else if (roleNode || dc?.role_name) {
     const roleIds = new Set(
       [roleNode?.id, ...nodes.filter((n) => isPrincipalNodeType(n.type)).map((n) => n.id)].filter(
         Boolean,
@@ -291,9 +350,6 @@ export function compileAttackPathReport(
   claims.push(...dataClaims)
 
   // ── GAP + damage matrix (driven ONLY by authoritative claims, R2) ──────
-  const removed = closure?.diff.removed_actions ?? []
-  const kept = closure?.diff.kept_actions ?? []
-  const scoped = closure?.diff.scoped_to_prefixes ?? []
   let gapClaim: Claim | null = null
   if (removed.length > 0) {
     gapClaim = {
@@ -310,12 +366,24 @@ export function compileAttackPathReport(
   const allowedActions = [...new Set([...(dc?.direct_actions ?? []), ...removed, ...kept])]
   const damage_matrix = buildDamageMatrix(allowedActions, damageDrivers, "CONFIGURED", scoped)
 
-  // ── Gates (derived, R1) ───────────────────────────────────────────────
+  // ── Gates ─────────────────────────────────────────────────────────────
+  // The backend's materialized :AttackPath node is AUTHORITATIVE for gate
+  // state (it computed identity/route/data_plane against CloudTrail + config).
+  // Trust it when present; only fall back to the FE claim-derivation (R1) for
+  // pure-synthesis paths with no materialized node. Re-deriving over the FE's
+  // partial `edges[]` was silently downgrading an observed identity gate to
+  // OPEN_CONFIG (the serialized path doesn't always carry the observed edge,
+  // but the backend already graded it OPEN_OBSERVED).
+  const mp = path.materialized_path
   const derivedGates = {
     entry: deriveGate(entryClaims),
-    identity: deriveGate(identityClaims.filter((c) => c.grade !== "INFERRED")),
-    network: deriveGate(networkClaims),
-    data_plane: deriveGate(dataClaims.filter((c) => c.id === "data_plane.gate")),
+    identity:
+      toGateState(mp?.identity_gate) ??
+      deriveGate(identityClaims.filter((c) => c.grade !== "INFERRED")),
+    network: toGateState(mp?.route_gate) ?? deriveGate(networkClaims),
+    data_plane:
+      toGateState(mp?.data_plane_gate) ??
+      deriveGate(dataClaims.filter((c) => c.id === "data_plane.gate")),
   }
 
   // ── Attacker steps (claim-grounded prose) ─────────────────────────────
@@ -331,7 +399,7 @@ export function compileAttackPathReport(
   if (identityClaims.length > 0) {
     attacker_steps.push({
       phase: "BECOME_IDENTITY",
-      title: "Become the role",
+      title: shape.hasAssume && !shape.hasCompute ? "Pivot via sts:AssumeRole" : "Become the role",
       body: identityClaims.map((c) => c.text).join(". ") + ".",
       claim_ids: identityClaims.map((c) => c.id),
     })
@@ -371,6 +439,107 @@ export function compileAttackPathReport(
   const chainOpen =
     derivedGates.network !== "CLOSED" && derivedGates.data_plane !== "CLOSED"
 
+  // Shape-aware executive headline (spec §4). Composed from structured fields —
+  // NEVER by string-splitting business_sentence. Shape A keeps the renderer's
+  // existing diff-driven summary, so headline stays undefined there.
+  let headline: string | undefined
+  if (shape.kind === "B" && shape.assume) {
+    const a = shape.assume
+    headline =
+      `\`${a.entryRole}\` already holds standing access and can ` +
+      `${a.observed ? "assume" : "be permitted to assume"} \`${a.assumedRole}\`` +
+      `${
+        a.observed
+          ? ` — Cyntro observed this sts:AssumeRole${a.hitCount ? ` ${a.hitCount}×` : ""} in CloudTrail`
+          : " (allowed by trust policy, not yet observed)"
+      }` +
+      ` — to ${damageVerbs} in ${targetLabel}. No workload compromise is needed; the identity already has standing access.`
+  } else if (shape.kind === "C") {
+    headline =
+      `\`${roleLabel}\` is already scoped to what it uses — there is no unused permission to remove. ` +
+      `The exposure is the standing reach itself: it can ${damageVerbs} ${targetLabel}. ` +
+      `Containment here is network/route restriction or a review of the standing grant, not a least-privilege trim.`
+  }
+
+  // ── Micro-enforcement (the fix, decomposed across planes) ─────────────
+  // Built ONLY from real closure-diff signal — one plane per layer that has
+  // backing, so the "fix you approve" strip never invents a plane:
+  //   • micro_permissions (IAM) — strip the unused dangerous actions (closure)
+  //   • micro_access (DATA)      — scope to the prefixes actually touched
+  //   • micro_segmentation (NET) — only when a route gate exists; marked
+  //     pending when per-port flow isn't collected (honest, not overclaimed)
+  const micro_enforcement: MicroEnforcement[] = []
+  if (closure) {
+    const removedCats = new Set(
+      buildDamageMatrix(removed, [], "CONFIGURED", scoped).map((c) => c.category),
+    )
+    const permReduces: RiskReduction[] = []
+    if (removedCats.has("READ")) permReduces.push("DATA_READ_EXPOSURE")
+    if (removedCats.has("DELETE")) permReduces.push("DATA_DELETE_DAMAGE")
+    if (removedCats.has("ADMIN")) permReduces.push("DATA_ADMIN_DAMAGE")
+    micro_enforcement.push({
+      plane: "micro_permissions",
+      title: "Micro-permission",
+      layer: "IAM",
+      evidence_grade: "CONFIGURED",
+      summary:
+        removed.length > 0
+          ? `Strip the ${removed.length} IAM action${removed.length === 1 ? "" : "s"} never used in the observed window; keep the ${kept.length} it actually uses.`
+          : `Keep the ${kept.length} action${kept.length === 1 ? "" : "s"} it actually uses — nothing unused to strip.`,
+      remove: removed,
+      keep: kept,
+      scope_to: [],
+      claim_ids: gapClaim ? [gapClaim.id] : [],
+      reduces: permReduces,
+    })
+    if (scoped.length > 0) {
+      micro_enforcement.push({
+        plane: "micro_access",
+        title: "Micro-access",
+        layer: "DATA",
+        evidence_grade: "CONFIGURED",
+        summary: `Scope data access to ${scoped.join(", ")} — what the role actually touches.`,
+        remove: [],
+        keep: kept,
+        scope_to: scoped,
+        claim_ids: gapClaim ? [gapClaim.id] : [],
+        reduces: ["DATA_READ_EXPOSURE"],
+      })
+    }
+    if (gates) {
+      micro_enforcement.push({
+        plane: "micro_segmentation",
+        title: "Micro-segmentation",
+        layer: "NETWORK",
+        evidence_grade: gates.network_reachable ? "CONFIGURED" : "BLOCKED",
+        summary:
+          gates.network_reason ??
+          (gates.network_reachable
+            ? "Keep the network blast radius contained to the route actually used."
+            : "Network controls already break this route."),
+        remove: [],
+        keep: [],
+        scope_to: [],
+        claim_ids: networkClaims.map((c) => c.id),
+        pending_signal: "per-port observed flow for this role",
+        reduces: ["FOOTHOLD_EXPOSURE"],
+      })
+    }
+  }
+
+  // Humanize the closure's worst-damage tokens (e.g. "delete_object" → "delete
+  // objects", "read" → "read-only") for the "after the safe fix" line — the raw
+  // closure tokens are technical and read poorly in the plain-words card.
+  const humanizeDamage = (s?: string | null): string => {
+    const t = (s ?? "").toLowerCase()
+    if (!t) return "standing access"
+    if (/delete/.test(t)) return "delete objects"
+    if (/admin|acl|policy|posture/.test(t)) return "change bucket posture"
+    if (/write|put|tamper/.test(t)) return "write / tamper objects"
+    if (/read|get|list/.test(t)) return "read-only"
+    return t.replace(/_/g, " ")
+  }
+
   return {
     report_id: `bridge-${path.id}`,
     report_version: "1",
@@ -383,6 +552,8 @@ export function compileAttackPathReport(
       source_label: sourceLabel,
       target_label: targetLabel,
       summary: path.damage_narrative ?? "",
+      shape: shape.kind,
+      headline,
     },
     claims,
     gates: derivedGates,
@@ -432,9 +603,12 @@ export function compileAttackPathReport(
           remove_damage_cells: buildDamageMatrix(removed, [], "CONFIGURED", scoped).map(
             (c) => c.cell_id,
           ),
-          expected_result: `worst case ${closure.after.worst_damage_before} → ${closure.after.worst_damage_after}; function preserved`,
+          expected_result: `Keeps what it uses (worst case drops to ${humanizeDamage(
+            closure.after.worst_damage_after,
+          )}); function preserved.`,
         }
       : null,
+    micro_enforcement,
     missing_evidence: missing,
   }
 }

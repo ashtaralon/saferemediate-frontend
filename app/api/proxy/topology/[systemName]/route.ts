@@ -1,35 +1,36 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com";
+export const runtime = "nodejs"
+export const maxDuration = 60
+
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { systemName: string } }
+  { params }: { params: Promise<{ systemName: string }> },
 ) {
   try {
-    const { systemName } = params;
-    
-    const response = await fetch(`${BACKEND_URL}/api/topology/${systemName}`, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-    });
+    const { systemName } = await params
+    const shape = request.nextUrl.searchParams.get("shape") ?? "full"
 
+    const url = `${BACKEND_URL}/api/topology/${encodeURIComponent(systemName)}?shape=${encodeURIComponent(shape)}`
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    })
+
+    const data = await response.json().catch(() => ({}))
     if (!response.ok) {
-      return NextResponse.json(
-        { error: `Backend returned ${response.status}` },
-        { status: response.status }
-      );
+      return NextResponse.json(data, { status: response.status })
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data)
   } catch (error) {
-    console.error('Topology proxy error:', error);
+    console.error("[topology proxy]", error)
     return NextResponse.json(
-      { error: 'Failed to fetch topology data' },
-      { status: 500 }
-    );
+      { error: "proxy_failed", detail: "Failed to fetch topology data" },
+      { status: 500 },
+    )
   }
 }

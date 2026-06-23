@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 
 // =============================================================================
 // AttackPathReport proxy — GET /api/proxy/attack-paths/path/<pathId>/report
 // Forwards to the backend Attack-Path Compiler's canonical report:
 //   GET <backend>/api/attack-paths/<pathId>/report
-// The compiler owns claims / grades / derived gates / damage matrix / diff
-// hashes; the frontend only renders. NO MOCK: on backend error (including
-// 404 while the compiler isn't deployed yet) this returns an honest error
-// envelope — use-attack-path-report.ts then falls back to the client-side
-// bridge compiler over the same real fields.
 // =============================================================================
 
 export const runtime = "nodejs"
@@ -18,9 +15,55 @@ export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
 
-interface ProxyError {
+type ProxyErrorBody = {
   error: string
-  detail?: string
+  code: string
+  detail: string
+  path_id: string
+  backendStatus?: number
+  origin: "proxy"
+}
+
+function reportError(
+  pathId: string,
+  code: string,
+  detail: string,
+  status: number,
+  backendStatus?: number,
+): NextResponse {
+  const body: ProxyErrorBody = {
+    error: "attack_path_report_unavailable",
+    code,
+    detail,
+    path_id: pathId,
+    backendStatus,
+    origin: "proxy",
+  }
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  })
+}
+
+function parseBackendErrorBody(text: string, status: number): { code: string; detail: string } {
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown; error?: unknown }
+    const detail = coerceProxyErrorMessage(parsed, text.slice(0, 400) || `backend ${status}`)
+    const code =
+      typeof parsed.detail === "string" && parsed.detail.includes("not found")
+        ? "ATTACK_PATH_NOT_FOUND"
+        : status === 404
+          ? "ATTACK_PATH_NOT_FOUND"
+          : status === 503
+            ? "NEO4J_UNAVAILABLE"
+            : "REPORT_UNAVAILABLE"
+    return { code, detail }
+  } catch {
+    return {
+      code: status === 404 ? "ATTACK_PATH_NOT_FOUND" : "REPORT_UNAVAILABLE",
+      detail: text.slice(0, 400) || `backend ${status}`,
+    }
+  }
 }
 
 export async function GET(
@@ -29,10 +72,11 @@ export async function GET(
 ) {
   const { pathId } = await params
   if (!pathId) {
-    return NextResponse.json<ProxyError>(
-      { error: "missing_path_id", detail: "pathId path segment is required" },
-      { status: 400 },
-    )
+    return backendError({
+      status: 400,
+      message: "missing_path_id",
+      detail: "pathId path segment is required",
+    })
   }
 
   const cacheKey = `attack-path-report:${pathId}`
@@ -54,9 +98,13 @@ export async function GET(
     )
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      return NextResponse.json<ProxyError>(
-        { error: "attack_path_report_unavailable", detail: `backend ${res.status} ${text.slice(0, 200)}` },
-        { status: res.status === 404 ? 404 : 502 },
+      const { code, detail } = parseBackendErrorBody(text, res.status)
+      return reportError(
+        pathId,
+        code,
+        detail,
+        res.status === 404 ? 404 : 502,
+        res.status,
       )
     }
     const data = await res.json()
@@ -67,9 +115,9 @@ export async function GET(
   } catch (err: unknown) {
     const e = err as { name?: string; message?: string }
     const isTimeout = e?.name === "TimeoutError" || e?.name === "AbortError"
-    return NextResponse.json<ProxyError>(
-      { error: isTimeout ? "attack_path_report_timeout" : "attack_path_report_proxy_error", detail: e?.message ?? String(err) },
-      { status: 502 },
-    )
+    if (isTimeout) {
+      return reportError(pathId, "REPORT_TIMEOUT", e?.message ?? "Backend request timed out", 504)
+    }
+    return fromCaughtError(err)
   }
 }

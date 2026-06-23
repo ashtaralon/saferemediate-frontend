@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
+import {
+  backendError,
+  fromCaughtError,
+} from "@/lib/server/proxy-error"
 
 // Proxy → real backend /api/security-groups/{sgId}/gap-analysis endpoint
-// that returns per-rule recommendation + confidence + traffic. Different
-// from the legacy /gap-analysis proxy in this directory, which actually
-// hits the /inspector endpoint and is lossy (drops recommendation +
-// traffic). The new sg-remediation-card.tsx needs the raw per-rule
-// confidence to match the IAM-modal design language.
+// that returns per-rule recommendation + confidence + traffic.
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
-export const maxDuration = 30
+export const maxDuration = 60
 export const dynamic = "force-dynamic"
+
+const CACHE_TTL_MS = 2 * 60 * 1000
+const cache: Record<string, { data: unknown; timestamp: number }> = {}
 
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ sgId: string }> | { sgId: string } },
 ) {
+  let sgId = ""
   try {
-    let sgId: string
     if (context.params instanceof Promise) {
       const resolved = await context.params
       sgId = resolved.sgId
@@ -32,9 +35,16 @@ export async function GET(
       )
     }
 
+    const cached = cache[sgId]
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return NextResponse.json(cached.data, {
+        headers: { "X-Cache": "HIT", "Cache-Control": "no-store" },
+      })
+    }
+
     const backendUrl = `${BACKEND_URL}/api/security-groups/${sgId}/gap-analysis`
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 25000)
+    const timeoutId = setTimeout(() => controller.abort(), 55000)
 
     const res = await fetch(backendUrl, {
       headers: { Accept: "application/json" },
@@ -45,34 +55,41 @@ export async function GET(
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[SG Rule Analysis] Backend ${res.status}: ${errorText}`)
-      return NextResponse.json(
-        {
-          sg_id: sgId,
-          rules_analysis: [],
-          total_rules: 0,
-          error: true,
-          message: `Backend error: ${res.status}`,
-        },
-        { status: 200 },
-      )
+      const detail = await res.text().catch(() => "")
+      console.error(`[SG Rule Analysis] Backend ${res.status}: ${detail.slice(0, 200)}`)
+      return backendError({
+        status: res.status,
+        message: `Security group gap-analysis returned ${res.status}`,
+        detail: detail.slice(0, 500),
+      })
     }
 
     const data = await res.json()
-    return NextResponse.json(data)
-  } catch (error: any) {
-    console.error("[SG Rule Analysis] Error:", error.message)
-    return NextResponse.json(
-      {
-        rules_analysis: [],
-        total_rules: 0,
-        error: true,
-        timeout: error.name === "AbortError",
-        message:
-          error.name === "AbortError" ? "Request timed out" : error.message,
-      },
-      { status: 200 },
+    cache[sgId] = { data, timestamp: Date.now() }
+    return NextResponse.json(data, {
+      headers: { "X-Cache": "MISS", "Cache-Control": "no-store" },
+    })
+  } catch (error: unknown) {
+    console.error(
+      "[SG Rule Analysis] Error:",
+      error instanceof Error ? error.message : error,
     )
+    const cached = sgId ? cache[sgId] : undefined
+    if (
+      error instanceof Error &&
+      error.name === "AbortError" &&
+      cached
+    ) {
+      return NextResponse.json(
+        { ...cached.data, fromStaleCache: true, staleReason: "timeout" },
+        {
+          headers: {
+            "X-Cache": "STALE",
+            "Cache-Control": "no-store",
+          },
+        },
+      )
+    }
+    return fromCaughtError(error)
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import {
   layoutPayload,
   type AttackMapPayload,
@@ -63,19 +64,11 @@ export function useCyntroAttackMap(
 
         if (!payloadRes.ok) {
           const body = await payloadRes.json().catch(() => ({}))
-          throw new Error(
-            (body as { detail?: string; error?: string }).detail ??
-              (body as { error?: string }).error ??
-              `attack-map ${payloadRes.status}`,
-          )
+          throw new Error(coerceProxyErrorMessage(body, `attack-map ${payloadRes.status}`))
         }
         if (!topoRes.ok) {
           const body = await topoRes.json().catch(() => ({}))
-          throw new Error(
-            (body as { detail?: string; error?: string }).detail ??
-              (body as { error?: string }).error ??
-              `topology ${topoRes.status}`,
-          )
+          throw new Error(coerceProxyErrorMessage(body, `topology ${topoRes.status}`))
         }
 
         const rawPayload = (await payloadRes.json()) as AttackMapPayload

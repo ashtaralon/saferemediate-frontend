@@ -15,8 +15,8 @@ export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
       role="group"
       aria-label="Map view"
     >
-      <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-        Map
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-foreground">
+        Map view
       </span>
       <div className="flex rounded-lg border border-border bg-muted/50 p-0.5 shadow-inner">
         <button
@@ -44,6 +44,19 @@ export function MapViewToggle({ variant, onChange }: MapViewToggleProps) {
           }`}
         >
           Grid
+        </button>
+        <button
+          type="button"
+          data-testid="map-view-surface"
+          aria-pressed={variant === "surface"}
+          onClick={() => onChange("surface")}
+          className={`rounded-md px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
+            variant === "surface"
+              ? "bg-background text-foreground shadow-sm border border-border/60"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Surface
         </button>
       </div>
     </div>

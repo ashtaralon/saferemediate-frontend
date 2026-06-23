@@ -49,13 +49,35 @@ import { AttackerViewV3 } from "./attacker-view-v3"
 import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
+import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
+import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
+import { AttackExplorer } from "./attack-explorer"
+import { ConvergencePathList } from "./convergence-path-list"
+import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
+import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
+import {
+  iapPathsToConvergence,
+  matchConvergencePathId,
+} from "@/lib/attack-paths/iap-to-convergence"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
 }
 
-export function AttackPathsV2() {
+export function AttackPathsV2({
+  systemName: systemNameProp,
+  embedded = false,
+}: {
+  // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
+  // the dashboard and wins over the ?system URL param; the shell renders at a
+  // contained height (not full-screen), drops BackToDashboard, and locks the
+  // system to the dashboard's selection. Defaults preserve the standalone
+  // /attack-paths-v2 route behavior exactly.
+  systemName?: string | null
+  embedded?: boolean
+} = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -71,7 +93,11 @@ export function AttackPathsV2() {
   // honestly degrades to an empty state when no system is selected
   // (see EmptyState rendering below), and the system picker upstream
   // is the entry point operators land on.
-  const systemName = searchParams?.get("system") ?? null
+  const systemName = systemNameProp ?? searchParams?.get("system") ?? null
+  // Contained height for the dashboard-embedded tab vs full-screen for the
+  // standalone route. Used by every shell branch (empty/loading/error/main)
+  // so the 3-column layout scrolls inside the tab instead of overflowing.
+  const shellHeight = embedded ? "h-[78vh] min-h-[600px]" : "h-screen"
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   // Exfil tab uses its own per-path selection (orthogonal to attack-path
@@ -109,9 +135,13 @@ export function AttackPathsV2() {
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" =
-    modeParam === "exposure"
+  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence" =
+    modeParam === "explorer"
+      ? "explorer"
+      : modeParam === "exposure"
       ? "exposure"
+      : modeParam === "convergence"
+        ? "convergence"
       : modeParam === "attacker_v2"
         ? "attacker_v2"
         : modeParam === "phase"
@@ -120,7 +150,9 @@ export function AttackPathsV2() {
             ? "exfil"
             : modeParam === "topology"
               ? "topology"
-              : // Legacy "path" / "attacker" both collapse into the
+              : modeParam === "lateral"
+                ? "lateral"
+                : // Legacy "path" / "attacker" both collapse into the
                 // merged "attack-path" (URL gets rewritten by the
                 // useEffect below so deep links stop showing the old
                 // param values).
@@ -322,6 +354,62 @@ export function AttackPathsV2() {
     },
   )
 
+  const selectedJewel = useMemo(
+    () => jewels.find((j) => j.id === selectedJewelId) ?? null,
+    [jewels, selectedJewelId],
+  )
+
+  const convergenceFetchUrl = useMemo(() => {
+    if (viewMode !== "convergence" || !systemName || !selectedJewel) return null
+    return buildConvergenceFetchUrl(systemName, selectedJewel)
+  }, [viewMode, systemName, selectedJewel])
+
+  const {
+    data: convergenceData,
+    loading: convergenceLoading,
+    error: convergenceError,
+    retry: convergenceRetry,
+  } = useCachedFetch<CrownJewelConvergence>(convergenceFetchUrl, {
+    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}`,
+  })
+
+  const iapConvergenceFallback = useMemo(() => {
+    if (!systemName || !selectedJewel || jewelPaths.length === 0) return null
+    return iapPathsToConvergence(systemName, selectedJewel, jewelPaths)
+  }, [systemName, selectedJewel, jewelPaths])
+
+  const convergenceSource = useMemo((): "live" | "fallback" => {
+    if (convergenceData?.paths?.length) return "live"
+    return "fallback"
+  }, [convergenceData])
+
+  const effectiveConvergenceData = useMemo((): CrownJewelConvergence | null => {
+    if (convergenceData?.paths?.length) return convergenceData
+    return iapConvergenceFallback
+  }, [convergenceData, iapConvergenceFallback])
+
+  const convergencePathId = useMemo(
+    () =>
+      effectiveConvergenceData
+        ? matchConvergencePathId(
+            effectiveConvergenceData.paths,
+            selectedPathId,
+            jewelPaths,
+          )
+        : null,
+    [effectiveConvergenceData, selectedPathId, jewelPaths],
+  )
+
+  // Auto-select first convergence path when entering the tab.
+  useEffect(() => {
+    if (viewMode !== "convergence") return
+    if (!effectiveConvergenceData?.paths?.length) return
+    if (convergencePathId) return
+    const firstId = effectiveConvergenceData.paths[0]?.path_id
+    if (firstId) setUrl({ path: firstId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, effectiveConvergenceData, convergencePathId])
+
   // Auto-select the first exfil path when data arrives + URL doesn't
   // already specify one (or specifies a stale id no longer in the
   // list). Backend pre-sorts paths[] highest-traffic first, so this
@@ -364,6 +452,7 @@ export function AttackPathsV2() {
   // un-selected lower in the list. Auto-selecting the most-observed
   // path means operators see the real attack first.
   useEffect(() => {
+    if (viewMode === "convergence") return
     if (!selectedJewelId) return
     if (selectedPathId) return
     if (jewelPaths.length === 0) return
@@ -392,7 +481,7 @@ export function AttackPathsV2() {
     // current URL params so its identity changes on every render; we
     // only want to trigger when jewel selection or path-set changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedJewelId, selectedPathId, jewelPaths])
+  }, [selectedJewelId, selectedPathId, jewelPaths, viewMode])
 
   // Selection helpers — write to URL so deep links work and the
   // browser back button restores state.
@@ -423,7 +512,7 @@ export function AttackPathsV2() {
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => {
+  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence") => {
     // Switching to exposure / phase / topology clears the path
     // selection — those aggregate across paths (phase shows every
     // chain targeting the jewel; topology / exposure are jewel-scoped
@@ -469,7 +558,7 @@ export function AttackPathsV2() {
   // manually instead of staring at a spinner.
   if (!systemName) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-6">
+      <div className={`flex ${shellHeight} items-center justify-center bg-background p-6`}>
         <div className="rounded-xl border border-border bg-card p-6 max-w-md w-full">
           <div className="text-sm font-semibold text-foreground mb-1">
             Select a system
@@ -515,7 +604,7 @@ export function AttackPathsV2() {
   // ─── Loading / error states ────────────────────────────────────
   if (isLoading && !data) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="flex items-center gap-3 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Loading attack paths for {systemName}…</span>
@@ -526,7 +615,7 @@ export function AttackPathsV2() {
 
   if (error && !data) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 max-w-md">
           <div className="flex items-center gap-2 text-destructive mb-2">
             <AlertTriangle className="h-5 w-5" />
@@ -546,25 +635,33 @@ export function AttackPathsV2() {
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+    <div className={`flex ${shellHeight} bg-background text-foreground overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
         className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
-            <BackToDashboard
-              className="p-1.5 -ml-1.5 rounded-md hover:bg-accent transition-colors shrink-0"
-              iconClassName="w-4 h-4 text-muted-foreground"
-            />
+            {!embedded && (
+              <BackToDashboard
+                className="p-1.5 -ml-1.5 rounded-md hover:bg-accent transition-colors shrink-0"
+                iconClassName="w-4 h-4 text-muted-foreground"
+              />
+            )}
             <div className="min-w-0 flex-1">
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 CYNTRO · ATTACK PATHS V2
               </div>
-              {/* System switcher — operator can swap to a different
-                  system without leaving the page. Replaces the
-                  static label that locked them in once auto-redirect
-                  picked a wrong system. */}
+              {/* Standalone route: switcher lets the operator swap system
+                  without leaving the page. Embedded in the dashboard tab:
+                  the system is fixed by the dashboard's selection (the prop
+                  wins over ?system), so we render a static label instead of
+                  a switcher that would desync from the dashboard. */}
+              {embedded ? (
+                <div className="text-sm font-semibold text-foreground truncate">
+                  {systemName}
+                </div>
+              ) : (
               <SystemSwitcher
                 currentSystem={systemName}
                 availableSystems={availableSystems}
@@ -578,6 +675,7 @@ export function AttackPathsV2() {
                   router.replace(`${pathname}?${params.toString()}`)
                 }}
               />
+              )}
               <div className="text-[11px] text-muted-foreground mt-0.5">
                 {allPaths.length} paths · {jewels.length} crown jewels
               </div>
@@ -596,7 +694,7 @@ export function AttackPathsV2() {
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "explorer" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -611,8 +709,15 @@ export function AttackPathsV2() {
             paths={exfilData?.paths ?? []}
             selectedPathId={selectedExfilPathId}
             onSelectPath={handleSelectExfilPath}
-            jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
+            jewelName={selectedJewel?.name ?? null}
             loading={exfilLoading}
+          />
+        ) : viewMode === "convergence" ? (
+          <ConvergencePathList
+            paths={effectiveConvergenceData?.paths ?? []}
+            selectedPathId={convergencePathId}
+            onSelectPath={handleSelectPath}
+            loading={convergenceLoading && !effectiveConvergenceData}
           />
         ) : (
           <PathListGrouped
@@ -629,7 +734,27 @@ export function AttackPathsV2() {
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
-        {viewMode === "topology" ? (
+        {viewMode === "explorer" ? (
+          <>
+            <ModeToggle
+              mode={viewMode}
+              onChange={handleSetMode}
+              jewelName={null}
+              pathCount={allPaths.length}
+              isExpanded={isPathExpanded}
+              onToggleExpand={handleToggleExpand}
+              showBeta={showBeta}
+            />
+            <div style={{ height: "calc(100vh - 150px)" }}>
+              <AttackExplorer
+                jewels={jewels}
+                paths={[...allPaths]}
+                systemName={systemName}
+                onOpenFull={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId, mode: "attack-path" })}
+              />
+            </div>
+          </>
+        ) : viewMode === "topology" ? (
           <>
             <ModeToggle
               mode={viewMode}
@@ -640,7 +765,17 @@ export function AttackPathsV2() {
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            <TopologyView systemName={systemName} selectedPath={selectedPath ?? null} />
+            {jewels.length > 0 ? (
+              <TopologyAttackGraph
+                systemName={systemName}
+                initialJewel={selectedJewel ?? jewels[0]}
+                jewels={jewels}
+              />
+            ) : (
+              <div className="flex h-[760px] items-center justify-center text-sm text-slate-400">
+                No crown jewels on this system yet — connect collectors to populate.
+              </div>
+            )}
           </>
         ) : !selectedJewelId ? (
           // 2026-05-30: aggregated view replaces the old "select a
@@ -746,6 +881,45 @@ export function AttackPathsV2() {
                   onSelectPath={handleSelectExfilPath}
                 />
               )
+            ) : viewMode === "lateral" ? (
+              // Lateral Movement — light blast-radius view: for each role on
+              // the selected path, the OTHER resources it can also reach. The
+              // panel fetches the per-path facade so it has the graph-view
+              // canvas (real lateral fan-out), then derives the reach groups.
+              !selectedPath || !selectedJewelId ? (
+                <EmptyState
+                  title="Select a path"
+                  subtitle="Lateral movement shows where this path's identity can pivot next — sibling resources each role on the path can also touch. Pick a path on the left."
+                  large
+                />
+              ) : (
+                <LateralMovementPanel
+                  systemName={systemName}
+                  jewelId={selectedJewelId}
+                  pathId={selectedPath.id}
+                  pathFromPage={selectedPath}
+                  jewelFromPage={selectedJewel}
+                  siblingPathsFromPage={jewelPaths}
+                />
+              )
+            ) : viewMode === "convergence" ? (
+              selectedJewel ? (
+                <CrownJewelConvergenceView
+                  jewel={selectedJewel}
+                  data={effectiveConvergenceData}
+                  loading={convergenceLoading && !effectiveConvergenceData}
+                  error={convergenceSource === "live" ? convergenceError : null}
+                  retry={convergenceRetry}
+                  selectedPathId={convergencePathId}
+                  source={convergenceSource}
+                />
+              ) : (
+                <EmptyState
+                  title="Select a crown jewel"
+                  subtitle="Convergence fans every materialized path to the jewel over real subnet and security-group placement."
+                  large
+                />
+              )
             ) : !selectedPath || !selectedJewelId ? (
               <EmptyState
                 title="Select a path"
@@ -799,8 +973,8 @@ function ModeToggle({
   onToggleExpand,
   showBeta = false,
 }: {
-  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
-  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology") => void
+  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence"
+  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -810,7 +984,7 @@ function ModeToggle({
       engineering-internal surfaces out of the default operator UI. */
   showBeta?: boolean
 }) {
-  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology"
+  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence"
   // Capability-named tabs — no version stamps in the operator UI.
   // Engineering context (DTO provenance, phase docs) lives in the
   // title tooltips, not the labels.
@@ -822,9 +996,42 @@ function ModeToggle({
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
     },
     {
+      key: "explorer",
+      label: "Explorer",
+      title:
+        "Account-wide map — every foothold and crown jewel on the system at once. Click a crown jewel to light up all its connections, or a foothold to see everything it reaches.",
+    },
+    {
+      key: "lateral",
+      label: "Lateral Movement",
+      title:
+        "Where this path's identity can pivot next — for each role on the path, the other resources it can also reach (real sibling-neighbor graph data).",
+    },
+    {
+      key: "convergence",
+      label: "Convergence",
+      title:
+        "Every path to this crown jewel, fanned over real AWS subnet and security-group placement — observed vs configured paths ranked together.",
+    },
+    {
       key: "exposure",
       label: "Exposure",
       title: "Aggregate view — every workload, role, and policy that exposes this jewel.",
+    },
+    {
+      key: "exfil",
+      label: "Exfiltration",
+      title:
+        "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
+    },
+    // 2026-06-18: Topology is the new CISO-facing 3-pane Attack Graph on
+    // AWS Topology — promoted out of beta. Attacker Map + Phases stay
+    // behind ?beta=1 as the legacy engineering canvases.
+    {
+      key: "topology" as TabKey,
+      label: "Topology",
+      title:
+        "3-pane Attack Graph on AWS topology — crown jewels left, real VPC containment center, paths ranked by damage right. Every node from Neo4j.",
     },
     ...(showBeta
       ? [
@@ -834,26 +1041,14 @@ function ModeToggle({
             title:
               "Typed, edge-proven canvas — every node and edge comes from an explicit Neo4j relationship; the renderer does zero inference.",
           },
+          {
+            key: "phase" as TabKey,
+            label: "Phases (beta)",
+            title:
+              "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
+          },
         ]
       : []),
-    {
-      key: "phase",
-      label: "Phases",
-      title:
-        "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
-    },
-    {
-      key: "exfil",
-      label: "Exfiltration",
-      title:
-        "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
-    },
-    {
-      key: "topology",
-      label: "Topology",
-      title:
-        "AWS reference-architecture containment — VPC > AZ > Subnet > workloads, with Security Groups as boundaries. Every node sourced from Neo4j.",
-    },
   ]
   return (
     <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
@@ -883,9 +1078,16 @@ function ModeToggle({
           </button>
         ))}
       </div>
-      {/* Quiet context — mode descriptions live in the tab tooltips. */}
+      {/* Quiet context — mode descriptions live in the tab tooltips. The
+         path count is suppressed in topology mode because the canvas
+         displays its own count from /by-crown-jewel (different endpoint,
+         different number). Showing both invites confusion. */}
       <div className="text-[10px] text-muted-foreground min-w-0 truncate flex-1">
-        {jewelName ? `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}` : null}
+        {jewelName
+          ? mode === "topology"
+            ? jewelName
+            : `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}`
+          : null}
       </div>
       <button
         onClick={onToggleExpand}

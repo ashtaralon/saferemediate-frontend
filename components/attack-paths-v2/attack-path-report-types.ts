@@ -212,6 +212,13 @@ export interface AttackPathReport {
     source_label: string
     target_label: string
     summary: string
+    /** Path shape the narrative was composed against (spec §1):
+     *  A = compute-excess, B = assume-chain, C = zero-excess reach. */
+    shape?: "A" | "B" | "C"
+    /** Shape-aware executive headline composed by the compiler from structured
+     *  fields (never by string-splitting business_sentence). The renderer
+     *  prefers this over its Shape-A-only fallback. */
+    headline?: string
   }
 
   claims: Claim[]

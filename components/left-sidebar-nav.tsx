@@ -86,7 +86,7 @@ export function LeftSidebarNav({
     { id: "home", label: "Home", icon: Home, href: "/" },
     { id: "copilot", label: "Ask Copilot", icon: Sparkles, href: "/?section=copilot" },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
-    { id: "least-privilege", label: "Least Privilege", icon: Shield, href: "/?section=least-privilege" },
+    { id: "least-privilege", label: "Resource Risk", icon: Shield, href: "/?section=least-privilege" },
     { id: "attack-paths", label: "Attack Paths", icon: Route, href: "/?section=attack-paths" },
     // v2 redesign — coexists with the legacy section above. Operators
     // can toggle while the redesign is being reviewed. Drop the legacy

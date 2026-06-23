@@ -116,14 +116,25 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                         </span>
                       </>
                     )}
-                    {!notComputed && (jewel.path_count ?? 0) > 0 && (
-                      <>
-                        <span className="text-muted-foreground">·</span>
-                        <span className="tabular-nums">
-                          {jewel.path_count} path{(jewel.path_count ?? 0) > 1 ? "s" : ""}
-                        </span>
-                      </>
-                    )}
+                    {!notComputed && (() => {
+                      // P0.5 — primary count is in_system only when
+                      // class_counts is populated; cross-system paths
+                      // (platform_access / external_pivot / etc.)
+                      // surface in the secondary line below the row.
+                      // When class_counts is absent (BE migration
+                      // window), fall back to legacy path_count.
+                      const cc = jewel.class_counts
+                      const inSystem = cc != null ? (cc.in_system ?? 0) : (jewel.path_count ?? 0)
+                      if (inSystem <= 0) return null
+                      return (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="tabular-nums">
+                            {inSystem} path{inSystem > 1 ? "s" : ""}
+                          </span>
+                        </>
+                      )
+                    })()}
                     {!notComputed && (
                       <MaterializedScopeBadge
                         surfaced={jewel.path_count ?? 0}
@@ -140,6 +151,29 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                       </>
                     )}
                   </div>
+                  {/* P0.5 secondary line — cross-system breakdown so
+                     the operator sees where the non-in-system paths
+                     went after the primary number switched to in_system
+                     only (e.g. saferemediate-access-logs had primary
+                     14 before, primary 0 now + this line surfaces the
+                     14 platform-access paths from cyntroprod). */}
+                  {!notComputed && (() => {
+                    const cc = jewel.class_counts ?? {}
+                    const parts: string[] = []
+                    if ((cc.service_linked ?? 0) > 0)  parts.push(`+${cc.service_linked} service-linked (gated)`)
+                    if ((cc.platform_access ?? 0) > 0) parts.push(`+${cc.platform_access} platform-access`)
+                    if ((cc.external_pivot ?? 0) > 0)  parts.push(`+${cc.external_pivot} external-pivot`)
+                    if ((cc.unclassified ?? 0) > 0)    parts.push(`+${cc.unclassified} unclassified`)
+                    if (!parts.length) return null
+                    return (
+                      <div
+                        className="text-[9.5px] font-mono text-muted-foreground/70 mt-0.5"
+                        title="Paths reaching this jewel from outside its own attack surface. Service-linked = AWS-managed roles (gated by the phantom filter). Platform-access = Cyntro platform infrastructure (expected). External-pivot = sibling-tenant exposure. Unclassified = classifier hasn't run on the source system yet."
+                      >
+                        {parts.join(" · ")}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
             </button>

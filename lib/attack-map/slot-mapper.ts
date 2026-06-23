@@ -105,6 +105,22 @@ export interface AttackMapPayload {
   blast: {
     crown_jewels_reachable: number;
     shared_workloads: string[];
+    role_reachable_jewels?: Array<{
+      cj_arn: string;
+      cj_name: string;
+      cj_type: string;
+      severity: number;
+      basis: "observed" | "config";
+      via_workloads: string[];
+      path_ids: string[];
+    }>;
+    assume_edges?: Array<{
+      target_role_arn: string;
+      target_role_name?: string | null;
+      basis: "observed" | "config";
+      observed_count?: number | null;
+      last_seen?: string | null;
+    }>;
   };
   fix?: Record<string, unknown>;
   collection_gaps?: string[];
