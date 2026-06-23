@@ -48,13 +48,25 @@ export interface ConvergencePath {
   severity?: string | null
   confidence: string
   hop_count: number
-  routes_via: string[]
-  role_assumption_observed: boolean
+  routes_via?: string[]
+  role_assumption_observed?: boolean
   cj_target_id?: string | null
-  hops: ConvergenceHop[]
+  hops?: ConvergenceHop[]
   /** Multi-edge: one entry per category. Empty list when classifier
    *  hasn't run for this system yet (migration window). */
   initial_access?: InitialAccessEdge[]
+}
+
+export interface CrownJewelConvergenceSummary {
+  system: string
+  cj_arn?: string | null
+  cj_name?: string | null
+  cj_type?: string | null
+  paths_total: number
+  observed_paths: number
+  choke_points: Record<string, number>
+  paths: ConvergencePath[]
+  endpoint?: string
 }
 
 export interface CrownJewelConvergence {

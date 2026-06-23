@@ -91,7 +91,7 @@ export function convergenceToTargetTopology(
 
   const azSet = new Set<string>()
   for (const p of paths) {
-    for (const h of p.hops) {
+    for (const h of p.hops ?? []) {
       if (h.az) azSet.add(h.az)
     }
   }
@@ -125,11 +125,12 @@ export function convergenceToTargetTopology(
   for (const path of paths) {
     const roleHub =
       !!path.identity && (data.choke_points[path.identity] ?? 0) > 1
-    for (let i = 0; i < path.hops.length; i++) {
-      const hop = path.hops[i]
+    const hops = path.hops ?? []
+    for (let i = 0; i < hops.length; i++) {
+      const hop = hops[i]
       addHop(hop, roleHub && hop.plane === "identity")
       if (i === 0) continue
-      const prev = path.hops[i - 1]
+      const prev = hops[i - 1]
       const lens: TargetLens = hop.is_crown_jewel
         ? "reachability"
         : hop.plane === "identity"

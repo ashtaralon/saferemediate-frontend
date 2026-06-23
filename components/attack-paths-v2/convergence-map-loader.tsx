@@ -7,7 +7,10 @@ import type {
   IdentityAttackPath,
 } from "@/components/identity-attack-paths/types"
 import { ConvergenceMap } from "@/components/attack-paths-v2/convergence-map"
-import { useCrownJewelConvergence } from "@/components/attack-paths-v2/use-crown-jewel-convergence"
+import {
+  crownJewelFromArnName,
+  useCrownJewelConvergence,
+} from "@/lib/attack-paths/use-crown-jewel-convergence"
 import {
   iapPathsToConvergence,
   matchConvergencePathId,
@@ -29,11 +32,11 @@ export function ConvergenceMapLoader({
   fallbackJewel?: CrownJewelSummary | null
   fallbackPaths?: IdentityAttackPath[]
 }) {
+  const jewel = crownJewelFromArnName(cjArn, cjName)
   const { data, loading, error, retry } = useCrownJewelConvergence(
     systemName,
-    cjArn,
-    cjName,
-    true,
+    jewel,
+    initialSelectedPathId,
   )
   const [selectedPathId, setSelectedPathId] = useState<string | null>(
     initialSelectedPathId,

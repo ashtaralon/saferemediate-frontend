@@ -259,6 +259,7 @@ export default function DependencyMapTab({
   const spotlightConvergence = useCrownJewelConvergence(
     spotlightJewel ? systemName : null,
     spotlightJewel,
+    spotlightPathId,
   )
 
   // System-wide Crown Jewel list — drives BOTH the always-on amber crown
@@ -582,8 +583,14 @@ export default function DependencyMapTab({
   }, [systemName, resources.length, graphData])
 
   useEffect(() => {
+    // Graph view: TrafficFlowMap owns dep-map fetch via useCachedFetch.
+    // Skipping here removes a duplicate heavy Neo4j call per Topology mount.
+    if (activeView !== 'resource') {
+      setIsLoading(false)
+      return
+    }
     fetchGraphData()
-  }, [fetchGraphData])
+  }, [fetchGraphData, activeView])
 
   useEffect(() => {
     if (activeView === 'resource' && resources.length === 0) {

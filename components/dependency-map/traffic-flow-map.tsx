@@ -6963,6 +6963,8 @@ export default function TrafficFlowMap({
   // silently overwrite the freshly-fetched cyntroprod architecture with
   // alon-prod data — wrong role counts, wrong SG list, all wrong.
   const fetchEpochRef = useRef(0);
+  /** Skip duplicate IAM/SG batch POSTs when useCachedFetch re-fires with same arch. */
+  const lastBatchEnrichmentKeyRef = useRef<string | null>(null);
   const [animate, setAnimate] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -8253,9 +8255,18 @@ export default function TrafficFlowMap({
     setIamEnrichmentFailed(false);
     setSgEnrichmentFailed(false);
 
+    const batchKey = [
+      archForGaps.iamRoles.map((r) => r.name).join(","),
+      archForGaps.securityGroups.map((sg) => sg.id).join(","),
+    ].join("|");
+    const skipBatch = batchKey === lastBatchEnrichmentKeyRef.current;
+    if (!skipBatch) {
+      lastBatchEnrichmentKeyRef.current = batchKey;
+    }
+
     // Background IAM gap-analysis enrichment. Fires-and-forgets;
     // does NOT block the architecture render.
-    if (archForGaps.iamRoles.length > 0) {
+    if (archForGaps.iamRoles.length > 0 && !skipBatch) {
       console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
       const loadIamEnrichment = async () => {
         const roleNames = archForGaps.iamRoles.map(r => r.name);
@@ -8320,7 +8331,7 @@ export default function TrafficFlowMap({
 
     // Background SG rules enrichment (parallel to IAM). Fires-and-
     // forgets; doesn't block architecture render.
-    if (archForGaps.securityGroups.length > 0) {
+    if (archForGaps.securityGroups.length > 0 && !skipBatch) {
       const loadSgEnrichment = async () => {
         const sgIds = archForGaps.securityGroups.map(sg => sg.id);
         try {
