@@ -270,8 +270,9 @@ export default function DependencyMapTab({
   // which resources were jewels — and they had to drill from the home
   // dashboard to even reach the Spotlight strip.
   //
-  // Real data: hits the per-system IAP endpoint (same source as the
-  // home dashboard's Top Damage Paths card via the /all fan-out) and
+  // Real data: hits the lightweight jewels summary endpoint (materialized
+  // AttackPath aggregation — <500ms warm) instead of the full IAP fan-out
+  // that routinely exceeds the 55s proxy budget and surfaces HTTP 502.
   // keeps the full `crown_jewels[]` list so the picker can render rich
   // rows (severity, paths count, priority score). `systemCrownJewelIds`
   // is derived from the list — we add BOTH `id` and `canonical_id`
@@ -302,7 +303,7 @@ export default function DependencyMapTab({
     crown_jewels?: CrownJewelSummary[]
   }
   const iapUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
     : null
   const {
     data: iapData,
