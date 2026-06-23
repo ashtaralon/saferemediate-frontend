@@ -789,6 +789,51 @@ export interface AttackChain {
   hop_count: number
   computed_at: string | null
   schema_version: string
+  /** Severity score (numeric) — emitted by the v2 scorer for ranking. */
+  severity?: number | null
+  severity_components?: unknown
+}
+
+/**
+ * Lightweight summary shape served by `/chains-for-cj/summary` (2026-06-23).
+ *
+ * Purpose: the Crown Jewel Spotlight picker / list view only needs the
+ * fields here to render a row — severity chip, workload→role label,
+ * hop count, damage chips, observed flag. The legacy `/chains-for-cj`
+ * endpoint also returned `hops` (heavy `hops_json` parse) and `node_meta`
+ * (~0.4s × chain-count per-request enrichment loop) — both of which
+ * pushed the response past the 55s proxy timeout on cold-start and to
+ * ~9.5s warm on the worst-case alon-prod CJ.
+ *
+ * The detail endpoint (`/chains-for-cj/detail?chain_id=...`) provides
+ * the missing fields lazily when the operator drills into a chain.
+ *
+ * Field set kept deliberately small — every column added here re-opens
+ * the door to "the summary slowly grew until it matched the legacy
+ * endpoint's runtime." If you need more, ask whether it can be derived
+ * from the existing fields, or fall through to the detail endpoint.
+ */
+export interface AttackChainSummary {
+  id: string
+  cj_arn: string | null
+  cj_name: string | null
+  cj_type: string
+  workload_arn: string | null
+  workload_name: string | null
+  workload_kind: string
+  role_arn: string | null
+  role_name: string | null
+  path_status: AttackChainStatus
+  /** True when path_status === 'OBSERVED'. Server-derived so the picker
+   *  doesn't have to repeat the comparison. */
+  observed: boolean
+  damage_types: AttackChainDamageType[]
+  hop_count: number
+  severity: number | null
+  severity_components: unknown
+  business_sentence: string
+  computed_at: string | null
+  schema_version: string
 }
 
 /** Per-node enrichment surfaced via /chains-for-cj.node_meta.
@@ -850,6 +895,48 @@ export interface AttackChainsResponse {
   /** Set when the crown jewel id didn't resolve to a graph node —
    *  chains[] will be empty in that case. */
   note?: string
+}
+
+/**
+ * Response shape for `/chains-for-cj/summary` (2026-06-23). Same `cj`
+ * envelope as the legacy response, but `chains` is `AttackChainSummary[]`
+ * (no hops, no node_meta) and `stats` only carries the counts the picker
+ * needs to render its header.
+ */
+export interface AttackChainsSummaryResponse {
+  cj: { id: string; name: string; type: string }
+  chains: AttackChainSummary[]
+  stats: {
+    total: number
+    by_status: Partial<Record<AttackChainStatus, number>>
+  }
+  /** True when the backend silently downgraded `rank_by=freshness` to
+   *  `severity` (the summary path can't sort by hop timestamps because
+   *  hops aren't fetched). The picker can show "freshness order
+   *  requires drill-in" when this is set. */
+  rank_substituted?: boolean
+  /** Echoed back by the backend so the renderer can verify which
+   *  endpoint actually answered ("summary" | "detail" | omitted on the
+   *  legacy endpoint). */
+  endpoint?: "summary" | "detail"
+  /** Set when the crown jewel id didn't resolve to a graph node. */
+  note?: string
+}
+
+/**
+ * Response shape for `/chains-for-cj/detail`. Returns ONE chain plus
+ * its node_meta enrichment — paired with `AttackChainsSummaryResponse`
+ * to deliver the full chain payload lazily on row-click.
+ */
+export interface AttackChainDetailResponse {
+  cj: { id: string; name: string; type: string }
+  chain: AttackChain
+  node_meta: Record<string, AttackChainNodeMeta>
+  stats: {
+    hop_count: number
+    nodes_enriched: number
+  }
+  endpoint?: "detail"
 }
 
 /**

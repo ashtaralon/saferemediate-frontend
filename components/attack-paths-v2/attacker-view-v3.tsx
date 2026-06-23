@@ -30,11 +30,13 @@ import {
   type AttackChain,
   type AttackChainHop,
   type AttackChainNodeMeta,
+  type AttackChainSummary,
   type AttackLane,
   type AttackChainStatus,
 } from "@/lib/types"
 import {
-  fetchChainsForCJ,
+  fetchChainsForCJSummary,
+  fetchChainDetailById,
   triggerAttackChainsMaterialization,
 } from "@/lib/api-client"
 import { backendNodeId } from "@/lib/iap-node-id"
@@ -372,14 +374,72 @@ export interface AttackerViewV3Props {
   systemName?: string
 }
 
+/**
+ * Widen an `AttackChainSummary` into a stub `AttackChain` so the
+ * existing `projectChain` / `ChainSummaryBar` / `BusinessSentencePanel`
+ * code paths don't need their own summary-typed branches. Empty
+ * defaults for the heavy fields — they're never rendered through the
+ * selector bar, and the lane grid only renders the selected chain
+ * AFTER its detail has been fetched.
+ *
+ * The stub is essential to the list/detail split (2026-06-23): the
+ * picker / bar can show all N chains for the operator to choose from
+ * without paying the enrichment cost for every chain's hops.
+ */
+function summaryToChainStub(s: AttackChainSummary): AttackChain {
+  return {
+    id: s.id,
+    cj_arn: s.cj_arn,
+    cj_name: s.cj_name,
+    cj_type: s.cj_type,
+    workload_arn: s.workload_arn,
+    workload_name: s.workload_name,
+    workload_kind: s.workload_kind,
+    role_arn: s.role_arn,
+    role_name: s.role_name,
+    path_status: s.path_status,
+    damage_types: s.damage_types,
+    observed_actions: [],
+    observed_prefixes: [],
+    observed_object_keys: [],
+    excess_actions: [],
+    identity_gate: "UNKNOWN",
+    route_gate: "UNKNOWN",
+    data_plane_gate: "UNKNOWN",
+    business_sentence: s.business_sentence,
+    closure_recommendation: {
+      remove_actions: [],
+      keep_actions: [],
+      scope_to_prefixes: [],
+      preserve_kms_chain: false,
+      posture_notes: [],
+      remediation_window_days: 0,
+    },
+    hops: [],
+    hop_count: s.hop_count,
+    computed_at: s.computed_at,
+    schema_version: s.schema_version,
+    severity: s.severity,
+    severity_components: s.severity_components,
+  }
+}
+
 export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV3Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [chains, setChains] = useState<AttackChain[]>([])
+  /** List of summaries powering the chain selector bar. Lightweight —
+   *  no hops, no node_meta. Fast even on the heaviest alon-prod CJ
+   *  (the 9.5s warm / 55s cold timeout the previous flat fetch hit). */
+  const [chainSummaries, setChainSummaries] = useState<AttackChainSummary[]>([])
+  /** Detail for the currently-selected chain. Fetched lazily on row
+   *  click; null when no chain is selected yet or while detail is
+   *  loading. */
+  const [selectedChainDetail, setSelectedChainDetail] = useState<AttackChain | null>(null)
   // node_meta surfaces per-node posture (IMDSv1 enabled, subnet public,
   // bucket KMS key, role allowed_actions, etc.) for chip rendering on
-  // the lane cards. Updated on every fetch — read-time enrichment from
-  // the live graph so running ec2_imds_collector reflects immediately.
+  // the lane cards. Replaced on each detail fetch — scoped to the
+  // selected chain's hops only (rather than aggregated across all
+  // chains as in the legacy flat endpoint).
   const [nodeMeta, setNodeMeta] = useState<Record<string, AttackChainNodeMeta>>({})
   const [cjMeta, setCjMeta] = useState<{ id: string; name: string; type: string }>({
     id: jewelId,
@@ -387,26 +447,45 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
     type: "Unknown",
   })
   const [rankBy, setRankBy] = useState<"severity" | "freshness" | "foothold">("severity")
+  /** True when the backend silently downgraded `rank_by=freshness` to
+   *  `severity` (the summary path can't sort by hop timestamps). MUST
+   *  be rendered, not just stored — silent rank substitution would
+   *  let a demo show "newest first" while actually serving severity
+   *  order. Surfacing it as a chip keeps the operator honest about
+   *  what they're looking at. */
+  const [rankSubstituted, setRankSubstituted] = useState(false)
   const [selectedChainId, setSelectedChainId] = useState<string | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
   const [materializing, setMaterializing] = useState(false)
   const [materializeResult, setMaterializeResult] = useState<string | null>(null)
 
-  // Initial + ranker change fetch
+  // List fetch — runs on mount + when jewel / rank changes.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchChainsForCJ(jewelId, { rank_by: rankBy }).then((res) => {
+    fetchChainsForCJSummary(jewelId, { rank_by: rankBy }).then((res) => {
       if (cancelled) return
       if (res.error) {
         setError(res.error)
       }
-      setChains(res.chains || [])
-      setNodeMeta(res.node_meta || {})
+      setChainSummaries(res.chains || [])
       setCjMeta(res.cj || { id: jewelId, name: jewelName || jewelId, type: "Unknown" })
-      // Auto-select the first chain (highest-severity after rank)
+      // Backend honestly flags when it downgraded our rank choice
+      // (freshness → severity, because summary can't sort by hop
+      // timestamps without parsing hops). We surface that to the
+      // operator via a chip in the bar — never let the substitution
+      // be silent.
+      setRankSubstituted(Boolean(res.rank_substituted))
+      // Auto-select the first chain (worst by rank). This triggers
+      // the detail-fetch effect below.
       if (res.chains?.length) {
         setSelectedChainId((prev) => prev ?? res.chains[0].id)
+      } else {
+        setSelectedChainId(null)
+        setSelectedChainDetail(null)
+        setNodeMeta({})
       }
       setLoading(false)
     })
@@ -415,7 +494,54 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
     }
   }, [jewelId, jewelName, rankBy])
 
-  const projected = useMemo<ProjectedChain[]>(() => chains.map(projectChain), [chains])
+  // Detail fetch — runs whenever the operator picks a different chain.
+  // Pays the per-chain enrichment cost (~10-20 hop ids) instead of the
+  // legacy aggregated cost (~220 hop ids on the worst-case CJ).
+  useEffect(() => {
+    if (!selectedChainId) {
+      setSelectedChainDetail(null)
+      setNodeMeta({})
+      setDetailError(null)
+      return
+    }
+    let cancelled = false
+    setDetailLoading(true)
+    setDetailError(null)
+    fetchChainDetailById(selectedChainId).then((res) => {
+      if (cancelled) return
+      if (res.error || !res.chain) {
+        setDetailError(res.error || "chain_not_found_or_stale")
+        setSelectedChainDetail(null)
+        setNodeMeta({})
+      } else {
+        setSelectedChainDetail(res.chain)
+        setNodeMeta(res.node_meta || {})
+      }
+      setDetailLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedChainId])
+
+  // Projected list — one per summary. The lane buckets are empty for
+  // every projected EXCEPT the selected one (whose hops have arrived
+  // via the detail fetch). The selector bar reads cheap header fields
+  // off chain (path_status / workload_name / role_name / hop_count) so
+  // it works fine with summary stubs.
+  const projected = useMemo<ProjectedChain[]>(
+    () =>
+      chainSummaries.map((s) => {
+        // For the selected chain, project the full detail (hops
+        // populate the lane grid). Otherwise project the summary stub
+        // (lane bars stay empty; the selector bar still works).
+        if (selectedChainDetail && s.id === selectedChainDetail.id) {
+          return projectChain(selectedChainDetail)
+        }
+        return projectChain(summaryToChainStub(s))
+      }),
+    [chainSummaries, selectedChainDetail],
+  )
 
   const selected = useMemo<ProjectedChain | null>(
     () => projected.find((p) => p.chain.id === selectedChainId) ?? projected[0] ?? null,
@@ -432,13 +558,16 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
         ? `Materialized: ${JSON.stringify(r.result?.s3 ?? r.result ?? {}).slice(0, 200)}`
         : `Failed: ${r.error}`,
     )
-    // Re-fetch chains after materialization
-    const res = await fetchChainsForCJ(jewelId, { rank_by: rankBy })
-    setChains(res.chains || [])
-    setNodeMeta(res.node_meta || {})
+    // Re-fetch the summary list after materialization. The detail
+    // useEffect re-fires automatically if selectedChainId stays the
+    // same; if the chain disappeared from the new materialization, we
+    // fall back to the first chain in the fresh list.
+    const res = await fetchChainsForCJSummary(jewelId, { rank_by: rankBy })
+    setChainSummaries(res.chains || [])
     setCjMeta(res.cj)
-    if (!selectedChainId && res.chains?.length) {
-      setSelectedChainId(res.chains[0].id)
+    const stillExists = res.chains?.some((c) => c.id === selectedChainId)
+    if (!stillExists) {
+      setSelectedChainId(res.chains?.[0]?.id ?? null)
     }
   }
 
@@ -488,6 +617,10 @@ export function AttackerViewV3({ jewelId, jewelName, systemName }: AttackerViewV
         onSelect={setSelectedChainId}
         loading={loading}
         error={error}
+        detailLoading={detailLoading}
+        detailError={detailError}
+        rankBy={rankBy}
+        rankSubstituted={rankSubstituted}
         materializeResult={materializeResult}
       />
 
@@ -625,6 +758,10 @@ function ChainSummaryBar({
   onSelect,
   loading,
   error,
+  detailLoading,
+  detailError,
+  rankBy,
+  rankSubstituted,
   materializeResult,
 }: {
   projected: ProjectedChain[]
@@ -632,6 +769,20 @@ function ChainSummaryBar({
   onSelect: (id: string) => void
   loading: boolean
   error: string | null
+  /** Detail-fetch in-flight state — separate from the summary `loading`
+   *  flag so the bar can show "list ready, drilling into chain…" while
+   *  the operator's row click resolves. (List/detail split, 2026-06-23.) */
+  detailLoading: boolean
+  /** Detail-fetch error (incl. 404 for a stale chain id). The selector
+   *  bar surfaces it inline; the lane grid stays empty rather than
+   *  rendering stale or made-up data. */
+  detailError: string | null
+  /** What the operator asked for. */
+  rankBy: "severity" | "freshness" | "foothold"
+  /** True when the backend silently downgraded freshness → severity
+   *  on the summary path. Renders as a visible chip so a demo never
+   *  shows "newest first" while actually serving severity order. */
+  rankSubstituted: boolean
   materializeResult: string | null
 }) {
   const byStatus = useMemo(() => {
@@ -665,7 +816,23 @@ function ChainSummaryBar({
             </span>
           ))}
         {loading ? <span className="text-primary">Loading…</span> : null}
+        {!loading && detailLoading ? (
+          <span className="text-primary">Loading chain detail…</span>
+        ) : null}
         {error ? <span className="text-red-700 dark:text-red-300">Error: {error}</span> : null}
+        {!error && detailError ? (
+          <span className="text-red-700 dark:text-red-300">
+            Detail error: {detailError}
+          </span>
+        ) : null}
+        {rankSubstituted && rankBy === "freshness" ? (
+          <span
+            className="text-amber-700 dark:text-amber-300"
+            title="The summary endpoint can't sort by hop timestamps without parsing hops; you're seeing severity order instead. Drill into a chain to see freshness data per-hop."
+          >
+            Ranked by severity (freshness needs drill-in)
+          </span>
+        ) : null}
         {materializeResult ? (
           <span className="text-emerald-700 dark:text-emerald-300">{materializeResult}</span>
         ) : null}
