@@ -875,21 +875,12 @@ export default function DependencyMapTab({
                   the URL carries ?cj=… on first load. Real-data only:
                   the strip fetches /api/proxy/attack-paths/<system>/
                   by-crown-jewel via useCrownJewelConvergence.
-                  When no CJ is selected but the system has Crown Jewels,
-                  the picker strip below renders instead so operators can
-                  pick one without leaving the Topology tab. */}
-              {spotlightJewel ? (
-                <CJSpotlightStrip
-                  jewel={spotlightJewel}
-                  selectedPathId={spotlightPathId}
-                  onSelectPath={setSpotlightPathId}
-                  onReset={handleResetSpotlight}
-                  data={spotlightConvergence.data}
-                  loading={spotlightConvergence.loading}
-                  error={spotlightConvergence.error}
-                  retry={spotlightConvergence.retry}
-                />
-              ) : crownJewelsLoading || crownJewelsError || systemCrownJewels.length > 0 ? (
+                  2026-06-23: picker now renders ALWAYS (above the spotlight)
+                  so operators can switch CJs in 2 clicks from anywhere
+                  instead of having to Reset → re-trigger picker → click.
+                  The picker's dropdown highlights the current selection
+                  so it doubles as a "current CJ" indicator. */}
+              {(crownJewelsLoading || crownJewelsError || systemCrownJewels.length > 0) && (
                 <CJPickerStrip
                   crownJewels={systemCrownJewels}
                   loading={crownJewelsLoading}
@@ -904,7 +895,19 @@ export default function DependencyMapTab({
                     })
                   }
                 />
-              ) : null}
+              )}
+              {spotlightJewel && (
+                <CJSpotlightStrip
+                  jewel={spotlightJewel}
+                  selectedPathId={spotlightPathId}
+                  onSelectPath={setSpotlightPathId}
+                  onReset={handleResetSpotlight}
+                  data={spotlightConvergence.data}
+                  loading={spotlightConvergence.loading}
+                  error={spotlightConvergence.error}
+                  retry={spotlightConvergence.retry}
+                />
+              )}
               <div className="flex-1 min-h-0">
                 <TrafficFlowMap
                   systemName={systemName}
