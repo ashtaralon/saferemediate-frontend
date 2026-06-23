@@ -8266,20 +8266,35 @@ export default function TrafficFlowMap({
 
     // Background IAM gap-analysis enrichment. Fires-and-forgets;
     // does NOT block the architecture render.
+    //
+    // 2026-06-24: chunked to 8 roles per request to stay under Vercel's
+    // 55s function ceiling. The BE handler caps concurrent role
+    // computes at 4 (api/iam_gap_analysis.py via Semaphore(4)). Each
+    // role takes ~3-7s warm on alon-prod; a single batch of 48 would
+    // take ~84s (12 chunks of 4 sequential at the BE) — well over the
+    // proxy timeout. Splitting into 8-role chunks bounds each request
+    // to ~15s (2 BE sub-batches), leaving comfortable headroom. The
+    // sister SG-inspector path below uses the same chunking helper.
     if (archForGaps.iamRoles.length > 0 && !skipBatch) {
-      console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles...`);
+      console.log(`[TrafficFlowMap] Background-fetching IAM data for ${archForGaps.iamRoles.length} roles (chunked at 8)...`);
       const loadIamEnrichment = async () => {
         const roleNames = archForGaps.iamRoles.map(r => r.name);
+        const CHUNK_SIZE = 8;
+        const merged: Record<string, any> = {};
         try {
-          const bulkRes = await fetch('/api/proxy/iam-roles/gap-analysis/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role_names: roleNames, days: 365 }),
-          });
-          if (!bulkRes.ok) throw new Error(`bulk IAM ${bulkRes.status}`);
-          const bulk = await bulkRes.json();
+          for (let i = 0; i < roleNames.length; i += CHUNK_SIZE) {
+            const chunk = roleNames.slice(i, i + CHUNK_SIZE);
+            const bulkRes = await fetch('/api/proxy/iam-roles/gap-analysis/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role_names: chunk, days: 365 }),
+            });
+            if (!bulkRes.ok) throw new Error(`bulk IAM chunk ${i / CHUNK_SIZE + 1} returned ${bulkRes.status}`);
+            const bulk = await bulkRes.json();
+            Object.assign(merged, bulk.results || {});
+          }
           return archForGaps.iamRoles.map(role => {
-            const data = bulk.results?.[role.name];
+            const data = merged[role.name];
             if (!data) return null;
             const summary = data.summary || {};
             return {
@@ -8299,9 +8314,25 @@ export default function TrafficFlowMap({
           // the failure, return null per role, AND set the toolbar
           // chip so the operator sees the gap honestly instead of
           // reading stale build-time seed counts on the chips.
-          console.warn('[TrafficFlowMap] IAM bulk fetch failed — skipping enrichment (no per-role fallback):', bulkErr);
+          //
+          // 2026-06-24: with chunking, a mid-loop failure may leave us
+          // with PARTIAL data in `merged`. Surface what we have rather
+          // than nuking it — the chip honestly reports the failure
+          // either way, and partial enrichment beats zero enrichment.
+          console.warn('[TrafficFlowMap] IAM chunked fetch failed — surfacing partial enrichment:', bulkErr);
           setIamEnrichmentFailed(true);
-          return archForGaps.iamRoles.map(() => null);
+          return archForGaps.iamRoles.map(role => {
+            const data = merged[role.name];
+            if (!data) return null;
+            const summary = data.summary || {};
+            return {
+              roleId: role.id,
+              usedCount: summary.used_count || data.used_count || 0,
+              totalCount: summary.total_permissions || summary.allowed_count || data.allowed_count || 0,
+              gapCount: summary.unused_count || data.unused_count || 0,
+              lpScore: summary.lp_score || 0,
+            };
+          });
         }
       };
       loadIamEnrichment().then(iamResults => {
@@ -8331,19 +8362,32 @@ export default function TrafficFlowMap({
 
     // Background SG rules enrichment (parallel to IAM). Fires-and-
     // forgets; doesn't block architecture render.
+    //
+    // 2026-06-24: same 8-per-chunk pattern as IAM above. SG inspector
+    // is cheaper per-call than IAM gap-analysis but the BE shares
+    // Aura's connection pool, so a 48-role IAM thundering-herd
+    // historically dragged SG calls down to timeout too. Chunking
+    // keeps each request lean and lets the BE's existing
+    // Semaphore(4) in sg_inspector_v2.py do its job.
     if (archForGaps.securityGroups.length > 0 && !skipBatch) {
       const loadSgEnrichment = async () => {
         const sgIds = archForGaps.securityGroups.map(sg => sg.id);
+        const CHUNK_SIZE = 8;
+        const merged: Record<string, any> = {};
         try {
-          const bulkRes = await fetch('/api/proxy/security-groups/inspector/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sg_ids: sgIds, window: '30d' }),
-          });
-          if (!bulkRes.ok) throw new Error(`bulk SG ${bulkRes.status}`);
-          const bulk = await bulkRes.json();
+          for (let i = 0; i < sgIds.length; i += CHUNK_SIZE) {
+            const chunk = sgIds.slice(i, i + CHUNK_SIZE);
+            const bulkRes = await fetch('/api/proxy/security-groups/inspector/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sg_ids: chunk, window: '30d' }),
+            });
+            if (!bulkRes.ok) throw new Error(`bulk SG chunk ${i / CHUNK_SIZE + 1} returned ${bulkRes.status}`);
+            const bulk = await bulkRes.json();
+            Object.assign(merged, bulk.results || {});
+          }
           return archForGaps.securityGroups.map(sg => {
-            const data = bulk.results?.[sg.id];
+            const data = merged[sg.id];
             if (!data) return null;
             const rules = mapInspectorRulesToSGRules(data.configured_rules || []);
             return { sgId: sg.id, rules };
@@ -8356,9 +8400,18 @@ export default function TrafficFlowMap({
           // enrichment AND set the toolbar chip so the operator sees
           // that SG rule details couldn't load instead of trusting
           // stale build-time seed values on the chips.
-          console.warn('[TrafficFlowMap] SG bulk fetch failed — skipping enrichment (no per-SG fallback):', bulkErr);
+          //
+          // 2026-06-24: with chunking, partial enrichment is preserved
+          // when a mid-loop chunk fails — chip honestly reports the
+          // failure either way.
+          console.warn('[TrafficFlowMap] SG chunked fetch failed — surfacing partial enrichment:', bulkErr);
           setSgEnrichmentFailed(true);
-          return archForGaps.securityGroups.map(() => null);
+          return archForGaps.securityGroups.map(sg => {
+            const data = merged[sg.id];
+            if (!data) return null;
+            const rules = mapInspectorRulesToSGRules(data.configured_rules || []);
+            return { sgId: sg.id, rules };
+          });
         }
       };
       loadSgEnrichment().then(sgRulesResults => {
