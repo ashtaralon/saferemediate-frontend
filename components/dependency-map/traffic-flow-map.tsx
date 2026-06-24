@@ -7,6 +7,12 @@ import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
+import {
+  countVpceLane,
+  vpceCardChrome,
+  vpceCardTitle,
+  vpceLaneSubtitle,
+} from "@/lib/dependency-map/vpce-lane-visual";
 import { enrichArchitectureForSpotlight } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
@@ -4468,6 +4474,17 @@ export function UnifiedArchitectureDiagram({
     },
     [spotlightActive, pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
+  const vpceLaneCounts = useMemo(() => {
+    const endpoints = architecture.vpcEndpoints ?? [];
+    if (!endpoints.length) return null;
+    const activeVpceIds = new Set(
+      architecture.flows.map((f) => f.vpceId).filter(Boolean) as string[],
+    );
+    return countVpceLane(
+      endpoints.map((v) => v.id),
+      activeVpceIds,
+    );
+  }, [architecture.vpcEndpoints, architecture.flows]);
   // Numbered step badge — absolute top-left of the card wrapper (which
   // must be position:relative). Renders only for nodes that are actual
   // ordered path steps; rescued gates (SG/NACL that touch the path but
@@ -5659,43 +5676,57 @@ export function UnifiedArchitectureDiagram({
               still occupies grid space when none apply to the path. */}
           {(architecture.vpcEndpoints?.length ?? 0) > 0 && anyVisibleOnPath(architecture.vpcEndpoints) && (
           <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="vpc-endpoints">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Cloud className="w-4 h-4 text-violet-600 dark:text-violet-400" />
-              VPC Endpoints{countLabel(architecture.vpcEndpoints.length)}
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex flex-col items-center gap-0.5 text-center">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                VPC Endpoints{countLabel(architecture.vpcEndpoints.length)}
+              </div>
+              {!spotlightActive && vpceLaneCounts && (
+                <span className="text-[10px] normal-case font-normal opacity-70 tracking-normal">
+                  · {vpceLaneSubtitle(vpceLaneCounts)}
+                </span>
+              )}
             </div>
             {architecture.vpcEndpoints.map(vpce => {
-              const isInUseForFlow = architecture.flows.some(f => f.vpceId === vpce.id);
+              const isActive = architecture.flows.some(f => f.vpceId === vpce.id);
+              const serviceTitle = vpce.serviceName
+                ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}`
+                : undefined;
               return (
                 <div
                   key={vpce.id}
                   data-vpce-id={vpce.id}
-                  // Spine mode (3-color discipline): VPCE violet demotes to
-                  // neutral card chrome; in-use elevation becomes a neutral
-                  // shadow instead of a brighter violet.
-                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${
-                    pathFilterActive
-                      ? (isInUseForFlow ? 'bg-muted border-border shadow-md' : 'bg-card border-border')
-                      : isInUseForFlow
-                        ? 'bg-violet-500/15 border-violet-400/70 shadow-md'
-                        : 'bg-violet-500/5 border-violet-500/30'
-                  }${pathEmphasisClass(vpce.id)}`}
-                  title={vpce.serviceName ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}` : vpce.id}
+                  data-active={isActive ? 'true' : 'false'}
+                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${vpceCardChrome(isActive, pathFilterActive)}${pathEmphasisClass(vpce.id)}`}
+                  title={vpceCardTitle(isActive, pathFilterActive, serviceTitle, vpce.id)}
                   onMouseEnter={() => setHoveredId(vpce.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
                   {renderPathStepBadge(vpce.id)}
                   <div className="flex items-center justify-center gap-2 mb-1">
-                    <Cloud className="w-4 h-4 text-violet-700 dark:text-violet-300" />
-                    <span className="text-sm font-semibold text-foreground">{vpce.serviceShort}</span>
+                    <Cloud className={`w-4 h-4 ${isActive || pathFilterActive ? 'text-violet-700 dark:text-violet-300' : 'text-amber-600/70 dark:text-amber-400/70'}`} />
+                    <span className={`text-sm font-semibold ${isActive || pathFilterActive ? 'text-foreground' : 'text-foreground/70'}`}>{vpce.serviceShort}</span>
                   </div>
                   {(!pathFilterActive || effectiveHoveredId === vpce.id) && (
-                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${pathFilterActive ? 'text-muted-foreground' : 'text-violet-700 dark:text-violet-300/90'}`}>
+                    <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${
+                      pathFilterActive
+                        ? 'text-muted-foreground'
+                        : isActive
+                          ? 'text-violet-700 dark:text-violet-300/90'
+                          : 'text-amber-700/80 dark:text-amber-300/70'
+                    }`}>
                       {vpce.shortName}
                     </div>
                   )}
                   {vpce.endpointType && (!pathFilterActive || effectiveHoveredId === vpce.id) && (
                     <div className="mt-1 text-center">
-                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${pathFilterActive ? 'bg-muted border-border text-muted-foreground' : 'bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200'}`}>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${
+                        pathFilterActive
+                          ? 'bg-muted border-border text-muted-foreground'
+                          : isActive
+                            ? 'bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200'
+                            : 'bg-amber-500/5 border-amber-400/30 text-amber-700/80 dark:text-amber-200/70'
+                      }`}>
                         {vpce.endpointType}
                       </span>
                     </div>
