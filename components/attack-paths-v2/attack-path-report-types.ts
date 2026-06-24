@@ -254,6 +254,13 @@ export interface AttackPathReport {
 
   /** The fix, decomposed across the three enforcement planes. */
   micro_enforcement?: MicroEnforcement[]
+
+  /** Narration provenance (L2). Present when a narration has been generated and
+   *  surfaced via /report. Absent (null) → the card uses the deterministic floor
+   *  (business_sentence / computed lede), which is itself deterministic. */
+  narration_source?: "llm" | "template" | "business_sentence_floor" | null
+  narration_l3_ok?: boolean | null
+  narration_generated_at?: string | null
 }
 
 /** Lookup helper — renderer resolves a step's claims for grade chips. */
