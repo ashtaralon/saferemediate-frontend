@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
@@ -10,6 +11,10 @@ import { CJPickerStrip } from './dependency-map/cj-picker-strip'
 import { useCachedFetch } from '@/lib/use-cached-fetch'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
+import {
+  navigateCrownJewelClick,
+  toCrownJewelSummary,
+} from '@/lib/attack-paths/crown-jewel-v2-navigation'
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -158,6 +163,7 @@ export default function DependencyMapTab({
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
+  const router = useRouter()
   const [activeView, setActiveView] = useState<ViewType>('graph')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'neo4j')
 
@@ -228,23 +234,13 @@ export default function DependencyMapTab({
     }
   }, [spotlightJewel?.id, spotlightJewel?.canonical_id, spotlightPathId])
 
-  const handleEnterSpotlight = useCallback(
-    (cj: { id: string; arn?: string | null; name: string; type: string }) => {
+  const openTfmSpotlightUnion = useCallback(
+    (cj: CrownJewelSummary | { id: string; arn?: string | null; name: string; type: string }) => {
+      const jewel = toCrownJewelSummary(cj)
       // Fresh jewel click always opens union mode — clear any stale drill
       // state left in React state or the URL from a prior path-row click.
       setSpotlightPathId(null)
-      setSpotlightJewel({
-        id: cj.id,
-        canonical_id: cj.arn ?? (cj.id.startsWith('arn:') ? cj.id : null),
-        name: cj.name,
-        type: cj.type,
-        severity: 'LOW',
-        path_count: 0,
-        highest_risk_score: 0,
-        is_internet_exposed: false,
-        data_classification: null,
-        priority_score: 0,
-      })
+      setSpotlightJewel(jewel)
       if (typeof window !== 'undefined') {
         try {
           const u = new URL(window.location.href)
@@ -256,6 +252,16 @@ export default function DependencyMapTab({
       }
     },
     [],
+  )
+
+  const handleCrownJewelClick = useCallback(
+    async (cj: CrownJewelSummary | { id: string; arn?: string | null; name: string; type: string }) => {
+      const dest = await navigateCrownJewelClick(router, systemName, cj)
+      if (dest === 'tfm-fallback') {
+        openTfmSpotlightUnion(cj)
+      }
+    },
+    [router, systemName, openTfmSpotlightUnion],
   )
 
   const handleResetSpotlight = useCallback(() => {
@@ -847,14 +853,7 @@ export default function DependencyMapTab({
                   loading={crownJewelsLoading}
                   error={crownJewelsError}
                   onRetry={retryCrownJewels}
-                  onSelect={(cj) =>
-                    handleEnterSpotlight({
-                      id: cj.id,
-                      arn: cj.canonical_id ?? null,
-                      name: cj.name,
-                      type: cj.type,
-                    })
-                  }
+                  onSelect={(cj) => handleCrownJewelClick(cj)}
                 />
               )}
               {spotlightJewel && (
@@ -872,7 +871,7 @@ export default function DependencyMapTab({
               <div className="flex-1 min-h-0">
                 <TrafficFlowMap
                   systemName={systemName}
-                  onCrownJewelSpotlight={handleEnterSpotlight}
+                  onCrownJewelSpotlight={handleCrownJewelClick}
                   spotlightPaths={spotlightConvergence.data?.paths}
                   spotlightPathId={spotlightPathId}
                   spotlightJewel={

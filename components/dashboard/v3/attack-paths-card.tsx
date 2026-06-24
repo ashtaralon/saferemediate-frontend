@@ -10,6 +10,10 @@ import { useRouter } from "next/navigation"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  buildTfmSpotlightUrl,
+  navigateCrownJewelClick,
+} from "@/lib/attack-paths/crown-jewel-v2-navigation"
 
 /**
  * Top Attack Paths to Crown Jewels.
@@ -80,25 +84,19 @@ interface AttackPathsCardProps {
 export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = {}) {
   const router = useRouter()
 
-  // Drill from a row into the system's Topology view with the Crown Jewel
-  // Spotlight strip pre-opened on that jewel. The standalone `/systems`
-  // route reads `?systemName=`, `?tab=` and `?cj=` to render
-  // SystemDetailDashboard → DependencyMapTab → CJSpotlightStrip.
-  //
-  // `tab=dependency-map` is the LEAF id for the Topology tab group
-  // (system-detail-dashboard.tsx tabGroups: `{ id: "topology", leaf:
-  // "dependency-map" }`); the dashboard's activeTab holds leaf ids, not
-  // group ids. Passing `tab=topology` silently falls back to Overview.
-  //
-  // No-op when system_name is missing (the row can't be scoped without it).
-  const handleJewelClick = (jewel: CrownJewel) => {
+  // Primary: Attack Map v2 spine (?map=cyntro). Orphan-only jewels fall back
+  // to TFM union spotlight on the Topology tab.
+  const handleJewelClick = async (jewel: CrownJewel) => {
     if (!jewel.system_name) return
-    const qs = new URLSearchParams({
-      systemName: jewel.system_name,
-      tab: "dependency-map",
-      cj: jewel.id,
+    const dest = await navigateCrownJewelClick(router, jewel.system_name, {
+      id: jewel.id,
+      arn: jewel.id.startsWith("arn:") ? jewel.id : null,
+      name: jewel.name,
+      type: jewel.type,
     })
-    router.push(`/systems?${qs.toString()}`)
+    if (dest === "tfm-fallback") {
+      router.push(buildTfmSpotlightUrl(jewel.system_name, jewel.id))
+    }
   }
 
   // Action-driving data — strict 10-min staleness. Anything older falls

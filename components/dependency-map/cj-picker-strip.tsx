@@ -15,7 +15,7 @@
  * trigger. Click trigger → list of all CJs sorted by priority_score
  * descending (same ordering as the home dashboard's Top Damage Paths
  * card). Click a row → calls `onSelect(cj)`, which the parent routes
- * through `handleEnterSpotlight` — same code path as a canvas click.
+ * through `handleCrownJewelClick` — v2 spine by default, TFM union fallback.
  *
  * Real data: every row comes from the live IAP fetch in
  * dependency-map-tab.tsx. No mock; the picker doesn't render at all
