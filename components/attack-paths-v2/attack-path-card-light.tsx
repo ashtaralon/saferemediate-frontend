@@ -494,6 +494,24 @@ export function AttackPathCardLightView({
       <div className="mt-6 text-[11px] font-mono" style={{ color: C.faint }}>
         compiler {report.compiler_version}
         {report.evidence_pack_hash && ` · evidence ${report.evidence_pack_hash.slice(0, 12)}`}
+        {(() => {
+          // Narration provenance chip (spec-locked). null/template → Deterministic
+          // (neutral); llm+l3_ok → AI · verified (neutral); floor → Safety fallback
+          // (amber, always visible — the honest "model failed, floor fired" signal).
+          const src = report.narration_source
+          const amber = src === "business_sentence_floor"
+          const label = amber
+            ? "Safety fallback"
+            : src === "llm" && report.narration_l3_ok
+              ? "AI · verified"
+              : "Deterministic"
+          return (
+            <>
+              {" · narration "}
+              <span style={{ color: amber ? C.amber : C.faint }}>{label}</span>
+            </>
+          )
+        })()}
       </div>
     </div>
   )
