@@ -30,6 +30,7 @@ import {
 } from "./damage-scope-drawer"
 import { DamageAwarePathCard } from "./damage-aware-path-card"
 import { useDamageScope } from "./use-damage-scope"
+import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 interface PathAnalysisPanelProps {
@@ -344,9 +345,12 @@ export function PathAnalysisPanel({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {jewel && (
-              <div className="flex items-center gap-1.5 text-xs font-mono text-amber-700 dark:text-amber-300 truncate max-w-[200px]" title={jewel.name}>
-                <Crown className="h-3 w-3 text-amber-500 shrink-0" />
-                {jewel.name}
+              <div className="flex flex-col items-end gap-0.5 min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-mono text-amber-700 dark:text-amber-300 truncate max-w-[200px]" title={jewel.name}>
+                  <Crown className="h-3 w-3 text-amber-500 shrink-0" />
+                  {jewel.name}
+                </div>
+                <CrownJewelUnionViewLink systemName={systemName} jewel={jewel} />
               </div>
             )}
             {onToggleExpand && (

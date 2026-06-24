@@ -304,10 +304,26 @@ export function AttackPathsV2({
   // selected or no paths to it. narrowActivePaths preserves the
   // ActivePathList brand through the filter so the downstream
   // PathListGrouped prop type still matches.
+  const selectedJewel = useMemo(
+    () =>
+      jewels.find(
+        (j) =>
+          j.id === selectedJewelId ||
+          (selectedJewelId != null && j.canonical_id === selectedJewelId),
+      ) ?? null,
+    [jewels, selectedJewelId],
+  )
+
   const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
     if (!selectedJewelId) return filterActivePaths([])
-    return narrowActivePaths(allPaths, (p) => p.crown_jewel_id === selectedJewelId)
-  }, [selectedJewelId, allPaths])
+    return narrowActivePaths(allPaths, (p) => {
+      if (p.crown_jewel_id === selectedJewelId) return true
+      if (selectedJewel?.id && p.crown_jewel_id === selectedJewel.id) return true
+      if (selectedJewel?.canonical_id && p.crown_jewel_id === selectedJewel.canonical_id)
+        return true
+      return false
+    })
+  }, [selectedJewelId, selectedJewel, allPaths])
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
   // Single source of truth for both the center-column rail
@@ -352,11 +368,6 @@ export function AttackPathsV2({
       maxRetries: 2,
       initialDelayMs: 1000,
     },
-  )
-
-  const selectedJewel = useMemo(
-    () => jewels.find((j) => j.id === selectedJewelId) ?? null,
-    [jewels, selectedJewelId],
   )
 
   const convergenceFetchUrl = useMemo(() => {
@@ -920,13 +931,15 @@ export function AttackPathsV2({
                   large
                 />
               )
-            ) : !selectedPath || !selectedJewelId ? (
+            ) : !selectedJewelId || (!selectedPath && !selectedPathId) ? (
               <EmptyState
                 title="Select a path"
                 subtitle={
-                  jewelPaths.length === 0
+                  jewelPaths.length === 0 && !selectedPathId
                     ? "No attack paths to this jewel today. Switch to Exposure view to see standing access."
-                    : `Pick one of the ${jewelPaths.length} paths on the left to drill in.`
+                    : jewelPaths.length === 0 && selectedPathId
+                      ? "Loading path from deep link…"
+                      : `Pick one of the ${jewelPaths.length} paths on the left to drill in.`
                 }
                 large
               />
@@ -940,11 +953,9 @@ export function AttackPathsV2({
               <AttackPathPanel
                 systemName={systemName}
                 jewelId={selectedJewelId}
-                pathId={selectedPath.id}
+                pathId={selectedPath?.id ?? selectedPathId!}
                 pathFromPage={selectedPath}
-                jewelFromPage={
-                  jewels.find((j) => j.id === selectedJewelId) ?? null
-                }
+                jewelFromPage={selectedJewel}
                 siblingPathsFromPage={jewelPaths}
                 isExpanded={isPathExpanded}
                 onToggleExpand={handleToggleExpand}
