@@ -7,8 +7,8 @@ const arch = {
     { id: "i-0ee29afa0048943e0", name: "cyntro-web-server", instanceId: "i-0ee29afa0048943e0" },
   ],
   securityGroups: [
-    { id: "sg-08f4ba91d94bc6d99", name: "alon-demo-app-sg" },
-    { id: "sg-default", name: "default" },
+    { id: "sg-08f4ba91d94bc6d99", name: "alon-demo-app-sg", connectedSources: ["i-0aa725bf8ff4c2001"] },
+    { id: "sg-default", name: "default", connectedSources: ["i-0ee29afa0048943e0"] },
   ],
   iamRoles: [
     { id: "arn:aws:iam::1:role/alon-demo-ec2-role", name: "alon-demo-ec2-role" },

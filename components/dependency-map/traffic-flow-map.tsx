@@ -6931,7 +6931,11 @@ export default function TrafficFlowMap({
         architecture: architecture
           ? {
               computeServices: architecture.computeServices,
-              securityGroups: architecture.securityGroups,
+              securityGroups: architecture.securityGroups.map((sg) => ({
+                id: sg.id,
+                name: sg.name,
+                connectedSources: sg.connectedSources,
+              })),
               iamRoles: architecture.iamRoles,
               flows: architecture.flows,
               vpcEndpoints: architecture.vpcEndpoints,
@@ -7809,6 +7813,14 @@ export default function TrafficFlowMap({
       const connectedSources = Array.from(flowMap.values())
         .filter(f => f.sgId === sgId)
         .map(f => f.sourceId);
+
+      // SECURED_BY attachments — workloads without observed traffic still
+      // gate through their SG; spotlight union needs both SGs visible.
+      computeToSG.forEach((attachedSgId, computeId) => {
+        if (attachedSgId === sgId && !connectedSources.includes(computeId)) {
+          connectedSources.push(computeId);
+        }
+      });
 
       // Rules will be populated by fetchSGRules() — no mock data. But
       // seed totalCount from whatever rule-count signal the dep-map

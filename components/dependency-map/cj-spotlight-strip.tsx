@@ -25,6 +25,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, Crown, AlertTriangle, RefreshCw, ShieldCheck, ShieldOff, Server, Key, Database, Globe, Network, Cloud, Flame } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { ConvergenceHop, ConvergencePath, CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
+import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
 import {
   SEVERITY_ACCENT,
   rankedInitialAccessForPath,
@@ -64,9 +65,10 @@ export function CJSpotlightStrip({
     if (selectedPathId) {
       const match = data.paths.find((p) => p.path_id === selectedPathId)
       if (match) return match
-      // Stale URL — fall through to default (first path).
+      // Stale URL — fall through to default (first real workload path).
     }
-    return data.paths[0]
+    const unionPaths = selectSpotlightPaths(data.paths, null)
+    return unionPaths[0] ?? data.paths[0]
   }, [data?.paths, selectedPathId])
 
   // ── Loading state ────────────────────────────────────────────────
