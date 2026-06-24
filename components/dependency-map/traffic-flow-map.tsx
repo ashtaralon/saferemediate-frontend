@@ -4399,35 +4399,35 @@ export function UnifiedArchitectureDiagram({
   );
   // Returns a class suffix (leading space) for a card wrapper.
   //
-  // 2026-06-24 (operator override): DROP the off-path dim entirely.
-  // Previous behavior dimmed off-path cards to opacity-25 (spotlight)
-  // or opacity-70 (legacy path filter). Operator feedback: even with
-  // workload counts populated, the dim made cards read as broken /
-  // greyed-out, especially when auto-selected paths from PR #192
-  // (auto-select first path on data arrival) kicked in silently on
-  // every dependency-map mount. The dim destroyed the context the
-  // map exists to provide.
+  // 2026-06-24 (operator override v2): HIDE off-path nodes entirely
+  // when a spotlight/path filter is active. PR #202 tried full-opacity
+  // for off-path nodes; operator response: "we need to see only the
+  // path's components — remove all other services, no dim, REMOVE."
   //
-  // Now: on-path nodes still get visual emphasis (ring + shadow), but
-  // off-path nodes stay at full opacity. The ring + shadow alone is
-  // enough to mark the spine of the active path; everything else
-  // remains readable as architectural context.
+  // Now:
+  //   - Spotlight active + node on path → ring + shadow (visible spine)
+  //   - Spotlight active + node off path → `hidden` (display:none, gone)
+  //   - Legacy pathFilterActive + on path → red ring
+  //   - Legacy pathFilterActive + off path → `hidden`
+  //   - No spotlight + no path filter → '' (everything visible, no
+  //     emphasis — the architecture-only view)
   //
-  // Preserves PR #196's rationale (positive spotlightActiveNodeIds.has
-  // check, no accidental rings on unrelated cards) — just stops
-  // dimming the unmarked nodes.
+  // Pairs with PR #196's edge-hide (lines to hidden nodes already
+  // filtered out via ghostedNodeIds). Headers like "COMPUTE (40)" stay
+  // showing the unfiltered count for now — operator can still see
+  // "this system has 40 EC2s, but only 1 is on this path."
   const pathEmphasisClass = useCallback(
     (nodeId: string): string => {
       if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0) {
         if (spotlightActiveNodeIds.has(nodeId)) {
           return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
         }
-        return '';
+        return ' hidden';
       }
       if (!pathFilterActive) return '';
       return isOnSelectedPath(nodeId)
         ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
-        : '';
+        : ' hidden';
     },
     [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
