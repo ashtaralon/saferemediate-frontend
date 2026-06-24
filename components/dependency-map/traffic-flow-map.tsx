@@ -3760,6 +3760,15 @@ export function ConnectionLinesSVG({
         // Generic node lookup — try every data-*-id selector the lane
         // renderers attach. Order doesn't matter for correctness; densest
         // selectors first shortens the hot path.
+        //
+        // 2026-06-24: also require the card to actually be visible.
+        // PR #203 added `hidden` (display:none) to off-path cards
+        // during spotlight, but querySelector still returns them as
+        // DOM elements. Their getBoundingClientRect() is 0x0 at the
+        // viewport origin, which would draw orphan lines into the
+        // canvas top-left. `offsetParent === null` is the cheapest
+        // reliable visibility check (set by browser for elements
+        // whose computed display is none).
         const findCardForId = (awsId: string): Element | null => {
           if (!container) return null;
           const selectors = [
@@ -3778,7 +3787,7 @@ export function ConnectionLinesSVG({
           ];
           for (const attr of selectors) {
             const el = container.querySelector(`[${attr}="${CSS.escape(awsId)}"]`);
-            if (el) return el;
+            if (el && (el as HTMLElement).offsetParent !== null) return el;
           }
           return null;
         };
