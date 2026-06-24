@@ -203,7 +203,11 @@ async function buildAttackPathPayload(
     }
 
     selectedPath = (identityResp.paths ?? []).find(
-      (p) => p.id === pathId && p.crown_jewel_id === jewelIdDecoded,
+      (p) =>
+        (p.id === pathId || (p as { attack_path_id?: string }).attack_path_id === pathId) &&
+        (p.crown_jewel_id === jewelIdDecoded ||
+          p.crown_jewel_id === jewel?.id ||
+          (jewel as { canonical_id?: string })?.canonical_id === p.crown_jewel_id),
     )
     if (!selectedPath) {
       return {
@@ -219,10 +223,19 @@ async function buildAttackPathPayload(
     }
 
     jewel =
-      (identityResp.crown_jewels ?? []).find((j) => j.id === jewelIdDecoded) ?? jewel
+      (identityResp.crown_jewels ?? []).find(
+        (j) =>
+          j.id === jewelIdDecoded ||
+          (j as { canonical_id?: string }).canonical_id === jewelIdDecoded,
+      ) ?? jewel
 
+    const jewelIds = new Set(
+      [jewelIdDecoded, jewel.id, (jewel as { canonical_id?: string }).canonical_id].filter(
+        Boolean,
+      ) as string[],
+    )
     siblingPaths = (identityResp.paths ?? [])
-      .filter((p) => p.crown_jewel_id === jewelIdDecoded)
+      .filter((p) => jewelIds.has(p.crown_jewel_id))
       .map((p) => ({
         id: p.id,
         hop_count: p.hop_count ?? p.nodes.length,

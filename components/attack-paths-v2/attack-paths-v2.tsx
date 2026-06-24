@@ -41,6 +41,8 @@ import { ExfilPathListColumn } from "./exfil-path-list-column"
 import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { AttackPathPanel } from "./attack-path-panel"
+import { ConvergenceMapLoader } from "./convergence-map-loader"
+import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
 import { AttackerViewV3 } from "./attacker-view-v3"
 // v4 was a wrong-direction experiment (cloned Phase View v0.3's 9-lane
@@ -450,7 +452,11 @@ export function AttackPathsV2({
   // found" rather than crashing.
   const selectedPath = useMemo(() => {
     if (!selectedPathId) return null
-    return jewelPaths.find((p) => p.id === selectedPathId) ?? null
+    return (
+      jewelPaths.find(
+        (p) => p.id === selectedPathId || p.attack_path_id === selectedPathId,
+      ) ?? null
+    )
   }, [selectedPathId, jewelPaths])
 
   // Auto-select the highest-observed-traffic path when a jewel is
@@ -931,6 +937,28 @@ export function AttackPathsV2({
                   large
                 />
               )
+            ) : jewelPaths.length === 0 && selectedPathId && selectedJewel ? (
+              // IAP has no synthesized paths for this jewel (e.g. materialized-only
+              // convergence rows) — render the convergence spine directly.
+              <div className="flex flex-col h-full overflow-auto">
+                <div className="px-6 py-2 border-b border-border bg-background/95 flex items-center justify-between gap-3">
+                  <span className="text-xs font-mono text-amber-700 dark:text-amber-300 truncate">
+                    {selectedJewel.name}
+                  </span>
+                  <CrownJewelUnionViewLink systemName={systemName} jewel={selectedJewel} />
+                </div>
+                <ConvergenceMapLoader
+                  systemName={systemName}
+                  cjArn={
+                    selectedJewel.canonical_id ??
+                    (selectedJewel.id.startsWith("arn:") ? selectedJewel.id : null)
+                  }
+                  cjName={selectedJewel.name}
+                  initialSelectedPathId={selectedPathId}
+                  fallbackJewel={selectedJewel}
+                  fallbackPaths={[]}
+                />
+              </div>
             ) : !selectedJewelId || (!selectedPath && !selectedPathId) ? (
               <EmptyState
                 title="Select a path"
