@@ -25,24 +25,35 @@ function summaryToConvergence(
   selectedPathId: string | null,
 ): CrownJewelConvergence {
   const paths: ConvergencePath[] = summary.paths.map((p) => {
+    const base = {
+      path_id: p.path_id,
+      source: p.source,
+      source_kind: p.source_kind,
+      workload_arn: p.workload_arn,
+      identity: p.identity,
+      identity_name: p.identity_name,
+      damage: p.damage,
+      score: p.score,
+      severity: p.severity,
+      confidence: p.confidence,
+      hop_count: p.hop_count,
+      routes_via: [] as string[],
+      role_assumption_observed: false,
+      cj_target_id: summary.cj_arn ?? summary.cj_name ?? null,
+      hops: [] as ConvergencePath["hops"],
+      initial_access: [] as ConvergencePath["initial_access"],
+    }
     if (detailPath && p.path_id === (selectedPathId || detailPath.path_id)) {
       return {
-        ...p,
+        ...base,
         routes_via: detailPath.routes_via ?? [],
         role_assumption_observed: detailPath.role_assumption_observed ?? false,
-        cj_target_id: detailPath.cj_target_id ?? summary.cj_arn ?? summary.cj_name,
+        cj_target_id: detailPath.cj_target_id ?? base.cj_target_id,
         hops: detailPath.hops ?? [],
         initial_access: detailPath.initial_access ?? [],
       }
     }
-    return {
-      ...p,
-      routes_via: [],
-      role_assumption_observed: false,
-      cj_target_id: summary.cj_arn ?? summary.cj_name ?? null,
-      hops: [],
-      initial_access: [],
-    }
+    return base
   })
 
   return {

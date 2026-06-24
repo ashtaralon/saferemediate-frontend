@@ -346,66 +346,8 @@ export default function DependencyMapTab({
     return out
   }, [systemCrownJewels])
 
-  // Set of node IDs the TFM canvas should keep lit when Spotlight is
-  // active; every node NOT in this set is dimmed (ghosted). Two scoping
-  // modes — single-path takes precedence over union:
-  //
-  //   1. `spotlightPathId` set → ONLY the nodes on that specific path.
-  //      Operator clicked a path row in the strip; they want to see
-  //      that one path on the canvas, not the union of all paths to
-  //      the CJ. This is the bug we hit at 2026-06-22 — the strip's
-  //      path picker switched the kill-chain visualization in the
-  //      strip, but the canvas kept dimming to the union, so picking
-  //      path 1/6 vs path 2/6 made no visible canvas difference.
-  //
-  //   2. `spotlightPathId` null → union of every path to the CJ.
-  //      The "show me how reachable this jewel is" view; no specific
-  //      path picked yet (first-mount via ?cj=, no &path=).
-  //
-  // Real-data only: every id comes from the live by-crown-jewel
-  // response. Empty set when Spotlight is off → TFM renders normally.
-  const spotlightActiveNodeIds = useMemo<Set<string>>(() => {
-    const out = new Set<string>()
-    const data = spotlightConvergence.data
-    if (!data?.paths || data.paths.length === 0) return out
-    const pathsToRender = spotlightPathId
-      ? data.paths.filter((p) => p.path_id === spotlightPathId)
-      : data.paths
-    for (const p of pathsToRender) {
-      if (p.source) out.add(p.source)
-      if (p.identity) out.add(p.identity)
-      if (p.cj_target_id) out.add(p.cj_target_id)
-      for (const h of p.hops || []) {
-        if (h.node_id) out.add(h.node_id)
-      }
-    }
-    // Always include the selected CJ itself (defensive — cj_target_id
-    // is usually populated but the field is optional in the type).
-    if (spotlightJewel) {
-      out.add(spotlightJewel.id)
-      if (spotlightJewel.canonical_id) out.add(spotlightJewel.canonical_id)
-    }
-    return out
-  }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
-
-  // Auto-select the first path the moment convergence data lands.
-  // Without this, `spotlightPathId` stays null until the operator
-  // explicitly clicks a row in the strip — and so the canvas dims to
-  // the UNION of every path to the CJ even though the kill-chain in
-  // the strip is already showing path 1 (the strip auto-defaults to
-  // paths[0] when no selectedPathId). That mismatch confused operators
-  // who expected "open spotlight → see this one path on canvas." Now
-  // the URL gets &path=<first_id> on first paint and the single-path
-  // canvas filter applies from the start. Operator can still pick a
-  // different path; clicking ANY row updates `spotlightPathId` via
-  // the existing onSelectPath handler.
-  useEffect(() => {
-    if (!spotlightJewel) return
-    if (spotlightPathId) return
-    const paths = spotlightConvergence.data?.paths
-    if (!paths || paths.length === 0) return
-    setSpotlightPathId(paths[0].path_id)
-  }, [spotlightConvergence.data, spotlightJewel, spotlightPathId])
+  // TFM derives spotlightActiveNodeIds internally (Bug L) once architecture
+  // is built — union all paths when no specific path is selected.
 
   // Update graph engine when prop changes
   useEffect(() => {
@@ -920,8 +862,15 @@ export default function DependencyMapTab({
                 <TrafficFlowMap
                   systemName={systemName}
                   onCrownJewelSpotlight={handleEnterSpotlight}
-                  spotlightActiveNodeIds={
-                    spotlightActiveNodeIds.size > 0 ? spotlightActiveNodeIds : undefined
+                  spotlightPaths={spotlightConvergence.data?.paths}
+                  spotlightPathId={spotlightPathId}
+                  spotlightJewel={
+                    spotlightJewel
+                      ? {
+                          id: spotlightJewel.id,
+                          canonical_id: spotlightJewel.canonical_id,
+                        }
+                      : undefined
                   }
                   systemCrownJewelIds={
                     systemCrownJewelIds.size > 0 ? systemCrownJewelIds : undefined

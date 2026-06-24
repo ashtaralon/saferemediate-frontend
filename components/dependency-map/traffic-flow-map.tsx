@@ -6,6 +6,8 @@ import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
+import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
+import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -6749,6 +6751,9 @@ export default function TrafficFlowMap({
   fullscreenContainerRef,
   onCrownJewelSpotlight,
   spotlightActiveNodeIds,
+  spotlightPaths,
+  spotlightPathId,
+  spotlightJewel,
   systemCrownJewelIds,
 }: {
   systemName: string;
@@ -6771,6 +6776,12 @@ export default function TrafficFlowMap({
    *  the same by-crown-jewel response that drives the strip — single
    *  source of truth. Undefined / empty = Spotlight off, no dimming. */
   spotlightActiveNodeIds?: Set<string>;
+  /** Bug L — live convergence paths for CJ spotlight union. When set,
+   *  TFM unions workloads/SGs across all paths (unless spotlightPathId
+   *  pins a single path) using architecture-aware id resolution. */
+  spotlightPaths?: ConvergencePath[];
+  spotlightPathId?: string | null;
+  spotlightJewel?: { id: string; canonical_id?: string | null };
   /** Crown Jewel always-on marking (2026-06-22) — set of node IDs the
    *  parent knows are Crown Jewels for this system, fetched from the
    *  per-system attack-paths endpoint. When a resource's id is in this
@@ -6910,6 +6921,34 @@ export default function TrafficFlowMap({
     if (!rawArchitecture) return null;
     return markCjs(pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture);
   }, [rawArchitecture, pathFilter, architectureOverride, systemCrownJewelIds]);
+
+  const effectiveSpotlightActiveNodeIds = useMemo(() => {
+    if (spotlightPaths?.length) {
+      const built = buildSpotlightActiveNodeIds({
+        paths: spotlightPaths,
+        spotlightPathId: spotlightPathId ?? null,
+        jewel: spotlightJewel ?? null,
+        architecture: architecture
+          ? {
+              computeServices: architecture.computeServices,
+              securityGroups: architecture.securityGroups,
+              iamRoles: architecture.iamRoles,
+              flows: architecture.flows,
+              vpcEndpoints: architecture.vpcEndpoints,
+            }
+          : null,
+      })
+      if (built.size > 0) return built
+    }
+    return spotlightActiveNodeIds
+  }, [
+    spotlightPaths,
+    spotlightPathId,
+    spotlightJewel,
+    architecture,
+    spotlightActiveNodeIds,
+  ])
+
   const setArchitecture = setRawArchitecture;
 
   // Manual-refresh epoch. Bumping flips the URL (adds &_t=N) AND flips
@@ -7084,7 +7123,7 @@ export default function TrafficFlowMap({
     // single source of truth shared with the strip. No heatmap
     // intersection here on purpose: Spotlight is a scoped view, the
     // operator already opted in by clicking a CJ.
-    if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0 && architecture) {
+    if (effectiveSpotlightActiveNodeIds && effectiveSpotlightActiveNodeIds.size > 0 && architecture) {
       const allNodeIds = new Set<string>();
       architecture.computeServices.forEach(n => allNodeIds.add(n.id));
       architecture.resources.forEach(n => allNodeIds.add(n.id));
@@ -7099,7 +7138,7 @@ export default function TrafficFlowMap({
       (architecture.egressGateways ?? []).forEach(n => allNodeIds.add(n.id));
       const ghosted = new Set<string>();
       allNodeIds.forEach(id => {
-        if (!spotlightActiveNodeIds.has(id)) ghosted.add(id);
+        if (!effectiveSpotlightActiveNodeIds.has(id)) ghosted.add(id);
       });
       return ghosted;
     }
@@ -7144,7 +7183,7 @@ export default function TrafficFlowMap({
     const ghosted = new Set<string>();
     allNodeIds.forEach(id => { if (!visited.has(id)) ghosted.add(id); });
     return ghosted;
-  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture, spotlightActiveNodeIds]);
+  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture, effectiveSpotlightActiveNodeIds]);
 
   const buildArchitecture = useCallback((nodes: any[], edges: any[], iamData: any[]): SystemArchitecture => {
     const extractInstanceId = (id: string | null | undefined): string => {
@@ -9071,7 +9110,7 @@ export default function TrafficFlowMap({
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
-            spotlightActiveNodeIds={spotlightActiveNodeIds}
+            spotlightActiveNodeIds={effectiveSpotlightActiveNodeIds}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy
