@@ -41,6 +41,7 @@ export interface ConvergencePath {
   path_id: string
   source?: string | null
   source_kind?: string | null
+  workload_arn?: string | null
   identity?: string | null
   identity_name?: string | null
   damage: string[]
