@@ -121,6 +121,12 @@ export function CJSpotlightStrip({
   // ── Populated state ──────────────────────────────────────────────
   if (!data || !selectedPath) return null
 
+  const isUnionMode = !selectedPathId
+  const totalPaths = data.paths.length
+  const focusedIndex = isUnionMode
+    ? 0
+    : Math.max(0, data.paths.findIndex((p) => p.path_id === selectedPathId))
+
   return (
     <StripFrame onReset={onReset} cjName={jewel.name}>
       {/* Header row — counts only. The path picker was a hidden dropdown
@@ -133,12 +139,18 @@ export function CJSpotlightStrip({
           observedPaths={data.observed_paths}
           chokeCount={Object.keys(data.choke_points || {}).length}
         />
+        <PathScopeHint
+          isUnionMode={isUnionMode}
+          totalPaths={totalPaths}
+          focusedIndex={focusedIndex}
+        />
       </div>
 
       {/* Inline path list (always visible). Click a row → strip switches
           to that path AND the TFM canvas filters to only that path's
-          nodes (parent reads `spotlightPathId` in its
-          `spotlightActiveNodeIds` memo and dims everything else). */}
+          nodes. With no path pinned (union mode), the canvas shows every
+          workload reaching the jewel; the kill chain below stays on path 1
+          until the operator picks a row — see PathScopeHint. */}
       <PathList
         paths={data.paths}
         selectedPathId={selectedPath.path_id}
@@ -202,6 +214,25 @@ function StripFrame({
       </div>
       {children}
     </div>
+  )
+}
+
+function PathScopeHint({
+  isUnionMode,
+  totalPaths,
+  focusedIndex,
+}: {
+  isUnionMode: boolean
+  totalPaths: number
+  focusedIndex: number
+}) {
+  if (totalPaths <= 1) return null
+  return (
+    <span className="text-[10px] text-slate-400">
+      {isUnionMode
+        ? `${totalPaths} paths to this jewel · showing path 1 of ${totalPaths}`
+        : `path ${focusedIndex + 1} of ${totalPaths}`}
+    </span>
   )
 }
 
