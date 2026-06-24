@@ -4398,32 +4398,36 @@ export function UnifiedArchitectureDiagram({
     [pathStepById, architecture.onPathNodeIds],
   );
   // Returns a class suffix (leading space) for a card wrapper.
-  // 2026-06-11 rebalance: on-path cards get real presence (ring-2 at
-  // 50% + shadow) — the faint ring-1 read as a ghost; off-path cards
-  // dim to 70% (was 50% — context must stay readable, just quieter
-  // than the spine).
+  //
+  // 2026-06-24 (operator override): DROP the off-path dim entirely.
+  // Previous behavior dimmed off-path cards to opacity-25 (spotlight)
+  // or opacity-70 (legacy path filter). Operator feedback: even with
+  // workload counts populated, the dim made cards read as broken /
+  // greyed-out, especially when auto-selected paths from PR #192
+  // (auto-select first path on data arrival) kicked in silently on
+  // every dependency-map mount. The dim destroyed the context the
+  // map exists to provide.
+  //
+  // Now: on-path nodes still get visual emphasis (ring + shadow), but
+  // off-path nodes stay at full opacity. The ring + shadow alone is
+  // enough to mark the spine of the active path; everything else
+  // remains readable as architectural context.
+  //
+  // Preserves PR #196's rationale (positive spotlightActiveNodeIds.has
+  // check, no accidental rings on unrelated cards) — just stops
+  // dimming the unmarked nodes.
   const pathEmphasisClass = useCallback(
     (nodeId: string): string => {
-      // Crown Jewel Spotlight emphasis. POSITIVE check on
-      // spotlightActiveNodeIds, not negative check on ghostedNodeIds —
-      // ghostedNodeIds = (architecture nodes − spotlightActive), so
-      // any node ID outside the architecture's lane arrays (synthetic
-      // nodes, identity tokens, etc.) was NOT in ghostedNodeIds and
-      // therefore got the on-path ring by accident. That surfaced as
-      // unrelated EC2/SG/IAM cards ringed amber even when they
-      // weren't on the path. Anchor: user feedback 2026-06-23 —
-      // "what is this shit... we need to see the flow between the
-      // services that are part of this path."
       if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0) {
         if (spotlightActiveNodeIds.has(nodeId)) {
           return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
         }
-        return ' opacity-25';
+        return '';
       }
       if (!pathFilterActive) return '';
       return isOnSelectedPath(nodeId)
         ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
-        : ' opacity-70';
+        : '';
     },
     [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
