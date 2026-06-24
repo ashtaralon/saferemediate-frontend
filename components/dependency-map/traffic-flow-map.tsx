@@ -8317,10 +8317,20 @@ export default function TrafficFlowMap({
           //
           // 2026-06-24: with chunking, a mid-loop failure may leave us
           // with PARTIAL data in `merged`. Surface what we have rather
-          // than nuking it — the chip honestly reports the failure
-          // either way, and partial enrichment beats zero enrichment.
-          console.warn('[TrafficFlowMap] IAM chunked fetch failed — surfacing partial enrichment:', bulkErr);
-          setIamEnrichmentFailed(true);
+          // than nuking it — partial enrichment beats zero enrichment.
+          //
+          // 2026-06-24 (later): only flag "unavailable" when ZERO
+          // chunks succeeded. With 6 chunks of 8 roles each, a single
+          // chunk failure used to light the chip — misleading because
+          // 40 of 48 roles ARE enriched. Now: chip fires only when
+          // the operator would actually see seed counts everywhere.
+          const partialCount = Object.keys(merged).length;
+          if (partialCount === 0) {
+            console.warn('[TrafficFlowMap] IAM chunked fetch failed — NO enrichment available:', bulkErr);
+            setIamEnrichmentFailed(true);
+          } else {
+            console.warn(`[TrafficFlowMap] IAM chunked fetch partial (${partialCount} roles enriched before failure):`, bulkErr);
+          }
           return archForGaps.iamRoles.map(role => {
             const data = merged[role.name];
             if (!data) return null;
@@ -8402,10 +8412,15 @@ export default function TrafficFlowMap({
           // stale build-time seed values on the chips.
           //
           // 2026-06-24: with chunking, partial enrichment is preserved
-          // when a mid-loop chunk fails — chip honestly reports the
-          // failure either way.
-          console.warn('[TrafficFlowMap] SG chunked fetch failed — surfacing partial enrichment:', bulkErr);
-          setSgEnrichmentFailed(true);
+          // when a mid-loop chunk fails. Only flag "unavailable" when
+          // ZERO chunks succeeded — same logic as the IAM block above.
+          const partialCount = Object.keys(merged).length;
+          if (partialCount === 0) {
+            console.warn('[TrafficFlowMap] SG chunked fetch failed — NO enrichment available:', bulkErr);
+            setSgEnrichmentFailed(true);
+          } else {
+            console.warn(`[TrafficFlowMap] SG chunked fetch partial (${partialCount} SGs enriched before failure):`, bulkErr);
+          }
           return archForGaps.securityGroups.map(sg => {
             const data = merged[sg.id];
             if (!data) return null;
