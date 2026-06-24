@@ -4431,6 +4431,31 @@ export function UnifiedArchitectureDiagram({
     },
     [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
+
+  // 2026-06-24: when a spotlight/path is active, column headers should
+  // NOT show "(40)" / "(4)" / "(28)" — those counts reflect the whole
+  // system inventory, but the columns are filtering to only the path's
+  // visible nodes. Showing "COMPUTE (40)" next to a single visible
+  // EC2 card is misleading. Drop the suffix during spotlight.
+  const spotlightActive = (spotlightActiveNodeIds?.size ?? 0) > 0 || pathFilterActive;
+  const countLabel = useCallback(
+    (n: number) => (spotlightActive ? '' : ` (${n})`),
+    [spotlightActive],
+  );
+  // Per-column visibility: when spotlight is active, hide a whole
+  // column if NONE of its items are on the path. Eliminates the
+  // empty "VPC ENDPOINTS (4)" header with no card under it that the
+  // operator flagged in 2026-06-24 screenshot.
+  const anyVisibleOnPath = useCallback(
+    (items: ReadonlyArray<{ id?: string | null }>): boolean => {
+      if (!spotlightActive) return true;
+      if (pathFilterActive) {
+        return items.some(i => i.id && isOnSelectedPath(i.id));
+      }
+      return items.some(i => i.id && spotlightActiveNodeIds!.has(i.id));
+    },
+    [spotlightActive, pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
+  );
   // Numbered step badge — absolute top-left of the card wrapper (which
   // must be position:relative). Renders only for nodes that are actual
   // ordered path steps; rescued gates (SG/NACL that touch the path but
@@ -4781,7 +4806,7 @@ export function UnifiedArchitectureDiagram({
               <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                   <Target className="w-4 h-4 text-cyan-700 dark:text-cyan-300" />
-                  {architecture.entryLaneLabel ?? "Entry"} ({entries.length})
+                  {architecture.entryLaneLabel ?? "Entry"}{countLabel(entries.length)}
                 </div>
                 {entries.map((node) => {
                   const isInAttackPath = attackPathNodeIds.has(node.id);
@@ -4841,7 +4866,7 @@ export function UnifiedArchitectureDiagram({
           <div className="flex flex-col gap-3" data-vpc-scoped-column="true" data-lane="compute">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              Compute ({architecture.computeServices.length})
+              Compute{countLabel(architecture.computeServices.length)}
             </div>
             {architecture.computeServices.map(node => {
               const vuln = nodeVulnerabilities.get(node.id);
@@ -4977,7 +5002,7 @@ export function UnifiedArchitectureDiagram({
           <div className="flex flex-col gap-3 min-w-[170px]" data-column="subnets" data-vpc-scoped-column="true" data-lane="subnets">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Globe className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-              Subnets ({architecture.subnets?.length ?? 0})
+              Subnets{countLabel(architecture.subnets?.length ?? 0)}
             </div>
             {(architecture.subnets || []).map(subnet => {
               const postureCls =
@@ -5046,7 +5071,7 @@ export function UnifiedArchitectureDiagram({
             <div className="flex flex-col gap-3 min-w-[160px]" data-vpc-scoped-column="true" data-lane="route-tables">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                 <ArrowRight className="w-4 h-4 text-foreground" />
-                Route Tables ({(architecture.subnets ?? []).filter(s => s.routeTableId).length})
+                Route Tables{countLabel((architecture.subnets ?? []).filter(s => s.routeTableId).length)}
               </div>
               {(architecture.subnets ?? [])
                 .filter(s => s.routeTableId)
@@ -5081,7 +5106,7 @@ export function UnifiedArchitectureDiagram({
           <div className="flex flex-col gap-3 min-w-[180px]" data-vpc-scoped-column="true" data-lane="security-groups">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Shield className="w-4 h-4 text-orange-600 dark:text-orange-400" />
-              Security Groups ({architecture.securityGroups.length})
+              Security Groups{countLabel(architecture.securityGroups.length)}
             </div>
             {architecture.securityGroups.map(sg => (
               <div key={sg.id} data-sg-id={sg.id} className={`relative${pathEmphasisClass(sg.id)}`}>
@@ -5118,7 +5143,7 @@ export function UnifiedArchitectureDiagram({
             <div className="flex flex-col gap-3 min-w-[140px]" data-vpc-scoped-column="true" data-lane="nacls">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Lock className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                NACLs ({architecture.nacls.length})
+                NACLs{countLabel(architecture.nacls.length)}
               </div>
               {architecture.nacls.map(nacl => (
                 <div key={nacl.id} data-nacl-id={nacl.id} className={`relative${pathEmphasisClass(nacl.id)}`}>
@@ -5163,7 +5188,7 @@ export function UnifiedArchitectureDiagram({
             <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="egress-gateways">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Globe className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                Egress Gateways ({architecture.egressGateways.length})
+                Egress Gateways{countLabel(architecture.egressGateways.length)}
               </div>
               {/* Canvas v3 Slice A — visualize-by-negation on the gateway
                   lane. Compute the set of gateways that win SOMETHING on
@@ -5316,7 +5341,7 @@ export function UnifiedArchitectureDiagram({
                 </span>
               )}
               <span className="text-pink-700 dark:text-pink-300/80">
-                Roles {architecture.iamRoles.length}
+                Roles{spotlightActive ? '' : ` ${architecture.iamRoles.length}`}
               </span>
               {(architecture.iamPolicies?.length ?? 0) > 0 && (
                 <span className="text-violet-700 dark:text-violet-300/80">
@@ -5620,11 +5645,11 @@ export function UnifiedArchitectureDiagram({
               still reaches S3" path legible to the operator. Empty
               state renders a faint "No VPC endpoints" so the lane
               still occupies grid space when none apply to the path. */}
-          {(architecture.vpcEndpoints?.length ?? 0) > 0 && (
+          {(architecture.vpcEndpoints?.length ?? 0) > 0 && anyVisibleOnPath(architecture.vpcEndpoints) && (
           <div className="flex flex-col gap-3 items-center" data-vpc-scoped-column="true" data-lane="vpc-endpoints">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Cloud className="w-4 h-4 text-violet-600 dark:text-violet-400" />
-              VPC Endpoints ({architecture.vpcEndpoints.length})
+              VPC Endpoints{countLabel(architecture.vpcEndpoints.length)}
             </div>
             {architecture.vpcEndpoints.map(vpce => {
               const isInUseForFlow = architecture.flows.some(f => f.vpceId === vpce.id);
@@ -5746,7 +5771,7 @@ export function UnifiedArchitectureDiagram({
           <div className="flex flex-col gap-3" data-lane-global="true" data-lane="resources">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              Resources ({architecture.resources.length})
+              Resources{countLabel(architecture.resources.length)}
               <span
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-muted text-foreground border border-border"
                 title="S3, DynamoDB, KMS and other AWS data services are regional, not VPC-scoped. They sit outside any VPC enclosure on this canvas — traffic from inside a VPC reaches them via the VPC Endpoint or NAT/IGW gateway shown to the left."
