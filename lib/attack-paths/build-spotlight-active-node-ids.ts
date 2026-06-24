@@ -7,7 +7,11 @@ export interface SpotlightJewelRef {
 
 export interface SpotlightArchitectureSlice {
   computeServices: Array<{ id: string; name?: string; instanceId?: string }>
-  securityGroups: Array<{ id: string; name?: string }>
+  securityGroups: Array<{
+    id: string
+    name?: string
+    connectedSources?: string[]
+  }>
   iamRoles: Array<{ id: string; name?: string }>
   flows: Array<{
     sourceId: string
@@ -25,6 +29,17 @@ function extractInstanceId(id: string | null | undefined): string {
   if (!id) return ""
   const match = id.match(/i-[a-f0-9]+/)
   return match ? match[0] : id
+}
+
+/** Paths that drive COMPUTE / SG union in spotlight (skip orphan rows). */
+export function selectSpotlightPaths(
+  paths: ConvergencePath[],
+  spotlightPathId?: string | null,
+): ConvergencePath[] {
+  if (spotlightPathId) {
+    return paths.filter((p) => p.path_id === spotlightPathId)
+  }
+  return paths.filter((p) => (p.workload_arn ?? "").trim().length > 0)
 }
 
 function resolveComputeId(
@@ -68,6 +83,47 @@ function resolveRoleIds(
   return out
 }
 
+function resolveSecurityGroupIdsForCompute(
+  computeId: string,
+  architecture?: SpotlightArchitectureSlice | null,
+): string[] {
+  if (!architecture?.securityGroups?.length) return []
+  const instanceKey = extractInstanceId(computeId)
+  const out: string[] = []
+  for (const sg of architecture.securityGroups) {
+    const sources = sg.connectedSources ?? []
+    const attached = sources.some(
+      (src) =>
+        src === computeId ||
+        src === instanceKey ||
+        extractInstanceId(src) === instanceKey,
+    )
+    if (attached && !out.includes(sg.id)) out.push(sg.id)
+  }
+  return out
+}
+
+function addFlowAttachments(
+  computeId: string,
+  out: Set<string>,
+  architecture?: SpotlightArchitectureSlice | null,
+): void {
+  if (!architecture?.flows?.length) return
+  const instanceKey = extractInstanceId(computeId)
+  for (const flow of architecture.flows) {
+    const matchesSource =
+      flow.sourceId === computeId ||
+      flow.sourceId === instanceKey ||
+      extractInstanceId(flow.sourceId) === instanceKey
+    if (!matchesSource) continue
+    if (flow.sgId) out.add(flow.sgId)
+    if (flow.naclId) out.add(flow.naclId)
+    if (flow.roleId) out.add(flow.roleId)
+    if (flow.vpceId) out.add(flow.vpceId)
+    if (flow.egressGatewayId) out.add(flow.egressGatewayId)
+  }
+}
+
 /** Union (or single-path) node ids for Crown Jewel Spotlight canvas dimming. */
 export function buildSpotlightActiveNodeIds(params: {
   paths: ConvergencePath[]
@@ -79,9 +135,7 @@ export function buildSpotlightActiveNodeIds(params: {
   const out = new Set<string>()
   if (!paths.length) return out
 
-  const pathsToInclude = spotlightPathId
-    ? paths.filter((p) => p.path_id === spotlightPathId)
-    : paths
+  const pathsToInclude = selectSpotlightPaths(paths, spotlightPathId)
 
   for (const p of pathsToInclude) {
     if (p.source) out.add(p.source)
@@ -101,27 +155,9 @@ export function buildSpotlightActiveNodeIds(params: {
     const computeId = resolveComputeId(p, architecture)
     if (computeId) {
       out.add(computeId)
-      const instanceKey = extractInstanceId(computeId)
-      if (architecture?.flows?.length) {
-        for (const flow of architecture.flows) {
-          const matchesSource =
-            flow.sourceId === computeId ||
-            flow.sourceId === instanceKey ||
-            extractInstanceId(flow.sourceId) === instanceKey
-          if (!matchesSource) continue
-          if (flow.sgId) out.add(flow.sgId)
-          if (flow.naclId) out.add(flow.naclId)
-          if (flow.roleId) out.add(flow.roleId)
-          if (flow.vpceId) out.add(flow.vpceId)
-          if (flow.egressGatewayId) out.add(flow.egressGatewayId)
-        }
-      }
-    }
-
-    if (architecture?.securityGroups?.length && p.source) {
-      const lower = p.source.toLowerCase()
-      for (const sg of architecture.securityGroups) {
-        if ((sg.name || "").toLowerCase().includes(lower)) out.add(sg.id)
+      addFlowAttachments(computeId, out, architecture)
+      for (const sgId of resolveSecurityGroupIdsForCompute(computeId, architecture)) {
+        out.add(sgId)
       }
     }
   }

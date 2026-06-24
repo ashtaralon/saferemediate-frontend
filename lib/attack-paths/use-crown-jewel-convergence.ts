@@ -19,6 +19,13 @@ interface UseCrownJewelConvergenceResult {
   retry: () => void
 }
 
+function firstWorkloadPathId(
+  paths: CrownJewelConvergenceSummary["paths"],
+): string | null {
+  const real = paths.find((p) => (p.workload_arn ?? "").trim().length > 0)
+  return real?.path_id ?? paths[0]?.path_id ?? null
+}
+
 function summaryToConvergence(
   summary: CrownJewelConvergenceSummary,
   detailPath: ConvergencePath | null,
@@ -119,13 +126,15 @@ export function useCrownJewelConvergence(
         }
 
         const summary = summaryBody as CrownJewelConvergenceSummary
-        const pathId =
-          selectedPathId ??
-          (summary.paths.length > 0 ? summary.paths[0].path_id : null)
+        const detailPathId = selectedPathId ?? firstWorkloadPathId(summary.paths)
 
         let detailPath: ConvergencePath | null = null
-        if (pathId) {
-          const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId)
+        if (detailPathId) {
+          const detailUrl = buildConvergenceDetailUrl(
+            systemName,
+            jewel,
+            detailPathId,
+          )
           const detailRes = await fetch(detailUrl, {
             cache: "no-store",
             signal: ctrl.signal,
@@ -139,7 +148,7 @@ export function useCrownJewelConvergence(
         }
 
         if (!cancelled) {
-          setData(summaryToConvergence(summary, detailPath, pathId))
+          setData(summaryToConvergence(summary, detailPath, selectedPathId))
           setError(null)
         }
       } catch (e) {

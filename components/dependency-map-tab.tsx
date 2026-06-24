@@ -230,6 +230,9 @@ export default function DependencyMapTab({
 
   const handleEnterSpotlight = useCallback(
     (cj: { id: string; arn?: string | null; name: string; type: string }) => {
+      // Fresh jewel click always opens union mode — clear any stale drill
+      // state left in React state or the URL from a prior path-row click.
+      setSpotlightPathId(null)
       setSpotlightJewel({
         id: cj.id,
         canonical_id: cj.arn ?? (cj.id.startsWith('arn:') ? cj.id : null),
@@ -242,7 +245,15 @@ export default function DependencyMapTab({
         data_classification: null,
         priority_score: 0,
       })
-      setSpotlightPathId(null)
+      if (typeof window !== 'undefined') {
+        try {
+          const u = new URL(window.location.href)
+          u.searchParams.delete('path')
+          window.history.replaceState(null, '', u.toString())
+        } catch {
+          // No-op.
+        }
+      }
     },
     [],
   )
