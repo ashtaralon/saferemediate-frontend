@@ -7,6 +7,7 @@ import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
+import { enrichArchitectureForSpotlight } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
@@ -6868,7 +6869,7 @@ export default function TrafficFlowMap({
   // re-renders instantly without refetching and stale fetches can't
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
-  const architecture = useMemo(() => {
+  const baseArchitecture = useMemo(() => {
     // Always-on Crown Jewel marking pass. Applies AFTER any override /
     // pathFilter logic so existing `isCrownJewel: true` from
     // applyPathFilter is preserved (logical OR via `|| existing`).
@@ -6921,6 +6922,15 @@ export default function TrafficFlowMap({
     if (!rawArchitecture) return null;
     return markCjs(pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture);
   }, [rawArchitecture, pathFilter, architectureOverride, systemCrownJewelIds]);
+
+  const architecture = useMemo(() => {
+    if (!baseArchitecture || !spotlightPaths?.length) return baseArchitecture;
+    return enrichArchitectureForSpotlight(
+      baseArchitecture,
+      spotlightPaths,
+      spotlightPathId ?? null,
+    );
+  }, [baseArchitecture, spotlightPaths, spotlightPathId]);
 
   const effectiveSpotlightActiveNodeIds = useMemo(() => {
     if (spotlightPaths?.length) {
