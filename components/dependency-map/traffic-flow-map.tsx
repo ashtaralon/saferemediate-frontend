@@ -4810,28 +4810,32 @@ export function UnifiedArchitectureDiagram({
             breathe; API CALLS / RESOURCES on the row below adapt to
             whichever column count is active. */}
         <div
-          className={`relative grid ${
-            (architecture.subnets?.length ?? 0) === 0 &&
-            architecture.securityGroups.length === 0 &&
-            architecture.nacls.length === 0
-              ? "grid-cols-[1fr_2fr_1fr]"
-              : pathMode
-                // Path-filter mode: 8-col template so the Phase 1+2
-                // lane set fits on one row — ENTRY (conditional,
-                // leftmost) | COMPUTE | SUBNETS | ROUTE TABLES
-                // (conditional) | SG | NACL | IDENTITY | RESOURCES.
-                // When ENTRY isn't rendered the auto-col collapses
-                // to zero width, so paths without an entry point
-                // don't get a phantom gap at the left.
-                //
-                // History: original 7-col template predates the
-                // ENTRY lane (Phase 2 — 2026-05-25 user feedback)
-                // and the ROUTE TABLES promotion (Phase 1). 2026-05-
-                // 24's `pathFilter` undefined bug fixed in the same
-                // branch.
-                ? "grid-cols-[auto_1fr_auto_auto_auto_auto_auto_1fr]"
-                : "grid-cols-[1fr_auto_auto_auto_1fr]"
-          } gap-6 items-start`}
+          // 2026-06-25: switched from CSS Grid to flex-row so every
+          // lane (COMPUTE, SUBNETS, ROUTE-TABLES, SG, NACL, EGRESS-GW,
+          // IDENTITY, API-CALLS, VPC-ENDPOINTS, RESOURCES) sits in a
+          // single horizontal row. The old grid templates had 5-8
+          // explicit columns; with up to 11 conditionally-rendered
+          // lanes (ENTRY too on path mode), implicit-column auto-flow
+          // started wrapping RESOURCES onto row 2, putting it
+          // ~3500px below the rest of the canvas. ConnectionLinesSVG
+          // dutifully drew the polylines but they spanned that whole
+          // vertical distance — operators saw the source/role chips
+          // and a VPCE chip but no visible line, because most of the
+          // path ran off-screen down to the wrapped row.
+          //
+          // Flex-row with overflow-x-auto guarantees one row, with
+          // horizontal scroll if the lane count overflows the
+          // viewport. min-w-fit on each child (already present via
+          // their flex-col + content widths) keeps lane chip widths
+          // intact.
+          //
+          // The no-network case (the 3-col "no subnets/SGs/NACLs"
+          // collapse) loses its centered-banner layout — that fallback
+          // was a UI band-aid for IAM-only attack paths and is rarer
+          // than the path-wraps-to-row-2 bug we're fixing. If needed,
+          // reintroduce as a separate banner UI rather than a
+          // template-switch.
+          className="relative flex flex-row gap-6 items-start overflow-x-auto"
           style={{ zIndex: 2 }}
         >
           {/* ENTRY lane (Phase 2 — 2026-05-25). Leftmost column.
