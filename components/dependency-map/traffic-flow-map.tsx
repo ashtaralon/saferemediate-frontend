@@ -8381,6 +8381,73 @@ export default function TrafficFlowMap({
       });
     });
 
+    // ── IAMPolicy extraction (Q1 — 2026-06-25) ─────────────────────
+    // The renderer at line ~5587 already iterates architecture.iamPolicies
+    // and the lane header at ~5429 already counts them — but
+    // buildArchitecture never extracted IAMPolicy nodes into the array.
+    // Same shape as the InstanceProfile bug fixed earlier. The dep-map
+    // response carries HAS_POLICY edges (already in the edge MATCH at
+    // saferemediate-backend/api/dependency_map_full.py:663), so this is
+    // pure FE derivation from nodes[] + edges[].
+    const policyAttachedRoleIds = new Map<string, Set<string>>();
+    edges.forEach(e => {
+      const eType = (e.edge_type || e.type || '').toUpperCase();
+      if (eType !== 'HAS_POLICY') return;
+      const srcId = e.source || e.from;
+      const tgtId = e.target || e.to;
+      if (!srcId || !tgtId) return;
+      const srcType = (nodeMap.get(srcId)?.type || '').toLowerCase();
+      const tgtType = (nodeMap.get(tgtId)?.type || '').toLowerCase();
+      const srcIsPolicy = srcType === 'iampolicy' || srcType === 'iam_policy';
+      const tgtIsPolicy = tgtType === 'iampolicy' || tgtType === 'iam_policy';
+      const policyId = tgtIsPolicy ? tgtId : srcIsPolicy ? srcId : null;
+      const roleId = tgtIsPolicy ? srcId : srcIsPolicy ? tgtId : null;
+      if (!policyId || !roleId) return;
+      const set = policyAttachedRoleIds.get(policyId) ?? new Set<string>();
+      set.add(roleId);
+      policyAttachedRoleIds.set(policyId, set);
+    });
+
+    const iamPolicies: SecurityCheckpoint[] = [];
+    nodes.forEach(n => {
+      const nType = (n.type || '').toLowerCase();
+      const isPolicy = nType === 'iampolicy' || nType === 'iam_policy';
+      if (!isPolicy) return;
+      // Only surface policies that attach to a role rendered on this
+      // canvas — orphan or cross-account policies stay out of the lane.
+      const attachedRoles = policyAttachedRoleIds.get(n.id);
+      if (!attachedRoles || attachedRoles.size === 0) return;
+      const anyRoleRendered = Array.from(attachedRoles).some(rId =>
+        iamRoles.some(r => r.id === rId)
+      );
+      if (!anyRoleRendered) return;
+      iamPolicies.push({
+        id: n.id,
+        type: 'iam_policy',
+        name: n.name || n.id,
+        shortName: shortName(n.name || n.id, 16),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: Array.from(attachedRoles),
+        connectedTargets: [],
+      });
+    });
+
+    // ── Filter unused VPCEs (Q2-A — 2026-06-25) ────────────────────
+    // Operator complaint: SSM / SSMMESSAGES / EC2MESSAGES VPCEs took
+    // ~30% of vertical space on alon-prod's canvas while contributing
+    // zero signal (none of them carry observed flows). Per the chosen
+    // option A, drop VPCEs that no flow.vpceId references. The "Not
+    // used" badge introduced in #79 stays in the codebase for future
+    // option B (collapse-to-pill) if we ever want to surface unused
+    // VPCEs as a security signal again, but today the lane only shows
+    // endpoints that are part of an active flow.
+    const activeVpceIds = new Set<string>(
+      flows.map(f => f.vpceId).filter(Boolean) as string[]
+    );
+    const filteredVpcEndpoints = vpcEndpoints.filter(v => activeVpceIds.has(v.id));
+
     return {
       computeServices,
       resources,
@@ -8388,8 +8455,9 @@ export default function TrafficFlowMap({
       securityGroups,
       nacls,
       iamRoles,
+      iamPolicies,
       instanceProfiles,
-      vpcEndpoints,
+      vpcEndpoints: filteredVpcEndpoints,
       egressGateways,
       flows,
       totalBytes,
