@@ -8254,6 +8254,109 @@ export default function TrafficFlowMap({
     });
     egressGateways.sort((a, b) => a.id.localeCompare(b.id));
 
+    // ── InstanceProfile + role-sharing extraction ──────────────────
+    // 2026-06-25 (Bug N P2 data wire-up): the AC2 Profile sidecar +
+    // AC6 Shared·N chip both ship in this file (lines ~1779, ~4966)
+    // and consume `architecture.instanceProfiles[].attachedWorkloads`
+    // and `iamRoles[].sharedWith` respectively. The dep-map response
+    // already carries InstanceProfile nodes + HAS_INSTANCE_PROFILE +
+    // USES_ROLE edges (see saferemediate-backend/api/dependency_map_full.py:663),
+    // but buildArchitecture never extracted them — so both chips
+    // rendered null on cyntro.io despite the code being in the bundle.
+    // Derive both fields here from the same nodes[] + edges[] the rest
+    // of the function already walks. Pure derivation, no fetch.
+
+    // Pass 1: gather HAS_INSTANCE_PROFILE edges (EC2 → InstanceProfile)
+    // into a lookup so we can populate attachedWorkloads[] per profile.
+    const ipIdToAttachedWorkloads = new Map<string, string[]>();
+    edges.forEach(e => {
+      const eType = (e.edge_type || e.type || '').toUpperCase();
+      if (eType !== 'HAS_INSTANCE_PROFILE') return;
+      const srcId = e.source || e.from;
+      const tgtId = e.target || e.to;
+      if (!srcId || !tgtId) return;
+      // Edge direction in the graph: EC2 -[HAS_INSTANCE_PROFILE]-> InstanceProfile
+      // (per the saferemediate-backend USES_ROLE/HAS_INSTANCE_PROFILE schema).
+      // Be defensive about reversed edges by checking which endpoint is
+      // an InstanceProfile.
+      const srcType = (nodeMap.get(srcId)?.type || '').toLowerCase();
+      const tgtType = (nodeMap.get(tgtId)?.type || '').toLowerCase();
+      const srcIsIP = srcType.includes('instanceprofile') || srcType === 'instance_profile';
+      const tgtIsIP = tgtType.includes('instanceprofile') || tgtType === 'instance_profile';
+      const ipId = tgtIsIP ? tgtId : srcIsIP ? srcId : null;
+      const workloadId = tgtIsIP ? srcId : srcIsIP ? tgtId : null;
+      if (!ipId || !workloadId) return;
+      const list = ipIdToAttachedWorkloads.get(ipId) ?? [];
+      if (!list.includes(workloadId)) list.push(workloadId);
+      ipIdToAttachedWorkloads.set(ipId, list);
+    });
+
+    // Pass 2: collect InstanceProfile nodes, attach the workload list.
+    const instanceProfiles: SecurityCheckpoint[] = [];
+    nodes.forEach(n => {
+      const nType = (n.type || '').toLowerCase();
+      const isIP = nType.includes('instanceprofile') || nType === 'instance_profile';
+      if (!isIP) return;
+      instanceProfiles.push({
+        id: n.id,
+        type: 'instance_profile',
+        name: n.name || n.id,
+        shortName: shortName(n.name || n.id, 14),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+        attachedWorkloads: ipIdToAttachedWorkloads.get(n.id) ?? [],
+      });
+    });
+
+    // Pass 3: compute sharedWith[] per role. A role is "shared" when
+    // more than one workload (EC2/Lambda/…) uses it — operationally the
+    // damage of removing the role spans all workloads, so the chip must
+    // surface the count at a glance. Build the role→workload set by
+    // walking USES_ROLE edges (canonical: workload -[USES_ROLE]-> role).
+    const roleIdToWorkloadIds = new Map<string, Set<string>>();
+    edges.forEach(e => {
+      const eType = (e.edge_type || e.type || '').toUpperCase();
+      if (eType !== 'USES_ROLE') return;
+      const srcId = e.source || e.from;
+      const tgtId = e.target || e.to;
+      if (!srcId || !tgtId) return;
+      const srcType = (nodeMap.get(srcId)?.type || '').toLowerCase();
+      const tgtType = (nodeMap.get(tgtId)?.type || '').toLowerCase();
+      const srcIsRole = srcType === 'iamrole' || srcType === 'iam_role';
+      const tgtIsRole = tgtType === 'iamrole' || tgtType === 'iam_role';
+      const roleId = tgtIsRole ? tgtId : srcIsRole ? srcId : null;
+      const workloadId = tgtIsRole ? srcId : srcIsRole ? tgtId : null;
+      if (!roleId || !workloadId) return;
+      // Skip principal nodes — they aren't workloads, they're attackers
+      // walking the path. We only want concrete compute carriers.
+      const wType = (nodeMap.get(workloadId)?.type || '').toLowerCase();
+      if (wType.includes('principal')) return;
+      const set = roleIdToWorkloadIds.get(roleId) ?? new Set<string>();
+      set.add(workloadId);
+      roleIdToWorkloadIds.set(roleId, set);
+    });
+
+    iamRoles.forEach(role => {
+      const workloadIds = Array.from(roleIdToWorkloadIds.get(role.id) ?? new Set<string>());
+      // sharedWith excludes any single "focal" workload — the chip is
+      // about cross-workload reach, so report ALL workload bindings.
+      // The chip renderer at line ~1779 decides whether to render
+      // (>0 means show "Shared · N workloads").
+      if (workloadIds.length <= 1) return;
+      role.sharedWith = workloadIds.map(wId => {
+        const w = nodeMap.get(wId);
+        return {
+          id: wId,
+          name: w?.name || wId,
+          type: String(w?.type || 'unknown'),
+          system_name: w?.system_name ?? w?.systemName ?? null,
+        };
+      });
+    });
+
     return {
       computeServices,
       resources,
@@ -8261,6 +8364,7 @@ export default function TrafficFlowMap({
       securityGroups,
       nacls,
       iamRoles,
+      instanceProfiles,
       vpcEndpoints,
       egressGateways,
       flows,
