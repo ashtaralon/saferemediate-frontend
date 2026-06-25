@@ -120,6 +120,7 @@ function EstateView() {
             <AwsFrame
               vpcTopology={data.vpc_topology}
               nodes={filteredNodes}
+              trafficEdges={data.traffic_edges}
               selectedNodeId={selectedNodeId}
               onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
             />

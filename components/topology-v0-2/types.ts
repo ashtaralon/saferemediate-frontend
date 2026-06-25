@@ -82,6 +82,8 @@ export interface TopologyNode {
   score: NodeScore | null
   stale: { since: string | null; reason: string } | null
   is_jewel: boolean
+  // Phase B addition — present on responses from BE >= phase-b deploy.
+  security_group_ids?: string[]
 }
 
 export type SubnetTier = "web" | "app" | "data" | "unknown"
@@ -92,7 +94,7 @@ export interface SubnetMeta {
   az: string | null
   cidr: string | null
   tier: SubnetTier
-  tier_source: "property" | "name" | "unknown"
+  tier_source: "property" | "name" | "default_vpc_cidr" | "unknown"
 }
 
 export interface EdgeIgw {
@@ -112,6 +114,33 @@ export interface EdgeVpce {
   endpoint_type: string | null
 }
 
+export interface SecurityGroupMeta {
+  id: string
+  name: string
+  description: string | null
+  has_public_ingress: boolean
+}
+
+export interface IamRoleRollup {
+  name: string
+  role_arn: string | null
+  allowed_actions: number
+  used_actions: number
+  unused_actions: number
+  gap_percentage: number
+  last_remediated_at: string | null
+  workload_ids: string[]
+  attachment_modes: ("instance_profile" | "direct" | string)[]
+}
+
+export interface TrafficEdge {
+  source_id: string
+  target_id: string
+  port: number | null
+  protocol: string | null
+  last_seen: string | null
+}
+
 export interface VpcTopology {
   region: string | null
   account_id: string | null
@@ -124,6 +153,9 @@ export interface VpcTopology {
     vpces: EdgeVpce[]
   }
   unknown_subnet_count: number
+  // Phase B additions — present in responses from BE >= phase-b deploy.
+  security_groups?: SecurityGroupMeta[]
+  iam_roles?: IamRoleRollup[]
 }
 
 export interface TopologyRiskResponse {
@@ -134,6 +166,8 @@ export interface TopologyRiskResponse {
   system_kpis: SystemKpis | null
   nodes: TopologyNode[]
   vpc_topology?: VpcTopology | null
+  // Phase B addition — present on responses from BE >= phase-b deploy.
+  traffic_edges?: TrafficEdge[]
   error?: string
   fromStaleCache?: boolean
 }
