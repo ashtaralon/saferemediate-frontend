@@ -31,17 +31,21 @@
 
 import { useMemo } from "react"
 import {
+  type IamRoleRollup,
   type ScoreTier,
+  type SecurityGroupMeta,
   SIGNAL_LABEL,
   type SubnetMeta,
   type SubnetTier,
   type TopologyNode,
+  type TrafficEdge,
   type VpcTopology,
 } from "./types"
 
 interface Props {
   vpcTopology: VpcTopology
   nodes: TopologyNode[]
+  trafficEdges?: TrafficEdge[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
 }
@@ -234,12 +238,13 @@ function WorkloadChip({
 }
 
 function SubnetCell({
-  tier, az, subnetsHere, workloadsHere, selectedNodeId, onSelect,
+  tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
 }: {
   tier: SubnetTier
   az: string
   subnetsHere: SubnetMeta[]
   workloadsHere: TopologyNode[]
+  sgIndex: Map<string, SecurityGroupMeta>
   selectedNodeId: string | null
   onSelect: (id: string) => void
 }) {
@@ -289,18 +294,270 @@ function SubnetCell({
               no workloads here
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {workloadsHere.map(n => (
-                <WorkloadChip
-                  key={n.id}
-                  node={n}
-                  selected={n.id === selectedNodeId}
-                  onClick={() => onSelect(n.id)}
-                />
-              ))}
-            </div>
+            // Group workloads by their security_group_ids. Workloads in
+            // the same SG render inside a single orange-dashed container
+            // labeled with the SG name. Workloads with no SG attached
+            // get their own "no SG attached" group (honest empty).
+            (() => {
+              const groups = new Map<string, TopologyNode[]>()
+              for (const n of workloadsHere) {
+                const sgs = n.security_group_ids ?? []
+                if (sgs.length === 0) {
+                  const list = groups.get("__no_sg__") ?? []
+                  list.push(n)
+                  groups.set("__no_sg__", list)
+                  continue
+                }
+                for (const sgId of sgs) {
+                  const list = groups.get(sgId) ?? []
+                  list.push(n)
+                  groups.set(sgId, list)
+                }
+              }
+              const entries = [...groups.entries()]
+              return (
+                <div className="space-y-2">
+                  {entries.map(([sgId, group]) => {
+                    if (sgId === "__no_sg__") {
+                      return (
+                        <div
+                          key={sgId}
+                          className="rounded p-2"
+                          style={{
+                            background: "transparent",
+                            border: `1px dashed ${PAL.slate}80`,
+                          }}
+                        >
+                          <div className="text-[9px] uppercase tracking-[0.10em] italic mb-1.5" style={{ color: PAL.slate }}>
+                            no SG attached
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {group.map(n => (
+                              <WorkloadChip
+                                key={n.id}
+                                node={n}
+                                selected={n.id === selectedNodeId}
+                                onClick={() => onSelect(n.id)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    }
+                    const sg = sgIndex.get(sgId)
+                    const sgName = sg?.name ?? sgId
+                    const isPublic = sg?.has_public_ingress
+                    return (
+                      <div
+                        key={sgId}
+                        className="rounded p-2"
+                        style={{
+                          background: "transparent",
+                          border: `1.5px dashed ${isPublic ? PAL.carmine : "#FF9900"}`,
+                        }}
+                      >
+                        <div
+                          className="text-[10px] uppercase tracking-[0.10em] font-bold mb-1.5"
+                          style={{ color: isPublic ? PAL.carmine : "#C77400" }}
+                          title={sg?.description ?? sgName}
+                        >
+                          🛡 {sgName}{isPublic ? " · public ingress" : ""}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {group.map(n => (
+                            <WorkloadChip
+                              key={n.id}
+                              node={n}
+                              selected={n.id === selectedNodeId}
+                              onClick={() => onSelect(n.id)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+function IamRoleCard({ role, allWorkloads }: { role: IamRoleRollup; allWorkloads: TopologyNode[] }) {
+  const isClean = role.allowed_actions === 0 || role.gap_percentage === 0
+  const isCritical = role.gap_percentage >= 80
+  const accent = isClean ? "#10B981" : isCritical ? PAL.carmine : PAL.amber
+  const remediated = role.last_remediated_at
+    ? new Date(role.last_remediated_at).toISOString().slice(0, 10)
+    : null
+  const consumers = allWorkloads.filter(w => role.workload_ids.includes(w.id))
+  const isShared = role.workload_ids.length > 1
+  return (
+    <div
+      className="rounded-md p-3 min-w-[200px] max-w-[260px] shrink-0"
+      style={{ background: "white", border: `1.5px solid ${accent}`, borderTopWidth: "3px" }}
+    >
+      <div className="text-[12px] font-semibold truncate" style={{ color: PAL.ink }} title={role.name}>
+        {role.name}
+      </div>
+      <div className="mt-1.5 mb-1.5">
+        {role.allowed_actions === 0 ? (
+          <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded inline-block"
+            style={{ background: "#D1FAE5", color: "#065F46" }}
+          >
+            0/0 actions
+          </span>
+        ) : (
+          <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded inline-block"
+            style={{
+              background: isCritical ? "#FECACA" : "#FEF3C7",
+              color: isCritical ? "#7F1D1D" : "#92400E",
+            }}
+          >
+            {role.unused_actions}/{role.allowed_actions} unused
+          </span>
+        )}
+      </div>
+      <div className="text-[10px] leading-snug" style={{ color: PAL.slate }}>
+        {role.allowed_actions === 0 ? (
+          <>
+            {remediated ? `Remediated ${remediated} · ` : ""}
+            least-privilege achieved
+          </>
+        ) : (
+          <>
+            {Math.round(role.gap_percentage)}% gap
+            {remediated ? ` · remediation ${remediated}` : " · never remediated"}
+          </>
+        )}
+      </div>
+      {consumers.length > 0 && (
+        <div className="mt-2 pt-2 border-t" style={{ borderColor: "#E5E7EB" }}>
+          {consumers.slice(0, 3).map(c => (
+            <div key={c.id} className="text-[10px] truncate" style={{ color: PAL.ink }}>
+              {c.name}
+            </div>
+          ))}
+          {consumers.length > 3 && (
+            <div className="text-[10px] italic" style={{ color: PAL.slate }}>
+              + {consumers.length - 3} more
+            </div>
+          )}
+          <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: PAL.slate }}>
+            {role.attachment_modes.includes("instance_profile") ? "via instance profile" : ""}
+            {role.attachment_modes.includes("instance_profile") && role.attachment_modes.includes("direct") ? " · " : ""}
+            {role.attachment_modes.includes("direct") ? "USES_ROLE" : ""}
+            {isShared ? " · shared" : ""}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IamControlPlane({
+  roles, allWorkloads,
+}: { roles: IamRoleRollup[]; allWorkloads: TopologyNode[] }) {
+  if (roles.length === 0) return null
+  const criticalCount = roles.filter(r => r.gap_percentage >= 80 && r.allowed_actions > 0).length
+  const cleanCount = roles.filter(r => r.allowed_actions === 0 || r.gap_percentage === 0).length
+  return (
+    <div
+      className="rounded-md p-4 relative"
+      style={{ background: PAL.cardBg, border: `2px solid #DD344C`, borderLeftWidth: "8px" }}
+    >
+      <div
+        className="absolute -top-2.5 left-6 px-2 text-[10px] uppercase tracking-[0.14em] font-bold"
+        style={{ background: PAL.cardBg, color: "#DD344C" }}
+      >
+        IAM · Control plane
+      </div>
+      <div className="flex items-baseline justify-between mb-3 mt-1">
+        <div className="text-[12px] font-semibold" style={{ color: PAL.ink }}>
+          Roles attached to this VPC
+        </div>
+        <div className="text-[10px]" style={{ color: PAL.slate }}>
+          derived from instance-profile + USES_ROLE edges ·{" "}
+          {roles.length} role{roles.length === 1 ? "" : "s"}
+          {criticalCount > 0 ? ` · ${criticalCount} critical gap${criticalCount === 1 ? "" : "s"}` : ""}
+          {cleanCount > 0 ? ` · ${cleanCount} clean` : ""}
+        </div>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {roles.map(r => (
+          <IamRoleCard key={r.name} role={r} allWorkloads={allWorkloads} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TrafficFlowBand({
+  edges, nodes,
+}: { edges: TrafficEdge[]; nodes: TopologyNode[] }) {
+  const nodeById = useMemo(() => {
+    const m = new Map<string, TopologyNode>()
+    for (const n of nodes) m.set(n.id, n)
+    return m
+  }, [nodes])
+  return (
+    <div
+      className="rounded-md p-4 relative"
+      style={{ background: PAL.cardBg, border: `1px solid #E2E8F0` }}
+    >
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: PAL.ink }}>
+          Observed traffic · workload → workload
+        </div>
+        <div className="text-[10px]" style={{ color: PAL.slate }}>
+          ACTUAL_TRAFFIC edges · {edges.length} flow{edges.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      {edges.length === 0 ? (
+        <div className="text-[11px] italic" style={{ color: PAL.slate }}>
+          No intra-VPC traffic observed between strict-filtered workloads. (Most
+          alon-prod traffic targets external IPs, which sit on the egress/exposure
+          story, not this canvas.)
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {edges.slice(0, 12).map((e, i) => {
+            const src = nodeById.get(e.source_id)
+            const dst = nodeById.get(e.target_id)
+            const portStr = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "—")
+            return (
+              <div
+                key={`${e.source_id}-${e.target_id}-${e.port}-${i}`}
+                className="flex items-center gap-2 text-[11px]"
+                style={{ color: PAL.ink }}
+              >
+                <span className="font-semibold truncate max-w-[200px]">
+                  {src?.name ?? e.source_id}
+                </span>
+                <span style={{ color: PAL.teal }}>→</span>
+                <span className="font-semibold truncate max-w-[200px]">
+                  {dst?.name ?? e.target_id}
+                </span>
+                <span
+                  className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: "#E0F2FE", color: "#075985" }}
+                >
+                  {portStr}
+                </span>
+              </div>
+            )
+          })}
+          {edges.length > 12 && (
+            <div className="text-[10px] italic mt-1" style={{ color: PAL.slate }}>
+              + {edges.length - 12} more flows
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -348,7 +605,17 @@ function EncodingLegend() {
   )
 }
 
-export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props) {
+export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onSelect }: Props) {
+  // SG lookup for the SubnetCell groupings.
+  const sgIndex = useMemo(() => {
+    const m = new Map<string, SecurityGroupMeta>()
+    for (const sg of vpcTopology.security_groups ?? []) {
+      m.set(sg.id, sg)
+    }
+    return m
+  }, [vpcTopology.security_groups])
+  const iamRoles = vpcTopology.iam_roles ?? []
+  const trafficEdgesList = trafficEdges ?? []
   // Index subnets and workloads by (az, tier).
   const { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs } = useMemo(() => {
     const subnetById = new Map(vpcTopology.subnets.map(s => [s.id, s]))
@@ -579,6 +846,7 @@ export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props
                                   az={az}
                                   subnetsHere={subnetsHere}
                                   workloadsHere={workloadsHere}
+                                  sgIndex={sgIndex}
                                   selectedNodeId={selectedNodeId}
                                   onSelect={onSelect}
                                 />
@@ -679,6 +947,12 @@ export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props
           </div>
         </div>
       )}
+
+      {/* IAM · Control plane strip */}
+      <IamControlPlane roles={iamRoles} allWorkloads={nodes} />
+
+      {/* Workload-to-workload ACTUAL_TRAFFIC band */}
+      <TrafficFlowBand edges={trafficEdgesList} nodes={nodes} />
 
       {/* Encoding legend at the bottom */}
       <EncodingLegend />
