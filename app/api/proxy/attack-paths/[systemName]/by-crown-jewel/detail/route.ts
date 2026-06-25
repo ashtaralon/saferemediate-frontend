@@ -49,7 +49,16 @@ export async function GET(
         { status: res.status },
       )
     }
-    return NextResponse.json(await res.json())
+    // Edge cache — same rationale as the sister /summary proxy. Each
+    // (cj, path_id) tuple is its own cache key, so spotlight users
+    // toggling between paths on the same jewel get instant responses
+    // after the first hit. 4h graph turnover dwarfs the 60s freshness
+    // window; stale-while-revalidate keeps the page warm.
+    return NextResponse.json(await res.json(), {
+      headers: {
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      },
+    })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[by-crown-jewel/detail] fetch error: ${msg}`)

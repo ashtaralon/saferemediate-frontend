@@ -109,7 +109,12 @@ export function useCrownJewelConvergence(
     const run = async () => {
       try {
         const summaryRes = await fetch(summaryUrl, {
-          cache: "no-store",
+          // 2026-06-25: default cache mode so Vercel edge cache + browser
+          // bfcache hit when the proxy emits Cache-Control: s-maxage=60.
+          // Without this, the FE explicitly bypassed every cache layer
+          // and forced a fresh Render round-trip per click — the Crown
+          // Jewel Spotlight on Topology was timing out at 55s on every
+          // single CJ toggle. See route.ts changes alongside.
           signal: ctrl.signal,
         })
         const summaryBody = (await summaryRes.json().catch(() => null)) as

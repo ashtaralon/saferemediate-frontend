@@ -42,7 +42,19 @@ export async function GET(
         { status: res.status },
       )
     }
-    return NextResponse.json(await res.json())
+    // Edge cache (2026-06-25): the operator clicks back+forth between
+    // crown jewels on the Topology Spotlight all day. Without edge
+    // cache, every click is a fresh Render round-trip — 5-15s warm,
+    // 40-100s cold. s-maxage=60 keeps the same CJ instant for a minute;
+    // stale-while-revalidate=300 lets the next 4 minutes serve the
+    // cached body while a background revalidation refreshes. Safe
+    // because the underlying AttackPath nodes turn over on a 4h
+    // classifier sweep (project_render_tier), not per-second.
+    return NextResponse.json(await res.json(), {
+      headers: {
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      },
+    })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[by-crown-jewel/summary] fetch error: ${msg}`)
