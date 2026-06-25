@@ -3,329 +3,159 @@
 /**
  * Topology v0.2 — Estate view (live data).
  *
- * Replaces the static design mockup at public/design/topology-v0.2-estate.html
- * (which violates CLAUDE.md rule #1 by shipping hardcoded values to prod).
+ * Replaces the static mockup at public/design/topology-v0.2-estate.html
+ * (which violated CLAUDE.md rule #1 by shipping hardcoded values to prod).
  *
- * Phase 4 (THIS file): minimal page — system_kpis tiles + nodes table.
- * Phase 5 ports the full 94KB mockup design (headline strip, risk chips,
- * Next-worst rail, detail panel) into React components.
+ * All values come from /api/proxy/topology-risk/{system} per contract
+ * docs/topology-v0.2-risk-contract.md. No fabricated decoration: where the
+ * contract doesn't carry AZ / tier classification / fake route-tables, this
+ * page falls back to subnet grouping (which the contract DOES carry).
  *
- * Contract: docs/topology-v0.2-risk-contract.md
+ * Layout: HeadlineStrip (KPIs) + CanvasPane (subnet-grouped nodes) +
+ *         FilterRail (client-side filters) + DetailPanel (slide-in on click).
  */
 
+import { Suspense, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Suspense, useMemo } from "react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-
-interface PostureFreshness {
-  most_recent_run: string | null
-  age_days: number | null
-  threshold_days: number
-  is_fresh: boolean
-  auto_resolves_when: string
-}
-
-interface PostureCoverage {
-  scored: number
-  total: number
-  by_type: Record<string, { scored: number; total: number }>
-}
-
-interface SystemKpis {
-  workloads_total: number
-  workloads_by_type: Record<string, number>
-  flagged_count: number
-  stale_workloads_count: number
-  posture_coverage: PostureCoverage
-  posture_freshness: PostureFreshness
-}
-
-interface Contributor {
-  signal: string
-  weight: number
-  value: number
-  evidence: Record<string, unknown>
-  freshness: {
-    source: string
-    as_of: string | null
-    age_days?: number | null
-    is_fresh: boolean
-    threshold_days?: number
-  }
-  warnings?: Array<{ code: string; message: string; auto_resolves_when: string }>
-}
-
-interface NodeScore {
-  value: number
-  tier: "WORST" | "HIGH" | "ELEVATED" | "QUIET"
-  rank: number | null
-  confidence: {
-    value: number
-    tier: "FULL" | "DEGRADED" | "LOW"
-    reasons: Array<{
-      signal: string
-      is_fresh: boolean
-      age_days: number | null
-      threshold_days: number
-      auto_resolves_when: string
-    }>
-  }
-  contributors: Contributor[]
-}
-
-interface TopologyNode {
-  id: string
-  name: string
-  type: string | null
-  subnet_id: string | null
-  score: NodeScore | null
-  stale: { since: string | null; reason: string } | null
-  is_jewel: boolean
-}
-
-interface TopologyRiskResponse {
-  system: string
-  scored_at: string
-  scoring_window_days: number
-  vpc_id: string | null
-  system_kpis: SystemKpis | null
-  nodes: TopologyNode[]
-  error?: string
-  fromStaleCache?: boolean
-}
-
-function TierBadge({ tier }: { tier: string }) {
-  const colors: Record<string, string> = {
-    WORST: "bg-red-900/40 text-red-200 border-red-700/50",
-    HIGH: "bg-orange-900/40 text-orange-200 border-orange-700/50",
-    ELEVATED: "bg-amber-900/40 text-amber-200 border-amber-700/50",
-    QUIET: "bg-slate-700/40 text-slate-300 border-slate-600/50",
-    FULL: "bg-emerald-900/40 text-emerald-200 border-emerald-700/50",
-    DEGRADED: "bg-amber-900/40 text-amber-200 border-amber-700/50",
-    LOW: "bg-red-900/40 text-red-200 border-red-700/50",
-  }
-  return (
-    <span className={`inline-block px-2 py-0.5 text-xs font-semibold rounded border ${colors[tier] || "bg-slate-700/40 text-slate-300 border-slate-600/50"}`}>
-      {tier}
-    </span>
-  )
-}
-
-function KpiTile({ label, value, subtext }: { label: string; value: string | number; subtext?: string }) {
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
-      <div className="text-3xl font-bold text-slate-100 mt-1">{value}</div>
-      {subtext && <div className="text-xs text-slate-400 mt-1">{subtext}</div>}
-    </div>
-  )
-}
-
-function PostureCoverageTile({ coverage }: { coverage: PostureCoverage }) {
-  const pct = coverage.total > 0 ? Math.round((coverage.scored / coverage.total) * 100) : 0
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Posture coverage</div>
-      <div className="text-3xl font-bold text-slate-100 mt-1">
-        {coverage.scored}<span className="text-lg text-slate-400"> / {coverage.total}</span>
-      </div>
-      <div className="text-xs text-slate-400 mt-1">{pct}% scored</div>
-      <div className="mt-3 space-y-1">
-        {Object.entries(coverage.by_type)
-          .filter(([, v]) => v.total > 0)
-          .map(([type, v]) => (
-            <div key={type} className="flex justify-between text-xs">
-              <span className="text-slate-400">{type}</span>
-              <span className="text-slate-200 font-mono">
-                {v.scored}/{v.total}
-              </span>
-            </div>
-          ))}
-      </div>
-    </div>
-  )
-}
-
-function PostureFreshnessTile({ freshness }: { freshness: PostureFreshness }) {
-  return (
-    <div className={`rounded-lg border p-4 ${freshness.is_fresh
-      ? "border-emerald-700/50 bg-emerald-900/10"
-      : "border-amber-700/50 bg-amber-900/10"}`}>
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Posture freshness</div>
-      <div className="text-3xl font-bold text-slate-100 mt-1">
-        {freshness.age_days !== null ? `${freshness.age_days}d` : "—"}
-      </div>
-      <div className="text-xs text-slate-400 mt-1">
-        threshold {freshness.threshold_days}d
-      </div>
-      {!freshness.is_fresh && (
-        <div className="text-[11px] text-amber-300/80 mt-2 leading-snug">
-          {freshness.auto_resolves_when}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function NodeRow({ node }: { node: TopologyNode }) {
-  if (node.stale) {
-    return (
-      <tr className="border-b border-slate-800 opacity-50">
-        <td className="px-3 py-2 text-xs font-mono text-slate-400">{node.id}</td>
-        <td className="px-3 py-2 text-xs text-slate-300">{node.name}</td>
-        <td className="px-3 py-2 text-xs text-slate-400">{node.type}</td>
-        <td className="px-3 py-2 text-xs">
-          <span className="text-slate-500">STALE</span>
-        </td>
-        <td className="px-3 py-2 text-xs text-slate-500" colSpan={2}>
-          {node.stale.reason}
-        </td>
-      </tr>
-    )
-  }
-  if (!node.score) return null
-  return (
-    <tr className="border-b border-slate-800 hover:bg-slate-900/50">
-      <td className="px-3 py-2 text-xs font-mono text-slate-400">{node.id}</td>
-      <td className="px-3 py-2 text-xs text-slate-200">{node.name}</td>
-      <td className="px-3 py-2 text-xs text-slate-300">{node.type}</td>
-      <td className="px-3 py-2 text-xs">
-        <span className="font-bold text-slate-100">{node.score.value}</span>
-        <span className="ml-2"><TierBadge tier={node.score.tier} /></span>
-      </td>
-      <td className="px-3 py-2 text-xs">
-        <span className="text-slate-300 mr-2">{Math.round(node.score.confidence.value * 100)}%</span>
-        <TierBadge tier={node.score.confidence.tier} />
-      </td>
-      <td className="px-3 py-2 text-xs text-slate-400">
-        {node.score.contributors
-          .filter((c) => c.value > 0)
-          .map((c) => `${c.signal.replace(/_/g, " ")} ${Math.round(c.value * 100)}%`)
-          .join(" · ")}
-      </td>
-    </tr>
-  )
-}
+import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
+import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
+import {
+  applyFilters,
+  defaultFilters,
+  type EstateFilters,
+  FilterRail,
+} from "@/components/topology-v0-2/filter-rail"
+import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
+import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 
 function EstateView() {
   const params = useSearchParams()
   const systemName = params.get("systemName") || "alon-prod"
   const url = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
-  const { data, loading, error, isStale, cachedAt } = useCachedFetch<TopologyRiskResponse>(url, {
+  const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey: `topology-risk:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
 
-  const nodes = useMemo(() => {
-    if (!data?.nodes) return []
-    // Scored first, sorted by rank; stale last.
-    const scored = data.nodes.filter((n) => n.score).sort((a, b) =>
-      (a.score!.rank ?? 999) - (b.score!.rank ?? 999)
-    )
-    const stale = data.nodes.filter((n) => n.stale)
-    return [...scored, ...stale]
-  }, [data])
+  const [filters, setFilters] = useState<EstateFilters | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
-  if (loading) {
-    return <div className="p-8 text-slate-400">Loading topology risk for {systemName}…</div>
+  const effectiveFilters = useMemo(
+    () => filters ?? defaultFilters(data?.system_kpis ?? null),
+    [filters, data?.system_kpis],
+  )
+
+  const filteredNodes = useMemo(
+    () => (data?.nodes ? applyFilters(data.nodes, effectiveFilters) : []),
+    [data?.nodes, effectiveFilters],
+  )
+
+  const selectedNode = useMemo(
+    () => (selectedNodeId ? data?.nodes.find(n => n.id === selectedNodeId) ?? null : null),
+    [selectedNodeId, data?.nodes],
+  )
+
+  if (loading && !data) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-300 p-8">
+        <div className="text-xs uppercase tracking-widest text-teal-400 font-semibold mb-2">
+          Topology v0.2 · Estate
+        </div>
+        <div>Loading topology risk for {systemName}…</div>
+      </div>
+    )
   }
+
   if (error && !data) {
     return (
-      <div className="p-8">
+      <div className="min-h-screen bg-slate-950 text-slate-100 p-8">
+        <div className="text-xs uppercase tracking-widest text-teal-400 font-semibold mb-2">
+          Topology v0.2 · Estate
+        </div>
         <div className="text-rose-400 font-semibold">Topology risk unavailable</div>
         <div className="text-xs text-slate-400 mt-2">{error}</div>
+        <button
+          type="button"
+          className="mt-4 px-4 py-2 text-xs uppercase tracking-wider border border-slate-600 hover:bg-slate-800 rounded"
+          onClick={retry}
+        >
+          Retry
+        </button>
       </div>
     )
   }
+
   if (!data || !data.system_kpis) {
-    return <div className="p-8 text-slate-400">No system_kpis data returned for {systemName}.</div>
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-300 p-8">
+        <div className="text-xs uppercase tracking-widest text-teal-400 font-semibold mb-2">
+          Topology v0.2 · Estate
+        </div>
+        <div>
+          No system_kpis returned for <span className="font-mono">{systemName}</span>.
+        </div>
+        <div className="text-xs text-slate-500 mt-2">
+          The endpoint responded but the rollup is empty. This usually means the
+          system has no workloads yet or the backend hasn&apos;t collected this
+          system. Verify in Neo4j: <code>MATCH (s:System {`{`}name:&apos;{systemName}&apos;{`}`}) RETURN s</code>.
+        </div>
+      </div>
+    )
   }
 
-  const k = data.system_kpis
-  const scoredAt = data.scored_at ? new Date(data.scored_at) : null
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-8">
-      <div className="max-w-7xl mx-auto">
-        <header className="mb-6">
-          <div className="text-xs text-emerald-400 uppercase tracking-widest font-semibold">
-            Topology v0.2 · Estate
-          </div>
-          <h1 className="text-3xl font-bold mt-1">{data.system}</h1>
-          <div className="text-xs text-slate-400 mt-2 flex items-center gap-3">
-            <span>{data.vpc_id ?? "—"}</span>
-            <span>·</span>
-            <span>scored {scoredAt ? scoredAt.toISOString().replace(/\.\d+Z$/, "Z") : "—"}</span>
-            {isStale && (
-              <>
-                <span>·</span>
-                <span className="text-amber-300">
-                  cached
-                  {cachedAt ? ` ${Math.round((Date.now() - cachedAt) / 60_000)}m ago` : ""}
-                </span>
-              </>
-            )}
-            {data.fromStaleCache && (
-              <>
-                <span>·</span>
-                <span className="text-amber-300">backend timeout — serving stale</span>
-              </>
-            )}
-          </div>
-        </header>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <HeadlineStrip
+        systemName={data.system}
+        vpcId={data.vpc_id}
+        scoredAt={data.scored_at}
+        kpis={data.system_kpis}
+        isStale={isStale && !!cachedAt}
+        fromStaleCache={data.fromStaleCache}
+      />
 
-        {/* System KPIs strip — Phase 4 minimal render */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-8">
-          <KpiTile label="Workloads" value={k.workloads_total} subtext={Object.entries(k.workloads_by_type)
-            .filter(([, v]) => v > 0)
-            .map(([t, v]) => `${t}:${v}`)
-            .join(" · ")} />
-          <KpiTile label="Flagged" value={k.flagged_count} subtext="posture priority ≤ 3" />
-          <KpiTile label="Stale" value={k.stale_workloads_count} subtext="aws_exists=false" />
-          <PostureCoverageTile coverage={k.posture_coverage} />
-          <PostureFreshnessTile freshness={k.posture_freshness} />
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 p-6 max-w-[1680px] mx-auto">
+        <main>
+          <CanvasPane
+            vpcId={data.vpc_id}
+            nodes={filteredNodes}
+            selectedNodeId={selectedNodeId}
+            onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+          />
+        </main>
 
-        {/* Nodes table — Phase 4 minimal render */}
-        <div className="rounded-lg border border-slate-700 bg-slate-900/30 overflow-hidden">
-          <div className="px-4 py-2 border-b border-slate-700 bg-slate-900/50">
-            <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-              Workloads · {nodes.length}
-            </div>
-          </div>
-          <table className="w-full">
-            <thead className="bg-slate-900/30 text-[10px] uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-3 py-2 text-left font-semibold">ID</th>
-                <th className="px-3 py-2 text-left font-semibold">Name</th>
-                <th className="px-3 py-2 text-left font-semibold">Type</th>
-                <th className="px-3 py-2 text-left font-semibold">Score</th>
-                <th className="px-3 py-2 text-left font-semibold">Confidence</th>
-                <th className="px-3 py-2 text-left font-semibold">Contributors</th>
-              </tr>
-            </thead>
-            <tbody>
-              {nodes.map((n) => (
-                <NodeRow key={n.id} node={n} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <footer className="mt-6 text-[11px] text-slate-500">
-          Phase 4 minimal render. Phase 5 ports the full mockup design
-          (headline strip · risk chips · Next-worst rail · detail panel).
-          Contract: docs/topology-v0.2-risk-contract.md.
-        </footer>
+        <FilterRail
+          kpis={data.system_kpis}
+          nodes={data.nodes}
+          filters={effectiveFilters}
+          onChange={setFilters}
+        />
       </div>
+
+      <footer className="px-6 pb-8 max-w-[1680px] mx-auto text-[10px] text-slate-500 leading-relaxed">
+        Every value on this page is a live read from{" "}
+        <span className="font-mono">/api/topology-risk/{data.system}</span> per{" "}
+        contract <span className="font-mono">docs/topology-v0.2-risk-contract.md</span>.
+        AZ subgrouping and Web/App/Data tier classification (from the mockup at{" "}
+        <span className="font-mono">public/design/topology-v0.2-estate.html</span>) are
+        omitted because the contract does not carry them — per CLAUDE.md rule #1 we don&apos;t
+        fabricate decoration.
+      </footer>
+
+      <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
     </div>
   )
 }
 
 export default function TopologyV02EstatePage() {
   return (
-    <Suspense fallback={<div className="p-8 text-slate-400">Loading…</div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 text-slate-400 p-8">Loading…</div>
+      }
+    >
       <EstateView />
     </Suspense>
   )
