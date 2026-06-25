@@ -7238,13 +7238,15 @@ export default function TrafficFlowMap({
   const [selectedService, setSelectedService] = useState<{ service: ServiceNode | SecurityCheckpoint; type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call' } | null>(null);
   const [showAttackPaths, setShowAttackPaths] = useState(false);
   const [attackPaths, setAttackPaths] = useState<AttackPath[]>([]);
-  // 2026-06-25 (density toggle): default OFF — canvas renders zero
-  // connection polylines except for the hovered chip + active attack
-  // paths. Operator-facing rationale: alon-prod's Topology was
-  // rendering ~400 polylines on open, producing visual spaghetti and
-  // dragging the layout pass. Toggling true restores the legacy
-  // "every flow always" rendering for power users.
-  const [showAllConnections, setShowAllConnections] = useState(false);
+  // 2026-06-25 (density toggle): default ON. Operator workflow
+  // pushback: defaulting OFF made the canvas look empty/broken to
+  // operators inspecting the broad Topology — they expect to see
+  // flows immediately. Toggling OFF stays as the escape hatch when
+  // the spaghetti is too dense to read. ConnectionLinesSVG still
+  // pre-filters to flows that touch hovered/attack-path edges when
+  // off, so the off-state isn't "all hidden" — it's "narrow to
+  // what you're looking at".
+  const [showAllConnections, setShowAllConnections] = useState(true);
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
