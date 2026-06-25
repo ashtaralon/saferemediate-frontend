@@ -5364,11 +5364,11 @@ export function UnifiedArchitectureDiagram({
               >
                 Global
               </span>
-              {(architecture.instanceProfiles?.length ?? 0) > 0 && (
-                <span className="text-amber-700 dark:text-amber-300/80">
-                  IP {architecture.instanceProfiles?.length ?? 0}
-                </span>
-              )}
+              {/* Bug N (2026-06-22) — InstanceProfile counter removed.
+                  IPs no longer render as peer chips in this column;
+                  they live as a sidecar badge on the EC2 card instead.
+                  Counting them in the header without showing the chips
+                  made operators look for a hidden count. */}
               <span className="text-pink-700 dark:text-pink-300/80">
                 Roles{spotlightActive ? '' : ` ${architecture.iamRoles.length}`}
               </span>
