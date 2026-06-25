@@ -4873,7 +4873,15 @@ export function UnifiedArchitectureDiagram({
           // than the path-wraps-to-row-2 bug we're fixing. If needed,
           // reintroduce as a separate banner UI rather than a
           // template-switch.
-          className="relative flex flex-row gap-6 items-start overflow-x-auto"
+          //
+          // 2026-06-25 (visual hierarchy): flex-wrap lets the RESOURCES
+          // lane explicitly take its own row via basis-full (see the
+          // RESOURCES div className). Network architecture on top,
+          // data resources/Crown Jewels visually separated below.
+          // ConnectionLinesSVG re-measures on layout shifts; the line
+          // density toggle already prevents the 3500px-polyline issue
+          // by default.
+          className="relative flex flex-row flex-wrap gap-6 items-start"
           style={{ zIndex: 2 }}
         >
           {/* ENTRY lane (Phase 2 — 2026-05-25). Leftmost column.
@@ -5930,8 +5938,13 @@ export function UnifiedArchitectureDiagram({
               data-lane-global: S3, DynamoDB, KMS — all regional services,
               not VPC-scoped. The GLOBAL chip makes the semantic explicit
               so the VPC boundary's exclusion of this column reads as
-              correct AWS semantics, not a missing-data bug. */}
-          <div className="flex flex-col gap-3" data-lane-global="true" data-lane="resources">
+              correct AWS semantics, not a missing-data bug.
+              2026-06-25: basis-full forces a row break before RESOURCES
+              so it sits on its own row below the network architecture
+              lanes (operator-readable visual hierarchy: "infra above,
+              data targets below"). border-t + pt-6 + mt-2 add explicit
+              separation. */}
+          <div className="basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3" data-lane-global="true" data-lane="resources">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Resources{countLabel(architecture.resources.length)}
@@ -9498,7 +9511,16 @@ export default function TrafficFlowMap({
             canvasV2={canvasV2}
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
-            showAllConnections={showAllConnections}
+            // 2026-06-25: auto-on Connections when the canvas is in a
+            // drilled-in mode (pathFilter set OR onPathNodeAction
+            // registered — both match pathMode={!!pathFilter || !!onPathNodeAction}
+            // above). Reason: when an operator drills into one chain
+            // they EXPECT to see that chain's flow lines; defaulting
+            // off was the right move for the unfiltered Topology
+            // (40-EC2 spaghetti) but wrong when the canvas is already
+            // narrowed to 1 chain. Toolbar toggle still works to flip
+            // back to all-flows on the broad view.
+            showAllConnections={showAllConnections || !!pathFilter || !!onPathNodeAction}
             onSelectService={(service, type) => {
               // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
               // to Spotlight when the parent wires the callback. Runs BEFORE
