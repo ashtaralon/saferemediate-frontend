@@ -663,11 +663,21 @@ function FlowOverlay({
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
 
-  useLayoutEffect(() => {
+  // useEffect (not useLayoutEffect) + retry-until-chips-found pattern.
+  // On the prod minified build the layout-effect variant fired before all
+  // 25 chip refs had committed to the DOM, found 0 matches, set paths=[]
+  // and never re-ran (PR #220 + #221 prod regression — manual DOM inject
+  // proved the geometry math is correct).
+  // useEffect runs AFTER paint so the chips are present; we also poll a
+  // few times with a short backoff in case the cells animate in.
+  useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    let cancelled = false
     const recompute = () => {
+      if (cancelled) return
       const containerRect = container.getBoundingClientRect()
+      if (containerRect.width === 0) return
       setSize({ w: containerRect.width, h: containerRect.height })
       const next: FlowPath[] = []
       for (const e of edges) {
@@ -709,19 +719,30 @@ function FlowOverlay({
       }
       setPaths(next)
     }
+    // Initial run + a short retry ladder. If no chips have refs yet
+    // (data still loading, fonts mid-layout, etc.) we'll catch them on
+    // the next tick or two. Cheap; max ~600ms of polling.
     recompute()
+    const t1 = window.setTimeout(recompute, 100)
+    const t2 = window.setTimeout(recompute, 300)
+    const t3 = window.setTimeout(recompute, 600)
     const ro = new ResizeObserver(recompute)
     ro.observe(container)
     window.addEventListener("resize", recompute)
-    // Re-measure once more after the next animation frame to catch any
-    // post-layout shifts (font load, image load).
-    const raf = window.requestAnimationFrame(recompute)
     return () => {
+      cancelled = true
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+      window.clearTimeout(t3)
       ro.disconnect()
       window.removeEventListener("resize", recompute)
-      window.cancelAnimationFrame(raf)
     }
-  }, [edges, containerRef])
+    // edges is the only meaningful dependency — containerRef is stable
+    // by definition (React.useRef returns the same object every render),
+    // and adding it has historically masked real prod-only mount-timing
+    // bugs (see comment above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edges])
 
   const colorByCls: Record<TrafficEdgeClass, string> = {
     internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
