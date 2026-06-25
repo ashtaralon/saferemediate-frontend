@@ -1,16 +1,18 @@
 "use client"
 
 /**
- * Topology v0.2 — Estate headline strip.
+ * Topology v0.2 — Estate headline strip (light theme).
  *
- * Dark navy band, Georgia serif "Estate overview" title, teal kicker, 5 KPI
- * tiles. All values are real reads from the topology-risk endpoint.
+ * Light editorial header matching design/topology-v0.2-estate.html:
+ *   - Teal kicker "Estate · Topology v0.2 · <system>"
+ *   - Georgia serif "Estate overview" title
+ *   - 5 KPI tiles with severity-aware left-border accents
  *
- * Honest states:
- * - Posture freshness tile flips amber when not is_fresh; surfaces the
- *   auto_resolves_when clause inline (no hidden tooltip).
- * - Posture coverage tile shows scored/total + by_type breakdown.
- * - Flagged tile lights warn-red when count > 0.
+ * All values are real reads from the topology-risk endpoint. Honest states:
+ *   - Posture freshness tile gets an amber accent when not is_fresh and
+ *     surfaces the auto_resolves_when clause inline.
+ *   - Posture coverage tile shows scored/total + by_type breakdown.
+ *   - Flagged tile lights warn-red when count > 0.
  */
 
 import type { SystemKpis } from "./types"
@@ -35,19 +37,33 @@ function Tile({
   sub: React.ReactNode
   variant?: "neutral" | "warn" | "amber"
 }) {
-  const variantClass =
+  const accent =
     variant === "warn"
-      ? "border-l-4 border-l-rose-400/80"
+      ? "#E04545"
       : variant === "amber"
-      ? "border-l-4 border-l-amber-400/80"
-      : "border-l-4 border-l-transparent"
+      ? "#F5A623"
+      : "transparent"
   return (
-    <div className={`bg-slate-900/40 border border-slate-700/60 rounded px-4 py-3 ${variantClass}`}>
-      <div className="text-2xl font-semibold text-slate-50 leading-none">{num}</div>
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-300 font-semibold mt-2">
+    <div
+      className="rounded px-4 py-3"
+      style={{
+        background: "white",
+        border: "1px solid #DDE3E8",
+        borderLeft: `4px solid ${accent}`,
+      }}
+    >
+      <div className="text-3xl font-semibold leading-none" style={{ color: "#1A2330" }}>
+        {num}
+      </div>
+      <div
+        className="text-[10px] uppercase tracking-[0.18em] font-semibold mt-2"
+        style={{ color: "#5A6B7A" }}
+      >
         {label}
       </div>
-      <div className="text-[11px] text-slate-400 mt-1 leading-snug">{sub}</div>
+      <div className="text-[11px] mt-1 leading-snug" style={{ color: "#5A6B7A" }}>
+        {sub}
+      </div>
     </div>
   )
 }
@@ -84,29 +100,30 @@ export function HeadlineStrip({
 
   return (
     <header
-      className="border-b-2 border-teal-400 px-9 pt-6 pb-7"
-      style={{ background: "#0D1B2A" }}
+      className="px-9 pt-6 pb-7 border-b-2"
+      style={{ background: "#F4F6F8", borderColor: "#00C2A8" }}
     >
       <div className="flex items-start justify-between mb-5">
         <div>
-          <div className="text-[11px] tracking-[0.18em] uppercase font-semibold text-teal-400">
+          <div
+            className="text-[11px] tracking-[0.18em] uppercase font-semibold"
+            style={{ color: "#00C2A8" }}
+          >
             Estate · Topology v0.2 · {systemName}
           </div>
           <div
-            className="text-[22px] text-white mt-1"
-            style={{ fontFamily: "Georgia, serif" }}
+            className="text-[24px] mt-1"
+            style={{ fontFamily: "Georgia, serif", color: "#1A2330" }}
           >
             Estate overview
           </div>
         </div>
-        <div className="text-right text-[11px] text-slate-300 flex flex-col gap-1">
+        <div className="text-right text-[11px] flex flex-col gap-1" style={{ color: "#5A6B7A" }}>
           {vpcId && <div>VPC · {vpcId}</div>}
           <div>scored {scoredIso}</div>
-          {isStale && (
-            <div className="text-amber-300">cached locally</div>
-          )}
+          {isStale && <div style={{ color: "#F5A623" }}>cached locally</div>}
           {fromStaleCache && (
-            <div className="text-amber-300">backend timeout — serving stale</div>
+            <div style={{ color: "#F5A623" }}>backend timeout — serving stale</div>
           )}
         </div>
       </div>
@@ -133,7 +150,7 @@ export function HeadlineStrip({
           num={
             <>
               {coverage.scored}
-              <span className="text-base text-slate-400"> / {coverage.total}</span>
+              <span className="text-base" style={{ color: "#5A6B7A" }}> / {coverage.total}</span>
             </>
           }
           label="Posture coverage"
