@@ -13,6 +13,7 @@
     "test:e2e": "playwright test tests/integration/damage-scope-handoff-live.spec.ts tests/integration/damage-aware-path-card-live.spec.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "lint:ir-purity": "scripts/check_ir_purity.sh",
     "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(!pkg.dependencies.next.startsWith('16.1')) { console.error('ERROR: Next.js must be 16.1.x'); process.exit(1); } else { console.log('✅ Next.js version is secure'); }\""
   },
   "dependencies": {
