@@ -1,8 +1,9 @@
 # Topology v0.2 — Risk Score Contract
 
-**Status:** Design spec (not implemented)
+**Status:** SHIPPED. Backend: `api/topology_risk.py` (Phases 1–3, BE PR #196). Frontend: `app/topology/v0.2-estate/page.tsx` + `components/topology-v0-2/` (Phases 4–6, FE PR #213).
 **Owner:** Topology v0.2 design (PR #78 + correction PR #81)
-**Consumers:** `public/design/topology-v0.2.html` (mockup), `public/design/topology-v0.2-estate.html` (mockup), eventual successor to `components/attack-paths-v2/topology-view.tsx`
+**Consumers (live):** `app/topology/v0.2-estate/page.tsx`, `components/topology-v0-2/*`
+**Consumers (legacy):** `public/design/topology-v0.2.html` (Triage mockup — still static), eventual successor to `components/attack-paths-v2/topology-view.tsx`. The Estate mockup at `public/design/topology-v0.2-estate.html` was deleted when Phase 6 shipped.
 **Producer:** `saferemediate-backend` (Python · Render)
 
 ---
@@ -21,7 +22,7 @@ The first cut of this contract (PR #78) was shaped around a single Estate-mode K
 
 If you are reading this doc as the spec for backend implementation:
 1. Implement **§X System-level KPIs** as designed (separate coverage + freshness fields), not the single-percentage shorthand referenced in §1.
-2. Cross-reference the current Estate mockup at `public/design/topology-v0.2-estate.html` (post-merge of PR #81) — that's the canonical UI spec for what the contract feeds.
+2. Cross-reference the live React port at `app/topology/v0.2-estate/page.tsx` + `components/topology-v0-2/*` (FE PR #213) — that's the canonical UI consumer. The pre-port Estate mockup (`public/design/topology-v0.2-estate.html`) was deleted when Phase 6 shipped.
 3. The per-node response shape in §3.2 is unchanged. The addition is the system-level rollup.
 
 ---
