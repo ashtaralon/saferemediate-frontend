@@ -34,6 +34,7 @@ import type {
 } from "./attack-path-report-types"
 import { useClosurePreview } from "./use-closure-preview"
 import { useAttackPathReport } from "./use-attack-path-report"
+import { resolveRiskLede, usesLlmRiskLede } from "./resolve-risk-lede"
 import { classifyPathShape } from "./path-shape"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
@@ -233,14 +234,15 @@ export function AttackPathCardLightView({
   const effectiveShape =
     cs.shape ?? classifyPathShape(path, diff?.remove_actions ?? undefined).kind
 
-  // "The risk" lede — ALWAYS the computed plain-words sentence, NEVER the
-  // dense technical business_sentence (cs.summary). For Shape B/C the compiler
-  // composed cs.headline (plain words, verified); for Shape A we compose a
-  // plain reach sentence from the same real fields. cs.summary is intentionally
-  // not shown here — plain words only.
-  const plainLede =
+  // "The risk" lede — compiler headline by default (plain words, never the
+  // dense business_sentence). When L2 Mistral narration passed L3, show its
+  // executive instead; the compiler damage follow-up is suppressed to avoid
+  // duplicating what the model already stated.
+  const compilerLede =
     cs.headline ??
     `If an attacker takes over ${cs.source_label}, they gain its identity and reach ${cs.target_label}.`
+  const riskLede = resolveRiskLede(report, compilerLede)
+  const showCompilerDamageLine = !usesLlmRiskLede(report)
 
   return (
     <div
@@ -285,9 +287,9 @@ export function AttackPathCardLightView({
           style={{ background: C.card, boxShadow: "0 1px 2px rgba(20,30,50,.05),0 6px 22px rgba(20,30,50,.05)" }}
         >
           <p className="text-[19px] leading-relaxed m-0" style={{ color: C.ink }}>
-            {plainLede}
+            {riskLede}
           </p>
-          {dangerPhrase && (
+          {showCompilerDamageLine && dangerPhrase && (
             <p className="text-[17px] leading-relaxed mt-3 mb-0" style={{ color: C.ink }}>
               Right now they could{" "}
               <span style={{ color: C.red, fontWeight: 700 }}>

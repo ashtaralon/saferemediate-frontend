@@ -258,9 +258,21 @@ export interface AttackPathReport {
   /** Narration provenance (L2). Present when a narration has been generated and
    *  surfaced via /report. Absent (null) → the card uses the deterministic floor
    *  (business_sentence / computed lede), which is itself deterministic. */
+  narration_json?: NarrationJson | null
   narration_source?: "llm" | "template" | "business_sentence_floor" | null
   narration_l3_ok?: boolean | null
   narration_generated_at?: string | null
+}
+
+/** Stored L2 narration payload (from :AttackPath.narration_json). */
+export interface NarrationJson {
+  executive?: string
+  operator?: string
+  remediation_intent?: string
+  source?: string
+  l3_ok?: boolean
+  l3_reason?: string
+  generated_at?: string
 }
 
 /** Lookup helper — renderer resolves a step's claims for grade chips. */
