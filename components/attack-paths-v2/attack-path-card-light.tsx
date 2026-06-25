@@ -602,13 +602,12 @@ function ApprovePill({ children }: { children: React.ReactNode }) {
 // ── Self-resolving wrapper — same signature/contract as <AttackerNarrative/>.
 //
 // Data source: the BACKEND compiler — GET /api/attack-paths/<id>/report, via
-// useAttackPathReport (backend-first, single retry on cold-start). Live
-// profiling (2026-06-14) confirmed the endpoint returns 200 in ~0.3s with the
-// full report (the earlier ">160s" was a transient cold-start, not a real
-// hang). The CLIENT BRIDGE compiler (compile-attack-path-report.ts) is kept as
-// a dev-only fallback behind ?reportBridge=1 — we never silently render the
-// bridge in prod, since an honest "temporarily unavailable + retry" beats a
-// possibly-contradicting in-browser derivation on a CISO surface.
+// useAttackPathReport (backend-first, retries on cold-start). Live profiling
+// (2026-06-14) confirmed the endpoint returns 200 in ~0.3s with the full
+// report (the earlier ">160s" was a transient cold-start, not a real hang).
+// The legacy client bridge (?reportBridge=1) was removed by PR 3 (#35) — an
+// honest "temporarily unavailable + retry" beats a possibly-contradicting
+// in-browser derivation on a CISO surface.
 //
 // Honest states (no open-ended spinner): loading → skeleton; backend failure →
 // unavailable card with a Retry affordance; success → the report card.
@@ -624,7 +623,7 @@ export function AttackPathCardLight({
   architecture?: SystemArchitecture | null
 }) {
   const { closure } = useClosurePreview(path)
-  const { report, source, loading, error, retry } = useAttackPathReport(path, jewel, closure)
+  const { report, loading, error, retry } = useAttackPathReport(path, jewel, closure)
 
   if (!report && loading) {
     return <CardSkeleton />
@@ -657,18 +656,12 @@ export function AttackPathCardLight({
     )
   }
   return (
-    <>
-      {source === "bridge" && (
-        <div
-          className="rounded-lg px-3 py-2 mb-3 text-[11px] font-semibold"
-          style={{ background: C.amberBar + "22", color: C.amber }}
-        >
-          Dev bridge report (?reportBridge=1) — backend report unavailable; values
-          compiled in-browser.
-        </div>
-      )}
-      <AttackPathCardLightView report={report} path={path} systemName={systemName} architecture={architecture} />
-    </>
+    <AttackPathCardLightView
+      report={report}
+      path={path}
+      systemName={systemName}
+      architecture={architecture}
+    />
   )
 }
 

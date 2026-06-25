@@ -216,7 +216,7 @@ export function PathAnalysisPanel({
   const [evidenceOpen, setEvidenceOpen] = useState(true)
 
   const { closure } = useClosurePreview(path)
-  const { report, source, loading: reportLoading, error: reportError, retry: reportRetry } =
+  const { report, loading: reportLoading, error: reportError, retry: reportRetry } =
     useAttackPathReport(path, jewel, closure)
 
   const sevTone = severityTone(path.severity?.severity)
@@ -376,11 +376,6 @@ export function PathAnalysisPanel({
           <p className="text-[12px] text-muted-foreground">Loading attack path report…</p>
         ) : report ? (
           <>
-            {source === "bridge" && (
-              <div className="rounded-lg px-3 py-2 mb-3 text-[11px] font-semibold bg-amber-500/10 text-amber-700">
-                Dev bridge report (?reportBridge=1) — backend report unavailable; values compiled in-browser.
-              </div>
-            )}
             {/* CISO 5-second surface — hidden when Cyntro map owns the narrative */}
             {!attackMapCyntro && (
               <div className="mb-4">

@@ -115,10 +115,8 @@ function sevCls(sev?: string): string {
 /** Pure renderer — everything on screen comes from the report object. */
 export function AttackerNarrativeView({
   report,
-  source,
 }: {
   report: AttackPathReport
-  source?: "backend" | "bridge" | null
 }) {
   const byId = claimsById(report)
   const diff = report.remediation_diff
@@ -559,7 +557,6 @@ export function AttackerNarrativeView({
       {/* Provenance footer */}
       <div className="px-4 py-2 border-t border-border text-[9px] text-muted-foreground font-mono">
         compiler {report.compiler_version}
-        {source === "bridge" && " · interim client bridge — backend report endpoint not yet live"}
         {report.evidence_pack_hash && ` · evidence ${report.evidence_pack_hash.slice(0, 12)}`}
       </div>
     </div>
@@ -577,7 +574,7 @@ export function AttackerNarrative({
   jewel?: CrownJewelSummary | null
   closure?: ClosurePreview | null
 }) {
-  const { report, source, loading, error, retry } = useAttackPathReport(path, jewel, closure)
+  const { report, loading, error, retry } = useAttackPathReport(path, jewel, closure)
 
   if (loading && !report) {
     return (
@@ -611,5 +608,5 @@ export function AttackerNarrative({
       </div>
     )
   }
-  return <AttackerNarrativeView report={report} source={source} />
+  return <AttackerNarrativeView report={report} />
 }

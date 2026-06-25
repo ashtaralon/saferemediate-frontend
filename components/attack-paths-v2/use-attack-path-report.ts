@@ -3,13 +3,13 @@
 // Resolves the AttackPathReport for a path from the BACKEND compiler:
 //   GET /api/proxy/attack-paths/path/<id>/report  (canonical, evidence-graded)
 //
-// Reliability contract (2026-06-10, ratified review):
+// Reliability contract (2026-06-10, ratified; bridge removed by PR 3 / #35):
 //   The backend report is the single source of truth. On transient failure
-//   (Render/Aura cold start, 55s proxy timeout) we RETRY ONCE, then surface an
-//   honest "temporarily unavailable" error — we do NOT silently fall back to a
-//   client bridge whose gate derivation contradicts the backend. A contradicting
-//   fallback is worse than an honest gap. The bridge compiler remains for local
-//   dev / pre-backend environments behind ?reportBridge=1 only.
+//   (Render/Aura cold start, 55s proxy timeout) we retry up to twice, then
+//   surface an honest "temporarily unavailable" error. There is NO client
+//   fallback — a contradicting fallback is worse than an honest gap, and
+//   the ?reportBridge=1 escape hatch outlived its purpose now that the
+//   backend compiler is live everywhere.
 // NO MOCK — the report restructures live graph data only.
 
 import { useCallback, useEffect, useState } from "react"
@@ -21,12 +21,13 @@ import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
 import type { AttackPathReport } from "./attack-path-report-types"
-import { compileAttackPathReport } from "./compile-attack-path-report"
 
 interface UseAttackPathReport {
   report: AttackPathReport | null
-  /** "backend" = canonical compiler; "bridge" = explicit dev opt-in only. */
-  source: "backend" | "bridge" | null
+  /** Provenance — always "backend" when populated. Kept for callers
+   *  that branch on it; the legacy "bridge" variant was deleted in
+   *  PR 3 along with the FE compile fallback. */
+  source: "backend" | null
   loading: boolean
   /** Honest error string when the backend report is unavailable. */
   error: string | null
@@ -34,17 +35,13 @@ interface UseAttackPathReport {
   retry: () => void
 }
 
-const bridgeOptIn = (): boolean =>
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).get("reportBridge") === "1"
-
 export function useAttackPathReport(
   path: IdentityAttackPath | null | undefined,
-  jewel?: CrownJewelSummary | null,
-  closure?: ClosurePreview | null,
+  _jewel?: CrownJewelSummary | null,
+  _closure?: ClosurePreview | null,
 ): UseAttackPathReport {
   const [report, setReport] = useState<AttackPathReport | null>(null)
-  const [source, setSource] = useState<"backend" | "bridge" | null>(null)
+  const [source, setSource] = useState<"backend" | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
@@ -63,8 +60,8 @@ export function useAttackPathReport(
 
     // Bounded per-attempt timeout so the card's skeleton never becomes an
     // open-ended 30–60s spinner waiting on the 55s proxy abort. A warm backend
-    // returns in ~0.3s; 15s comfortably covers a cold Aura/Render wake, and the
-    // single retry below gives the now-warm backend a fast second chance.
+    // returns in ~0.3s; 25s comfortably covers a cold Aura/Render wake, and the
+    // retries below give the now-warm backend a fast second chance.
     const ATTEMPT_TIMEOUT_MS = 25_000
     const fetchReport = async (pathId: string): Promise<AttackPathReport> => {
       const ctrl = new AbortController()
@@ -116,17 +113,10 @@ export function useAttackPathReport(
             await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)))
             continue
           }
-          // Final failure. Honest unavailable state — NOT a contradicting
-          // bridge. Bridge only when explicitly opted in for dev.
-          if (bridgeOptIn()) {
-            setReport(compileAttackPathReport(path, jewel, closure))
-            setSource("bridge")
-            setError(null)
-          } else {
-            setReport(null)
-            setSource(null)
-            setError(String((e as Error).message ?? e))
-          }
+          // Final failure. Honest unavailable state — no FE fallback.
+          setReport(null)
+          setSource(null)
+          setError(String((e as Error).message ?? e))
           setLoading(false)
         }
       }
@@ -135,7 +125,7 @@ export function useAttackPathReport(
     return () => {
       cancelled = true
     }
-  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id, jewel?.id, closure, nonce])
+  }, [path?.id, path?.attack_path_id, nonce])
 
   return { report, source, loading, error, retry }
 }
