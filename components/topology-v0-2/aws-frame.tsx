@@ -213,12 +213,21 @@ function EdgeService({
   )
 }
 
+// Workload types that conceptually live OUTSIDE a VPC subnet when they
+// have no subnet_id binding. Lambdas in particular: if not configured for
+// VPC access, AWS runs them in the Lambda-managed VPC — they're not in
+// the customer's network plane and so cannot be placed in any (az, tier)
+// cell. Rendering them in a dedicated "Serverless / outside VPC" band
+// preserves the rule "every Neo4j workload is on the canvas somewhere".
+const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
+
 export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props) {
   // Index subnets and workloads by (az, tier).
-  const { byAzAndTier, edgeNodes, unplacedNodes, staleNodes } = useMemo(() => {
+  const { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes } = useMemo(() => {
     const subnetById = new Map(vpcTopology.subnets.map(s => [s.id, s]))
     const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
     const edgeNodes: TopologyNode[] = []
+    const serverlessNodes: TopologyNode[] = []
     const unplacedNodes: TopologyNode[] = []
     const staleNodes: TopologyNode[] = []
 
@@ -233,7 +242,14 @@ export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props
       }
       const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
       if (!sub || !sub.az) {
-        unplacedNodes.push(n)
+        // Lambda without subnet_id → "Serverless / outside VPC" band.
+        // Other types without a subnet → "Unclassified subnets" band
+        // (typically a data-quality signal worth surfacing).
+        if (n.type && SERVERLESS_TYPES.has(n.type)) {
+          serverlessNodes.push(n)
+        } else {
+          unplacedNodes.push(n)
+        }
         continue
       }
       const azMap = byAzAndTier.get(sub.az) ?? new Map<SubnetTier, TopologyNode[]>()
@@ -250,7 +266,8 @@ export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props
       }
     }
     edgeNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
-    return { byAzAndTier, edgeNodes, unplacedNodes, staleNodes }
+    serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+    return { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes }
   }, [vpcTopology.subnets, nodes])
 
   // Group subnets by (az, tier) for the cell metadata.
@@ -445,6 +462,35 @@ export function AwsFrame({ vpcTopology, nodes, selectedNodeId, onSelect }: Props
           </div>
         </div>
       </div>
+
+      {/* Serverless / outside-VPC workloads.
+          Lambdas that aren't configured for VPC access have no subnet_id
+          and AWS runs them in a Lambda-managed VPC. They're still part of
+          the system but don't sit in any (az, tier) cell. Render them in
+          a dedicated band so they don't silently disappear from the canvas. */}
+      {serverlessNodes.length > 0 && (
+        <div className="rounded-md border border-slate-700 bg-slate-900/30 p-3">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400 font-semibold">
+              Serverless · outside VPC ({serverlessNodes.length})
+            </div>
+            <div className="text-[10px] text-slate-500">λ Lambda functions with no VPC binding</div>
+          </div>
+          <div className="text-[10px] text-slate-500 mb-2 italic">
+            Run in the AWS-managed Lambda VPC — outside the customer network plane.
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {serverlessNodes.map(n => (
+              <WorkloadChip
+                key={n.id}
+                node={n}
+                selected={n.id === selectedNodeId}
+                onClick={() => onSelect(n.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stale workloads footer */}
       {staleNodes.length > 0 && (
