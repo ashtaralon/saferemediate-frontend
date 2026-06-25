@@ -84,6 +84,48 @@ export interface TopologyNode {
   is_jewel: boolean
 }
 
+export type SubnetTier = "web" | "app" | "data" | "unknown"
+
+export interface SubnetMeta {
+  id: string
+  name: string
+  az: string | null
+  cidr: string | null
+  tier: SubnetTier
+  tier_source: "property" | "name" | "unknown"
+}
+
+export interface EdgeIgw {
+  id: string
+  name: string
+}
+
+export interface EdgeNatGw {
+  id: string
+  name: string
+  subnet_id: string | null
+}
+
+export interface EdgeVpce {
+  id: string
+  service_name: string | null
+  endpoint_type: string | null
+}
+
+export interface VpcTopology {
+  region: string | null
+  account_id: string | null
+  vpc_id: string | null
+  azs: string[]
+  subnets: SubnetMeta[]
+  edges: {
+    igws: EdgeIgw[]
+    nat_gws: EdgeNatGw[]
+    vpces: EdgeVpce[]
+  }
+  unknown_subnet_count: number
+}
+
 export interface TopologyRiskResponse {
   system: string
   scored_at: string
@@ -91,6 +133,7 @@ export interface TopologyRiskResponse {
   vpc_id: string | null
   system_kpis: SystemKpis | null
   nodes: TopologyNode[]
+  vpc_topology?: VpcTopology | null
   error?: string
   fromStaleCache?: boolean
 }
