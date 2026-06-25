@@ -238,6 +238,39 @@ export function AttackPathPanel({
     )
   }, [payload, identityPath])
 
+  // Seed render (2026-06-25) — paint the path skeleton from the
+  // list-payload IMMEDIATELY while the per-path facade fetch is in
+  // flight. The list (IdentityAttackPathsResponse) already carries
+  // everything the spine needs: nodes, edges, severity, hop_count,
+  // damage_capability/narrative, reduction_narrative, materialized
+  // gates. Only the canvas geometry (full lateral fan-out for the
+  // 9-lane layout) needs the facade — and the Cyntro Attack Map
+  // (ConvergenceMapLoader inside PathAnalysisPanel) does its OWN
+  // independent fetch, so it paints in parallel.
+  //
+  // Before: click a path → 30-60s "Still loading…" with empty canvas.
+  // After: click a path → kill-chain strip + spine + Cyntro map all
+  // start loading immediately; facade enriches the 9-lane view when
+  // it lands.
+  //
+  // Guards: only seed when pathFromPage exists AND matches pathId
+  // (a stale prop from a previously-selected path would render the
+  // wrong skeleton). Deep links with no list context (?path=… arrived
+  // before the list fetch resolved) fall through to the original
+  // spinner — no fabricated data, per CLAUDE.md "Real data only".
+  const seedIdentityPath = useMemo<IdentityAttackPath | null>(() => {
+    if (!pathFromPage) return null
+    if (pathFromPage.id !== pathId) return null
+    return pathFromPage
+  }, [pathFromPage, pathId])
+
+  const seedJewel = useMemo<CrownJewelSummary | null>(() => {
+    return jewelFromPage ?? null
+  }, [jewelFromPage])
+
+  const effectivePath = identityPath ?? seedIdentityPath
+  const effectiveJewel = jewelSummary ?? seedJewel
+
   // Honest progress messaging for cold-cache loads. The backend's
   // /api/proxy/attack-path + /api/proxy/identity-attack-paths handlers
   // return 200 in 47-53s on cold cache (warm: 2.4s). A bare
@@ -257,7 +290,10 @@ export function AttackPathPanel({
   }, [loading, retrying])
 
   // ---- Loading / error states -------------------------------------------
-  if (loading || retrying) {
+  // Spinner only fires when there's NO seed to render. Once the user
+  // has clicked a path on the left rail, we have the seed and can show
+  // the skeleton + Cyntro map immediately while the facade fetch warms.
+  if ((loading || retrying) && !effectivePath) {
     const stage = extendedWait ? "extended" : "initial"
     const label =
       retrying && attempt > 0
@@ -284,7 +320,14 @@ export function AttackPathPanel({
     )
   }
 
-  if (error || !payload || isFacadeError(payload)) {
+  // Error: only block the whole panel when we have no seed to render.
+  // With a seed, surfacing the error means losing the path skeleton the
+  // operator just clicked into — degrade to a small in-panel banner via
+  // PathAnalysisPanel's own report-error states instead. (The facade
+  // error becomes visible through report being null + the existing
+  // "Report unavailable" copy.) Without a seed, the original full-panel
+  // error is correct.
+  if ((error || isFacadeError(payload)) && !effectivePath) {
     const errMsg = isFacadeError(payload)
       ? `${payload.error}${payload.detail ? `: ${payload.detail}` : ""}`
       : error ?? "Failed to load attack path."
@@ -303,7 +346,7 @@ export function AttackPathPanel({
     )
   }
 
-  if (!identityPath) {
+  if (!effectivePath) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Empty path.
@@ -313,8 +356,8 @@ export function AttackPathPanel({
 
   return (
     <PathAnalysisPanel
-      path={identityPath}
-      jewel={jewelSummary}
+      path={effectivePath}
+      jewel={effectiveJewel}
       systemName={systemName}
       isExpanded={isExpanded}
       onToggleExpand={onToggleExpand}
