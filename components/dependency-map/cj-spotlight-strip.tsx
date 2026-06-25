@@ -194,7 +194,7 @@ function StripFrame({
   children: React.ReactNode
 }) {
   return (
-    <div className="dark w-full rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 mb-3 space-y-2">
+    <div className="dark w-full rounded-xl border border-amber-500/50 bg-slate-900 px-4 py-3 mb-3 space-y-2 shadow-md shadow-black/20">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />

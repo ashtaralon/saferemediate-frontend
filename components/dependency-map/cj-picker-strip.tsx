@@ -84,7 +84,7 @@ export function CJPickerStrip({
   // no Crown Jewels).
   if (loading && sorted.length === 0) {
     return (
-      <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-y border-amber-500/30 px-4 py-2">
+      <div className="dark bg-slate-900 border-y border-amber-500/50 px-4 py-2">
         <div className="flex items-center gap-3 text-xs text-amber-200">
           <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
           <span className="font-bold uppercase tracking-wider">
@@ -129,7 +129,7 @@ export function CJPickerStrip({
 
   // Populated state — fall through.
   return (
-    <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-y border-amber-500/30 px-4 py-2">
+    <div className="dark bg-slate-900 border-y border-amber-500/50 px-4 py-2">
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-300">
           <Crown className="w-3.5 h-3.5" />
