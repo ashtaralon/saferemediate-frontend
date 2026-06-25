@@ -4,11 +4,12 @@
  * Topology v0.2 — Estate view (live data).
  *
  * All values come from /api/proxy/topology-risk/{system} per contract
- * docs/topology-v0.2-risk-contract.md. No fabricated decoration: where the
- * contract doesn't carry AZ / tier classification / route-tables, this
- * page falls back to subnet grouping (which the contract DOES carry).
+ * docs/topology-v0.2-risk-contract.md. The canvas renders the AWS canonical
+ * architecture frame (Cloud > Region > VPC > AZ × tier) as visual scaffold;
+ * Neo4j-confirmed workloads + edge services are placed into the right cells,
+ * empty cells stay drawn with honest "no <kind> observed" copy.
  *
- * Layout: HeadlineStrip (KPIs) + CanvasPane (subnet-grouped nodes) +
+ * Layout: HeadlineStrip (KPIs) + AwsFrame (canonical map) +
  *         FilterRail (client-side filters) + DetailPanel (slide-in on click).
  */
 
@@ -16,6 +17,7 @@ import { Suspense, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
+import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
   applyFilters,
@@ -115,12 +117,21 @@ function EstateView() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 p-6 max-w-[1680px] mx-auto">
         <main>
-          <CanvasPane
-            vpcId={data.vpc_id}
-            nodes={filteredNodes}
-            selectedNodeId={selectedNodeId}
-            onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
-          />
+          {data.vpc_topology ? (
+            <AwsFrame
+              vpcTopology={data.vpc_topology}
+              nodes={filteredNodes}
+              selectedNodeId={selectedNodeId}
+              onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+            />
+          ) : (
+            <CanvasPane
+              vpcId={data.vpc_id}
+              nodes={filteredNodes}
+              selectedNodeId={selectedNodeId}
+              onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+            />
+          )}
         </main>
 
         <FilterRail
@@ -135,9 +146,9 @@ function EstateView() {
         Every value on this page is a live read from{" "}
         <span className="font-mono">/api/topology-risk/{data.system}</span> per{" "}
         contract <span className="font-mono">docs/topology-v0.2-risk-contract.md</span>.
-        AZ subgrouping and Web/App/Data tier classification are omitted because the
-        contract does not carry them — per CLAUDE.md rule #1 we don&apos;t fabricate
-        decoration.
+        The canonical AWS frame (Cloud · Region · VPC · AZ × tier) is structural —
+        service icons appear only when Neo4j confirms the resource. Empty cells are
+        honest, not fabricated.
       </footer>
 
       <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
