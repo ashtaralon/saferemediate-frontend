@@ -29,6 +29,7 @@ import {
   buildEffectiveDamageMatrix,
   matrixToSummary,
 } from "./effective-damage-matrix"
+import { friendlyResourceName } from "./friendly-names"
 import type {
   InitialAccessCategoryLite,
   PathListRow,
@@ -81,9 +82,13 @@ function assumeEdgeOf(path: IdentityAttackPath) {
  *  node (the operator-meaningful workload). */
 function compileSourceLabel(path: IdentityAttackPath): string {
   const entry = nodeById(path, assumeEdgeOf(path)?.source)
-  if (entry) return entry.name
+  if (entry) return friendlyResourceName(entry.name, entry.type)
   const workload = (path.nodes ?? []).find((n) => !isPrincipalNodeType(n.type))
-  return workload?.name ?? path.nodes?.[0]?.name ?? "—"
+  const raw = workload?.name ?? path.nodes?.[0]?.name ?? "—"
+  // friendlyResourceName strips the legacy "(orphan role: X)" marker
+  // (pre-2026-06-25 materialized paths still in the graph until the
+  // next phase3 run). New paths arrive as bare role names already.
+  return friendlyResourceName(raw, workload?.type ?? path.nodes?.[0]?.type)
 }
 
 /** BE-10: the role whose edge actually targets the crown jewel (not the
@@ -98,9 +103,12 @@ function compileIdentityLabel(path: IdentityAttackPath): string {
       /ACCESS|QUERIES_DB|ENCRYPTED_BY|CALLS/i.test(e.type),
   )
   const reacher = nodeById(path, reachEdge?.source)
-  if (reacher && /IAMRole/i.test(reacher.type)) return reacher.name
+  if (reacher && /IAMRole/i.test(reacher.type)) {
+    return friendlyResourceName(reacher.name, reacher.type)
+  }
   const role = (path.nodes ?? []).find((n) => n.type === "IAMRole")
-  return role?.name ?? path.damage_capability?.role_name ?? "—"
+  const raw = role?.name ?? path.damage_capability?.role_name ?? "—"
+  return friendlyResourceName(raw, role?.type ?? "IAMRole")
 }
 
 /** Operator-meaningful "start" — first non-principal node (widened via
