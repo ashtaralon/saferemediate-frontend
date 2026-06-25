@@ -1768,6 +1768,22 @@ export function IAMRoleNode({
                   {blastRadius} linked
                 </span>
               )}
+              {/* Bug N AC6 (2026-06-22) — surface role-sharing fact so
+                  the operator can see at a glance whether closing this
+                  role kills one workload's access or many. Reads
+                  sharedWith[] (cross-workload lateral surface) which the
+                  backend already populates via _attach_accessor_blast_
+                  radius. Count includes only OTHER workloads (excludes
+                  the focal one) so "1 other" reads as "this role is on
+                  one more EC2 besides the one we're looking at". */}
+              {Array.isArray(role.sharedWith) && role.sharedWith.length > 0 && !isInstanceProfile && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/15 text-pink-700 dark:text-pink-300 border border-pink-500/40 font-semibold"
+                  title={`Shared role — also used by: ${role.sharedWith.map(w => w.name || w.id).slice(0, 8).join(", ")}${role.sharedWith.length > 8 ? "…" : ""}`}
+                >
+                  Shared · {role.sharedWith.length} {role.sharedWith.length === 1 ? "workload" : "workloads"}
+                </span>
+              )}
               {/* Live-evidence chip — 2026-05-26 audit follow-up.
                   When CloudTrail shows real ACCESSES_RESOURCE hits
                   from this role but the scalar used_actions_count
@@ -4947,6 +4963,38 @@ export function UnifiedArchitectureDiagram({
                     exfilSummary={exfilByWorkloadId?.[node.id] ?? (node.instanceId ? exfilByWorkloadId?.[node.instanceId] : undefined)}
                     spineMode={pathFilterActive}
                   />
+                  {/* Bug N AC2 (2026-06-22) — restore the InstanceProfile
+                      name on the EC2 card as an inline sidecar chip. P1
+                      removed the IP standalone Identity chips
+                      (semantically correct — IPs are credential carriers,
+                      not identities) but that hid the profile name from
+                      the canvas. Find the attached profile by matching
+                      attachedWorkloads[] against the node.id / instanceId
+                      and render an amber "Profile: …" badge below the
+                      EC2 chip. Click → still opens the profile in the
+                      detail panel via onSelectService. */}
+                  {(() => {
+                    const profiles = architecture.instanceProfiles ?? [];
+                    const attached = profiles.find(ip =>
+                      (ip.attachedWorkloads || []).some(wId =>
+                        wId === node.id || (node.instanceId && wId === node.instanceId)
+                      )
+                    );
+                    if (!attached) return null;
+                    const profileName = attached.shortName || attached.name || attached.id;
+                    return (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onSelectService(attached, 'instance_profile'); }}
+                        title={`Instance Profile: ${attached.name || attached.id}\n(EC2 receives temporary credentials for the attached IAM role through this profile.)`}
+                        className="mt-1 ml-2 inline-flex items-center gap-1 px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-[10px] font-mono text-amber-700 dark:text-amber-200 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                      >
+                        <Layers className="w-3 h-3" />
+                        <span className="text-amber-700/70 dark:text-amber-200/60 uppercase tracking-wider text-[9px] font-semibold">Profile</span>
+                        <span className="truncate max-w-[180px]">{profileName}</span>
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })}
