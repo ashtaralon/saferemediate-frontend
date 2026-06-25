@@ -729,14 +729,19 @@ function FlowOverlay({
     egress: "#FF9900",        // AWS orange — to IGW perimeter
   }
 
-  if (paths.length === 0 || size.w === 0) return null
+  // Always render the SVG (even empty) so the React tree mounts on the
+  // first paint and the layout effect can populate paths/size on the
+  // next tick. Returning null here on first render caused the deployed
+  // build to never re-attach the SVG after state arrived (PR #220 prod
+  // regression — manual SVG injection works, the React mount does not).
+  const hasSize = size.w > 0 && size.h > 0
 
   return (
     <svg
       aria-hidden="true"
-      width={size.w}
-      height={size.h}
-      viewBox={`0 0 ${size.w} ${size.h}`}
+      width={hasSize ? size.w : "100%"}
+      height={hasSize ? size.h : "100%"}
+      viewBox={hasSize ? `0 0 ${size.w} ${size.h}` : undefined}
       className="absolute inset-0"
       style={{ pointerEvents: "none", overflow: "visible" }}
     >
