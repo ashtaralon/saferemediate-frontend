@@ -85,18 +85,39 @@ const TIER_SIDEBAR_LABEL: Record<Exclude<SubnetTier, "unknown">, string> = {
   data: "DATABASE TIER",
 }
 
+// Tier row backgrounds — the lightest tint, used behind the AZ × tier grid.
 const TIER_BG: Record<SubnetTier, string> = {
-  web: PAL.tierWeb,
-  app: PAL.tierApp,
-  data: PAL.tierDb,
+  web: PAL.tierWeb,    // mint #E8F5E9
+  app: PAL.tierApp,    // sky  #E3F2FD
+  data: PAL.tierDb,    // lavender #EDE7F6
   unknown: "#ECEFF1",
 }
 
-const SUBNET_TINT: Record<SubnetTier, string> = {
-  web: PAL.subnetPublic,
-  app: PAL.subnetPrivate,
-  data: PAL.subnetPrivate,
-  unknown: "#CFD8DC",
+// Subnet cell backgrounds — a slightly deeper version of the row tint so the
+// subnet card visually nests inside the tier row without breaking the color
+// scheme. Matches the mockup's behavior where subnets share the row hue.
+const SUBNET_BG: Record<SubnetTier, string> = {
+  web: "#DCEFDC",   // a touch deeper than #E8F5E9
+  app: "#D2E5F8",   // a touch deeper than #E3F2FD
+  data: "#E0D6F0",  // a touch deeper than #EDE7F6
+  unknown: "#E0E5E9",
+}
+
+// Subnet borders — yet deeper, gives the card a visible edge in the row.
+const SUBNET_BORDER: Record<SubnetTier, string> = {
+  web: "#A5D6A7",
+  app: "#90CAF9",
+  data: "#B39DDB",
+  unknown: "#B0BEC5",
+}
+
+// Subnet labels — deeper still (used for the bold "Public subnet (web tier)"
+// text inside each cell, plus the CIDR / subnet name).
+const SUBNET_LABEL_FG: Record<SubnetTier, string> = {
+  web: "#1E8E3E",   // deep green
+  app: "#1565C0",   // deep blue
+  data: "#4527A0",  // deep purple
+  unknown: "#37474F",
 }
 
 function tierBgChip(tier: ScoreTier): string {
@@ -223,24 +244,25 @@ function SubnetCell({
   onSelect: (id: string) => void
 }) {
   const empty = subnetsHere.length === 0
+  const labelFg = SUBNET_LABEL_FG[tier]
   return (
     <div
       className="rounded-md p-3"
       style={{
-        background: empty ? "transparent" : PAL.cardBg,
-        border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_TINT[tier]}`,
+        background: empty ? "transparent" : SUBNET_BG[tier],
+        border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
         minHeight: "150px",
         opacity: empty ? 0.55 : 1,
       }}
     >
       <div className="flex items-baseline justify-between mb-1.5">
         <div
-          className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-          style={{ color: PAL.slate }}
+          className="text-[11px] uppercase tracking-[0.12em] font-bold"
+          style={{ color: labelFg }}
         >
           {TIER_LABEL[tier]}
         </div>
-        <div className="text-[10px] font-mono" style={{ color: PAL.slate }}>
+        <div className="text-[10px] font-mono font-semibold" style={{ color: labelFg, opacity: 0.85 }}>
           {subnetsHere.length === 0 ? "—" : subnetsHere.map(s => s.cidr ?? s.name).join(" · ")}
         </div>
       </div>
@@ -253,7 +275,11 @@ function SubnetCell({
         <>
           <div className="space-y-0.5 mb-2">
             {subnetsHere.map(s => (
-              <div key={s.id} className="text-[10px] font-mono truncate" style={{ color: PAL.slate }}>
+              <div
+                key={s.id}
+                className="text-[10px] font-mono font-semibold truncate"
+                style={{ color: labelFg, opacity: 0.85 }}
+              >
                 {s.name}
               </div>
             ))}
