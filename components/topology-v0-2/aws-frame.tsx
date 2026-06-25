@@ -520,6 +520,7 @@ function TrafficFlowBand({
           {edges.length} flow{edges.length === 1 ? "" : "s"} ·{" "}
           {edges.filter(e => (e.edge_class ?? "internal") === "internal").length} internal ·{" "}
           {edges.filter(e => e.edge_class === "edge_service").length} edge-service ·{" "}
+          {edges.filter(e => e.edge_class === "vpce").length} vpce ·{" "}
           {edges.filter(e => e.edge_class === "egress").length} egress
         </div>
       </div>
@@ -539,8 +540,10 @@ function TrafficFlowBand({
               ? { bg: "#FEF3C7", fg: "#7B3F00", txt: e.external_destinations ? `egress · ${e.external_destinations} dest` : "egress" }
               : cls === "edge_service"
               ? { bg: "#EDE7F6", fg: "#4527A0", txt: e.protocol ?? "edge" }
+              : cls === "vpce"
+              ? { bg: "#DBEAFE", fg: "#1E40AF", txt: "VPCE" }
               : { bg: "#E0F2FE", fg: "#075985", txt: e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP") }
-            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : PAL.teal
+            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : cls === "vpce" ? "#3B82F6" : PAL.teal
             return (
               <div
                 key={`${e.source_id}-${e.target_id}-${e.port}-${i}`}
@@ -703,6 +706,8 @@ function FlowOverlay({
             : "egress"
         } else if (cls === "edge_service") {
           badgeLabel = e.protocol ?? "edge"
+        } else if (cls === "vpce") {
+          badgeLabel = "VPCE"
         } else {
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }
@@ -747,6 +752,7 @@ function FlowOverlay({
   const colorByCls: Record<TrafficEdgeClass, string> = {
     internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
     edge_service: "#7E57C2",  // purple — to right-rail S3/KMS/DDB
+    vpce: "#3B82F6",          // blue — to VPC endpoint chips
     egress: "#FF9900",        // AWS orange — to IGW perimeter
   }
 
@@ -767,7 +773,7 @@ function FlowOverlay({
       style={{ pointerEvents: "none", overflow: "visible" }}
     >
       <defs>
-        {(["internal", "edge_service", "egress"] as TrafficEdgeClass[]).map(c => (
+        {(["internal", "edge_service", "vpce", "egress"] as TrafficEdgeClass[]).map(c => (
           <marker
             key={c}
             id={`flow-arrow-${c}`}
@@ -988,8 +994,9 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                     {vpcTopology.edges.vpces.map(v => (
                       <span
                         key={v.id}
+                        data-flow-id={v.id}
                         className="text-[10px] px-2 py-0.5 rounded-md"
-                        style={{ background: "#EDE7F6", border: "1px solid #7E57C2", color: "#4527A0" }}
+                        style={{ background: "#DBEAFE", border: "1px solid #3B82F6", color: "#1E40AF" }}
                       >
                         VPCE · {v.service_name ?? v.id}
                       </span>
