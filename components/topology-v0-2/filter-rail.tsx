@@ -3,11 +3,10 @@
 /**
  * Topology v0.2 — Estate filter rail.
  *
- * Mirrors mockup lines 2113-2158: workload type, severity, VPC, confidence filters.
- *
- * Filters are client-side — they trim the nodes list rendered in the canvas
- * pane. The summary counts inside each row are read from system_kpis
- * (workload-type counts) or computed from the nodes array (severity / stale).
+ * Workload type, severity, and confidence filters. Client-side — trims the
+ * nodes list rendered in the canvas pane. Summary counts come from
+ * system_kpis (workload-type counts) or are computed from the nodes array
+ * (severity / stale / low-confidence).
  */
 
 import { useMemo } from "react"

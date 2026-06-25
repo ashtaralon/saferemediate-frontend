@@ -3,14 +3,14 @@
 /**
  * Topology v0.2 — workload detail panel.
  *
- * Mirrors mockup lines 1730-2107: slide-in panel surfacing the full contributor
- * breakdown, evidence per signal, freshness chips, warning callouts, confidence
- * reasons, and (where the contract provides them) raw evidence fields.
+ * Slide-in panel surfacing the full contributor breakdown, evidence per
+ * signal, freshness chips, warning callouts, confidence reasons, and raw
+ * evidence fields (where the contract provides them).
  *
- * Every value is real — render `—` placeholder when the field is absent rather
- * than fabricate. The mockup's panel-footer CTAs (Trace, Suggest VPCE, Re-sync,
- * Quarantine) are NOT included: they belong to flows the topology-risk endpoint
- * doesn't own and adding them here would require new wiring we haven't shipped.
+ * Every value is real — render `—` placeholder when the field is absent
+ * rather than fabricate. Remediation CTAs (Trace, Suggest VPCE, Re-sync,
+ * Quarantine) are deferred — they belong to flows the topology-risk endpoint
+ * doesn't own.
  */
 
 import {

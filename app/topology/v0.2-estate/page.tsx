@@ -3,12 +3,9 @@
 /**
  * Topology v0.2 — Estate view (live data).
  *
- * Replaces the static mockup at public/design/topology-v0.2-estate.html
- * (which violated CLAUDE.md rule #1 by shipping hardcoded values to prod).
- *
  * All values come from /api/proxy/topology-risk/{system} per contract
  * docs/topology-v0.2-risk-contract.md. No fabricated decoration: where the
- * contract doesn't carry AZ / tier classification / fake route-tables, this
+ * contract doesn't carry AZ / tier classification / route-tables, this
  * page falls back to subnet grouping (which the contract DOES carry).
  *
  * Layout: HeadlineStrip (KPIs) + CanvasPane (subnet-grouped nodes) +
@@ -138,10 +135,9 @@ function EstateView() {
         Every value on this page is a live read from{" "}
         <span className="font-mono">/api/topology-risk/{data.system}</span> per{" "}
         contract <span className="font-mono">docs/topology-v0.2-risk-contract.md</span>.
-        AZ subgrouping and Web/App/Data tier classification (from the mockup at{" "}
-        <span className="font-mono">public/design/topology-v0.2-estate.html</span>) are
-        omitted because the contract does not carry them — per CLAUDE.md rule #1 we don&apos;t
-        fabricate decoration.
+        AZ subgrouping and Web/App/Data tier classification are omitted because the
+        contract does not carry them — per CLAUDE.md rule #1 we don&apos;t fabricate
+        decoration.
       </footer>
 
       <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />

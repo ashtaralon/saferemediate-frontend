@@ -3,10 +3,10 @@
 /**
  * Topology v0.2 — Estate headline strip.
  *
- * Mirrors the mockup at public/design/topology-v0.2-estate.html lines 1322-1364:
- * dark navy band, Georgia serif "Estate overview" title, teal kicker, 5 KPI tiles.
+ * Dark navy band, Georgia serif "Estate overview" title, teal kicker, 5 KPI
+ * tiles. All values are real reads from the topology-risk endpoint.
  *
- * All values are real reads from the topology-risk endpoint. Honest states:
+ * Honest states:
  * - Posture freshness tile flips amber when not is_fresh; surfaces the
  *   auto_resolves_when clause inline (no hidden tooltip).
  * - Posture coverage tile shows scored/total + by_type breakdown.

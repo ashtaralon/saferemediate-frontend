@@ -3,13 +3,10 @@
 /**
  * Topology v0.2 — main canvas pane.
  *
- * The mockup's AWS canonical frame (VPC > AZ > Subnet > SG > workload) is
- * scaffolded by tier classification (Web/App/Data) and AZ data the contract
- * does NOT carry today. Per CLAUDE.md rule #1 we refuse to fabricate those.
- *
- * Honest fallback: render workloads grouped by subnet_id (which the contract
- * DOES carry — §3.2). The subnet group surfaces the same density-by-segment
- * information the AWS frame conveys, without inventing AZ or tier labels.
+ * Renders workloads grouped by subnet_id (which the contract carries — §3.2).
+ * AZ subgrouping and Web/App/Data tier classification are deliberately
+ * omitted: the contract does not back them, and per CLAUDE.md rule #1 we
+ * refuse to fabricate decoration.
  *
  * Each node card shows: severity halo, name, type, score+tier badge,
  * confidence badge with reason chips, contributors summary, jewel marker.
