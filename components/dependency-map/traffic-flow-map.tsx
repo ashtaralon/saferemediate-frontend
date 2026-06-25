@@ -3691,6 +3691,7 @@ export function ConnectionLinesSVG({
   canvasV2 = false,
   showLaterals = false,
   layoutEpoch = 0,
+  showAllConnections = false,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
@@ -3711,6 +3712,15 @@ export function ConnectionLinesSVG({
   // token ↔ detailed-stack toggle) so line endpoints re-measure. Any
   // changing scalar works — included in the measure effect's deps.
   layoutEpoch?: number;
+  // 2026-06-25: connection-density toggle. When false (the new
+  // default), only render flows that touch the hovered chip OR sit
+  // on an attack-path edge. Operator-facing rationale: the canvas
+  // was rendering 400+ polylines on alon-prod (every EC2 → every SG
+  // → every role → every resource), producing visual spaghetti and
+  // dragging the layout pass on 40-EC2 systems. Toggle to true to
+  // restore the legacy "show every flow" behavior — accessible via
+  // the "Connections" toolbar button.
+  showAllConnections?: boolean;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
@@ -3901,6 +3911,26 @@ export function ConnectionLinesSVG({
       // route a polyline through those checkpoints in order. This block
       // will be removed once all callers migrate.
       architecture.flows.forEach(flow => {
+        // 2026-06-25: density gate. By default we ONLY draw lines that
+        // either touch the hovered chip OR sit on an active attack-path
+        // edge. The toolbar "Connections" toggle flips showAllConnections
+        // to restore the legacy "every flow always" rendering for power
+        // users. This kills the 400-polyline spaghetti the operator
+        // complained about on alon-prod's Topology open.
+        if (!showAllConnections) {
+          const onPath =
+            attackPathEdges.has(`${flow.sourceId}->${flow.targetId}`) ||
+            attackPathEdges.has(`${flow.targetId}->${flow.sourceId}`);
+          const touchesHover = hoveredId != null && (
+            hoveredId === flow.sourceId || hoveredId === flow.targetId ||
+            hoveredId === flow.sgId || hoveredId === flow.naclId ||
+            hoveredId === flow.roleId || hoveredId === flow.egressGatewayId ||
+            hoveredId === flow.vpceId ||
+            hoveredId === `api-${flow.targetId}`
+          );
+          if (!onPath && !touchesHover) return;
+        }
+
         // Source resolution: prefer compute, fall back to IAM role for
         // IAM-only paths (no workload code ran — e.g. AWS service roles
         // assumed by AWS itself, like AWSServiceRoleForResourceExplorer
@@ -4101,7 +4131,7 @@ export function ConnectionLinesSVG({
       window.removeEventListener('resize', updateLines);
       container?.removeEventListener('scroll', scrollHandler);
     };
-  }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges, layoutEpoch]);
+  }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges, layoutEpoch, showAllConnections]);
 
   // Attack-path dominance (2026-06-11 design review). Gate: presence of
   // architecture.pathStepByNodeId — produced only when a pathFilter is
@@ -4318,6 +4348,7 @@ export function UnifiedArchitectureDiagram({
   canvasV2 = false,
   showLaterals = false,
   entryNodeId,
+  showAllConnections = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -4379,6 +4410,12 @@ export function UnifiedArchitectureDiagram({
   // right corner so the eye lands on the start of the story before
   // following edges to the jewel. Undefined → no overlay.
   entryNodeId?: string;
+  // 2026-06-25 density toggle — forwarded from TrafficFlowMap. When
+  // false (default), ConnectionLinesSVG only renders flows that touch
+  // the hovered chip or sit on an active attack path. Toggling true
+  // restores legacy "every flow always" rendering. See the toolbar
+  // "Connections" button + the prop declaration on ConnectionLinesSVG.
+  showAllConnections?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -4796,6 +4833,7 @@ export function UnifiedArchitectureDiagram({
           // epoch so line endpoints re-measure instead of waiting for
           // the next hover/scroll/resize.
           layoutEpoch={identityDetailOpen ? 1 : 0}
+          showAllConnections={showAllConnections}
         />
 
         {/* When the path has no network controls at all — no subnets, no
@@ -7187,6 +7225,13 @@ export default function TrafficFlowMap({
   const [selectedService, setSelectedService] = useState<{ service: ServiceNode | SecurityCheckpoint; type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call' } | null>(null);
   const [showAttackPaths, setShowAttackPaths] = useState(false);
   const [attackPaths, setAttackPaths] = useState<AttackPath[]>([]);
+  // 2026-06-25 (density toggle): default OFF — canvas renders zero
+  // connection polylines except for the hovered chip + active attack
+  // paths. Operator-facing rationale: alon-prod's Topology was
+  // rendering ~400 polylines on open, producing visual spaghetti and
+  // dragging the layout pass. Toggling true restores the legacy
+  // "every flow always" rendering for power users.
+  const [showAllConnections, setShowAllConnections] = useState(false);
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
@@ -9255,6 +9300,26 @@ export default function TrafficFlowMap({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Connections toggle — 2026-06-25. Defaults OFF: the canvas
+              shows zero global flow polylines, only the ones that
+              touch the hovered chip + active attack paths. Toggling
+              on restores legacy "every flow always" rendering. Lives
+              before Attack Paths so the density story is the first
+              thing on the toolbar. */}
+          <button
+            onClick={() => setShowAllConnections(!showAllConnections)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+              showAllConnections
+                ? 'bg-violet-500 text-white shadow-md'
+                : 'bg-muted text-muted-foreground hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-500/10'
+            }`}
+            title={showAllConnections
+              ? "Showing all flow connections. Click to hide and only highlight on hover."
+              : "Click to show all flow connections at once (heavier rendering)."}
+          >
+            <Network className="w-3 h-3" />
+            Connections
+          </button>
           {/* Attack Paths toggle */}
           <button
             onClick={() => setShowAttackPaths(!showAttackPaths)}
@@ -9433,6 +9498,7 @@ export default function TrafficFlowMap({
             canvasV2={canvasV2}
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
+            showAllConnections={showAllConnections}
             onSelectService={(service, type) => {
               // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
               // to Spotlight when the parent wires the callback. Runs BEFORE
