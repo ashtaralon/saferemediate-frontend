@@ -179,6 +179,56 @@ function classifyInitialAccess(path: IdentityAttackPath): InitialAccessCategory 
   return "UNKNOWN"
 }
 
+/** Observed-E2E classification — answers "is this path a real exfil
+ *  route, just recon, or a paper capability?" — without a server-side
+ *  classifier (Phase A FE-only slice for task #58).
+ *
+ *  Rules:
+ *    - capability  → no edge on the path is observed. Pure config.
+ *    - recon       → at least one observed edge but none of them are
+ *                    data-plane edge TYPES. The role is doing API
+ *                    calls / role assumes but never read the data.
+ *    - live_exfil  → at least one data-plane edge type is observed
+ *                    (ACTUAL_S3_ACCESS, READS_FROM, WRITES_TO,
+ *                    ACCESSES_RESOURCE).
+ *
+ *  Known limitation (documented honestly via tooltip): ACCESSES_RESOURCE
+ *  doesn't distinguish s3:GetBucket* (control plane) from s3:GetObject
+ *  (data plane). For now both classify as `live_exfil`. Phase B will
+ *  thread per-verb tags onto edges so the recon/exfil split is
+ *  GetObject-true. Until then, the chip is honest about CONNECTIVITY
+ *  evidence, not destructive-verb evidence.
+ */
+type ObservedE2EClass = "live_exfil" | "recon" | "capability"
+
+const DATA_PLANE_EDGE_TYPES = new Set([
+  "ACTUAL_S3_ACCESS",
+  "READS_FROM",
+  "WRITES_TO",
+  "ACCESSES_RESOURCE",
+])
+
+const CONTROL_PLANE_EDGE_TYPES = new Set([
+  "ACTUAL_API_CALL",
+  "CALLS",
+  "ASSUMES_ROLE_ACTUAL",
+  "INVOKES",
+])
+
+function classifyObservedE2E(path: IdentityAttackPath): ObservedE2EClass {
+  const edges = path.edges ?? []
+  let observedDataPlane = false
+  let observedControlPlane = false
+  for (const e of edges) {
+    if (!e.is_observed) continue
+    if (DATA_PLANE_EDGE_TYPES.has(e.type)) observedDataPlane = true
+    else if (CONTROL_PLANE_EDGE_TYPES.has(e.type)) observedControlPlane = true
+  }
+  if (observedDataPlane) return "live_exfil"
+  if (observedControlPlane) return "recon"
+  return "capability"
+}
+
 // Severity → tone for the per-path chip. Theme-aware (light + dark)
 // and aligned with FindingCard's severity palette. Phase 2 will hoist
 // this into a shared *_CONFIG export in lib/types.ts.
@@ -438,6 +488,40 @@ export function PathListGrouped({
                               observed (no hit count)
                             </span>
                           )}
+                          {/* Observed-E2E class chip — Phase A of task #58.
+                              Surfaces "is this path a real exfil route, just
+                              recon, or a paper capability?" Computed from
+                              edges[].type + is_observed (FE-derived; Phase B
+                              promotes to a backend property + per-verb
+                              ACCESSES_RESOURCE tagging). */}
+                          {(() => {
+                            const e2e = classifyObservedE2E(p)
+                            const cfg = {
+                              live_exfil: {
+                                label: "Live exfil",
+                                tone: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+                                title: "Data-plane edge observed on this path (ACTUAL_S3_ACCESS / READS_FROM / WRITES_TO / ACCESSES_RESOURCE with hits). Note: ACCESSES_RESOURCE doesn't yet split GetBucket* (control plane) from GetObject (data plane) — Phase B refines.",
+                              },
+                              recon: {
+                                label: "Recon",
+                                tone: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                                title: "Observed API calls or role-assumes on this path, but no observed data-plane edge. The role moved but didn't (yet) touch the jewel's data.",
+                              },
+                              capability: {
+                                label: "Capability",
+                                tone: "border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+                                title: "No observed activity on this path's edges. Pure policy: the attacker COULD reach the jewel but no CloudTrail/flow-log evidence shows them having tried.",
+                              },
+                            }[e2e]
+                            return (
+                              <span
+                                className={`inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${cfg.tone}`}
+                                title={cfg.title}
+                              >
+                                {cfg.label}
+                              </span>
+                            )
+                          })()}
                           {p.materialized_stale && (
                             <span
                               className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300 px-1.5 py-0.5"
