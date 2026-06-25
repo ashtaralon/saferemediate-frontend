@@ -11,9 +11,23 @@ const BACKEND_URL = getBackendBaseUrl()
  * Topology Risk proxy — pairs with BE /api/topology-risk/{systemName}
  * (contract: docs/topology-v0.2-risk-contract.md).
  *
- * 60s server-side cache per contract §4.3 ("Bulk endpoint: cache 60s
- * server-side"). Stale-fallback on timeout — operators always see the
- * last good rollup rather than a hard 502 when Render is mid-cold-cycle.
+ * Resilience strategy (CLAUDE.md rule #1 honesty + amber-self-heal pattern):
+ *
+ *   1. Hot cache (60s)            → return cached data immediately.
+ *   2. Backend reachable + 2xx    → cache + return fresh data.
+ *   3. Backend 5xx OR timeout     → if stale cache exists, serve it with
+ *                                    `fromStaleCache=true` so the FE renders
+ *                                    an amber "serving stale" pill. Render
+ *                                    is on a free/starter tier and bounces
+ *                                    a few times per hour mid-deploy; serving
+ *                                    the last-known-good rollup keeps the
+ *                                    canvas useful instead of a hard error.
+ *   4. No stale cache to fall    → emit an honest empty envelope so the FE
+ *      back to                      can render "topology risk unavailable"
+ *                                    rather than NPE on missing fields.
+ *
+ * Per CLAUDE.md feedback_amber_must_self_heal: the amber "serving stale"
+ * state auto-resolves on the next successful fetch — no operator action.
  */
 export async function GET(
   _req: NextRequest,
@@ -42,8 +56,23 @@ export async function GET(
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[topology-risk] backend ${res.status}: ${body.slice(0, 200)}`)
-      // Honest 502 envelope so the FE can render an "unavailable" state
-      // rather than NPE on missing fields. Mirrors the iap-jewels pattern.
+      // On 5xx, try the stale cache first — Render free-tier bounces are
+      // typically transient (10-60s). Serving last-good data with an
+      // amber pill is far better UX than "topology risk unavailable" until
+      // the next BE deploy stabilizes.
+      if (res.status >= 500) {
+        const stale = getStaleCached(cacheKey)
+        if (stale) {
+          console.warn(`[topology-risk] backend ${res.status} — serving stale cache systemName=${systemName}`)
+          return NextResponse.json(
+            { ...stale, fromStaleCache: true, staleReason: `backend_${res.status}` },
+            {
+              headers: { "X-Cache": "STALE", "Cache-Control": "no-store" },
+            },
+          )
+        }
+      }
+      // No stale cache → honest empty envelope.
       return NextResponse.json(
         {
           error: `backend_${res.status}`,
@@ -69,15 +98,16 @@ export async function GET(
       err instanceof Error &&
       (err.name === "TimeoutError" || err.name === "AbortError" || msg.includes("timeout"))
     const stale = getStaleCached(cacheKey)
-    if (isTimeout && stale) {
-      console.warn(`[topology-risk] timeout — serving stale cache systemName=${systemName}`)
+    // Serve stale on ANY transient failure when we have a cache. Timeout,
+    // fetch-rejection, and TLS/connection blips all count — the operator
+    // gets their last-good rollup either way, with the amber pill telling
+    // the truth about freshness.
+    if (stale) {
+      console.warn(`[topology-risk] ${isTimeout ? "timeout" : "fetch failed"} — serving stale cache systemName=${systemName}`)
       return NextResponse.json(
-        { ...stale, fromStaleCache: true, staleReason: "timeout" },
+        { ...stale, fromStaleCache: true, staleReason: isTimeout ? "timeout" : "fetch_failed" },
         {
-          headers: {
-            "X-Cache": "STALE",
-            "Cache-Control": "no-store",
-          },
+          headers: { "X-Cache": "STALE", "Cache-Control": "no-store" },
         },
       )
     }
