@@ -9,7 +9,13 @@ const BACKEND_URL =
 
 export async function POST(req: NextRequest) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 30_000)
+  // 2026-06-25: bumped 30s → 50s. Same reasoning as the sister IAM
+  // gap-analysis batch proxy — first-batch cold-Render requests
+  // measure 40s on /health probe; 30s guarantees AbortError before
+  // the backend even finishes warming. 50s stays under Vercel's 60s
+  // ceiling. When backend is truly cold (~104s), the chip still
+  // fires honestly per pattern_honest_chip_over_silent_seed.
+  const timeoutId = setTimeout(() => controller.abort(), 50_000)
 
   try {
     const body = await req.text()

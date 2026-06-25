@@ -9,7 +9,13 @@ const BACKEND_URL =
 
 export async function POST(req: NextRequest) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 30_000)
+  // 2026-06-25: bumped 30s → 50s. The previous 30s ceiling guaranteed
+  // first-batch failure on a cold Render backend (warm /health probe
+  // measures 40s on first hit, full cold-cycle up to 104s — see memory
+  // project_render_tier). 50s catches the warming-but-slow case while
+  // staying under Vercel's 60s function ceiling. Chip still lights
+  // honestly when backend is truly cold; this just reduces noise.
+  const timeoutId = setTimeout(() => controller.abort(), 50_000)
 
   try {
     const body = await req.text()
