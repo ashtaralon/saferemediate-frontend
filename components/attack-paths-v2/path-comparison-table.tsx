@@ -1,26 +1,23 @@
 "use client"
 
-import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
-import type { ActivePathList } from "@/lib/active-filters"
-import {
-  pathDamageSummary,
-  pathIdentityLabel,
-  pathSourceLabel,
-  pathTopFixLabel,
-} from "./path-damage-summary"
+// PR 2 of the IR cutover chain (task #34). This component no longer
+// touches raw IdentityAttackPath — it consumes PathListRow only. The
+// parent compiles once via compilePathListRow and passes the rows in.
+
+import type { PathListRow } from "./attack-path-report-types"
 
 interface PathComparisonTableProps {
-  paths: ActivePathList<IdentityAttackPath>
+  rows: PathListRow[]
   selectedPathId: string | null
   onSelectPath: (pathId: string) => void
 }
 
 export function PathComparisonTable({
-  paths,
+  rows,
   selectedPathId,
   onSelectPath,
 }: PathComparisonTableProps) {
-  if (paths.length < 2) return null
+  if (rows.length < 2) return null
 
   return (
     <div className="px-4 py-3 border-b border-border bg-card" data-testid="path-comparison-table">
@@ -39,36 +36,34 @@ export function PathComparisonTable({
             </tr>
           </thead>
           <tbody>
-            {paths.map((p, idx) => {
-              const selected = p.id === selectedPathId
-              const damage = pathDamageSummary(p)
-              const fix = pathTopFixLabel(p)
+            {rows.map((row, idx) => {
+              const selected = row.id === selectedPathId
               return (
                 <tr
-                  key={p.id}
+                  key={row.id}
                   className={`border-b border-border cursor-pointer transition-colors ${
                     selected ? "bg-primary/10" : "hover:bg-accent/50"
                   }`}
-                  onClick={() => onSelectPath(p.id)}
+                  onClick={() => onSelectPath(row.id)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault()
-                      onSelectPath(p.id)
+                      onSelectPath(row.id)
                     }
                   }}
                 >
                   <td className="py-2 pr-2 text-muted-foreground tabular-nums">#{idx + 1}</td>
-                  <td className="py-2 pr-2 font-mono text-foreground truncate max-w-[100px]" title={pathSourceLabel(p)}>
-                    {pathSourceLabel(p)}
+                  <td className="py-2 pr-2 font-mono text-foreground truncate max-w-[100px]" title={row.source_label}>
+                    {row.source_label}
                   </td>
-                  <td className="py-2 pr-2 font-mono text-muted-foreground truncate max-w-[100px]" title={pathIdentityLabel(p)}>
-                    {pathIdentityLabel(p)}
+                  <td className="py-2 pr-2 font-mono text-muted-foreground truncate max-w-[100px]" title={row.identity_label}>
+                    {row.identity_label}
                   </td>
-                  <td className="py-2 pr-2 text-foreground">{damage}</td>
-                  <td className="py-2 text-emerald-700 dark:text-emerald-300 truncate max-w-[140px]" title={fix}>
-                    {fix}
+                  <td className="py-2 pr-2 text-foreground">{row.damage_summary}</td>
+                  <td className="py-2 text-emerald-700 dark:text-emerald-300 truncate max-w-[140px]" title={row.top_fix_label}>
+                    {row.top_fix_label}
                   </td>
                 </tr>
               )

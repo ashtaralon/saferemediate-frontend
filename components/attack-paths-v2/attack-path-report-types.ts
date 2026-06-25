@@ -275,6 +275,117 @@ export interface NarrationJson {
   generated_at?: string
 }
 
+// =============================================================================
+// PathListRow — IR for the list/comparison consumers (PR 2 / task #34).
+// =============================================================================
+//
+// The per-path AttackPathReport above is heavy (claims[], damage_matrix[],
+// remediation_diff, etc.) and authored by a backend compiler — perfect for
+// detail surfaces, wrong shape for a scannable list. PathListRow is the lite
+// projection list/comparison renderers consume.
+//
+// Same vocabulary law as AttackPathReport: components MUST NOT re-derive
+// security meaning from raw `IdentityAttackPath` once the row is compiled.
+// All selectors live in `compile-path-list-row.ts` and run ONCE per render.
+//
+// Today (2026-06-25): the row is FE-compiled from the existing
+// IdentityAttackPath the IAP endpoint returns. There is no
+// `/api/attack-paths/list-projection` yet; #33 was marked complete without a
+// backend contract. When that endpoint lands, swap the compile call for a
+// direct deserialize — the row shape is the same.
+
+/** Evidence-of-real-traffic class for a path. Phase A of #58. */
+export type PathObservedE2EClass = "live_exfil" | "recon" | "capability"
+
+export interface PathListRow {
+  /** Path id — used for selection + React keys. Matches `IdentityAttackPath.id`. */
+  id: string
+
+  // ---- Identity / context ---------------------------------------------------
+
+  /** Operator-meaningful "where the attacker starts" (first non-principal
+   *  node, then assume-edge source — see compileSourceLabel for the BE-10
+   *  rules). */
+  source_label: string
+
+  /** The IAM role that actually reaches the crown jewel (assume-chain aware). */
+  identity_label: string
+
+  /** Display labels for the chain head/tail — what the list shows as
+   *  `start → target`. `target` resolves the canonical crown jewel
+   *  (Bug #209: avoid KMSKey-terminus mislabel). */
+  start_label: string | null
+  target_label: string | null
+
+  /** Crown jewel canonical id this path terminates at. Mirrors
+   *  `IdentityAttackPath.crown_jewel_id`. */
+  crown_jewel_id: string
+
+  // ---- Severity + traffic ---------------------------------------------------
+
+  /** Severity for the list-row chip. `null` when the path didn't carry a
+   *  severity record — render "—" rather than fabricating. */
+  severity_label: string | null
+  severity_score: number | null
+
+  /** Sum of `hit_count` across every observed edge on this path. The
+   *  operator-meaningful "real traffic on this attack route" — used for
+   *  sort, hit chip, and top-of-bucket marker. */
+  observed_hits: number
+
+  /** Hop count for the "N hops" chip. */
+  hop_count: number
+
+  /** True iff at least one edge is is_observed=true (regardless of hits). */
+  has_observed_edge: boolean
+
+  /** PR 1 / IAP `evidence_type` — observed vs configured. Kept for the
+   *  "observed (no hit count)" badge case. */
+  evidence_type: "observed" | "configured"
+
+  // ---- Classifications ------------------------------------------------------
+
+  /** ATT&CK Initial Access bucket. Uses the backend-emitted category when
+   *  present (`path.initial_access.category`), falls back to the legacy
+   *  inline derivation otherwise. The fallback path is shrinking — once
+   *  the backend writes the edge for every system we delete it. */
+  initial_access_category: InitialAccessCategoryLite
+
+  /** Phase-A FE-derived class — answers "is this a real exfil route, just
+   *  recon, or paper capability?" (#58). */
+  observed_e2e_class: PathObservedE2EClass
+
+  // ---- Stale / lifecycle ----------------------------------------------------
+
+  is_materialized_stale: boolean
+  stale_reason: string | null
+
+  // ---- Damage + fix summaries (pre-resolved strings) -----------------------
+
+  /** Operator-readable damage summary (e.g. "DELETE · WRITE · READ"). */
+  damage_summary: string
+
+  /** Top recommended fix label (capped at 72 chars) or "—". */
+  top_fix_label: string
+}
+
+/** Lightweight alias — we don't import the full
+ *  identity-attack-paths/types InitialAccessCategory here to keep this
+ *  module's import surface aligned with PR 1's "no raw IAP imports in the
+ *  IR layer" intent. The runtime values are identical. */
+export type InitialAccessCategoryLite =
+  | "LEAKED_ACCESS_KEY"
+  | "IMDS_CREDENTIAL_THEFT"
+  | "EXPOSED_S3_BUCKET"
+  | "EXPOSED_RDS_SNAPSHOT"
+  | "EXPOSED_K8S_WORKLOAD"
+  | "EXPOSED_ECR_IMAGE"
+  | "EXPOSED_WORKLOAD_RCE"
+  | "COGNITO_OR_FEDERATED_IDP"
+  | "CONSOLE_OR_CLOUDSHELL"
+  | "CROSS_ACCOUNT_TRUST"
+  | "UNKNOWN"
+
 /** Lookup helper — renderer resolves a step's claims for grade chips. */
 export function claimsById(report: AttackPathReport): Map<string, Claim> {
   return new Map(report.claims.map((c) => [c.id, c]))

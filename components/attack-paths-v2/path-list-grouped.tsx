@@ -32,7 +32,11 @@ import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
 import { MaterializedScopeBadge } from "./materialized-scope-badge"
 import { PathComparisonTable } from "./path-comparison-table"
-import { pathDamageSummary, pathTopFixLabel } from "./path-damage-summary"
+import type {
+  PathListRow,
+  InitialAccessCategoryLite,
+} from "./attack-path-report-types"
+import { compilePathListRow } from "./compile-path-list-row"
 
 interface PathListGroupedProps {
   // ActivePathList enforces at compile time that the caller passed
@@ -179,60 +183,40 @@ function classifyInitialAccess(path: IdentityAttackPath): InitialAccessCategory 
   return "UNKNOWN"
 }
 
-/** Observed-E2E classification — answers "is this path a real exfil
- *  route, just recon, or a paper capability?" — without a server-side
- *  classifier (Phase A FE-only slice for task #58).
- *
- *  Rules:
- *    - capability  → no edge on the path is observed. Pure config.
- *    - recon       → at least one observed edge but none of them are
- *                    data-plane edge TYPES. The role is doing API
- *                    calls / role assumes but never read the data.
- *    - live_exfil  → at least one data-plane edge type is observed
- *                    (ACTUAL_S3_ACCESS, READS_FROM, WRITES_TO,
- *                    ACCESSES_RESOURCE).
- *
- *  Known limitation (documented honestly via tooltip): ACCESSES_RESOURCE
- *  doesn't distinguish s3:GetBucket* (control plane) from s3:GetObject
- *  (data plane). For now both classify as `live_exfil`. Phase B will
- *  thread per-verb tags onto edges so the recon/exfil split is
- *  GetObject-true. Until then, the chip is honest about CONNECTIVITY
- *  evidence, not destructive-verb evidence.
- */
-type ObservedE2EClass = "live_exfil" | "recon" | "capability"
+// Observed-E2E classification moved into compile-path-list-row.ts so the
+// list/comparison renderers stop re-computing per render (#34 PR 2).
 
-const DATA_PLANE_EDGE_TYPES = new Set([
-  "ACTUAL_S3_ACCESS",
-  "READS_FROM",
-  "WRITES_TO",
-  "ACCESSES_RESOURCE",
-])
-
-const CONTROL_PLANE_EDGE_TYPES = new Set([
-  "ACTUAL_API_CALL",
-  "CALLS",
-  "ASSUMES_ROLE_ACTUAL",
-  "INVOKES",
-])
-
-function classifyObservedE2E(path: IdentityAttackPath): ObservedE2EClass {
-  const edges = path.edges ?? []
-  let observedDataPlane = false
-  let observedControlPlane = false
-  for (const e of edges) {
-    if (!e.is_observed) continue
-    if (DATA_PLANE_EDGE_TYPES.has(e.type)) observedDataPlane = true
-    else if (CONTROL_PLANE_EDGE_TYPES.has(e.type)) observedControlPlane = true
-  }
-  if (observedDataPlane) return "live_exfil"
-  if (observedControlPlane) return "recon"
-  return "capability"
+// Observed-E2E chip presentation — labels + Tailwind tones + tooltip
+// copy. Display-only concern, so it stays in the renderer module (the
+// IR only carries the enum, not the styling).
+const OBSERVED_E2E_CHIP: Record<
+  "live_exfil" | "recon" | "capability",
+  { label: string; tone: string; title: string }
+> = {
+  live_exfil: {
+    label: "Live exfil",
+    tone: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    title:
+      "Data-plane edge observed on this path (ACTUAL_S3_ACCESS / READS_FROM / WRITES_TO / ACCESSES_RESOURCE with hits). Note: ACCESSES_RESOURCE doesn't yet split GetBucket* (control plane) from GetObject (data plane) — Phase B refines.",
+  },
+  recon: {
+    label: "Recon",
+    tone: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    title:
+      "Observed API calls or role-assumes on this path, but no observed data-plane edge. The role moved but didn't (yet) touch the jewel's data.",
+  },
+  capability: {
+    label: "Capability",
+    tone: "border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    title:
+      "No observed activity on this path's edges. Pure policy: the attacker COULD reach the jewel but no CloudTrail/flow-log evidence shows them having tried.",
+  },
 }
 
 // Severity → tone for the per-path chip. Theme-aware (light + dark)
 // and aligned with FindingCard's severity palette. Phase 2 will hoist
 // this into a shared *_CONFIG export in lib/types.ts.
-function severityTone(level?: string) {
+function severityTone(level?: string | null) {
   const l = (level || "").toLowerCase()
   if (l === "critical") return "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
   if (l === "high") return "bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-300"
@@ -247,61 +231,49 @@ export function PathListGrouped({
   selectedPathId,
   onSelectPath,
 }: PathListGroupedProps) {
-  // Compute observed-hit total per path — the sum of hit_count across
-  // every observed edge on the path. This is the OPERATOR-MEANINGFUL
-  // ranking: a path with 11 CloudTrail-observed accesses is a bigger
-  // attack than a path with 2.
+  // Compile the IR once for every path in the list. Every renderer
+  // selector that used to live inline (observed-hit aggregation,
+  // source/identity resolution, damage summary, fix label, e2e class)
+  // collapses into this single pass.
   //
-  // 2026-05-22 audit fix: previously sorted by severity.overall_score,
-  // which is a synthesized 6-factor score that didn't correlate with
-  // observed traffic. Result: the 11-hit alon-demo-ec2-role path was
-  // listed BELOW the 2-hit cyntro-demo-ec2-s3-role path because of
-  // synthetic-score arithmetic. Operator clicked the top one and saw
-  // the LOWEST-traffic chain. Sorting by observed hits surfaces the
-  // real "biggest door" first.
-  const observedHits = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const p of paths) {
-      let total = 0
-      for (const e of p.edges ?? []) {
-        if (e.is_observed) total += e.hit_count ?? 0
-      }
-      map.set(p.id, total)
-    }
-    return map
-  }, [paths])
+  // 2026-05-22 audit context preserved: sort key is observed-hit total
+  // desc, then severity.overall_score desc, then hop_count asc. The
+  // 11-hit alon-demo-ec2-role path beats the 2-hit cyntro-demo-ec2-s3-role
+  // path because that's the real "biggest door".
+  const rows = useMemo<PathListRow[]>(() => {
+    return paths.map((p) =>
+      compilePathListRow(p, jewel, classifyInitialAccess(p)),
+    )
+  }, [paths, jewel])
 
-  // Group paths by ATT&CK Initial Access category. Each bucket holds
-  // its paths sorted descending by OBSERVED HIT COUNT (real CloudTrail/
-  // flow-log evidence) then by severity, then by hop count.
+  // Group rows by ATT&CK Initial Access category. Each bucket holds its
+  // rows sorted descending by observed_hits, then severity_score, then
+  // hop_count.
   const grouped = useMemo(() => {
-    const buckets = new Map<InitialAccessCategory, IdentityAttackPath[]>()
-    for (const p of paths) {
-      const bucket = classifyInitialAccess(p)
+    const buckets = new Map<InitialAccessCategoryLite, PathListRow[]>()
+    for (const row of rows) {
+      const bucket = row.initial_access_category
       if (!buckets.has(bucket)) buckets.set(bucket, [])
-      buckets.get(bucket)!.push(p)
+      buckets.get(bucket)!.push(row)
     }
-    // Sort within bucket — observed hits desc, then severity desc, then hop asc
     for (const list of buckets.values()) {
       list.sort((a, b) => {
-        const ha = observedHits.get(a.id) ?? 0
-        const hb = observedHits.get(b.id) ?? 0
-        if (hb !== ha) return hb - ha
-        const sa = a.severity?.overall_score ?? 0
-        const sb = b.severity?.overall_score ?? 0
+        if (b.observed_hits !== a.observed_hits) return b.observed_hits - a.observed_hits
+        const sa = a.severity_score ?? 0
+        const sb = b.severity_score ?? 0
         if (sb !== sa) return sb - sa
-        return (a.hop_count ?? 0) - (b.hop_count ?? 0)
+        return a.hop_count - b.hop_count
       })
     }
     // Order buckets by highest-hit-path in each (so the bucket containing
     // the busiest path appears first, regardless of bucket population).
     return Array.from(buckets.entries()).sort((a, b) => {
-      const maxA = Math.max(...a[1].map((p) => observedHits.get(p.id) ?? 0), 0)
-      const maxB = Math.max(...b[1].map((p) => observedHits.get(p.id) ?? 0), 0)
+      const maxA = Math.max(...a[1].map((r) => r.observed_hits), 0)
+      const maxB = Math.max(...b[1].map((r) => r.observed_hits), 0)
       if (maxB !== maxA) return maxB - maxA
       return b[1].length - a[1].length
     })
-  }, [paths, observedHits])
+  }, [rows])
 
   // All groups start expanded. Operator can collapse to focus.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -314,7 +286,7 @@ export function PathListGrouped({
     })
   }
 
-  if (paths.length === 0) {
+  if (rows.length === 0) {
     // Accuracy-audit F1 (2026-06-11): distinguish "graph says zero
     // materialized paths" (honest not-computed state) from "no paths
     // today". The synthesized list is suppressed backend-side for
@@ -359,26 +331,26 @@ export function PathListGrouped({
         </div>
         <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
-            {paths.length} path{paths.length === 1 ? "" : "s"} ·{" "}
+            {rows.length} path{rows.length === 1 ? "" : "s"} ·{" "}
             {grouped.length} initial-access categor{grouped.length === 1 ? "y" : "ies"}
           </span>
           <MaterializedScopeBadge
-            surfaced={paths.length}
+            surfaced={rows.length}
             graphTotal={jewel?.materialized_path_count}
           />
         </div>
       </div>
 
       <PathComparisonTable
-        paths={paths}
+        rows={rows}
         selectedPathId={selectedPathId}
         onSelectPath={onSelectPath}
       />
 
       {/* Grouped path list */}
       <div className="divide-y divide-border">
-        {grouped.map(([bucket, bucketPaths]) => {
-          const meta = INITIAL_ACCESS_BUCKETS[bucket]
+        {grouped.map(([bucket, bucketRows]) => {
+          const meta = INITIAL_ACCESS_BUCKETS[bucket as InitialAccessCategory]
           const Icon = meta.icon
           const isCollapsed = collapsed.has(bucket as string)
           return (
@@ -398,54 +370,24 @@ export function PathListGrouped({
                   {meta.label}
                 </span>
                 <span className="text-[10px] text-muted-foreground ml-auto">
-                  {bucketPaths.length}
+                  {bucketRows.length}
                 </span>
               </button>
 
               {/* Group contents */}
               {!isCollapsed && (
                 <div className="pl-2 pb-2">
-                  {bucketPaths.map((p, idxInBucket) => {
-                    const isSelected = p.id === selectedPathId
-                    // Operator-meaningful "start" — first node that isn't a
-                    // principal-like wrapper (CTP/AWSPrincipal/etc). Falls
-                    // back to node 0. Post 2026-05-22 the entry node may
-                    // arrive as type AWSPrincipal or IAMRole (STS session
-                    // with role label) — widen via isPrincipalNodeType
-                    // so the first real workload is still picked.
-                    const start =
-                      p.nodes?.find((n) => !isPrincipalNodeType(n.type)) ??
-                      p.nodes?.[0]
-                    // Crown-jewel resolution (Bug #209): the path's nodes[]
-                    // may end at the KMSKey that ENCRYPTS the jewel (compiler
-                    // §5.4 KMS terminus dual-typing — the canvas legitimately
-                    // shows both S3 and KMS at the chain tail). Naïvely
-                    // labelling with nodes[last].name yields chips like
-                    // "alon-demo-app2 → cyntro-demo-cmk" under a list header
-                    // that says "PATHS TO saferemediate-logs". The path
-                    // record's canonical terminus is `crown_jewel_id`; prefer
-                    // that node, then the parent jewel context, then fall
-                    // back to the chain tail.
-                    const jewelNode =
-                      (p.crown_jewel_id &&
-                        p.nodes?.find((n) => n.id === p.crown_jewel_id)) ||
-                      null
-                    const target =
-                      jewelNode ??
-                      (jewel && p.crown_jewel_id === jewel.id
-                        ? ({ id: jewel.id, name: jewel.name, type: jewel.type } as PathNodeDetail)
-                        : p.nodes?.[p.nodes.length - 1])
-                    const sevLabel = p.severity?.severity?.toUpperCase() ?? "—"
-                    const sevScore = p.severity?.overall_score
-                    const hits = observedHits.get(p.id) ?? 0
-                    // Top-of-bucket marker — flag the path with the
-                    // most observed traffic so operators don't need to
-                    // squint at every hit-count chip.
-                    const isTopOfBucket = idxInBucket === 0 && hits > 0
+                  {bucketRows.map((row, idxInBucket) => {
+                    const isSelected = row.id === selectedPathId
+                    // Top-of-bucket marker — flag the row with the most
+                    // observed traffic so operators don't need to squint
+                    // at every hit-count chip.
+                    const isTopOfBucket = idxInBucket === 0 && row.observed_hits > 0
+                    const e2eCfg = OBSERVED_E2E_CHIP[row.observed_e2e_class]
                     return (
                       <button
-                        key={p.id}
-                        onClick={() => onSelectPath(p.id)}
+                        key={row.id}
+                        onClick={() => onSelectPath(row.id)}
                         className={`w-full text-left rounded-lg px-3 py-2 mx-2 mb-1 transition-colors border ${
                           isSelected
                             ? "bg-primary/10 border-primary/40"
@@ -453,10 +395,10 @@ export function PathListGrouped({
                         }`}
                       >
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityTone(p.severity?.severity)}`}>
-                            {sevLabel}
-                            {sevScore !== undefined && sevScore !== null && (
-                              <span className="ml-1 opacity-80">{sevScore}</span>
+                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityTone(row.severity_label)}`}>
+                            {row.severity_label ?? "—"}
+                            {row.severity_score !== null && (
+                              <span className="ml-1 opacity-80">{row.severity_score}</span>
                             )}
                           </span>
                           {/* Observed-hit chip — surfaces the real
@@ -464,12 +406,12 @@ export function PathListGrouped({
                               alon-demo-ec2-role path (11 hits) now shows
                               the same as cyntro-demo-ec2-s3-role (2
                               hits) at a glance. */}
-                          {hits > 0 && (
+                          {row.observed_hits > 0 && (
                             <span
                               className="inline-flex items-center text-[9px] font-semibold rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5"
-                              title={`${hits} CloudTrail/flow-log events observed across this path`}
+                              title={`${row.observed_hits} CloudTrail/flow-log events observed across this path`}
                             >
-                              {hits.toLocaleString()} hits
+                              {row.observed_hits.toLocaleString()} hits
                             </span>
                           )}
                           {isTopOfBucket && (
@@ -481,68 +423,41 @@ export function PathListGrouped({
                             </span>
                           )}
                           <span className="text-[10px] text-muted-foreground">
-                            {p.hop_count} hop{p.hop_count === 1 ? "" : "s"}
+                            {row.hop_count} hop{row.hop_count === 1 ? "" : "s"}
                           </span>
-                          {p.evidence_type === "observed" && hits === 0 && (
+                          {row.evidence_type === "observed" && row.observed_hits === 0 && (
                             <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
                               observed (no hit count)
                             </span>
                           )}
-                          {/* Observed-E2E class chip — Phase A of task #58.
-                              Surfaces "is this path a real exfil route, just
-                              recon, or a paper capability?" Computed from
-                              edges[].type + is_observed (FE-derived; Phase B
-                              promotes to a backend property + per-verb
-                              ACCESSES_RESOURCE tagging). */}
-                          {(() => {
-                            const e2e = classifyObservedE2E(p)
-                            const cfg = {
-                              live_exfil: {
-                                label: "Live exfil",
-                                tone: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-                                title: "Data-plane edge observed on this path (ACTUAL_S3_ACCESS / READS_FROM / WRITES_TO / ACCESSES_RESOURCE with hits). Note: ACCESSES_RESOURCE doesn't yet split GetBucket* (control plane) from GetObject (data plane) — Phase B refines.",
-                              },
-                              recon: {
-                                label: "Recon",
-                                tone: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-                                title: "Observed API calls or role-assumes on this path, but no observed data-plane edge. The role moved but didn't (yet) touch the jewel's data.",
-                              },
-                              capability: {
-                                label: "Capability",
-                                tone: "border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300",
-                                title: "No observed activity on this path's edges. Pure policy: the attacker COULD reach the jewel but no CloudTrail/flow-log evidence shows them having tried.",
-                              },
-                            }[e2e]
-                            return (
-                              <span
-                                className={`inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${cfg.tone}`}
-                                title={cfg.title}
-                              >
-                                {cfg.label}
-                              </span>
-                            )
-                          })()}
-                          {p.materialized_stale && (
+                          {/* Observed-E2E class chip — #58 Phase A. */}
+                          <span
+                            className={`inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${e2eCfg.tone}`}
+                            title={e2eCfg.title}
+                          >
+                            {e2eCfg.label}
+                          </span>
+                          {row.is_materialized_stale && (
                             <span
                               className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300 px-1.5 py-0.5"
-                              title={p.stale_reason ?? "Workload inactive — graph path retained for audit"}
+                              title={row.stale_reason ?? "Workload inactive — graph path retained for audit"}
                             >
                               inactive workload
                             </span>
                           )}
                         </div>
                         <div className="text-xs text-foreground font-mono truncate">
-                          {start?.name ?? start?.id ?? "—"}{" "}
+                          {row.start_label ?? "—"}{" "}
                           <span className="text-muted-foreground">→</span>{" "}
-                          <span className="text-muted-foreground">{target?.name ?? "jewel"}</span>
+                          <span className="text-muted-foreground">{row.target_label ?? "jewel"}</span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
                           <span className="text-muted-foreground">
-                            Damage: <span className="text-foreground">{pathDamageSummary(p)}</span>
+                            Damage: <span className="text-foreground">{row.damage_summary}</span>
                           </span>
-                          {pathTopFixLabel(p) !== "—" && (
-                            <span className="text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]" title={pathTopFixLabel(p)}>
-                              → {pathTopFixLabel(p)}
+                          {row.top_fix_label !== "—" && (
+                            <span className="text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]" title={row.top_fix_label}>
+                              → {row.top_fix_label}
                             </span>
                           )}
                         </div>
