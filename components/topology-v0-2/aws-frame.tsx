@@ -29,7 +29,7 @@
  * honest copy.
  */
 
-import { useMemo } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   type IamRoleRollup,
   type ScoreTier,
@@ -39,6 +39,7 @@ import {
   type SubnetTier,
   type TopologyNode,
   type TrafficEdge,
+  type TrafficEdgeClass,
   type VpcTopology,
 } from "./types"
 
@@ -183,6 +184,7 @@ function WorkloadChip({
       type="button"
       onClick={onClick}
       title={node.name}
+      data-flow-id={node.id}
       className="relative flex items-center gap-2.5 rounded-md px-3 py-2 text-left transition-shadow min-w-0 max-w-[260px] hover:shadow-md"
       style={{
         background: PAL.cardBg,
@@ -512,24 +514,33 @@ function TrafficFlowBand({
     >
       <div className="flex items-baseline justify-between mb-2">
         <div className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: PAL.ink }}>
-          Observed traffic · workload → workload
+          Observed traffic — animated arrows above
         </div>
         <div className="text-[10px]" style={{ color: PAL.slate }}>
-          ACTUAL_TRAFFIC edges · {edges.length} flow{edges.length === 1 ? "" : "s"}
+          {edges.length} flow{edges.length === 1 ? "" : "s"} ·{" "}
+          {edges.filter(e => (e.edge_class ?? "internal") === "internal").length} internal ·{" "}
+          {edges.filter(e => e.edge_class === "edge_service").length} edge-service ·{" "}
+          {edges.filter(e => e.edge_class === "egress").length} egress
         </div>
       </div>
       {edges.length === 0 ? (
         <div className="text-[11px] italic" style={{ color: PAL.slate }}>
-          No intra-VPC traffic observed between strict-filtered workloads. (Most
-          alon-prod traffic targets external IPs, which sit on the egress/exposure
-          story, not this canvas.)
+          No observed traffic flows from any rendered workload.
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
           {edges.slice(0, 12).map((e, i) => {
             const src = nodeById.get(e.source_id)
-            const dst = nodeById.get(e.target_id)
-            const portStr = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "—")
+            const dst = e.target_id === "__igw__"
+              ? { name: "Internet (via IGW)" }
+              : nodeById.get(e.target_id) ?? { name: e.target_id }
+            const cls = e.edge_class ?? "internal"
+            const classChip = cls === "egress"
+              ? { bg: "#FEF3C7", fg: "#7B3F00", txt: e.external_destinations ? `egress · ${e.external_destinations} dest` : "egress" }
+              : cls === "edge_service"
+              ? { bg: "#EDE7F6", fg: "#4527A0", txt: e.protocol ?? "edge" }
+              : { bg: "#E0F2FE", fg: "#075985", txt: e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP") }
+            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : PAL.teal
             return (
               <div
                 key={`${e.source_id}-${e.target_id}-${e.port}-${i}`}
@@ -539,15 +550,15 @@ function TrafficFlowBand({
                 <span className="font-semibold truncate max-w-[200px]">
                   {src?.name ?? e.source_id}
                 </span>
-                <span style={{ color: PAL.teal }}>→</span>
+                <span style={{ color: arrowColor }}>→</span>
                 <span className="font-semibold truncate max-w-[200px]">
-                  {dst?.name ?? e.target_id}
+                  {dst.name}
                 </span>
                 <span
                   className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded"
-                  style={{ background: "#E0F2FE", color: "#075985" }}
+                  style={{ background: classChip.bg, color: classChip.fg }}
                 >
-                  {portStr}
+                  {classChip.txt}
                 </span>
               </div>
             )
@@ -602,6 +613,197 @@ function EncodingLegend() {
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Animated SVG flow overlay ──────────────────────────────────────
+//
+// Draws arrows from each workload chip to its observed destinations
+// (other workload chips, the IGW perimeter for egress, edge-service
+// chips on the right rail). Lines are absolutely positioned over the
+// canvas container with `pointer-events:none` so they never block
+// chip clicks. Path coordinates are recomputed on every render and on
+// window resize so the lines stay anchored when chips shift.
+
+interface FlowPath {
+  d: string
+  cls: TrafficEdgeClass
+  protocol: string | null
+  port: number | null
+  externalDestinations: number | null
+  badgeX: number
+  badgeY: number
+  badgeLabel: string
+}
+
+function buildPath(
+  src: DOMRect,
+  dst: DOMRect,
+  containerRect: DOMRect,
+): string {
+  const sx = src.left + src.width / 2 - containerRect.left
+  const sy = src.top + src.height / 2 - containerRect.top
+  const dx = dst.left + dst.width / 2 - containerRect.left
+  const dy = dst.top + dst.height / 2 - containerRect.top
+  // Smooth cubic bezier — pull the control points horizontally so the
+  // arrow looks like a polite "around the chrome" curve instead of a
+  // straight line that overlaps frame borders.
+  const midX = (sx + dx) / 2
+  const c1x = sx + (midX - sx) * 0.65
+  const c2x = dx - (dx - midX) * 0.65
+  return `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${dy}, ${dx} ${dy}`
+}
+
+function FlowOverlay({
+  edges, containerRef,
+}: {
+  edges: TrafficEdge[]
+  containerRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const [paths, setPaths] = useState<FlowPath[]>([])
+  const [size, setSize] = useState({ w: 0, h: 0 })
+
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const recompute = () => {
+      const containerRect = container.getBoundingClientRect()
+      setSize({ w: containerRect.width, h: containerRect.height })
+      const next: FlowPath[] = []
+      for (const e of edges) {
+        const srcEl = container.querySelector<HTMLElement>(
+          `[data-flow-id="${CSS.escape(e.source_id)}"]`,
+        )
+        const dstEl = container.querySelector<HTMLElement>(
+          `[data-flow-id="${CSS.escape(e.target_id)}"]`,
+        )
+        if (!srcEl || !dstEl) continue
+        const srcRect = srcEl.getBoundingClientRect()
+        const dstRect = dstEl.getBoundingClientRect()
+        const d = buildPath(srcRect, dstRect, containerRect)
+        const sx = srcRect.left + srcRect.width / 2 - containerRect.left
+        const sy = srcRect.top + srcRect.height / 2 - containerRect.top
+        const dx = dstRect.left + dstRect.width / 2 - containerRect.left
+        const dy = dstRect.top + dstRect.height / 2 - containerRect.top
+        const cls = e.edge_class ?? "internal"
+        let badgeLabel = ""
+        if (cls === "egress") {
+          badgeLabel = e.external_destinations
+            ? `egress · ${e.external_destinations} dest`
+            : "egress"
+        } else if (cls === "edge_service") {
+          badgeLabel = e.protocol ?? "edge"
+        } else {
+          badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
+        }
+        next.push({
+          d,
+          cls,
+          protocol: e.protocol,
+          port: e.port,
+          externalDestinations: e.external_destinations ?? null,
+          badgeX: (sx + dx) / 2,
+          badgeY: (sy + dy) / 2 - 6,
+          badgeLabel,
+        })
+      }
+      setPaths(next)
+    }
+    recompute()
+    const ro = new ResizeObserver(recompute)
+    ro.observe(container)
+    window.addEventListener("resize", recompute)
+    // Re-measure once more after the next animation frame to catch any
+    // post-layout shifts (font load, image load).
+    const raf = window.requestAnimationFrame(recompute)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("resize", recompute)
+      window.cancelAnimationFrame(raf)
+    }
+  }, [edges, containerRef])
+
+  const colorByCls: Record<TrafficEdgeClass, string> = {
+    internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
+    edge_service: "#7E57C2",  // purple — to right-rail S3/KMS/DDB
+    egress: "#FF9900",        // AWS orange — to IGW perimeter
+  }
+
+  if (paths.length === 0 || size.w === 0) return null
+
+  return (
+    <svg
+      aria-hidden="true"
+      width={size.w}
+      height={size.h}
+      viewBox={`0 0 ${size.w} ${size.h}`}
+      className="absolute inset-0"
+      style={{ pointerEvents: "none", overflow: "visible" }}
+    >
+      <defs>
+        {(["internal", "edge_service", "egress"] as TrafficEdgeClass[]).map(c => (
+          <marker
+            key={c}
+            id={`flow-arrow-${c}`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={colorByCls[c]} />
+          </marker>
+        ))}
+      </defs>
+      {paths.map((p, i) => (
+        <g key={i}>
+          <path
+            d={p.d}
+            fill="none"
+            stroke={colorByCls[p.cls]}
+            strokeWidth="1.75"
+            strokeOpacity="0.85"
+            strokeDasharray="6 4"
+            markerEnd={`url(#flow-arrow-${p.cls})`}
+          >
+            {/* Animated dashes — gives the "traffic flowing" look */}
+            <animate
+              attributeName="stroke-dashoffset"
+              from="20"
+              to="0"
+              dur="1.6s"
+              repeatCount="indefinite"
+            />
+          </path>
+          {/* Badge with port/proto or egress dest count */}
+          <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
+            <rect
+              x={-Math.max(p.badgeLabel.length * 3.4, 12)}
+              y={-8}
+              width={Math.max(p.badgeLabel.length * 6.8, 24)}
+              height={16}
+              rx={4}
+              fill="white"
+              stroke={colorByCls[p.cls]}
+              strokeWidth="1"
+              opacity="0.96"
+            />
+            <text
+              x={0}
+              y={4}
+              textAnchor="middle"
+              fontSize="10"
+              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+              fill={colorByCls[p.cls]}
+              fontWeight="600"
+            >
+              {p.badgeLabel}
+            </text>
+          </g>
+        </g>
+      ))}
+    </svg>
   )
 }
 
@@ -679,12 +881,15 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
   const hasNats = vpcTopology.edges.nat_gws.length > 0
   const hasVpces = vpcTopology.edges.vpces.length > 0
   const accountSuffix = vpcTopology.account_id ? `· acct ${vpcTopology.account_id}` : ""
+  const flowContainerRef = useRef<HTMLDivElement | null>(null)
 
   return (
     <div
-      className="rounded-2xl p-6 space-y-5"
+      ref={flowContainerRef}
+      className="rounded-2xl p-6 space-y-5 relative"
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
+      <FlowOverlay edges={trafficEdgesList} containerRef={flowContainerRef} />
       {/* Internet + IGW perimeter */}
       <div className="flex items-center justify-center gap-8 pb-4">
         <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
@@ -697,7 +902,11 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
           <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">Internet</div>
         </div>
         <div className="flex-1 max-w-[180px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
-        <div className="flex flex-col items-center" style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}>
+        <div
+          className="flex flex-col items-center"
+          style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
+          data-flow-id="__igw__"
+        >
           <div className="text-3xl">🌐</div>
           <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">
             {hasIgw ? `IGW · ${vpcTopology.edges.igws[0].name}` : "no IGW observed"}

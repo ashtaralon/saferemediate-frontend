@@ -133,12 +133,22 @@ export interface IamRoleRollup {
   attachment_modes: ("instance_profile" | "direct" | string)[]
 }
 
+export type TrafficEdgeClass = "internal" | "edge_service" | "egress"
+
 export interface TrafficEdge {
   source_id: string
+  // For egress edges this is the sentinel "__igw__" — the FE terminates
+  // the arrow at the IGW perimeter icon rather than at a chip.
   target_id: string
   port: number | null
+  // For edge_service edges, protocol carries the Cypher relationship type
+  // (e.g. "WRITES_TO" / "READS_FROM" / "ACTUAL_S3_ACCESS") so the FE can
+  // color the line by intent.
   protocol: string | null
   last_seen: string | null
+  // Phase B-2 additions — older BE deploys may omit these.
+  edge_class?: TrafficEdgeClass
+  external_destinations?: number | null
 }
 
 export interface VpcTopology {
