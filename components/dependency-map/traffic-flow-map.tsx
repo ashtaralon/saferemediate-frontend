@@ -12,6 +12,8 @@ import {
   vpceCardChrome,
   vpceCardTitle,
   vpceLaneSubtitle,
+  VPCE_INACTIVE_TOOLTIP,
+  VPCE_NOT_USED_BADGE,
 } from "@/lib/dependency-map/vpce-lane-visual";
 import { enrichArchitectureForSpotlight } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
@@ -5783,9 +5785,27 @@ export function UnifiedArchitectureDiagram({
                           ? 'bg-muted border-border text-muted-foreground'
                           : isActive
                             ? 'bg-violet-500/10 border-violet-400/40 text-violet-700 dark:text-violet-200'
-                            : 'bg-amber-500/5 border-amber-400/30 text-amber-700/80 dark:text-amber-200/70'
+                            : 'bg-slate-500/10 border-slate-400/30 text-slate-600 dark:text-slate-400'
                       }`}>
                         {vpce.endpointType}
+                      </span>
+                    </div>
+                  )}
+                  {/* "Not used" badge — visible without hovering when
+                      no flow.vpceId references this endpoint. Matches
+                      pattern_visualize_by_negation: the gap between
+                      "VPCE exists" and "VPCE carries traffic" IS the
+                      security signal (e.g. private routing is
+                      available but the workload egresses via IGW
+                      instead). Path-filter-on hides this since the
+                      filter narrative already implies the same. */}
+                  {!isActive && !pathFilterActive && (
+                    <div className="mt-1 text-center">
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded border bg-slate-500/15 border-slate-500/40 text-slate-700 dark:text-slate-300"
+                        title={VPCE_INACTIVE_TOOLTIP}
+                      >
+                        {VPCE_NOT_USED_BADGE}
                       </span>
                     </div>
                   )}
