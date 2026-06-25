@@ -58,8 +58,8 @@ function EstateView() {
 
   if (loading && !data) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-300 p-8">
-        <div className="text-xs uppercase tracking-widest text-teal-400 font-semibold mb-2">
+      <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#1A2330" }}>
+        <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
           Topology v0.2 · Estate
         </div>
         <div>Loading topology risk for {systemName}…</div>
@@ -69,15 +69,16 @@ function EstateView() {
 
   if (error && !data) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 p-8">
-        <div className="text-xs uppercase tracking-widest text-teal-400 font-semibold mb-2">
+      <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#1A2330" }}>
+        <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
           Topology v0.2 · Estate
         </div>
-        <div className="text-rose-400 font-semibold">Topology risk unavailable</div>
-        <div className="text-xs text-slate-400 mt-2">{error}</div>
+        <div className="font-semibold" style={{ color: "#E04545" }}>Topology risk unavailable</div>
+        <div className="text-xs mt-2" style={{ color: "#5A6B7A" }}>{error}</div>
         <button
           type="button"
-          className="mt-4 px-4 py-2 text-xs uppercase tracking-wider border border-slate-600 hover:bg-slate-800 rounded"
+          className="mt-4 px-4 py-2 text-xs uppercase tracking-wider border rounded hover:bg-white"
+          style={{ borderColor: "#5A6B7A" }}
           onClick={retry}
         >
           Retry
@@ -88,24 +89,22 @@ function EstateView() {
 
   if (!data || !data.system_kpis) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-300 p-8">
-        <div className="text-xs uppercase tracking-widest text-teal-400 font-semibold mb-2">
+      <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#1A2330" }}>
+        <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
           Topology v0.2 · Estate
         </div>
         <div>
           No system_kpis returned for <span className="font-mono">{systemName}</span>.
         </div>
-        <div className="text-xs text-slate-500 mt-2">
-          The endpoint responded but the rollup is empty. This usually means the
-          system has no workloads yet or the backend hasn&apos;t collected this
-          system. Verify in Neo4j: <code>MATCH (s:System {`{`}name:&apos;{systemName}&apos;{`}`}) RETURN s</code>.
+        <div className="text-xs mt-2" style={{ color: "#5A6B7A" }}>
+          The endpoint responded but the rollup is empty.
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen" style={{ background: "#F4F6F8", color: "#1A2330" }}>
       <HeadlineStrip
         systemName={data.system}
         vpcId={data.vpc_id}
@@ -115,7 +114,7 @@ function EstateView() {
         fromStaleCache={data.fromStaleCache}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 p-6 max-w-[1680px] mx-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 p-6 max-w-[1840px] mx-auto">
         <main>
           {data.vpc_topology ? (
             <AwsFrame
@@ -142,13 +141,12 @@ function EstateView() {
         />
       </div>
 
-      <footer className="px-6 pb-8 max-w-[1680px] mx-auto text-[10px] text-slate-500 leading-relaxed">
+      <footer className="px-6 pb-8 max-w-[1840px] mx-auto text-[10px] leading-relaxed" style={{ color: "#5A6B7A" }}>
         Every value on this page is a live read from{" "}
         <span className="font-mono">/api/topology-risk/{data.system}</span> per{" "}
         contract <span className="font-mono">docs/topology-v0.2-risk-contract.md</span>.
-        The canonical AWS frame (Cloud · Region · VPC · AZ × tier) is structural —
-        service icons appear only when Neo4j confirms the resource. Empty cells are
-        honest, not fabricated.
+        The canonical AWS frame is structural — service icons appear only when Neo4j confirms the
+        resource. Empty cells are honest, not fabricated.
       </footer>
 
       <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
@@ -160,7 +158,7 @@ export default function TopologyV02EstatePage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-slate-950 text-slate-400 p-8">Loading…</div>
+        <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#5A6B7A" }}>Loading…</div>
       }
     >
       <EstateView />
