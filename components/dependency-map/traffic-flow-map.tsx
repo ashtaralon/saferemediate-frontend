@@ -5391,15 +5391,25 @@ export function UnifiedArchitectureDiagram({
                 </button>
               )}
             </div>
-            {/* Instance Profiles (rendered ABOVE roles to mirror the AWS
-                attachment shape: EC2 → IP → Role). Each card carries
-                data-ip-id so ConnectionLinesSVG routes the polyline
-                through it as a flow checkpoint between NACL and Role.
-                Spine mode (identityCollapsed): ON-PATH profiles collapse
-                into the role's IdentityRiskToken — their edge anchors
-                live as invisible spans inside the token wrapper. Off-
-                path profiles keep the dimmed card treatment. */}
-            {(architecture.instanceProfiles ?? [])
+            {/* Bug N (Alon, 2026-06-22) — InstanceProfiles are NOT a
+                first-class identity. They are the EC2's credential
+                carrier; the IAMRole is the actual identity with trust
+                policy + permissions + observed API calls. Rendering IPs
+                as peer chips in the Identity lane every-day misleads
+                operators into thinking the EC2 has two identities. The
+                profile name now belongs on the EC2 card as an inline
+                sidecar badge (Phase 2 follow-up) + in the detail panel.
+                Path chains compress automatically: with no IP chip in
+                the column, the polyline routes NACL → IAMRole directly
+                rather than NACL → IP → IAMRole.
+
+                The IP data is preserved on `architecture.instanceProfiles`
+                for the detail panel / RoleDetailPanel; only the
+                in-column chip is suppressed here.
+
+                Acceptance: AC1 of Bug N — "InstanceProfile no longer
+                appears as a standalone chip in the Identity lane". */}
+            {false && (architecture.instanceProfiles ?? [])
               .filter((ip) => !(identityCollapsed && isOnSelectedPath(ip.id)))
               .map((ip) => (
               <div key={`profile:${ip.id}`} data-ip-id={ip.id} data-role-id={ip.id} className={`relative${pathEmphasisClass(ip.id)}`}>
