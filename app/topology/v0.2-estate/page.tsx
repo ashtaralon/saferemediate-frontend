@@ -114,16 +114,21 @@ function EstateView() {
         fromStaleCache={data.fromStaleCache}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 p-6 max-w-[1840px] mx-auto">
-        <main>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4 px-4 py-4 max-w-[1600px] mx-auto">
+        <main className="min-w-0 min-h-0">
           {data.vpc_topology ? (
-            <AwsFrame
-              vpcTopology={data.vpc_topology}
-              nodes={filteredNodes}
-              trafficEdges={data.traffic_edges}
-              selectedNodeId={selectedNodeId}
-              onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
-            />
+            <div
+              className="w-full overflow-auto rounded-2xl"
+              style={{ maxHeight: "calc(100vh - 220px)" }}
+            >
+              <AwsFrame
+                vpcTopology={data.vpc_topology}
+                nodes={filteredNodes}
+                trafficEdges={data.traffic_edges}
+                selectedNodeId={selectedNodeId}
+                onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+              />
+            </div>
           ) : (
             <CanvasPane
               vpcId={data.vpc_id}

@@ -185,7 +185,7 @@ function WorkloadChip({
       onClick={onClick}
       title={node.name}
       data-flow-id={node.id}
-      className="relative flex items-center gap-2.5 rounded-md px-3 py-2 text-left transition-shadow min-w-0 max-w-[260px] hover:shadow-md"
+      className="relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-shadow min-w-0 max-w-[200px] hover:shadow-md"
       style={{
         background: PAL.cardBg,
         border: `1.5px solid ${ring}`,
@@ -258,7 +258,7 @@ function SubnetCell({
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
-        minHeight: "150px",
+        minHeight: "110px",
         opacity: empty ? 0.55 : 1,
       }}
     >
@@ -521,6 +521,7 @@ function TrafficFlowBand({
           {edges.filter(e => (e.edge_class ?? "internal") === "internal").length} internal ·{" "}
           {edges.filter(e => e.edge_class === "edge_service").length} edge-service ·{" "}
           {edges.filter(e => e.edge_class === "vpce").length} vpce ·{" "}
+          {edges.filter(e => e.edge_class === "database").length} database ·{" "}
           {edges.filter(e => e.edge_class === "egress").length} egress
         </div>
       </div>
@@ -542,8 +543,10 @@ function TrafficFlowBand({
               ? { bg: "#EDE7F6", fg: "#4527A0", txt: e.protocol ?? "edge" }
               : cls === "vpce"
               ? { bg: "#DBEAFE", fg: "#1E40AF", txt: "VPCE" }
+              : cls === "database"
+              ? { bg: "#D2E5F8", fg: "#1565C0", txt: e.port ? `RDS · ${e.port}` : "RDS" }
               : { bg: "#E0F2FE", fg: "#075985", txt: e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP") }
-            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : cls === "vpce" ? "#3B82F6" : PAL.teal
+            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : cls === "vpce" ? "#3B82F6" : cls === "database" ? "#2E73B8" : PAL.teal
             return (
               <div
                 key={`${e.source_id}-${e.target_id}-${e.port}-${i}`}
@@ -708,6 +711,8 @@ function FlowOverlay({
           badgeLabel = e.protocol ?? "edge"
         } else if (cls === "vpce") {
           badgeLabel = "VPCE"
+        } else if (cls === "database") {
+          badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
         } else {
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }
@@ -754,6 +759,7 @@ function FlowOverlay({
     edge_service: "#7E57C2",  // purple — to right-rail S3/KMS/DDB
     vpce: "#3B82F6",          // blue — to VPC endpoint chips
     egress: "#FF9900",        // AWS orange — to IGW perimeter
+    database: "#2E73B8",      // RDS blue — workload→database tier
   }
 
   // Always render the SVG (even empty) so the React tree mounts on the
@@ -779,7 +785,7 @@ function FlowOverlay({
       style={{ pointerEvents: "none", overflow: "visible", zIndex: 20 }}
     >
       <defs>
-        {(["internal", "edge_service", "vpce", "egress"] as TrafficEdgeClass[]).map(c => (
+        {(["internal", "edge_service", "vpce", "database", "egress"] as TrafficEdgeClass[]).map(c => (
           <marker
             key={c}
             id={`flow-arrow-${c}`}
@@ -866,6 +872,19 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
   }, [vpcTopology.security_groups])
   const iamRoles = vpcTopology.iam_roles ?? []
   const trafficEdgesList = trafficEdges ?? []
+  const vpceIds = useMemo(
+    () => new Set((vpcTopology.edges.vpces ?? []).map(v => v.id)),
+    [vpcTopology.edges.vpces],
+  )
+  const visibleEdges = useMemo(() => {
+    const visible = new Set(nodes.map(n => n.id))
+    return trafficEdgesList.filter(e => {
+      if (!visible.has(e.source_id)) return false
+      if (e.target_id === "__igw__") return true
+      if (vpceIds.has(e.target_id)) return true
+      return visible.has(e.target_id)
+    })
+  }, [trafficEdgesList, nodes, vpceIds])
   // Index subnets and workloads by (az, tier).
   const { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs } = useMemo(() => {
     const subnetById = new Map(vpcTopology.subnets.map(s => [s.id, s]))
@@ -934,7 +953,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
   return (
     <div
       ref={flowContainerRef}
-      className="rounded-2xl p-6 space-y-5 relative"
+      className="rounded-2xl p-4 space-y-4 relative max-w-full"
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
       {/* Internet + IGW perimeter */}
@@ -1120,7 +1139,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
 
             {/* Right edge rail — S3, KMS, DDB, Secrets */}
             <div
-              className="w-[200px] rounded-md p-3 relative shrink-0"
+              className="w-[168px] rounded-md p-2.5 relative shrink-0"
               style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
             >
               <div
@@ -1209,7 +1228,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
       <IamControlPlane roles={iamRoles} allWorkloads={nodes} />
 
       {/* Workload-to-workload ACTUAL_TRAFFIC band */}
-      <TrafficFlowBand edges={trafficEdgesList} nodes={nodes} />
+      <TrafficFlowBand edges={visibleEdges} nodes={nodes} />
 
       {/* Encoding legend at the bottom */}
       <EncodingLegend />
@@ -1218,7 +1237,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
           order paints them on top of every chip box. z-index alone was
           not enough on prod (the subnet/AZ boxes are static siblings,
           and elementsFromPoint still returned them first). */}
-      <FlowOverlay edges={trafficEdgesList} containerRef={flowContainerRef} />
+      <FlowOverlay edges={visibleEdges} containerRef={flowContainerRef} />
     </div>
   )
 }

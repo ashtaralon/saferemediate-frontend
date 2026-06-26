@@ -133,7 +133,7 @@ export interface IamRoleRollup {
   attachment_modes: ("instance_profile" | "direct" | string)[]
 }
 
-export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress"
+export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
 
 export interface TrafficEdge {
   source_id: string
