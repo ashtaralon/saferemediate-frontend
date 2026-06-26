@@ -101,45 +101,40 @@ const VPCE_SERVICE_META: Record<string, VpceServiceMeta> = {
 }
 
 /**
- * Hexagonal PrivateLink-style icon for VPCE chips. Mirrors the AWS
- * architecture-icon language (hexagon outline + central hub + radial
- * connectors) without pulling in the full official icon set. Color and
- * stroke are inherited from the chip's blue palette so the visual stays
- * consistent on every screen.
+ * PrivateLink-style VPCE icon — solid purple square background with a
+ * white shield-and-arrow inner glyph (mirrors the AWS official
+ * VPC Endpoint icon language: a "gated portal" between the VPC and a
+ * regional service). Same icon for every VPCE — service identity lives
+ * in the chip text — so the boundary strip stays scannable.
  */
-function VpceIcon({ size = 22 }: { size?: number }) {
+function VpceIcon({ size = 32 }: { size?: number }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 32 32"
       width={size}
       height={size}
       aria-hidden="true"
       style={{ display: "block" }}
     >
+      {/* Purple rounded-square plate — AWS PrivateLink palette */}
+      <rect x="1" y="1" width="30" height="30" rx="5" fill="#7E3FF2" />
+      {/* Shield outline — the "gate" */}
       <path
-        d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"
-        fill="#3B82F6"
-        opacity={0.18}
-      />
-      <path
-        d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"
-        stroke="#1E40AF"
-        strokeWidth={1.5}
+        d="M16 6 L23.5 9 L23.5 16 C23.5 20 20 23 16 25 C12 23 8.5 20 8.5 16 L8.5 9 Z"
         fill="none"
+        stroke="white"
+        strokeWidth={1.6}
         strokeLinejoin="round"
       />
-      {/* Central hub + radial connectors — reads as "this gates traffic
-          through a single endpoint" without using any service-specific
-          glyph (one icon for every VPCE keeps the boundary strip clean). */}
-      <line x1="12" y1="12" x2="7" y2="9" stroke="#1E40AF" strokeWidth={1} />
-      <line x1="12" y1="12" x2="17" y2="9" stroke="#1E40AF" strokeWidth={1} />
-      <line x1="12" y1="12" x2="7" y2="15" stroke="#1E40AF" strokeWidth={1} />
-      <line x1="12" y1="12" x2="17" y2="15" stroke="#1E40AF" strokeWidth={1} />
-      <circle cx="12" cy="12" r="2.2" fill="#1E40AF" />
-      <circle cx="7" cy="9" r="1.2" fill="#1E40AF" />
-      <circle cx="17" cy="9" r="1.2" fill="#1E40AF" />
-      <circle cx="7" cy="15" r="1.2" fill="#1E40AF" />
-      <circle cx="17" cy="15" r="1.2" fill="#1E40AF" />
+      {/* Arrow piercing through — traffic entering the endpoint */}
+      <path
+        d="M11 15 L18 15 M15 12 L18 15 L15 18"
+        stroke="white"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
     </svg>
   )
 }
@@ -1343,15 +1338,17 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                         color: "#1E40AF",
                       }}
                     >
-                      {/* Hexagon glyph — AWS architecture-icon language for
-                          PrivateLink. One icon for every VPCE keeps the
-                          boundary strip readable; service identity lives in
-                          the text. */}
+                      {/* AWS PrivateLink VPCE icon — solid purple plate
+                          with a white shield+arrow glyph (mirrors the
+                          official AWS architecture-icon for VPC
+                          Endpoint). One icon for every VPCE keeps the
+                          boundary strip readable; service identity
+                          lives in the chip text. */}
                       <div
-                        className="flex items-center justify-center shrink-0 pl-1.5 pr-1"
-                        style={{ background: "rgba(255,255,255,0.45)" }}
+                        className="flex items-center justify-center shrink-0 px-1.5"
+                        style={{ background: "white" }}
                       >
-                        <VpceIcon size={22} />
+                        <VpceIcon size={32} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
