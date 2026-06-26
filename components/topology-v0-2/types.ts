@@ -149,6 +149,13 @@ export interface TrafficEdge {
   // Phase B-2 additions — older BE deploys may omit these.
   edge_class?: TrafficEdgeClass
   external_destinations?: number | null
+  // S3 / DDB edge_service edges get these populated when a Gateway VPCE
+  // exists in the source workload's VPC. The FE renders the arrow as a
+  // two-segment path through that VPCE chip so the visual matches the
+  // real AWS network path. Null when the workload isn't in a VPC, has no
+  // matching Gateway VPCE, or the destination isn't S3/DDB.
+  via_vpce_id?: string | null
+  via_vpce_service_name?: string | null
 }
 
 export interface VpcTopology {
