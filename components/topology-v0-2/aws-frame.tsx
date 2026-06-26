@@ -672,6 +672,37 @@ function buildPath(
   return `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${dy}, ${dx} ${dy}`
 }
 
+// Two-segment path: src → intermediate → dst. Used for S3/DDB edge_service
+// edges that route through a Gateway VPCE — the BE attaches `via_vpce_id`
+// so the FE can find the intermediate chip and physically render the
+// VPCE in the access path (instead of drawing a direct chip→S3 arrow
+// that lies about how the bytes flow).
+function buildPathViaIntermediate(
+  src: DOMRect,
+  intermediate: DOMRect,
+  dst: DOMRect,
+  containerRect: DOMRect,
+): string {
+  const sx = src.left + src.width / 2 - containerRect.left
+  const sy = src.top + src.height / 2 - containerRect.top
+  const ix = intermediate.left + intermediate.width / 2 - containerRect.left
+  const iy = intermediate.top + intermediate.height / 2 - containerRect.top
+  const dx = dst.left + dst.width / 2 - containerRect.left
+  const dy = dst.top + dst.height / 2 - containerRect.top
+  // First segment: src → intermediate
+  const m1 = (sx + ix) / 2
+  const c1ax = sx + (m1 - sx) * 0.65
+  const c1bx = ix - (ix - m1) * 0.65
+  // Second segment: intermediate → dst
+  const m2 = (ix + dx) / 2
+  const c2ax = ix + (m2 - ix) * 0.65
+  const c2bx = dx - (dx - m2) * 0.65
+  return (
+    `M ${sx} ${sy} C ${c1ax} ${sy}, ${c1bx} ${iy}, ${ix} ${iy} ` +
+    `C ${c2ax} ${iy}, ${c2bx} ${dy}, ${dx} ${dy}`
+  )
+}
+
 function FlowOverlay({
   edges, containerRef,
 }: {
@@ -708,19 +739,59 @@ function FlowOverlay({
         if (!srcEl || !dstEl) continue
         const srcRect = srcEl.getBoundingClientRect()
         const dstRect = dstEl.getBoundingClientRect()
-        const d = buildPath(srcRect, dstRect, containerRect)
         const sx = srcRect.left + srcRect.width / 2 - containerRect.left
         const sy = srcRect.top + srcRect.height / 2 - containerRect.top
         const dx = dstRect.left + dstRect.width / 2 - containerRect.left
         const dy = dstRect.top + dstRect.height / 2 - containerRect.top
         const cls = e.edge_class ?? "internal"
+        // via_vpce routing — for S3/DDB Gateway VPCE paths the BE attaches
+        // the VPCE id so the FE renders the arrow as a two-segment path
+        // through that chip. Falls back to a direct chip→dst arrow if the
+        // VPCE chip can't be found (e.g. older BE deploy with no field).
+        let d: string
+        let badgeX: number
+        let badgeY: number
+        let routedViaVpce = false
+        if (e.via_vpce_id) {
+          const interEl = container.querySelector<HTMLElement>(
+            `[data-flow-id="${CSS.escape(e.via_vpce_id)}"]`,
+          )
+          if (interEl) {
+            const interRect = interEl.getBoundingClientRect()
+            d = buildPathViaIntermediate(srcRect, interRect, dstRect, containerRect)
+            const ix = interRect.left + interRect.width / 2 - containerRect.left
+            const iy = interRect.top + interRect.height / 2 - containerRect.top
+            badgeX = ix
+            badgeY = iy + 16
+            routedViaVpce = true
+          } else {
+            d = buildPath(srcRect, dstRect, containerRect)
+            badgeX = (sx + dx) / 2
+            badgeY = (sy + dy) / 2 - 6
+          }
+        } else {
+          d = buildPath(srcRect, dstRect, containerRect)
+          badgeX = (sx + dx) / 2
+          badgeY = (sy + dy) / 2 - 6
+        }
         let badgeLabel = ""
         if (cls === "egress") {
           badgeLabel = e.external_destinations
             ? `egress · ${e.external_destinations} dest`
             : "egress"
         } else if (cls === "edge_service") {
-          badgeLabel = e.protocol ?? "edge"
+          if (routedViaVpce) {
+            // Short-form service tag from the VPCE service_name suffix.
+            const svc = e.via_vpce_service_name ?? ""
+            const tag = svc.endsWith(".s3")
+              ? "S3"
+              : svc.endsWith(".dynamodb")
+                ? "DDB"
+                : "VPCE"
+            badgeLabel = `${tag} access · via VPCE`
+          } else {
+            badgeLabel = e.protocol ?? "edge"
+          }
         } else if (cls === "vpce") {
           badgeLabel = "VPCE"
         } else if (cls === "database") {
@@ -734,8 +805,8 @@ function FlowOverlay({
           protocol: e.protocol,
           port: e.port,
           externalDestinations: e.external_destinations ?? null,
-          badgeX: (sx + dx) / 2,
-          badgeY: (sy + dy) / 2 - 6,
+          badgeX,
+          badgeY,
           badgeLabel,
         })
       }
