@@ -89,7 +89,7 @@ test.describe("topology + crown jewel spotlight QA", () => {
     await expect(page.getByText(/Backend slow — no response in 55s/i)).not.toBeVisible()
   })
 
-  test("picker → SAM bucket opens attack paths v2 spine", async ({ page }) => {
+  test("picker → SAM bucket opens TFM spotlight (stays on topology)", async ({ page }) => {
     await page.goto(TOPOLOGY_URL, { waitUntil: "domcontentloaded" })
     await waitForTopologyReady(page)
 
@@ -111,12 +111,16 @@ test.describe("topology + crown jewel spotlight QA", () => {
       await samRow.click()
     }
 
-    // Picker routes to v2 spine when paths exist (not TFM spotlight union).
-    await expect(page).toHaveURL(/attack-paths-v2/, { timeout: 60_000 })
-    await expect(
-      page.getByText(new RegExp(SAM_BUCKET, "i")).first(),
-    ).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByText(/3 paths/i).first()).toBeVisible({ timeout: 60_000 })
+    // CJ pick stays on Topology / TFM — inline Spotlight with path list.
+    await expect(page).toHaveURL(/tab=dependency-map/, { timeout: 60_000 })
+    await expect(page).toHaveURL(/cj=/, { timeout: 60_000 })
+    await expect(page).not.toHaveURL(/attack-paths-v2/)
+    await expect(page.getByText("Crown Jewel Spotlight")).toBeVisible({
+      timeout: 60_000,
+    })
+    await expect(page.getByTestId("cj-spotlight-path-list")).toBeVisible({
+      timeout: 60_000,
+    })
   })
 
   test("spotlight summary proxy returns 200 for SAM bucket", async ({

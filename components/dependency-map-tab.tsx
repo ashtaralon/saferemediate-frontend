@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { useRouter } from 'next/navigation'
 import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
@@ -11,10 +10,7 @@ import { CJPickerStrip } from './dependency-map/cj-picker-strip'
 import { useCachedFetch } from '@/lib/use-cached-fetch'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
-import {
-  navigateCrownJewelClick,
-  toCrownJewelSummary,
-} from '@/lib/attack-paths/crown-jewel-v2-navigation'
+import { toCrownJewelSummary } from '@/lib/attack-paths/crown-jewel-v2-navigation'
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -163,7 +159,6 @@ export default function DependencyMapTab({
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
-  const router = useRouter()
   const [activeView, setActiveView] = useState<ViewType>('graph')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'neo4j')
 
@@ -255,13 +250,13 @@ export default function DependencyMapTab({
   )
 
   const handleCrownJewelClick = useCallback(
-    async (cj: CrownJewelSummary | { id: string; arn?: string | null; name: string; type: string }) => {
-      const dest = await navigateCrownJewelClick(router, systemName, cj)
-      if (dest === 'tfm-fallback') {
-        openTfmSpotlightUnion(cj)
-      }
+    (cj: CrownJewelSummary | { id: string; arn?: string | null; name: string; type: string }) => {
+      // Stay on the Topology / Traffic Flow Map — open Crown Jewel Spotlight
+      // inline (path list + kill chain + canvas filter). Attack Paths v2 is
+      // still reachable from the sidebar; do not hijack CJ clicks away from TFM.
+      openTfmSpotlightUnion(cj)
     },
-    [router, systemName, openTfmSpotlightUnion],
+    [openTfmSpotlightUnion],
   )
 
   const handleResetSpotlight = useCallback(() => {
@@ -836,18 +831,12 @@ export default function DependencyMapTab({
               </div>
             </div>
           }>
-            <div className="flex flex-col h-full">
-              {/* Crown Jewel Spotlight strip — renders above TFM when an
-                  operator has clicked a CJ-tagged Resource node, or when
-                  the URL carries ?cj=… on first load. Real-data only:
-                  the strip fetches /api/proxy/attack-paths/<system>/
-                  by-crown-jewel via useCrownJewelConvergence.
-                  2026-06-23: picker now renders ALWAYS (above the spotlight)
-                  so operators can switch CJs in 2 clicks from anywhere
-                  instead of having to Reset → re-trigger picker → click.
-                  The picker's dropdown highlights the current selection
-                  so it doubles as a "current CJ" indicator. */}
-              {(crownJewelsLoading || crownJewelsError || systemCrownJewels.length > 0) && (
+            <div className="flex flex-col h-full min-h-0">
+              {/* CJ picker — only when Spotlight is closed. When Spotlight is
+                  open the strip below owns path selection; showing both ate
+                  vertical space and flex-shrank the path list off-screen. */}
+              {!spotlightJewel &&
+                (crownJewelsLoading || crownJewelsError || systemCrownJewels.length > 0) && (
                 <CJPickerStrip
                   crownJewels={systemCrownJewels}
                   loading={crownJewelsLoading}
@@ -857,16 +846,21 @@ export default function DependencyMapTab({
                 />
               )}
               {spotlightJewel && (
-                <CJSpotlightStrip
-                  jewel={spotlightJewel}
-                  selectedPathId={spotlightPathId}
-                  onSelectPath={setSpotlightPathId}
-                  onReset={handleResetSpotlight}
-                  data={spotlightConvergence.data}
-                  loading={spotlightConvergence.loading}
-                  error={spotlightConvergence.error}
-                  retry={spotlightConvergence.retry}
-                />
+                <div
+                  className="flex-shrink-0 max-h-[min(42vh,360px)] overflow-y-auto"
+                  data-testid="cj-spotlight-panel"
+                >
+                  <CJSpotlightStrip
+                    jewel={spotlightJewel}
+                    selectedPathId={spotlightPathId}
+                    onSelectPath={setSpotlightPathId}
+                    onReset={handleResetSpotlight}
+                    data={spotlightConvergence.data}
+                    loading={spotlightConvergence.loading}
+                    error={spotlightConvergence.error}
+                    retry={spotlightConvergence.retry}
+                  />
+                </div>
               )}
               <div className="flex-1 min-h-0">
                 <TrafficFlowMap

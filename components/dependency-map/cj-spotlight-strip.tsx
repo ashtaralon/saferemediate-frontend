@@ -292,7 +292,10 @@ function PathList({
   // hit (couldn't see "this CJ has 6 paths from 4 different EC2s" at
   // a glance because the dropdown swallowed it).
   return (
-    <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 overflow-hidden">
+    <div
+      className="rounded-lg border border-slate-700/60 bg-slate-900/40 overflow-hidden"
+      data-testid="cj-spotlight-path-list"
+    >
       <div className="px-3 py-1.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
           {paths.length} attack path{paths.length === 1 ? "" : "s"} · click to view
@@ -301,7 +304,7 @@ function PathList({
           sorted worst-first
         </span>
       </div>
-      <div className="max-h-[200px] overflow-y-auto py-0.5">
+      <div className="max-h-[240px] overflow-y-auto py-0.5">
         {paths.map((p, idx) => (
           <PathRow
             key={p.path_id}
