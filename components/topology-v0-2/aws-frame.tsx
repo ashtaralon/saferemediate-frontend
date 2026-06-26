@@ -251,6 +251,7 @@ function WorkloadChip({
 
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
+  compact = false,
 }: {
   tier: SubnetTier
   az: string
@@ -259,20 +260,21 @@ function SubnetCell({
   sgIndex: Map<string, SecurityGroupMeta>
   selectedNodeId: string | null
   onSelect: (id: string) => void
+  compact?: boolean
 }) {
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
   return (
     <div
-      className="rounded-md p-3"
+      className={compact ? "rounded-md p-2" : "rounded-md p-3"}
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
-        minHeight: "110px",
+        minHeight: compact ? "70px" : "110px",
         opacity: empty ? 0.55 : 1,
       }}
     >
-      <div className="flex items-baseline justify-between mb-1.5">
+      <div className={compact ? "flex items-baseline justify-between mb-1" : "flex items-baseline justify-between mb-1.5"}>
         <div
           className="text-[11px] uppercase tracking-[0.12em] font-bold"
           style={{ color: labelFg }}
@@ -290,7 +292,7 @@ function SubnetCell({
         </div>
       ) : (
         <>
-          <div className="space-y-0.5 mb-2">
+          <div className={compact ? "space-y-0.5 mb-1" : "space-y-0.5 mb-2"}>
             {subnetsHere.map(s => (
               <div
                 key={s.id}
@@ -328,22 +330,22 @@ function SubnetCell({
               }
               const entries = [...groups.entries()]
               return (
-                <div className="space-y-2">
+                <div className={compact ? "space-y-1" : "space-y-2"}>
                   {entries.map(([sgId, group]) => {
                     if (sgId === "__no_sg__") {
                       return (
                         <div
                           key={sgId}
-                          className="rounded p-2"
+                          className={compact ? "rounded p-1.5" : "rounded p-2"}
                           style={{
                             background: "transparent",
                             border: `1px dashed ${PAL.slate}80`,
                           }}
                         >
-                          <div className="text-[9px] uppercase tracking-[0.10em] italic mb-1.5" style={{ color: PAL.slate }}>
+                          <div className={compact ? "text-[9px] uppercase tracking-[0.10em] italic mb-1" : "text-[9px] uppercase tracking-[0.10em] italic mb-1.5"} style={{ color: PAL.slate }}>
                             no SG attached
                           </div>
-                          <div className="flex flex-wrap gap-2">
+                          <div className={compact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
                             {group.map(n => (
                               <WorkloadChip
                                 key={n.id}
@@ -362,20 +364,20 @@ function SubnetCell({
                     return (
                       <div
                         key={sgId}
-                        className="rounded p-2"
+                        className={compact ? "rounded p-1.5" : "rounded p-2"}
                         style={{
                           background: "transparent",
                           border: `1.5px dashed ${isPublic ? PAL.carmine : "#FF9900"}`,
                         }}
                       >
                         <div
-                          className="text-[10px] uppercase tracking-[0.10em] font-bold mb-1.5"
+                          className={compact ? "text-[10px] uppercase tracking-[0.10em] font-bold mb-1" : "text-[10px] uppercase tracking-[0.10em] font-bold mb-1.5"}
                           style={{ color: isPublic ? PAL.carmine : "#C77400" }}
                           title={sg?.description ?? sgName}
                         >
                           🛡 {sgName}{isPublic ? " · public ingress" : ""}
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className={compact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
                           {group.map(n => (
                             <WorkloadChip
                               key={n.id}
@@ -1080,8 +1082,12 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                   No alon-prod-tagged subnets in this VPC.
                 </div>
               ) : (
-                <div className="mt-2">
-                  {/* AZ headers — offset by the sidebar width */}
+                <div className={presentationMode ? "mt-1" : "mt-2"}>
+                  {/* AZ headers — offset by the sidebar width. Hidden in
+                      presentation mode (each subnet card already shows its
+                      AZ name in the CIDR row, so the column header is
+                      redundant ~38px of vertical space). */}
+                  {!presentationMode && (
                   <div className="flex mb-2">
                     <div style={{ width: "44px" }} />
                     <div
@@ -1099,9 +1105,10 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                       ))}
                     </div>
                   </div>
+                  )}
 
                   {/* Tier rows with vertical sidebar labels */}
-                  <div className="space-y-3">
+                  <div className={presentationMode ? "space-y-1.5" : "space-y-3"}>
                     {tiers.map(tier => (
                       <div key={tier} className="flex gap-0">
                         <div
@@ -1109,7 +1116,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                           style={{
                             background: PAL.ink,
                             color: "white",
-                            width: "44px",
+                            width: presentationMode ? "36px" : "44px",
                             writingMode: "vertical-rl",
                             transform: "rotate(180deg)",
                             fontSize: "10px",
@@ -1120,11 +1127,11 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                           {TIER_SIDEBAR_LABEL[tier]}
                         </div>
                         <div
-                          className="rounded-r-md p-3 flex-1"
+                          className={presentationMode ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-3 flex-1"}
                           style={{ background: TIER_BG[tier] }}
                         >
                           <div
-                            className="grid gap-3"
+                            className={presentationMode ? "grid gap-2" : "grid gap-3"}
                             style={{ gridTemplateColumns: `repeat(${azs.length}, minmax(0, 1fr))` }}
                           >
                             {azs.map(az => {
@@ -1140,6 +1147,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                                   sgIndex={sgIndex}
                                   selectedNodeId={selectedNodeId}
                                   onSelect={onSelect}
+                                  compact={presentationMode}
                                 />
                               )
                             })}
