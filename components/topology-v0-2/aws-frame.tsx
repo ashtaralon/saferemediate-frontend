@@ -284,11 +284,29 @@ function WorkloadChip({
   const stale = !!node.stale
   const { ring, halo } = severityRing(node)
   const ic = nodeIcon(node.type)
+  // Edge-service observed-usage line — surfaces "in use vs idle" without
+  // requiring a drawable source chip. Per the operator-trust contract:
+  // a bucket touched by 19 hidden Lambdas / IAMRoles must NEVER look idle
+  // just because the source side isn't a topology chip.
+  const isEdgeService = node.type != null && EDGE_SERVICE_TYPES.has(node.type)
+  const hasUsageData = node.observed_edge_count != null || node.observed_source_count != null
+  const usageEdges = node.observed_edge_count ?? 0
+  const usageSources = node.observed_source_count ?? 0
+  // Compact badge — chips are 200px max so a 30-char line truncates. Use
+  // short abbreviations; full long-form is in the tooltip.
+  const usageLine = isEdgeService && hasUsageData
+    ? (usageEdges === 0
+      ? "no observed access"
+      : `${usageSources} src · ${usageEdges} acc`)
+    : null
+  const usageTitle = usageLine
+    ? `\nObserved access in graph: ${usageEdges} edges from ${usageSources} distinct sources.\nIncludes hidden sources (Lambdas, IAM roles, STS sessions) that aren't drawable workload chips.`
+    : ""
   return (
     <button
       type="button"
       onClick={onClick}
-      title={node.name}
+      title={`${node.name}${usageTitle}`}
       data-flow-id={node.id}
       className="relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-shadow min-w-0 max-w-[200px] hover:shadow-md"
       style={{
@@ -325,8 +343,16 @@ function WorkloadChip({
             {node.name}
           </span>
         </div>
-        <div className="text-[10px] font-mono mt-0.5 truncate" style={{ color: PAL.slate }}>
-          {node.type ?? "?"}{node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}
+        <div
+          className="text-[10px] font-mono mt-0.5 truncate"
+          style={{
+            color: PAL.slate,
+            // Slightly dim + italic for "no observed access" so idle reads honest
+            fontStyle: usageLine === "no observed access" ? "italic" : "normal",
+            opacity: usageLine === "no observed access" ? 0.75 : 1,
+          }}
+        >
+          {usageLine ?? `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`}
         </div>
       </div>
       {node.score && (

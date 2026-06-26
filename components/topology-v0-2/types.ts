@@ -84,6 +84,12 @@ export interface TopologyNode {
   is_jewel: boolean
   // Phase B addition — present on responses from BE >= phase-b deploy.
   security_group_ids?: string[]
+  // Operator-trust addition — for edge-service nodes (S3/DDB/KMS/Secret) only:
+  // observed access counts from ANY principal (visible chips, hidden Lambdas,
+  // IAMRoles, STSSessions). Lets the FE badge "in use vs idle" without
+  // depending on whether the source side has a drawable chip.
+  observed_edge_count?: number
+  observed_source_count?: number
 }
 
 export type SubnetTier = "web" | "app" | "data" | "unknown"
