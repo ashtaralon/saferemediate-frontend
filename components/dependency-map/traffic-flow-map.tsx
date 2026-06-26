@@ -18,6 +18,7 @@ import {
 import { enrichArchitectureForSpotlight } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
+import { S3ObjectAccessExpander } from './s3-object-access-expander';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
 import { TimelineSlider } from './timeline-slider';
@@ -6061,6 +6062,21 @@ export function UnifiedArchitectureDiagram({
                     onClick={() => onSelectService(node, 'resource')}
                     spineMode={pathFilterActive}
                   />
+                  {/* Object-access expander — observed verbs; LP in Resource Risk. */}
+                  {(node.type as string) === 'storage' && (() => {
+                    const raw = node.name || node.id || '';
+                    const bucketArn = raw.startsWith('arn:aws:s3:')
+                      ? raw
+                      : raw
+                      ? `arn:aws:s3:::${raw.replace(/^arn:aws:s3:::/, '')}`
+                      : '';
+                    return bucketArn ? (
+                      <S3ObjectAccessExpander
+                        bucketArn={bucketArn}
+                        bucketLabel={node.shortName || node.name}
+                      />
+                    ) : null;
+                  })()}
                   {/* Canvas v3 Slice A — destination-card chip from PR #93
                       removed. The route-precedence chip now lives on the
                       EDGE MIDPOINT (rendered by AnimatedTrafficLine via

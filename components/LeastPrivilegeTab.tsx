@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { riskLabel } from '@/lib/utils'
 import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
@@ -9,6 +9,10 @@ import type { SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
+import {
+  RESOURCE_RISK_OPEN_EVENT,
+  type ResourceRiskOpenDetail,
+} from '@/lib/resource-risk-navigation'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
 // Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
 // preserve existing JSX without further changes at the call sites.
@@ -258,6 +262,64 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // parallel with the main LP data.
   const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
   const { toast } = useToast()
+  const pendingResourceRiskOpen = useRef<ResourceRiskOpenDetail | null>(null)
+  const lpDataRef = useRef(data)
+  lpDataRef.current = data
+
+  const openResourceFromDeepLink = (detail: ResourceRiskOpenDetail, list: GapResource[]) => {
+    const match = list.find(
+      (r) =>
+        r.resourceType === detail.resourceType &&
+        (r.resourceName === detail.resourceName || r.id === detail.resourceName),
+    )
+    if (!match) return false
+    if (detail.resourceType === 'IAMRole') {
+      setSelectedIAMRole(match.resourceName)
+      setIamModalOpen(true)
+    } else if (detail.resourceType === 'S3Bucket') {
+      setSelectedS3Bucket(match.resourceName)
+      setSelectedS3Resource(match)
+      setS3ModalOpen(true)
+    } else if (detail.resourceType === 'SecurityGroup') {
+      let sgId = match.id
+      if (!sgId?.startsWith('sg-')) {
+        if (match.resourceName?.startsWith('sg-')) sgId = match.resourceName
+        else if (match.resourceArn?.includes('security-group/')) {
+          const m = match.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
+          if (m) sgId = m[1]
+        }
+      }
+      setSelectedSGId(sgId)
+      setSelectedSGName(match.resourceName)
+      setSgModalOpen(true)
+    } else {
+      setSelectedResource(match)
+      setDrawerOpen(true)
+    }
+    return true
+  }
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ResourceRiskOpenDetail>).detail
+      if (!detail?.resourceName) return
+      pendingResourceRiskOpen.current = detail
+      const list = lpDataRef.current?.resources
+      if (list?.length && openResourceFromDeepLink(detail, list)) {
+        pendingResourceRiskOpen.current = null
+      }
+    }
+    window.addEventListener(RESOURCE_RISK_OPEN_EVENT, handler)
+    return () => window.removeEventListener(RESOURCE_RISK_OPEN_EVENT, handler)
+  })
+
+  useEffect(() => {
+    const pending = pendingResourceRiskOpen.current
+    if (!pending?.resourceName || !data?.resources?.length) return
+    if (openResourceFromDeepLink(pending, data.resources)) {
+      pendingResourceRiskOpen.current = null
+    }
+  }, [data])
   const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
   const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
 
