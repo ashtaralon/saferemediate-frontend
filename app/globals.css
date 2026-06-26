@@ -69,6 +69,10 @@
   /* darker than --border so node cards hold their shape on the canvas */
   --canvas-node-border: #cbd5e1;
   --canvas-label: #334155;
+  /* Traffic-flow spine lines (AnimatedTrafficLine). Separate from
+     --color-primary so SVG strokes stay readable on navy canvases. */
+  --canvas-flow: #64748b;
+  --canvas-flow-active: #0d9488;
 }
 
 .dark {
@@ -125,6 +129,8 @@
   --canvas-node-bg: #11202f;
   --canvas-node-border: #24405a;
   --canvas-label: #8aa0b2;
+  --canvas-flow: rgba(234, 241, 246, 0.55);
+  --canvas-flow-active: #ffffff;
 }
 
 @theme inline {

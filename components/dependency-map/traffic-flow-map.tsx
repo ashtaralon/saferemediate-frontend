@@ -3092,17 +3092,17 @@ function AnimatedTrafficLine({
     ? getHeatmapColor(heatmapRatio)
     : isAttackPath ? 'var(--canvas-danger)'
       : isHighlighted ? 'var(--canvas-observed)'
-      : planeLine ?? (isActive ? 'var(--color-primary)' : 'var(--canvas-config)');
+      : planeLine ?? (isActive ? 'var(--canvas-flow-active)' : 'var(--canvas-flow)');
   const particleColor = isAttackPath ? 'var(--canvas-danger)'
     : isHighlighted ? 'var(--canvas-observed)'
     : heatmapMode ? getHeatmapColor(heatmapRatio)
-    : isLockedFlow ? 'var(--canvas-config)'  // configured/locked gray (AWS-required)
-    : planeP ?? 'var(--color-primary)';
+    : isLockedFlow ? 'var(--canvas-flow)'  // configured/locked gray (AWS-required)
+    : planeP ?? 'var(--canvas-flow-active)';
   const glowColor = isAttackPath ? 'var(--canvas-danger)'
     : isHighlighted ? 'var(--canvas-observed)'
     : heatmapMode ? getHeatmapColor(heatmapRatio)
-    : isLockedFlow ? 'var(--canvas-config)'  // softer treatment for locked
-    : planeP ?? 'var(--color-primary)';
+    : isLockedFlow ? 'var(--canvas-flow)'  // softer treatment for locked
+    : planeP ?? 'var(--canvas-flow-active)';
 
   // Heatmap stroke width - thicker = higher risk
   const heatmapStrokeWidth = heatmapMode && !isAttackPath ? 2 + (heatmapRatio * 8) : undefined;
