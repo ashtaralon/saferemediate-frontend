@@ -49,6 +49,16 @@ interface Props {
   trafficEdges?: TrafficEdge[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
+  /**
+   * Presentation mode (fullscreen map): hide diagnostic sections below the
+   * AWS frame (Outside-VPC Lambdas, Stale workloads, IAM control-plane
+   * strip, Traffic flow band, Encoding legend) and apply a small compact
+   * layout pass on the frame itself. Inline page keeps everything.
+   *
+   * NO `transform: scale` — overlays measure live DOM rects, and a scaled
+   * parent collapses their coordinate system (see reverted PR #227).
+   */
+  presentationMode?: boolean
 }
 
 const EDGE_SERVICE_TYPES = new Set([
@@ -861,7 +871,7 @@ function FlowOverlay({
   )
 }
 
-export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onSelect }: Props) {
+export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onSelect, presentationMode = false }: Props) {
   // SG lookup for the SubnetCell groupings.
   const sgIndex = useMemo(() => {
     const m = new Map<string, SecurityGroupMeta>()
@@ -953,18 +963,23 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
   return (
     <div
       ref={flowContainerRef}
-      className="rounded-2xl p-4 space-y-4 relative max-w-full"
+      className={
+        presentationMode
+          ? "rounded-xl p-3 space-y-2 relative max-w-full"
+          : "rounded-2xl p-4 space-y-4 relative max-w-full"
+      }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
-      {/* Internet + IGW perimeter */}
-      <div className="flex items-center justify-center gap-8 pb-4">
+      {/* Internet + IGW perimeter — tighter in presentation mode so the
+          AWS Cloud frame can take the dominant vertical share. */}
+      <div className={presentationMode ? "flex items-center justify-center gap-6 pb-2" : "flex items-center justify-center gap-8 pb-4"}>
         <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
-          <div className="text-3xl">👥</div>
+          <div className={presentationMode ? "text-2xl" : "text-3xl"}>👥</div>
           <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">Users</div>
         </div>
         <div className="flex-1 max-w-[180px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
         <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
-          <div className="text-3xl">☁</div>
+          <div className={presentationMode ? "text-2xl" : "text-3xl"}>☁</div>
           <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">Internet</div>
         </div>
         <div className="flex-1 max-w-[180px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
@@ -973,7 +988,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <div className="text-3xl">🌐</div>
+          <div className={presentationMode ? "text-2xl" : "text-3xl"}>🌐</div>
           <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">
             {hasIgw ? `IGW · ${vpcTopology.edges.igws[0].name}` : "no IGW observed"}
           </div>
@@ -982,7 +997,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
 
       {/* AWS Cloud frame */}
       <div
-        className="rounded-lg p-4 relative"
+        className={presentationMode ? "rounded-lg p-3 relative" : "rounded-lg p-4 relative"}
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
         <div
@@ -994,7 +1009,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
 
         {/* Region */}
         <div
-          className="rounded-md p-4 mt-3 relative"
+          className={presentationMode ? "rounded-md p-3 mt-2 relative" : "rounded-md p-4 mt-3 relative"}
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
         >
           <div
@@ -1005,10 +1020,10 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
           </div>
 
           {/* VPC + edge rail flexbox */}
-          <div className="flex gap-4 mt-3">
+          <div className={presentationMode ? "flex gap-3 mt-2" : "flex gap-4 mt-3"}>
             {/* VPC frame */}
             <div
-              className="flex-1 rounded-md p-4 relative"
+              className={presentationMode ? "flex-1 rounded-md p-3 relative" : "flex-1 rounded-md p-4 relative"}
               style={{ background: PAL.cardBg, border: `2px solid #00C2A8` }}
             >
               <div
@@ -1169,6 +1184,11 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
         </div>
       </div>
 
+      {/* Sections below the AWS frame — diagnostic. Hidden in
+          presentation/fullscreen mode so the map itself is the focus.
+          Inline page keeps everything.  */}
+      {!presentationMode && (
+      <>
       {/* Serverless · outside-VPC band */}
       {serverlessNodes.length > 0 && (
         <div
@@ -1232,6 +1252,8 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
 
       {/* Encoding legend at the bottom */}
       <EncodingLegend />
+      </>
+      )}
 
       {/* Animated traffic flow arrows — rendered LAST so DOM stacking
           order paints them on top of every chip box. z-index alone was

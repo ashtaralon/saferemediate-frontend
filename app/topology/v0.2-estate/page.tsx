@@ -121,13 +121,18 @@ function EstateView() {
     )
   }
 
-  const mapContent = data.vpc_topology ? (
+  // Render the canvas with the diagnostic sections (Outside-VPC Lambdas,
+  // IAM control-plane strip, Stale workloads, Traffic flow band, Encoding
+  // legend) controlled by `presentationMode`. Fullscreen mode hides them so
+  // the map itself can take the full vertical share of the viewport.
+  const renderMap = (presentationMode: boolean) => (data.vpc_topology ? (
     <AwsFrame
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
       trafficEdges={data.traffic_edges}
       selectedNodeId={selectedNodeId}
       onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+      presentationMode={presentationMode}
     />
   ) : (
     <CanvasPane
@@ -136,7 +141,7 @@ function EstateView() {
       selectedNodeId={selectedNodeId}
       onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
     />
-  )
+  ))
 
   return (
     <div className="min-h-screen" style={{ background: "#F4F6F8", color: "#1A2330" }}>
@@ -157,17 +162,17 @@ function EstateView() {
               onClick={() => setMapEnlarged(true)}
               className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
               style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
-              aria-label="Enlarge topology map to full screen"
+              aria-label="Open map fullscreen — diagnostic sections collapse"
               data-testid="topology-estate-map-enlarge"
             >
               <Maximize2 className="h-3.5 w-3.5" />
-              Enlarge
+              Map fullscreen
             </button>
             <div
               className="w-full overflow-auto rounded-2xl"
               style={{ maxHeight: "calc(100vh - 220px)" }}
             >
-              {!mapEnlarged ? mapContent : null}
+              {!mapEnlarged ? renderMap(false) : null}
             </div>
           </div>
         </main>
@@ -223,15 +228,15 @@ function EstateView() {
               onClick={closeEnlarged}
               className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
               style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
-              aria-label="Exit full screen"
+              aria-label="Exit map fullscreen"
               data-testid="topology-estate-map-exit-fullscreen"
             >
               <Minimize2 className="h-3.5 w-3.5" />
-              Exit
+              Exit map
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto p-4">
-            {mapContent}
+            {renderMap(true)}
           </div>
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
