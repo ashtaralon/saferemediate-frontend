@@ -13,8 +13,9 @@
  *         FilterRail (client-side filters) + DetailPanel (slide-in on click).
  */
 
-import { Suspense, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
@@ -40,6 +41,23 @@ function EstateView() {
 
   const [filters, setFilters] = useState<EstateFilters | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [mapEnlarged, setMapEnlarged] = useState(false)
+
+  const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
+
+  useEffect(() => {
+    if (!mapEnlarged) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeEnlarged()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener("keydown", onKeyDown)
+    }
+  }, [mapEnlarged, closeEnlarged])
 
   const effectiveFilters = useMemo(
     () => filters ?? defaultFilters(data?.system_kpis ?? null),
@@ -103,6 +121,23 @@ function EstateView() {
     )
   }
 
+  const mapContent = data.vpc_topology ? (
+    <AwsFrame
+      vpcTopology={data.vpc_topology}
+      nodes={filteredNodes}
+      trafficEdges={data.traffic_edges}
+      selectedNodeId={selectedNodeId}
+      onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+    />
+  ) : (
+    <CanvasPane
+      vpcId={data.vpc_id}
+      nodes={filteredNodes}
+      selectedNodeId={selectedNodeId}
+      onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+    />
+  )
+
   return (
     <div className="min-h-screen" style={{ background: "#F4F6F8", color: "#1A2330" }}>
       <HeadlineStrip
@@ -116,27 +151,25 @@ function EstateView() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4 px-4 py-4 max-w-[1600px] mx-auto">
         <main className="min-w-0 min-h-0">
-          {data.vpc_topology ? (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMapEnlarged(true)}
+              className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
+              style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
+              aria-label="Enlarge topology map to full screen"
+              data-testid="topology-estate-map-enlarge"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              Enlarge
+            </button>
             <div
               className="w-full overflow-auto rounded-2xl"
               style={{ maxHeight: "calc(100vh - 220px)" }}
             >
-              <AwsFrame
-                vpcTopology={data.vpc_topology}
-                nodes={filteredNodes}
-                trafficEdges={data.traffic_edges}
-                selectedNodeId={selectedNodeId}
-                onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
-              />
+              {!mapEnlarged ? mapContent : null}
             </div>
-          ) : (
-            <CanvasPane
-              vpcId={data.vpc_id}
-              nodes={filteredNodes}
-              selectedNodeId={selectedNodeId}
-              onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
-            />
-          )}
+          </div>
         </main>
 
         <FilterRail
@@ -155,7 +188,60 @@ function EstateView() {
         resource. Empty cells are honest, not fabricated.
       </footer>
 
-      <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+      {!mapEnlarged ? (
+        <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+      ) : null}
+
+      {mapEnlarged ? (
+        <div
+          className="fixed inset-0 z-[200] flex flex-col"
+          style={{ background: "#F4F6F8", color: "#1A2330" }}
+          data-testid="topology-estate-map-fullscreen"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Topology map full screen"
+        >
+          <div
+            className="flex items-center justify-between gap-3 px-4 py-3 border-b shrink-0"
+            style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+          >
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#00C2A8" }}>
+                Topology v0.2 · Estate
+              </div>
+              <div className="text-sm font-semibold mt-0.5">
+                {data.system}
+                {data.vpc_id ? (
+                  <span className="font-mono text-xs font-normal ml-2" style={{ color: "#5A6B7A" }}>
+                    {data.vpc_id}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={closeEnlarged}
+              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
+              style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
+              aria-label="Exit full screen"
+              data-testid="topology-estate-map-exit-fullscreen"
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
+              Exit
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto p-4">
+            {mapContent}
+          </div>
+          {selectedNode ? (
+            <div className="fixed inset-0 z-[210] pointer-events-none">
+              <div className="pointer-events-auto">
+                <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
