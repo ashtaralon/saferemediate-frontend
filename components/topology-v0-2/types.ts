@@ -90,6 +90,24 @@ export interface TopologyNode {
   // depending on whether the source side has a drawable chip.
   observed_edge_count?: number
   observed_source_count?: number
+  // Per-bucket classification of observed sources by kind. Feeds the tooltip
+  // so the operator can see WHY a bucket has many sources but few drawn
+  // arrows (e.g. all sources are STS sessions, which live in evidence views
+  // not as topology chips).
+  source_breakdown?: {
+    visible_chip: number
+    hidden_workload: number
+    iam_role: number
+    iam_user: number
+    sts_session: number
+    other: number
+    top_sources: Array<{
+      id: string | null
+      name: string | null
+      kind: "visible_chip" | "hidden_workload" | "iam_role" | "iam_user" | "sts_session" | "other"
+      edge_count: number
+    }>
+  }
 }
 
 export type SubnetTier = "web" | "app" | "data" | "unknown"
