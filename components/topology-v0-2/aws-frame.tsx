@@ -299,9 +299,53 @@ function WorkloadChip({
       ? "no observed access"
       : `${usageSources} src · ${usageEdges} acc`)
     : null
-  const usageTitle = usageLine
-    ? `\nObserved access in graph: ${usageEdges} edges from ${usageSources} distinct sources.\nIncludes hidden sources (Lambdas, IAM roles, STS sessions) that aren't drawable workload chips.`
-    : ""
+  // Rich tooltip — when the BE attached a source_breakdown, show the
+  // per-kind tally + top sources. Falls back to a short one-liner when
+  // older BE deploys don't include the breakdown.
+  const bd = node.source_breakdown
+  let usageTitle = ""
+  if (usageLine) {
+    if (bd) {
+      const lines: string[] = []
+      lines.push(`Observed access: ${usageEdges} edges · ${usageSources} distinct sources`)
+      lines.push("")
+      const kindLines = [
+        bd.visible_chip ? `${bd.visible_chip} visible workload chip${bd.visible_chip === 1 ? "" : "s"}` : null,
+        bd.hidden_workload ? `${bd.hidden_workload} hidden workload${bd.hidden_workload === 1 ? "" : "s"} (snake_case-tagged Lambda/EC2)` : null,
+        bd.iam_role ? `${bd.iam_role} IAM role${bd.iam_role === 1 ? "" : "s"}` : null,
+        bd.iam_user ? `${bd.iam_user} IAM user${bd.iam_user === 1 ? "" : "s"}` : null,
+        bd.sts_session ? `${bd.sts_session} STS session${bd.sts_session === 1 ? "" : "s"}` : null,
+        bd.other ? `${bd.other} other` : null,
+      ].filter((x): x is string => x !== null)
+      lines.push("Source types:")
+      kindLines.forEach(l => lines.push(`  • ${l}`))
+      if (bd.visible_chip === 0 && usageSources > 0) {
+        lines.push("")
+        lines.push("No visible workload arrows.")
+        lines.push("Observed sources are IAM roles or STS sessions, which")
+        lines.push("are shown in evidence/detail views rather than as")
+        lines.push("topology chips.")
+      }
+      if (bd.top_sources && bd.top_sources.length > 0) {
+        lines.push("")
+        lines.push("Top sources:")
+        bd.top_sources.forEach(s => {
+          const kindLabel = ({
+            visible_chip: "Workload",
+            hidden_workload: "Hidden workload",
+            iam_role: "IAMRole",
+            iam_user: "IAMUser",
+            sts_session: "STSSession",
+            other: "Other",
+          } as const)[s.kind]
+          lines.push(`  • ${kindLabel}: ${s.name ?? s.id ?? "?"} (${s.edge_count})`)
+        })
+      }
+      usageTitle = "\n\n" + lines.join("\n")
+    } else {
+      usageTitle = `\nObserved access in graph: ${usageEdges} edges from ${usageSources} distinct sources.\nIncludes hidden sources (Lambdas, IAM roles, STS sessions) that aren't drawable workload chips.`
+    }
+  }
   return (
     <button
       type="button"
