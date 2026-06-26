@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test"
+import { defineConfig, devices } from "@playwright/test"
 
 export default defineConfig({
   testDir: "tests/integration",
@@ -7,5 +7,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.FRONTEND_URL || "http://localhost:3000",
     trace: "on-first-retry",
+    ...devices["Desktop Chrome"],
+    channel: "chrome",
   },
 })
