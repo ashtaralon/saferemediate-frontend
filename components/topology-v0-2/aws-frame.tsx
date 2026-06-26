@@ -66,6 +66,61 @@ const EDGE_SERVICE_TYPES = new Set([
 ])
 const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
 
+// Friendly metadata for the VPCE boundary chips. The AWS service-name
+// suffix (e.g. "com.amazonaws.eu-west-1.s3" → "s3") maps to a label,
+// the canonical endpoint type, and a one-line operator-facing purpose
+// so a SOC analyst can read the canvas without already knowing what
+// each PrivateLink endpoint enables.
+//
+// Endpoint type is also returned by the BE in `vpc_topology.edges.vpces[i].endpoint_type`;
+// we fall back to that when the suffix isn't in the table, but for the
+// common services keeping the type here makes the canvas robust to
+// missing/blank values from older collectors.
+type VpceServiceMeta = { label: string; type: "Gateway" | "Interface"; purpose: string }
+const VPCE_SERVICE_META: Record<string, VpceServiceMeta> = {
+  s3: { label: "Amazon S3", type: "Gateway", purpose: "Private S3 access without NAT/IGW" },
+  dynamodb: { label: "Amazon DynamoDB", type: "Gateway", purpose: "Private DynamoDB API access" },
+  ssm: { label: "AWS Systems Manager", type: "Interface", purpose: "Private SSM API · Session Manager" },
+  ssmmessages: { label: "SSM Messages", type: "Interface", purpose: "Session Manager message channel" },
+  ec2messages: { label: "EC2 Messages", type: "Interface", purpose: "SSM agent heartbeats" },
+  ec2: { label: "Amazon EC2 API", type: "Interface", purpose: "Private EC2 API access" },
+  kms: { label: "AWS KMS", type: "Interface", purpose: "Encryption key API" },
+  secretsmanager: { label: "Secrets Manager", type: "Interface", purpose: "Private secret retrieval" },
+  ecr: { label: "Amazon ECR API", type: "Interface", purpose: "Container registry API" },
+  "ecr.dkr": { label: "ECR Docker", type: "Interface", purpose: "Container image pulls" },
+  logs: { label: "CloudWatch Logs", type: "Interface", purpose: "Log ingestion" },
+  monitoring: { label: "CloudWatch", type: "Interface", purpose: "Metric ingestion" },
+  events: { label: "EventBridge", type: "Interface", purpose: "Event bus API" },
+  sns: { label: "Amazon SNS", type: "Interface", purpose: "Topic publish" },
+  sqs: { label: "Amazon SQS", type: "Interface", purpose: "Queue API" },
+  sts: { label: "AWS STS", type: "Interface", purpose: "Token / role-assume" },
+  lambda: { label: "AWS Lambda API", type: "Interface", purpose: "Invoke / manage functions" },
+  rds: { label: "Amazon RDS API", type: "Interface", purpose: "RDS control-plane" },
+  athena: { label: "Amazon Athena", type: "Interface", purpose: "Query API" },
+  "execute-api": { label: "API Gateway", type: "Interface", purpose: "Private API Gateway routing" },
+}
+
+function resolveVpceMeta(serviceName: string | null | undefined, endpointTypeFallback: string | null | undefined): VpceServiceMeta {
+  // Try suffix exactly (e.g. "ecr.dkr") then last segment ("s3").
+  if (serviceName) {
+    const parts = serviceName.split(".")
+    // Try double-segment suffix first ("ecr.dkr") then single ("s3").
+    const last2 = parts.slice(-2).join(".")
+    const last1 = parts[parts.length - 1]
+    const hit = VPCE_SERVICE_META[last2] ?? VPCE_SERVICE_META[last1]
+    if (hit) return hit
+    // Unknown service — return a best-guess fallback.
+    const typeGuess: "Gateway" | "Interface" =
+      endpointTypeFallback?.toLowerCase() === "gateway" ? "Gateway" : "Interface"
+    return {
+      label: last1 ? last1.toUpperCase() : "VPCE",
+      type: typeGuess,
+      purpose: "Private endpoint into AWS service plane",
+    }
+  }
+  return { label: "VPCE", type: "Interface", purpose: "Private AWS service endpoint" }
+}
+
 // Mockup palette — design/topology-v0.2-estate.html CSS variables.
 const PAL = {
   navy: "#0D1B2A",
@@ -1221,26 +1276,46 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
             {hasVpces && (
               <div
                 className="flex flex-col gap-2 -mx-3 z-10 shrink-0 self-stretch justify-start pt-2"
-                style={{ width: "120px" }}
+                style={{ width: "150px" }}
               >
                 {vpcTopology.edges.vpces.map(v => {
-                  const shortName = v.service_name
-                    ? v.service_name.split(".").pop() ?? v.service_name
-                    : v.id
+                  const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
+                  const tooltip = [
+                    meta.label,
+                    `${meta.type} endpoint · ${v.id}`,
+                    v.service_name ?? "",
+                    meta.purpose,
+                  ].filter(Boolean).join("\n")
                   return (
                     <div
                       key={v.id}
                       data-flow-id={v.id}
-                      title={v.service_name ?? v.id}
-                      className="text-[10px] px-2 py-1.5 rounded-md text-center shadow-sm"
+                      title={tooltip}
+                      className="rounded-md shadow-sm overflow-hidden"
                       style={{
                         background: "#DBEAFE",
                         border: "1.5px solid #3B82F6",
                         color: "#1E40AF",
                       }}
                     >
-                      <div className="font-bold text-[9px] uppercase tracking-[0.12em]">VPCE</div>
-                      <div className="truncate font-mono">{shortName}</div>
+                      <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
+                        <span>VPCE</span>
+                        <span
+                          className="px-1 rounded-sm text-[7px]"
+                          style={{
+                            background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
+                            color: "white",
+                          }}
+                        >
+                          {meta.type === "Gateway" ? "GW" : "IF"}
+                        </span>
+                      </div>
+                      <div className="px-2 text-[10px] font-semibold leading-tight truncate">
+                        {meta.label}
+                      </div>
+                      <div className="px-2 pb-1 text-[8px] leading-snug" style={{ color: "#1E3A8A", opacity: 0.85 }}>
+                        {meta.purpose}
+                      </div>
                     </div>
                   )
                 })}
