@@ -13,7 +13,7 @@
  *         FilterRail (client-side filters) + DetailPanel (slide-in on click).
  */
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
@@ -230,8 +230,8 @@ function EstateView() {
               Exit
             </button>
           </div>
-          <div className="flex-1 min-h-0 overflow-auto p-4">
-            {mapContent}
+          <div className="flex-1 min-h-0 overflow-hidden p-4">
+            <FitToViewport>{mapContent}</FitToViewport>
           </div>
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
@@ -245,6 +245,73 @@ function EstateView() {
     </div>
   )
 }
+
+/**
+ * Scales children to fit the parent container's available width AND height
+ * via CSS transform: scale(). Used in the topology fullscreen mode so the
+ * entire AwsFrame (Internet + IGW + VPC frame + SG groups + IAM strip +
+ * traffic band + legend) is visible at once without scrolling.
+ *
+ * Why this works with the flow SVG overlay: `getBoundingClientRect` returns
+ * the visually-rendered rect, i.e. AFTER all transforms. The flow overlay
+ * derives every path coordinate from these rects, so scaling the parent
+ * scales the arrows in lockstep and the geometry stays consistent.
+ */
+function FitToViewport({ children }: { children: React.ReactNode }) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const innerRef = useRef<HTMLDivElement | null>(null)
+  const [scale, setScale] = useState(1)
+  const [innerSize, setInnerSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+
+  useLayoutEffect(() => {
+    const compute = () => {
+      const wrapper = wrapperRef.current
+      const inner = innerRef.current
+      if (!wrapper || !inner) return
+      const nw = inner.offsetWidth
+      const nh = inner.offsetHeight
+      if (nw === 0 || nh === 0) return
+      const availW = wrapper.clientWidth
+      // Use the wrapper's clientHeight if it's a flex child with a real
+      // bounded height; otherwise fall back to the viewport.
+      const availH = wrapper.clientHeight > 0
+        ? wrapper.clientHeight
+        : Math.max(420, window.innerHeight - 200)
+      const s = Math.min(1, availW / nw, availH / nh)
+      setScale(s)
+      setInnerSize({ w: nw, h: nh })
+    }
+    compute()
+    const ro = new ResizeObserver(compute)
+    if (innerRef.current) ro.observe(innerRef.current)
+    if (wrapperRef.current) ro.observe(wrapperRef.current)
+    window.addEventListener("resize", compute)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("resize", compute)
+    }
+  }, [])
+
+  return (
+    <div
+      ref={wrapperRef}
+      className="w-full h-full flex items-start justify-center"
+      style={{ overflow: "hidden" }}
+    >
+      <div
+        ref={innerRef}
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: "top center",
+          width: innerSize.w > 0 ? innerSize.w : "fit-content",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
 
 export default function TopologyV02EstatePage() {
   return (
