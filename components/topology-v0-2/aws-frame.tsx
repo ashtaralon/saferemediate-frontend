@@ -100,6 +100,51 @@ const VPCE_SERVICE_META: Record<string, VpceServiceMeta> = {
   "execute-api": { label: "API Gateway", type: "Interface", purpose: "Private API Gateway routing" },
 }
 
+/**
+ * Hexagonal PrivateLink-style icon for VPCE chips. Mirrors the AWS
+ * architecture-icon language (hexagon outline + central hub + radial
+ * connectors) without pulling in the full official icon set. Color and
+ * stroke are inherited from the chip's blue palette so the visual stays
+ * consistent on every screen.
+ */
+function VpceIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <path
+        d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"
+        fill="#3B82F6"
+        opacity={0.18}
+      />
+      <path
+        d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"
+        stroke="#1E40AF"
+        strokeWidth={1.5}
+        fill="none"
+        strokeLinejoin="round"
+      />
+      {/* Central hub + radial connectors — reads as "this gates traffic
+          through a single endpoint" without using any service-specific
+          glyph (one icon for every VPCE keeps the boundary strip clean). */}
+      <line x1="12" y1="12" x2="7" y2="9" stroke="#1E40AF" strokeWidth={1} />
+      <line x1="12" y1="12" x2="17" y2="9" stroke="#1E40AF" strokeWidth={1} />
+      <line x1="12" y1="12" x2="7" y2="15" stroke="#1E40AF" strokeWidth={1} />
+      <line x1="12" y1="12" x2="17" y2="15" stroke="#1E40AF" strokeWidth={1} />
+      <circle cx="12" cy="12" r="2.2" fill="#1E40AF" />
+      <circle cx="7" cy="9" r="1.2" fill="#1E40AF" />
+      <circle cx="17" cy="9" r="1.2" fill="#1E40AF" />
+      <circle cx="7" cy="15" r="1.2" fill="#1E40AF" />
+      <circle cx="17" cy="15" r="1.2" fill="#1E40AF" />
+    </svg>
+  )
+}
+
+
 function resolveVpceMeta(serviceName: string | null | undefined, endpointTypeFallback: string | null | undefined): VpceServiceMeta {
   // Try suffix exactly (e.g. "ecr.dkr") then last segment ("s3").
   if (serviceName) {
@@ -1291,30 +1336,42 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                       key={v.id}
                       data-flow-id={v.id}
                       title={tooltip}
-                      className="rounded-md shadow-sm overflow-hidden"
+                      className="rounded-md shadow-sm overflow-hidden flex items-stretch"
                       style={{
                         background: "#DBEAFE",
                         border: "1.5px solid #3B82F6",
                         color: "#1E40AF",
                       }}
                     >
-                      <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
-                        <span>VPCE</span>
-                        <span
-                          className="px-1 rounded-sm text-[7px]"
-                          style={{
-                            background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
-                            color: "white",
-                          }}
-                        >
-                          {meta.type === "Gateway" ? "GW" : "IF"}
-                        </span>
+                      {/* Hexagon glyph — AWS architecture-icon language for
+                          PrivateLink. One icon for every VPCE keeps the
+                          boundary strip readable; service identity lives in
+                          the text. */}
+                      <div
+                        className="flex items-center justify-center shrink-0 pl-1.5 pr-1"
+                        style={{ background: "rgba(255,255,255,0.45)" }}
+                      >
+                        <VpceIcon size={22} />
                       </div>
-                      <div className="px-2 text-[10px] font-semibold leading-tight truncate">
-                        {meta.label}
-                      </div>
-                      <div className="px-2 pb-1 text-[8px] leading-snug" style={{ color: "#1E3A8A", opacity: 0.85 }}>
-                        {meta.purpose}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
+                          <span>VPCE</span>
+                          <span
+                            className="px-1 rounded-sm text-[7px]"
+                            style={{
+                              background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
+                              color: "white",
+                            }}
+                          >
+                            {meta.type === "Gateway" ? "GW" : "IF"}
+                          </span>
+                        </div>
+                        <div className="px-2 text-[10px] font-semibold leading-tight truncate">
+                          {meta.label}
+                        </div>
+                        <div className="px-2 pb-1 text-[8px] leading-snug" style={{ color: "#1E3A8A", opacity: 0.85 }}>
+                          {meta.purpose}
+                        </div>
                       </div>
                     </div>
                   )
