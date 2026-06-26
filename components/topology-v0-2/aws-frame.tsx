@@ -770,7 +770,13 @@ function FlowOverlay({
       height={hasSize ? size.h : "100%"}
       viewBox={hasSize ? `0 0 ${size.w} ${size.h}` : undefined}
       className="absolute inset-0"
-      style={{ pointerEvents: "none", overflow: "visible" }}
+      // z-index lifts the SVG above the subnet/AZ chip boxes that paint
+      // later in the DOM tree. Without it, `z-auto` puts the SVG on the
+      // same stacking level as those siblings, and the chips end up
+      // covering every path whose midpoint falls inside a box (only the
+      // egress→IGW line escaped because its mid sits OUTSIDE the frame).
+      // pointer-events stays none so chip clicks still pass through.
+      style={{ pointerEvents: "none", overflow: "visible", zIndex: 20 }}
     >
       <defs>
         {(["internal", "edge_service", "vpce", "egress"] as TrafficEdgeClass[]).map(c => (
