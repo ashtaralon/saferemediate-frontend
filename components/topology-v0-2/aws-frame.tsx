@@ -1106,27 +1106,6 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                 VPC · {vpcTopology.vpc_id ?? "unknown"}
               </div>
 
-              {/* VPCE perimeter band */}
-              {hasVpces && (
-                <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
-                  <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
-                    VPC endpoints ({vpcTopology.edges.vpces.length})
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {vpcTopology.edges.vpces.map(v => (
-                      <span
-                        key={v.id}
-                        data-flow-id={v.id}
-                        className="text-[10px] px-2 py-0.5 rounded-md"
-                        style={{ background: "#DBEAFE", border: "1px solid #3B82F6", color: "#1E40AF" }}
-                      >
-                        VPCE · {v.service_name ?? v.id}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* NAT GW perimeter band */}
               {hasNats && (
                 <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
@@ -1230,6 +1209,43 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                 </div>
               )}
             </div>
+
+            {/* VPCE boundary strip — VPC endpoints sit ON the VPC perimeter
+                between the interior and the regional services rail
+                (per AWS canonical architecture: gateway/interface endpoints
+                are boundary devices, not interior workloads). Negative
+                horizontal margins make each chip visually straddle the
+                VPC edge instead of floating inside a band. Same blue
+                color as before; data-flow-id preserved so flow arrows
+                resolve the same chip in the new position. */}
+            {hasVpces && (
+              <div
+                className="flex flex-col gap-2 -mx-3 z-10 shrink-0 self-stretch justify-start pt-2"
+                style={{ width: "120px" }}
+              >
+                {vpcTopology.edges.vpces.map(v => {
+                  const shortName = v.service_name
+                    ? v.service_name.split(".").pop() ?? v.service_name
+                    : v.id
+                  return (
+                    <div
+                      key={v.id}
+                      data-flow-id={v.id}
+                      title={v.service_name ?? v.id}
+                      className="text-[10px] px-2 py-1.5 rounded-md text-center shadow-sm"
+                      style={{
+                        background: "#DBEAFE",
+                        border: "1.5px solid #3B82F6",
+                        color: "#1E40AF",
+                      }}
+                    >
+                      <div className="font-bold text-[9px] uppercase tracking-[0.12em]">VPCE</div>
+                      <div className="truncate font-mono">{shortName}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Right edge rail — S3, KMS, DDB, Secrets */}
             <div
