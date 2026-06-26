@@ -937,7 +937,6 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
       className="rounded-2xl p-6 space-y-5 relative"
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
-      <FlowOverlay edges={trafficEdgesList} containerRef={flowContainerRef} />
       {/* Internet + IGW perimeter */}
       <div className="flex items-center justify-center gap-8 pb-4">
         <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
@@ -1214,6 +1213,12 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
 
       {/* Encoding legend at the bottom */}
       <EncodingLegend />
+
+      {/* Animated traffic flow arrows — rendered LAST so DOM stacking
+          order paints them on top of every chip box. z-index alone was
+          not enough on prod (the subnet/AZ boxes are static siblings,
+          and elementsFromPoint still returned them first). */}
+      <FlowOverlay edges={trafficEdgesList} containerRef={flowContainerRef} />
     </div>
   )
 }
