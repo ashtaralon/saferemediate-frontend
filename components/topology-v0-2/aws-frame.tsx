@@ -790,21 +790,31 @@ function FlowOverlay({
       </defs>
       {paths.map((p, i) => (
         <g key={i}>
+          {/* Soft halo behind the line so it's visible over the busy chip grid */}
           <path
             d={p.d}
             fill="none"
             stroke={colorByCls[p.cls]}
-            strokeWidth="1.75"
-            strokeOpacity="0.85"
-            strokeDasharray="6 4"
+            strokeWidth="9"
+            strokeOpacity="0.18"
+            strokeLinecap="round"
+          />
+          <path
+            d={p.d}
+            fill="none"
+            stroke={colorByCls[p.cls]}
+            strokeWidth="3"
+            strokeOpacity="0.95"
+            strokeDasharray="8 5"
+            strokeLinecap="round"
             markerEnd={`url(#flow-arrow-${p.cls})`}
           >
             {/* Animated dashes — gives the "traffic flowing" look */}
             <animate
               attributeName="stroke-dashoffset"
-              from="20"
+              from="26"
               to="0"
-              dur="1.6s"
+              dur="1.4s"
               repeatCount="indefinite"
             />
           </path>
