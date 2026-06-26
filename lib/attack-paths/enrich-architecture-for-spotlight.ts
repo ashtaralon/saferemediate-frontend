@@ -1,6 +1,67 @@
 import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
 import type { ConvergenceHop, ConvergencePath } from "@/lib/attack-paths/convergence-types"
 
+/** Minimal flow shape for checkpoint patching (avoids importing TFM). */
+export interface SpotlightFlowCheckpoint {
+  sourceId: string
+  targetId: string
+  sgId?: string
+  naclId?: string
+  instanceProfileId?: string
+  roleId?: string
+  vpceId?: string
+  subnetId?: string
+}
+
+function normHopType(t: string | undefined | null): string {
+  return (t || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+}
+
+function extractInstanceId(id: string): string {
+  const m = id.match(/i-[a-f0-9]+/)
+  return m ? m[0] : id
+}
+
+/** Pull checkpoint ids from a convergence hop chain (kill-chain spine). */
+export function checkpointIdsFromHops(hops: ConvergenceHop[]): {
+  subnetId?: string
+  sgId?: string
+  naclId?: string
+  instanceProfileId?: string
+  roleId?: string
+  vpceId?: string
+} {
+  const out: {
+    subnetId?: string
+    sgId?: string
+    naclId?: string
+    instanceProfileId?: string
+    roleId?: string
+    vpceId?: string
+  } = {}
+  for (const h of hops) {
+    const id = h.node_id
+    if (!id) continue
+    const nt = normHopType(h.node_type)
+    if (h.subnet_id && !out.subnetId) out.subnetId = h.subnet_id
+    if (nt.includes("subnet") && !out.subnetId) out.subnetId = id
+    if (nt.includes("securitygroup") || nt === "sg") out.sgId = id
+    if (nt.includes("networkacl") || nt === "nacl") out.naclId = id
+    if (nt.includes("instanceprofile")) out.instanceProfileId = id
+    if (
+      (nt.includes("iamrole") || (nt.includes("role") && !nt.includes("profile"))) &&
+      !nt.includes("instanceprofile")
+    ) {
+      out.roleId = id
+    }
+    if (nt.includes("vpcendpoint") || nt === "vpce") out.vpceId = id
+    for (const sg of h.security_groups || []) {
+      if (sg && !out.sgId) out.sgId = sg
+    }
+  }
+  return out
+}
+
 /** Minimal checkpoint shape compatible with TFM SecurityCheckpoint. */
 export interface SpotlightCheckpoint {
   id: string
@@ -216,4 +277,52 @@ export function enrichArchitectureForSpotlight<T extends SpotlightArchitectureBu
     instanceProfiles,
     nacls,
   }
+}
+
+/**
+ * Wire observed traffic flows through the kill-chain checkpoints when
+ * dep-map edges omit SECURED_BY / USES_ROLE (common on spotlight paths).
+ * Without this, ConnectionLinesSVG draws a direct EC2→S3 line and the
+ * SG/NACL/Role/VPCE cards float disconnected despite showing in the strip.
+ */
+export function patchSpotlightFlowCheckpoints<T extends { flows: SpotlightFlowCheckpoint[] }>(
+  arch: T,
+  paths: ConvergencePath[],
+  spotlightPathId: string | null,
+): T {
+  const lanePaths = selectSpotlightPaths(paths, spotlightPathId)
+  if (!lanePaths.some((p) => (p.hops?.length ?? 0) > 0)) return arch
+
+  const byCompute = new Map<string, ReturnType<typeof checkpointIdsFromHops>>()
+  for (const p of lanePaths) {
+    if (!p.hops?.length) continue
+    const ck = checkpointIdsFromHops(p.hops)
+    const keys = new Set<string>()
+    if (p.workload_arn) keys.add(p.workload_arn)
+    if (p.source) keys.add(p.source)
+    keys.add(extractInstanceId(p.workload_arn ?? p.source ?? ""))
+    for (const k of keys) {
+      if (!k) continue
+      const prev = byCompute.get(k) ?? {}
+      byCompute.set(k, { ...prev, ...ck })
+    }
+  }
+
+  const patchedFlows = arch.flows.map((flow) => {
+    const ck =
+      byCompute.get(flow.sourceId) ??
+      byCompute.get(extractInstanceId(flow.sourceId))
+    if (!ck) return flow
+    return {
+      ...flow,
+      subnetId: flow.subnetId ?? ck.subnetId,
+      sgId: flow.sgId ?? ck.sgId,
+      naclId: flow.naclId ?? ck.naclId,
+      instanceProfileId: flow.instanceProfileId ?? ck.instanceProfileId,
+      roleId: flow.roleId ?? ck.roleId,
+      vpceId: flow.vpceId ?? ck.vpceId,
+    }
+  })
+
+  return { ...arch, flows: patchedFlows }
 }

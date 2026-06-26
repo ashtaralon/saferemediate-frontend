@@ -15,7 +15,7 @@ import {
   VPCE_INACTIVE_TOOLTIP,
   VPCE_NOT_USED_BADGE,
 } from "@/lib/dependency-map/vpce-lane-visual";
-import { enrichArchitectureForSpotlight } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
+import { enrichArchitectureForSpotlight, patchSpotlightFlowCheckpoints } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { S3ObjectAccessExpander } from './s3-object-access-expander';
@@ -180,6 +180,9 @@ export interface SecurityCheckpoint {
 export interface TrafficFlow {
   sourceId: string;
   targetId: string;
+  /** Subnet the source compute sits in — drives the first hop in the
+   *  polyline when spotlight kill-chain carries subnet_id. */
+  subnetId?: string;
   sgId?: string;
   naclId?: string;
   // InstanceProfile is the AWS binding between EC2 and IAMRole. When
@@ -3978,6 +3981,18 @@ export function ConnectionLinesSVG({
         }
         const sgEl = flow.sgId ? container.querySelector(`[data-sg-id="${flow.sgId}"]`) : null;
         const naclEl = flow.naclId ? container.querySelector(`[data-nacl-id="${flow.naclId}"]`) : null;
+        const subnetEl = flow.subnetId
+          ? container.querySelector(`[data-subnet-id="${flow.subnetId}"]`)
+          : architecture.subnets?.length
+            ? (() => {
+                const sub = architecture.subnets!.find((s) =>
+                  s.connectedComputeIds?.includes(flow.sourceId),
+                );
+                return sub
+                  ? container.querySelector(`[data-subnet-id="${sub.id}"]`)
+                  : null;
+              })()
+            : null;
         // IP card carries both data-ip-id (preferred, new) and data-role-id
         // (back-compat). Query data-ip-id first so the IP checkpoint can
         // be distinguished from the role checkpoint even when both share
@@ -4033,6 +4048,11 @@ export function ConnectionLinesSVG({
         // Build checkpoint chain: Compute -> SG -> NACL -> IAM -> API -> Resource
         const checkpoints: { el: Element; posL: { x: number; y: number }; posR: { x: number; y: number } }[] = [];
 
+        if (subnetEl) {
+          const posL = getNodeCenter(subnetEl, 'left');
+          const posR = getNodeCenter(subnetEl, 'right');
+          if (posL && posR) checkpoints.push({ el: subnetEl, posL, posR });
+        }
         if (sgEl) {
           const posL = getNodeCenter(sgEl, 'left');
           const posR = getNodeCenter(sgEl, 'right');
@@ -7105,8 +7125,13 @@ export default function TrafficFlowMap({
 
   const architecture = useMemo(() => {
     if (!baseArchitecture || !spotlightPaths?.length) return baseArchitecture;
-    return enrichArchitectureForSpotlight(
+    const enriched = enrichArchitectureForSpotlight(
       baseArchitecture,
+      spotlightPaths,
+      spotlightPathId ?? null,
+    );
+    return patchSpotlightFlowCheckpoints(
+      enriched,
       spotlightPaths,
       spotlightPathId ?? null,
     );
@@ -9538,7 +9563,12 @@ export default function TrafficFlowMap({
             // (40-EC2 spaghetti) but wrong when the canvas is already
             // narrowed to 1 chain. Toolbar toggle still works to flip
             // back to all-flows on the broad view.
-            showAllConnections={showAllConnections || !!pathFilter || !!onPathNodeAction}
+            showAllConnections={
+              showAllConnections ||
+              !!pathFilter ||
+              !!onPathNodeAction ||
+              (effectiveSpotlightActiveNodeIds?.size ?? 0) > 0
+            }
             onSelectService={(service, type) => {
               // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
               // to Spotlight when the parent wires the callback. Runs BEFORE
