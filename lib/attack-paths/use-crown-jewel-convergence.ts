@@ -19,13 +19,6 @@ interface UseCrownJewelConvergenceResult {
   retry: () => void
 }
 
-function firstWorkloadPathId(
-  paths: CrownJewelConvergenceSummary["paths"],
-): string | null {
-  const real = paths.find((p) => (p.workload_arn ?? "").trim().length > 0)
-  return real?.path_id ?? paths[0]?.path_id ?? null
-}
-
 function summaryToConvergence(
   summary: CrownJewelConvergenceSummary,
   detailPath: ConvergencePath | null,
@@ -50,7 +43,7 @@ function summaryToConvergence(
       hops: [] as ConvergencePath["hops"],
       initial_access: [] as ConvergencePath["initial_access"],
     }
-    if (detailPath && p.path_id === (selectedPathId || detailPath.path_id)) {
+    if (detailPath && p.path_id === selectedPathId) {
       return {
         ...base,
         routes_via: detailPath.routes_via ?? [],
@@ -81,16 +74,19 @@ export function useCrownJewelConvergence(
   jewel: CrownJewelSummary | null,
   selectedPathId: string | null = null,
 ): UseCrownJewelConvergenceResult {
-  const [data, setData] = useState<CrownJewelConvergence | null>(null)
+  const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
+  const [detailPath, setDetailPath] = useState<ConvergencePath | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
 
   const retry = useCallback(() => setNonce((n) => n + 1), [])
 
+  // Phase 1: summary only — fast path for Spotlight strip (path list + scores).
   useEffect(() => {
     if (!systemName || !jewel) {
-      setData(null)
+      setSummary(null)
+      setDetailPath(null)
       setError(null)
       return
     }
@@ -98,6 +94,7 @@ export function useCrownJewelConvergence(
     let cancelled = false
     setLoading(true)
     setError(null)
+    setDetailPath(null)
 
     const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel)
     const ctrl = new AbortController()
@@ -108,57 +105,24 @@ export function useCrownJewelConvergence(
 
     const run = async () => {
       try {
-        const summaryRes = await fetch(summaryUrl, {
-          // 2026-06-25: default cache mode so Vercel edge cache + browser
-          // bfcache hit when the proxy emits Cache-Control: s-maxage=60.
-          // Without this, the FE explicitly bypassed every cache layer
-          // and forced a fresh Render round-trip per click — the Crown
-          // Jewel Spotlight on Topology was timing out at 55s on every
-          // single CJ toggle. See route.ts changes alongside.
-          signal: ctrl.signal,
-        })
+        const summaryRes = await fetch(summaryUrl, { signal: ctrl.signal })
         const summaryBody = (await summaryRes.json().catch(() => null)) as
           | CrownJewelConvergenceSummary
           | { error?: string }
           | null
         if (cancelled) return
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
-          setData(null)
+          setSummary(null)
           setError(
             (summaryBody as { error?: string })?.error ?? `http_${summaryRes.status}`,
           )
           return
         }
-
-        const summary = summaryBody as CrownJewelConvergenceSummary
-        const detailPathId = selectedPathId ?? firstWorkloadPathId(summary.paths)
-
-        let detailPath: ConvergencePath | null = null
-        if (detailPathId) {
-          const detailUrl = buildConvergenceDetailUrl(
-            systemName,
-            jewel,
-            detailPathId,
-          )
-          const detailRes = await fetch(detailUrl, {
-            cache: "no-store",
-            signal: ctrl.signal,
-          })
-          const detailBody = (await detailRes.json().catch(() => null)) as
-            | { path?: ConvergencePath; error?: string }
-            | null
-          if (!cancelled && detailRes.ok && detailBody?.path) {
-            detailPath = detailBody.path
-          }
-        }
-
-        if (!cancelled) {
-          setData(summaryToConvergence(summary, detailPath, selectedPathId))
-          setError(null)
-        }
+        setSummary(summaryBody as CrownJewelConvergenceSummary)
+        setError(null)
       } catch (e) {
         if (cancelled) return
-        setData(null)
+        setSummary(null)
         const m = (e as Error).message ?? String(e)
         setError(
           m.includes("aborted without reason") ? "Backend slow — no response in 55s" : m,
@@ -176,14 +140,55 @@ export function useCrownJewelConvergence(
       clearTimeout(timer)
       ctrl.abort()
     }
-  }, [
-    systemName,
-    jewel?.id,
-    jewel?.canonical_id,
-    jewel?.name,
-    selectedPathId,
-    nonce,
-  ])
+  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, nonce])
+
+  // Phase 2: hop detail only when operator selects a path (not on every CJ click).
+  useEffect(() => {
+    if (!systemName || !jewel || !selectedPathId || !summary) {
+      setDetailPath(null)
+      return
+    }
+
+    let cancelled = false
+    const detailUrl = buildConvergenceDetailUrl(systemName, jewel, selectedPathId)
+    const ctrl = new AbortController()
+    const timer = setTimeout(
+      () => ctrl.abort(new DOMException("Backend slow — no response in 55s", "TimeoutError")),
+      55_000,
+    )
+
+    const run = async () => {
+      try {
+        const detailRes = await fetch(detailUrl, {
+          cache: "no-store",
+          signal: ctrl.signal,
+        })
+        const detailBody = (await detailRes.json().catch(() => null)) as
+          | { path?: ConvergencePath; error?: string }
+          | null
+        if (!cancelled && detailRes.ok && detailBody?.path) {
+          setDetailPath(detailBody.path)
+        }
+      } catch {
+        // Detail is optional — summary strip still renders.
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    void run()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      ctrl.abort()
+    }
+  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, selectedPathId, summary, nonce])
+
+  const data =
+    summary != null
+      ? summaryToConvergence(summary, detailPath, selectedPathId)
+      : null
 
   return { data, loading, error, retry }
 }
