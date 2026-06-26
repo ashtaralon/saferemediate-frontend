@@ -1,4 +1,7 @@
-import { enrichArchitectureForSpotlight } from "@/lib/attack-paths/enrich-architecture-for-spotlight"
+import {
+  enrichArchitectureForSpotlight,
+  patchSpotlightFlowCheckpoints,
+} from "@/lib/attack-paths/enrich-architecture-for-spotlight"
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
 
 const emptyArch = {
@@ -120,5 +123,27 @@ describe("enrichArchitectureForSpotlight", () => {
       "other",
     )
     expect(enriched.securityGroups.map((s) => s.id)).toEqual(["sg-other"])
+  })
+})
+
+describe("patchSpotlightFlowCheckpoints", () => {
+  it("wires flow checkpoints from kill-chain hops", () => {
+    const arch = {
+      ...emptyArch,
+      flows: [
+        {
+          sourceId: "i-0662a9c68ba77f837",
+          targetId: "arn:aws:s3:::cyntrotest2",
+          bytes: 6_100_000_000,
+          connections: 4,
+          isActive: true,
+        },
+      ],
+    }
+    const patched = patchSpotlightFlowCheckpoints(arch, [cyntrotestPath], null)
+    expect(patched.flows[0].sgId).toBe("sg-0f3c9dfda7d4c3614")
+    expect(patched.flows[0].roleId).toBe(
+      "arn:aws:iam::745783559495:role/cyntrotest-ec2-role",
+    )
   })
 })
