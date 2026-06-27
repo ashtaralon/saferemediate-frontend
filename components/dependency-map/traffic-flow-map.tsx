@@ -3842,6 +3842,19 @@ export function ConnectionLinesSVG({
           const sourceEl = findCardForId(edge.source_aws_id);
           const targetEl = findCardForId(edge.target_aws_id);
           if (!sourceEl || !targetEl) {
+            // #87a trust-guard — every rendered edge must have BOTH
+            // endpoints visible. Surface violations loudly in non-prod
+            // so the contract doesn't silently rot. Production drops
+            // silently (current behavior).
+            if (process.env.NODE_ENV !== 'production') {
+              console.error('[trust-guard] edge dropped — endpoint not rendered', {
+                source: edge.source_aws_id,
+                target: edge.target_aws_id,
+                sourceFound: !!sourceEl,
+                targetFound: !!targetEl,
+                relationship: edge.relationship,
+              });
+            }
             droppedEndpoints++;
             continue;
           }
@@ -3903,6 +3916,15 @@ export function ConnectionLinesSVG({
           `[ConnectionLinesSVG] explicit-edges: ${newLines.length} lines drawn, ${droppedEndpoints} dropped. Breakdown:`,
           byPlane
         );
+        // #87a trust-guard — in test mode, fail the run if any edge was
+        // dropped. Dev: per-edge console.error above. Prod: silent drop.
+        // This is the CI rail that catches regressions of the no-synthesis
+        // contract.
+        if (process.env.NODE_ENV === 'test' && droppedEndpoints > 0) {
+          throw new Error(
+            `[trust-guard] ${droppedEndpoints} edges dropped — payload contains edges with no visible endpoint. See preceding console.error rows.`
+          );
+        }
         setLines(newLines);
         return; // Skip legacy flow synthesis entirely.
       }
@@ -7707,25 +7729,19 @@ export default function TrafficFlowMap({
       return node?.vpc_id || node?.vpcId || null;
     };
 
-    // Match flow target to a VPCE service. Gateway endpoints exist for
-    // S3 + DynamoDB only (per AWS); interface endpoints exist for most
-    // services. For the demo path the S3 Gateway is the case that
-    // matters.
-    const pickVPCEForTarget = (canonicalSrc: string, targetType: string): string | undefined => {
-      const vpcId = resolveComputeVPC(canonicalSrc);
-      if (!vpcId) return undefined;
-      const candidates = vpceByVPC.get(vpcId) || [];
-      const needle =
-        targetType === 'storage' || targetType === 's3' ? 's3' :
-        targetType === 'dynamodb' ? 'dynamodb' :
-        targetType === 'sqs' ? 'sqs' :
-        targetType === 'sns' ? 'sns' : null;
-      if (!needle) return undefined;
-      const match = candidates.find(v => {
-        const svc = (v.service_name || v.serviceName || '').toLowerCase();
-        return svc.endsWith(`.${needle}`) || svc === `com.amazonaws.${needle}`;
-      });
-      return match?.id;
+    // Disabled per #87a (2026-06-26): this heuristic synthesized VPCE→S3
+    // polylines from `service_name='s3'` matching with zero graph edges
+    // backing them. Result: canvas drew phantom EC2→VPCE→bucket flows that
+    // looked observed but were pure inference. Violates [[feedback_no_frontend_synthesis]] —
+    // every rendered claim must come from the API/graph payload.
+    //
+    // Until the backend emits real `(:Subnet|:EC2)-[:ROUTES_VIA]->(:VPCE)`
+    // + `(:VPCE)-[:ROUTES_TO]->(:S3Bucket)` edges, this returns undefined
+    // so the polyline routes compute→target directly. The VPCE chip stays
+    // visible (it IS a real graph node); we just don't claim a route
+    // through it that isn't there.
+    const pickVPCEForTarget = (_canonicalSrc: string, _targetType: string): string | undefined => {
+      return undefined;
     };
 
     const trafficEdges = edges.filter(e => {
