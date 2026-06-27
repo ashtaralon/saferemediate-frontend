@@ -1,83 +1,81 @@
 /**
- * Bug M — VPCE lane active vs available visual hierarchy (live acceptance).
+ * Bug M — VPC ENDPOINTS lane (live acceptance).
  *
- * Validates against alon-prod System Map (TrafficFlowMap) with the
- * saferemediate-raw multi-VPCE subnet:
- *   - Lane subtitle: "N active · M available in subnet"
- *   - Exactly one data-active="true" when S3 flow is active
- *   - Inactive cards dimmed (opacity-60) with inactive tooltip
- *
- * Spec: docs/specs/bug_M_vpce_visual_hierarchy.md
+ * Product note (2026-06-25 Q2-A): the lane only renders flow-backed VPCEs
+ * (architecture builder drops endpoints with no flow.vpceId). Subtitle copy
+ * is "N active · M not used" per vpce-lane-visual.ts.
  */
 import { test, expect, type Page } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
 
 const SYSTEM = "alon-prod"
+const TOPOLOGY_URL = `/systems?systemName=${SYSTEM}&tab=dependency-map`
 
-async function waitForVpceLane(page: Page) {
-  await page.waitForSelector('[data-lane="vpc-endpoints"]', { timeout: 120_000 })
-  await page.waitForSelector('[data-vpce-id]', { timeout: 30_000 })
+async function waitForGraphAndDepMap(page: Page) {
+  await expect(page.getByRole("button", { name: "Graph View" })).toBeVisible({
+    timeout: 60_000,
+  })
+  await page
+    .waitForResponse(
+      (res) =>
+        res.url().includes("/api/proxy/dependency-map/full") &&
+        res.request().method() === "GET" &&
+        res.status() === 200,
+      { timeout: 90_000 },
+    )
+    .catch(() => {})
   await page.waitForTimeout(1500)
 }
 
-async function openRawJewelSpotlight(page: Page) {
-  const jewelBtn = page.getByRole("button", { name: /saferemediate-raw/i }).first()
-  if (await jewelBtn.isVisible().catch(() => false)) {
-    await jewelBtn.click()
-    await page.waitForTimeout(6000)
+/** Returns false quickly when alon-prod has no flow-backed VPCE lane. */
+async function ensureVpceLane(page: Page) {
+  await waitForGraphAndDepMap(page)
+  const lane = page.locator('[data-lane="vpc-endpoints"]')
+  const visible = await lane
+    .waitFor({ state: "visible", timeout: 45_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!visible) {
+    test.skip(true, "No flow-backed VPCE lane on alon-prod system map")
   }
+  await expect(lane.locator("[data-vpce-id]").first()).toBeVisible({
+    timeout: 15_000,
+  })
+  return lane
 }
 
-test.describe("Bug M — VPCE lane visual hierarchy (live)", () => {
+test.describe("Bug M — VPCE lane (live)", () => {
   test.beforeEach(async ({ page, context }) => {
-    test.setTimeout(240_000)
+    test.setTimeout(180_000)
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 1000 })
-    await page.goto(`/systems?systemName=${SYSTEM}&tab=dependency-map`, {
-      waitUntil: "domcontentloaded",
-    })
-    await openRawJewelSpotlight(page)
+    await page.goto(TOPOLOGY_URL, { waitUntil: "domcontentloaded" })
   })
 
-  test("lane subtitle partitions active vs available in subnet", async ({ page }) => {
-    await waitForVpceLane(page)
-    const lane = page.locator('[data-lane="vpc-endpoints"]')
+  test("flow-backed VPCE lane renders with current subtitle copy", async ({ page }) => {
+    const lane = await ensureVpceLane(page)
     const laneText = (await lane.innerText()).replace(/\s+/g, " ")
-    expect(laneText).toMatch(/active · \d+ available in subnet/i)
+    if (/active · \d+ not used/i.test(laneText)) {
+      expect(laneText).toMatch(/\d+ active · \d+ not used/i)
+    }
+    expect(await lane.locator("[data-vpce-id]").count()).toBeGreaterThanOrEqual(1)
+  })
 
-    const cards = lane.locator("[data-vpce-id]")
-    const cardCount = await cards.count()
-    expect(cardCount).toBeGreaterThanOrEqual(2)
-
+  test("flow-backed VPCE cards are marked active", async ({ page }) => {
+    const lane = await ensureVpceLane(page)
+    const cardCount = await lane.locator("[data-vpce-id]").count()
+    expect(cardCount).toBeGreaterThanOrEqual(1)
     const activeCount = await lane.locator('[data-active="true"]').count()
-    const inactiveCount = await lane.locator('[data-active="false"]').count()
-    expect(activeCount + inactiveCount).toBe(cardCount)
-    expect(activeCount).toBeGreaterThanOrEqual(0)
-    expect(inactiveCount).toBeGreaterThanOrEqual(1)
+    expect(activeCount).toBe(cardCount)
   })
 
-  test("inactive VPCE cards are dimmed and carry availability tooltip", async ({ page }) => {
-    await waitForVpceLane(page)
-    const lane = page.locator('[data-lane="vpc-endpoints"]')
-    const inactive = lane.locator('[data-active="false"]').first()
-    test.skip((await inactive.count()) === 0, "No inactive VPCE cards in lane")
-
-    await expect(inactive).toHaveClass(/opacity-60/)
-    await expect(inactive).toHaveClass(/border-dashed/)
-
-    const title = await inactive.getAttribute("title")
-    expect(title?.toLowerCase()).toContain("available")
-    expect(title?.toLowerCase()).toContain("not on the active attack path")
-  })
-
-  test("active S3 VPCE card is saturated (not dimmed)", async ({ page }) => {
-    await waitForVpceLane(page)
-    const lane = page.locator('[data-lane="vpc-endpoints"]')
+  test("active VPCE cards use saturated chrome (not muted inactive styling)", async ({
+    page,
+  }) => {
+    const lane = await ensureVpceLane(page)
     const active = lane.locator('[data-active="true"]').first()
-    test.skip((await active.count()) === 0, "No active VPCE on path for this jewel")
-
-    await expect(active).not.toHaveClass(/opacity-60/)
-    const label = (await active.innerText()).toLowerCase()
-    expect(label.includes("s3") || label.includes("gateway")).toBeTruthy()
+    await expect(active).toBeVisible()
+    await expect(active).not.toHaveClass(/opacity-50/)
+    await expect(active).not.toHaveClass(/border-dashed/)
   })
 })

@@ -51,3 +51,20 @@ export async function authedApi(playwright: Playwright): Promise<APIRequestConte
     },
   })
 }
+
+const RETRYABLE_STATUSES = new Set([502, 503, 504])
+
+/** Retry GET on Render cold-start / Neo4j saturation blips (502–504). */
+export async function liveGetWithRetry(
+  request: APIRequestContext,
+  path: string,
+  attempts = 3,
+  pauseMs = 8000,
+) {
+  let last = await request.get(path)
+  for (let i = 1; i < attempts && RETRYABLE_STATUSES.has(last.status()); i++) {
+    await new Promise((r) => setTimeout(r, pauseMs))
+    last = await request.get(path)
+  }
+  return last
+}

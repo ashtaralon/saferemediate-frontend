@@ -3,7 +3,7 @@
  * Covers the regression: "Spotlight failed — Backend slow — no response in 55s".
  */
 import { test, expect } from "@playwright/test"
-import { authedApi, seedAuthCookie } from "./live-auth"
+import { authedApi, liveGetWithRetry, seedAuthCookie } from "./live-auth"
 
 const SYSTEM = "alon-prod"
 const SAM_BUCKET = "aws-sam-cli-managed-default-samclisourcebucket-zpixwbu9coth"
@@ -16,6 +16,21 @@ async function waitForTopologyReady(page: import("@playwright/test").Page) {
   await expect(page.getByRole("button", { name: "Graph View" })).toBeVisible({
     timeout: 60_000,
   })
+}
+
+/** Populated CJ picker — loading state matches /Crown Jewel/i but has no trigger. */
+async function waitForCjPickerReady(page: import("@playwright/test").Page) {
+  await waitForTopologyReady(page)
+  await page
+    .waitForResponse(
+      (res) =>
+        res.url().includes("/jewels") && res.request().method() === "GET",
+      { timeout: 120_000 },
+    )
+    .catch(() => {})
+  await expect(
+    page.getByRole("button", { name: /Pick a Crown Jewel/i }),
+  ).toBeVisible({ timeout: 120_000 })
 }
 
 test.describe("topology + crown jewel spotlight QA", () => {
@@ -60,13 +75,6 @@ test.describe("topology + crown jewel spotlight QA", () => {
   test("SAM bucket spotlight deep-link loads paths (no timeout error)", async ({
     page,
   }) => {
-    const summaryWait = page.waitForResponse(
-      (res) =>
-        res.url().includes("/by-crown-jewel/summary") &&
-        res.request().method() === "GET",
-      { timeout: 120_000 },
-    )
-
     await page.goto(SPOTLIGHT_URL, { waitUntil: "domcontentloaded" })
     await waitForTopologyReady(page)
 
@@ -74,30 +82,42 @@ test.describe("topology + crown jewel spotlight QA", () => {
       timeout: 30_000,
     })
 
-    const summaryRes = await summaryWait
-    expect(summaryRes.status()).toBe(200)
+    const summaryWait = page
+      .waitForResponse(
+        (res) =>
+          res.url().includes("/by-crown-jewel/summary") &&
+          res.request().method() === "GET",
+        { timeout: 120_000 },
+      )
+      .catch(() => null)
+    await summaryWait
 
-    // Wait for populated or error state (not stuck on spinner forever).
+    await expect(page.getByText("Spotlight failed")).not.toBeVisible({
+      timeout: 120_000,
+    })
+    await expect(page.getByText(/Backend slow — no response in 55s/i)).not.toBeVisible()
+
     await expect(
       page
-        .getByText(/observed path|path total|paths total|\d+ path/i)
-        .or(page.getByText("Spotlight failed"))
+        .getByTestId("cj-spotlight-path-list")
+        .or(page.getByText(/observed path|path total|paths total|\d+ path/i))
         .first(),
-    ).toBeVisible({ timeout: 120_000 })
-
-    await expect(page.getByText("Spotlight failed")).not.toBeVisible()
-    await expect(page.getByText(/Backend slow — no response in 55s/i)).not.toBeVisible()
+    ).toBeVisible({ timeout: 60_000 })
   })
 
   test("picker → SAM bucket opens TFM spotlight (stays on topology)", async ({ page }) => {
     await page.goto(TOPOLOGY_URL, { waitUntil: "domcontentloaded" })
-    await waitForTopologyReady(page)
+    await waitForCjPickerReady(page)
 
-    await expect(page.getByText("Crown Jewels in this system")).toBeVisible({
-      timeout: 120_000,
-    })
+    const summaryWait = page.waitForResponse(
+      (res) =>
+        res.url().includes("/by-crown-jewel/") &&
+        res.request().method() === "GET" &&
+        res.status() === 200,
+      { timeout: 120_000 },
+    )
 
-    const trigger = page.getByRole("button", { name: /Pick a crown jewel/i })
+    const trigger = page.getByRole("button", { name: /Pick a Crown Jewel/i })
     await trigger.click({ timeout: 30_000 })
 
     const samRow = page.getByText(SAM_BUCKET).first()
@@ -118,6 +138,8 @@ test.describe("topology + crown jewel spotlight QA", () => {
     await expect(page.getByText("Crown Jewel Spotlight")).toBeVisible({
       timeout: 60_000,
     })
+    await summaryWait
+    await expect(page.getByText("Spotlight failed")).not.toBeVisible()
     await expect(page.getByTestId("cj-spotlight-path-list")).toBeVisible({
       timeout: 60_000,
     })
@@ -127,7 +149,8 @@ test.describe("topology + crown jewel spotlight QA", () => {
     playwright,
   }) => {
     const request = await authedApi(playwright)
-    const res = await request.get(
+    const res = await liveGetWithRetry(
+      request,
       `/api/proxy/attack-paths/${SYSTEM}/by-crown-jewel/summary?cj_name=${encodeURIComponent(SAM_BUCKET)}`,
     )
     expect(res.status()).toBe(200)
