@@ -135,6 +135,24 @@ const TrafficFlowMap = dynamic(
 // Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
 const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'
 
+// Estate Map (Topology v0.2) — the exact estate map from /topology/v0.2-estate,
+// reused 1:1 and scoped to this system. Lazy-loaded so the heavy AwsFrame only
+// mounts when the operator opens the Estate Map sub-tab.
+const EstateMapView = dynamic(
+  () => import('./topology-v0-2/estate-map-view').then((m) => ({ default: m.EstateMapView })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl" style={{ background: '#F4F6F8' }}>
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-[#00C2A8] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm font-medium" style={{ color: '#1A2330' }}>Loading Estate Map…</p>
+        </div>
+      </div>
+    ),
+  }
+)
+
 interface Resource {
   id: string
   name: string
@@ -150,7 +168,7 @@ interface Props {
   onHighlightPathClear?: () => void
 }
 
-type ViewType = 'graph' | 'resource' | 'sankey' | 'flows'
+type ViewType = 'graph' | 'resource' | 'sankey' | 'flows' | 'estate'
 
 export default function DependencyMapTab({
   systemName,
@@ -715,6 +733,17 @@ export default function DependencyMapTab({
               <Search className="w-4 h-4" />
               Resource View
             </button>
+            <button
+              onClick={() => setActiveView('estate')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeView === 'estate'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              Estate Map
+            </button>
           </div>
 
           {/* Graph engine toggle retired 2026-06-22: Full Map (the
@@ -767,6 +796,10 @@ export default function DependencyMapTab({
               <span>
                 System Map • Animated data flows with real-time updates • Drag to pan, scroll to zoom
               </span>
+            ) : activeView === 'estate' ? (
+              <span>
+                Estate Map • AWS canonical frame scoped to {systemName} • Live from topology-risk
+              </span>
             ) : (
               <span>Detailed dependency breakdown of a single resource</span>
             )}
@@ -818,7 +851,7 @@ export default function DependencyMapTab({
       </div>
 
       {/* View Content */}
-      <div className="flex-1 h-[650px]">
+      <div className={activeView === 'estate' ? 'flex-1' : 'flex-1 h-[650px]'}>
         {activeView === 'graph' ? (
           // Full Map (AWSArchitectureDiagram) retired 2026-06-22 —
           // TrafficFlowMap is the sole engine inside the graph view.
@@ -883,6 +916,8 @@ export default function DependencyMapTab({
               </div>
             </div>
           </React.Suspense>
+        ) : activeView === 'estate' ? (
+          <EstateMapView systemName={systemName} embedded />
         ) : (
           <ResourceView
             systemName={systemName}
