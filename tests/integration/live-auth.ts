@@ -2,7 +2,19 @@ import type { APIRequestContext, BrowserContext, Playwright } from "@playwright/
 
 /** Base URL for live integration specs (local dev or cyntro.io). */
 export function liveBaseUrl(): string {
-  return process.env.FRONTEND_URL || "http://localhost:3000"
+  const raw = process.env.FRONTEND_URL || "http://localhost:3000"
+  try {
+    const u = new URL(raw)
+    // Apex redirects to www on Vercel; auth cookie on cyntro.io is lost on
+    // 307 → www, so /api/proxy/* returns HTML login instead of JSON.
+    if (u.hostname === "cyntro.io") {
+      u.hostname = "www.cyntro.io"
+      return u.origin
+    }
+    return u.origin
+  } catch {
+    return raw
+  }
 }
 
 const AUTH_COOKIE = {

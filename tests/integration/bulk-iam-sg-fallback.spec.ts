@@ -72,8 +72,9 @@ describe("bulk IAM / SG live (backend or proxy)", () => {
         console.warn("skip: bulk endpoint not deployed on backend yet")
         return
       }
-      expect(res.ok, await res.text().catch(() => "")).toBe(true)
-      const body = (await res.json()) as { results?: Record<string, unknown> }
+      const text = await res.text()
+      expect(res.ok, text).toBe(true)
+      const body = JSON.parse(text) as { results?: Record<string, unknown> }
       expect(iamResultCount(body)).toBeGreaterThanOrEqual(IAM_ROLE_NAMES.length - 1)
     },
     120_000,
@@ -98,8 +99,9 @@ describe("bulk IAM / SG live (backend or proxy)", () => {
         console.warn("skip: bulk SG endpoint not deployed on backend yet")
         return
       }
-      expect(res.ok, await res.text().catch(() => "")).toBe(true)
-      const body = (await res.json()) as { results?: Record<string, unknown> }
+      const text = await res.text()
+      expect(res.ok, text).toBe(true)
+      const body = JSON.parse(text) as { results?: Record<string, unknown> }
       expect(Object.keys(body.results ?? {}).length).toBeGreaterThanOrEqual(
         SG_IDS.length - 1,
       )
