@@ -5,6 +5,7 @@
 // parent compiles once via compilePathListRow and passes the rows in.
 
 import type { PathListRow } from "./attack-path-report-types"
+import { ImpactSummary } from "./impact-summary"
 
 interface PathComparisonTableProps {
   rows: PathListRow[]
@@ -61,7 +62,9 @@ export function PathComparisonTable({
                   <td className="py-2 pr-2 font-mono text-muted-foreground truncate max-w-[100px]" title={row.identity_label}>
                     {row.identity_label}
                   </td>
-                  <td className="py-2 pr-2 text-foreground">{row.damage_summary}</td>
+                  <td className="py-2 pr-2 text-foreground">
+                    <ImpactSummary row={row} compact />
+                  </td>
                   <td className="py-2 text-emerald-700 dark:text-emerald-300 truncate max-w-[140px]" title={row.top_fix_label}>
                     {row.top_fix_label}
                   </td>
