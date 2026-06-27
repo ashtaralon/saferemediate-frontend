@@ -2,19 +2,9 @@
 
 /**
  * Topology v0.2 — Estate view, reusable + system-scoped.
- *
- * This is the EXACT estate map that renders at /topology/v0.2-estate, factored
- * out of that page so it can be mounted 1:1 inside a system dashboard's
- * Topology tab. The only difference vs. the page is that `systemName` arrives
- * as a prop instead of from the URL, and `embedded` drops the full-page
- * `min-h-screen` wrapper so it sits inside a tab. Everything the map renders —
- * HeadlineStrip KPIs, AwsFrame canonical map, FilterRail, DetailPanel, the
- * fullscreen affordance — is unchanged and reads live from
- * /api/proxy/topology-risk/{systemName}.
  */
-
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Maximize2, Minimize2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
@@ -26,12 +16,15 @@ import {
   FilterRail,
 } from "@/components/topology-v0-2/filter-rail"
 import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
+import {
+  buildHeadlineNarrative,
+  buildRankedEntries,
+} from "@/components/topology-v0-2/headline-narrative"
+import { RankedRail } from "@/components/topology-v0-2/ranked-rail"
 import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 
 export interface EstateMapViewProps {
-  /** System to scope the estate map to (e.g. "alon-prod"). */
   systemName: string
-  /** When true, drop the full-page min-h-screen wrapper so it fits in a tab. */
   embedded?: boolean
 }
 
@@ -45,7 +38,10 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
 
   const [filters, setFilters] = useState<EstateFilters | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [highlightedRoleName, setHighlightedRoleName] = useState<string | null>(null)
   const [mapEnlarged, setMapEnlarged] = useState(false)
+  const [statsExpanded, setStatsExpanded] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
 
@@ -76,6 +72,20 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
   const selectedNode = useMemo(
     () => (selectedNodeId ? data?.nodes.find(n => n.id === selectedNodeId) ?? null : null),
     [selectedNodeId, data?.nodes],
+  )
+
+  const narrative = useMemo(
+    () => (data ? buildHeadlineNarrative(data) : null),
+    [data],
+  )
+
+  const rankedEntries = useMemo(
+    () =>
+      buildRankedEntries(
+        data?.nodes ?? [],
+        data?.vpc_topology?.iam_roles ?? [],
+      ),
+    [data?.nodes, data?.vpc_topology?.iam_roles],
   )
 
   const outerClass = embedded ? "w-full" : "min-h-screen"
@@ -111,7 +121,7 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
     )
   }
 
-  if (!data || !data.system_kpis) {
+  if (!data || !data.system_kpis || !narrative) {
     return (
       <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
         <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
@@ -120,24 +130,25 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
         <div>
           No system_kpis returned for <span className="font-mono">{systemName}</span>.
         </div>
-        <div className="text-xs mt-2" style={{ color: "#5A6B7A" }}>
-          The endpoint responded but the rollup is empty.
-        </div>
       </div>
     )
   }
 
-  // Render the canvas with the diagnostic sections (Outside-VPC Lambdas,
-  // IAM control-plane strip, Stale workloads, Traffic flow band, Encoding
-  // legend) controlled by `presentationMode`. Fullscreen mode hides them so
-  // the map itself can take the full vertical share of the viewport.
+  const selectedRailId = highlightedRoleName
+    ? `iam:${highlightedRoleName}`
+    : selectedNodeId
+
   const renderMap = (presentationMode: boolean) => (data.vpc_topology ? (
     <AwsFrame
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
       trafficEdges={data.traffic_edges}
       selectedNodeId={selectedNodeId}
-      onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
+      highlightedRoleName={highlightedRoleName}
+      onSelect={id => {
+        setSelectedNodeId(id === selectedNodeId ? null : id)
+        setHighlightedRoleName(null)
+      }}
       presentationMode={presentationMode}
     />
   ) : (
@@ -149,54 +160,103 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
     />
   ))
 
-  return (
-    <div className={outerClass} style={{ background: "#F4F6F8", color: "#1A2330" }}>
-      <HeadlineStrip
-        systemName={data.system}
-        vpcId={data.vpc_id}
-        scoredAt={data.scored_at}
-        kpis={data.system_kpis}
-        isStale={isStale && !!cachedAt}
-        fromStaleCache={data.fromStaleCache}
-      />
-
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4 px-4 py-4 max-w-[1600px] mx-auto">
-        <main className="min-w-0 min-h-0">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setMapEnlarged(true)}
-              className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
-              style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
-              aria-label="Open map fullscreen — diagnostic sections collapse"
-              data-testid="topology-estate-map-enlarge"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-              Map fullscreen
-            </button>
-            <div
-              className="w-full overflow-auto rounded-2xl"
-              style={{ maxHeight: "calc(100vh - 220px)" }}
-            >
-              {!mapEnlarged ? renderMap(false) : null}
-            </div>
-          </div>
-        </main>
-
+  const filterDrawer = (
+    <div>
+      <button
+        type="button"
+        onClick={() => setFiltersOpen(v => !v)}
+        className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold mb-2"
+        style={{ color: "#5A6B7A" }}
+      >
+        {filtersOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        Filters
+      </button>
+      {filtersOpen ? (
         <FilterRail
           kpis={data.system_kpis}
           nodes={data.nodes}
           filters={effectiveFilters}
           onChange={setFilters}
         />
+      ) : null}
+    </div>
+  )
+
+  return (
+    <div className={`${outerClass} flex flex-col`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
+      <HeadlineStrip
+        systemName={data.system}
+        vpcId={data.vpc_id}
+        narrative={narrative}
+        kpis={data.system_kpis}
+        isStale={isStale && !!cachedAt}
+        fromStaleCache={data.fromStaleCache}
+        statsExpanded={statsExpanded}
+        onToggleStats={() => setStatsExpanded(v => !v)}
+      />
+
+      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 px-4 py-4 max-w-[1680px] mx-auto w-full">
+        <main className="min-w-0 min-h-0 flex flex-col">
+          <div className="relative flex-1 min-h-0">
+            <button
+              type="button"
+              onClick={() => setMapEnlarged(true)}
+              className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
+              style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
+              aria-label="Open map fullscreen"
+              data-testid="topology-estate-map-enlarge"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              Map fullscreen
+            </button>
+            <div
+              className="h-full overflow-auto rounded-2xl"
+              style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
+            >
+              {!mapEnlarged ? renderMap(false) : null}
+            </div>
+          </div>
+        </main>
+
+        <div
+          className="hidden xl:flex flex-col min-h-0 sticky top-4 self-start"
+          style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
+        >
+          <RankedRail
+            entries={rankedEntries}
+            selectedId={selectedRailId}
+            onSelectWorkload={id => {
+              setSelectedNodeId(id)
+              setHighlightedRoleName(null)
+            }}
+            onSelectRole={name => {
+              setHighlightedRoleName(name)
+              setSelectedNodeId(null)
+            }}
+            filtersSlot={filterDrawer}
+          />
+        </div>
       </div>
 
-      <footer className="px-6 pb-8 max-w-[1840px] mx-auto text-[10px] leading-relaxed" style={{ color: "#5A6B7A" }}>
-        Every value on this page is a live read from{" "}
-        <span className="font-mono">/api/topology-risk/{data.system}</span> per{" "}
-        contract <span className="font-mono">docs/topology-v0.2-risk-contract.md</span>.
-        The canonical AWS frame is structural — service icons appear only when Neo4j confirms the
-        resource. Empty cells are honest, not fabricated.
+      <div className="xl:hidden px-4 pb-4 max-w-[1680px] mx-auto w-full">
+        <RankedRail
+          entries={rankedEntries}
+          selectedId={selectedRailId}
+          onSelectWorkload={id => {
+            setSelectedNodeId(id)
+            setHighlightedRoleName(null)
+          }}
+          onSelectRole={name => {
+            setHighlightedRoleName(name)
+            setSelectedNodeId(null)
+          }}
+          filtersSlot={filterDrawer}
+        />
+      </div>
+
+      <footer className="px-6 pb-6 max-w-[1680px] mx-auto text-[10px] leading-relaxed" style={{ color: "#5A6B7A" }}>
+        Live read from <span className="font-mono">/api/topology-risk/{data.system}</span>.
+        Empty cells are honest, not fabricated.
       </footer>
 
       {!mapEnlarged ? (
@@ -220,14 +280,7 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
               <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#00C2A8" }}>
                 Topology v0.2 · Estate
               </div>
-              <div className="text-sm font-semibold mt-0.5">
-                {data.system}
-                {data.vpc_id ? (
-                  <span className="font-mono text-xs font-normal ml-2" style={{ color: "#5A6B7A" }}>
-                    {data.vpc_id}
-                  </span>
-                ) : null}
-              </div>
+              <div className="text-sm font-semibold mt-0.5">{data.system}</div>
             </div>
             <button
               type="button"
@@ -235,7 +288,6 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
               className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
               style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
               aria-label="Exit map fullscreen"
-              data-testid="topology-estate-map-exit-fullscreen"
             >
               <Minimize2 className="h-3.5 w-3.5" />
               Exit map

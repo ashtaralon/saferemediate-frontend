@@ -145,16 +145,25 @@ export interface SecurityGroupMeta {
   has_public_ingress: boolean
 }
 
+export type IamCorrelationState =
+  | "correlated"
+  | "not_correlated"
+  | "deleted_in_aws"
+  | "stale_rollup"
+
 export interface IamRoleRollup {
   name: string
   role_arn: string | null
   allowed_actions: number
   used_actions: number
   unused_actions: number
-  gap_percentage: number
+  /** null when correlation_state !== 'correlated' — never a fabricated 100% */
+  gap_percentage: number | null
+  correlation_state?: IamCorrelationState
   last_remediated_at: string | null
   workload_ids: string[]
   attachment_modes: ("instance_profile" | "direct" | string)[]
+  scope_mode?: "vpc" | "system"
 }
 
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"

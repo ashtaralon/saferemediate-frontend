@@ -29,7 +29,7 @@
  * honest copy.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   type IamRoleRollup,
   type ScoreTier,
@@ -48,6 +48,7 @@ interface Props {
   nodes: TopologyNode[]
   trafficEdges?: TrafficEdge[]
   selectedNodeId: string | null
+  highlightedRoleName?: string | null
   onSelect: (id: string) => void
   /**
    * Presentation mode (fullscreen map): hide diagnostic sections below the
@@ -278,9 +279,21 @@ function nodeIcon(type: string | null): { symbol: string; bg: string; fg: string
   }
 }
 
+function formatIamChipSummary(role: IamRoleRollup): string {
+  if (role.correlation_state === "stale_rollup") return "recomputing"
+  if (role.correlation_state === "not_correlated") return "pending"
+  if (role.allowed_actions === 0 || role.gap_percentage === 0) return "clean"
+  return `${role.unused_actions}/${role.allowed_actions} unused`
+}
+
 function WorkloadChip({
-  node, selected, onClick,
-}: { node: TopologyNode; selected: boolean; onClick: () => void }) {
+  node, selected, onClick, iamSummary,
+}: {
+  node: TopologyNode
+  selected: boolean
+  onClick: () => void
+  iamSummary?: string | null
+}) {
   const stale = !!node.stale
   const { ring, halo } = severityRing(node)
   const ic = nodeIcon(node.type)
@@ -396,7 +409,13 @@ function WorkloadChip({
             opacity: usageLine === "no observed access" ? 0.75 : 1,
           }}
         >
-          {usageLine ?? `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`}
+          {iamSummary ? (
+            <span style={{ color: iamSummary.includes("0/0") || iamSummary.includes("clean") ? "#059669" : PAL.carmine }}>
+              IAM · {iamSummary}
+            </span>
+          ) : (
+            usageLine ?? `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`
+          )}
         </div>
       </div>
       {node.score && (
@@ -416,7 +435,7 @@ function WorkloadChip({
 
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
-  compact = false,
+  compact = false, roleForWorkload,
 }: {
   tier: SubnetTier
   az: string
@@ -426,16 +445,22 @@ function SubnetCell({
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
+  roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
 }) {
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
+  const cellMinHeight = empty
+    ? (compact ? "48px" : "72px")
+    : workloadsHere.length === 0
+      ? (compact ? "56px" : "72px")
+      : (compact ? "80px" : "96px")
   return (
     <div
       className={compact ? "rounded-md p-2" : "rounded-md p-3"}
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
-        minHeight: compact ? "70px" : "110px",
+        minHeight: cellMinHeight,
         opacity: empty ? 0.55 : 1,
       }}
     >
@@ -511,14 +536,18 @@ function SubnetCell({
                             no SG attached
                           </div>
                           <div className={compact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
-                            {group.map(n => (
+                            {group.map(n => {
+                              const role = roleForWorkload?.(n.id)
+                              return (
                               <WorkloadChip
                                 key={n.id}
                                 node={n}
                                 selected={n.id === selectedNodeId}
                                 onClick={() => onSelect(n.id)}
+                                iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
                               />
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                       )
@@ -543,14 +572,18 @@ function SubnetCell({
                           🛡 {sgName}{isPublic ? " · public ingress" : ""}
                         </div>
                         <div className={compact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
-                          {group.map(n => (
+                          {group.map(n => {
+                            const role = roleForWorkload?.(n.id)
+                            return (
                             <WorkloadChip
                               key={n.id}
                               node={n}
                               selected={n.id === selectedNodeId}
                               onClick={() => onSelect(n.id)}
+                              iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
                             />
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                     )
@@ -565,10 +598,16 @@ function SubnetCell({
   )
 }
 
-function IamRoleCard({ role, allWorkloads }: { role: IamRoleRollup; allWorkloads: TopologyNode[] }) {
-  const isClean = role.allowed_actions === 0 || role.gap_percentage === 0
-  const isCritical = role.gap_percentage >= 80
-  const accent = isClean ? "#10B981" : isCritical ? PAL.carmine : PAL.amber
+function IamRoleCard({
+  role, allWorkloads, highlighted = false,
+}: { role: IamRoleRollup; allWorkloads: TopologyNode[]; highlighted?: boolean }) {
+  const uncorrelated = role.correlation_state === "not_correlated"
+  const staleRollup = role.correlation_state === "stale_rollup"
+  const deleted = role.correlation_state === "deleted_in_aws"
+  const gap = role.gap_percentage
+  const isClean = !uncorrelated && !staleRollup && !deleted && (role.allowed_actions === 0 || gap === 0)
+  const isCritical = !uncorrelated && !staleRollup && gap !== null && gap >= 80
+  const accent = isClean ? "#10B981" : isCritical ? PAL.carmine : staleRollup ? "#6366F1" : PAL.amber
   const remediated = role.last_remediated_at
     ? new Date(role.last_remediated_at).toISOString().slice(0, 10)
     : null
@@ -577,7 +616,12 @@ function IamRoleCard({ role, allWorkloads }: { role: IamRoleRollup; allWorkloads
   return (
     <div
       className="rounded-md p-3 min-w-[200px] max-w-[260px] shrink-0"
-      style={{ background: "white", border: `1.5px solid ${accent}`, borderTopWidth: "3px" }}
+      style={{
+        background: "white",
+        border: `1.5px solid ${accent}`,
+        borderTopWidth: "3px",
+        boxShadow: highlighted ? `0 0 0 3px ${PAL.teal}` : undefined,
+      }}
     >
       <div className="text-[12px] font-semibold truncate" style={{ color: PAL.ink }} title={role.name}>
         {role.name}
@@ -603,14 +647,20 @@ function IamRoleCard({ role, allWorkloads }: { role: IamRoleRollup; allWorkloads
         )}
       </div>
       <div className="text-[10px] leading-snug" style={{ color: PAL.slate }}>
-        {role.allowed_actions === 0 ? (
+        {uncorrelated ? (
+          <>not yet correlated · behavioral join pending</>
+        ) : staleRollup ? (
+          <>recomputing · usage edges present, scalar stale</>
+        ) : deleted ? (
+          <>deleted in AWS · tombstone</>
+        ) : role.allowed_actions === 0 ? (
           <>
             {remediated ? `Remediated ${remediated} · ` : ""}
             least-privilege achieved
           </>
         ) : (
           <>
-            {Math.round(role.gap_percentage)}% gap
+            {gap !== null ? `${Math.round(gap)}% gap` : "gap unknown"}
             {remediated ? ` · remediation ${remediated}` : " · never remediated"}
           </>
         )}
@@ -640,23 +690,44 @@ function IamRoleCard({ role, allWorkloads }: { role: IamRoleRollup; allWorkloads
 }
 
 function IamControlPlane({
-  roles, allWorkloads,
-}: { roles: IamRoleRollup[]; allWorkloads: TopologyNode[] }) {
+  roles, allWorkloads, highlightedRoleName, embeddedInVpc = false,
+}: {
+  roles: IamRoleRollup[]
+  allWorkloads: TopologyNode[]
+  highlightedRoleName?: string | null
+  embeddedInVpc?: boolean
+}) {
   if (roles.length === 0) return null
-  const criticalCount = roles.filter(r => r.gap_percentage >= 80 && r.allowed_actions > 0).length
-  const cleanCount = roles.filter(r => r.allowed_actions === 0 || r.gap_percentage === 0).length
+  const criticalCount = roles.filter(
+    r => r.correlation_state !== "not_correlated"
+      && r.correlation_state !== "stale_rollup"
+      && r.gap_percentage !== null
+      && r.gap_percentage >= 80
+      && r.allowed_actions > 0,
+  ).length
+  const cleanCount = roles.filter(
+    r => r.correlation_state !== "not_correlated"
+      && r.correlation_state !== "stale_rollup"
+      && (r.allowed_actions === 0 || r.gap_percentage === 0),
+  ).length
+  const uncorrelatedCount = roles.filter(r => r.correlation_state === "not_correlated").length
+  const staleRollupCount = roles.filter(r => r.correlation_state === "stale_rollup").length
   return (
     <div
-      className="rounded-md p-4 relative"
-      style={{ background: PAL.cardBg, border: `2px solid #DD344C`, borderLeftWidth: "8px" }}
+      className={embeddedInVpc ? "rounded-r-md p-3 relative flex-1" : "rounded-md p-4 relative"}
+      style={
+        embeddedInVpc
+          ? { background: "#F3E5F5", border: `1.5px solid #DD344C`, borderLeft: "none" }
+          : { background: PAL.cardBg, border: `2px solid #DD344C`, borderLeftWidth: "8px" }
+      }
     >
       <div
         className="absolute -top-2.5 left-6 px-2 text-[10px] uppercase tracking-[0.14em] font-bold"
-        style={{ background: PAL.cardBg, color: "#DD344C" }}
+        style={{ background: embeddedInVpc ? "#F3E5F5" : PAL.cardBg, color: "#DD344C" }}
       >
         IAM · Control plane
       </div>
-      <div className="flex items-baseline justify-between mb-3 mt-1">
+      <div className={`flex items-baseline justify-between mb-2 ${embeddedInVpc ? "mt-0" : "mt-1 mb-3"}`}>
         <div className="text-[12px] font-semibold" style={{ color: PAL.ink }}>
           Roles attached to this VPC
         </div>
@@ -665,11 +736,18 @@ function IamControlPlane({
           {roles.length} role{roles.length === 1 ? "" : "s"}
           {criticalCount > 0 ? ` · ${criticalCount} critical gap${criticalCount === 1 ? "" : "s"}` : ""}
           {cleanCount > 0 ? ` · ${cleanCount} clean` : ""}
+          {uncorrelatedCount > 0 ? ` · ${uncorrelatedCount} pending correlation` : ""}
+          {staleRollupCount > 0 ? ` · ${staleRollupCount} recomputing` : ""}
         </div>
       </div>
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className="flex gap-3 overflow-x-auto pb-1">
         {roles.map(r => (
-          <IamRoleCard key={r.name} role={r} allWorkloads={allWorkloads} />
+          <IamRoleCard
+            key={r.name}
+            role={r}
+            allWorkloads={allWorkloads}
+            highlighted={highlightedRoleName === r.name}
+          />
         ))}
       </div>
     </div>
@@ -753,6 +831,43 @@ function TrafficFlowBand({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function DiagnosticsAccordion({
+  serverlessCount,
+  staleCount,
+  trafficCount,
+  children,
+}: {
+  serverlessCount: number
+  staleCount: number
+  trafficCount: number
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const summary = [
+    serverlessCount > 0 ? `${serverlessCount} serverless` : null,
+    staleCount > 0 ? `${staleCount} stale` : null,
+    trafficCount > 0 ? `${trafficCount} flows` : null,
+  ].filter(Boolean).join(" · ")
+
+  return (
+    <div className="rounded-md" style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-[10px] uppercase tracking-[0.14em] font-semibold" style={{ color: PAL.ink }}>
+          Diagnostics
+        </span>
+        <span className="text-[10px]" style={{ color: PAL.slate }}>
+          {summary || "encoding legend"} {open ? "▴" : "▾"}
+        </span>
+      </button>
+      {open ? <div className="px-4 pb-4 space-y-3">{children}</div> : null}
     </div>
   )
 }
@@ -1109,7 +1224,15 @@ function FlowOverlay({
   )
 }
 
-export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onSelect, presentationMode = false }: Props) {
+export function AwsFrame({
+  vpcTopology,
+  nodes,
+  trafficEdges,
+  selectedNodeId,
+  highlightedRoleName = null,
+  onSelect,
+  presentationMode = false,
+}: Props) {
   // SG lookup for the SubnetCell groupings.
   const sgIndex = useMemo(() => {
     const m = new Map<string, SecurityGroupMeta>()
@@ -1119,6 +1242,15 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
     return m
   }, [vpcTopology.security_groups])
   const iamRoles = vpcTopology.iam_roles ?? []
+  const roleForWorkload = useMemo(() => {
+    const m = new Map<string, IamRoleRollup>()
+    for (const role of iamRoles) {
+      for (const wid of role.workload_ids ?? []) {
+        if (!m.has(wid)) m.set(wid, role)
+      }
+    }
+    return (nodeId: string) => m.get(nodeId)
+  }, [iamRoles])
   const trafficEdgesList = trafficEdges ?? []
   const vpceIds = useMemo(
     () => new Set((vpcTopology.edges.vpces ?? []).map(v => v.id)),
@@ -1192,6 +1324,23 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
 
   const azs = [...populatedAzs].sort()
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
+  const azHasWorkloads = useMemo(() => {
+    const m = new Map<string, boolean>()
+    for (const az of azs) {
+      let any = false
+      for (const tier of tiers) {
+        if ((byAzAndTier.get(az)?.get(tier) ?? []).length > 0) {
+          any = true
+          break
+        }
+      }
+      m.set(az, any)
+    }
+    return m
+  }, [azs, byAzAndTier, tiers])
+  const azGridColumns = azs
+    .map(az => (azHasWorkloads.get(az) ? "minmax(0, 1fr)" : "32px"))
+    .join(" ")
   const hasIgw = vpcTopology.edges.igws.length > 0
   const hasNats = vpcTopology.edges.nat_gws.length > 0
   const hasVpces = vpcTopology.edges.vpces.length > 0
@@ -1203,32 +1352,32 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-3 space-y-2 relative max-w-full"
-          : "rounded-2xl p-4 space-y-4 relative max-w-full"
+          ? "rounded-xl p-2 space-y-2 relative max-w-full"
+          : "rounded-2xl p-3 space-y-3 relative max-w-full"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
       {/* Internet + IGW perimeter — tighter in presentation mode so the
           AWS Cloud frame can take the dominant vertical share. */}
-      <div className={presentationMode ? "flex items-center justify-center gap-6 pb-2" : "flex items-center justify-center gap-8 pb-4"}>
+      <div className="flex items-center justify-center gap-4 py-1 pb-2">
         <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
-          <div className={presentationMode ? "text-2xl" : "text-3xl"}>👥</div>
-          <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">Users</div>
+          <div className="text-xl">👥</div>
+          <div className="text-[10px] uppercase tracking-wider font-semibold">Users</div>
         </div>
-        <div className="flex-1 max-w-[180px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
+        <div className="flex-1 max-w-[120px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
         <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
-          <div className={presentationMode ? "text-2xl" : "text-3xl"}>☁</div>
-          <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">Internet</div>
+          <div className="text-xl">☁</div>
+          <div className="text-[10px] uppercase tracking-wider font-semibold">Internet</div>
         </div>
-        <div className="flex-1 max-w-[180px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
+        <div className="flex-1 max-w-[120px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
         <div
           className="flex flex-col items-center"
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <div className={presentationMode ? "text-2xl" : "text-3xl"}>🌐</div>
-          <div className="text-[11px] uppercase tracking-wider mt-1 font-semibold">
-            {hasIgw ? `IGW · ${vpcTopology.edges.igws[0].name}` : "no IGW observed"}
+          <div className="text-xl">🌐</div>
+          <div className="text-[10px] uppercase tracking-wider font-semibold">
+            {hasIgw ? `IGW · ${vpcTopology.edges.igws[0].name}` : "no IGW"}
           </div>
         </div>
       </div>
@@ -1298,32 +1447,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                 </div>
               ) : (
                 <div className={presentationMode ? "mt-1" : "mt-2"}>
-                  {/* AZ headers — offset by the sidebar width. Hidden in
-                      presentation mode (each subnet card already shows its
-                      AZ name in the CIDR row, so the column header is
-                      redundant ~38px of vertical space). */}
-                  {!presentationMode && (
-                  <div className="flex mb-2">
-                    <div style={{ width: "44px" }} />
-                    <div
-                      className="grid gap-3 flex-1"
-                      style={{ gridTemplateColumns: `repeat(${azs.length}, minmax(0, 1fr))` }}
-                    >
-                      {azs.map(az => (
-                        <div
-                          key={az}
-                          className="text-[11px] uppercase tracking-[0.14em] font-semibold text-center pb-1.5 border-b"
-                          style={{ color: PAL.ink, borderColor: PAL.slate }}
-                        >
-                          AZ · {az}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  )}
-
-                  {/* Tier rows with vertical sidebar labels */}
-                  <div className={presentationMode ? "space-y-1.5" : "space-y-3"}>
+                  <div className={presentationMode ? "space-y-1.5" : "space-y-2"}>
                     {tiers.map(tier => (
                       <div key={tier} className="flex gap-0">
                         <div
@@ -1342,14 +1466,24 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                           {TIER_SIDEBAR_LABEL[tier]}
                         </div>
                         <div
-                          className={presentationMode ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-3 flex-1"}
+                          className={presentationMode ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
                           style={{ background: TIER_BG[tier] }}
                         >
                           <div
-                            className={presentationMode ? "grid gap-2" : "grid gap-3"}
-                            style={{ gridTemplateColumns: `repeat(${azs.length}, minmax(0, 1fr))` }}
+                            className={presentationMode ? "grid gap-2" : "grid gap-2"}
+                            style={{ gridTemplateColumns: azGridColumns }}
                           >
                             {azs.map(az => {
+                              if (!azHasWorkloads.get(az)) {
+                                return (
+                                  <div
+                                    key={`${az}-${tier}-gutter`}
+                                    title={`no workloads in ${az}`}
+                                    className="rounded self-stretch min-h-[48px]"
+                                    style={{ background: "#EEF2F6", border: "1px dashed #CBD5E1" }}
+                                  />
+                                )
+                              }
                               const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
                               const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
                               return (
@@ -1363,6 +1497,7 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                                   selectedNodeId={selectedNodeId}
                                   onSelect={onSelect}
                                   compact={presentationMode}
+                                  roleForWorkload={roleForWorkload}
                                 />
                               )
                             })}
@@ -1370,6 +1505,33 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
                         </div>
                       </div>
                     ))}
+
+                    {/* IAM control plane — 4th tier inside VPC (mockup tier.iam) */}
+                    {iamRoles.length > 0 ? (
+                      <div className="flex gap-0">
+                        <div
+                          className="rounded-l-md flex items-center justify-center shrink-0"
+                          style={{
+                            background: "#DD344C",
+                            color: "white",
+                            width: presentationMode ? "36px" : "44px",
+                            writingMode: "vertical-rl",
+                            transform: "rotate(180deg)",
+                            fontSize: "9px",
+                            fontWeight: 700,
+                            letterSpacing: "0.14em",
+                          }}
+                        >
+                          IAM CP
+                        </div>
+                        <IamControlPlane
+                          roles={iamRoles}
+                          allWorkloads={nodes}
+                          highlightedRoleName={highlightedRoleName}
+                          embeddedInVpc
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}
@@ -1482,71 +1644,56 @@ export function AwsFrame({ vpcTopology, nodes, trafficEdges, selectedNodeId, onS
           presentation/fullscreen mode so the map itself is the focus.
           Inline page keeps everything.  */}
       {!presentationMode && (
-      <>
-      {/* Serverless · outside-VPC band */}
-      {serverlessNodes.length > 0 && (
-        <div
-          className="rounded-md p-4"
-          style={{ background: PAL.cardBg, border: `1px solid #E2E8F0` }}
+        <DiagnosticsAccordion
+          serverlessCount={serverlessNodes.length}
+          staleCount={staleNodes.length}
+          trafficCount={visibleEdges.length}
         >
-          <div className="flex items-baseline justify-between mb-1.5">
-            <div className="text-[10px] uppercase tracking-[0.14em] font-semibold" style={{ color: PAL.ink }}>
-              Serverless · outside VPC ({serverlessNodes.length})
+          {serverlessNodes.length > 0 ? (
+            <div
+              className="rounded-md p-3"
+              style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
+                Serverless · outside VPC ({serverlessNodes.length})
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {serverlessNodes.map(n => (
+                  <WorkloadChip
+                    key={n.id}
+                    node={n}
+                    selected={n.id === selectedNodeId}
+                    onClick={() => onSelect(n.id)}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="text-[11px]" style={{ color: PAL.slate }}>
-              λ Lambda functions with no VPC binding
+          ) : null}
+
+          {staleNodes.length > 0 ? (
+            <div
+              className="rounded-md p-3"
+              style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
+                Stale workloads ({staleNodes.length})
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {staleNodes.map(n => (
+                  <WorkloadChip
+                    key={n.id}
+                    node={n}
+                    selected={n.id === selectedNodeId}
+                    onClick={() => onSelect(n.id)}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="text-[11px] italic mb-2" style={{ color: PAL.slate }}>
-            Run in the AWS-managed Lambda VPC — outside the customer network plane.
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {serverlessNodes.map(n => (
-              <WorkloadChip
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onClick={() => onSelect(n.id)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+          ) : null}
 
-      {/* Stale workloads */}
-      {staleNodes.length > 0 && (
-        <div
-          className="rounded-md p-4"
-          style={{ background: PAL.cardBg, border: `1px solid #E2E8F0` }}
-        >
-          <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-1.5" style={{ color: PAL.ink }}>
-            Stale workloads ({staleNodes.length})
-          </div>
-          <div className="text-[11px] italic mb-2" style={{ color: PAL.slate }}>
-            aws_exists = false — kept for audit, excluded from rank.
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {staleNodes.map(n => (
-              <WorkloadChip
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onClick={() => onSelect(n.id)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* IAM · Control plane strip */}
-      <IamControlPlane roles={iamRoles} allWorkloads={nodes} />
-
-      {/* Workload-to-workload ACTUAL_TRAFFIC band */}
-      <TrafficFlowBand edges={visibleEdges} nodes={nodes} />
-
-      {/* Encoding legend at the bottom */}
-      <EncodingLegend />
-      </>
+          <TrafficFlowBand edges={visibleEdges} nodes={nodes} />
+          <EncodingLegend />
+        </DiagnosticsAccordion>
       )}
 
       {/* Animated traffic flow arrows — rendered LAST so DOM stacking

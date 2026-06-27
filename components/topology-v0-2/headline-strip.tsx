@@ -1,110 +1,55 @@
 "use client"
 
 /**
- * Topology v0.2 — Estate headline strip (light theme).
- *
- * Light editorial header matching design/topology-v0.2-estate.html:
- *   - Teal kicker "Estate · Topology v0.2 · <system>"
- *   - Georgia serif "Estate overview" title
- *   - 5 KPI tiles with severity-aware left-border accents
- *
- * All values are real reads from the topology-risk endpoint. Honest states:
- *   - Posture freshness tile gets an amber accent when not is_fresh and
- *     surfaces the auto_resolves_when clause inline.
- *   - Posture coverage tile shows scored/total + by_type breakdown.
- *   - Flagged tile lights warn-red when count > 0.
+ * Topology v0.2 — Estate headline strip (narrative + compact provenance).
  */
-
+import type { HeadlineNarrative } from "./headline-narrative"
 import type { SystemKpis } from "./types"
 
 interface Props {
   systemName: string
   vpcId: string | null
-  scoredAt: string
+  narrative: HeadlineNarrative
   kpis: SystemKpis
   isStale?: boolean
   fromStaleCache?: boolean
+  statsExpanded?: boolean
+  onToggleStats?: () => void
 }
 
-function Tile({
-  num,
-  label,
-  sub,
-  variant = "neutral",
-}: {
-  num: React.ReactNode
-  label: string
-  sub: React.ReactNode
-  variant?: "neutral" | "warn" | "amber"
-}) {
-  const accent =
-    variant === "warn"
-      ? "#E04545"
-      : variant === "amber"
-      ? "#F5A623"
-      : "transparent"
+function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <div
-      className="rounded px-4 py-3"
-      style={{
-        background: "white",
-        border: "1px solid #DDE3E8",
-        borderLeft: `4px solid ${accent}`,
-      }}
+    <span
+      className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px]"
+      style={{ background: "#FFFFFF", border: "1px solid #DDE3E8", color: "#5A6B7A" }}
     >
-      <div className="text-3xl font-semibold leading-none" style={{ color: "#1A2330" }}>
-        {num}
-      </div>
-      <div
-        className="text-[10px] uppercase tracking-[0.18em] font-semibold mt-2"
-        style={{ color: "#5A6B7A" }}
-      >
-        {label}
-      </div>
-      <div className="text-[11px] mt-1 leading-snug" style={{ color: "#5A6B7A" }}>
-        {sub}
-      </div>
-    </div>
+      <span className="uppercase tracking-wider font-semibold">{label}</span>
+      <span className="font-mono font-semibold" style={{ color: "#1A2330" }}>{value}</span>
+    </span>
   )
 }
 
 export function HeadlineStrip({
   systemName,
   vpcId,
-  scoredAt,
+  narrative,
   kpis,
   isStale,
   fromStaleCache,
+  statsExpanded = false,
+  onToggleStats,
 }: Props) {
-  const scored = scoredAt ? new Date(scoredAt) : null
-  const scoredIso = scored ? scored.toISOString().replace(/\.\d+Z$/, "Z") : "—"
-
-  const typeBreakdown = Object.entries(kpis.workloads_by_type)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([t, v]) => `${t} ${v}`)
-    .join(" · ")
-
   const coverage = kpis.posture_coverage
-  const coveragePct = coverage.total > 0
-    ? Math.round((coverage.scored / coverage.total) * 100)
-    : 0
-  const coverageByType = Object.entries(coverage.by_type)
-    .filter(([, v]) => v.total > 0)
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([t, v]) => `${t} ${v.scored}/${v.total}`)
-    .join(" · ")
-
-  const freshness = kpis.posture_freshness
-  const freshnessNum = freshness.age_days !== null ? `${freshness.age_days}d` : "—"
+  const coveragePct =
+    coverage.total > 0 ? Math.round((coverage.scored / coverage.total) * 100) : 0
 
   return (
     <header
-      className="px-9 pt-6 pb-7 border-b-2"
+      className="px-6 pt-5 pb-4 border-b-2"
       style={{ background: "#F4F6F8", borderColor: "#00C2A8" }}
     >
-      <div className="flex items-start justify-between mb-5">
-        <div>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div className="min-w-0 flex-1">
           <div
             className="text-[11px] tracking-[0.18em] uppercase font-semibold"
             style={{ color: "#00C2A8" }}
@@ -112,67 +57,42 @@ export function HeadlineStrip({
             Estate · Topology v0.2 · {systemName}
           </div>
           <div
-            className="text-[24px] mt-1"
-            style={{ fontFamily: "Georgia, serif", color: "#1A2330" }}
+            className="text-[18px] md:text-[20px] mt-2 leading-snug font-medium"
+            style={{ color: "#1A2330" }}
           >
-            Estate overview
+            {narrative.title}
+          </div>
+          <div className="text-[11px] mt-2 leading-relaxed" style={{ color: "#5A6B7A" }}>
+            {narrative.provenance}
+            {vpcId ? ` · VPC ${vpcId}` : ""}
+            {isStale ? " · cached locally" : ""}
+            {fromStaleCache ? " · backend timeout — serving stale" : ""}
           </div>
         </div>
-        <div className="text-right text-[11px] flex flex-col gap-1" style={{ color: "#5A6B7A" }}>
-          {vpcId && <div>VPC · {vpcId}</div>}
-          <div>scored {scoredIso}</div>
-          {isStale && <div style={{ color: "#F5A623" }}>cached locally</div>}
-          {fromStaleCache && (
-            <div style={{ color: "#F5A623" }}>backend timeout — serving stale</div>
-          )}
-        </div>
+        {onToggleStats ? (
+          <button
+            type="button"
+            onClick={onToggleStats}
+            className="shrink-0 text-[10px] uppercase tracking-wider font-semibold px-2 py-1 rounded border hover:bg-white"
+            style={{ borderColor: "#CBD5E1", color: "#5A6B7A" }}
+          >
+            {statsExpanded ? "Hide stats" : "System stats"}
+          </button>
+        ) : null}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Tile
-          num={kpis.workloads_total}
-          label="Workloads"
-          sub={typeBreakdown || "—"}
-        />
-        <Tile
-          num={kpis.flagged_count}
-          label="Flagged"
-          sub="posture_verdict_priority ≤ 3 (worst tier)"
-          variant={kpis.flagged_count > 0 ? "warn" : "neutral"}
-        />
-        <Tile
-          num={kpis.stale_workloads_count}
-          label="Stale workloads"
-          sub="aws_exists = false"
-          variant={kpis.stale_workloads_count > 0 ? "amber" : "neutral"}
-        />
-        <Tile
-          num={
-            <>
-              {coverage.scored}
-              <span className="text-base" style={{ color: "#5A6B7A" }}> / {coverage.total}</span>
-            </>
-          }
-          label="Posture coverage"
-          sub={
-            <>
-              {coveragePct}% scored
-              {coverageByType && <span className="block text-[10px] mt-1">{coverageByType}</span>}
-            </>
-          }
-          variant={coverage.scored < coverage.total ? "warn" : "neutral"}
-        />
-        <Tile
-          num={freshnessNum}
-          label="Posture freshness"
-          sub={
-            freshness.is_fresh
-              ? `threshold ${freshness.threshold_days}d`
-              : freshness.auto_resolves_when
-          }
-          variant={freshness.is_fresh ? "neutral" : "amber"}
-        />
-      </div>
+      {statsExpanded ? (
+        <div className="flex flex-wrap gap-2">
+          <StatPill label="Workloads" value={kpis.workloads_total} />
+          <StatPill label="Flagged" value={kpis.flagged_count} />
+          <StatPill label="Stale" value={kpis.stale_workloads_count} />
+          <StatPill label="Coverage" value={`${coverage.scored}/${coverage.total} (${coveragePct}%)`} />
+          <StatPill
+            label="Freshness"
+            value={kpis.posture_freshness.age_days != null ? `${kpis.posture_freshness.age_days}d` : "—"}
+          />
+        </div>
+      ) : null}
     </header>
   )
 }
