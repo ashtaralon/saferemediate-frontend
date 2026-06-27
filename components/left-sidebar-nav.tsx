@@ -138,6 +138,7 @@ export function LeftSidebarNav({
     // The route id stays "dependency-map" for URL stability (it's the route
     // path); only the operator-facing label changes.
     { id: "dependency-map", label: "Observed-First Map", icon: Map, href: "/dependency-map?system=alon-prod" },
+    { id: "network-lp", label: "Network LP", icon: Network, href: "/network-lp" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },
     { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
@@ -286,7 +287,7 @@ export function LeftSidebarNav({
           // shared-roles + shared-sgs removed 2026-06-02 — their sidebar
           // entries were cut and the legacy URLs redirect to
           // /shared-resources via next.config.js.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "dependency-map", "shared-resources"])
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "dependency-map", "shared-resources", "network-lp"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button

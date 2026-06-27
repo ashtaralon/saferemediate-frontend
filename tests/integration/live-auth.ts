@@ -1,4 +1,5 @@
-import type { APIRequestContext, BrowserContext, Playwright } from "@playwright/test"
+import type { APIRequestContext, BrowserContext } from "@playwright/test"
+import type { Playwright } from "playwright"
 
 /** Base URL for live integration specs (local dev or cyntro.io). */
 export function liveBaseUrl(): string {
