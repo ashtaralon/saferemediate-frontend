@@ -692,6 +692,15 @@ export interface IdentityAttackPath {
   // Graph damage taxonomy from the materialized node — read/write/
   // delete/admin. Source of truth for the damage chip when present.
   damage_types?: string[]
+  // Sprint 0 impact taxonomy (additive; backend PR 1 @ 0fa11f73).
+  // See docs/specs/sprint_0_damage_taxonomy.md and impact_taxonomy.py.
+  // Absent on old materializations until backfill runs; FE falls back
+  // to legacy damage_types when these aren't set.
+  impact_buckets?: string[]
+  impact_headline?: string
+  impact_confidence?: "HIGH" | "MEDIUM" | "LOW"
+  impact_reasons_json?: string  // JSON-encoded list of {action,bucket,confidence}
+  impact_taxonomy_version?: string
   // Gates + status of the backing node (drives the evidence summary).
   materialized_path?: MaterializedPathSummary | null
 }

@@ -31,6 +31,10 @@ import {
 } from "./effective-damage-matrix"
 import { friendlyResourceName } from "./friendly-names"
 import type {
+  HeadlineTag,
+  ImpactBucket,
+  ImpactConfidence,
+  ImpactReason,
   InitialAccessCategoryLite,
   PathListRow,
   PathObservedE2EClass,
@@ -232,6 +236,95 @@ function narrowCategory(
 }
 
 // =============================================================================
+// Sprint 0 impact-taxonomy compilation — read backend-written fields,
+// fall back conservatively to legacy damage_types-derived buckets.
+// =============================================================================
+
+const VALID_BUCKETS: ReadonlySet<ImpactBucket> = new Set<ImpactBucket>([
+  "READ", "WRITE", "EXFIL",
+  "DESTRUCTIVE", "PRIV_ESC", "PERSISTENCE",
+  "EVASION", "SECRET_EXPOSURE", "EXECUTION", "UNKNOWN",
+])
+
+const VALID_HEADLINES: ReadonlySet<HeadlineTag> = new Set<HeadlineTag>([
+  "CATASTROPHIC", "TAKEOVER", "SECRET LEAK", "DATA BREACH",
+  "DESTRUCTIVE ACCESS", "EVASION ENABLED", "EXPOSURE", "CONFIGURED RISK",
+])
+
+// Conservative legacy→new mapping for paths the backfill hasn't reached yet.
+// Honors feedback_no_frontend_synthesis — we don't guess PRIV_ESC vs PERSISTENCE
+// from "admin"; we mark it UNKNOWN so the chip reads honestly.
+const LEGACY_BUCKET_MAP: Record<string, ImpactBucket> = {
+  read: "READ",
+  write: "WRITE",
+  delete: "DESTRUCTIVE",
+  admin: "UNKNOWN",
+  encrypt: "WRITE",
+  corrupt: "DESTRUCTIVE",
+  exfiltrate: "EXFIL",
+  unauthorized_grant: "UNKNOWN",
+}
+
+function compileImpactBuckets(path: IdentityAttackPath): ImpactBucket[] {
+  // Prefer backend-written field when present.
+  const fromBackend = path.impact_buckets
+  if (fromBackend && fromBackend.length > 0) {
+    const valid = fromBackend.filter((b): b is ImpactBucket =>
+      VALID_BUCKETS.has(b as ImpactBucket),
+    )
+    if (valid.length > 0) return valid
+  }
+  // Legacy fallback — conservative mapping; "admin" → UNKNOWN.
+  const legacy = path.damage_types ?? []
+  const mapped = new Set<ImpactBucket>()
+  for (const d of legacy) {
+    const bucket = LEGACY_BUCKET_MAP[d.toLowerCase()]
+    if (bucket) mapped.add(bucket)
+  }
+  if (mapped.size === 0) return ["UNKNOWN"]
+  return Array.from(mapped).sort()
+}
+
+function compileImpactHeadline(path: IdentityAttackPath): HeadlineTag {
+  const fromBackend = path.impact_headline
+  if (fromBackend && VALID_HEADLINES.has(fromBackend as HeadlineTag)) {
+    return fromBackend as HeadlineTag
+  }
+  // Legacy fallback — derive a conservative headline from the buckets.
+  // Never invents CATASTROPHIC / TAKEOVER / etc. — those need backend
+  // evidence (the per-verb reasons predicate).
+  return "CONFIGURED RISK"
+}
+
+function compileImpactConfidence(path: IdentityAttackPath): ImpactConfidence {
+  const fromBackend = path.impact_confidence
+  if (fromBackend === "HIGH" || fromBackend === "MEDIUM" || fromBackend === "LOW") {
+    return fromBackend
+  }
+  // Legacy fallback — paths without the new taxonomy carry no confidence
+  // signal. Default to LOW (safer; doesn't claim trust we don't have).
+  return "LOW"
+}
+
+function compileImpactReasons(path: IdentityAttackPath): ImpactReason[] {
+  const raw = path.impact_reasons_json
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (r): r is ImpactReason =>
+        r && typeof r === "object" &&
+        typeof r.action === "string" &&
+        VALID_BUCKETS.has(r.bucket) &&
+        (r.confidence === "HIGH" || r.confidence === "MEDIUM" || r.confidence === "LOW"),
+    )
+  } catch {
+    return []
+  }
+}
+
+// =============================================================================
 // Public compile — one path → one row.
 // =============================================================================
 
@@ -266,5 +359,9 @@ export function compilePathListRow(
     stale_reason: path.stale_reason ?? null,
     damage_summary: compileDamageSummary(path),
     top_fix_label: compileTopFixLabel(path),
+    impact_buckets: compileImpactBuckets(path),
+    impact_headline: compileImpactHeadline(path),
+    impact_confidence: compileImpactConfidence(path),
+    impact_reasons: compileImpactReasons(path),
   }
 }

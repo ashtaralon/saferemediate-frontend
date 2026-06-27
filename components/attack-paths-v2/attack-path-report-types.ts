@@ -297,6 +297,43 @@ export interface NarrationJson {
 /** Evidence-of-real-traffic class for a path. Phase A of #58. */
 export type PathObservedE2EClass = "live_exfil" | "recon" | "capability"
 
+// =============================================================================
+// Sprint 0 impact taxonomy (PR 1 backend writer @ 0fa11f73, PR 2 FE reader).
+// =============================================================================
+// Backend writes these on every (:AttackPath) node alongside the legacy
+// damage_types. See docs/specs/sprint_0_damage_taxonomy.md (backend repo)
+// and unified/materialization/impact_taxonomy.py for the verb→bucket table.
+
+export type ImpactBucket =
+  | "READ"
+  | "WRITE"
+  | "EXFIL"
+  | "DESTRUCTIVE"
+  | "PRIV_ESC"
+  | "PERSISTENCE"
+  | "EVASION"
+  | "SECRET_EXPOSURE"
+  | "EXECUTION"
+  | "UNKNOWN"
+
+export type HeadlineTag =
+  | "CATASTROPHIC"
+  | "TAKEOVER"
+  | "SECRET LEAK"
+  | "DATA BREACH"
+  | "DESTRUCTIVE ACCESS"
+  | "EVASION ENABLED"
+  | "EXPOSURE"
+  | "CONFIGURED RISK"
+
+export type ImpactConfidence = "HIGH" | "MEDIUM" | "LOW"
+
+export interface ImpactReason {
+  action: string
+  bucket: ImpactBucket
+  confidence: ImpactConfidence
+}
+
 export interface PathListRow {
   /** Path id — used for selection + React keys. Matches `IdentityAttackPath.id`. */
   id: string
@@ -367,6 +404,33 @@ export interface PathListRow {
 
   /** Top recommended fix label (capped at 72 chars) or "—". */
   top_fix_label: string
+
+  // ---- Sprint 0 impact taxonomy --------------------------------------------
+  // Backend writes these on every (:AttackPath) — additive, legacy
+  // damage_summary above kept for one release while consumers migrate.
+
+  /** Orthogonal impact buckets (e.g. ["DESTRUCTIVE", "READ", "WRITE"]).
+   *  Each chip is rendered by impact-chip-row.tsx with the path-level
+   *  confidence dot. Falls back to legacy damage_types-derived buckets
+   *  when the backend hasn't written impact_buckets yet. */
+  impact_buckets: ImpactBucket[]
+
+  /** Composite one-tag headline ("CATASTROPHIC", "DESTRUCTIVE ACCESS", etc.).
+   *  See spec §3 for the priority rules. Falls back to "CONFIGURED RISK"
+   *  when the backend hasn't written impact_headline. */
+  impact_headline: HeadlineTag
+
+  /** Path-level confidence = min of chip confidences. HIGH = literal-ARN
+   *  policy scope + no conditions. MEDIUM = wildcards or conditions.
+   *  LOW = service skips scope filter (KMS/DDB today) or wildcard
+   *  Resource. */
+  impact_confidence: ImpactConfidence
+
+  /** Per-verb evidence breakdown — present when backend wrote it. Sprint 0
+   *  does not render this (drawer is PR 3 follow-up). Kept on the row so
+   *  the headline derivation predicate has access to verb-level service
+   *  info (e.g. TAKEOVER vs SECRET LEAK nuance — §3.1). */
+  impact_reasons: ImpactReason[]
 }
 
 /** Lightweight alias — we don't import the full

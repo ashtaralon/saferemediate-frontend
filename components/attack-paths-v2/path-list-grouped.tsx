@@ -37,6 +37,7 @@ import type {
   InitialAccessCategoryLite,
 } from "./attack-path-report-types"
 import { compilePathListRow } from "./compile-path-list-row"
+import { ImpactSummary } from "./impact-summary"
 
 interface PathListGroupedProps {
   // ActivePathList enforces at compile time that the caller passed
@@ -451,10 +452,10 @@ export function PathListGrouped({
                           <span className="text-muted-foreground">→</span>{" "}
                           <span className="text-muted-foreground">{row.target_label ?? "jewel"}</span>
                         </div>
+                        <div className="mt-1.5">
+                          <ImpactSummary row={row} />
+                        </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
-                          <span className="text-muted-foreground">
-                            Damage: <span className="text-foreground">{row.damage_summary}</span>
-                          </span>
                           {row.top_fix_label !== "—" && (
                             <span className="text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]" title={row.top_fix_label}>
                               → {row.top_fix_label}
