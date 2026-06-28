@@ -23,9 +23,18 @@ import {
   Diamond,
   Globe,
   Network,
+  Scissors,
   ShieldAlert,
   Zap,
 } from "lucide-react"
+import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import {
+  buildJewelPathIndex,
+  jewelPathMetaForNode,
+  pathCountLabel,
+  type DecisionRoutingSummary,
+  type FindingsSeveritySummary,
+} from "@/components/topology-v0-2/estate-enrichment"
 import type {
   IamRoleRollup,
   ScoreTier,
@@ -168,9 +177,20 @@ export interface EstateSystemViewProps {
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
   onShowNetwork: () => void
+  iapJewels?: CrownJewelSummary[]
+  findingsSummary?: FindingsSeveritySummary | null
+  decisionRouting?: DecisionRoutingSummary | null
 }
 
-export function EstateSystemView({ data, selectedNodeId, onSelectNode, onShowNetwork }: EstateSystemViewProps) {
+export function EstateSystemView({
+  data,
+  selectedNodeId,
+  onSelectNode,
+  onShowNetwork,
+  iapJewels = [],
+  findingsSummary = null,
+  decisionRouting = null,
+}: EstateSystemViewProps) {
   const nodes = data.nodes ?? []
   const roles = data.vpc_topology?.iam_roles ?? []
   const kpis = data.system_kpis
@@ -204,6 +224,8 @@ export function EstateSystemView({ data, selectedNodeId, onSelectNode, onShowNet
     [roles],
   )
 
+  const jewelPathIndex = useMemo(() => buildJewelPathIndex(iapJewels), [iapJewels])
+
   const computeCount = kpis ? Object.entries(kpis.workloads_by_type).reduce((s, [, v]) => s + v, 0) : nodes.length
   const flagged = kpis?.flagged_count ?? 0
   const typeSummary = kpis
@@ -215,10 +237,23 @@ export function EstateSystemView({ data, selectedNodeId, onSelectNode, onShowNet
     : ""
 
   const jewelLine = (n: TopologyNode) => {
+    const pathMeta = jewelPathMetaForNode(n, jewelPathIndex)
+    const pathPart = pathMeta ? pathCountLabel(pathMeta) : null
     const acc = n.observed_source_count
     const edges = n.observed_edge_count
-    if (acc != null && acc > 0) return <span style={{ color: SLATE }}>{acc} sources · {edges ?? 0} accesses</span>
-    return <span style={{ color: SLATE }}>no observed access</span>
+    const accessPart =
+      acc != null && acc > 0
+        ? `${acc} sources · ${edges ?? 0} accesses`
+        : "no observed access"
+    if (pathPart && pathPart !== "0 attack paths") {
+      return (
+        <span style={{ color: SLATE }}>
+          {pathPart}
+          {accessPart !== "no observed access" ? ` · ${accessPart}` : ""}
+        </span>
+      )
+    }
+    return <span style={{ color: SLATE }}>{pathPart ?? accessPart}</span>
   }
 
   const workloadRoleLine = (n: TopologyNode): string | undefined => {
@@ -227,6 +262,15 @@ export function EstateSystemView({ data, selectedNodeId, onSelectNode, onShowNet
     if (r.gap_percentage != null) return `${r.name} · ${Math.round(r.gap_percentage)}% gap`
     if (r.unused_actions > 0 || r.allowed_actions > 0) return `${r.name} · ${r.unused_actions}/${r.allowed_actions} unused`
     return r.name
+  }
+
+  const jewelLine2 = (n: TopologyNode): string | undefined => {
+    const meta = jewelPathMetaForNode(n, jewelPathIndex)
+    const type = n.type ?? "?"
+    if (meta && !meta.paths_not_computed && (meta.path_count ?? 0) > 0) {
+      return `${type} · ${pathCountLabel(meta)}`
+    }
+    return type
   }
 
   return (
@@ -261,7 +305,7 @@ export function EstateSystemView({ data, selectedNodeId, onSelectNode, onShowNet
                 selected={n.id === selectedNodeId}
                 onSelect={onSelectNode}
                 accent={TIER[n.score?.tier ?? "QUIET"].fg}
-                line2={n.type ?? undefined}
+                line2={jewelLine2(n)}
                 line3={jewelLine(n)}
               />
             ))}
@@ -374,6 +418,53 @@ export function EstateSystemView({ data, selectedNodeId, onSelectNode, onShowNet
               />
             ))}
           </div>
+        )}
+      </Lane>
+
+      <Lane
+        icon={<Scissors className="h-4 w-4" />}
+        title="Findings & recommended cuts"
+        subtitle="open SecurityFindings — severity and execution readiness"
+      >
+        {findingsSummary?.error ? (
+          <div className="text-[12px] italic" style={{ color: SLATE }}>Findings summary unavailable.</div>
+        ) : findingsSummary && typeof findingsSummary.total === "number" ? (
+          <div className="rounded-md p-3" style={{ background: "#F4F6F8", border: `0.5px solid ${HAIR}` }}>
+            <div className="flex flex-wrap gap-3 text-[11px]">
+              <span><span className="font-semibold" style={{ color: INK }}>{findingsSummary.total}</span> open</span>
+              {(findingsSummary.critical ?? 0) > 0 ? (
+                <span style={{ color: "#B91C1C" }}>{findingsSummary.critical} critical</span>
+              ) : null}
+              {(findingsSummary.high ?? 0) > 0 ? (
+                <span style={{ color: "#C2410C" }}>{findingsSummary.high} high</span>
+              ) : null}
+              {(findingsSummary.medium ?? 0) > 0 ? (
+                <span style={{ color: "#92500B" }}>{findingsSummary.medium} medium</span>
+              ) : null}
+              {(findingsSummary.low ?? 0) > 0 ? (
+                <span style={{ color: SLATE }}>{findingsSummary.low} low</span>
+              ) : null}
+            </div>
+            {decisionRouting && !decisionRouting.error ? (
+              <div className="mt-2 pt-2 border-t text-[11px]" style={{ borderColor: HAIR, color: SLATE }}>
+                {decisionRouting.scored_count != null ? (
+                  <span>
+                    Scored top {decisionRouting.scored_count}
+                    {decisionRouting.total_findings != null ? ` of ${decisionRouting.total_findings}` : ""} findings
+                  </span>
+                ) : null}
+                {decisionRouting.by_decision_total ? (
+                  <span className="ml-2">
+                    · {(decisionRouting.by_decision_total.AUTO_EXECUTE ?? 0) + (decisionRouting.by_decision_total.CANARY_FIRST ?? 0)} ready to cut
+                    · {decisionRouting.by_decision_total.MANUAL_REVIEW ?? 0} manual review
+                    · {decisionRouting.blocked_total ?? decisionRouting.by_decision_total.BLOCK ?? 0} blocked
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-[12px] italic" style={{ color: SLATE }}>Loading findings…</div>
         )}
       </Lane>
 

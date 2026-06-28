@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
+import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
@@ -22,6 +23,11 @@ import {
   buildRankedEntries,
 } from "@/components/topology-v0-2/headline-narrative"
 import { RankedRail } from "@/components/topology-v0-2/ranked-rail"
+import type {
+  DecisionRoutingSummary,
+  FindingsSeveritySummary,
+} from "@/components/topology-v0-2/estate-enrichment"
+import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 
 export interface EstateMapViewProps {
@@ -118,6 +124,32 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
       ),
     [data?.nodes, data?.vpc_topology?.iam_roles],
   )
+
+  const iapUrl = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+  const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
+    cacheKey: `estate-iap:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000,
+    fetchInit: { cache: "no-store" },
+  })
+  const iapJewels: CrownJewelSummary[] = useMemo(() => {
+    if (!rawIap) return []
+    const body = isTrustEnvelope(rawIap) ? rawIap.result : rawIap
+    return (body as { crown_jewels?: CrownJewelSummary[] })?.crown_jewels ?? []
+  }, [rawIap])
+
+  const findingsUrl = `/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`
+  const { data: findingsSummary } = useCachedFetch<FindingsSeveritySummary>(findingsUrl, {
+    cacheKey: `estate-findings:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000,
+    fetchInit: { cache: "no-store" },
+  })
+
+  const routingUrl = `/api/proxy/findings/decision-routing?limit=15&system_name=${encodeURIComponent(systemName)}`
+  const { data: decisionRouting } = useCachedFetch<DecisionRoutingSummary>(routingUrl, {
+    cacheKey: `estate-routing:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000,
+    fetchInit: { cache: "no-store" },
+  })
 
   const outerClass = embedded ? "w-full" : "min-h-screen"
 
@@ -281,6 +313,9 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
                     setHighlightedRoleName(null)
                   }}
                   onShowNetwork={() => setView("network")}
+                  iapJewels={iapJewels}
+                  findingsSummary={findingsSummary}
+                  decisionRouting={decisionRouting}
                 />
               ) : !mapEnlarged ? (
                 renderMap(false)
