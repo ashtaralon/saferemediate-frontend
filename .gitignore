@@ -18,6 +18,7 @@ node_modules
 # misc
 .claude/
 .DS_Store
+**/.DS_Store
 *.pem
 
 # debug
