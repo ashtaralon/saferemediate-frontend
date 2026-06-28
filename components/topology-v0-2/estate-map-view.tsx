@@ -4,12 +4,12 @@
  * Topology v0.2 — Estate view, reusable + system-scoped.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
-import { EstateSystemView } from "@/components/topology-v0-2/estate-system-view"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
   applyFilters,
@@ -29,6 +29,17 @@ import type {
 } from "@/components/topology-v0-2/estate-enrichment"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
+import { createMap } from "@/components/topology-v0-2/native-map"
+
+const EstateSystemView = dynamic(
+  () => import("./estate-system-view").then(m => ({ default: m.EstateSystemView })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-8 text-sm" style={{ color: "#5A6B7A" }}>Loading inventory…</div>
+    ),
+  },
+)
 
 export interface EstateMapViewProps {
   systemName: string
@@ -43,7 +54,7 @@ const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"]
 function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   const subnets = data.vpc_topology?.subnets ?? []
   if (subnets.length === 0) return false
-  const subnetById = new Map(subnets.map((s) => [s.id, s]))
+  const subnetById = createMap(subnets.map((s) => [s.id, s]))
   for (const n of data.nodes ?? []) {
     if (n.stale) continue
     if (n.type && EDGE_SERVICE_TYPES.has(n.type)) continue

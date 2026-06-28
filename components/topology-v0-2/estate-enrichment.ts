@@ -4,6 +4,7 @@
  */
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { TopologyNode } from "@/components/topology-v0-2/types"
+import { createMap } from "@/components/topology-v0-2/native-map"
 
 export interface FindingsSeveritySummary {
   total?: number

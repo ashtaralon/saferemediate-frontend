@@ -1,6 +1,21 @@
 import { describe, expect, test } from "vitest"
 import { normalizeIamRole, normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
+import { createMap } from "@/components/topology-v0-2/native-map"
 import type { IamRoleRollup, VpcTopology } from "@/components/topology-v0-2/types"
+
+describe("createMap", () => {
+  test("works when global Map name is shadowed by a non-constructor", () => {
+    const shadow = (() => "icon") as unknown as MapConstructor
+    const original = globalThis.Map
+    ;(globalThis as { Map: unknown }).Map = shadow
+    try {
+      const m = createMap([["a", 1] as const])
+      expect(m.get("a")).toBe(1)
+    } finally {
+      ;(globalThis as { Map: MapConstructor }).Map = original
+    }
+  })
+})
 
 describe("normalizeIamRole", () => {
   test("coerces missing attachment_modes before includes()", () => {

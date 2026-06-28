@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Zap,
 } from "lucide-react"
+import { createMap } from "./native-map"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import {
   buildJewelPathIndex,
@@ -229,10 +230,10 @@ export function EstateSystemView({
 
   const jewelPathIndex = useMemo(() => buildJewelPathIndex(iapJewels), [iapJewels])
 
-  const computeCount = kpis ? Object.entries(kpis.workloads_by_type).reduce((s, [, v]) => s + v, 0) : nodes.length
+  const computeCount = kpis ? Object.entries(kpis.workloads_by_type ?? {}).reduce((s, [, v]) => s + v, 0) : nodes.length
   const flagged = kpis?.flagged_count ?? 0
   const typeSummary = kpis
-    ? Object.entries(kpis.workloads_by_type)
+    ? Object.entries(kpis.workloads_by_type ?? {})
         .filter(([, v]) => v > 0)
         .sort((a, b) => b[1] - a[1])
         .map(([t, v]) => `${v} ${t}`)

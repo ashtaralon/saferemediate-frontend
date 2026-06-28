@@ -43,6 +43,7 @@ import {
   type VpcTopology,
 } from "./types"
 import { normalizeVpcTopology } from "./normalize-topology"
+import { createMap } from "./native-map"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -1271,7 +1272,7 @@ export function AwsFrame({
   }, [trafficEdgesList, nodes, vpceIds])
   // Index subnets and workloads by (az, tier).
   const { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs } = useMemo(() => {
-    const subnetById = new Map(topo.subnets.map(s => [s.id, s]))
+    const subnetById = createMap(topo.subnets.map(s => [s.id, s]))
     const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
     const edgeNodes: TopologyNode[] = []
     const serverlessNodes: TopologyNode[] = []

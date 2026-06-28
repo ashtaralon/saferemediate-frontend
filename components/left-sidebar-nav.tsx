@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon } from "lucide-react"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -137,7 +137,7 @@ export function LeftSidebarNav({
     // "Observed-First Map". Renamed here to stop the drift before it spreads.
     // The route id stays "dependency-map" for URL stability (it's the route
     // path); only the operator-facing label changes.
-    { id: "dependency-map", label: "Observed-First Map", icon: Map, href: "/dependency-map?system=alon-prod" },
+    { id: "dependency-map", label: "Observed-First Map", icon: MapIcon, href: "/dependency-map?system=alon-prod" },
     { id: "network-lp", label: "Network LP", icon: Network, href: "/network-lp" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },

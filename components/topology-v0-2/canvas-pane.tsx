@@ -20,6 +20,7 @@ import {
   SIGNAL_LABEL,
   type TopologyNode,
 } from "./types"
+import { createMap } from "./native-map"
 
 interface Props {
   vpcId: string | null
