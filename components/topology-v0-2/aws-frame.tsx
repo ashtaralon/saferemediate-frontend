@@ -68,6 +68,42 @@ const EDGE_SERVICE_TYPES = new Set([
   "S3", "KMSKey", "DynamoDB", "DynamoDBTable", "Secret", "SecretsManagerSecret",
 ])
 const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
+const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
+  RDS: "data",
+  LoadBalancer: "web",
+  EC2: "app",
+}
+
+function regionPrefix(az: string | null | undefined): string | null {
+  if (!az) return null
+  const i = az.lastIndexOf("-")
+  return i > 0 ? az.slice(0, i) : null
+}
+
+/** Primary region from real VPC subnets — used to drop cross-region demo scaffold. */
+function primaryRegionFromSubnets(subnets: SubnetMeta[], vpcId: string | null): string | null {
+  for (const s of subnets) {
+    if (vpcId && s.vpc_id === vpcId && s.az) return regionPrefix(s.az)
+  }
+  for (const s of subnets) {
+    if (s.vpc_id && s.az) return regionPrefix(s.az)
+  }
+  return null
+}
+
+function subnetInCanvasScope(
+  s: SubnetMeta,
+  vpcId: string | null,
+  primaryRegion: string | null,
+): boolean {
+  if (!s.az) return false
+  if (vpcId && s.vpc_id && s.vpc_id !== vpcId) return false
+  if (vpcId && !s.vpc_id && primaryRegion) {
+    const prefix = regionPrefix(s.az)
+    if (prefix && prefix !== primaryRegion) return false
+  }
+  return true
+}
 
 // Friendly metadata for the VPCE boundary chips. The AWS service-name
 // suffix (e.g. "com.amazonaws.eu-west-1.s3" → "s3") maps to a label,
@@ -479,9 +515,27 @@ function SubnetCell({
       </div>
 
       {empty ? (
+        workloadsHere.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-[10px] italic" style={{ color: PAL.slate }}>
+              subnet not resolved · placed by type
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {workloadsHere.map(n => (
+                <WorkloadChip
+                  key={n.id}
+                  node={n}
+                  selected={n.id === selectedNodeId}
+                  onClick={() => onSelect(n.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
         <div className="text-[11px] italic" style={{ color: PAL.slate }}>
           no {tier} subnet observed in {az}
         </div>
+        )
       ) : (
         <>
           <div className={compact ? "space-y-0.5 mb-1" : "space-y-0.5 mb-2"}>
@@ -839,6 +893,64 @@ function TrafficFlowBand({
   )
 }
 
+function UnplacedComputeStrip({
+  nodes,
+  selectedNodeId,
+  onSelect,
+  roleForWorkload,
+}: {
+  nodes: TopologyNode[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
+}) {
+  if (nodes.length === 0) return null
+  return (
+    <div className="flex gap-0">
+      <div
+        className="rounded-l-md flex items-center justify-center shrink-0"
+        style={{
+          background: "#64748B",
+          color: "white",
+          width: "44px",
+          writingMode: "vertical-rl",
+          transform: "rotate(180deg)",
+          fontSize: "9px",
+          fontWeight: 700,
+          letterSpacing: "0.14em",
+        }}
+      >
+        UNPLACED
+      </div>
+      <div
+        className="rounded-r-md p-2.5 flex-1"
+        style={{ background: "#F1F5F9", border: "1.5px dashed #94A3B8" }}
+      >
+        <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
+          Compute without subnet placement ({nodes.length})
+        </div>
+        <div className="text-[10px] mb-2" style={{ color: PAL.slate }}>
+          Lambdas with no VPC/subnet in the graph, plus RDS/ALB not yet linked to a subnet. Inventory still lists them; this row keeps them visible on the map.
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {nodes.map(n => {
+            const role = roleForWorkload?.(n.id)
+            return (
+              <WorkloadChip
+                key={n.id}
+                node={n}
+                selected={n.id === selectedNodeId}
+                onClick={() => onSelect(n.id)}
+                iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
+              />
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DiagnosticsAccordion({
   serverlessCount,
   staleCount,
@@ -850,7 +962,7 @@ function DiagnosticsAccordion({
   trafficCount: number
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(serverlessCount > 0 || staleCount > 0)
   const summary = [
     serverlessCount > 0 ? `${serverlessCount} serverless` : null,
     staleCount > 0 ? `${staleCount} stale` : null,
@@ -1271,26 +1383,58 @@ export function AwsFrame({
     })
   }, [trafficEdgesList, nodes, vpceIds])
   // Index subnets and workloads by (az, tier).
-  const { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs } = useMemo(() => {
-    const subnetById = createMap(topo.subnets.map(s => [s.id, s]))
+  const primaryRegion = useMemo(
+    () => primaryRegionFromSubnets(topo.subnets, topo.vpc_id),
+    [topo.subnets, topo.vpc_id],
+  )
+  const { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes, populatedAzs } = useMemo(() => {
+    const scopedSubnets = topo.subnets.filter(s =>
+      subnetInCanvasScope(s, topo.vpc_id, primaryRegion),
+    )
+    const subnetById = createMap(scopedSubnets.map(s => [s.id, s]))
     const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
     const edgeNodes: TopologyNode[] = []
     const serverlessNodes: TopologyNode[] = []
+    const unplacedNodes: TopologyNode[] = []
     const staleNodes: TopologyNode[] = []
+
+    const pickSyntheticAz = (tier: SubnetTier): string | null => {
+      const tierSubnet = scopedSubnets.find(s => s.tier === tier && s.az)
+      if (tierSubnet?.az) return tierSubnet.az
+      const any = scopedSubnets.find(s => s.az)
+      if (any?.az) return any.az
+      return [...byAzAndTier.keys()][0] ?? null
+    }
+
+    const placeInTier = (n: TopologyNode, az: string, tier: SubnetTier) => {
+      const azMap = byAzAndTier.get(az) ?? new Map<SubnetTier, TopologyNode[]>()
+      const cell = azMap.get(tier) ?? []
+      cell.push(n)
+      azMap.set(tier, cell)
+      byAzAndTier.set(az, azMap)
+    }
 
     for (const n of nodes) {
       if (n.stale) { staleNodes.push(n); continue }
       if (n.type && EDGE_SERVICE_TYPES.has(n.type)) { edgeNodes.push(n); continue }
       const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
-      if (!sub || !sub.az) {
-        if (n.type && SERVERLESS_TYPES.has(n.type)) serverlessNodes.push(n)
+      if (sub?.az) {
+        placeInTier(n, sub.az, sub.tier)
         continue
       }
-      const azMap = byAzAndTier.get(sub.az) ?? new Map<SubnetTier, TopologyNode[]>()
-      const cell = azMap.get(sub.tier) ?? []
-      cell.push(n)
-      azMap.set(sub.tier, cell)
-      byAzAndTier.set(sub.az, azMap)
+      if (n.type && SERVERLESS_TYPES.has(n.type)) {
+        serverlessNodes.push(n)
+        continue
+      }
+      const syntheticTier = n.type ? SYNTHETIC_TIER_TYPES[n.type] : undefined
+      if (syntheticTier) {
+        const az = pickSyntheticAz(syntheticTier)
+        if (az) {
+          placeInTier(n, az, syntheticTier)
+          continue
+        }
+      }
+      unplacedNodes.push(n)
     }
 
     for (const azMap of byAzAndTier.values()) {
@@ -1300,50 +1444,42 @@ export function AwsFrame({
     }
     edgeNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
     serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+    unplacedNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
 
-    // AZ collapse: only AZs that contain at least one workload AND are in
-    // the system's primary VPC. The "primary VPC" filter drops the
-    // us-east-1 demo subnets that belong to a different VPC entirely.
-    const populatedAzs = new Set<string>([...byAzAndTier.keys()])
-    return { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs }
-  }, [topo.subnets, nodes])
+    const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
+    const populatedAzs = new Set<string>([...byAzAndTier.keys(), ...scaffoldAzs])
+    return { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes, populatedAzs }
+  }, [topo.subnets, topo.vpc_id, primaryRegion, nodes])
 
   // Group subnets by (az, tier) for cell metadata. Skip subnets that don't
   // belong to the primary VPC (the topology-risk root vpc_id).
   const subnetsByCell = useMemo(() => {
     const m = new Map<string, SubnetMeta[]>()
     for (const s of topo.subnets) {
-      if (!s.az) continue
-      if (topo.vpc_id && s.vpc_id && s.vpc_id !== topo.vpc_id) continue
-      // Honest AZ filter: only render AZs that hold ≥1 placed workload OR
-      // a non-default-VPC subnet. This drops the alon-prod-* demo subnets
-      // in us-east-1 (no workloads) and the eu-west-1c default-VPC subnet
-      // (no workloads), keeping the canvas focused on the AZs that matter.
-      if (!populatedAzs.has(s.az)) continue
+      if (!subnetInCanvasScope(s, topo.vpc_id, primaryRegion)) continue
+      if (!populatedAzs.has(s.az!)) continue
       const k = `${s.az}::${s.tier}`
       const list = m.get(k) ?? []
       list.push(s)
       m.set(k, list)
     }
     return m
-  }, [topo.subnets, topo.vpc_id, populatedAzs])
+  }, [topo.subnets, topo.vpc_id, primaryRegion, populatedAzs])
+
+  const visibleUnplaced = useMemo(
+    () => [...serverlessNodes, ...unplacedNodes],
+    [serverlessNodes, unplacedNodes],
+  )
 
   const azs = [...populatedAzs].sort()
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
   const azHasWorkloads = useMemo(() => {
     const m = new Map<string, boolean>()
     for (const az of azs) {
-      let any = false
-      for (const tier of tiers) {
-        if ((byAzAndTier.get(az)?.get(tier) ?? []).length > 0) {
-          any = true
-          break
-        }
-      }
-      m.set(az, any)
+      m.set(az, true)
     }
     return m
-  }, [azs, byAzAndTier, tiers])
+  }, [azs])
   const azGridColumns = azs
     .map(az => (azHasWorkloads.get(az) ? "minmax(0, 1fr)" : "32px"))
     .join(" ")
@@ -1512,6 +1648,13 @@ export function AwsFrame({
                       </div>
                     ))}
 
+                    <UnplacedComputeStrip
+                      nodes={visibleUnplaced}
+                      selectedNodeId={selectedNodeId}
+                      onSelect={onSelect}
+                      roleForWorkload={roleForWorkload}
+                    />
+
                     {/* IAM control plane — 4th tier inside VPC (mockup tier.iam) */}
                     {iamRoles.length > 0 ? (
                       <div className="flex gap-0">
@@ -1651,20 +1794,20 @@ export function AwsFrame({
           Inline page keeps everything.  */}
       {!presentationMode && (
         <DiagnosticsAccordion
-          serverlessCount={serverlessNodes.length}
+          serverlessCount={visibleUnplaced.length}
           staleCount={staleNodes.length}
           trafficCount={visibleEdges.length}
         >
-          {serverlessNodes.length > 0 ? (
+          {visibleUnplaced.length > 0 ? (
             <div
               className="rounded-md p-3"
               style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}
             >
               <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
-                Serverless · outside VPC ({serverlessNodes.length})
+                Serverless · outside VPC ({visibleUnplaced.length})
               </div>
               <div className="flex flex-wrap gap-2">
-                {serverlessNodes.map(n => (
+                {visibleUnplaced.map(n => (
                   <WorkloadChip
                     key={n.id}
                     node={n}

@@ -79,6 +79,7 @@ export interface TopologyNode {
   name: string
   type: string | null
   subnet_id: string | null
+  vpc_id?: string | null
   score: NodeScore | null
   stale: { since: string | null; reason: string } | null
   is_jewel: boolean
@@ -119,6 +120,7 @@ export interface SubnetMeta {
   cidr: string | null
   tier: SubnetTier
   tier_source: "property" | "name" | "default_vpc_cidr" | "unknown"
+  vpc_id?: string | null
 }
 
 export interface EdgeIgw {

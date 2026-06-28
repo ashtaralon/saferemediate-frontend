@@ -74,8 +74,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
   const cacheKey = scopedVpc
-    ? `topology-risk:${systemName}:v4:${scopedVpc}`
-    : `topology-risk:${systemName}:v4:all`
+    ? `topology-risk:${systemName}:v5:${scopedVpc}`
+    : `topology-risk:${systemName}:v5:all`
   const url = scopedVpc
     ? `/api/proxy/topology-risk/${encodeURIComponent(systemName)}?vpc_id=${encodeURIComponent(scopedVpc)}`
     : `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
@@ -331,7 +331,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             ))}
           </select>
           <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
-            Inventory lists every tagged resource; the map scopes compute to the selected VPC plus regional S3/DynamoDB.
+            {selectedVpcId === "all"
+              ? "Merged view uses the primary VPC frame; all Lambdas/RDS without subnet placement appear in the Unplaced row on the map."
+              : "Inventory lists every tagged resource; subnet-linked compute appears in tier cells, the rest in Unplaced."}
           </span>
         </div>
       ) : null}
