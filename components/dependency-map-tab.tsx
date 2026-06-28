@@ -177,7 +177,7 @@ export default function DependencyMapTab({
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
-  const [activeView, setActiveView] = useState<ViewType>('graph')
+  const [activeView, setActiveView] = useState<ViewType>('estate')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'neo4j')
 
   // ── Crown Jewel Spotlight (2026-06-22) ───────────────────────────

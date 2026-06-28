@@ -4,7 +4,7 @@
  * Topology v0.2 — Estate view, reusable + system-scoped.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Minimize2 } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
@@ -77,9 +77,8 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
   const [mapEnlarged, setMapEnlarged] = useState(false)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  // Default to the risk-guided business-system view; subnet canvas is secondary.
-  const [view, setView] = useState<"system" | "network">("system")
 
+  const openSubnetMap = useCallback(() => setMapEnlarged(true), [])
   const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
 
   useEffect(() => {
@@ -260,66 +259,23 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
 
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 px-4 py-4 max-w-[1680px] mx-auto w-full">
         <main className="min-w-0 min-h-0 flex flex-col">
-          <div className="flex items-center gap-1.5 mb-3" role="tablist" aria-label="Estate map view">
-            {([
-              ["system", "System view"],
-              ["network", "Network placement"],
-            ] as const).map(([id, label]) => {
-              const active = view === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setView(id)}
-                  className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
-                  style={{
-                    borderColor: active ? "#00C2A8" : "#CBD5E1",
-                    background: active ? "#E6FBF7" : "#FFFFFF",
-                    color: active ? "#0E8B7A" : "#5A6B7A",
-                  }}
-                  data-testid={`topology-estate-view-${id}`}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
           <div className="relative flex-1 min-h-0">
-            {view === "network" ? (
-              <button
-                type="button"
-                onClick={() => setMapEnlarged(true)}
-                className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
-                style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
-                aria-label="Open map fullscreen"
-                data-testid="topology-estate-map-enlarge"
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-                Map fullscreen
-              </button>
-            ) : null}
             <div
               className="h-full overflow-auto rounded-2xl"
               style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
             >
-              {view === "system" ? (
-                <EstateSystemView
-                  data={data}
-                  selectedNodeId={selectedNodeId}
-                  onSelectNode={id => {
-                    setSelectedNodeId(id === selectedNodeId ? null : id)
-                    setHighlightedRoleName(null)
-                  }}
-                  onShowNetwork={() => setView("network")}
-                  iapJewels={iapJewels}
-                  findingsSummary={findingsSummary}
-                  decisionRouting={decisionRouting}
-                />
-              ) : !mapEnlarged ? (
-                renderMap(false)
-              ) : null}
+              <EstateSystemView
+                data={data}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={id => {
+                  setSelectedNodeId(id === selectedNodeId ? null : id)
+                  setHighlightedRoleName(null)
+                }}
+                onShowNetwork={openSubnetMap}
+                iapJewels={iapJewels}
+                findingsSummary={findingsSummary}
+                decisionRouting={decisionRouting}
+              />
             </div>
           </div>
         </main>

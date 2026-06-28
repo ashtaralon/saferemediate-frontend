@@ -274,7 +274,19 @@ export function EstateSystemView({
   }
 
   return (
-    <div className="rounded-2xl p-4" style={{ background: "#FFFFFF", border: `0.5px solid ${HAIR}` }}>
+    <div
+      className="rounded-2xl p-4"
+      style={{ background: "#FFFFFF", border: `0.5px solid ${HAIR}` }}
+      data-testid="topology-estate-system-view"
+    >
+      <div className="mb-4 pb-3 border-b" style={{ borderColor: HAIR }}>
+        <div className="text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: TEAL }}>
+          Risk-guided system inventory
+        </div>
+        <div className="text-[12px] mt-1" style={{ color: SLATE }}>
+          Workloads, crown jewels, and IAM gaps first — subnet map is supporting context only.
+        </div>
+      </div>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <div className="flex items-center gap-3 text-[11px]" style={{ color: SLATE }}>
           <span><span className="font-semibold" style={{ color: INK }}>{computeCount}</span> compute &amp; data</span>
@@ -480,7 +492,7 @@ export function EstateSystemView({
             <span className="text-[13px] font-semibold" style={{ color: SLATE }}>Network placement</span>
             <span className="text-[11px]" style={{ color: SLATE }}>VPC / subnet — supporting context for subnet-bound workloads</span>
           </div>
-          <span className="text-[11px] font-semibold" style={{ color: TEAL }}>Open subnet view →</span>
+          <span className="text-[11px] font-semibold" style={{ color: TEAL }}>Open subnet map (fullscreen) →</span>
         </div>
       </button>
     </div>
