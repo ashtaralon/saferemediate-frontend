@@ -54,7 +54,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
 }
 
 export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }: EstateMapViewProps) {
-  const cacheKey = `topology-risk:${systemName}:v2`
+  const cacheKey = `topology-risk:${systemName}:v3`
   const url = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
   const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
@@ -69,6 +69,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     if (!isStale && !data.fromStaleCache && !cachedAt) return
     poisonRetryRef.current = true
     clearCachedFetch(cacheKey)
+    clearCachedFetch(`topology-risk:${systemName}:v2`)
     clearCachedFetch(`topology-risk:${systemName}`)
     retry()
   }, [data, loading, isStale, cachedAt, retry, cacheKey, systemName])

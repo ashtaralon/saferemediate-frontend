@@ -42,6 +42,7 @@ import {
   type TrafficEdgeClass,
   type VpcTopology,
 } from "./types"
+import { normalizeVpcTopology } from "./normalize-topology"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -410,7 +411,7 @@ function WorkloadChip({
           }}
         >
           {iamSummary ? (
-            <span style={{ color: iamSummary.includes("0/0") || iamSummary.includes("clean") ? "#059669" : PAL.carmine }}>
+            <span style={{ color: iamSummary?.includes("0/0") || iamSummary?.includes("clean") ? "#059669" : PAL.carmine }}>
               IAM · {iamSummary}
             </span>
           ) : (
@@ -611,9 +612,8 @@ function IamRoleCard({
   const remediated = role.last_remediated_at
     ? new Date(role.last_remediated_at).toISOString().slice(0, 10)
     : null
-  // Backend may omit attachment_modes (and rarely workload_ids); guard .includes().
-  const workloadIds = role.workload_ids ?? []
-  const attachmentModes = role.attachment_modes ?? []
+  const workloadIds = Array.isArray(role.workload_ids) ? role.workload_ids : []
+  const attachmentModes = Array.isArray(role.attachment_modes) ? role.attachment_modes : []
   const consumers = allWorkloads.filter(w => workloadIds.includes(w.id))
   const isShared = workloadIds.length > 1
   return (
@@ -1236,15 +1236,16 @@ export function AwsFrame({
   onSelect,
   presentationMode = false,
 }: Props) {
+  const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
   // SG lookup for the SubnetCell groupings.
   const sgIndex = useMemo(() => {
     const m = new Map<string, SecurityGroupMeta>()
-    for (const sg of vpcTopology.security_groups ?? []) {
+    for (const sg of topo.security_groups ?? []) {
       m.set(sg.id, sg)
     }
     return m
-  }, [vpcTopology.security_groups])
-  const iamRoles = vpcTopology.iam_roles ?? []
+  }, [topo.security_groups])
+  const iamRoles = topo.iam_roles ?? []
   const roleForWorkload = useMemo(() => {
     const m = new Map<string, IamRoleRollup>()
     for (const role of iamRoles) {
@@ -1256,8 +1257,8 @@ export function AwsFrame({
   }, [iamRoles])
   const trafficEdgesList = trafficEdges ?? []
   const vpceIds = useMemo(
-    () => new Set((vpcTopology.edges.vpces ?? []).map(v => v.id)),
-    [vpcTopology.edges.vpces],
+    () => new Set((topo.edges.vpces ?? []).map(v => v.id)),
+    [topo.edges.vpces],
   )
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
@@ -1270,7 +1271,7 @@ export function AwsFrame({
   }, [trafficEdgesList, nodes, vpceIds])
   // Index subnets and workloads by (az, tier).
   const { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs } = useMemo(() => {
-    const subnetById = new Map(vpcTopology.subnets.map(s => [s.id, s]))
+    const subnetById = new Map(topo.subnets.map(s => [s.id, s]))
     const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
     const edgeNodes: TopologyNode[] = []
     const serverlessNodes: TopologyNode[] = []
@@ -1304,13 +1305,13 @@ export function AwsFrame({
     // us-east-1 demo subnets that belong to a different VPC entirely.
     const populatedAzs = new Set<string>([...byAzAndTier.keys()])
     return { byAzAndTier, edgeNodes, serverlessNodes, staleNodes, populatedAzs }
-  }, [vpcTopology.subnets, nodes])
+  }, [topo.subnets, nodes])
 
   // Group subnets by (az, tier) for cell metadata. Skip subnets that don't
   // belong to the primary VPC (the topology-risk root vpc_id).
   const subnetsByCell = useMemo(() => {
     const m = new Map<string, SubnetMeta[]>()
-    for (const s of vpcTopology.subnets) {
+    for (const s of topo.subnets) {
       if (!s.az) continue
       // Honest AZ filter: only render AZs that hold ≥1 placed workload OR
       // a non-default-VPC subnet. This drops the alon-prod-* demo subnets
@@ -1323,7 +1324,7 @@ export function AwsFrame({
       m.set(k, list)
     }
     return m
-  }, [vpcTopology.subnets, populatedAzs])
+  }, [topo.subnets, populatedAzs])
 
   const azs = [...populatedAzs].sort()
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
@@ -1344,10 +1345,10 @@ export function AwsFrame({
   const azGridColumns = azs
     .map(az => (azHasWorkloads.get(az) ? "minmax(0, 1fr)" : "32px"))
     .join(" ")
-  const hasIgw = vpcTopology.edges.igws.length > 0
-  const hasNats = vpcTopology.edges.nat_gws.length > 0
-  const hasVpces = vpcTopology.edges.vpces.length > 0
-  const accountSuffix = vpcTopology.account_id ? `· acct ${vpcTopology.account_id}` : ""
+  const hasIgw = topo.edges.igws.length > 0
+  const hasNats = topo.edges.nat_gws.length > 0
+  const hasVpces = topo.edges.vpces.length > 0
+  const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
 
   return (
@@ -1380,7 +1381,7 @@ export function AwsFrame({
         >
           <div className="text-xl">🌐</div>
           <div className="text-[10px] uppercase tracking-wider font-semibold">
-            {hasIgw ? `IGW · ${vpcTopology.edges.igws[0].name}` : "no IGW"}
+            {hasIgw ? `IGW · ${topo.edges.igws[0].name}` : "no IGW"}
           </div>
         </div>
       </div>
@@ -1406,7 +1407,7 @@ export function AwsFrame({
             className="absolute -top-2.5 left-4 px-2 text-[10px] uppercase tracking-[0.14em] font-semibold"
             style={{ background: PAL.cardBg, color: PAL.slate }}
           >
-            Region · {vpcTopology.region ?? "unknown"}
+            Region · {topo.region ?? "unknown"}
           </div>
 
           {/* VPC + edge rail flexbox */}
@@ -1420,17 +1421,17 @@ export function AwsFrame({
                 className="absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
                 style={{ background: PAL.cardBg, color: "#0E8B7A" }}
               >
-                VPC · {vpcTopology.vpc_id ?? "unknown"}
+                VPC · {topo.vpc_id ?? "unknown"}
               </div>
 
               {/* NAT GW perimeter band */}
               {hasNats && (
                 <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
                   <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
-                    NAT gateways ({vpcTopology.edges.nat_gws.length})
+                    NAT gateways ({topo.edges.nat_gws.length})
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {vpcTopology.edges.nat_gws.map(n => (
+                    {topo.edges.nat_gws.map(n => (
                       <span
                         key={n.id}
                         className="text-[10px] px-2 py-0.5 rounded-md"
@@ -1553,7 +1554,7 @@ export function AwsFrame({
                 className="flex flex-col gap-2 -mx-3 z-10 shrink-0 self-stretch justify-start pt-2"
                 style={{ width: "150px" }}
               >
-                {vpcTopology.edges.vpces.map(v => {
+                {topo.edges.vpces.map(v => {
                   const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
                   const tooltip = [
                     meta.label,

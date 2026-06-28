@@ -22,7 +22,7 @@ export interface EstateFilters {
 export function defaultFilters(kpis: SystemKpis | null): EstateFilters {
   const types = new Set<string>()
   if (kpis) {
-    for (const [t, v] of Object.entries(kpis.workloads_by_type)) {
+    for (const [t, v] of Object.entries(kpis.workloads_by_type ?? {})) {
       if (v > 0) types.add(t)
     }
   }
@@ -227,7 +227,7 @@ export function applyFilters(nodes: TopologyNode[], filters: EstateFilters): Top
     if (filters.includeUnscoredOnly && n.score) return false
     if (filters.includeStaleOnly) {
       if (!n.score) return false
-      if (n.score.confidence.tier === "FULL") return false
+      if (n.score.confidence?.tier === "FULL") return false
     }
 
     if (n.stale) return filters.tiers.has("STALE")

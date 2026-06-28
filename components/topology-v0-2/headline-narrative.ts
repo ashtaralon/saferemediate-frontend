@@ -80,7 +80,7 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
 
 function iamHeadline(role: IamRoleRollup, workloads: TopologyNode[]): { title: string; reason: string; meta: string } {
   const consumers = workloads
-    .filter(w => (role.workload_ids ?? []).includes(w.id))
+    .filter(w => (Array.isArray(role.workload_ids) ? role.workload_ids : []).includes(w.id))
     .map(w => w.name)
     .slice(0, 2)
   const consumerText = consumers.length > 0 ? consumers.join(", ") : "VPC-scoped attachment"

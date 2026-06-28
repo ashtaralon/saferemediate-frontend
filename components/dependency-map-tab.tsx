@@ -11,6 +11,7 @@ import { useCachedFetch } from '@/lib/use-cached-fetch'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 import { toCrownJewelSummary } from '@/lib/attack-paths/crown-jewel-v2-navigation'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -917,11 +918,13 @@ export default function DependencyMapTab({
             </div>
           </React.Suspense>
         ) : activeView === 'estate' ? (
-          <EstateMapView
-            systemName={systemName}
-            embedded
-            onOpenTrafficMap={() => setActiveView("graph")}
-          />
+          <ErrorBoundary componentName="Estate map">
+            <EstateMapView
+              systemName={systemName}
+              embedded
+              onOpenTrafficMap={() => setActiveView("graph")}
+            />
+          </ErrorBoundary>
         ) : (
           <ResourceView
             systemName={systemName}
