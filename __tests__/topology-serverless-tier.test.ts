@@ -54,4 +54,24 @@ describe("dedupeLambdaServiceTwins", () => {
       "standalone-fn",
     ])
   })
+
+  it("collapses many graph duplicates for the same function to one chip", () => {
+    const dupes = Array.from({ length: 30 }, (_, i) =>
+      node({
+        id: `stub-${i}`,
+        name: "SafeRemediate-BehaviorAnalyzer",
+        score: i === 0 ? { value: 42, tier: "ELEVATED", rank: 1, confidence: { value: 1, tier: "FULL", reasons: [] }, contributors: [] } : null,
+      }),
+    )
+    const canonical = node({
+      id: "arn:aws:lambda:eu-west-1:123:function:BehaviorAnalyzer",
+      name: "SafeRemediate-BehaviorAnalyzer",
+      score: { value: 80, tier: "HIGH", rank: 2, confidence: { value: 1, tier: "FULL", reasons: [] }, contributors: [] },
+    })
+    const out = dedupeLambdaServiceTwins([...dupes, canonical])
+    expect(out.filter(n => n.name === "SafeRemediate-BehaviorAnalyzer")).toHaveLength(1)
+    expect(out.find(n => n.name === "SafeRemediate-BehaviorAnalyzer")?.id).toBe(
+      "arn:aws:lambda:eu-west-1:123:function:BehaviorAnalyzer",
+    )
+  })
 })

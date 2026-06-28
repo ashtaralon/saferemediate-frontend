@@ -100,23 +100,53 @@ const RDS_TYPES = new Set(["RDS", "RDSInstance"])
 const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
 const LAMBDA_ARN_PREFIX = "arn:aws:lambda:"
 
+/** One chip per function — twins share display name even when ids/ARNs differ. */
+function lambdaFunctionKey(node: TopologyNode): string | null {
+  if (!node.type || !SERVERLESS_TYPES.has(node.type)) return null
+  return node.name
+}
+
+/** Prefer the node operators should trust: arn-keyed, live, scored. */
+function lambdaSurvivorRank(node: TopologyNode): number {
+  let rank = 0
+  if (node.id.startsWith(LAMBDA_ARN_PREFIX)) rank += 1_000
+  if (!node.stale) rank += 500
+  if (node.score?.value != null) rank += node.score.value
+  return rank
+}
+
 /**
- * BE-12 interim: drop arn-null Lambda `:Service` twins when an arn-keyed node
- * with the same name exists. Mirrors BE-8 / backend `_workload_not_legacy_service_stub`
- * but catches name-id twins the graph still returns with distinct ids.
+ * BE-12 interim: one canvas chip per logical Lambda function. Collapses
+ * arn-null :Service twins, duplicate ids, and any other graph drift that
+ * returns multiple nodes for the same function name/ARN.
  */
 export function dedupeLambdaServiceTwins(source: TopologyNode[]): TopologyNode[] {
-  const arnNames = new Set<string>()
+  const bestByKey = new Map<string, TopologyNode>()
+
   for (const n of source) {
-    if (n.type && SERVERLESS_TYPES.has(n.type) && n.id.startsWith(LAMBDA_ARN_PREFIX)) {
-      arnNames.add(n.name)
+    const key = lambdaFunctionKey(n)
+    if (!key) continue
+    const prev = bestByKey.get(key)
+    if (!prev || lambdaSurvivorRank(n) > lambdaSurvivorRank(prev)) {
+      bestByKey.set(key, n)
+      continue
+    }
+    if (
+      lambdaSurvivorRank(n) === lambdaSurvivorRank(prev)
+      && n.id.startsWith(LAMBDA_ARN_PREFIX)
+      && !prev.id.startsWith(LAMBDA_ARN_PREFIX)
+    ) {
+      bestByKey.set(key, n)
     }
   }
-  if (arnNames.size === 0) return source
+
+  if (bestByKey.size === 0) return source
+
+  const keptIds = new Set([...bestByKey.values()].map(n => n.id))
   return source.filter(n => {
-    if (!n.type || !SERVERLESS_TYPES.has(n.type)) return true
-    if (n.id.startsWith(LAMBDA_ARN_PREFIX)) return true
-    return !arnNames.has(n.name)
+    const key = lambdaFunctionKey(n)
+    if (!key) return true
+    return keptIds.has(n.id)
   })
 }
 
