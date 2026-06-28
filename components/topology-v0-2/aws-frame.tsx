@@ -1724,7 +1724,10 @@ export function AwsFrame({
     [allAzs, hiddenAzs],
   )
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
-  const azGridColumns = azs.map(() => "minmax(0, 1fr)").join(" ")
+  const azGridColumns = azs.map(() => "minmax(160px, 1fr)").join(" ")
+  /** Min width for VPC grid so side rail never compresses AZ columns into overlap. */
+  const vpcGridMinWidth =
+    azs.length > 0 ? Math.max(280, azs.length * 168 + 48) : 280
   const hasIgw = topo.edges.igws.length > 0
   const hasNats = topo.edges.nat_gws.length > 0
   const hasVpces = topo.edges.vpces.length > 0
@@ -1804,13 +1807,23 @@ export function AwsFrame({
             Region · {topo.region ?? "unknown"}
           </div>
 
-          {/* VPC + VPCE row; edge services sit below so AZ columns keep full width */}
-          <div className={presentationMode ? "flex flex-col gap-2 mt-2" : "flex flex-col gap-3 mt-3"}>
-            <div className="flex flex-wrap lg:flex-nowrap gap-2 items-start min-w-0">
+          {/* VPC · VPCE · edge rail — regional/serverless on the right (AWS canonical layout) */}
+          <div
+            className={
+              presentationMode
+                ? "flex flex-nowrap items-start gap-2 mt-2 min-w-0 overflow-x-auto pb-1"
+                : "flex flex-nowrap items-start gap-2 mt-3 min-w-0 overflow-x-auto pb-1"
+            }
+          >
             {/* VPC frame */}
             <div
-              className={presentationMode ? "flex-1 min-w-0 rounded-md p-3 relative" : "flex-1 min-w-0 rounded-md p-4 relative"}
-              style={{ background: PAL.cardBg, border: `2px solid #00C2A8` }}
+              className={presentationMode ? "rounded-md p-3 relative shrink-0" : "rounded-md p-4 relative shrink-0"}
+              style={{
+                background: PAL.cardBg,
+                border: `2px solid #00C2A8`,
+                minWidth: `${vpcGridMinWidth}px`,
+                flex: "1 1 auto",
+              }}
             >
               <div
                 className="absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
@@ -2024,30 +2037,25 @@ export function AwsFrame({
                 })}
               </div>
             )}
-            </div>
 
             {(serverlessTierNodes.length > 0 || regionalTierNodes.length > 0) ? (
               <div
-                className="flex flex-wrap gap-2 w-full min-w-0"
+                className="flex flex-col gap-2 shrink-0 w-[200px] max-w-[200px]"
                 data-testid="topology-edge-services-rail"
               >
-                <div className="flex-1 min-w-[min(100%,260px)]">
-                  <ServerlessComputeTier
-                    nodes={serverlessTierNodes}
-                    selectedNodeId={selectedNodeId}
-                    onSelect={onSelect}
-                    roleForWorkload={roleForWorkload}
-                    compact={presentationMode}
-                  />
-                </div>
-                <div className="flex-1 min-w-[min(100%,260px)]">
-                  <RegionalDataServicesTier
-                    nodes={regionalTierNodes}
-                    selectedNodeId={selectedNodeId}
-                    onSelect={onSelect}
-                    compact={presentationMode}
-                  />
-                </div>
+                <ServerlessComputeTier
+                  nodes={serverlessTierNodes}
+                  selectedNodeId={selectedNodeId}
+                  onSelect={onSelect}
+                  roleForWorkload={roleForWorkload}
+                  compact={presentationMode}
+                />
+                <RegionalDataServicesTier
+                  nodes={regionalTierNodes}
+                  selectedNodeId={selectedNodeId}
+                  onSelect={onSelect}
+                  compact={presentationMode}
+                />
               </div>
             ) : null}
           </div>

@@ -529,8 +529,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           {!compact ? (
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
               {selectedVpcId === "all"
-                ? "Merged view — full system node list; edge services below the subnet grid."
-                : "Subnet-linked compute in tier cells; regional/serverless below the grid."}
+                ? "Merged view — full system node list; Lambda/S3/DDB on the right edge rail."
+                : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
           ) : null}
         </div>
