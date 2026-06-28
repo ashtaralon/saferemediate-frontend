@@ -152,6 +152,8 @@ export function dedupeLambdaServiceTwins(source: TopologyNode[]): TopologyNode[]
   })
 }
 
+const TIER_SIDEBAR_WIDTH = { compact: "28px", normal: "32px" } as const
+
 const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
   LoadBalancer: "web",
   EC2: "app",
@@ -1056,46 +1058,31 @@ function ServerlessComputeTier({
 }) {
   if (nodes.length === 0) return null
   return (
-    <div className="flex gap-0" data-testid="topology-serverless-tier">
-      <div
-        className="rounded-l-md flex items-center justify-center shrink-0"
-        style={{
-          background: "#4338CA",
-          color: "white",
-          width: compact ? "36px" : "44px",
-          writingMode: "vertical-rl",
-          transform: "rotate(180deg)",
-          fontSize: "8px",
-          fontWeight: 700,
-          letterSpacing: "0.12em",
-        }}
-      >
-        SERVERLESS · OUTSIDE VPC
+    <div
+      className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
+      data-testid="topology-serverless-tier"
+      style={{
+        background: "#EEF2FF",
+        border: "1px solid #C7D2FE",
+        borderLeft: "3px solid #4338CA",
+      }}
+    >
+      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#312E81" }}>
+        Serverless · outside VPC ({nodes.length})
       </div>
-      <div
-        className={compact ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
-        style={{ background: "#EEF2FF", border: "1.5px solid #818CF8" }}
-      >
-        <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: "#312E81" }}>
-          Serverless compute ({nodes.length})
-        </div>
-        <div className="text-[10px] mb-2" style={{ color: "#5A6B7A" }}>
-          VPC-less Lambdas in this system — always shown here, independent of VPC scope on the subnet grid.
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {nodes.map(n => {
-            const role = roleForWorkload?.(n.id)
-            return (
-              <WorkloadChip
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onClick={() => onSelect(n.id)}
-                iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
-              />
-            )
-          })}
-        </div>
+      <div className="flex flex-wrap gap-1.5">
+        {nodes.map(n => {
+          const role = roleForWorkload?.(n.id)
+          return (
+            <WorkloadChip
+              key={n.id}
+              node={n}
+              selected={n.id === selectedNodeId}
+              onClick={() => onSelect(n.id)}
+              iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -1114,42 +1101,27 @@ function RegionalDataServicesTier({
 }) {
   if (nodes.length === 0) return null
   return (
-    <div className="flex gap-0 mt-3" data-testid="topology-regional-data-tier">
-      <div
-        className="rounded-l-md flex items-center justify-center shrink-0"
-        style={{
-          background: "#5E35B1",
-          color: "white",
-          width: compact ? "36px" : "44px",
-          writingMode: "vertical-rl",
-          transform: "rotate(180deg)",
-          fontSize: "8px",
-          fontWeight: 700,
-          letterSpacing: "0.12em",
-        }}
-      >
-        REGIONAL DATA SERVICES
+    <div
+      className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
+      data-testid="topology-regional-data-tier"
+      style={{
+        background: "#EDE7F6",
+        border: "1px solid #D1C4E9",
+        borderLeft: "3px solid #5E35B1",
+      }}
+    >
+      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
+        Regional · S3 / DDB / KMS ({nodes.length})
       </div>
-      <div
-        className={compact ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
-        style={{ background: "#EDE7F6", border: "1.5px solid #9575CD" }}
-      >
-        <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: "#311B92" }}>
-          Regional data services ({nodes.length})
-        </div>
-        <div className="text-[10px] mb-2" style={{ color: "#5A6B7A" }}>
-          S3, DynamoDB, KMS, and Secrets — regional edge services outside the VPC subnet grid.
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {nodes.map(n => (
-            <WorkloadChip
-              key={n.id}
-              node={n}
-              selected={n.id === selectedNodeId}
-              onClick={() => onSelect(n.id)}
-            />
-          ))}
-        </div>
+      <div className="flex flex-wrap gap-1.5">
+        {nodes.map(n => (
+          <WorkloadChip
+            key={n.id}
+            node={n}
+            selected={n.id === selectedNodeId}
+            onClick={() => onSelect(n.id)}
+          />
+        ))}
       </div>
     </div>
   )
@@ -1522,8 +1494,8 @@ function FlowOverlay({
             viewBox="0 0 10 10"
             refX="9"
             refY="5"
-            markerWidth="6"
-            markerHeight="6"
+            markerWidth="4"
+            markerHeight="4"
             orient="auto-start-reverse"
           >
             <path d="M 0 0 L 10 5 L 0 10 z" fill={colorByCls[c]} />
@@ -1539,50 +1511,48 @@ function FlowOverlay({
             d={p.d}
             fill="none"
             stroke={stroke}
-            strokeWidth="9"
-            strokeOpacity="0.18"
+            strokeWidth="4"
+            strokeOpacity="0.12"
             strokeLinecap="round"
           />
           <path
             d={p.d}
             fill="none"
             stroke={stroke}
-            strokeWidth="3"
-            strokeOpacity="0.95"
-            strokeDasharray={p.highlight === "attack_path" ? "10 5" : "8 5"}
+            strokeWidth="1.5"
+            strokeOpacity="0.85"
+            strokeDasharray={p.highlight === "attack_path" ? "6 4" : "5 4"}
             strokeLinecap="round"
             markerEnd={`url(#flow-arrow-${p.cls})`}
           >
-            {/* Animated dashes — gives the "traffic flowing" look */}
             <animate
               attributeName="stroke-dashoffset"
-              from="26"
+              from="18"
               to="0"
-              dur="1.4s"
+              dur="2s"
               repeatCount="indefinite"
             />
           </path>
-          {/* Badge with port/proto or egress dest count */}
           <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
             <rect
-              x={-Math.max(p.badgeLabel.length * 3.4, 12)}
-              y={-8}
-              width={Math.max(p.badgeLabel.length * 6.8, 24)}
-              height={16}
-              rx={4}
+              x={-Math.max(p.badgeLabel.length * 3.8, 14)}
+              y={-7}
+              width={Math.max(p.badgeLabel.length * 7.6, 28)}
+              height={14}
+              rx={3}
               fill="white"
               stroke={stroke}
-              strokeWidth="1"
-              opacity="0.96"
+              strokeWidth="0.75"
+              opacity="0.94"
             />
             <text
               x={0}
-              y={4}
+              y={3}
               textAnchor="middle"
-              fontSize="10"
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fill={stroke}
+              fontSize="8"
               fontWeight="600"
+              fontFamily="ui-sans-serif, system-ui, sans-serif"
+              fill={stroke}
             >
               {p.badgeLabel}
             </text>
@@ -1838,8 +1808,8 @@ export function AwsFrame({
           <div
             className={
               presentationMode
-                ? "flex flex-wrap lg:flex-nowrap gap-3 mt-2 items-start min-w-0 max-w-full"
-                : "flex flex-wrap lg:flex-nowrap gap-4 mt-3 items-start min-w-0 max-w-full"
+                ? "flex flex-wrap lg:flex-nowrap gap-2 mt-2 items-start min-w-0 max-w-full"
+                : "flex flex-wrap lg:flex-nowrap gap-3 mt-3 items-start min-w-0 max-w-full"
             }
           >
             <div className="flex flex-1 min-w-0 gap-3">
@@ -1886,7 +1856,7 @@ export function AwsFrame({
                     <div className="flex gap-0">
                       <div
                         className="rounded-l-md shrink-0"
-                        style={{ width: presentationMode ? "36px" : "44px" }}
+                        style={{ width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal }}
                         aria-hidden
                       />
                       <div
@@ -1918,7 +1888,7 @@ export function AwsFrame({
                           style={{
                             background: PAL.ink,
                             color: "white",
-                            width: presentationMode ? "36px" : "44px",
+                            width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
                             writingMode: "vertical-rl",
                             transform: "rotate(180deg)",
                             fontSize: "10px",
@@ -1967,7 +1937,7 @@ export function AwsFrame({
                           style={{
                             background: "#DD344C",
                             color: "white",
-                            width: presentationMode ? "36px" : "44px",
+                            width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
                             writingMode: "vertical-rl",
                             transform: "rotate(180deg)",
                             fontSize: "9px",
@@ -2001,7 +1971,7 @@ export function AwsFrame({
             {hasVpces && (
               <div
                 className="flex flex-col gap-2 -mx-3 z-10 shrink-0 self-stretch justify-start pt-2"
-                style={{ width: "150px" }}
+                style={{ width: "120px" }}
               >
                 {topo.edges.vpces.map(v => {
                   const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
@@ -2063,7 +2033,7 @@ export function AwsFrame({
             </div>
 
             <div
-              className="flex flex-col gap-3 shrink-0 w-full lg:w-[min(240px,100%)] min-w-0"
+              className="flex flex-col gap-2 shrink-0 w-full lg:w-[min(210px,100%)] min-w-0"
               data-testid="topology-edge-services-rail"
             >
               <ServerlessComputeTier

@@ -40,6 +40,8 @@ import {
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 const AZ_STORAGE_PREFIX = "topology-hidden-az:"
+/** Full-width estate shell — no centered max-width cap stealing horizontal space. */
+const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
 
 function azStorageKey(systemName: string, vpcKey: string): string {
   return `${AZ_STORAGE_PREFIX}${systemName}:${vpcKey}`
@@ -493,7 +495,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
       {(data.available_vpcs?.length ?? 0) > 0 ? (
         <div
-          className="px-4 py-2 border-b flex flex-wrap items-center gap-3 max-w-[1680px] mx-auto w-full"
+          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-3`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
         >
           <label
@@ -532,7 +534,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
       {availableAzs.length > 0 ? (
         <div
-          className="px-4 py-2 border-b flex flex-wrap items-center gap-2 max-w-[1680px] mx-auto w-full"
+          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           data-testid="topology-az-scope"
         >
@@ -581,7 +583,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         </div>
       ) : null}
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 px-4 py-4 max-w-[1680px] mx-auto w-full">
+      <div className={`flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_min(250px,17vw)] gap-2 ${ESTATE_SHELL_X} py-3`}>
         <main className="min-w-0 min-h-0 flex flex-col">
           <div className="flex items-center gap-1.5 mb-3" role="tablist" aria-label="Estate view">
             {([
@@ -649,7 +651,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         </main>
 
         <div
-          className="hidden xl:flex flex-col min-h-0 sticky top-4 self-start"
+          className="hidden xl:flex flex-col min-h-0 sticky top-4 self-start w-full max-w-[250px] shrink-0"
           style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
         >
           <RankedRail
@@ -668,7 +670,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         </div>
       </div>
 
-      <div className="xl:hidden px-4 pb-4 max-w-[1680px] mx-auto w-full">
+      <div className={`xl:hidden pb-4 ${ESTATE_SHELL_X}`}>
         <RankedRail
           entries={rankedEntries}
           selectedId={selectedRailId}
@@ -684,7 +686,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         />
       </div>
 
-      <footer className="px-6 pb-6 max-w-[1680px] mx-auto text-[10px] leading-relaxed" style={{ color: "#5A6B7A" }}>
+      <footer className={`${ESTATE_SHELL_X} pb-6 text-[10px] leading-relaxed`} style={{ color: "#5A6B7A" }}>
         Live read from <span className="font-mono">/api/topology-risk/{data.system}</span>.
         Empty cells are honest, not fabricated.
       </footer>
