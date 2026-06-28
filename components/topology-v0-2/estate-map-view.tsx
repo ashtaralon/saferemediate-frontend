@@ -4,7 +4,7 @@
  * Topology v0.2 — Estate view, reusable + system-scoped.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronUp, Minimize2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
@@ -79,6 +79,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   const [mapEnlarged, setMapEnlarged] = useState(false)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // Default to the visual map; the risk-guided inventory is the secondary tab.
+  const [view, setView] = useState<"map" | "inventory">("map")
 
   const openSubnetMap = useCallback(() => setMapEnlarged(true), [])
   const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
@@ -261,24 +263,67 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 px-4 py-4 max-w-[1680px] mx-auto w-full">
         <main className="min-w-0 min-h-0 flex flex-col">
+          <div className="flex items-center gap-1.5 mb-3" role="tablist" aria-label="Estate view">
+            {([
+              ["map", "Map"],
+              ["inventory", "Inventory"],
+            ] as const).map(([id, label]) => {
+              const active = view === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setView(id)}
+                  className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
+                  style={{
+                    borderColor: active ? "#00C2A8" : "#CBD5E1",
+                    background: active ? "#E6FBF7" : "#FFFFFF",
+                    color: active ? "#0E8B7A" : "#5A6B7A",
+                  }}
+                  data-testid={`topology-estate-view-${id}`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
           <div className="relative flex-1 min-h-0">
+            {view === "map" ? (
+              <button
+                type="button"
+                onClick={() => setMapEnlarged(true)}
+                className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
+                style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
+                aria-label="Open map fullscreen"
+                data-testid="topology-estate-map-enlarge"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+                Map fullscreen
+              </button>
+            ) : null}
             <div
               className="h-full overflow-auto rounded-2xl"
               style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
             >
-              <EstateSystemView
-                data={data}
-                selectedNodeId={selectedNodeId}
-                onSelectNode={id => {
-                  setSelectedNodeId(id === selectedNodeId ? null : id)
-                  setHighlightedRoleName(null)
-                }}
-                onShowNetwork={openSubnetMap}
-                onOpenTrafficMap={onOpenTrafficMap}
-                iapJewels={iapJewels}
-                findingsSummary={findingsSummary}
-                decisionRouting={decisionRouting}
-              />
+              {view === "map" ? (
+                !mapEnlarged ? renderMap(false) : null
+              ) : (
+                <EstateSystemView
+                  data={data}
+                  selectedNodeId={selectedNodeId}
+                  onSelectNode={id => {
+                    setSelectedNodeId(id === selectedNodeId ? null : id)
+                    setHighlightedRoleName(null)
+                  }}
+                  onShowNetwork={openSubnetMap}
+                  onOpenTrafficMap={onOpenTrafficMap}
+                  iapJewels={iapJewels}
+                  findingsSummary={findingsSummary}
+                  decisionRouting={decisionRouting}
+                />
+              )}
             </div>
           </div>
         </main>
@@ -347,7 +392,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
               </div>
               <div className="text-sm font-semibold mt-0.5">{data.system}</div>
               <div className="text-[11px] mt-0.5" style={{ color: "#5A6B7A" }}>
-                Subnet grid only — exit to return to the system inventory (crown jewels, workloads, IAM).
+                Subnet grid — exit to return to the map view.
               </div>
             </div>
             <button
@@ -358,7 +403,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
               aria-label="Exit map fullscreen"
             >
               <Minimize2 className="h-3.5 w-3.5" />
-              Exit to system map
+              Exit map
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto p-4">
