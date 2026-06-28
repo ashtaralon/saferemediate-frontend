@@ -339,10 +339,13 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           >
             <div>
-              <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#00C2A8" }}>
-                Topology v0.2 · Estate
+              <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#5A6B7A" }}>
+                Network placement · supporting context
               </div>
               <div className="text-sm font-semibold mt-0.5">{data.system}</div>
+              <div className="text-[11px] mt-0.5" style={{ color: "#5A6B7A" }}>
+                Subnet grid only — exit to return to the system inventory (crown jewels, workloads, IAM).
+              </div>
             </div>
             <button
               type="button"
@@ -352,7 +355,7 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
               aria-label="Exit map fullscreen"
             >
               <Minimize2 className="h-3.5 w-3.5" />
-              Exit map
+              Exit to system map
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto p-4">

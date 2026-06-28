@@ -712,6 +712,17 @@ export default function DependencyMapTab({
           {/* Main View Toggle */}
           <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
             <button
+              onClick={() => setActiveView('estate')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeView === 'estate'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              System map
+            </button>
+            <button
               onClick={() => setActiveView('graph')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeView === 'graph'
@@ -732,17 +743,6 @@ export default function DependencyMapTab({
             >
               <Search className="w-4 h-4" />
               Resource View
-            </button>
-            <button
-              onClick={() => setActiveView('estate')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeView === 'estate'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              Estate Map
             </button>
           </div>
 
