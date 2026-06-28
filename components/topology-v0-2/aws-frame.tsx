@@ -55,6 +55,12 @@ interface Props {
    * appear in the SERVERLESS · OUTSIDE VPC tier regardless of map scope.
    */
   serverlessSourceNodes?: TopologyNode[]
+  /**
+   * Full system node list for the regional data tier — MUST NOT be VPC-scoped or
+   * FilterRail-filtered. S3/KMS/DDB/RDS/Secrets are regional services and must
+   * always appear in REGIONAL DATA SERVICES regardless of map scope.
+   */
+  regionalDataSourceNodes?: TopologyNode[]
   trafficEdges?: TrafficEdge[]
   selectedNodeId: string | null
   highlightedRoleName?: string | null
@@ -71,12 +77,17 @@ interface Props {
   presentationMode?: boolean
 }
 
-const EDGE_SERVICE_TYPES = new Set([
-  "S3", "KMSKey", "DynamoDB", "DynamoDBTable", "Secret", "SecretsManagerSecret",
+const REGIONAL_DATA_SERVICE_TYPES = new Set([
+  "S3", "S3Bucket",
+  "KMSKey",
+  "DynamoDB", "DynamoDBTable",
+  "Secret", "SecretsManagerSecret",
+  "RDS",
 ])
+/** @deprecated use REGIONAL_DATA_SERVICE_TYPES — kept for WorkloadChip usage badges */
+const EDGE_SERVICE_TYPES = REGIONAL_DATA_SERVICE_TYPES
 const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
 const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
-  RDS: "data",
   LoadBalancer: "web",
   EC2: "app",
 }
@@ -124,6 +135,18 @@ export function extractServerlessOutsideVpc(
     if (!n.type || !SERVERLESS_TYPES.has(n.type)) continue
     const sub = n.subnet_id ? subnetById.get(n.subnet_id) : null
     if (sub?.az) continue
+    out.push(n)
+  }
+  out.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+  return out
+}
+
+/** Regional data services (S3/KMS/DDB/RDS/Secrets) — VPC scope and FilterRail must not hide these. */
+export function extractRegionalDataServices(source: TopologyNode[]): TopologyNode[] {
+  const out: TopologyNode[] = []
+  for (const n of source) {
+    if (n.stale) continue
+    if (!n.type || !REGIONAL_DATA_SERVICE_TYPES.has(n.type)) continue
     out.push(n)
   }
   out.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
@@ -978,6 +1001,60 @@ function ServerlessComputeTier({
   )
 }
 
+function RegionalDataServicesTier({
+  nodes,
+  selectedNodeId,
+  onSelect,
+  compact = false,
+}: {
+  nodes: TopologyNode[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact?: boolean
+}) {
+  if (nodes.length === 0) return null
+  return (
+    <div className="flex gap-0 mt-3" data-testid="topology-regional-data-tier">
+      <div
+        className="rounded-l-md flex items-center justify-center shrink-0"
+        style={{
+          background: "#5E35B1",
+          color: "white",
+          width: compact ? "36px" : "44px",
+          writingMode: "vertical-rl",
+          transform: "rotate(180deg)",
+          fontSize: "8px",
+          fontWeight: 700,
+          letterSpacing: "0.12em",
+        }}
+      >
+        REGIONAL DATA SERVICES
+      </div>
+      <div
+        className={compact ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
+        style={{ background: "#EDE7F6", border: "1.5px solid #9575CD" }}
+      >
+        <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: "#311B92" }}>
+          Regional data services ({nodes.length})
+        </div>
+        <div className="text-[10px] mb-2" style={{ color: "#5A6B7A" }}>
+          S3, DynamoDB, RDS, KMS, and Secrets — regional services outside the VPC subnet grid, always shown here.
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {nodes.map(n => (
+            <WorkloadChip
+              key={n.id}
+              node={n}
+              selected={n.id === selectedNodeId}
+              onClick={() => onSelect(n.id)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DiagnosticsAccordion({
   serverlessCount,
   staleCount,
@@ -1371,6 +1448,7 @@ export function AwsFrame({
   vpcTopology,
   nodes,
   serverlessSourceNodes,
+  regionalDataSourceNodes,
   trafficEdges,
   selectedNodeId,
   highlightedRoleName = null,
@@ -1401,27 +1479,31 @@ export function AwsFrame({
     () => new Set((topo.edges.vpces ?? []).map(v => v.id)),
     [topo.edges.vpces],
   )
+  const regionalTierNodes = useMemo(
+    () => extractRegionalDataServices(regionalDataSourceNodes ?? nodes),
+    [regionalDataSourceNodes, nodes],
+  )
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
+    for (const n of regionalTierNodes) visible.add(n.id)
     return trafficEdgesList.filter(e => {
       if (!visible.has(e.source_id)) return false
       if (e.target_id === "__igw__") return true
       if (vpceIds.has(e.target_id)) return true
       return visible.has(e.target_id)
     })
-  }, [trafficEdgesList, nodes, vpceIds])
+  }, [trafficEdgesList, nodes, regionalTierNodes, vpceIds])
   // Index subnets and workloads by (az, tier).
   const primaryRegion = useMemo(
     () => primaryRegionFromSubnets(topo.subnets, topo.vpc_id),
     [topo.subnets, topo.vpc_id],
   )
-  const { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes, populatedAzs } = useMemo(() => {
+  const { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs } = useMemo(() => {
     const scopedSubnets = topo.subnets.filter(s =>
       subnetInCanvasScope(s, topo.vpc_id, primaryRegion),
     )
     const subnetById = createMap(scopedSubnets.map(s => [s.id, s]))
     const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
-    const edgeNodes: TopologyNode[] = []
     const serverlessNodes: TopologyNode[] = []
     const unplacedNodes: TopologyNode[] = []
     const staleNodes: TopologyNode[] = []
@@ -1444,7 +1526,7 @@ export function AwsFrame({
 
     for (const n of nodes) {
       if (n.stale) { staleNodes.push(n); continue }
-      if (n.type && EDGE_SERVICE_TYPES.has(n.type)) { edgeNodes.push(n); continue }
+      if (n.type && REGIONAL_DATA_SERVICE_TYPES.has(n.type)) continue
       const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
       if (sub?.az) {
         placeInTier(n, sub.az, sub.tier)
@@ -1470,13 +1552,12 @@ export function AwsFrame({
         list.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
       }
     }
-    edgeNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
     serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
     unplacedNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
 
     const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
     const populatedAzs = new Set<string>([...byAzAndTier.keys(), ...scaffoldAzs])
-    return { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes, populatedAzs }
+    return { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs }
   }, [topo.subnets, topo.vpc_id, primaryRegion, nodes])
 
   const serverlessTierNodes = useMemo(
@@ -1576,7 +1657,7 @@ export function AwsFrame({
             Region · {topo.region ?? "unknown"}
           </div>
 
-          {/* VPC + edge rail flexbox */}
+          {/* VPC + VPCE boundary strip */}
           <div className={presentationMode ? "flex gap-3 mt-2" : "flex gap-4 mt-3"}>
             {/* VPC frame */}
             <div
@@ -1786,35 +1867,14 @@ export function AwsFrame({
               </div>
             )}
 
-            {/* Right edge rail — S3, KMS, DDB, Secrets */}
-            <div
-              className="w-[168px] rounded-md p-2.5 relative shrink-0"
-              style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
-            >
-              <div
-                className="absolute -top-2.5 left-3 px-2 text-[10px] uppercase tracking-[0.14em] font-semibold"
-                style={{ background: PAL.cardBg, color: PAL.slate }}
-              >
-                Edge services
-              </div>
-              {edgeNodes.length === 0 ? (
-                <div className="text-[11px] italic mt-2" style={{ color: PAL.slate }}>
-                  no S3 / KMS / DynamoDB observed in this system
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2 mt-2">
-                  {edgeNodes.map(n => (
-                    <WorkloadChip
-                      key={n.id}
-                      node={n}
-                      selected={n.id === selectedNodeId}
-                      onClick={() => onSelect(n.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
+
+          <RegionalDataServicesTier
+            nodes={regionalTierNodes}
+            selectedNodeId={selectedNodeId}
+            onSelect={onSelect}
+            compact={presentationMode}
+          />
         </div>
       </div>
 

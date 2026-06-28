@@ -124,6 +124,30 @@ test.describe("estate map VPC scope e2e", () => {
     await expect(tier.getByText("alon-prod-authenticator")).toBeVisible()
   })
 
+  test("regional data tier shows edge services regardless of vpc scope", async ({ page }) => {
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    const tier = page.getByTestId("topology-regional-data-tier")
+    await expect(tier).toBeVisible({ timeout: 120_000 })
+    await expect(tier.getByText(/Regional data services \(\d+\)/i)).toBeVisible()
+    const countAll = await tier.locator("button").count()
+    expect(countAll).toBeGreaterThanOrEqual(3)
+
+    const picker = page.getByTestId("topology-vpc-select")
+    await expect(picker).toBeVisible()
+    const options = picker.locator("option")
+    if ((await options.count()) >= 2) {
+      const vpcValue = await options.nth(1).getAttribute("value")
+      if (vpcValue && vpcValue !== "all") {
+        await picker.selectOption(vpcValue)
+        await expect(tier).toBeVisible({ timeout: 60_000 })
+        const countScoped = await tier.locator("button").count()
+        expect(countScoped).toBeGreaterThanOrEqual(3)
+        expect(countScoped).toBe(countAll)
+      }
+    }
+    await expect(tier.getByText("alon-prod-db")).toBeVisible()
+  })
+
   test("dependency-map estate tab loads without hard error", async ({ page }) => {
     await page.goto(TOPOLOGY_URL, { waitUntil: "domcontentloaded" })
     await expect(page.getByRole("button", { name: "Risk inventory" })).toBeVisible({

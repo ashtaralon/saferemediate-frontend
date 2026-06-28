@@ -85,7 +85,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     fetchInit: { cache: "no-store" },
   })
 
-  // Merged (all-VPC) node list for the serverless tier — must never follow
+  // Merged (all-VPC) node list for serverless + regional tiers — must never follow
   // VPC scope. When a specific VPC is selected, defer this fetch until AFTER
   // the scoped primary load completes so we don't run two cold computes in
   // parallel (that was causing intermittent backend 500s on the map).
@@ -115,6 +115,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   const serverlessSourceNodes = scopedVpc
     ? (mergedServerlessNodes ?? data?.nodes ?? [])
     : (data?.nodes ?? [])
+  const regionalDataSourceNodes = serverlessSourceNodes
 
   const poisonRetryRef = useRef(false)
   useEffect(() => {
@@ -278,6 +279,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
       serverlessSourceNodes={serverlessSourceNodes}
+      regionalDataSourceNodes={regionalDataSourceNodes}
       trafficEdges={data.traffic_edges}
       selectedNodeId={selectedNodeId}
       highlightedRoleName={highlightedRoleName}
