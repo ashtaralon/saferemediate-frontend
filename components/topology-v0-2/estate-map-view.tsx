@@ -85,6 +85,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     fetchInit: { cache: "no-store" },
   })
 
+  // Merged (all-VPC) topology for lanes that must never follow VPC scope —
+  // serverless Lambdas have no vpc_id and disappear when the scoped fetch is
+  // the only source. Reuses the same cache key as the "all" map view.
+  const mergedTopologyUrl = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
+  const { data: mergedTopology } = useCachedFetch<TopologyRiskResponse>(mergedTopologyUrl, {
+    cacheKey: `topology-risk:${systemName}:v5:all`,
+    maxStaleMs: 10 * 60 * 1000,
+    fetchInit: { cache: "no-store" },
+  })
+  const serverlessSourceNodes = mergedTopology?.nodes ?? data?.nodes ?? []
+
   const poisonRetryRef = useRef(false)
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -246,6 +257,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     <AwsFrame
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
+      serverlessSourceNodes={serverlessSourceNodes}
       trafficEdges={data.traffic_edges}
       selectedNodeId={selectedNodeId}
       highlightedRoleName={highlightedRoleName}

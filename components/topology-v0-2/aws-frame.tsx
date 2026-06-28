@@ -47,7 +47,14 @@ import { createMap } from "./native-map"
 
 interface Props {
   vpcTopology: VpcTopology
+  /** Filtered/scoped nodes for subnet grid, edge rail, and traffic edges. */
   nodes: TopologyNode[]
+  /**
+   * Full system node list for the serverless tier — MUST NOT be VPC-scoped or
+   * FilterRail-filtered. Serverless Lambdas have no vpc_id and must always
+   * appear in the SERVERLESS · OUTSIDE VPC tier regardless of map scope.
+   */
+  serverlessSourceNodes?: TopologyNode[]
   trafficEdges?: TrafficEdge[]
   selectedNodeId: string | null
   highlightedRoleName?: string | null
@@ -103,6 +110,24 @@ function subnetInCanvasScope(
     if (prefix && prefix !== primaryRegion) return false
   }
   return true
+}
+
+/** Lambdas with no resolvable subnet/AZ — VPC scope and FilterRail must not hide these. */
+export function extractServerlessOutsideVpc(
+  source: TopologyNode[],
+  subnets: SubnetMeta[],
+): TopologyNode[] {
+  const subnetById = createMap(subnets.map(s => [s.id, s]))
+  const out: TopologyNode[] = []
+  for (const n of source) {
+    if (n.stale) continue
+    if (!n.type || !SERVERLESS_TYPES.has(n.type)) continue
+    const sub = n.subnet_id ? subnetById.get(n.subnet_id) : null
+    if (sub?.az) continue
+    out.push(n)
+  }
+  out.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+  return out
 }
 
 // Friendly metadata for the VPCE boundary chips. The AWS service-name
@@ -893,44 +918,46 @@ function TrafficFlowBand({
   )
 }
 
-function UnplacedComputeStrip({
+function ServerlessComputeTier({
   nodes,
   selectedNodeId,
   onSelect,
   roleForWorkload,
+  compact = false,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
+  compact?: boolean
 }) {
   if (nodes.length === 0) return null
   return (
-    <div className="flex gap-0">
+    <div className="flex gap-0" data-testid="topology-serverless-tier">
       <div
         className="rounded-l-md flex items-center justify-center shrink-0"
         style={{
-          background: "#64748B",
+          background: "#4338CA",
           color: "white",
-          width: "44px",
+          width: compact ? "36px" : "44px",
           writingMode: "vertical-rl",
           transform: "rotate(180deg)",
-          fontSize: "9px",
+          fontSize: "8px",
           fontWeight: 700,
-          letterSpacing: "0.14em",
+          letterSpacing: "0.12em",
         }}
       >
-        UNPLACED
+        SERVERLESS · OUTSIDE VPC
       </div>
       <div
-        className="rounded-r-md p-2.5 flex-1"
-        style={{ background: "#F1F5F9", border: "1.5px dashed #94A3B8" }}
+        className={compact ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
+        style={{ background: "#EEF2FF", border: "1.5px solid #818CF8" }}
       >
-        <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
-          Compute without subnet placement ({nodes.length})
+        <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: "#312E81" }}>
+          Serverless compute ({nodes.length})
         </div>
-        <div className="text-[10px] mb-2" style={{ color: PAL.slate }}>
-          Lambdas with no VPC/subnet in the graph, plus RDS/ALB not yet linked to a subnet. Inventory still lists them; this row keeps them visible on the map.
+        <div className="text-[10px] mb-2" style={{ color: "#5A6B7A" }}>
+          VPC-less Lambdas in this system — always shown here, independent of VPC scope on the subnet grid.
         </div>
         <div className="flex flex-wrap gap-2">
           {nodes.map(n => {
@@ -1343,6 +1370,7 @@ function FlowOverlay({
 export function AwsFrame({
   vpcTopology,
   nodes,
+  serverlessSourceNodes,
   trafficEdges,
   selectedNodeId,
   highlightedRoleName = null,
@@ -1451,6 +1479,11 @@ export function AwsFrame({
     return { byAzAndTier, edgeNodes, serverlessNodes, unplacedNodes, staleNodes, populatedAzs }
   }, [topo.subnets, topo.vpc_id, primaryRegion, nodes])
 
+  const serverlessTierNodes = useMemo(
+    () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
+    [serverlessSourceNodes, nodes, topo.subnets],
+  )
+
   // Group subnets by (az, tier) for cell metadata. Skip subnets that don't
   // belong to the primary VPC (the topology-risk root vpc_id).
   const subnetsByCell = useMemo(() => {
@@ -1465,11 +1498,6 @@ export function AwsFrame({
     }
     return m
   }, [topo.subnets, topo.vpc_id, primaryRegion, populatedAzs])
-
-  const visibleUnplaced = useMemo(
-    () => [...serverlessNodes, ...unplacedNodes],
-    [serverlessNodes, unplacedNodes],
-  )
 
   const azs = [...populatedAzs].sort()
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
@@ -1648,11 +1676,12 @@ export function AwsFrame({
                       </div>
                     ))}
 
-                    <UnplacedComputeStrip
-                      nodes={visibleUnplaced}
+                    <ServerlessComputeTier
+                      nodes={serverlessTierNodes}
                       selectedNodeId={selectedNodeId}
                       onSelect={onSelect}
                       roleForWorkload={roleForWorkload}
+                      compact={presentationMode}
                     />
 
                     {/* IAM control plane — 4th tier inside VPC (mockup tier.iam) */}
@@ -1794,20 +1823,20 @@ export function AwsFrame({
           Inline page keeps everything.  */}
       {!presentationMode && (
         <DiagnosticsAccordion
-          serverlessCount={visibleUnplaced.length}
+          serverlessCount={serverlessTierNodes.length}
           staleCount={staleNodes.length}
           trafficCount={visibleEdges.length}
         >
-          {visibleUnplaced.length > 0 ? (
+          {serverlessTierNodes.length > 0 ? (
             <div
               className="rounded-md p-3"
               style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}
             >
               <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
-                Serverless · outside VPC ({visibleUnplaced.length})
+                Serverless compute ({serverlessTierNodes.length})
               </div>
               <div className="flex flex-wrap gap-2">
-                {visibleUnplaced.map(n => (
+                {serverlessTierNodes.map(n => (
                   <WorkloadChip
                     key={n.id}
                     node={n}
