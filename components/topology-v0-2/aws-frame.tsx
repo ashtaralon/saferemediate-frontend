@@ -153,6 +153,8 @@ export function dedupeLambdaServiceTwins(source: TopologyNode[]): TopologyNode[]
 }
 
 const TIER_SIDEBAR_WIDTH = { compact: "28px", normal: "32px" } as const
+/** Minimum AZ column width — keep readable but leave room for VPCE + flow corridor + edge rail. */
+const AZ_COLUMN_MIN_PX = 118
 
 const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
   LoadBalancer: "web",
@@ -638,13 +640,13 @@ function SubnetCell({
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
   const cellMinHeight = empty
-    ? (compact ? "48px" : "72px")
+    ? (compact ? "44px" : "56px")
     : workloadsHere.length === 0
-      ? (compact ? "56px" : "72px")
-      : (compact ? "80px" : "96px")
+      ? (compact ? "48px" : "60px")
+      : (compact ? "72px" : "84px")
   return (
     <div
-      className={compact ? "rounded-md p-2" : "rounded-md p-3"}
+      className={compact ? "rounded-md p-1.5" : "rounded-md p-2"}
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
@@ -1070,7 +1072,7 @@ function ServerlessComputeTier({
       <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#312E81" }}>
         Serverless · outside VPC ({nodes.length})
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full">
         {nodes.map(n => {
           const role = roleForWorkload?.(n.id)
           return (
@@ -1113,7 +1115,7 @@ function RegionalDataServicesTier({
       <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full">
         {nodes.map(n => (
           <WorkloadChip
             key={n.id}
@@ -1724,10 +1726,9 @@ export function AwsFrame({
     [allAzs, hiddenAzs],
   )
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
-  const azGridColumns = azs.map(() => "minmax(160px, 1fr)").join(" ")
-  /** Min width for VPC grid so side rail never compresses AZ columns into overlap. */
+  const azGridColumns = azs.map(() => `minmax(${AZ_COLUMN_MIN_PX}px, 1fr)`).join(" ")
   const vpcGridMinWidth =
-    azs.length > 0 ? Math.max(280, azs.length * 168 + 48) : 280
+    azs.length > 0 ? Math.max(240, azs.length * (AZ_COLUMN_MIN_PX + 6) + 40) : 240
   const hasIgw = topo.edges.igws.length > 0
   const hasNats = topo.edges.nat_gws.length > 0
   const hasVpces = topo.edges.vpces.length > 0
@@ -1811,13 +1812,13 @@ export function AwsFrame({
           <div
             className={
               presentationMode
-                ? "flex flex-nowrap items-start gap-2 mt-2 min-w-0 overflow-x-auto pb-1"
-                : "flex flex-nowrap items-start gap-2 mt-3 min-w-0 overflow-x-auto pb-1"
+                ? "flex flex-nowrap items-stretch mt-2 min-w-0 overflow-x-auto pb-1"
+                : "flex flex-nowrap items-stretch mt-3 min-w-0 overflow-x-auto pb-1"
             }
           >
             {/* VPC frame */}
             <div
-              className={presentationMode ? "rounded-md p-3 relative shrink-0" : "rounded-md p-4 relative shrink-0"}
+              className={presentationMode ? "rounded-md p-2.5 relative shrink-0" : "rounded-md p-3 relative shrink-0"}
               style={{
                 background: PAL.cardBg,
                 border: `2px solid #00C2A8`,
@@ -1871,7 +1872,7 @@ export function AwsFrame({
                         style={{ background: "#EEF2F6" }}
                       >
                         <div
-                          className="grid gap-2"
+                          className="grid gap-1.5"
                           style={{ gridTemplateColumns: azGridColumns }}
                           data-testid="topology-az-column-headers"
                         >
@@ -1910,7 +1911,7 @@ export function AwsFrame({
                           style={{ background: TIER_BG[tier] }}
                         >
                           <div
-                            className={presentationMode ? "grid gap-2" : "grid gap-2"}
+                            className={presentationMode ? "grid gap-1.5" : "grid gap-1.5"}
                             style={{ gridTemplateColumns: azGridColumns }}
                           >
                             {azs.map(az => {
@@ -1967,18 +1968,11 @@ export function AwsFrame({
               )}
             </div>
 
-            {/* VPCE boundary strip — VPC endpoints sit ON the VPC perimeter
-                between the interior and the regional services rail
-                (per AWS canonical architecture: gateway/interface endpoints
-                are boundary devices, not interior workloads). Negative
-                horizontal margins make each chip visually straddle the
-                VPC edge instead of floating inside a band. Same blue
-                color as before; data-flow-id preserved so flow arrows
-                resolve the same chip in the new position. */}
+            {/* VPCE boundary — offset right of VPC; flow corridor before edge rail */}
             {hasVpces && (
               <div
-                className="flex flex-col gap-2 -mx-3 z-10 shrink-0 self-stretch justify-start pt-2"
-                style={{ width: "120px" }}
+                className="flex flex-col gap-1.5 ml-4 shrink-0 self-stretch justify-start pt-2 z-10"
+                style={{ width: "108px" }}
               >
                 {topo.edges.vpces.map(v => {
                   const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
@@ -2039,24 +2033,37 @@ export function AwsFrame({
             )}
 
             {(serverlessTierNodes.length > 0 || regionalTierNodes.length > 0) ? (
-              <div
-                className="flex flex-col gap-2 shrink-0 w-[200px] max-w-[200px]"
-                data-testid="topology-edge-services-rail"
-              >
-                <ServerlessComputeTier
-                  nodes={serverlessTierNodes}
-                  selectedNodeId={selectedNodeId}
-                  onSelect={onSelect}
-                  roleForWorkload={roleForWorkload}
-                  compact={presentationMode}
+              <>
+                <div
+                  className="shrink-0 self-stretch min-h-[80px] mx-3"
+                  style={{
+                    width: "72px",
+                    borderLeft: "1px dashed #CBD5E1",
+                    borderRight: "1px dashed #CBD5E1",
+                    background: "linear-gradient(90deg, transparent, rgba(238,242,246,0.6), transparent)",
+                  }}
+                  data-testid="topology-flow-corridor"
+                  aria-hidden
                 />
-                <RegionalDataServicesTier
-                  nodes={regionalTierNodes}
-                  selectedNodeId={selectedNodeId}
-                  onSelect={onSelect}
-                  compact={presentationMode}
-                />
-              </div>
+                <div
+                  className="flex flex-col gap-2 shrink-0 w-[188px] max-w-[188px] ml-1"
+                  data-testid="topology-edge-services-rail"
+                >
+                  <ServerlessComputeTier
+                    nodes={serverlessTierNodes}
+                    selectedNodeId={selectedNodeId}
+                    onSelect={onSelect}
+                    roleForWorkload={roleForWorkload}
+                    compact={presentationMode}
+                  />
+                  <RegionalDataServicesTier
+                    nodes={regionalTierNodes}
+                    selectedNodeId={selectedNodeId}
+                    onSelect={onSelect}
+                    compact={presentationMode}
+                  />
+                </div>
+              </>
             ) : null}
           </div>
         </div>
