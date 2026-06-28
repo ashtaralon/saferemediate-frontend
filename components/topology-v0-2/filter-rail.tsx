@@ -123,6 +123,26 @@ export function FilterRail({ kpis, nodes, filters, onChange }: Props) {
       style={{ background: "white", border: "1px solid #DDE3E8", color: "#1A2330" }}
     >
       <Section title="Workload type">
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          <button
+            type="button"
+            className="text-[10px] font-semibold uppercase tracking-wide rounded border px-2 py-0.5 hover:bg-[#F8FAFC]"
+            style={{ borderColor: "#CBD5E1", color: "#0E8B7A" }}
+            onClick={() =>
+              onChange({ ...filters, types: allWorkloadTypes(kpis) })
+            }
+          >
+            Show all
+          </button>
+          <button
+            type="button"
+            className="text-[10px] font-semibold uppercase tracking-wide rounded border px-2 py-0.5 hover:bg-[#F8FAFC]"
+            style={{ borderColor: "#CBD5E1", color: "#5A6B7A" }}
+            onClick={() => onChange({ ...filters, types: new Set() })}
+          >
+            Clear all
+          </button>
+        </div>
         {typeRows.length === 0 && (
           <div className="text-[11px]" style={{ color: "#5A6B7A" }}>
             No workload-type breakdown returned.
@@ -234,4 +254,19 @@ export function applyFilters(nodes: TopologyNode[], filters: EstateFilters): Top
     if (!n.score) return filters.tiers.has("UNSCORED")
     return filters.tiers.has(n.score.tier)
   })
+}
+
+/** Type-only filter for serverless/regional rails (same service toggles as the grid). */
+export function applyTypeFilter(nodes: TopologyNode[], filters: EstateFilters): TopologyNode[] {
+  return nodes.filter(n => filters.types.has(n.type ?? "?"))
+}
+
+export function allWorkloadTypes(kpis: SystemKpis | null): Set<string> {
+  const types = new Set<string>()
+  if (kpis) {
+    for (const [t, v] of Object.entries(kpis.workloads_by_type ?? {})) {
+      if (v > 0) types.add(t)
+    }
+  }
+  return types
 }

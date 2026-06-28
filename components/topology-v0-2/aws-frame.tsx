@@ -1804,18 +1804,12 @@ export function AwsFrame({
             Region · {topo.region ?? "unknown"}
           </div>
 
-          {/* VPC + VPCE boundary + right-edge regional rail */}
-          <div
-            className={
-              presentationMode
-                ? "flex flex-wrap lg:flex-nowrap gap-2 mt-2 items-start min-w-0 max-w-full"
-                : "flex flex-wrap lg:flex-nowrap gap-3 mt-3 items-start min-w-0 max-w-full"
-            }
-          >
-            <div className="flex flex-1 min-w-0 gap-3">
+          {/* VPC + VPCE row; edge services sit below so AZ columns keep full width */}
+          <div className={presentationMode ? "flex flex-col gap-2 mt-2" : "flex flex-col gap-3 mt-3"}>
+            <div className="flex flex-wrap lg:flex-nowrap gap-2 items-start min-w-0">
             {/* VPC frame */}
             <div
-              className={presentationMode ? "flex-1 rounded-md p-3 relative" : "flex-1 rounded-md p-4 relative"}
+              className={presentationMode ? "flex-1 min-w-0 rounded-md p-3 relative" : "flex-1 min-w-0 rounded-md p-4 relative"}
               style={{ background: PAL.cardBg, border: `2px solid #00C2A8` }}
             >
               <div
@@ -2032,24 +2026,30 @@ export function AwsFrame({
             )}
             </div>
 
-            <div
-              className="flex flex-col gap-2 shrink-0 w-full lg:w-[min(210px,100%)] min-w-0"
-              data-testid="topology-edge-services-rail"
-            >
-              <ServerlessComputeTier
-                nodes={serverlessTierNodes}
-                selectedNodeId={selectedNodeId}
-                onSelect={onSelect}
-                roleForWorkload={roleForWorkload}
-                compact={presentationMode}
-              />
-              <RegionalDataServicesTier
-                nodes={regionalTierNodes}
-                selectedNodeId={selectedNodeId}
-                onSelect={onSelect}
-                compact={presentationMode}
-              />
-            </div>
+            {(serverlessTierNodes.length > 0 || regionalTierNodes.length > 0) ? (
+              <div
+                className="flex flex-wrap gap-2 w-full min-w-0"
+                data-testid="topology-edge-services-rail"
+              >
+                <div className="flex-1 min-w-[min(100%,260px)]">
+                  <ServerlessComputeTier
+                    nodes={serverlessTierNodes}
+                    selectedNodeId={selectedNodeId}
+                    onSelect={onSelect}
+                    roleForWorkload={roleForWorkload}
+                    compact={presentationMode}
+                  />
+                </div>
+                <div className="flex-1 min-w-[min(100%,260px)]">
+                  <RegionalDataServicesTier
+                    nodes={regionalTierNodes}
+                    selectedNodeId={selectedNodeId}
+                    onSelect={onSelect}
+                    compact={presentationMode}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

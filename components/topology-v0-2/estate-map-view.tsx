@@ -13,6 +13,8 @@ import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/component
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
   applyFilters,
+  applyTypeFilter,
+  allWorkloadTypes,
   defaultFilters,
   type EstateFilters,
   FilterRail,
@@ -255,6 +257,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     [gridSourceNodes, effectiveFilters],
   )
 
+  const filteredServerlessSource = useMemo(
+    () => applyTypeFilter(serverlessSourceNodes, effectiveFilters),
+    [serverlessSourceNodes, effectiveFilters],
+  )
+
+  const filteredRegionalSource = useMemo(
+    () => applyTypeFilter(regionalDataSourceNodes, effectiveFilters),
+    [regionalDataSourceNodes, effectiveFilters],
+  )
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return
     console.log("[estate-map counts]", {
@@ -434,8 +446,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       nodes={filteredNodes}
       mergedVpcView={!scopedVpc}
       hiddenAzs={hiddenAzs}
-      serverlessSourceNodes={serverlessSourceNodes}
-      regionalDataSourceNodes={regionalDataSourceNodes}
+      serverlessSourceNodes={filteredServerlessSource}
+      regionalDataSourceNodes={filteredRegionalSource}
       trafficEdges={data.traffic_edges}
       overlayEdges={overlayEdges}
       flowMode={flowMode}
@@ -457,6 +469,184 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
     />
   ))
+
+  const workloadTypeRows = useMemo(
+    () =>
+      data?.system_kpis
+        ? Object.entries(data.system_kpis.workloads_by_type ?? {})
+            .filter(([, v]) => v > 0)
+            .sort((a, b) => b[1] - a[1])
+        : [],
+    [data?.system_kpis],
+  )
+
+  const toggleWorkloadType = useCallback(
+    (type: string) => {
+      setFilters(prev => {
+        const base = prev ?? defaultFilters(data?.system_kpis ?? null)
+        const next = new Set(base.types)
+        if (next.has(type)) next.delete(type)
+        else next.add(type)
+        return { ...base, types: next }
+      })
+    },
+    [data?.system_kpis],
+  )
+
+  const renderScopeControls = (compact = false) => (
+    <>
+      {(data.available_vpcs?.length ?? 0) > 0 ? (
+        <div
+          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-3`}
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+        >
+          <label
+            htmlFor={compact ? "topology-vpc-select-fs" : "topology-vpc-select"}
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+            style={{ color: "#5A6B7A" }}
+          >
+            VPC scope
+          </label>
+          <select
+            id={compact ? "topology-vpc-select-fs" : "topology-vpc-select"}
+            value={selectedVpcId}
+            onChange={e => {
+              setSelectedNodeId(null)
+              setHighlightedRoleName(null)
+              setSelectedVpcId(e.target.value)
+            }}
+            className="text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[220px] max-w-full"
+            style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
+            data-testid="topology-vpc-select"
+          >
+            <option value="all">All VPCs (merged)</option>
+            {(data.available_vpcs ?? []).map(v => (
+              <option key={v.vpc_id} value={v.vpc_id}>
+                {v.name} · {v.vpc_id} ({v.workload_count} workloads)
+              </option>
+            ))}
+          </select>
+          {!compact ? (
+            <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
+              {selectedVpcId === "all"
+                ? "Merged view — full system node list; edge services below the subnet grid."
+                : "Subnet-linked compute in tier cells; regional/serverless below the grid."}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {availableAzs.length > 0 ? (
+        <div
+          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-2`}
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+          data-testid="topology-az-scope"
+        >
+          <span
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0"
+            style={{ color: "#5A6B7A" }}
+          >
+            Availability zones
+          </span>
+          {availableAzs.map(az => {
+            const hidden = hiddenAzs.includes(az)
+            return (
+              <button
+                key={az}
+                type="button"
+                aria-pressed={!hidden}
+                title={hidden ? `Show ${az}` : `Hide ${az}`}
+                onClick={() => toggleAzVisibility(az)}
+                className="text-[11px] font-mono rounded-md border px-2 py-1 transition-colors"
+                style={{
+                  borderColor: hidden ? "#CBD5E1" : "#00C2A8",
+                  background: hidden ? "#F8FAFC" : "#E6FBF7",
+                  color: hidden ? "#94A3B8" : "#0E8B7A",
+                  textDecoration: hidden ? "line-through" : "none",
+                }}
+                data-testid={`topology-az-toggle-${az}`}
+              >
+                {az}
+              </button>
+            )
+          })}
+          {hiddenAzs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setHiddenAzs([])}
+              className="text-[10px] font-semibold uppercase tracking-wide rounded-md border px-2 py-1"
+              style={{ borderColor: "#CBD5E1", color: "#5A6B7A", background: "#FFFFFF" }}
+              data-testid="topology-az-show-all"
+            >
+              Show all AZs
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {workloadTypeRows.length > 0 ? (
+        <div
+          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-2`}
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+          data-testid="topology-service-scope"
+        >
+          <span
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0"
+            style={{ color: "#5A6B7A" }}
+          >
+            Services
+          </span>
+          {workloadTypeRows.map(([t, v]) => {
+            const on = effectiveFilters.types.has(t)
+            return (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleWorkloadType(t)}
+                className="text-[11px] rounded-md border px-2 py-1 transition-colors"
+                style={{
+                  borderColor: on ? "#00C2A8" : "#CBD5E1",
+                  background: on ? "#E6FBF7" : "#F8FAFC",
+                  color: on ? "#0E8B7A" : "#94A3B8",
+                  textDecoration: on ? "none" : "line-through",
+                }}
+                data-testid={`topology-service-toggle-${t}`}
+              >
+                {t} ({v})
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() =>
+              setFilters(prev => ({
+                ...(prev ?? defaultFilters(data.system_kpis)),
+                types: allWorkloadTypes(data.system_kpis),
+              }))
+            }
+            className="text-[10px] font-semibold uppercase tracking-wide rounded-md border px-2 py-1"
+            style={{ borderColor: "#CBD5E1", color: "#0E8B7A", background: "#FFFFFF" }}
+          >
+            Show all
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setFilters(prev => ({
+                ...(prev ?? defaultFilters(data.system_kpis)),
+                types: new Set(),
+              }))
+            }
+            className="text-[10px] font-semibold uppercase tracking-wide rounded-md border px-2 py-1"
+            style={{ borderColor: "#CBD5E1", color: "#5A6B7A", background: "#FFFFFF" }}
+          >
+            Clear all
+          </button>
+        </div>
+      ) : null}
+    </>
+  )
 
   const filterDrawer = (
     <div>
@@ -493,98 +683,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         onToggleStats={() => setStatsExpanded(v => !v)}
       />
 
-      {(data.available_vpcs?.length ?? 0) > 0 ? (
-        <div
-          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-3`}
-          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
-        >
-          <label
-            htmlFor="topology-vpc-select"
-            className="text-[10px] uppercase tracking-[0.14em] font-semibold"
-            style={{ color: "#5A6B7A" }}
-          >
-            VPC scope
-          </label>
-          <select
-            id="topology-vpc-select"
-            value={selectedVpcId}
-            onChange={e => {
-              setSelectedNodeId(null)
-              setHighlightedRoleName(null)
-              setSelectedVpcId(e.target.value)
-            }}
-            className="text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[280px] max-w-full"
-            style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
-            data-testid="topology-vpc-select"
-          >
-            <option value="all">All VPCs (merged)</option>
-            {(data.available_vpcs ?? []).map(v => (
-              <option key={v.vpc_id} value={v.vpc_id}>
-                {v.name} · {v.vpc_id} ({v.workload_count} workloads)
-              </option>
-            ))}
-          </select>
-          <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
-            {selectedVpcId === "all"
-              ? "Merged view — full system node list; primary VPC frame for subnet-linked compute; edge services on the right rail."
-              : "Inventory lists every tagged resource; subnet-linked compute appears in tier cells, the rest in Unplaced."}
-          </span>
-        </div>
-      ) : null}
+      {renderScopeControls()}
 
-      {availableAzs.length > 0 ? (
-        <div
-          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-2`}
-          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
-          data-testid="topology-az-scope"
-        >
-          <span
-            className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0"
-            style={{ color: "#5A6B7A" }}
-          >
-            Availability zones
-          </span>
-          {availableAzs.map(az => {
-            const hidden = hiddenAzs.includes(az)
-            return (
-              <button
-                key={az}
-                type="button"
-                aria-pressed={!hidden}
-                title={hidden ? `Show ${az} on the map` : `Hide ${az} — remaining AZ columns expand`}
-                onClick={() => toggleAzVisibility(az)}
-                className="text-[11px] font-mono rounded-md border px-2 py-1 transition-colors"
-                style={{
-                  borderColor: hidden ? "#CBD5E1" : "#00C2A8",
-                  background: hidden ? "#F8FAFC" : "#E6FBF7",
-                  color: hidden ? "#94A3B8" : "#0E8B7A",
-                  textDecoration: hidden ? "line-through" : "none",
-                }}
-                data-testid={`topology-az-toggle-${az}`}
-              >
-                {az}
-              </button>
-            )
-          })}
-          {hiddenAzs.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setHiddenAzs([])}
-              className="text-[10px] font-semibold uppercase tracking-wide rounded-md border px-2 py-1"
-              style={{ borderColor: "#CBD5E1", color: "#5A6B7A", background: "#FFFFFF" }}
-              data-testid="topology-az-show-all"
-            >
-              Show all AZs
-            </button>
-          ) : null}
-          <span className="text-[11px] w-full sm:w-auto" style={{ color: "#5A6B7A" }}>
-            Click an AZ to hide it from the grid — visible columns expand to use the space (one AZ fills the row).
-          </span>
-        </div>
-      ) : null}
-
-      <div className={`flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_min(250px,17vw)] gap-2 ${ESTATE_SHELL_X} py-3`}>
-        <main className="min-w-0 min-h-0 flex flex-col">
+      <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-3`}>
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col">
           <div className="flex items-center gap-1.5 mb-3" role="tablist" aria-label="Estate view">
             {([
               ["map", "Map"],
@@ -650,8 +752,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           </div>
         </main>
 
-        <div
-          className="hidden xl:flex flex-col min-h-0 sticky top-4 self-start w-full max-w-[250px] shrink-0"
+        <aside
+          className="hidden xl:flex flex-col min-h-0 w-[212px] shrink-0 sticky top-4 self-start"
           style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
         >
           <RankedRail
@@ -667,7 +769,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             }}
             filtersSlot={filterDrawer}
           />
-        </div>
+        </aside>
       </div>
 
       <div className={`xl:hidden pb-4 ${ESTATE_SHELL_X}`}>
@@ -705,30 +807,32 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           aria-label="Topology map full screen"
         >
           <div
-            className="flex items-center justify-between gap-3 px-4 py-3 border-b shrink-0"
+            className="flex flex-col shrink-0 border-b"
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           >
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#5A6B7A" }}>
-                Network placement · supporting context
+            <div className="flex items-center justify-between gap-3 px-4 py-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#5A6B7A" }}>
+                  Map fullscreen · {data.system}
+                </div>
+                <div className="text-[11px] mt-0.5" style={{ color: "#5A6B7A" }}>
+                  VPC, AZ, and service scope apply here — same as inline map.
+                </div>
               </div>
-              <div className="text-sm font-semibold mt-0.5">{data.system}</div>
-              <div className="text-[11px] mt-0.5" style={{ color: "#5A6B7A" }}>
-                Subnet grid — exit to return to the map view.
-              </div>
+              <button
+                type="button"
+                onClick={closeEnlarged}
+                className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors shrink-0"
+                style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
+                aria-label="Exit map fullscreen"
+              >
+                <Minimize2 className="h-3.5 w-3.5" />
+                Exit map
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={closeEnlarged}
-              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
-              style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
-              aria-label="Exit map fullscreen"
-            >
-              <Minimize2 className="h-3.5 w-3.5" />
-              Exit map
-            </button>
+            {renderScopeControls(true)}
           </div>
-          <div className="flex-1 min-h-0 overflow-auto p-4">
+          <div className="flex-1 min-h-0 overflow-auto p-3">
             {renderMap(true)}
           </div>
           {selectedNode ? (
