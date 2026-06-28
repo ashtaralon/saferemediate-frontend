@@ -30,11 +30,14 @@ const BACKEND_URL = getBackendBaseUrl()
  * state auto-resolves on the next successful fetch — no operator action.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  const cacheKey = `topology-risk:${systemName}`
+  const vpcId = req.nextUrl.searchParams.get("vpc_id")
+  const cacheKey = vpcId
+    ? `topology-risk:${systemName}:vpc:${vpcId}`
+    : `topology-risk:${systemName}`
 
   const cached = getCached(cacheKey)
   if (cached) {
@@ -47,7 +50,8 @@ export async function GET(
   }
 
   try {
-    const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(systemName)}`
+    const qs = vpcId ? `?vpc_id=${encodeURIComponent(vpcId)}` : ""
+    const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(systemName)}${qs}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

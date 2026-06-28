@@ -208,11 +208,19 @@ export interface VpcTopology {
   iam_roles?: IamRoleRollup[]
 }
 
+export interface AvailableVpc {
+  vpc_id: string
+  name: string
+  workload_count: number
+}
+
 export interface TopologyRiskResponse {
   system: string
   scored_at: string
   scoring_window_days: number
   vpc_id: string | null
+  selected_vpc_id?: string | null
+  available_vpcs?: AvailableVpc[]
   system_kpis: SystemKpis | null
   nodes: TopologyNode[]
   vpc_topology?: VpcTopology | null

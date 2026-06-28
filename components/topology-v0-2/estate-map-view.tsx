@@ -31,6 +31,8 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 
+const VPC_STORAGE_PREFIX = "topology-vpc:"
+
 const EstateSystemView = dynamic(
   () => import("./estate-system-view").then(m => ({ default: m.EstateSystemView })),
   {
@@ -65,8 +67,18 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
 }
 
 export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }: EstateMapViewProps) {
-  const cacheKey = `topology-risk:${systemName}:v3`
-  const url = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
+  const [selectedVpcId, setSelectedVpcId] = useState<string | "all">(() => {
+    if (typeof window === "undefined") return "all"
+    return window.localStorage.getItem(`${VPC_STORAGE_PREFIX}${systemName}`) ?? "all"
+  })
+
+  const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
+  const cacheKey = scopedVpc
+    ? `topology-risk:${systemName}:v4:${scopedVpc}`
+    : `topology-risk:${systemName}:v4:all`
+  const url = scopedVpc
+    ? `/api/proxy/topology-risk/${encodeURIComponent(systemName)}?vpc_id=${encodeURIComponent(scopedVpc)}`
+    : `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
   const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
@@ -74,6 +86,20 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   })
 
   const poisonRetryRef = useRef(false)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(`${VPC_STORAGE_PREFIX}${systemName}`, selectedVpcId)
+    }
+  }, [selectedVpcId, systemName])
+
+  // First visit: default to primary VPC when the system spans multiple VPCs.
+  useEffect(() => {
+    if (!data?.available_vpcs?.length) return
+    const key = `${VPC_STORAGE_PREFIX}${systemName}`
+    if (typeof window !== "undefined" && window.localStorage.getItem(key) != null) return
+    const primary = data.vpc_id ?? data.available_vpcs[0]?.vpc_id
+    if (primary) setSelectedVpcId(primary)
+  }, [data?.available_vpcs, data?.vpc_id, systemName])
   useEffect(() => {
     if (!data || loading || poisonRetryRef.current) return
     if (!topologyGridWouldBeEmpty(data)) return
@@ -272,6 +298,43 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         statsExpanded={statsExpanded}
         onToggleStats={() => setStatsExpanded(v => !v)}
       />
+
+      {(data.available_vpcs?.length ?? 0) > 0 ? (
+        <div
+          className="px-4 py-2 border-b flex flex-wrap items-center gap-3 max-w-[1680px] mx-auto w-full"
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+        >
+          <label
+            htmlFor="topology-vpc-select"
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+            style={{ color: "#5A6B7A" }}
+          >
+            VPC scope
+          </label>
+          <select
+            id="topology-vpc-select"
+            value={selectedVpcId}
+            onChange={e => {
+              setSelectedNodeId(null)
+              setHighlightedRoleName(null)
+              setSelectedVpcId(e.target.value)
+            }}
+            className="text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[280px] max-w-full"
+            style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
+            data-testid="topology-vpc-select"
+          >
+            <option value="all">All VPCs (merged)</option>
+            {(data.available_vpcs ?? []).map(v => (
+              <option key={v.vpc_id} value={v.vpc_id}>
+                {v.name} · {v.vpc_id} ({v.workload_count} workloads)
+              </option>
+            ))}
+          </select>
+          <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
+            Inventory lists every tagged resource; the map scopes compute to the selected VPC plus regional S3/DynamoDB.
+          </span>
+        </div>
+      ) : null}
 
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 px-4 py-4 max-w-[1680px] mx-auto w-full">
         <main className="min-w-0 min-h-0 flex flex-col">

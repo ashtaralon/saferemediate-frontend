@@ -1314,6 +1314,7 @@ export function AwsFrame({
     const m = new Map<string, SubnetMeta[]>()
     for (const s of topo.subnets) {
       if (!s.az) continue
+      if (topo.vpc_id && s.vpc_id && s.vpc_id !== topo.vpc_id) continue
       // Honest AZ filter: only render AZs that hold ≥1 placed workload OR
       // a non-default-VPC subnet. This drops the alon-prod-* demo subnets
       // in us-east-1 (no workloads) and the eu-west-1c default-VPC subnet
@@ -1325,7 +1326,7 @@ export function AwsFrame({
       m.set(k, list)
     }
     return m
-  }, [topo.subnets, populatedAzs])
+  }, [topo.subnets, topo.vpc_id, populatedAzs])
 
   const azs = [...populatedAzs].sort()
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
