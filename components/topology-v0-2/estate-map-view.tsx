@@ -200,6 +200,29 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
   const unscopedNodes = serverlessSourceNodes
 
+  // IAP fetch + derived attackPaths/iapBody MUST be declared before the flow
+  // overlay memos below — overlayEdges/attackPathFlowCount reference them in
+  // their dependency arrays, and a dep array is evaluated synchronously where
+  // it's written (TDZ: "Cannot access 'attackPaths' before initialization").
+  const iapUrl = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+  const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
+    cacheKey: `estate-iap:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000,
+    fetchInit: { cache: "no-store" },
+  })
+  const iapBody = useMemo((): IdentityAttackPathsResponse | null => {
+    if (!rawIap) return null
+    return (isTrustEnvelope(rawIap) ? rawIap.result : rawIap) as IdentityAttackPathsResponse
+  }, [rawIap])
+  const iapJewels: CrownJewelSummary[] = useMemo(
+    () => iapBody?.crown_jewels ?? [],
+    [iapBody],
+  )
+  const attackPaths: IdentityAttackPath[] = useMemo(
+    () => iapBody?.paths ?? [],
+    [iapBody],
+  )
+
   const flowOverlayContext = useMemo(() => {
     const vpces = data?.vpc_topology?.edges?.vpces ?? []
     const nodeTypeById = createMap(
@@ -263,25 +286,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         data?.vpc_topology?.iam_roles ?? [],
       ),
     [data?.nodes, data?.vpc_topology?.iam_roles],
-  )
-
-  const iapUrl = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
-  const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
-    cacheKey: `estate-iap:${systemName}`,
-    maxStaleMs: 10 * 60 * 1000,
-    fetchInit: { cache: "no-store" },
-  })
-  const iapBody = useMemo((): IdentityAttackPathsResponse | null => {
-    if (!rawIap) return null
-    return (isTrustEnvelope(rawIap) ? rawIap.result : rawIap) as IdentityAttackPathsResponse
-  }, [rawIap])
-  const iapJewels: CrownJewelSummary[] = useMemo(
-    () => iapBody?.crown_jewels ?? [],
-    [iapBody],
-  )
-  const attackPaths: IdentityAttackPath[] = useMemo(
-    () => iapBody?.paths ?? [],
-    [iapBody],
   )
 
   const findingsUrl = `/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`
