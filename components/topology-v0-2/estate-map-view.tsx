@@ -85,16 +85,36 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     fetchInit: { cache: "no-store" },
   })
 
-  // Merged (all-VPC) topology for lanes that must never follow VPC scope —
-  // serverless Lambdas have no vpc_id and disappear when the scoped fetch is
-  // the only source. Reuses the same cache key as the "all" map view.
-  const mergedTopologyUrl = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
-  const { data: mergedTopology } = useCachedFetch<TopologyRiskResponse>(mergedTopologyUrl, {
-    cacheKey: `topology-risk:${systemName}:v5:all`,
-    maxStaleMs: 10 * 60 * 1000,
-    fetchInit: { cache: "no-store" },
-  })
-  const serverlessSourceNodes = mergedTopology?.nodes ?? data?.nodes ?? []
+  // Merged (all-VPC) node list for the serverless tier — must never follow
+  // VPC scope. When a specific VPC is selected, defer this fetch until AFTER
+  // the scoped primary load completes so we don't run two cold computes in
+  // parallel (that was causing intermittent backend 500s on the map).
+  const [mergedServerlessNodes, setMergedServerlessNodes] = useState<
+    TopologyRiskResponse["nodes"] | null
+  >(null)
+
+  useEffect(() => {
+    if (!scopedVpc) {
+      setMergedServerlessNodes(null)
+      return
+    }
+    if (!data?.nodes?.length) return
+    let cancelled = false
+    const mergedUrl = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
+    fetch(mergedUrl, { cache: "no-store" })
+      .then(res => (res.ok ? res.json() : null))
+      .then((body: TopologyRiskResponse | null) => {
+        if (!cancelled && body?.nodes) setMergedServerlessNodes(body.nodes)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [scopedVpc, data?.nodes, systemName])
+
+  const serverlessSourceNodes = scopedVpc
+    ? (mergedServerlessNodes ?? data?.nodes ?? [])
+    : (data?.nodes ?? [])
 
   const poisonRetryRef = useRef(false)
   useEffect(() => {

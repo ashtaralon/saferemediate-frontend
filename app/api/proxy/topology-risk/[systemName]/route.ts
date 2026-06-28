@@ -60,6 +60,22 @@ export async function GET(
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[topology-risk] backend ${res.status}: ${body.slice(0, 200)}`)
+      // 503 compute-in-progress — peer single-flight; retry shortly.
+      if (res.status === 503) {
+        await new Promise(r => setTimeout(r, 1500))
+        const retry = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          signal: AbortSignal.timeout(55_000),
+        })
+        if (retry.ok) {
+          const data = await retry.json()
+          setCached(cacheKey, data, TTL_SLOW)
+          return NextResponse.json(data, {
+            headers: { "X-Cache": "MISS", "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },
+          })
+        }
+      }
       // On 5xx, try the stale cache first — Render free-tier bounces are
       // typically transient (10-60s). Serving last-good data with an
       // amber pill is far better UX than "topology risk unavailable" until
