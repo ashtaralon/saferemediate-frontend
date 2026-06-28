@@ -611,8 +611,11 @@ function IamRoleCard({
   const remediated = role.last_remediated_at
     ? new Date(role.last_remediated_at).toISOString().slice(0, 10)
     : null
-  const consumers = allWorkloads.filter(w => role.workload_ids.includes(w.id))
-  const isShared = role.workload_ids.length > 1
+  // Backend may omit attachment_modes (and rarely workload_ids); guard .includes().
+  const workloadIds = role.workload_ids ?? []
+  const attachmentModes = role.attachment_modes ?? []
+  const consumers = allWorkloads.filter(w => workloadIds.includes(w.id))
+  const isShared = workloadIds.length > 1
   return (
     <div
       className="rounded-md p-3 min-w-[200px] max-w-[260px] shrink-0"
@@ -678,9 +681,9 @@ function IamRoleCard({
             </div>
           )}
           <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: PAL.slate }}>
-            {role.attachment_modes.includes("instance_profile") ? "via instance profile" : ""}
-            {role.attachment_modes.includes("instance_profile") && role.attachment_modes.includes("direct") ? " · " : ""}
-            {role.attachment_modes.includes("direct") ? "USES_ROLE" : ""}
+            {attachmentModes.includes("instance_profile") ? "via instance profile" : ""}
+            {attachmentModes.includes("instance_profile") && attachmentModes.includes("direct") ? " · " : ""}
+            {attachmentModes.includes("direct") ? "USES_ROLE" : ""}
             {isShared ? " · shared" : ""}
           </div>
         </div>

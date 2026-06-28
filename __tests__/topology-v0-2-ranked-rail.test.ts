@@ -125,4 +125,19 @@ describe("buildRankedEntries", () => {
     expect(entries.some(e => e.kind === "workload")).toBe(true)
     expect(entries.some(e => e.kind === "iam_role")).toBe(true)
   })
+
+  test("iam headline tolerates missing attachment_modes from API", () => {
+    const roles = [
+      role({
+        name: "lambda-role",
+        gap_percentage: 100,
+        workload_ids: ["w1"],
+        attachment_modes: undefined,
+      }),
+    ]
+    const nodes = [node({ id: "w1", name: "traffic-fn" })]
+    expect(() => buildRankedEntries(nodes, roles)).not.toThrow()
+    const entries = buildRankedEntries(nodes, roles)
+    expect(entries.some(e => e.kind === "iam_role" && e.name === "lambda-role")).toBe(true)
+  })
 })

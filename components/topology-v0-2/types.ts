@@ -161,8 +161,8 @@ export interface IamRoleRollup {
   gap_percentage: number | null
   correlation_state?: IamCorrelationState
   last_remediated_at: string | null
-  workload_ids: string[]
-  attachment_modes: ("instance_profile" | "direct" | string)[]
+  workload_ids?: string[]
+  attachment_modes?: ("instance_profile" | "direct" | string)[]
   scope_mode?: "vpc" | "system"
 }
 
