@@ -22,7 +22,7 @@ import {
   Database,
   Diamond,
   Globe,
-  Map,
+  Map as MapIcon,
   Network,
   Scissors,
   ShieldAlert,
@@ -299,7 +299,7 @@ export function EstateSystemView({
               style={{ borderColor: TEAL, color: "#0E8B7A", background: "#FFFFFF" }}
               data-testid="topology-open-traffic-map"
             >
-              <Map className="h-3.5 w-3.5" />
+              <MapIcon className="h-3.5 w-3.5" />
               Open traffic map
             </button>
           ) : null}
