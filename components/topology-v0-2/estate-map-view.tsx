@@ -9,7 +9,7 @@ import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
-import { AwsFrame, dedupeLambdaServiceTwins } from "@/components/topology-v0-2/aws-frame"
+import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
   applyFilters,
@@ -39,6 +39,23 @@ import {
 } from "@/components/topology-v0-2/estate-flow-edges"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
+const AZ_STORAGE_PREFIX = "topology-hidden-az:"
+
+function azStorageKey(systemName: string, vpcKey: string): string {
+  return `${AZ_STORAGE_PREFIX}${systemName}:${vpcKey}`
+}
+
+function loadHiddenAzs(systemName: string, vpcKey: string): string[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = window.localStorage.getItem(azStorageKey(systemName, vpcKey))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : []
+  } catch {
+    return []
+  }
+}
 
 const EstateSystemView = dynamic(
   () => import("./estate-system-view").then(m => ({ default: m.EstateSystemView })),
@@ -84,6 +101,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   })
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
+  const azScopeKey = scopedVpc ?? "all"
+  const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const cacheKey = scopedVpc
     ? `topology-risk:${systemName}:v5:${scopedVpc}`
     : `topology-risk:${systemName}:v5:all`
@@ -127,6 +146,38 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     if (scopedVpc) return data?.nodes ?? []
     return fullSystemNodes ?? data?.nodes ?? []
   }, [scopedVpc, data?.nodes, fullSystemNodes])
+
+  const availableAzs = useMemo(() => {
+    const subnets = data?.vpc_topology?.subnets ?? []
+    if (subnets.length === 0) return []
+    return listTopologyAzs(subnets, scopedVpc)
+  }, [data?.vpc_topology?.subnets, scopedVpc])
+
+  useEffect(() => {
+    setHiddenAzs(loadHiddenAzs(systemName, azScopeKey))
+  }, [systemName, azScopeKey])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(azStorageKey(systemName, azScopeKey), JSON.stringify(hiddenAzs))
+  }, [hiddenAzs, systemName, azScopeKey])
+
+  useEffect(() => {
+    if (availableAzs.length === 0) return
+    setHiddenAzs(prev => {
+      const next = prev.filter(az => availableAzs.includes(az))
+      return next.length === prev.length ? prev : next
+    })
+  }, [availableAzs])
+
+  const toggleAzVisibility = useCallback((az: string) => {
+    setHiddenAzs(prev => {
+      if (prev.includes(az)) return prev.filter(x => x !== az)
+      const next = [...prev, az]
+      if (next.length >= availableAzs.length) return prev
+      return next
+    })
+  }, [availableAzs.length])
 
   const [flowMode, setFlowMode] = useState<EstateFlowMode>("all_access")
 
@@ -380,6 +431,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
       mergedVpcView={!scopedVpc}
+      hiddenAzs={hiddenAzs}
       serverlessSourceNodes={serverlessSourceNodes}
       regionalDataSourceNodes={regionalDataSourceNodes}
       trafficEdges={data.traffic_edges}
@@ -474,6 +526,57 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             {selectedVpcId === "all"
               ? "Merged view — full system node list; primary VPC frame for subnet-linked compute; edge services on the right rail."
               : "Inventory lists every tagged resource; subnet-linked compute appears in tier cells, the rest in Unplaced."}
+          </span>
+        </div>
+      ) : null}
+
+      {availableAzs.length > 0 ? (
+        <div
+          className="px-4 py-2 border-b flex flex-wrap items-center gap-2 max-w-[1680px] mx-auto w-full"
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+          data-testid="topology-az-scope"
+        >
+          <span
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0"
+            style={{ color: "#5A6B7A" }}
+          >
+            Availability zones
+          </span>
+          {availableAzs.map(az => {
+            const hidden = hiddenAzs.includes(az)
+            return (
+              <button
+                key={az}
+                type="button"
+                aria-pressed={!hidden}
+                title={hidden ? `Show ${az} on the map` : `Hide ${az} — remaining AZ columns expand`}
+                onClick={() => toggleAzVisibility(az)}
+                className="text-[11px] font-mono rounded-md border px-2 py-1 transition-colors"
+                style={{
+                  borderColor: hidden ? "#CBD5E1" : "#00C2A8",
+                  background: hidden ? "#F8FAFC" : "#E6FBF7",
+                  color: hidden ? "#94A3B8" : "#0E8B7A",
+                  textDecoration: hidden ? "line-through" : "none",
+                }}
+                data-testid={`topology-az-toggle-${az}`}
+              >
+                {az}
+              </button>
+            )
+          })}
+          {hiddenAzs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setHiddenAzs([])}
+              className="text-[10px] font-semibold uppercase tracking-wide rounded-md border px-2 py-1"
+              style={{ borderColor: "#CBD5E1", color: "#5A6B7A", background: "#FFFFFF" }}
+              data-testid="topology-az-show-all"
+            >
+              Show all AZs
+            </button>
+          ) : null}
+          <span className="text-[11px] w-full sm:w-auto" style={{ color: "#5A6B7A" }}>
+            Click an AZ to hide it from the grid — visible columns expand to use the space (one AZ fills the row).
           </span>
         </div>
       ) : null}

@@ -85,6 +85,8 @@ interface Props {
    * node list and does not hide subnets from non-primary VPCs in the frame.
    */
   mergedVpcView?: boolean
+  /** AZ ids hidden by the operator — remaining columns expand to fill the grid. */
+  hiddenAzs?: string[]
   presentationMode?: boolean
 }
 
@@ -186,6 +188,28 @@ function subnetInCanvasScope(
     if (prefix && prefix !== primaryRegion) return false
   }
   return true
+}
+
+/** AZ columns available for the current VPC / merged canvas scope. */
+export function listTopologyAzs(
+  subnets: SubnetMeta[],
+  canvasVpcId: string | null,
+): string[] {
+  const primaryRegion = primaryRegionFromSubnets(subnets, canvasVpcId)
+  const azs = new Set<string>()
+  for (const s of subnets) {
+    if (!subnetInCanvasScope(s, canvasVpcId, primaryRegion)) continue
+    if (s.az) azs.add(s.az)
+  }
+  return [...azs].sort()
+}
+
+/** Apply operator-hidden AZs; never hide every column. */
+export function visibleTopologyAzs(allAzs: string[], hiddenAzs: Iterable<string>): string[] {
+  const hidden = new Set(hiddenAzs)
+  if (hidden.size === 0) return allAzs
+  const visible = allAzs.filter(az => !hidden.has(az))
+  return visible.length > 0 ? visible : allAzs
 }
 
 /** Lambdas with no resolvable subnet/AZ — VPC scope and FilterRail must not hide these. */
@@ -1574,6 +1598,7 @@ export function AwsFrame({
   vpcTopology,
   nodes,
   mergedVpcView = false,
+  hiddenAzs = [],
   serverlessSourceNodes,
   regionalDataSourceNodes,
   overlayEdges,
@@ -1723,18 +1748,13 @@ export function AwsFrame({
     return m
   }, [topo.subnets, canvasVpcId, primaryRegion, populatedAzs])
 
-  const azs = [...populatedAzs].sort()
+  const allAzs = useMemo(() => [...populatedAzs].sort(), [populatedAzs])
+  const azs = useMemo(
+    () => visibleTopologyAzs(allAzs, hiddenAzs),
+    [allAzs, hiddenAzs],
+  )
   const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
-  const azHasWorkloads = useMemo(() => {
-    const m = new Map<string, boolean>()
-    for (const az of azs) {
-      m.set(az, true)
-    }
-    return m
-  }, [azs])
-  const azGridColumns = azs
-    .map(az => (azHasWorkloads.get(az) ? "minmax(0, 1fr)" : "32px"))
-    .join(" ")
+  const azGridColumns = azs.map(() => "minmax(0, 1fr)").join(" ")
   const hasIgw = topo.edges.igws.length > 0
   const hasNats = topo.edges.nat_gws.length > 0
   const hasVpces = topo.edges.vpces.length > 0
@@ -1863,6 +1883,34 @@ export function AwsFrame({
               ) : (
                 <div className={presentationMode ? "mt-1" : "mt-2"}>
                   <div className={presentationMode ? "space-y-1.5" : "space-y-2"}>
+                    <div className="flex gap-0">
+                      <div
+                        className="rounded-l-md shrink-0"
+                        style={{ width: presentationMode ? "36px" : "44px" }}
+                        aria-hidden
+                      />
+                      <div
+                        className={presentationMode ? "rounded-r-md px-2 pt-1 pb-0.5 flex-1" : "rounded-r-md px-2.5 pt-1.5 pb-1 flex-1"}
+                        style={{ background: "#EEF2F6" }}
+                      >
+                        <div
+                          className="grid gap-2"
+                          style={{ gridTemplateColumns: azGridColumns }}
+                          data-testid="topology-az-column-headers"
+                        >
+                          {azs.map(az => (
+                            <div
+                              key={`az-header-${az}`}
+                              className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center truncate"
+                              style={{ color: PAL.slate }}
+                              title={az}
+                            >
+                              {az}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                     {tiers.map(tier => (
                       <div key={tier} className="flex gap-0">
                         <div
@@ -1889,16 +1937,6 @@ export function AwsFrame({
                             style={{ gridTemplateColumns: azGridColumns }}
                           >
                             {azs.map(az => {
-                              if (!azHasWorkloads.get(az)) {
-                                return (
-                                  <div
-                                    key={`${az}-${tier}-gutter`}
-                                    title={`no workloads in ${az}`}
-                                    className="rounded self-stretch min-h-[48px]"
-                                    style={{ background: "#EEF2F6", border: "1px dashed #CBD5E1" }}
-                                  />
-                                )
-                              }
                               const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
                               const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
                               return (
