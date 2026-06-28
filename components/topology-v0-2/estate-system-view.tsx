@@ -22,6 +22,7 @@ import {
   Database,
   Diamond,
   Globe,
+  Map,
   Network,
   Scissors,
   ShieldAlert,
@@ -177,6 +178,7 @@ export interface EstateSystemViewProps {
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
   onShowNetwork: () => void
+  onOpenTrafficMap?: () => void
   iapJewels?: CrownJewelSummary[]
   findingsSummary?: FindingsSeveritySummary | null
   decisionRouting?: DecisionRoutingSummary | null
@@ -187,6 +189,7 @@ export function EstateSystemView({
   selectedNodeId,
   onSelectNode,
   onShowNetwork,
+  onOpenTrafficMap,
   iapJewels = [],
   findingsSummary = null,
   decisionRouting = null,
@@ -281,10 +284,35 @@ export function EstateSystemView({
     >
       <div className="mb-4 pb-3 border-b" style={{ borderColor: HAIR }}>
         <div className="text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: TEAL }}>
-          Risk-guided system inventory
+          Risk inventory — not a diagram
         </div>
         <div className="text-[12px] mt-1" style={{ color: SLATE }}>
-          Workloads, crown jewels, and IAM gaps first — subnet map is supporting context only.
+          Ranked cards for triage. For the visual topology, open a map below or use the{" "}
+          <span className="font-semibold" style={{ color: INK }}>Traffic map</span> tab.
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {onOpenTrafficMap ? (
+            <button
+              type="button"
+              onClick={onOpenTrafficMap}
+              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-[#F0FDFA]"
+              style={{ borderColor: TEAL, color: "#0E8B7A", background: "#FFFFFF" }}
+              data-testid="topology-open-traffic-map"
+            >
+              <Map className="h-3.5 w-3.5" />
+              Open traffic map
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onShowNetwork}
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-white"
+            style={{ borderColor: "#CBD5E1", color: INK, background: "#FFFFFF" }}
+            data-testid="topology-open-vpc-map"
+          >
+            <Network className="h-3.5 w-3.5" />
+            Open VPC subnet map
+          </button>
         </div>
       </div>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">

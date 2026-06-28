@@ -33,6 +33,8 @@ import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 export interface EstateMapViewProps {
   systemName: string
   embedded?: boolean
+  /** Switch Topology tab to Traffic map (TFM graph). */
+  onOpenTrafficMap?: () => void
 }
 
 const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"])
@@ -51,7 +53,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }: EstateMapViewProps) {
   const cacheKey = `topology-risk:${systemName}:v2`
   const url = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
   const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
@@ -272,6 +274,7 @@ export function EstateMapView({ systemName, embedded = false }: EstateMapViewPro
                   setHighlightedRoleName(null)
                 }}
                 onShowNetwork={openSubnetMap}
+                onOpenTrafficMap={onOpenTrafficMap}
                 iapJewels={iapJewels}
                 findingsSummary={findingsSummary}
                 decisionRouting={decisionRouting}

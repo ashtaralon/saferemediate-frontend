@@ -720,7 +720,7 @@ export default function DependencyMapTab({
               }`}
             >
               <Layers className="w-4 h-4" />
-              System map
+              Risk inventory
             </button>
             <button
               onClick={() => setActiveView('graph')}
@@ -731,7 +731,7 @@ export default function DependencyMapTab({
               }`}
             >
               <MapIcon className="w-4 h-4" />
-              Graph View
+              Traffic map
             </button>
             <button
               onClick={() => setActiveView('resource')}
@@ -917,7 +917,11 @@ export default function DependencyMapTab({
             </div>
           </React.Suspense>
         ) : activeView === 'estate' ? (
-          <EstateMapView systemName={systemName} embedded />
+          <EstateMapView
+            systemName={systemName}
+            embedded
+            onOpenTrafficMap={() => setActiveView("graph")}
+          />
         ) : (
           <ResourceView
             systemName={systemName}
