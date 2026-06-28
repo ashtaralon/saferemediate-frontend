@@ -9,7 +9,7 @@ import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
-import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
+import { AwsFrame, dedupeLambdaServiceTwins } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
   applyFilters,
@@ -65,7 +65,11 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   if (subnets.length === 0) return false
   const subnetById = createMap(subnets.map((s) => [s.id, s]))
   for (const n of data.nodes ?? []) {
-    if (n.stale) continue
+    if (n.stale) {
+      const sub = n.subnet_id ? subnetById.get(n.subnet_id) : undefined
+      if (sub?.az) return false
+      continue
+    }
     if (n.type && EDGE_SERVICE_TYPES.has(n.type)) continue
     const sub = n.subnet_id ? subnetById.get(n.subnet_id) : undefined
     if (sub?.az) return false
@@ -92,37 +96,37 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     fetchInit: { cache: "no-store" },
   })
 
-  // Merged (all-VPC) node list for serverless + regional tiers — must never follow
-  // VPC scope. When a specific VPC is selected, defer this fetch until AFTER
-  // the scoped primary load completes so we don't run two cold computes in
-  // parallel (that was causing intermittent backend 500s on the map).
-  const [mergedServerlessNodes, setMergedServerlessNodes] = useState<
+  // Full unscoped node list — always fetched so serverless/regional tiers and
+  // merged ("All VPCs") grid use the same superset. Scoped VPC picker still
+  // uses scoped primary fetch for the subnet grid frame.
+  const [fullSystemNodes, setFullSystemNodes] = useState<
     TopologyRiskResponse["nodes"] | null
   >(null)
 
   useEffect(() => {
-    if (!scopedVpc) {
-      setMergedServerlessNodes(null)
-      return
-    }
-    if (!data?.nodes?.length) return
     let cancelled = false
     const mergedUrl = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
     fetch(mergedUrl, { cache: "no-store" })
       .then(res => (res.ok ? res.json() : null))
       .then((body: TopologyRiskResponse | null) => {
-        if (!cancelled && body?.nodes) setMergedServerlessNodes(body.nodes)
+        if (!cancelled && body?.nodes) setFullSystemNodes(body.nodes)
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [scopedVpc, data?.nodes, systemName])
+  }, [systemName])
 
-  const serverlessSourceNodes = scopedVpc
-    ? (mergedServerlessNodes ?? data?.nodes ?? [])
-    : (data?.nodes ?? [])
+  const serverlessSourceNodes = useMemo(() => {
+    const raw = fullSystemNodes ?? data?.nodes ?? []
+    return dedupeLambdaServiceTwins(raw)
+  }, [fullSystemNodes, data?.nodes])
   const regionalDataSourceNodes = serverlessSourceNodes
+
+  const gridSourceNodes = useMemo(() => {
+    if (scopedVpc) return data?.nodes ?? []
+    return fullSystemNodes ?? data?.nodes ?? []
+  }, [scopedVpc, data?.nodes, fullSystemNodes])
 
   const [flowMode, setFlowMode] = useState<EstateFlowMode>("all_access")
 
@@ -194,9 +198,28 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   )
 
   const filteredNodes = useMemo(
-    () => (data?.nodes ? applyFilters(data.nodes, effectiveFilters) : []),
-    [data?.nodes, effectiveFilters],
+    () => (gridSourceNodes.length ? applyFilters(gridSourceNodes, effectiveFilters) : []),
+    [gridSourceNodes, effectiveFilters],
   )
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return
+    console.log("[estate-map counts]", {
+      mode: scopedVpc ? `scoped:${scopedVpc}` : "all-merged",
+      dataNodes: data?.nodes?.length ?? 0,
+      fullSystemNodes: fullSystemNodes?.length ?? 0,
+      gridSourceNodes: gridSourceNodes.length,
+      filteredNodes: filteredNodes.length,
+      serverlessSource: serverlessSourceNodes.length,
+    })
+  }, [
+    scopedVpc,
+    data?.nodes,
+    fullSystemNodes,
+    gridSourceNodes.length,
+    filteredNodes.length,
+    serverlessSourceNodes.length,
+  ])
 
   const unscopedNodes = serverlessSourceNodes
 
@@ -356,6 +379,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     <AwsFrame
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
+      mergedVpcView={!scopedVpc}
       serverlessSourceNodes={serverlessSourceNodes}
       regionalDataSourceNodes={regionalDataSourceNodes}
       trafficEdges={data.traffic_edges}
@@ -448,7 +472,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           </select>
           <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
             {selectedVpcId === "all"
-              ? "Merged view uses the primary VPC frame; all Lambdas/RDS without subnet placement appear in the Unplaced row on the map."
+              ? "Merged view — full system node list; primary VPC frame for subnet-linked compute; edge services on the right rail."
               : "Inventory lists every tagged resource; subnet-linked compute appears in tier cells, the rest in Unplaced."}
           </span>
         </div>

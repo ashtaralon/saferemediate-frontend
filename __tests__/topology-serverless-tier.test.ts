@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { extractServerlessOutsideVpc } from "@/components/topology-v0-2/aws-frame"
+import {
+  dedupeLambdaServiceTwins,
+  extractServerlessOutsideVpc,
+} from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode } from "@/components/topology-v0-2/types"
 
 const subnet: SubnetMeta = {
@@ -32,5 +35,23 @@ describe("extractServerlessOutsideVpc", () => {
     ]
     const out = extractServerlessOutsideVpc(source, [subnet])
     expect(out.map(n => n.name)).toEqual(["alon-prod-authenticator"])
+  })
+})
+
+describe("dedupeLambdaServiceTwins", () => {
+  it("drops arn-null name-id twins when an arn-keyed node shares the name", () => {
+    const source = [
+      node({
+        id: "arn:aws:lambda:eu-west-1:123:function:BehaviorAnalyzer",
+        name: "SafeRemediate-BehaviorAnalyzer",
+      }),
+      node({ id: "SafeRemediate-BehaviorAnalyzer", name: "SafeRemediate-BehaviorAnalyzer" }),
+      node({ id: "standalone-fn", name: "standalone-fn" }),
+    ]
+    const out = dedupeLambdaServiceTwins(source)
+    expect(out.map(n => n.id)).toEqual([
+      "arn:aws:lambda:eu-west-1:123:function:BehaviorAnalyzer",
+      "standalone-fn",
+    ])
   })
 })

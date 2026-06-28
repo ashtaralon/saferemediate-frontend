@@ -14,7 +14,7 @@ function node(partial: Partial<TopologyNode> & Pick<TopologyNode, "id" | "name">
 }
 
 describe("extractRegionalDataServices", () => {
-  it("collects S3/KMS/DDB/RDS/Secret and drops compute workloads", () => {
+  it("collects S3/KMS/DDB/Secret and drops compute workloads and RDS", () => {
     const source = [
       node({ id: "s1", name: "logs-bucket", type: "S3" }),
       node({ id: "r1", name: "alon-prod-db", type: "RDS" }),
@@ -22,6 +22,6 @@ describe("extractRegionalDataServices", () => {
       node({ id: "e1", name: "web", type: "EC2", subnet_id: "subnet-a" }),
     ]
     const out = extractRegionalDataServices(source)
-    expect(out.map(n => n.name)).toEqual(["logs-bucket", "alon-prod-db"])
+    expect(out.map(n => n.name)).toEqual(["logs-bucket"])
   })
 })
