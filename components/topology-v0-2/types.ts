@@ -191,6 +191,8 @@ export interface TrafficEdge {
   // matching Gateway VPCE, or the destination isn't S3/DDB.
   via_vpce_id?: string | null
   via_vpce_service_name?: string | null
+  /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
+  flow_highlight?: "attack_path" | null
 }
 
 export interface VpcTopology {

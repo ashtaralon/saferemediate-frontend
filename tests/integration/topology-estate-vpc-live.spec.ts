@@ -160,4 +160,15 @@ test.describe("estate map VPC scope e2e", () => {
       timeout: 120_000,
     })
   })
+
+  test("flow overlay toggle switches all access and attack paths", async ({ page }) => {
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    const toggle = page.getByTestId("topology-flow-mode-toggle")
+    await expect(toggle).toBeVisible({ timeout: 120_000 })
+    await expect(toggle.getByRole("button", { name: /All access/i })).toHaveAttribute("aria-pressed", "true")
+    await toggle.getByRole("button", { name: /Attack paths only/i }).click()
+    await expect(toggle.getByRole("button", { name: /Attack paths only/i })).toHaveAttribute("aria-pressed", "true")
+    await toggle.getByRole("button", { name: /All access/i }).click()
+    await expect(toggle.getByRole("button", { name: /All access/i })).toHaveAttribute("aria-pressed", "true")
+  })
 })

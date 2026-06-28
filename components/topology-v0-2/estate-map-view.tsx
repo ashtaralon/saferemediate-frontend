@@ -27,9 +27,16 @@ import type {
   DecisionRoutingSummary,
   FindingsSeveritySummary,
 } from "@/components/topology-v0-2/estate-enrichment"
-import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import type { CrownJewelSummary, IdentityAttackPath, IdentityAttackPathsResponse } from "@/components/identity-attack-paths/types"
 import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
+import {
+  buildTopologyNodeIdIndex,
+  buildVisibleCanvasIds,
+  attackPathEdgesToTrafficEdges,
+  selectEstateFlowEdges,
+  type EstateFlowMode,
+} from "@/components/topology-v0-2/estate-flow-edges"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 
@@ -117,6 +124,18 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     : (data?.nodes ?? [])
   const regionalDataSourceNodes = serverlessSourceNodes
 
+  const [flowMode, setFlowMode] = useState<EstateFlowMode>("all_access")
+
+  const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=500`
+  const { data: depMapData } = useCachedFetch<{
+    edges?: Array<{ source: string; target: string; type: string; port?: string | null; protocol?: string | null; last_seen?: string | null }>
+    nodes?: Array<{ id: string; name?: string; type?: string; properties?: Record<string, unknown> }>
+  }>(depMapUrl, {
+    cacheKey: `estate-dep-map:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000,
+    fetchInit: { cache: "no-store" },
+  })
+
   const poisonRetryRef = useRef(false)
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -179,6 +198,54 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     [data?.nodes, effectiveFilters],
   )
 
+  const unscopedNodes = serverlessSourceNodes
+
+  const flowOverlayContext = useMemo(() => {
+    const vpces = data?.vpc_topology?.edges?.vpces ?? []
+    const nodeTypeById = createMap(
+      unscopedNodes.map(n => [n.id, n.type] as const),
+    )
+    const index = buildTopologyNodeIdIndex(unscopedNodes, depMapData?.nodes ?? [])
+    const visible = buildVisibleCanvasIds(filteredNodes, unscopedNodes, vpces)
+    return { vpces, nodeTypeById, index, visible }
+  }, [data?.vpc_topology?.edges?.vpces, unscopedNodes, depMapData?.nodes, filteredNodes])
+
+  const overlayEdges = useMemo(
+    () =>
+      selectEstateFlowEdges({
+        mode: flowMode,
+        topologyTrafficEdges: data?.traffic_edges ?? [],
+        depMapEdges: depMapData?.edges ?? null,
+        attackPaths,
+        materializationAvailable: iapBody?.materialization_available === true,
+        visible: flowOverlayContext.visible,
+        index: flowOverlayContext.index,
+        nodeTypeById: flowOverlayContext.nodeTypeById,
+        vpces: flowOverlayContext.vpces,
+      }),
+    [
+      flowMode,
+      data?.traffic_edges,
+      depMapData?.edges,
+      attackPaths,
+      iapBody?.materialization_available,
+      flowOverlayContext,
+    ],
+  )
+
+  const attackPathFlowCount = useMemo(
+    () =>
+      attackPathEdgesToTrafficEdges(
+        attackPaths,
+        flowOverlayContext.visible,
+        flowOverlayContext.index,
+        flowOverlayContext.nodeTypeById,
+        flowOverlayContext.vpces,
+        iapBody?.materialization_available === true,
+      ).length,
+    [attackPaths, flowOverlayContext, iapBody?.materialization_available],
+  )
+
   const selectedNode = useMemo(
     () => (selectedNodeId ? data?.nodes.find(n => n.id === selectedNodeId) ?? null : null),
     [selectedNodeId, data?.nodes],
@@ -204,11 +271,18 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
-  const iapJewels: CrownJewelSummary[] = useMemo(() => {
-    if (!rawIap) return []
-    const body = isTrustEnvelope(rawIap) ? rawIap.result : rawIap
-    return (body as { crown_jewels?: CrownJewelSummary[] })?.crown_jewels ?? []
+  const iapBody = useMemo((): IdentityAttackPathsResponse | null => {
+    if (!rawIap) return null
+    return (isTrustEnvelope(rawIap) ? rawIap.result : rawIap) as IdentityAttackPathsResponse
   }, [rawIap])
+  const iapJewels: CrownJewelSummary[] = useMemo(
+    () => iapBody?.crown_jewels ?? [],
+    [iapBody],
+  )
+  const attackPaths: IdentityAttackPath[] = useMemo(
+    () => iapBody?.paths ?? [],
+    [iapBody],
+  )
 
   const findingsUrl = `/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`
   const { data: findingsSummary } = useCachedFetch<FindingsSeveritySummary>(findingsUrl, {
@@ -281,6 +355,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       serverlessSourceNodes={serverlessSourceNodes}
       regionalDataSourceNodes={regionalDataSourceNodes}
       trafficEdges={data.traffic_edges}
+      overlayEdges={overlayEdges}
+      flowMode={flowMode}
+      onFlowModeChange={setFlowMode}
+      attackPathFlowCount={attackPathFlowCount}
       selectedNodeId={selectedNodeId}
       highlightedRoleName={highlightedRoleName}
       onSelect={id => {

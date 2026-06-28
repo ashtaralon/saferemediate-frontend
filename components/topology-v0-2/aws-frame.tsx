@@ -44,6 +44,7 @@ import {
 } from "./types"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
+import type { EstateFlowMode } from "./estate-flow-edges"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -61,6 +62,11 @@ interface Props {
    * always appear in REGIONAL DATA SERVICES regardless of map scope.
    */
   regionalDataSourceNodes?: TopologyNode[]
+  /** Lane 3 — overlay edges (dep-map all access or IAP attack paths). Falls back to trafficEdges. */
+  overlayEdges?: TrafficEdge[]
+  flowMode?: EstateFlowMode
+  onFlowModeChange?: (mode: EstateFlowMode) => void
+  attackPathFlowCount?: number
   trafficEdges?: TrafficEdge[]
   selectedNodeId: string | null
   highlightedRoleName?: string | null
@@ -1152,6 +1158,7 @@ interface FlowPath {
   badgeX: number
   badgeY: number
   badgeLabel: string
+  highlight?: "attack_path" | null
 }
 
 function buildPath(
@@ -1200,6 +1207,51 @@ function buildPathViaIntermediate(
   return (
     `M ${sx} ${sy} C ${c1ax} ${sy}, ${c1bx} ${iy}, ${ix} ${iy} ` +
     `C ${c2ax} ${iy}, ${c2bx} ${dy}, ${dx} ${dy}`
+  )
+}
+
+function FlowModeToggle({
+  mode,
+  onChange,
+  attackPathCount,
+}: {
+  mode: EstateFlowMode
+  onChange: (mode: EstateFlowMode) => void
+  attackPathCount: number
+}) {
+  return (
+    <div
+      className="flex items-center gap-1 rounded-md p-0.5"
+      style={{ background: "#EEF2F6", border: "1px solid #CBD5E1" }}
+      data-testid="topology-flow-mode-toggle"
+    >
+      <button
+        type="button"
+        aria-pressed={mode === "all_access"}
+        onClick={() => onChange("all_access")}
+        className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
+        style={{
+          background: mode === "all_access" ? "#FFFFFF" : "transparent",
+          color: mode === "all_access" ? "#1A2330" : "#5A6B7A",
+          boxShadow: mode === "all_access" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
+        }}
+      >
+        All access
+      </button>
+      <button
+        type="button"
+        aria-pressed={mode === "attack_paths"}
+        onClick={() => onChange("attack_paths")}
+        className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
+        style={{
+          background: mode === "attack_paths" ? "#FFFFFF" : "transparent",
+          color: mode === "attack_paths" ? "#B91C1C" : "#5A6B7A",
+          boxShadow: mode === "attack_paths" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
+        }}
+      >
+        Attack paths only{attackPathCount > 0 ? ` (${attackPathCount})` : ""}
+      </button>
+    </div>
   )
 }
 
@@ -1308,6 +1360,7 @@ function FlowOverlay({
           badgeX,
           badgeY,
           badgeLabel,
+          highlight: e.flow_highlight ?? null,
         })
       }
       setPaths(next)
@@ -1383,13 +1436,15 @@ function FlowOverlay({
           </marker>
         ))}
       </defs>
-      {paths.map((p, i) => (
+      {paths.map((p, i) => {
+        const stroke = p.highlight === "attack_path" ? "#DC2626" : colorByCls[p.cls]
+        return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
           <path
             d={p.d}
             fill="none"
-            stroke={colorByCls[p.cls]}
+            stroke={stroke}
             strokeWidth="9"
             strokeOpacity="0.18"
             strokeLinecap="round"
@@ -1397,10 +1452,10 @@ function FlowOverlay({
           <path
             d={p.d}
             fill="none"
-            stroke={colorByCls[p.cls]}
+            stroke={stroke}
             strokeWidth="3"
             strokeOpacity="0.95"
-            strokeDasharray="8 5"
+            strokeDasharray={p.highlight === "attack_path" ? "10 5" : "8 5"}
             strokeLinecap="round"
             markerEnd={`url(#flow-arrow-${p.cls})`}
           >
@@ -1422,7 +1477,7 @@ function FlowOverlay({
               height={16}
               rx={4}
               fill="white"
-              stroke={colorByCls[p.cls]}
+              stroke={stroke}
               strokeWidth="1"
               opacity="0.96"
             />
@@ -1432,14 +1487,15 @@ function FlowOverlay({
               textAnchor="middle"
               fontSize="10"
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fill={colorByCls[p.cls]}
+              fill={stroke}
               fontWeight="600"
             >
               {p.badgeLabel}
             </text>
           </g>
         </g>
-      ))}
+        )
+      })}
     </svg>
   )
 }
@@ -1449,6 +1505,10 @@ export function AwsFrame({
   nodes,
   serverlessSourceNodes,
   regionalDataSourceNodes,
+  overlayEdges,
+  flowMode = "all_access",
+  onFlowModeChange,
+  attackPathFlowCount = 0,
   trafficEdges,
   selectedNodeId,
   highlightedRoleName = null,
@@ -1475,6 +1535,7 @@ export function AwsFrame({
     return (nodeId: string) => m.get(nodeId)
   }, [iamRoles])
   const trafficEdgesList = trafficEdges ?? []
+  const overlayEdgeList = overlayEdges ?? trafficEdgesList
   const vpceIds = useMemo(
     () => new Set((topo.edges.vpces ?? []).map(v => v.id)),
     [topo.edges.vpces],
@@ -1486,13 +1547,13 @@ export function AwsFrame({
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
-    return trafficEdgesList.filter(e => {
+    return overlayEdgeList.filter(e => {
       if (!visible.has(e.source_id)) return false
       if (e.target_id === "__igw__") return true
       if (vpceIds.has(e.target_id)) return true
       return visible.has(e.target_id)
     })
-  }, [trafficEdgesList, nodes, regionalTierNodes, vpceIds])
+  }, [overlayEdgeList, nodes, regionalTierNodes, vpceIds])
   // Index subnets and workloads by (az, tier).
   const primaryRegion = useMemo(
     () => primaryRegionFromSubnets(topo.subnets, topo.vpc_id),
@@ -1598,6 +1659,8 @@ export function AwsFrame({
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
 
+  const attackPathEdgeCount = attackPathFlowCount
+
   return (
     <div
       ref={flowContainerRef}
@@ -1608,6 +1671,18 @@ export function AwsFrame({
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
+      {onFlowModeChange ? (
+        <div className="flex items-center justify-end gap-2 pb-1">
+          <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: PAL.slate }}>
+            Flow overlay
+          </span>
+          <FlowModeToggle
+            mode={flowMode}
+            onChange={onFlowModeChange}
+            attackPathCount={attackPathEdgeCount}
+          />
+        </div>
+      ) : null}
       {/* Internet + IGW perimeter — tighter in presentation mode so the
           AWS Cloud frame can take the dominant vertical share. */}
       <div className="flex items-center justify-center gap-4 py-1 pb-2">
