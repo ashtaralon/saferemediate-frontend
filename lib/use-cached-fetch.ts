@@ -177,7 +177,16 @@ function readCacheAny<T>(key: string): { data: T; ts: number } | null {
   return readCache<T>(key, FALLBACK_HARD_CAP_MS)
 }
 
-function writeCache<T>(key: string, data: T): void {
+export function clearCachedFetch(key: string): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(CACHE_PREFIX + key)
+  } catch {
+    // ignore
+  }
+}
+
+export function writeCache<T>(key: string, data: T): void {
   if (typeof window === "undefined") return
   try {
     const entry: CacheEntry<T> = { ts: Date.now(), data }
@@ -257,8 +266,9 @@ export function useCachedFetch<T = unknown>(
         }
         return
       }
-      const json = (await res.json()) as T
+      const json = (await res.json()) as T & { fromStaleCache?: boolean }
       if (myEpoch !== epochRef.current) return
+      const proxyStale = json.fromStaleCache === true
       // Defensive double-check on FRESH responses too. The backend gate
       // makes phantom edges impossible to ship in new deploys, but if
       // a CI gap or a hot-fix bypass ever lets one through, this
@@ -275,15 +285,16 @@ export function useCachedFetch<T = unknown>(
       }
       const sanitized = cleaned as T
       setData(sanitized)
-      setIsStale(false)
-      // cachedAt = null means "this data is fresh from the network in
-      // this session." The UI suppresses the stale indicator in that
-      // case. Set to null explicitly so a previous cached-then-refreshed
-      // render flips correctly.
-      setCachedAt(null)
+      if (proxyStale) {
+        setIsStale(true)
+        setCachedAt(cachedAt ?? Date.now())
+      } else {
+        setIsStale(false)
+        setCachedAt(null)
+        writeCache(cacheKey, sanitized)
+      }
       setError(null)
       setLoading(false)
-      writeCache(cacheKey, sanitized)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
       if (data === null) {

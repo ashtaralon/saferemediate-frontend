@@ -3,9 +3,9 @@
 /**
  * Topology v0.2 — Estate view, reusable + system-scoped.
  */
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
@@ -28,13 +28,41 @@ export interface EstateMapViewProps {
   embedded?: boolean
 }
 
+const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"])
+
+/** Mirrors aws-frame populatedAzs — true when subnets exist but no workload lands in the grid. */
+function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
+  const subnets = data.vpc_topology?.subnets ?? []
+  if (subnets.length === 0) return false
+  const subnetById = new Map(subnets.map((s) => [s.id, s]))
+  for (const n of data.nodes ?? []) {
+    if (n.stale) continue
+    if (n.type && EDGE_SERVICE_TYPES.has(n.type)) continue
+    const sub = n.subnet_id ? subnetById.get(n.subnet_id) : undefined
+    if (sub?.az) return false
+  }
+  return true
+}
+
 export function EstateMapView({ systemName, embedded = false }: EstateMapViewProps) {
+  const cacheKey = `topology-risk:${systemName}:v2`
   const url = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
   const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
-    cacheKey: `topology-risk:${systemName}`,
+    cacheKey,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
+
+  const poisonRetryRef = useRef(false)
+  useEffect(() => {
+    if (!data || loading || poisonRetryRef.current) return
+    if (!topologyGridWouldBeEmpty(data)) return
+    if (!isStale && !data.fromStaleCache && !cachedAt) return
+    poisonRetryRef.current = true
+    clearCachedFetch(cacheKey)
+    clearCachedFetch(`topology-risk:${systemName}`)
+    retry()
+  }, [data, loading, isStale, cachedAt, retry, cacheKey, systemName])
 
   const [filters, setFilters] = useState<EstateFilters | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
