@@ -4,9 +4,9 @@
  * Topology v0.2 — Estate filter rail.
  *
  * Workload type, severity, and confidence filters. Client-side — trims the
- * nodes list rendered in the canvas pane. Summary counts come from
- * system_kpis (workload-type counts) or are computed from the nodes array
- * (severity / stale / low-confidence).
+ * nodes list rendered in the canvas pane. Workload-type counts match the
+ * rendered node set passed in `nodes` (grid + serverless/regional superset),
+ * not backend KPI active-workload totals.
  */
 
 import { useMemo } from "react"
@@ -19,9 +19,35 @@ export interface EstateFilters {
   includeUnscoredOnly: boolean
 }
 
-export function defaultFilters(kpis: SystemKpis | null): EstateFilters {
+/** Count drawable nodes by `type` — chips match what the map can render. */
+export function countNodesByType(nodes: Iterable<TopologyNode>): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const n of nodes) {
+    const t = n.type
+    if (!t) continue
+    counts[t] = (counts[t] ?? 0) + 1
+  }
+  return counts
+}
+
+export function workloadTypeRowsFromNodes(
+  nodes: TopologyNode[],
+): [string, number][] {
+  return Object.entries(countNodesByType(nodes))
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+}
+
+export function defaultFilters(
+  kpis: SystemKpis | null,
+  countNodes?: TopologyNode[] | null,
+): EstateFilters {
   const types = new Set<string>()
-  if (kpis) {
+  if (countNodes?.length) {
+    for (const [t] of workloadTypeRowsFromNodes(countNodes)) {
+      types.add(t)
+    }
+  } else if (kpis) {
     for (const [t, v] of Object.entries(kpis.workloads_by_type ?? {})) {
       if (v > 0) types.add(t)
     }
@@ -107,11 +133,10 @@ export function FilterRail({ kpis, nodes, filters, onChange }: Props) {
     onChange({ ...filters, tiers: next })
   }
 
-  const typeRows = kpis
-    ? Object.entries(kpis.workloads_by_type)
-        .filter(([, v]) => v > 0)
-        .sort((a, b) => b[1] - a[1])
-    : []
+  const typeRows = useMemo(
+    () => (nodes.length ? workloadTypeRowsFromNodes(nodes) : []),
+    [nodes],
+  )
 
   const labelCls = "flex items-center gap-2 py-1 text-[13px] cursor-pointer"
   const divider = "border-t my-3"
@@ -129,7 +154,7 @@ export function FilterRail({ kpis, nodes, filters, onChange }: Props) {
             className="text-[10px] font-semibold uppercase tracking-wide rounded border px-2 py-0.5 hover:bg-[#F8FAFC]"
             style={{ borderColor: "#CBD5E1", color: "#0E8B7A" }}
             onClick={() =>
-              onChange({ ...filters, types: allWorkloadTypes(kpis) })
+              onChange({ ...filters, types: allWorkloadTypes(kpis, nodes) })
             }
           >
             Show all
@@ -232,8 +257,8 @@ export function FilterRail({ kpis, nodes, filters, onChange }: Props) {
       </Section>
 
       <div className="text-[10px] leading-snug mt-4 pt-3 border-t" style={{ borderColor: "#E2E8F0", color: "#5A6B7A" }}>
-        Estate filters trim the canvas client-side. Counts reflect the full
-        nodes payload returned by the endpoint.
+        Estate filters trim the canvas client-side. Type counts match the
+        nodes payload shown on the map (grid + serverless/regional tiers).
       </div>
     </aside>
   )
@@ -261,7 +286,13 @@ export function applyTypeFilter(nodes: TopologyNode[], filters: EstateFilters): 
   return nodes.filter(n => filters.types.has(n.type ?? "?"))
 }
 
-export function allWorkloadTypes(kpis: SystemKpis | null): Set<string> {
+export function allWorkloadTypes(
+  kpis: SystemKpis | null,
+  countNodes?: TopologyNode[] | null,
+): Set<string> {
+  if (countNodes?.length) {
+    return new Set(workloadTypeRowsFromNodes(countNodes).map(([t]) => t))
+  }
   const types = new Set<string>()
   if (kpis) {
     for (const [t, v] of Object.entries(kpis.workloads_by_type ?? {})) {

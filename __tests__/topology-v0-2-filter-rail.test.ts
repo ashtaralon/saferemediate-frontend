@@ -10,6 +10,8 @@ import { describe, expect, test } from "vitest"
 import {
   applyFilters,
   defaultFilters,
+  countNodesByType,
+  workloadTypeRowsFromNodes,
 } from "@/components/topology-v0-2/filter-rail"
 import type { TopologyNode } from "@/components/topology-v0-2/types"
 
@@ -26,7 +28,17 @@ function n(overrides: Partial<TopologyNode>): TopologyNode {
 }
 
 describe("defaultFilters", () => {
-  test("populates the type set from system_kpis", () => {
+  test("populates the type set from rendered nodes when provided", () => {
+    const nodes = [
+      n({ id: "a", type: "EC2Instance" }),
+      n({ id: "b", type: "EC2Instance" }),
+      n({ id: "c", type: "Lambda" }),
+    ]
+    const f = defaultFilters(null, nodes)
+    expect([...f.types].sort()).toEqual(["EC2Instance", "Lambda"])
+  })
+
+  test("falls back to system_kpis when no nodes", () => {
     const f = defaultFilters({
       workloads_total: 3,
       workloads_by_type: { EC2Instance: 2, Lambda: 1, S3Bucket: 0 },
@@ -48,6 +60,24 @@ describe("defaultFilters", () => {
     const f = defaultFilters(null)
     expect([...f.tiers].sort()).toEqual([
       "ELEVATED", "HIGH", "QUIET", "STALE", "UNSCORED", "WORST",
+    ])
+  })
+})
+
+describe("countNodesByType", () => {
+  test("counts by node type for chip display", () => {
+    const nodes = [
+      n({ id: "a", type: "LambdaFunction" }),
+      n({ id: "b", type: "LambdaFunction" }),
+      n({ id: "c", type: "S3Bucket" }),
+    ]
+    expect(countNodesByType(nodes)).toEqual({
+      LambdaFunction: 2,
+      S3Bucket: 1,
+    })
+    expect(workloadTypeRowsFromNodes(nodes)).toEqual([
+      ["LambdaFunction", 2],
+      ["S3Bucket", 1],
     ])
   })
 })

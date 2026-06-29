@@ -18,6 +18,7 @@ import {
   defaultFilters,
   type EstateFilters,
   FilterRail,
+  workloadTypeRowsFromNodes,
 } from "@/components/topology-v0-2/filter-rail"
 import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
 import {
@@ -30,7 +31,7 @@ import type {
   FindingsSeveritySummary,
 } from "@/components/topology-v0-2/estate-enrichment"
 import type { CrownJewelSummary, IdentityAttackPath, IdentityAttackPathsResponse } from "@/components/identity-attack-paths/types"
-import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
+import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
   buildTopologyNodeIdIndex,
@@ -247,9 +248,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     }
   }, [mapEnlarged, closeEnlarged])
 
+  const chipCountNodes = useMemo(() => {
+    const byId = new Map<string, TopologyNode>()
+    for (const n of gridSourceNodes) byId.set(n.id, n)
+    for (const n of serverlessSourceNodes) byId.set(n.id, n)
+    return [...byId.values()]
+  }, [gridSourceNodes, serverlessSourceNodes])
+
   const effectiveFilters = useMemo(
-    () => filters ?? defaultFilters(data?.system_kpis ?? null),
-    [filters, data?.system_kpis],
+    () => filters ?? defaultFilters(data?.system_kpis ?? null, chipCountNodes),
+    [filters, data?.system_kpis, chipCountNodes],
   )
 
   const filteredNodes = useMemo(
@@ -471,19 +479,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   ))
 
   const workloadTypeRows = useMemo(
-    () =>
-      data?.system_kpis
-        ? Object.entries(data.system_kpis.workloads_by_type ?? {})
-            .filter(([, v]) => v > 0)
-            .sort((a, b) => b[1] - a[1])
-        : [],
-    [data?.system_kpis],
+    () => workloadTypeRowsFromNodes(chipCountNodes),
+    [chipCountNodes],
   )
 
   const toggleWorkloadType = useCallback(
     (type: string) => {
       setFilters(prev => {
-        const base = prev ?? defaultFilters(data?.system_kpis ?? null)
+        const base = prev ?? defaultFilters(data?.system_kpis ?? null, chipCountNodes)
         const next = new Set(base.types)
         if (next.has(type)) next.delete(type)
         else next.add(type)
@@ -621,8 +624,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             type="button"
             onClick={() =>
               setFilters(prev => ({
-                ...(prev ?? defaultFilters(data.system_kpis)),
-                types: allWorkloadTypes(data.system_kpis),
+                ...(prev ?? defaultFilters(data.system_kpis, chipCountNodes)),
+                types: allWorkloadTypes(data.system_kpis, chipCountNodes),
               }))
             }
             className="text-[10px] font-semibold uppercase tracking-wide rounded-md border px-2 py-1"
@@ -634,7 +637,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             type="button"
             onClick={() =>
               setFilters(prev => ({
-                ...(prev ?? defaultFilters(data.system_kpis)),
+                ...(prev ?? defaultFilters(data.system_kpis, chipCountNodes)),
                 types: new Set(),
               }))
             }
@@ -662,7 +665,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       {filtersOpen ? (
         <FilterRail
           kpis={data.system_kpis}
-          nodes={data.nodes}
+          nodes={chipCountNodes}
           filters={effectiveFilters}
           onChange={setFilters}
         />
