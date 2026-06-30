@@ -690,38 +690,38 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
       <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-3`}>
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
-          <div className="flex items-center gap-1.5 mb-3" role="tablist" aria-label="Estate view">
-            {([
-              ["map", "Map"],
-              ["inventory", "Inventory"],
-            ] as const).map(([id, label]) => {
-              const active = view === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setView(id)}
-                  className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
-                  style={{
-                    borderColor: active ? "#00C2A8" : "#CBD5E1",
-                    background: active ? "#E6FBF7" : "#FFFFFF",
-                    color: active ? "#0E8B7A" : "#5A6B7A",
-                  }}
-                  data-testid={`topology-estate-view-${id}`}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
-          <div className="relative flex-1 min-h-0">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-1.5" role="tablist" aria-label="Estate view">
+              {([
+                ["map", "Map"],
+                ["inventory", "Inventory"],
+              ] as const).map(([id, label]) => {
+                const active = view === id
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setView(id)}
+                    className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
+                    style={{
+                      borderColor: active ? "#00C2A8" : "#CBD5E1",
+                      background: active ? "#E6FBF7" : "#FFFFFF",
+                      color: active ? "#0E8B7A" : "#5A6B7A",
+                    }}
+                    data-testid={`topology-estate-view-${id}`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
             {view === "map" ? (
               <button
                 type="button"
                 onClick={() => setMapEnlarged(true)}
-                className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-white transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-[#F8FAFC] transition-colors shrink-0"
                 style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
                 aria-label="Open map fullscreen"
                 data-testid="topology-estate-map-enlarge"
@@ -730,6 +730,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
                 Map fullscreen
               </button>
             ) : null}
+          </div>
+          <div className="relative flex-1 min-h-0">
             <div
               className="h-full overflow-auto rounded-2xl"
               style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}

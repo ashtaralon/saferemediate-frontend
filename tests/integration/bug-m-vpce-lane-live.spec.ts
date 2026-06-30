@@ -7,24 +7,13 @@
  */
 import { test, expect, type Page } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
+import { openTrafficMapAndWait } from "./live-topology-nav"
 
 const SYSTEM = "alon-prod"
 const TOPOLOGY_URL = `/systems?systemName=${SYSTEM}&tab=dependency-map`
 
 async function waitForGraphAndDepMap(page: Page) {
-  await expect(page.getByRole("button", { name: "Graph View" })).toBeVisible({
-    timeout: 60_000,
-  })
-  await page
-    .waitForResponse(
-      (res) =>
-        res.url().includes("/api/proxy/dependency-map/full") &&
-        res.request().method() === "GET" &&
-        res.status() === 200,
-      { timeout: 90_000 },
-    )
-    .catch(() => {})
-  await page.waitForTimeout(1500)
+  await openTrafficMapAndWait(page)
 }
 
 /** Returns false quickly when alon-prod has no flow-backed VPCE lane. */

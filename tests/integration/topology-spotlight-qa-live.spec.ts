@@ -4,6 +4,7 @@
  */
 import { test, expect } from "@playwright/test"
 import { authedApi, liveGetWithRetry, seedAuthCookie } from "./live-auth"
+import { openTrafficMapAndWait } from "./live-topology-nav"
 
 const SYSTEM = "alon-prod"
 const SAM_BUCKET = "aws-sam-cli-managed-default-samclisourcebucket-zpixwbu9coth"
@@ -13,9 +14,7 @@ const TOPOLOGY_URL = `/systems?systemName=${SYSTEM}&tab=dependency-map`
 const SPOTLIGHT_URL = `${TOPOLOGY_URL}&cj=${encodeURIComponent(SAM_BUCKET)}`
 
 async function waitForTopologyReady(page: import("@playwright/test").Page) {
-  await expect(page.getByRole("button", { name: "Graph View" })).toBeVisible({
-    timeout: 60_000,
-  })
+  await openTrafficMapAndWait(page)
 }
 
 /** Populated CJ picker — loading state matches /Crown Jewel/i but has no trigger. */

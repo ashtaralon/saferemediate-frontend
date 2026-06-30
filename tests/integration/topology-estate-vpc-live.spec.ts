@@ -104,7 +104,7 @@ test.describe("estate map VPC scope e2e", () => {
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     const tier = page.getByTestId("topology-serverless-tier")
     await expect(tier).toBeVisible({ timeout: 120_000 })
-    await expect(tier.getByText(/Serverless compute \(\d+\)/)).toBeVisible()
+    await expect(tier.getByText(/Serverless · outside VPC \(\d+\)/)).toBeVisible()
     const countAll = await tier.locator("button").count()
     expect(countAll).toBeGreaterThanOrEqual(20)
 
@@ -128,7 +128,7 @@ test.describe("estate map VPC scope e2e", () => {
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     const tier = page.getByTestId("topology-regional-data-tier")
     await expect(tier).toBeVisible({ timeout: 120_000 })
-    await expect(tier.getByText(/Regional data services \(\d+\)/i)).toBeVisible()
+    await expect(tier.getByText(/Regional · S3 \/ DDB \/ KMS \(\d+\)/i)).toBeVisible()
     const countAll = await tier.locator("button").count()
     expect(countAll).toBeGreaterThanOrEqual(3)
 
