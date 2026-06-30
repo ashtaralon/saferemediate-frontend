@@ -106,7 +106,10 @@ test.describe("estate map VPC scope e2e", () => {
     await expect(tier).toBeVisible({ timeout: 120_000 })
     await expect(tier.getByText(/Serverless · outside VPC \(\d+\)/)).toBeVisible()
     const countAll = await tier.locator("button").count()
-    expect(countAll).toBeGreaterThanOrEqual(20)
+    const headerText = await tier.getByText(/Serverless · outside VPC \(\d+\)/).textContent()
+    const expectedFromLabel = Number(headerText?.match(/\((\d+)\)/)?.[1] ?? 0)
+    expect(expectedFromLabel).toBeGreaterThan(0)
+    expect(countAll).toBe(expectedFromLabel)
 
     const picker = page.getByTestId("topology-vpc-select")
     await expect(picker).toBeVisible()
@@ -117,7 +120,7 @@ test.describe("estate map VPC scope e2e", () => {
         await picker.selectOption(vpcValue)
         await expect(tier).toBeVisible({ timeout: 60_000 })
         const countScoped = await tier.locator("button").count()
-        expect(countScoped).toBeGreaterThanOrEqual(20)
+        expect(countScoped).toBe(expectedFromLabel)
         expect(countScoped).toBe(countAll)
       }
     }
@@ -145,7 +148,8 @@ test.describe("estate map VPC scope e2e", () => {
         expect(countScoped).toBe(countAll)
       }
     }
-    await expect(tier.getByText("alon-prod-db")).toBeVisible()
+    // RDS (alon-prod-db) belongs in VPC database tier (BE-11), not regional S3/DDB/KMS rail.
+    await expect(page.getByRole("button", { name: /RDS alon-prod-db/i })).toBeVisible()
   })
 
   test("dependency-map estate tab loads without hard error", async ({ page }) => {
