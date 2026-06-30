@@ -108,6 +108,8 @@ interface RemediationOption {
 interface SimulationData {
   path_id: string
   simulation_timestamp: string
+  demo_mode?: boolean
+  data_mode?: string
   data_access_scope: DataAccessScope
   remediation_options: RemediationOption[]
   exploitable_vulnerabilities: Array<{ current_risk?: string }>
@@ -226,6 +228,35 @@ interface ServiceCard {
 }
 
 const WHOLE_PATH_SELECTION = "__whole_path__"
+const DEMO_MUTATIONS_MESSAGE =
+  "What-if apply and rollback are available in demo environments only (CYNTRO_DEMO_MODE=true)."
+
+function parseMutationError(response: Response, errorData: unknown): string {
+  if (errorData && typeof errorData === "object") {
+    const record = errorData as Record<string, unknown>
+    const details = record.details
+    if (typeof details === "string") {
+      try {
+        const parsed = JSON.parse(details) as { detail?: string }
+        if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+          return parsed.detail
+        }
+      } catch {
+        if (details.trim()) return details
+      }
+    }
+    if (typeof record.detail === "string" && record.detail.trim()) {
+      return record.detail
+    }
+    if (typeof record.error === "string" && record.error.trim()) {
+      return record.error
+    }
+  }
+  if (response.status === 403) {
+    return DEMO_MUTATIONS_MESSAGE
+  }
+  return `Request failed (${response.status})`
+}
 
 function formatResourceName(name: string) {
   if (!name) return "Unknown"
@@ -375,7 +406,10 @@ export function AttackSimulationPanel({
   } | null>(null)
   const [appliedRemediations, setAppliedRemediations] = useState<string[]>([])
   const [selectedServiceKey, setSelectedServiceKey] = useState<string | null>(null)
+  const [demoMode, setDemoMode] = useState<boolean | null>(null)
   const { toast } = useToast()
+
+  const mutationsEnabled = demoMode === true
 
   useEffect(() => {
     if (isOpen && systemName && pathId) {
@@ -386,6 +420,7 @@ export function AttackSimulationPanel({
   useEffect(() => {
     if (!isOpen) {
       setSelectedServiceKey(null)
+      setDemoMode(null)
     }
   }, [isOpen])
 
@@ -398,6 +433,7 @@ export function AttackSimulationPanel({
         throw new Error(`Failed to fetch simulation: ${response.status}`)
       }
       const data = await response.json()
+      setDemoMode(data.demo_mode === true)
       const dataAccess = data.data_access_scope || {}
       setSimulationData({
         ...data,
@@ -435,6 +471,14 @@ export function AttackSimulationPanel({
 
   const applyRemediations = async () => {
     if (selectedRemediations.length === 0) return
+    if (!mutationsEnabled) {
+      toast({
+        title: "Preview only",
+        description: DEMO_MUTATIONS_MESSAGE,
+        variant: "destructive",
+      })
+      return
+    }
 
     setApplying(true)
     setApplyResult(null)
@@ -450,8 +494,13 @@ export function AttackSimulationPanel({
       )
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `Failed: ${response.status}`)
+        let errorData: unknown = {}
+        try {
+          errorData = await response.json()
+        } catch {
+          errorData = {}
+        }
+        throw new Error(parseMutationError(response, errorData))
       }
 
       const data = await response.json()
@@ -495,6 +544,15 @@ export function AttackSimulationPanel({
   }
 
   const rollbackRemediation = async (remediationId: string) => {
+    if (!mutationsEnabled) {
+      toast({
+        title: "Preview only",
+        description: DEMO_MUTATIONS_MESSAGE,
+        variant: "destructive",
+      })
+      return
+    }
+
     setRollingBack(remediationId)
     try {
       const response = await fetch(
@@ -503,8 +561,13 @@ export function AttackSimulationPanel({
       )
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `Rollback failed: ${response.status}`)
+        let errorData: unknown = {}
+        try {
+          errorData = await response.json()
+        } catch {
+          errorData = {}
+        }
+        throw new Error(parseMutationError(response, errorData))
       }
 
       const data = await response.json()
@@ -780,9 +843,24 @@ export function AttackSimulationPanel({
               <span className="text-sm font-medium text-white">What this page does</span>
             </div>
             <p className="text-sm text-slate-300">
-              Start with the attack path, open any service in the chain, then review the three enforce planes on one page. You can select one service change or execute a whole-chain plan with rollback.
+              Start with the attack path, open any service in the chain, then review the three enforce planes on one page.
+              {mutationsEnabled
+                ? " You can select one service change or execute a whole-chain plan with rollback."
+                : " Production environments show a read-only preview; what-if apply is enabled in demo environments only."}
             </p>
           </div>
+
+          {simulationData && !loading && demoMode === false && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-amber-200">Preview only</div>
+                  <p className="mt-1 text-sm text-amber-100/90">{DEMO_MUTATIONS_MESSAGE}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {loading && (
             <div className="flex items-center justify-center py-12">
@@ -903,7 +981,7 @@ export function AttackSimulationPanel({
                                   >
                                     {isSelected ? "Selected" : "Select whole chain"}
                                   </Button>
-                                  {isApplied && (
+                                  {isApplied && mutationsEnabled && (
                                     <Button
                                       variant="outline"
                                       className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10"
@@ -1101,7 +1179,7 @@ export function AttackSimulationPanel({
                                     >
                                       {isSelected ? "Selected" : "Select identity change"}
                                     </Button>
-                                    {isApplied && (
+                                    {isApplied && mutationsEnabled && (
                                       <Button
                                         variant="outline"
                                         className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10"
@@ -1305,7 +1383,7 @@ export function AttackSimulationPanel({
                                     >
                                       {isSelected ? "Selected" : "Select service change"}
                                     </Button>
-                                    {isApplied && (
+                                    {isApplied && mutationsEnabled && (
                                       <Button
                                         variant="outline"
                                         className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10"
@@ -1371,7 +1449,9 @@ export function AttackSimulationPanel({
                   <div>
                     <div className="text-sm font-medium text-white">Selected remediation changes</div>
                     <div className="text-xs text-slate-400">
-                      Select a service-level change or a whole-chain plan, then apply it here. Rollback stays available inside the same flow.
+                      {mutationsEnabled
+                        ? "Select a service-level change or a whole-chain plan, then apply it here. Rollback stays available inside the same flow."
+                        : "Review remediation options here. Apply and rollback are disabled in production preview mode."}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1382,8 +1462,8 @@ export function AttackSimulationPanel({
                       Clear
                     </Button>
                     <Button
-                      className="bg-green-600 hover:bg-green-700"
-                      disabled={selectedRemediations.length === 0 || applying}
+                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                      disabled={selectedRemediations.length === 0 || applying || !mutationsEnabled}
                       onClick={() => setShowConfirmDialog(true)}
                     >
                       {applying ? (
@@ -1391,8 +1471,10 @@ export function AttackSimulationPanel({
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Applying...
                         </>
-                      ) : (
+                      ) : mutationsEnabled ? (
                         "Apply selected changes"
+                      ) : (
+                        "Apply unavailable in production"
                       )}
                     </Button>
                   </div>
@@ -1431,14 +1513,20 @@ export function AttackSimulationPanel({
           </div>
 
           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-200">
-            These changes will be applied to your infrastructure. Use rollback in this panel if you need to undo them.
+            {mutationsEnabled
+              ? "These changes update the simulation graph only (no AWS mutation). Use rollback in this panel if you need to undo them."
+              : DEMO_MUTATIONS_MESSAGE}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowConfirmDialog(false)} disabled={applying}>
               Cancel
             </Button>
-            <Button className="bg-green-600 hover:bg-green-700" onClick={() => void applyRemediations()} disabled={applying}>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={() => void applyRemediations()}
+              disabled={applying || !mutationsEnabled}
+            >
               {applying ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
