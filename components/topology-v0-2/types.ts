@@ -80,6 +80,8 @@ export interface TopologyNode {
   type: string | null
   subnet_id: string | null
   vpc_id?: string | null
+  /** Canvas row override from BE — beats subnet.tier when subnets are misclassified. */
+  placement_tier?: SubnetTier | null
   score: NodeScore | null
   stale: { since: string | null; reason: string } | null
   is_jewel: boolean

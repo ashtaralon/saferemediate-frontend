@@ -125,4 +125,62 @@ describe("estate-flow-edges", () => {
       attackPathEdgesToTrafficEdges(paths, visible, index, types, [], true),
     ).toHaveLength(0)
   })
+
+  it("dep-map fallback does not synthesize VPCE hops without backend evidence", () => {
+    const visible = new Set(["rds-a", "bucket-b", "vpce-s3"])
+    const index = new Map([
+      ["rds-a", "rds-a"],
+      ["bucket-b", "bucket-b"],
+      ["vpce-s3", "vpce-s3"],
+    ])
+    const types = new Map([
+      ["rds-a", "RDS"],
+      ["bucket-b", "S3"],
+    ])
+    const vpces = [{ id: "vpce-s3", service_name: "com.amazonaws.eu-west-1.s3", endpoint_type: "Gateway" }]
+    const out = depMapEdgesToTrafficEdges(
+      [{ source: "rds-a", target: "bucket-b", type: "ACTUAL_S3_ACCESS" }],
+      visible,
+      index,
+      types,
+      vpces,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]?.via_vpce_id).toBeNull()
+  })
+
+  it("prefers topology traffic edges over dependency-map when both exist", () => {
+    const visible = new Set(["web-a", "app-b"])
+    const index = new Map([
+      ["web-a", "web-a"],
+      ["app-b", "app-b"],
+    ])
+    const types = new Map([
+      ["web-a", "EC2"],
+      ["app-b", "EC2"],
+    ])
+    const topo = [
+      {
+        source_id: "web-a",
+        target_id: "app-b",
+        port: 8080,
+        protocol: "tcp",
+        last_seen: null,
+        edge_class: "internal" as const,
+        external_destinations: null,
+        via_vpce_id: null,
+        via_vpce_service_name: null,
+      },
+    ]
+    const out = selectEstateFlowEdges({
+      mode: "all_access",
+      topologyTrafficEdges: topo,
+      depMapEdges: [{ source: "web-a", target: "app-b", type: "ACTUAL_TRAFFIC", port: 443 }],
+      visible,
+      index,
+      nodeTypeById: types,
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]?.port).toBe(8080)
+  })
 })

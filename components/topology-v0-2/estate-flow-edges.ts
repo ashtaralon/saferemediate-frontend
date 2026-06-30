@@ -174,7 +174,7 @@ export function depMapEdgesToTrafficEdges(
   visible: Set<string>,
   index: Map<string, string>,
   nodeTypeById: Map<string, string | null>,
-  vpces: EdgeVpce[] = [],
+  _vpces: EdgeVpce[] = [],
 ): TrafficEdge[] {
   const out: TrafficEdge[] = []
   const seen = new Set<string>()
@@ -190,8 +190,6 @@ export function depMapEdgesToTrafficEdges(
     const key = edgeKey(src, dst, port, protocol)
     if (seen.has(key)) continue
     seen.add(key)
-    const vpce =
-      edgeClass === "edge_service" ? vpceForRegionalTarget(dst, nodeTypeById, vpces) : null
     out.push({
       source_id: src,
       target_id: dst,
@@ -200,8 +198,8 @@ export function depMapEdgesToTrafficEdges(
       last_seen: e.last_seen ?? null,
       edge_class: edgeClass,
       external_destinations: null,
-      via_vpce_id: vpce?.id ?? null,
-      via_vpce_service_name: vpce?.service_name ?? null,
+      via_vpce_id: null,
+      via_vpce_service_name: null,
     })
   }
   return out
@@ -292,12 +290,15 @@ export function selectEstateFlowEdges(opts: {
     )
   }
 
+  const visibleTopo = topologyTrafficEdges.filter(
+    e => visible.has(e.source_id) && (visible.has(e.target_id) || e.target_id === "__igw__"),
+  )
+  if (visibleTopo.length > 0) return visibleTopo
+
   if (depMapEdges?.length) {
     const mapped = depMapEdgesToTrafficEdges(depMapEdges, visible, index, nodeTypeById, vpces)
     if (mapped.length > 0) return mapped
   }
 
-  return topologyTrafficEdges.filter(
-    e => visible.has(e.source_id) && (visible.has(e.target_id) || e.target_id === "__igw__"),
-  )
+  return visibleTopo
 }

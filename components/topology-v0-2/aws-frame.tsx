@@ -1703,6 +1703,17 @@ export function AwsFrame({
     const tryPlaceInGrid = (n: TopologyNode): boolean => {
       if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
       const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
+      const overrideTier =
+        n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
+          ? n.placement_tier
+          : null
+      if (overrideTier) {
+        const az = sub?.az ?? pickSyntheticAz(overrideTier)
+        if (az) {
+          placeInTier(n, az, overrideTier)
+          return true
+        }
+      }
       if (sub?.az) {
         placeInTier(n, sub.az, sub.tier)
         return true
