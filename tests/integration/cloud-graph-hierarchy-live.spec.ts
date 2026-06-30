@@ -1,7 +1,7 @@
 /**
  * LIVE Playwright — Visual Hierarchy Contract acceptance criteria.
  *
- * Validates against the canonical alon-prod path-5203dfee3012:
+ * Validates against canonical alon-prod IAP pair (path-8e64e734b0f6 → logs jewel):
  *   C1 KMS card inside VPC frame
  *   C2 No overlapping resource cards
  *   C3 Container frame labels inside their bounding box
@@ -16,10 +16,15 @@
  */
 import { test, expect, type Page } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
+import {
+  ALON_PROD,
+  ALON_LOGS_JEWEL_ARN,
+  ALON_LOGS_PATH_DISPLAY_ID,
+} from "./live-attack-path-pins"
 
-const SYSTEM = "alon-prod"
-const PATH_ID = "path-5203dfee3012"
-const JEWEL_ID = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
+const SYSTEM = ALON_PROD
+const PATH_ID = ALON_LOGS_PATH_DISPLAY_ID
+const JEWEL_ID = encodeURIComponent(ALON_LOGS_JEWEL_ARN)
 /** Legacy Cloud Graph engine — required until C1–C9 assert against Cyntro map. */
 const ATTACK_PATHS_V2_URL =
   `/attack-paths-v2?system=${SYSTEM}&jewel=${JEWEL_ID}&path=${PATH_ID}&mode=attack-path&map=legacy`

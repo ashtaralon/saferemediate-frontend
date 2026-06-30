@@ -6,6 +6,7 @@ import {
 } from "@/lib/server/iap-proxy-query"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { backendNodeId } from "@/lib/iap-node-id"
+import { jewelIdsMatch, normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 
 // =============================================================================
 // Unified Attack Path facade — strangler-pattern endpoint
@@ -205,9 +206,12 @@ async function buildAttackPathPayload(
     selectedPath = (identityResp.paths ?? []).find(
       (p) =>
         (p.id === pathId || (p as { attack_path_id?: string }).attack_path_id === pathId) &&
-        (p.crown_jewel_id === jewelIdDecoded ||
-          p.crown_jewel_id === jewel?.id ||
-          (jewel as { canonical_id?: string })?.canonical_id === p.crown_jewel_id),
+        (jewelIdsMatch(p.crown_jewel_id, jewelIdDecoded) ||
+          jewelIdsMatch(p.crown_jewel_id, jewel?.id ?? "") ||
+          jewelIdsMatch(
+            p.crown_jewel_id,
+            (jewel as { canonical_id?: string })?.canonical_id ?? "",
+          )),
     )
     if (!selectedPath) {
       return {
@@ -225,17 +229,17 @@ async function buildAttackPathPayload(
     jewel =
       (identityResp.crown_jewels ?? []).find(
         (j) =>
-          j.id === jewelIdDecoded ||
-          (j as { canonical_id?: string }).canonical_id === jewelIdDecoded,
+          jewelIdsMatch(j.id, jewelIdDecoded) ||
+          jewelIdsMatch((j as { canonical_id?: string }).canonical_id ?? "", jewelIdDecoded),
       ) ?? jewel
 
     const jewelIds = new Set(
-      [jewelIdDecoded, jewel.id, (jewel as { canonical_id?: string }).canonical_id].filter(
-        Boolean,
-      ) as string[],
+      [jewelIdDecoded, jewel.id, (jewel as { canonical_id?: string }).canonical_id]
+        .filter(Boolean)
+        .flatMap((id) => [id!, normalizeJewelArn(id!)]) as string[],
     )
     siblingPaths = (identityResp.paths ?? [])
-      .filter((p) => jewelIds.has(p.crown_jewel_id))
+      .filter((p) => jewelIds.has(p.crown_jewel_id) || jewelIds.has(normalizeJewelArn(p.crown_jewel_id)))
       .map((p) => ({
         id: p.id,
         hop_count: p.hop_count ?? p.nodes.length,
@@ -293,11 +297,11 @@ async function handleAttackPath(
   lateralCap: number,
   postBody?: AttackPathPostBody,
 ) {
-  const jewelIdDecoded = decodeURIComponent(jewelId)
+  const jewelIdDecoded = normalizeJewelArn(decodeURIComponent(jewelId))
   const useClient =
     postBody?.path &&
     postBody.path_id === pathId &&
-    postBody.path.crown_jewel_id === jewelIdDecoded
+    jewelIdsMatch(postBody.path.crown_jewel_id, jewelIdDecoded)
 
   const cacheKey = `attack-path:${systemName}:${jewelIdDecoded}:${pathId}:${lateralCap}:${useClient ? "page" : "iap"}`
   const cached = getCached(cacheKey)

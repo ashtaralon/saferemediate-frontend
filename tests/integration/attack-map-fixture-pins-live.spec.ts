@@ -16,17 +16,26 @@
  * Companion unit tests: __tests__/attack-map/slot-mapper-invariants.test.ts.
  */
 import { test, expect } from "@playwright/test"
-import { authedApi, seedAuthCookie } from "./live-auth"
-
-const SYSTEM = "alon-prod"
+import { authedApi, liveGetWithRetry, seedAuthCookie } from "./live-auth"
 
 // Pinned fixture path_ids. Source of truth = backend manifest.json.
-// If a fixture is regenerated with intentional contract changes, both the
-// backend manifest and these constants bump together (compiler-meta gate).
+// system must match coalesce(ap.system_name, ap.SystemName) on :AttackPath.
 const FIXTURES = [
-  { label: "alon-demo-app2 → saferemediate-logs", path_id: "432c6db135ff8b2af80a67e22ec466f2b4fd3a37512bffea62c73779ac199d42" },
-  { label: "EC2 → KMS terminus", path_id: "5fc0b945657cd461a53fa7a5c9a832f6e66565981c5f2f74256571cf65db858f" },
-  { label: "cyntro-web-server → saferemediate-logs", path_id: "ea16b5479bb6dda3e601756dd4774275237e9f8088f0cb5be14d2d970dd0e8ea" },
+  {
+    label: "alon-demo-app2 → saferemediate-logs",
+    path_id: "432c6db135ff8b2af80a67e22ec466f2b4fd3a37512bffea62c73779ac199d42",
+    system: "alon-prod",
+  },
+  {
+    label: "EC2 → KMS terminus",
+    path_id: "5fc0b945657cd461a53fa7a5c9a832f6e66565981c5f2f74256571cf65db858f",
+    system: "cyntro-demo",
+  },
+  {
+    label: "cyntro-web-server → saferemediate-logs",
+    path_id: "ea16b5479bb6dda3e601756dd4774275237e9f8088f0cb5be14d2d970dd0e8ea",
+    system: "alon-prod",
+  },
 ] as const
 
 const CONSTRAINT_NODE_TYPES = new Set(["KMSKey", "SCP", "ResourcePolicy", "TrustPolicy"])
@@ -41,12 +50,15 @@ test.describe("attack-map fixture pins (live)", () => {
     test(`§8 contract intact: ${fx.label}`, async ({ playwright }) => {
       const api = await authedApi(playwright)
       try {
-        const res = await api.get(`/api/proxy/attack-map/${fx.path_id}?system=${SYSTEM}`)
+        const res = await liveGetWithRetry(
+          api,
+          `/api/proxy/attack-map/${fx.path_id}?system=${fx.system}`,
+        )
         expect(res.ok(), `proxy returned ${res.status()}`).toBe(true)
         const payload = await res.json()
 
         // §8 mandatory fields
-        expect(payload.system).toBe(SYSTEM)
+        expect(payload.system).toBe(fx.system)
         expect(payload.path_id).toBe(fx.path_id)
         expect(Array.isArray(payload.movement_chain)).toBe(true)
         expect(Array.isArray(payload.constraint_edges)).toBe(true)
@@ -88,6 +100,7 @@ test.describe("attack-map fixture pins (live)", () => {
 
   test("§4.3 strict projection — topology minimal ⊆ full", async ({ playwright }) => {
     const api = await authedApi(playwright)
+    const SYSTEM = "alon-prod"
     try {
       const [fullRes, minRes] = await Promise.all([
         api.get(`/api/proxy/topology/${SYSTEM}?shape=full`),
@@ -120,6 +133,7 @@ test.describe("attack-map fixture pins (live)", () => {
   })
 
   test("?map=cyntro renders path-only attack map experience", async ({ page }) => {
+    const SYSTEM = "alon-prod"
     const jewel = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
     await page.goto(
       `/attack-paths-v2?system=${SYSTEM}&jewel=${jewel}&path=path-mat-061e32978e12&map=cyntro`,
@@ -130,6 +144,7 @@ test.describe("attack-map fixture pins (live)", () => {
   })
 
   test("?map=target renders clean grid target map", async ({ page }) => {
+    const SYSTEM = "alon-prod"
     const jewel = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
     await page.goto(
       `/attack-paths-v2?system=${SYSTEM}&jewel=${jewel}&path=path-mat-061e32978e12&map=target`,

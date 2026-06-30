@@ -4,10 +4,15 @@
  */
 import { test, expect } from "@playwright/test"
 import { authedApi, seedAuthCookie } from "./live-auth"
+import {
+  ALON_PROD,
+  ALON_LOGS_JEWEL_ARN,
+  ALON_LOGS_PATH_DISPLAY_ID,
+} from "./live-attack-path-pins"
 
-const SYSTEM = "alon-prod"
-const PATH_ID = "path-5203dfee3012"
-const JEWEL_ID = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
+const SYSTEM = ALON_PROD
+const PATH_ID = ALON_LOGS_PATH_DISPLAY_ID
+const JEWEL_ID = encodeURIComponent(ALON_LOGS_JEWEL_ARN)
 const ROLE_NAME = "alon-demo-ec2-role"
 const BUCKET_LABEL = /saferemediate-logs/i
 const SHADOW_ANNOTATION = `damage-scope:${PATH_ID}`

@@ -3,10 +3,15 @@
  */
 import { test, expect } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
+import {
+  ALON_PROD,
+  ALON_LOGS_JEWEL_ARN,
+  ALON_LOGS_PATH_DISPLAY_ID,
+} from "./live-attack-path-pins"
 
-const SYSTEM = "alon-prod"
-const PATH_ID = "path-5203dfee3012"
-const JEWEL_ID = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
+const SYSTEM = ALON_PROD
+const PATH_ID = ALON_LOGS_PATH_DISPLAY_ID
+const JEWEL_ID = encodeURIComponent(ALON_LOGS_JEWEL_ARN)
 
 test.describe("damage-aware path card live", () => {
   test.beforeEach(async ({ page, context }) => {
