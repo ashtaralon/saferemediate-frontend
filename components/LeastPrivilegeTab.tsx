@@ -4182,63 +4182,8 @@ function RulesTab({
         return
       }
       
-      // THIRD: Generate synthetic rules from networkExposure (fallback)
-      if (resource.networkExposure) {
-        console.log('[RulesTab] Generating synthetic rules from networkExposure:', resource.networkExposure)
-        const syntheticRules: RuleAnalysis[] = []
-        const totalRules = resource.networkExposure.totalRules || 0
-        const exposedRules = resource.networkExposure.internetExposedRules || 0
-        const secureRules = totalRules - exposedRules
-        const highRiskPorts = resource.networkExposure.highRiskPorts || []
-        
-        // Generate exposed rules first (with high-risk ports if available)
-        for (let i = 0; i < exposedRules; i++) {
-          const port = highRiskPorts[i] || (i === 0 ? 443 : 80 + i * 10)
-          syntheticRules.push({
-            rule_id: `exposed_${i}`,
-            direction: 'ingress',
-            protocol: 'TCP',
-            port_range: String(port),
-            source: '0.0.0.0/0',
-            source_type: 'cidr',
-            is_public: true,
-            status: 'OVERLY_BROAD',
-            traffic: { connection_count: Math.floor(Math.random() * 1000), unique_sources: Math.floor(Math.random() * 50) },
-            recommendation: { 
-              action: 'RESTRICT', 
-              reason: 'Public internet access - restrict to specific CIDRs',
-              confidence: 85
-            }
-          })
-        }
-        
-        // Generate secure rules
-        for (let i = 0; i < secureRules; i++) {
-          const port = 5432 + i  // Common internal ports like DB, etc.
-          syntheticRules.push({
-            rule_id: `secure_${i}`,
-            direction: 'ingress',
-            protocol: 'TCP',
-            port_range: String(port),
-            source: '10.0.0.0/8',
-            source_type: 'cidr',
-            is_public: false,
-            status: 'USED',
-            traffic: { connection_count: Math.floor(Math.random() * 500) + 100, unique_sources: Math.floor(Math.random() * 10) + 1 },
-            recommendation: { 
-              action: 'KEEP', 
-              reason: 'Active internal traffic',
-              confidence: 95
-            }
-          })
-        }
-        
-        console.log('[RulesTab] Generated', syntheticRules.length, 'synthetic rules')
-        setRulesAnalysis(syntheticRules)
-        return
-      }
-      
       console.log('[RulesTab] No rule data available for Security Group')
+      setRulesAnalysis([])
     }
   }, [resource])
 
@@ -4415,7 +4360,7 @@ function RulesTab({
               {sortedRules.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-[var(--muted-foreground,#6b7280)]">
-                    {filter === 'all' ? 'No rules found' : `No ${filter} rules`}
+                    {filter === 'all' ? 'No observed SG rules — sync inspector or gap analysis for this group' : `No ${filter} rules`}
                   </td>
                 </tr>
               ) : (

@@ -56,6 +56,10 @@ export interface ConvergencePath {
   /** Multi-edge: one entry per category. Empty list when classifier
    *  hasn't run for this system yet (migration window). */
   initial_access?: InitialAccessEdge[]
+  /** AC-1+ attack class tag from materializer (e.g. AC-1 / Capital One). */
+  attack_class?: string | null
+  catalog_name?: string | null
+  catalog_title?: string | null
 }
 
 export interface CrownJewelConvergenceSummary {

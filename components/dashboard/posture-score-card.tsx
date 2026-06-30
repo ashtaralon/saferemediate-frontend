@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Shield, AlertTriangle, RefreshCw, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
+import { Shield, AlertTriangle, RefreshCw, ChevronRight } from "lucide-react"
 import { fetchPostureScore, type PostureScoreData } from "@/lib/api-client"
 
 interface PostureScoreCardProps {
@@ -23,6 +23,10 @@ const DIMENSION_CONFIG: Record<string, { label: string; color: string }> = {
   data_protection: { label: "Data Protection", color: "#10B981" },
   compliance: { label: "Compliance", color: "#F59E0B" },
   observability: { label: "Observability", color: "#EC4899" },
+}
+
+function hasNumericScore(data: PostureScoreData): data is PostureScoreData & { overall_score: number } {
+  return typeof data.overall_score === "number" && Number.isFinite(data.overall_score)
 }
 
 export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCardProps) {
@@ -53,17 +57,17 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
     }
   }, [systemName])
 
-  const gradeColors = data?.grade ? GRADE_COLORS[data.grade] : GRADE_COLORS.F
+  const scoreKnown = data != null && hasNumericScore(data)
+  const gradeColors = scoreKnown && data.grade ? GRADE_COLORS[data.grade] : GRADE_COLORS.F
 
   return (
     <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] shadow-sm">
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-[#8b5cf6]" />
           <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">Security Posture</h3>
         </div>
-        {!loading && !error && data && (
+        {scoreKnown && data.grade && (
           <span className={`px-3 py-1 ${gradeColors.bg} ${gradeColors.text} text-lg font-bold rounded-lg ${gradeColors.border} border`}>
             {data.grade}
           </span>
@@ -89,22 +93,27 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
             Retry
           </button>
         </div>
-      ) : data ? (
+      ) : data && !scoreKnown ? (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <p className="text-3xl font-bold text-[var(--muted-foreground,#9ca3af)]">—</p>
+          <p className="text-sm font-medium text-[var(--foreground,#111827)] mt-2">Insufficient data for posture score</p>
+          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
+            {(data as { confidence?: string }).confidence === "UNKNOWN"
+              ? "LP/SG gap evidence not wired yet for this system."
+              : "Sync IAM policies and telemetry, then retry."}
+          </p>
+          {data.resources_analyzed > 0 && (
+            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">
+              {data.resources_analyzed} resources in scope
+            </p>
+          )}
+        </div>
+      ) : data && scoreKnown ? (
         <>
-          {/* Score Display */}
           <div className="flex items-center gap-4 mb-6">
             <div className="relative w-24 h-24">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                {/* Background circle */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="40"
-                  stroke="#E5E7EB"
-                  strokeWidth="8"
-                  fill="none"
-                />
-                {/* Progress circle */}
+                <circle cx="50" cy="50" r="40" stroke="#E5E7EB" strokeWidth="8" fill="none" />
                 <circle
                   cx="50"
                   cy="50"
@@ -131,11 +140,10 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
             </div>
           </div>
 
-          {/* Dimension Breakdown */}
           <div className="space-y-3 mb-4">
             {Object.entries(data.dimensions).map(([key, dim]) => {
               const config = DIMENSION_CONFIG[key]
-              if (!config) return null
+              if (!config || dim.score == null) return null
               return (
                 <div key={key}>
                   <div className="flex justify-between items-center mb-1">
@@ -155,7 +163,6 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
             })}
           </div>
 
-          {/* Top Issues */}
           {data.top_issues && data.top_issues.length > 0 && (
             <div className="border-t border-[var(--border,#f3f4f6)] pt-4">
               <h4 className="text-xs font-semibold text-[var(--foreground,#374151)] uppercase tracking-wide mb-2">
@@ -167,7 +174,7 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
                     <div>
                       <span className="font-medium text-[var(--foreground,#374151)] capitalize">
-                        {issue.dimension.replace(/_/g, ' ')}
+                        {issue.dimension.replace(/_/g, " ")}
                       </span>
                       <span className="text-[var(--muted-foreground,#6b7280)]"> - {issue.recommendation}</span>
                     </div>
@@ -177,7 +184,6 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
             </div>
           )}
 
-          {/* View Details Link */}
           {onViewDetails && (
             <button
               onClick={onViewDetails}

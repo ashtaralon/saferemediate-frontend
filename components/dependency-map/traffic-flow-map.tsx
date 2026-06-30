@@ -213,6 +213,8 @@ export interface TrafficFlow {
   bytes: number;
   connections: number;
   isActive?: boolean;
+  /** Inferred topology link — not backed by observed traffic bytes. */
+  isStructural?: boolean;
   // 2026-05-28 — Phase 2 V1 slice 2. Forensic provenance carried
   // through from the underlying graph edge. Surfaces in the hover
   // detail panel as a "Last seen … · First seen …" freshness pill,
@@ -445,6 +447,8 @@ export interface SystemArchitecture {
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
+  /** True when compute/resource flows were synthesized from topology only. */
+  structuralFallbackUsed?: boolean;
   vpcGroups?: Array<{ vpcId: string; vpcName: string; cidrBlock?: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
   /** AWS region (e.g. eu-west-1) — inferred from node ARNs in the graph */
   region?: string;
@@ -4060,7 +4064,7 @@ export function ConnectionLinesSVG({
         // explicitly per (source, target) based on whether a direct
         // observed edge exists. Default-true preserves legacy flows
         // that don't set the field (System Map / Topology view).
-        const isActive = flow.isActive !== false;
+        const isActive = flow.isActive !== false && !flow.isStructural;
         const trafficIntensity = getTrafficIntensity(flow.bytes);
 
         // Check if this edge is part of an attack path
@@ -4785,6 +4789,12 @@ export function UnifiedArchitectureDiagram({
           )}
         </div>
       </div>
+
+      {architecture.structuralFallbackUsed && (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+          Structural topology only — no observed traffic edges. Lines are inactive and labeled &quot;structural, not observed&quot;.
+        </div>
+      )}
 
       {/* Canvas v3 Slice C — Internet partition banner. Visible header
           showing the security boundary between AWS-backbone-routed
@@ -6171,7 +6181,15 @@ export function UnifiedArchitectureDiagram({
                         AND connections > 0) must hold so an upstream bug in
                         isActive can't silently re-introduce the issue.
                       */}
-                      {flow.isActive && flow.connections > 0 && (
+                      {flow.isStructural && (
+                        <span
+                          className="flex items-center gap-1 text-amber-700 dark:text-amber-300"
+                          title="Topology link inferred from graph structure — not observed traffic"
+                        >
+                          structural, not observed
+                        </span>
+                      )}
+                      {flow.isActive && flow.connections > 0 && !flow.isStructural && (
                         <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                           <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                           active
@@ -7961,7 +7979,9 @@ export default function TrafficFlowMap({
     });
 
     // Fallback: If no traffic flows found, build from all system nodes + structural edges
+    let structuralFallbackUsed = false;
     if (computeServices.length === 0 && resources.length === 0 && nodes.length > 0) {
+      structuralFallbackUsed = true;
       console.log('[TrafficFlowMap] No traffic flows — falling back to structural view');
       nodes.forEach(node => {
         const nType = mapNodeType(node.type || '');
@@ -7998,7 +8018,7 @@ export default function TrafficFlowMap({
               sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
               roleId: computeToRole.get(cs.id),
               vpceId: pickVPCEForTarget(cs.id, res.type),
-              ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: true,
+              ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false, isStructural: true,
             });
           }
         });
@@ -8581,6 +8601,7 @@ export default function TrafficFlowMap({
       totalConnections,
       totalGaps,
       vpcGroups,
+      structuralFallbackUsed,
     };
   }, []);
 
