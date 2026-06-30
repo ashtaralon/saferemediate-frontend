@@ -1890,53 +1890,83 @@ export function AwsFrame({
                         </div>
                       </div>
                     </div>
-                    {tiers.map(tier => (
-                      <div key={tier} className="flex gap-0">
+                    {/*
+                      Fullscreen ("3 layers in one page"): Web/App/Data tiers must all
+                      be visible without scrolling past one to find the next. Inline
+                      mode is unaffected — same unbounded stack as before, since it
+                      already sits inside the dashboard's own scroll region.
+
+                      maxHeight is a viewport-relative fallback (not perfect flex
+                      propagation up through the AWS Cloud/Region/VPC wrapper chain,
+                      which isn't itself height-bounded) — if a tier's content still
+                      overflows its 1/3 share, it scrolls internally via overflowY
+                      rather than pushing the next tier off-page. Needs a visual check
+                      post-deploy; this environment has no way to render and confirm
+                      the exact pixel layout.
+                    */}
+                    <div
+                      className={presentationMode ? "flex flex-col gap-1.5" : "contents"}
+                      style={
+                        presentationMode
+                          ? { maxHeight: "calc(100vh - 360px)", minHeight: "240px" }
+                          : undefined
+                      }
+                    >
+                      {tiers.map(tier => (
                         <div
-                          className="rounded-l-md flex items-center justify-center shrink-0"
-                          style={{
-                            background: PAL.ink,
-                            color: "white",
-                            width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
-                            writingMode: "vertical-rl",
-                            transform: "rotate(180deg)",
-                            fontSize: "10px",
-                            fontWeight: 700,
-                            letterSpacing: "0.18em",
-                          }}
-                        >
-                          {TIER_SIDEBAR_LABEL[tier]}
-                        </div>
-                        <div
-                          className={presentationMode ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
-                          style={{ background: TIER_BG[tier] }}
+                          key={tier}
+                          className="flex gap-0"
+                          style={presentationMode ? { flex: "1 1 0", minHeight: 0 } : undefined}
                         >
                           <div
-                            className={presentationMode ? "grid gap-1.5" : "grid gap-1.5"}
-                            style={{ gridTemplateColumns: azGridColumns }}
+                            className="rounded-l-md flex items-center justify-center shrink-0"
+                            style={{
+                              background: PAL.ink,
+                              color: "white",
+                              width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+                              writingMode: "vertical-rl",
+                              transform: "rotate(180deg)",
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              letterSpacing: "0.18em",
+                            }}
                           >
-                            {azs.map(az => {
-                              const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
-                              const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
-                              return (
-                                <SubnetCell
-                                  key={`${az}-${tier}`}
-                                  tier={tier}
-                                  az={az}
-                                  subnetsHere={subnetsHere}
-                                  workloadsHere={workloadsHere}
-                                  sgIndex={sgIndex}
-                                  selectedNodeId={selectedNodeId}
-                                  onSelect={onSelect}
-                                  compact={presentationMode}
-                                  roleForWorkload={roleForWorkload}
-                                />
-                              )
-                            })}
+                            {TIER_SIDEBAR_LABEL[tier]}
+                          </div>
+                          <div
+                            className={presentationMode ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
+                            style={{
+                              background: TIER_BG[tier],
+                              ...(presentationMode ? { overflowY: "auto", minHeight: 0 } : {}),
+                            }}
+                          >
+                            <div
+                              className={presentationMode ? "grid gap-1.5" : "grid gap-1.5"}
+                              style={{ gridTemplateColumns: azGridColumns }}
+                            >
+                              {azs.map(az => {
+                                const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
+                                const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
+                                return (
+                                  <SubnetCell
+                                    key={`${az}-${tier}`}
+                                    tier={tier}
+                                    az={az}
+                                    subnetsHere={subnetsHere}
+                                    workloadsHere={workloadsHere}
+                                    sgIndex={sgIndex}
+                                    selectedNodeId={selectedNodeId}
+                                    onSelect={onSelect}
+                                    compact={presentationMode}
+                                    roleForWorkload={roleForWorkload}
+                                  />
+                                )
+                              })}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
 
                     {/* IAM control-plane — 4th tier inside VPC (mockup tier.iam) */}
                     {iamRoles.length > 0 ? (
