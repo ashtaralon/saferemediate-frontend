@@ -1,216 +1,32 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
 import { Zap, RefreshCw, CheckCircle, XCircle } from "lucide-react"
+import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
 
 interface SyncFromAWSButtonProps {
   onSyncComplete?: () => void
   className?: string
 }
 
-interface SyncStatus {
-  job_id: string
-  status: "running" | "completed" | "failed"
-  current_step: number
-  current_step_name: string
-  total_steps: number
-  message: string
-  progress_percent: number
-  results?: any
-  error?: string
-}
-
-const STEP_LABELS: Record<string, string> = {
-  starting: "Starting...",
-  resource_collectors: "Discovering AWS resources (EC2, ALB, Lambda, RDS, S3, IAM, EventBridge)",
-  tag_sync: "Syncing AWS tags",
-  flow_logs: "Ingesting VPC Flow Logs",
-  cloudtrail: "Ingesting CloudTrail events",
-  iam_analyzer: "Analyzing IAM permissions",
-  iam_permissions: "Syncing IAM role permissions",
-  aws_config: "Processing AWS Config",
-  xray: "Collecting X-Ray traces",
-  security_groups: "Ingesting Security Groups",
-  nacls: "Ingesting Network ACLs",
-  s3_access_logs: "Ingesting S3 Access Logs",
-  rds_query_logs: "Ingesting RDS Query Logs",
-  behavioral_sync: "Running behavioral sync (traffic + permissions)",
-  visibility_signals: "Collecting visibility signals (trust policies, Access Advisor, data events)",
-  auto_tagger: "Running auto-tagger",
-}
-
 export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAWSButtonProps) {
-  const [loading, setLoading] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [status, setStatus] = useState<SyncStatus | null>(null)
-  const [result, setResult] = useState<{
-    success: boolean
-    message?: string
-    results?: any
-  } | null>(null)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const { syncing, progress, syncMessage, results, startSync } = useSyncFromAWS({
+    onComplete: onSyncComplete,
+    pollIntervalMs: 5000,
+    autoClearMessageMs: 0,
+  })
 
-  // Poll for job status
-  useEffect(() => {
-    if (!jobId || !loading) {
-      return
-    }
-
-    let failedAttempts = 0
-    const maxFailedAttempts = 100 // Stop after ~8+ minutes of failed checks
-
-    const pollStatus = async () => {
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout
-
-        const response = await fetch(`/api/proxy/collectors/sync-all/status/${jobId}`, {
-          signal: controller.signal,
-        })
-        clearTimeout(timeoutId)
-
-        if (!response.ok) {
-          throw new Error(`Status check failed: ${response.status}`)
-        }
-
-        const data: SyncStatus = await response.json()
-        failedAttempts = 0 // Reset on success
-        setStatus(data)
-
-        if (data.status === "completed") {
-          setLoading(false)
-          setResult({
-            success: true,
-            message: "Sync completed successfully",
-            results: data.results,
-          })
-          if (onSyncComplete) {
-            setTimeout(() => onSyncComplete(), 1000)
-          }
-        } else if (data.status === "failed") {
-          setLoading(false)
-          setResult({
-            success: false,
-            message: data.error || "Sync failed",
-          })
-        }
-      } catch (error: any) {
-        console.log("[SyncFromAWS] Status check unavailable (sync in progress):", error.name)
-        failedAttempts++
-
-        // Update status to show sync is running even if we can't get details
-        if (status?.status === "running" || !status) {
-          setStatus((prev) => ({
-            ...(prev || {
-              job_id: jobId,
-              status: "running",
-              current_step: 0,
-              current_step_name: "processing",
-              total_steps: 15,
-              progress_percent: 0,
-            }),
-            message: "Sync in progress (status temporarily unavailable)...",
-          } as SyncStatus))
-        }
-
-        // After many failed attempts, try starting a new job to check if done
-        if (failedAttempts > maxFailedAttempts) {
-          console.log("[SyncFromAWS] Too many failed status checks, assuming complete")
-          setLoading(false)
-          setResult({
-            success: true,
-            message: "Sync likely completed (status unavailable). Refresh to see results.",
-          })
-        }
-      }
-    }
-
-    // Poll every 5 seconds (longer interval since server is busy)
-    pollingRef.current = setInterval(pollStatus, 5000)
-    // Also poll immediately
-    pollStatus()
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-      }
-    }
-  }, [jobId, loading, onSyncComplete, status])
-
-  const handleSync = async () => {
-    setLoading(true)
-    setResult(null)
-    setStatus(null)
-    setJobId(null)
-
-    try {
-      console.log("[SyncFromAWS] Starting async sync job...")
-
-      const response = await fetch("/api/proxy/collectors/sync-all/start?days=2", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: AbortSignal.timeout(30000), // 30 second timeout to start job
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      console.log("[SyncFromAWS] Job started:", data)
-
-      if (data.success && data.job_id) {
-        setJobId(data.job_id)
-        setStatus({
-          job_id: data.job_id,
-          status: "running",
-          current_step: 0,
-          current_step_name: "starting",
-          total_steps: 15,
-          message: "Starting sync...",
-          progress_percent: 0,
-        })
-      } else if (data.existing_job_id) {
-        // A job is already running, use that one
-        setJobId(data.existing_job_id)
-        setStatus({
-          job_id: data.existing_job_id,
-          status: "running",
-          current_step: data.current_step || 0,
-          current_step_name: "",
-          total_steps: 15,
-          message: data.message || "Sync in progress...",
-          progress_percent: Math.round(((data.current_step || 0) / 15) * 100),
-        })
-      } else {
-        throw new Error(data.error || "Failed to start sync job")
-      }
-    } catch (error: any) {
-      console.error("[SyncFromAWS] Failed to start sync:", error)
-      setLoading(false)
-      setResult({
-        success: false,
-        message: error.message || "Failed to start sync",
-      })
-    }
-  }
-
-  const progressPercent = status?.progress_percent || 0
-  const currentStepLabel = status?.current_step_name
-    ? STEP_LABELS[status.current_step_name] || status.message
-    : "Starting..."
+  const progressPercent = progress?.percent || 0
+  const currentStepLabel = progress?.label || "Starting..."
+  const showResult = syncMessage && !syncing
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       <button
-        onClick={handleSync}
-        disabled={loading}
+        onClick={() => void startSync()}
+        disabled={syncing}
         className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
       >
-        {loading ? (
+        {syncing ? (
           <>
             <RefreshCw className="w-4 h-4 animate-spin" />
             Syncing...
@@ -223,12 +39,11 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
         )}
       </button>
 
-      {/* Progress indicator while syncing */}
-      {loading && status && (
+      {syncing && progress && (
         <div className="p-3 rounded-lg bg-[#3b82f610] border border-[#3b82f640]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-[#3b82f6]">
-              Step {status.current_step}/{status.total_steps}: {currentStepLabel}
+              Step {progress.step}/{progress.total}: {currentStepLabel}
             </span>
             <span className="text-sm text-[#3b82f6]">{progressPercent}%</span>
           </div>
@@ -239,34 +54,34 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
             />
           </div>
           <p className="text-xs text-[#3b82f6] mt-2">
-            This may take several minutes. You can leave this page and come back.
+            Full 36-step pipeline — may take several minutes. You can leave this page and come back.
           </p>
         </div>
       )}
 
-      {result && (
+      {showResult && (
         <div
           className={`p-3 rounded-lg text-sm ${
-            result.success
+            syncMessage.type === "success"
               ? "bg-[#22c55e10] text-[#22c55e] border border-[#22c55e40]"
               : "bg-[#ef444410] text-[#ef4444] border border-[#ef444440]"
           }`}
         >
           <div className="flex items-center gap-2">
-            {result.success ? (
+            {syncMessage.type === "success" ? (
               <CheckCircle className="w-4 h-4" />
             ) : (
               <XCircle className="w-4 h-4" />
             )}
-            <span className="font-medium">{result.message}</span>
+            <span className="font-medium">{syncMessage.text}</span>
           </div>
 
-          {result.success && result.results && (
+          {syncMessage.type === "success" && results && (
             <div className="mt-2 space-y-1 text-xs">
-              {result.results.resource_collectors && (
+              {results.resource_collectors && (
                 <div>
                   Resources:{" "}
-                  {Object.entries(result.results.resource_collectors as Record<string, any>)
+                  {Object.entries(results.resource_collectors as Record<string, any>)
                     .filter(([_, v]) => v && !v.error)
                     .map(([k, v]: [string, any]) => `${k}: ${v.nodes_created || 0}`)
                     .join(", ")}
@@ -274,57 +89,67 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               )}
               <div>
                 Tag Sync:{" "}
-                {result.results.tag_sync?.summary?.aws_resources_with_systemname || 0} resources
+                {(results.tag_sync as any)?.summary?.aws_resources_with_systemname || 0} resources
               </div>
               <div>
                 Flow Logs:{" "}
-                {result.results.flow_logs?.relationships_created || 0} relationships
+                {(results.flow_logs as any)?.relationships_created || 0} relationships
               </div>
               <div>
                 CloudTrail:{" "}
-                {(result.results.cloudtrail?.advisor_relationships || 0) +
-                 (result.results.cloudtrail?.api_call_relationships || 0)} events,{" "}
-                {result.results.cloudtrail?.resource_access_relationships || 0} resources discovered
+                {((results.cloudtrail as any)?.advisor_relationships || 0) +
+                  ((results.cloudtrail as any)?.api_call_relationships || 0)}{" "}
+                events,{" "}
+                {(results.cloudtrail as any)?.resource_access_relationships || 0} resources discovered
               </div>
               <div>
                 IAM Analyzer:{" "}
-                {(result.results.iam_analyzer?.external_access_relationships || 0) +
-                 (result.results.iam_analyzer?.unused_permission_relationships || 0)}{" "}
+                {((results.iam_analyzer as any)?.external_access_relationships || 0) +
+                  ((results.iam_analyzer as any)?.unused_permission_relationships || 0)}{" "}
                 findings
               </div>
               <div>
                 AWS Config:{" "}
-                {(result.results.aws_config?.config_relationships || 0) +
-                 (result.results.aws_config?.violations || 0)}{" "}
+                {((results.aws_config as any)?.config_relationships || 0) +
+                  ((results.aws_config as any)?.violations || 0)}{" "}
                 items
               </div>
               <div>
                 X-Ray:{" "}
-                {(result.results.xray?.calls_relationships || 0) +
-                 (result.results.xray?.traffic_relationships || 0)}{" "}
+                {((results.xray as any)?.calls_relationships || 0) +
+                  ((results.xray as any)?.traffic_relationships || 0)}{" "}
                 traces
               </div>
               <div>
                 Security Groups:{" "}
-                {result.results.security_groups?.total_security_groups || 0} groups,{" "}
-                {result.results.security_groups?.total_rules || 0} rules
+                {(results.security_groups as any)?.total_security_groups || 0} groups,{" "}
+                {(results.security_groups as any)?.total_rules || 0} rules
               </div>
               <div>
                 NACLs:{" "}
-                {result.results.nacls?.nacls_processed || result.results.nacls?.total_nacls || 0} ACLs
+                {(results.nacls as any)?.nacls_processed ||
+                  (results.nacls as any)?.total_nacls ||
+                  0}{" "}
+                ACLs
               </div>
               <div>
                 S3 Access Logs:{" "}
-                {result.results.s3_access_logs?.total_relationships || result.results.s3_access_logs?.relationships_created || 0} access patterns
+                {(results.s3_access_logs as any)?.total_relationships ||
+                  (results.s3_access_logs as any)?.relationships_created ||
+                  0}{" "}
+                access patterns
               </div>
               <div>
                 RDS Query Logs:{" "}
-                {result.results.rds_query_logs?.total_relationships || result.results.rds_query_logs?.relationships_created || 0} query patterns
+                {(results.rds_query_logs as any)?.total_relationships ||
+                  (results.rds_query_logs as any)?.relationships_created ||
+                  0}{" "}
+                query patterns
               </div>
               <div>
                 Behavioral Sync:{" "}
                 {(() => {
-                  const bs = result.results.behavioral_sync
+                  const bs = results.behavioral_sync as any
                   if (!bs || bs.error) return "0"
                   const traffic = bs.traffic?.patterns_created || 0
                   const perms = bs.permissions?.total_permissions_found || 0
@@ -333,18 +158,22 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
                   return `${traffic} traffic, ${perms} permissions, ${s3} S3, ${findings} findings`
                 })()}
               </div>
-              {result.results.visibility_signals && (
+              {results.visibility_signals && (
                 <div>
                   Visibility Signals:{" "}
-                  {result.results.visibility_signals.trust_policies?.roles_updated || 0} trust policies,{" "}
-                  {result.results.visibility_signals.trust_policies?.cross_account_roles || 0} cross-account,{" "}
-                  {result.results.visibility_signals.access_advisor?.roles_updated || 0} Access Advisor,{" "}
-                  {(result.results.visibility_signals.cloudtrail_config?.data_events_enabled || []).length} data event services
+                  {(results.visibility_signals as any).trust_policies?.roles_updated || 0} trust
+                  policies,{" "}
+                  {(results.visibility_signals as any).trust_policies?.cross_account_roles || 0}{" "}
+                  cross-account,{" "}
+                  {(results.visibility_signals as any).access_advisor?.roles_updated || 0} Access
+                  Advisor,{" "}
+                  {((results.visibility_signals as any).cloudtrail_config?.data_events_enabled ||
+                    []).length}{" "}
+                  data event services
                 </div>
               )}
               <div>
-                Auto-Tagger:{" "}
-                {result.results.auto_tagger?.tagged || 0} resources tagged
+                Auto-Tagger: {(results.auto_tagger as any)?.tagged || 0} resources tagged
               </div>
             </div>
           )}

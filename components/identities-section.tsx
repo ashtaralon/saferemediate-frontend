@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState } from "react"
 import {
   LayoutDashboard,
   Bot,
@@ -11,6 +11,7 @@ import {
   Check,
   Clock,
 } from "lucide-react"
+import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
 import { IdentitiesOverviewTab } from "./identities/identities-overview-tab"
 import { NHITab } from "./identities/nhi-tab"
 import { HumanIdentitiesTab } from "./identities/human-identities-tab"
@@ -34,49 +35,18 @@ interface IdentitiesSectionProps {
 
 export function IdentitiesSection({ onRequestRemediation, systemName }: IdentitiesSectionProps) {
   const [activeTab, setActiveTab] = useState<TabId>("overview")
-  const [syncing, setSyncing] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [syncDone, setSyncDone] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Fetch sync status on mount
-  useEffect(() => {
-    fetch("/api/proxy/identities/sync/status")
-      .then((r) => r.json())
-      .then((d) => {
-        setLastSync(d.last_sync || null)
-        setSyncing(d.syncing || false)
-      })
-      .catch(() => {})
-  }, [])
-
-  const handleSync = useCallback(async () => {
-    setSyncing(true)
-    setSyncDone(false)
-    try {
-      await fetch("/api/proxy/identities/sync", { method: "POST" })
-      // Poll for completion
-      const poll = setInterval(async () => {
-        try {
-          const res = await fetch("/api/proxy/identities/sync/status")
-          const d = await res.json()
-          if (!d.syncing) {
-            clearInterval(poll)
-            setSyncing(false)
-            setLastSync(d.last_sync)
-            setSyncDone(true)
-            setRefreshKey((k) => k + 1)
-            setTimeout(() => setSyncDone(false), 3000)
-          }
-        } catch {
-          clearInterval(poll)
-          setSyncing(false)
-        }
-      }, 2000)
-    } catch {
-      setSyncing(false)
-    }
-  }, [])
+  const { syncing, startSync } = useSyncFromAWS({
+    onComplete: () => {
+      setLastSync(new Date().toISOString())
+      setSyncDone(true)
+      setRefreshKey((k) => k + 1)
+      setTimeout(() => setSyncDone(false), 3000)
+    },
+  })
 
   const formatLastSync = (iso: string | null) => {
     if (!iso) return "Never"
@@ -125,10 +95,10 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
           <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
             <Clock className="w-3.5 h-3.5" />
             <span>Last sync: {formatLastSync(lastSync)}</span>
-            <span className="text-[10px] opacity-60">(auto every 15m)</span>
+            <span className="text-[10px] opacity-60">(full 36-step pipeline)</span>
           </div>
           <button
-            onClick={handleSync}
+            onClick={() => void startSync()}
             disabled={syncing}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
             style={{
@@ -149,7 +119,7 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
             ) : (
               <>
                 <RefreshCw className="w-4 h-4" />
-                Sync Now
+                Sync from AWS
               </>
             )}
           </button>

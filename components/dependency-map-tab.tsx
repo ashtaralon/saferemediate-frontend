@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
@@ -8,6 +8,7 @@ import ResourceView from './dependency-map/resource-view'
 import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
 import { CJPickerStrip } from './dependency-map/cj-picker-strip'
 import { useCachedFetch } from '@/lib/use-cached-fetch'
+import { useSyncFromAWS } from '@/hooks/use-sync-from-aws'
 import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 import { toCrownJewelSummary } from '@/lib/attack-paths/crown-jewel-v2-navigation'
@@ -409,13 +410,8 @@ export default function DependencyMapTab({
   const [resources, setResources] = useState<Resource[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [resourcesLoading, setResourcesLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [syncJobId, setSyncJobId] = useState<string | null>(null)
-  const [syncProgress, setSyncProgress] = useState<{ step: number; total: number; message: string; percent: number } | null>(null)
-  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const syncPollingRef = useRef<NodeJS.Timeout | null>(null)
 
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
@@ -519,6 +515,12 @@ export default function DependencyMapTab({
     }
   }, [systemName, searchQuery])
 
+  const { syncing, progress: syncProgress, syncMessage, startSync } = useSyncFromAWS({
+    onComplete: () => {
+      setTimeout(() => fetchGraphData(), 1000)
+    },
+  })
+
   // Fetch resources separately if not loaded from graph
   const fetchResources = useCallback(async () => {
     if (resources.length > 0) return
@@ -591,118 +593,6 @@ export default function DependencyMapTab({
   // Handle back to graph
   const handleBackToGraph = useCallback(() => {
     setActiveView('graph')
-  }, [])
-
-  // Poll for sync job status
-  const pollSyncStatus = useCallback(async (jobId: string) => {
-    try {
-      const response = await fetch(`/api/proxy/collectors/sync-all/status/${jobId}`, {
-        signal: AbortSignal.timeout(8000),
-      })
-
-      if (!response.ok) {
-        console.log('[DependencyMapTab] Status check failed, will retry')
-        return
-      }
-
-      const data = await response.json()
-      setSyncProgress({
-        step: data.current_step,
-        total: data.total_steps,
-        message: data.message,
-        percent: data.progress_percent
-      })
-
-      if (data.status === 'completed') {
-        setSyncing(false)
-        setSyncJobId(null)
-        if (syncPollingRef.current) {
-          clearInterval(syncPollingRef.current)
-          syncPollingRef.current = null
-        }
-
-        const results = data.results || {}
-        setSyncMessage({
-          type: 'success',
-          text: `Synced: ${results.flow_logs?.relationships_created || 0} traffic, ${results.cloudtrail?.events_processed || 0} events`
-        })
-
-        // Refresh the graph data
-        setTimeout(() => fetchGraphData(), 1000)
-        setTimeout(() => setSyncMessage(null), 8000)
-      } else if (data.status === 'failed') {
-        setSyncing(false)
-        setSyncJobId(null)
-        if (syncPollingRef.current) {
-          clearInterval(syncPollingRef.current)
-          syncPollingRef.current = null
-        }
-        setSyncMessage({
-          type: 'error',
-          text: data.error || 'Sync failed'
-        })
-        setTimeout(() => setSyncMessage(null), 8000)
-      }
-    } catch (error) {
-      console.log('[DependencyMapTab] Status poll error (sync still running)')
-    }
-  }, [fetchGraphData])
-
-  // Sync from AWS - fetches latest data from AWS and updates Neo4j
-  const handleSyncFromAWS = useCallback(async () => {
-    setSyncing(true)
-    setSyncMessage(null)
-    setSyncProgress(null)
-
-    try {
-      const response = await fetch('/api/proxy/collectors/sync-all/start?days=2', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Sync failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.success && data.job_id) {
-        console.log('[DependencyMapTab] Sync job started:', data.job_id)
-        setSyncJobId(data.job_id)
-        setSyncProgress({ step: 0, total: 7, message: 'Starting sync...', percent: 0 })
-
-        // Start polling for status
-        syncPollingRef.current = setInterval(() => pollSyncStatus(data.job_id), 3000)
-        pollSyncStatus(data.job_id)
-      } else if (data.existing_job_id) {
-        // Job already running
-        console.log('[DependencyMapTab] Sync job already running:', data.existing_job_id)
-        setSyncJobId(data.existing_job_id)
-        setSyncProgress({ step: data.current_step || 0, total: 7, message: data.message || 'Sync in progress...', percent: Math.round(((data.current_step || 0) / 7) * 100) })
-
-        syncPollingRef.current = setInterval(() => pollSyncStatus(data.existing_job_id), 3000)
-      } else {
-        throw new Error(data.error || 'Failed to start sync')
-      }
-    } catch (error) {
-      console.error('[DependencyMapTab] Sync failed:', error)
-      setSyncing(false)
-      setSyncMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Sync failed'
-      })
-      setTimeout(() => setSyncMessage(null), 5000)
-    }
-  }, [pollSyncStatus])
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (syncPollingRef.current) {
-        clearInterval(syncPollingRef.current)
-      }
-    }
   }, [])
 
   return (
@@ -809,7 +699,7 @@ export default function DependencyMapTab({
           {/* Sync from AWS button */}
           <div className="flex items-center gap-3">
             <button
-              onClick={handleSyncFromAWS}
+              onClick={() => void startSync()}
               disabled={syncing}
               className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
             >

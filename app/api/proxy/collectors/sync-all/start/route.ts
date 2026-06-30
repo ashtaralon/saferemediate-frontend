@@ -10,10 +10,16 @@ export async function POST(request: NextRequest) {
   try {
     const url = new URL(request.url)
     const days = url.searchParams.get("days") || "7"
+    const skipFlowLogs = url.searchParams.get("skip_flow_logs") === "true"
 
-    console.log(`[Collectors Proxy] Starting async sync-all (${days} days)...`)
+    const backendParams = new URLSearchParams({ days })
+    if (skipFlowLogs) {
+      backendParams.set("skip_flow_logs", "true")
+    }
 
-    const response = await fetch(`${BACKEND_URL}/api/collectors/sync-all/start?days=${days}`, {
+    console.log(`[Collectors Proxy] Starting async sync-all (${days} days, skip_flow_logs=${skipFlowLogs})...`)
+
+    const response = await fetch(`${BACKEND_URL}/api/collectors/sync-all/start?${backendParams.toString()}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

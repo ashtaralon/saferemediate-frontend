@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSyncFromAWS } from '@/hooks/use-sync-from-aws';
 import { SGGapCard } from './sg-gap-card';
 import { SGRemediationCard } from './sg-remediation-card';
 import { IAMPermissionAnalysisModal } from './iam-permission-analysis-modal';
@@ -164,10 +165,6 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
   // View state
   const [activeSection, setActiveSection] = useState<'all' | 'iam' | 'sg'>('all');
   const [expandedSGs, setExpandedSGs] = useState<Set<string>>(new Set());
-  
-  // Sync state
-  const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // IAM Remediation Modal state
   const [selectedRoleForRemediation, setSelectedRoleForRemediation] = useState<string | null>(null);
@@ -282,6 +279,12 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
   const handleRefresh = async () => {
     await Promise.all([fetchSecurityGroups(), fetchIAMRoles()]);
   };
+
+  const { syncing, syncMessage, startSync } = useSyncFromAWS({
+    onComplete: () => {
+      void handleRefresh();
+    },
+  });
 
   // Fetch available services from Neo4j for simulator dropdowns
   const fetchAvailableServices = useCallback(async () => {
@@ -454,52 +457,6 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
     if (targetService.type.includes('EC2')) return 'EC2';
 
     return 'default';
-  };
-  
-  // Sync from AWS - fetches latest data directly from AWS
-  const handleSyncFromAWS = async () => {
-    setSyncing(true);
-    setSyncMessage(null);
-    
-    try {
-      // Step 1: Run IAM collector
-      console.log('Syncing IAM roles from AWS...');
-      const iamRes = await fetch('/api/proxy/collectors/run/iam', { method: 'POST' });
-      if (!iamRes.ok) {
-        console.warn('IAM collector failed:', iamRes.status);
-      }
-      
-      // Step 2: Run Security Groups collector
-      console.log('Syncing Security Groups from AWS...');
-      const sgRes = await fetch('/api/proxy/collectors/run/security_groups', { method: 'POST' });
-      if (!sgRes.ok) {
-        console.warn('SG collector failed:', sgRes.status);
-      }
-      
-      // Step 3: Run Flow Logs telemetry (last 1 hour)
-      console.log('Syncing VPC Flow Logs...');
-      const flowRes = await fetch('/api/proxy/telemetry/flowlogs?hours_back=1', { method: 'POST' });
-      if (!flowRes.ok) {
-        console.warn('Flow Logs sync failed:', flowRes.status);
-      }
-      
-      // Step 4: Refresh UI data
-      await handleRefresh();
-      
-      setSyncMessage({ type: 'success', text: 'Synced from AWS successfully' });
-      
-      // Auto-hide message after 5 seconds
-      setTimeout(() => setSyncMessage(null), 5000);
-      
-    } catch (error) {
-      console.error('Sync from AWS failed:', error);
-      setSyncMessage({ 
-        type: 'error', 
-        text: `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}` 
-      });
-    } finally {
-      setSyncing(false);
-    }
   };
   
   // ============================================================================
@@ -919,9 +876,9 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
 
             {/* Sync from AWS Button */}
             <button
-              onClick={handleSyncFromAWS}
+              onClick={() => void startSync()}
               disabled={syncing}
-              title="Fetch latest data directly from AWS (takes 30-60 seconds)"
+              title="Run the full 36-step sync-all pipeline (takes several minutes)"
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                 syncing
                   ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'

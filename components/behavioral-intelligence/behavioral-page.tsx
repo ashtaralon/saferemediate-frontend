@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { useSyncFromAWS } from '@/hooks/use-sync-from-aws'
 import {
   Activity, RefreshCw, AlertTriangle, CheckCircle, XCircle,
   Network, Eye, Clock, ChevronDown, ChevronRight, Users, Shield,
@@ -240,8 +241,6 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
   const [data, setData] = useState<BehavioralData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Filter state
   const [days, setDays] = useState(90)
@@ -285,30 +284,11 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
     fetchData()
   }, [fetchData])
 
-  const handleSyncFromAWS = async () => {
-    setSyncing(true)
-    setSyncMessage(null)
-
-    try {
-      const collectors = ['flow_logs', 'cloudtrail', 'config', 'iam']
-      await Promise.all(collectors.map(async (collector) => {
-        try {
-          await fetch(`/api/proxy/collectors/run/${collector}`, { method: 'POST' })
-        } catch (e) {
-          console.warn(`Collector ${collector} failed:`, e)
-        }
-      }))
-
-      await fetchData()
-      setSyncMessage({ type: 'success', text: 'Synced all data planes from AWS' })
-      setTimeout(() => setSyncMessage(null), 5000)
-
-    } catch (err: any) {
-      setSyncMessage({ type: 'error', text: err.message || 'Sync failed' })
-    } finally {
-      setSyncing(false)
-    }
-  }
+  const { syncing, syncMessage, setSyncMessage, startSync } = useSyncFromAWS({
+    onComplete: () => {
+      void fetchData()
+    },
+  })
 
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections)
@@ -398,7 +378,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
 
           {/* Sync button */}
           <button
-            onClick={handleSyncFromAWS}
+            onClick={() => void startSync()}
             disabled={syncing}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
               syncing

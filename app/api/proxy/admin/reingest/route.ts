@@ -11,9 +11,8 @@
  *
  * Current behavior:
  *   Both buttons now trigger the same /api/collectors/sync-all/start
- *   async job — 15 steps covering VPC flow logs, CloudTrail, Security
- *   Groups, NACLs, S3 access logs, RDS query logs, behavioral sync,
- *   visibility signals, and auto-tagging.
+ *   async job — 36 steps covering resource discovery, telemetry, v6.2
+ *   collectors, materializers, and classifiers.
  *
  *   The scope/target fields in the request body are accepted for
  *   backwards compatibility but currently ignored — the sync-all
@@ -23,7 +22,7 @@
 
 export const dynamic = "force-dynamic"
 
-const DAYS = 2 // Matches what SyncFromAWSButton sends
+const DAYS = 7
 
 export async function POST(request: Request) {
   const backendUrl =
@@ -98,7 +97,7 @@ export async function POST(request: Request) {
       success: true,
       job_id: data.job_id,
       status_url: data.status_url,
-      message: data.message ?? "Full 15-step sync job started. Takes several minutes.",
+      message: data.message ?? "Full 36-step sync job started. Takes several minutes.",
       collectors_run: [], // historical shape — real progress comes from polling status_url
       _debug: { fetchTimeMs, totalTimeMs: Date.now() - startTime },
     })
