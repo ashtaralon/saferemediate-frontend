@@ -666,7 +666,7 @@ export async function rollbackRemediation(findingId: string, snapshotId: string)
 
 export interface PostureScoreData {
   system_name: string
-  overall_score: number
+  overall_score: number | null
   grade: 'A' | 'B' | 'C' | 'D' | 'F'
   dimensions: {
     least_privilege: {
