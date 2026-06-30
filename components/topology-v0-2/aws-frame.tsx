@@ -901,12 +901,13 @@ function IamRoleCard({
 }
 
 function IamControlPlane({
-  roles, allWorkloads, highlightedRoleName, embeddedInVpc = false,
+  roles, allWorkloads, highlightedRoleName, embeddedInVpc = false, compact = false,
 }: {
   roles: IamRoleRollup[]
   allWorkloads: TopologyNode[]
   highlightedRoleName?: string | null
   embeddedInVpc?: boolean
+  compact?: boolean
 }) {
   if (roles.length === 0) return null
   const criticalCount = roles.filter(
@@ -925,33 +926,47 @@ function IamControlPlane({
   const staleRollupCount = roles.filter(r => r.correlation_state === "stale_rollup").length
   return (
     <div
-      className={embeddedInVpc ? "rounded-r-md p-3 relative flex-1" : "rounded-md p-4 relative"}
+      className={
+        embeddedInVpc
+          ? compact
+            ? "rounded-r-md p-1.5 relative flex-1 min-h-0 overflow-y-auto"
+            : "rounded-r-md p-3 relative flex-1"
+          : "rounded-md p-4 relative"
+      }
       style={
         embeddedInVpc
           ? { background: "#F3E5F5", border: `1.5px solid #DD344C`, borderLeft: "none" }
           : { background: PAL.cardBg, border: `2px solid #DD344C`, borderLeftWidth: "8px" }
       }
     >
-      <div
-        className="absolute -top-2.5 left-6 px-2 text-[10px] uppercase tracking-[0.14em] font-bold"
-        style={{ background: embeddedInVpc ? "#F3E5F5" : PAL.cardBg, color: "#DD344C" }}
-      >
-        IAM · Control plane
-      </div>
-      <div className={`flex items-baseline justify-between mb-2 ${embeddedInVpc ? "mt-0" : "mt-1 mb-3"}`}>
-        <div className="text-[12px] font-semibold" style={{ color: PAL.ink }}>
+      {!compact ? (
+        <div
+          className="absolute -top-2.5 left-6 px-2 text-[10px] uppercase tracking-[0.14em] font-bold"
+          style={{ background: embeddedInVpc ? "#F3E5F5" : PAL.cardBg, color: "#DD344C" }}
+        >
+          IAM · Control plane
+        </div>
+      ) : null}
+      <div className={`flex items-baseline justify-between ${compact ? "mb-1" : embeddedInVpc ? "mt-0 mb-2" : "mt-1 mb-3"}`}>
+        <div className={compact ? "text-[10px] font-semibold" : "text-[12px] font-semibold"} style={{ color: PAL.ink }}>
           Roles attached to this VPC
         </div>
-        <div className="text-[10px]" style={{ color: PAL.slate }}>
-          derived from instance-profile + USES_ROLE edges ·{" "}
-          {roles.length} role{roles.length === 1 ? "" : "s"}
-          {criticalCount > 0 ? ` · ${criticalCount} critical gap${criticalCount === 1 ? "" : "s"}` : ""}
-          {cleanCount > 0 ? ` · ${cleanCount} clean` : ""}
-          {uncorrelatedCount > 0 ? ` · ${uncorrelatedCount} pending correlation` : ""}
-          {staleRollupCount > 0 ? ` · ${staleRollupCount} recomputing` : ""}
-        </div>
+        {!compact ? (
+          <div className="text-[10px]" style={{ color: PAL.slate }}>
+            derived from instance-profile + USES_ROLE edges ·{" "}
+            {roles.length} role{roles.length === 1 ? "" : "s"}
+            {criticalCount > 0 ? ` · ${criticalCount} critical gap${criticalCount === 1 ? "" : "s"}` : ""}
+            {cleanCount > 0 ? ` · ${cleanCount} clean` : ""}
+            {uncorrelatedCount > 0 ? ` · ${uncorrelatedCount} pending correlation` : ""}
+            {staleRollupCount > 0 ? ` · ${staleRollupCount} recomputing` : ""}
+          </div>
+        ) : (
+          <div className="text-[9px]" style={{ color: PAL.slate }}>
+            {roles.length} role{roles.length === 1 ? "" : "s"}
+          </div>
+        )}
       </div>
-      <div className="flex gap-3 overflow-x-auto pb-1">
+      <div className={`flex gap-3 overflow-x-auto ${compact ? "pb-0" : "pb-1"}`}>
         {roles.map(r => (
           <IamRoleCard
             key={r.name}
@@ -1743,14 +1758,27 @@ export function AwsFrame({
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-2 space-y-2 relative max-w-full min-w-0 overflow-x-auto"
+          ? "rounded-xl p-1.5 space-y-1 relative max-w-full min-w-0 overflow-x-auto"
           : "rounded-2xl p-3 space-y-3 relative max-w-full min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
       {onFlowModeChange ? (
-        <div className="flex items-center justify-end gap-2 pb-1">
-          <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: PAL.slate }}>
+        <div
+          className={
+            presentationMode
+              ? "flex items-center justify-end gap-2 pb-0"
+              : "flex items-center justify-end gap-2 pb-1"
+          }
+        >
+          <span
+            className={
+              presentationMode
+                ? "text-[9px] uppercase tracking-wider font-semibold"
+                : "text-[10px] uppercase tracking-wider font-semibold"
+            }
+            style={{ color: PAL.slate }}
+          >
             Flow overlay
           </span>
           <FlowModeToggle
@@ -1760,34 +1788,68 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — tighter in presentation mode so the
-          AWS Cloud frame can take the dominant vertical share. */}
-      <div className="flex items-center justify-center gap-4 py-1 pb-2">
-        <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
-          <div className="text-xl">👥</div>
-          <div className="text-[10px] uppercase tracking-wider font-semibold">Users</div>
+      {/* Internet + IGW perimeter — single compact row in presentation mode. */}
+      <div
+        className={
+          presentationMode
+            ? "flex items-center justify-center gap-2 py-0"
+            : "flex items-center justify-center gap-4 py-1 pb-2"
+        }
+      >
+        <div className="flex items-center gap-1 shrink-0" style={{ color: PAL.slate }}>
+          <span className={presentationMode ? "text-sm leading-none" : "text-xl"}>👥</span>
+          <span
+            className={
+              presentationMode
+                ? "text-[8px] uppercase tracking-wider font-semibold"
+                : "text-[10px] uppercase tracking-wider font-semibold"
+            }
+          >
+            Users
+          </span>
         </div>
-        <div className="flex-1 max-w-[120px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
-        <div className="flex flex-col items-center" style={{ color: PAL.slate }}>
-          <div className="text-xl">☁</div>
-          <div className="text-[10px] uppercase tracking-wider font-semibold">Internet</div>
-        </div>
-        <div className="flex-1 max-w-[120px] border-t border-dashed" style={{ borderColor: "#94A3B8" }} />
         <div
-          className="flex flex-col items-center"
+          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[120px] border-t border-dashed"}
+          style={{ borderColor: "#94A3B8" }}
+        />
+        <div className="flex items-center gap-1 shrink-0" style={{ color: PAL.slate }}>
+          <span className={presentationMode ? "text-sm leading-none" : "text-xl"}>☁</span>
+          <span
+            className={
+              presentationMode
+                ? "text-[8px] uppercase tracking-wider font-semibold"
+                : "text-[10px] uppercase tracking-wider font-semibold"
+            }
+          >
+            Internet
+          </span>
+        </div>
+        <div
+          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[120px] border-t border-dashed"}
+          style={{ borderColor: "#94A3B8" }}
+        />
+        <div
+          className="flex items-center gap-1 shrink-0 min-w-0"
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <div className="text-xl">🌐</div>
-          <div className="text-[10px] uppercase tracking-wider font-semibold">
+          <span className={presentationMode ? "text-sm leading-none" : "text-xl"}>🌐</span>
+          <span
+            className={
+              presentationMode
+                ? "text-[8px] uppercase tracking-wider font-semibold truncate max-w-[140px]"
+                : "text-[10px] uppercase tracking-wider font-semibold"
+            }
+            title={hasIgw ? topo.edges.igws[0].name : undefined}
+          >
             {hasIgw ? `IGW · ${topo.edges.igws[0].name}` : "no IGW"}
-          </div>
+          </span>
         </div>
       </div>
 
       {/* AWS Cloud frame */}
       <div
-        className={presentationMode ? "rounded-lg p-3 relative" : "rounded-lg p-4 relative"}
+        className={presentationMode ? "rounded-lg p-2 relative" : "rounded-lg p-4 relative"}
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
         <div
@@ -1799,7 +1861,7 @@ export function AwsFrame({
 
         {/* Region */}
         <div
-          className={presentationMode ? "rounded-md p-3 mt-2 relative" : "rounded-md p-4 mt-3 relative"}
+          className={presentationMode ? "rounded-md p-2 mt-1 relative" : "rounded-md p-4 mt-3 relative"}
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
         >
           <div
@@ -1891,24 +1953,14 @@ export function AwsFrame({
                       </div>
                     </div>
                     {/*
-                      Fullscreen ("3 layers in one page"): Web/App/Data tiers must all
-                      be visible without scrolling past one to find the next. Inline
-                      mode is unaffected — same unbounded stack as before, since it
-                      already sits inside the dashboard's own scroll region.
-
-                      maxHeight is a viewport-relative fallback (not perfect flex
-                      propagation up through the AWS Cloud/Region/VPC wrapper chain,
-                      which isn't itself height-bounded) — if a tier's content still
-                      overflows its 1/3 share, it scrolls internally via overflowY
-                      rather than pushing the next tier off-page. Needs a visual check
-                      post-deploy; this environment has no way to render and confirm
-                      the exact pixel layout.
+                      Fullscreen: Web/App/Data + IAM share one bounded column.
+                      IAM inside the stack prevents it from overlapping tier rows.
                     */}
                     <div
-                      className={presentationMode ? "flex flex-col gap-1.5" : "contents"}
+                      className={presentationMode ? "flex flex-col gap-1 min-h-0" : "contents"}
                       style={
                         presentationMode
-                          ? { maxHeight: "calc(100vh - 360px)", minHeight: "240px" }
+                          ? { maxHeight: "calc(100vh - 240px)", minHeight: "200px" }
                           : undefined
                       }
                     >
@@ -1934,7 +1986,7 @@ export function AwsFrame({
                             {TIER_SIDEBAR_LABEL[tier]}
                           </div>
                           <div
-                            className={presentationMode ? "rounded-r-md p-2 flex-1" : "rounded-r-md p-2.5 flex-1"}
+                            className={presentationMode ? "rounded-r-md p-1.5 flex-1" : "rounded-r-md p-2.5 flex-1"}
                             style={{
                               background: TIER_BG[tier],
                               ...(presentationMode ? { overflowY: "auto", minHeight: 0 } : {}),
@@ -1966,17 +2018,43 @@ export function AwsFrame({
                           </div>
                         </div>
                       ))}
+
+                      {presentationMode && iamRoles.length > 0 ? (
+                        <div className="flex gap-0" style={{ flex: "0 1 96px", minHeight: 0 }}>
+                          <div
+                            className="rounded-l-md flex items-center justify-center shrink-0"
+                            style={{
+                              background: "#DD344C",
+                              color: "white",
+                              width: TIER_SIDEBAR_WIDTH.compact,
+                              writingMode: "vertical-rl",
+                              transform: "rotate(180deg)",
+                              fontSize: "9px",
+                              fontWeight: 700,
+                              letterSpacing: "0.14em",
+                            }}
+                          >
+                            IAM CP
+                          </div>
+                          <IamControlPlane
+                            roles={iamRoles}
+                            allWorkloads={nodes}
+                            highlightedRoleName={highlightedRoleName}
+                            embeddedInVpc
+                            compact
+                          />
+                        </div>
+                      ) : null}
                     </div>
 
-                    {/* IAM control-plane — 4th tier inside VPC (mockup tier.iam) */}
-                    {iamRoles.length > 0 ? (
+                    {!presentationMode && iamRoles.length > 0 ? (
                       <div className="flex gap-0">
                         <div
                           className="rounded-l-md flex items-center justify-center shrink-0"
                           style={{
                             background: "#DD344C",
                             color: "white",
-                            width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+                            width: TIER_SIDEBAR_WIDTH.normal,
                             writingMode: "vertical-rl",
                             transform: "rotate(180deg)",
                             fontSize: "9px",

@@ -500,7 +500,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     <>
       {(data.available_vpcs?.length ?? 0) > 0 ? (
         <div
-          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-3`}
+          className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
         >
           <label
@@ -518,7 +518,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
               setHighlightedRoleName(null)
               setSelectedVpcId(e.target.value)
             }}
-            className="text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[220px] max-w-full"
+            className={
+              compact
+                ? "text-[11px] font-mono rounded-md border px-2 py-0.5 min-w-[180px] max-w-full"
+                : "text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[220px] max-w-full"
+            }
             style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
             data-testid="topology-vpc-select"
           >
@@ -541,7 +545,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
       {availableAzs.length > 0 ? (
         <div
-          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-2`}
+          className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           data-testid="topology-az-scope"
         >
@@ -560,7 +564,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
                 aria-pressed={!hidden}
                 title={hidden ? `Show ${az}` : `Hide ${az}`}
                 onClick={() => toggleAzVisibility(az)}
-                className="text-[11px] font-mono rounded-md border px-2 py-1 transition-colors"
+                className={
+                  compact
+                    ? "text-[10px] font-mono rounded-md border px-1.5 py-0.5 transition-colors"
+                    : "text-[11px] font-mono rounded-md border px-2 py-1 transition-colors"
+                }
                 style={{
                   borderColor: hidden ? "#CBD5E1" : "#00C2A8",
                   background: hidden ? "#F8FAFC" : "#E6FBF7",
@@ -589,7 +597,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
       {workloadTypeRows.length > 0 ? (
         <div
-          className={`${ESTATE_SHELL_X} py-2 border-b flex flex-wrap items-center gap-2`}
+          className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           data-testid="topology-service-scope"
         >
@@ -815,14 +823,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             className="flex flex-col shrink-0 border-b"
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           >
-            <div className="flex items-center justify-between gap-3 px-4 py-2">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#5A6B7A" }}>
-                  Map fullscreen · {data.system}
-                </div>
-                <div className="text-[11px] mt-0.5" style={{ color: "#5A6B7A" }}>
-                  VPC, AZ, and service scope apply here — same as inline map.
-                </div>
+            <div className="flex items-center justify-between gap-3 px-4 py-1">
+              <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#5A6B7A" }}>
+                Map fullscreen · {data.system}
               </div>
               <button
                 type="button"
@@ -837,7 +840,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             </div>
             {renderScopeControls(true)}
           </div>
-          <div className="flex-1 min-h-0 overflow-auto p-3">
+          <div className="flex-1 min-h-0 overflow-auto p-2">
             {renderMap(true)}
           </div>
           {selectedNode ? (
