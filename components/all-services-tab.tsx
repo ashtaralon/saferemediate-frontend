@@ -25,6 +25,7 @@ import {
   CheckCircle,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -147,54 +148,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [servicePolicies, setServicePolicies] = useState<any>(null)
   const [policiesLoading, setPoliciesLoading] = useState(false)
   const [policiesError, setPoliciesError] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
     fetchServices()
     fetchGapData()
   }, [systemName])  // Re-fetch when systemName changes
-
-  // Sync from AWS - fetches latest data from AWS and updates Neo4j
-  const handleSyncFromAWS = async () => {
-    setSyncing(true)
-    setSyncMessage(null)
-    try {
-      const response = await fetch('/api/proxy/collectors/sync-all?days=2', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(120000), // 2 minute timeout
-      })
-
-      if (!response.ok) {
-        throw new Error(`Sync failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      console.log('[AllServices] Sync complete:', data)
-
-      setSyncMessage({
-        type: 'success',
-        text: `Synced: ${data.results?.flow_logs?.relationships_created || 0} traffic, ${(data.results?.cloudtrail?.advisor_relationships || 0) + (data.results?.cloudtrail?.api_call_relationships || 0)} API calls`
-      })
-
-      // Refresh the services list
-      setTimeout(() => {
-        fetchServices()
-        fetchGapData()
-      }, 1000)
-
-    } catch (error) {
-      console.error('[AllServices] Sync failed:', error)
-      setSyncMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Sync failed'
-      })
-    } finally {
-      setSyncing(false)
-      setTimeout(() => setSyncMessage(null), 5000)
-    }
-  }
 
   const fetchServices = async () => {
     setLoading(true)
@@ -426,6 +384,15 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       console.error("Failed to fetch gap data:", error)
     }
   }
+
+  const { syncing, syncMessage, startSync } = useSyncFromAWS({
+    onComplete: () => {
+      setTimeout(() => {
+        void fetchServices()
+        void fetchGapData()
+      }, 1000)
+    },
+  })
 
   const computeServices = useMemo(() => {
     return services.filter((s) => {
@@ -856,7 +823,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         </Button>
         <Button
           variant="default"
-          onClick={handleSyncFromAWS}
+          onClick={() => void startSync()}
           disabled={syncing}
           className="gap-2 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white"
         >

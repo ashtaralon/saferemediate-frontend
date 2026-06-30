@@ -9,11 +9,12 @@
  * the operator already knows.
  *
  * Phase A (this file):
- *   - Light theme matching the mockup at design/topology-v0.2-estate.html
- *     palette (--cy-navy headline, --tier-web/app/data pastel rows,
- *     subnet-public mint, subnet-private sky, AWS-frame slate borders).
- *   - AZ collapse: only renders AZs that carry ≥1 alon-prod subnet
- *     in the system's primary VPC (drops empty demo / cross-VPC AZs).
+ *   - Light theme matching the deleted v0.2-estate design mockup's palette
+ *     (--cy-navy headline, --tier-web/app/data pastel rows, subnet-public
+ *     mint, subnet-private sky, AWS-frame slate borders).
+ *   - AZ collapse: only renders AZs that carry >=1 subnet for the current
+ *     system's primary VPC (drops empty demo / cross-VPC AZs). Generic
+ *     across systems — not specific to any one customer's account.
  *   - Bigger workload chips + bigger subnet cells.
  *   - Black tier sidebars labeled WEB TIER / APPLICATION TIER / DATABASE
  *     TIER for orientation.
@@ -341,7 +342,7 @@ function resolveVpceMeta(serviceName: string | null | undefined, endpointTypeFal
   return { label: "VPCE", type: "Interface", purpose: "Private AWS service endpoint" }
 }
 
-// Mockup palette — design/topology-v0.2-estate.html CSS variables.
+// Palette ported from the (now-deleted) v0.2-estate design mockup's CSS variables.
 const PAL = {
   navy: "#0D1B2A",
   navy2: "#142536",
@@ -1856,7 +1857,7 @@ export function AwsFrame({
               {/* AZ headers + tier rows with sidebar labels */}
               {azs.length === 0 ? (
                 <div className="text-[12px] italic py-6 text-center" style={{ color: PAL.slate }}>
-                  No alon-prod-tagged subnets in this VPC.
+                  No tagged subnets in this VPC.
                 </div>
               ) : (
                 <div className={presentationMode ? "mt-1" : "mt-2"}>

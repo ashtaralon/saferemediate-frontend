@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSyncFromAWS } from '@/hooks/use-sync-from-aws'
 import { 
   Server, Database, HardDrive, Shield, Key, Zap, Globe, 
   Network, Lock, RefreshCw, Search, Filter, Grid, List,
@@ -83,7 +84,6 @@ interface Props {
 export default function AllServicesInventory({ systemName }: Props) {
   const [services, setServices] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastSync, setLastSync] = useState<string | null>(null)
   
@@ -230,15 +230,12 @@ export default function AllServicesInventory({ systemName }: Props) {
   }
 
   // Manual sync
-  const handleSync = async () => {
-    setSyncing(true)
-    try {
-      await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&force_refresh=true`)
-      await fetchServices()
-    } finally {
-      setSyncing(false)
-    }
-  }
+  const { syncing, startSync } = useSyncFromAWS({
+    onComplete: () => {
+      setLastSync(new Date().toISOString())
+      void fetchServices()
+    },
+  })
 
   useEffect(() => {
     fetchServices()
@@ -458,7 +455,7 @@ export default function AllServicesInventory({ systemName }: Props) {
           
           {/* Sync button */}
           <button
-            onClick={handleSync}
+            onClick={() => void startSync()}
             disabled={syncing}
             className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50"
           >

@@ -506,14 +506,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       })
 
       // This button now unifies with "Sync from AWS" — it kicks off the same
-      // 15-step async pipeline (VPC flow logs, CloudTrail, Security Groups,
-      // NACLs, S3 access logs, behavioral sync, etc.). No per-system scoping
-      // today — sync-all is global.
+      // 36-step async pipeline (resource discovery, telemetry, v6.2 collectors,
+      // materializers, classifiers). No per-system scoping today — sync-all is global.
       toast({
         title: result.already_running ? "Sync already in progress" : "Sync from AWS started",
         description: result.already_running
-          ? `A sync job is already running (step ${result.current_step ?? "?"}/15). Watch the Overview card for completion.`
-          : `Running the full 15-step data pipeline (VPC flow logs, CloudTrail, SGs, NACLs, S3 access logs, behavioral sync, visibility signals, auto-tagger). Takes several minutes — click Refresh on the Overview card when it's done.`,
+          ? `A sync job is already running (step ${result.current_step ?? "?"}/${result.total_steps ?? 36}). Watch the Overview card for completion.`
+          : `Running the full 36-step data pipeline (flow logs, CloudTrail, IAM last-accessed, Access Analyzer, behavioral sync, materializers, classifiers). Takes several minutes — click Refresh on the Overview card when it's done.`,
       })
 
       // Refresh systems data after a short delay so any IAM-tag changes surface.
