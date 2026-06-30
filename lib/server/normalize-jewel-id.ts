@@ -4,6 +4,9 @@
  * S3 ARNs use a triple colon (`arn:aws:s3:::bucket`). When the ARN is carried
  * in a URL path segment, one colon is occasionally dropped (`s3::bucket`),
  * so IAP row `crown_jewel_id` no longer equals the decoded path param.
+ *
+ * Apply at proxy receive sites: attack-path facade, IAP jewel detail,
+ * jewel-surface (all `[jewelId]` path params).
  */
 export function normalizeJewelArn(jewelId: string): string {
   const decoded = decodeURIComponent(jewelId)

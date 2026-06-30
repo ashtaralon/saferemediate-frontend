@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
@@ -8,7 +9,8 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ systemName: string; jewelId: string }> }
 ) {
-  const { systemName, jewelId } = await params
+  const { systemName, jewelId: rawJewelId } = await params
+  const jewelId = normalizeJewelArn(rawJewelId)
   const { searchParams } = new URL(request.url)
   const maxPaths = searchParams.get("max_paths") || "5"
 

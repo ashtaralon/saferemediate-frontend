@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 
 // Jewel-surface aggregation — per-crown-jewel computed surface
 // (max_verbs, entry_summary, cross_path_remediation). Originally
@@ -24,7 +25,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ systemName: string; jewelId: string }> },
 ) {
-  const { systemName, jewelId } = await params
+  const { systemName, jewelId: rawJewelId } = await params
+  const jewelId = normalizeJewelArn(rawJewelId)
   const { searchParams } = new URL(req.url)
   const maxPaths = searchParams.get("max_paths") || "15"
 
