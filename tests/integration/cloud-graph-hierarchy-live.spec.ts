@@ -8,6 +8,11 @@
  *   C4 JEWEL.x > 70% of canvas width
  *   C8 Spine protagonist transitions monotonic on x-axis
  *   C9 Layout deterministic across canvas-size changes
+ *
+ * LEGACY-ONLY (stopgap): assertions target the react-flow Cloud Graph
+ * (`?map=legacy`). Prod default is Cyntro ConvergenceMapLoader inside
+ * `attack-path-flow-map-slot` — not covered here until C1–C9 are ported.
+ * See follow-up: port hierarchy contract to Cyntro map DOM.
  */
 import { test, expect, type Page } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
@@ -15,6 +20,9 @@ import { seedAuthCookie } from "./live-auth"
 const SYSTEM = "alon-prod"
 const PATH_ID = "path-5203dfee3012"
 const JEWEL_ID = encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")
+/** Legacy Cloud Graph engine — required until C1–C9 assert against Cyntro map. */
+const ATTACK_PATHS_V2_URL =
+  `/attack-paths-v2?system=${SYSTEM}&jewel=${JEWEL_ID}&path=${PATH_ID}&mode=attack-path&map=legacy`
 
 interface NodeProbe {
   txt: string
@@ -57,15 +65,12 @@ async function waitForMap(page: Page) {
   await page.waitForTimeout(800)
 }
 
-test.describe("Cloud Graph Visual Hierarchy Contract — live acceptance", () => {
+test.describe("Cloud Graph Visual Hierarchy Contract — live acceptance (legacy map)", () => {
   test.beforeEach(async ({ page, context }) => {
     test.setTimeout(180_000)
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 1000 })
-    await page.goto(
-      `/attack-paths-v2?system=${SYSTEM}&jewel=${JEWEL_ID}&path=${PATH_ID}&mode=attack-path`,
-      { waitUntil: "domcontentloaded" },
-    )
+    await page.goto(ATTACK_PATHS_V2_URL, { waitUntil: "domcontentloaded" })
     await page.waitForTimeout(14_000)
     await waitForMap(page)
   })
