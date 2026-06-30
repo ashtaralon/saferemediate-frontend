@@ -146,6 +146,9 @@ export function CJSpotlightStrip({
           totalPaths={totalPaths}
           focusedIndex={focusedIndex}
         />
+        {selectedPath.attack_class === "AC-1" && (
+          <AC1EvidenceCard path={selectedPath} />
+        )}
       </div>
 
       {/* Inline path list (always visible). Click a row → strip switches
@@ -389,6 +392,35 @@ function PathDropdown({
   )
 }
 
+function AC1EvidenceCard({ path }: { path: ConvergencePath }) {
+  const title = path.catalog_title ?? "SSRF → IMDSv1 → instance role → S3"
+  const ia = rankedInitialAccessForPath(path)[0]
+  return (
+    <div
+      className="w-full rounded-lg border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-[11px] text-rose-100"
+      data-testid="ac1-evidence-card"
+    >
+      <div className="font-semibold text-rose-200">
+        {path.catalog_name ?? "Capital One"} — {title}
+      </div>
+      <ul className="mt-1 list-disc pl-4 space-y-0.5 text-rose-100/90">
+        <li>IMDSv1 allowed on a public-subnet EC2 (`imds_v2_required: false`)</li>
+        <li>SSRF/RCE can reach the metadata service without auth</li>
+        <li>
+          Stolen instance role reaches crown jewel
+          {path.identity_name ? ` (${path.identity_name})` : ""}
+        </li>
+      </ul>
+      {ia?.category === "IMDS_CREDENTIAL_THEFT" && (
+        <div className="mt-1 text-[10px] text-rose-300/80">
+          Initial access: {ia.category}
+          {ia.pivot_name ? ` via ${ia.pivot_name}` : ""}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PathRow({
   path,
   idx,
@@ -415,6 +447,11 @@ function PathRow({
     >
       <div className="flex items-center gap-2">
         <span className="text-[9px] font-mono text-slate-500 w-5 shrink-0">{idx + 1}.</span>
+        {path.attack_class === "AC-1" && (
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-rose-300 shrink-0">
+            AC-1
+          </span>
+        )}
         <span className="text-[10px] font-mono text-slate-200 truncate min-w-0 flex-1" title={origin}>
           {truncate(origin, 36)}
         </span>
