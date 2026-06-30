@@ -400,6 +400,24 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
   const outerClass = embedded ? "w-full" : "min-h-screen"
 
+  const workloadTypeRows = useMemo(
+    () => workloadTypeRowsFromNodes(chipCountNodes),
+    [chipCountNodes],
+  )
+
+  const toggleWorkloadType = useCallback(
+    (type: string) => {
+      setFilters(prev => {
+        const base = prev ?? defaultFilters(data?.system_kpis ?? null, chipCountNodes)
+        const next = new Set(base.types)
+        if (next.has(type)) next.delete(type)
+        else next.add(type)
+        return { ...base, types: next }
+      })
+    },
+    [data?.system_kpis, chipCountNodes],
+  )
+
   if (loading && !data) {
     return (
       <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
@@ -477,24 +495,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       onSelect={id => setSelectedNodeId(id === selectedNodeId ? null : id)}
     />
   ))
-
-  const workloadTypeRows = useMemo(
-    () => workloadTypeRowsFromNodes(chipCountNodes),
-    [chipCountNodes],
-  )
-
-  const toggleWorkloadType = useCallback(
-    (type: string) => {
-      setFilters(prev => {
-        const base = prev ?? defaultFilters(data?.system_kpis ?? null, chipCountNodes)
-        const next = new Set(base.types)
-        if (next.has(type)) next.delete(type)
-        else next.add(type)
-        return { ...base, types: next }
-      })
-    },
-    [data?.system_kpis],
-  )
 
   const renderScopeControls = (compact = false) => (
     <>
