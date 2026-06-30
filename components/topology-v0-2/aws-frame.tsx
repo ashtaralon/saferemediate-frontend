@@ -808,8 +808,8 @@ function SubnetCell({
 }
 
 function IamRoleCard({
-  role, allWorkloads, highlighted = false,
-}: { role: IamRoleRollup; allWorkloads: TopologyNode[]; highlighted?: boolean }) {
+  role, allWorkloads, highlighted = false, compact = false,
+}: { role: IamRoleRollup; allWorkloads: TopologyNode[]; highlighted?: boolean; compact?: boolean }) {
   const uncorrelated = role.correlation_state === "not_correlated"
   const staleRollup = role.correlation_state === "stale_rollup"
   const deleted = role.correlation_state === "deleted_in_aws"
@@ -826,18 +826,26 @@ function IamRoleCard({
   const isShared = workloadIds.length > 1
   return (
     <div
-      className="rounded-md p-3 min-w-[200px] max-w-[260px] shrink-0"
+      className={
+        compact
+          ? "rounded-md p-1.5 min-w-[132px] max-w-[160px] shrink-0"
+          : "rounded-md p-3 min-w-[200px] max-w-[260px] shrink-0"
+      }
       style={{
         background: "white",
         border: `1.5px solid ${accent}`,
-        borderTopWidth: "3px",
+        borderTopWidth: compact ? "2px" : "3px",
         boxShadow: highlighted ? `0 0 0 3px ${PAL.teal}` : undefined,
       }}
     >
-      <div className="text-[12px] font-semibold truncate" style={{ color: PAL.ink }} title={role.name}>
+      <div
+        className={compact ? "text-[10px] font-semibold truncate" : "text-[12px] font-semibold truncate"}
+        style={{ color: PAL.ink }}
+        title={role.name}
+      >
         {role.name}
       </div>
-      <div className="mt-1.5 mb-1.5">
+      <div className={compact ? "mt-1" : "mt-1.5 mb-1.5"}>
         {role.allowed_actions === 0 ? (
           <span
             className="text-[10px] font-bold px-1.5 py-0.5 rounded inline-block"
@@ -857,45 +865,49 @@ function IamRoleCard({
           </span>
         )}
       </div>
-      <div className="text-[10px] leading-snug" style={{ color: PAL.slate }}>
-        {uncorrelated ? (
-          <>not yet correlated · behavioral join pending</>
-        ) : staleRollup ? (
-          <>recomputing · usage edges present, scalar stale</>
-        ) : deleted ? (
-          <>deleted in AWS · tombstone</>
-        ) : role.allowed_actions === 0 ? (
-          <>
-            {remediated ? `Remediated ${remediated} · ` : ""}
-            least-privilege achieved
-          </>
-        ) : (
-          <>
-            {gap !== null ? `${Math.round(gap)}% gap` : "gap unknown"}
-            {remediated ? ` · remediation ${remediated}` : " · never remediated"}
-          </>
-        )}
-      </div>
-      {consumers.length > 0 && (
-        <div className="mt-2 pt-2 border-t" style={{ borderColor: "#E5E7EB" }}>
-          {consumers.slice(0, 3).map(c => (
-            <div key={c.id} className="text-[10px] truncate" style={{ color: PAL.ink }}>
-              {c.name}
-            </div>
-          ))}
-          {consumers.length > 3 && (
-            <div className="text-[10px] italic" style={{ color: PAL.slate }}>
-              + {consumers.length - 3} more
+      {!compact ? (
+        <>
+          <div className="text-[10px] leading-snug" style={{ color: PAL.slate }}>
+            {uncorrelated ? (
+              <>not yet correlated · behavioral join pending</>
+            ) : staleRollup ? (
+              <>recomputing · usage edges present, scalar stale</>
+            ) : deleted ? (
+              <>deleted in AWS · tombstone</>
+            ) : role.allowed_actions === 0 ? (
+              <>
+                {remediated ? `Remediated ${remediated} · ` : ""}
+                least-privilege achieved
+              </>
+            ) : (
+              <>
+                {gap !== null ? `${Math.round(gap)}% gap` : "gap unknown"}
+                {remediated ? ` · remediation ${remediated}` : " · never remediated"}
+              </>
+            )}
+          </div>
+          {consumers.length > 0 && (
+            <div className="mt-2 pt-2 border-t" style={{ borderColor: "#E5E7EB" }}>
+              {consumers.slice(0, 3).map(c => (
+                <div key={c.id} className="text-[10px] truncate" style={{ color: PAL.ink }}>
+                  {c.name}
+                </div>
+              ))}
+              {consumers.length > 3 && (
+                <div className="text-[10px] italic" style={{ color: PAL.slate }}>
+                  + {consumers.length - 3} more
+                </div>
+              )}
+              <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: PAL.slate }}>
+                {attachmentModes.includes("instance_profile") ? "via instance profile" : ""}
+                {attachmentModes.includes("instance_profile") && attachmentModes.includes("direct") ? " · " : ""}
+                {attachmentModes.includes("direct") ? "USES_ROLE" : ""}
+                {isShared ? " · shared" : ""}
+              </div>
             </div>
           )}
-          <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: PAL.slate }}>
-            {attachmentModes.includes("instance_profile") ? "via instance profile" : ""}
-            {attachmentModes.includes("instance_profile") && attachmentModes.includes("direct") ? " · " : ""}
-            {attachmentModes.includes("direct") ? "USES_ROLE" : ""}
-            {isShared ? " · shared" : ""}
-          </div>
-        </div>
-      )}
+        </>
+      ) : null}
     </div>
   )
 }
@@ -947,10 +959,16 @@ function IamControlPlane({
           IAM · Control plane
         </div>
       ) : null}
-      <div className={`flex items-baseline justify-between ${compact ? "mb-1" : embeddedInVpc ? "mt-0 mb-2" : "mt-1 mb-3"}`}>
-        <div className={compact ? "text-[10px] font-semibold" : "text-[12px] font-semibold"} style={{ color: PAL.ink }}>
-          Roles attached to this VPC
-        </div>
+      <div className={`flex items-baseline justify-between ${compact ? "mb-0.5" : embeddedInVpc ? "mt-0 mb-2" : "mt-1 mb-3"}`}>
+        {!compact ? (
+          <div className="text-[12px] font-semibold" style={{ color: PAL.ink }}>
+            Roles attached to this VPC
+          </div>
+        ) : (
+          <div className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: PAL.ink }}>
+            IAM roles
+          </div>
+        )}
         {!compact ? (
           <div className="text-[10px]" style={{ color: PAL.slate }}>
             derived from instance-profile + USES_ROLE edges ·{" "}
@@ -966,13 +984,14 @@ function IamControlPlane({
           </div>
         )}
       </div>
-      <div className={`flex gap-3 overflow-x-auto ${compact ? "pb-0" : "pb-1"}`}>
+      <div className={`flex gap-3 overflow-x-auto ${compact ? "pb-0 items-center" : "pb-1"}`}>
         {roles.map(r => (
           <IamRoleCard
             key={r.name}
             role={r}
             allWorkloads={allWorkloads}
             highlighted={highlightedRoleName === r.name}
+            compact={compact}
           />
         ))}
       </div>
@@ -1085,10 +1104,16 @@ function ServerlessComputeTier({
         borderLeft: "3px solid #4338CA",
       }}
     >
-      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#312E81" }}>
+      <div className={compact ? "text-[10px] uppercase tracking-[0.12em] font-semibold mb-1" : "text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5"} style={{ color: "#312E81" }}>
         Serverless · outside VPC ({nodes.length})
       </div>
-      <div className="flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full">
+      <div
+        className={
+          compact
+            ? "flex flex-wrap gap-1 max-w-full max-h-[140px] overflow-y-auto [&_button]:max-w-full"
+            : "flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full"
+        }
+      >
         {nodes.map(n => {
           const role = roleForWorkload?.(n.id)
           return (
@@ -1957,18 +1982,23 @@ export function AwsFrame({
                       IAM inside the stack prevents it from overlapping tier rows.
                     */}
                     <div
-                      className={presentationMode ? "flex flex-col gap-1 min-h-0" : "contents"}
+                      className={presentationMode ? "gap-1 min-h-0" : "contents"}
                       style={
                         presentationMode
-                          ? { maxHeight: "calc(100vh - 240px)", minHeight: "200px" }
+                          ? {
+                              maxHeight: "calc(100vh - 220px)",
+                              minHeight: "320px",
+                              display: "grid",
+                              gridTemplateRows: "repeat(3, minmax(88px, 1fr)) minmax(0, 64px)",
+                            }
                           : undefined
                       }
                     >
                       {tiers.map(tier => (
                         <div
                           key={tier}
-                          className="flex gap-0"
-                          style={presentationMode ? { flex: "1 1 0", minHeight: 0 } : undefined}
+                          className="flex gap-0 min-h-0"
+                          style={presentationMode ? { minHeight: 0, overflow: "hidden" } : undefined}
                         >
                           <div
                             className="rounded-l-md flex items-center justify-center shrink-0"
@@ -2020,7 +2050,7 @@ export function AwsFrame({
                       ))}
 
                       {presentationMode && iamRoles.length > 0 ? (
-                        <div className="flex gap-0" style={{ flex: "0 1 96px", minHeight: 0 }}>
+                        <div className="flex gap-0 min-h-0 overflow-hidden">
                           <div
                             className="rounded-l-md flex items-center justify-center shrink-0"
                             style={{
@@ -2155,7 +2185,8 @@ export function AwsFrame({
                   aria-hidden
                 />
                 <div
-                  className="flex flex-col gap-2 shrink-0 w-[188px] max-w-[188px] ml-1"
+                  className="flex flex-col gap-2 shrink-0 w-[188px] max-w-[188px] ml-1 min-h-0"
+                  style={presentationMode ? { maxHeight: "calc(100vh - 220px)", overflowY: "auto" } : undefined}
                   data-testid="topology-edge-services-rail"
                 >
                   <ServerlessComputeTier
