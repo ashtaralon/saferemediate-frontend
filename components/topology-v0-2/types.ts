@@ -241,6 +241,8 @@ export interface TopologyRiskResponse {
   scoring_window_days: number
   vpc_id: string | null
   selected_vpc_id?: string | null
+  account_id?: string | null
+  selected_account_id?: string | null
   available_vpcs?: AvailableVpc[]
   available_accounts?: AvailableAccount[]
   system_kpis: SystemKpis | null
