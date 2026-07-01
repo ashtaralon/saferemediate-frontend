@@ -158,10 +158,36 @@ const TIER_SIDEBAR_WIDTH = { compact: "28px", normal: "32px" } as const
 const AZ_COLUMN_MIN_PX = 118
 
 const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
-  LoadBalancer: "web",
   EC2: "app",
   RDS: "data",
   RDSInstance: "data",
+}
+
+/** LoadBalancer types are never placed into the per-AZ tier grid — an ALB
+ * fans out across every AZ, it doesn't live inside one. Rendered instead
+ * in the spanning header band above the AZ grid (see ALB_HEADER_TYPES
+ * usage in the AwsFrame render + the removal from SYNTHETIC_TIER_TYPES
+ * above). */
+const ALB_HEADER_TYPES = new Set(["LoadBalancer", "ALB", "ApplicationLoadBalancer"])
+
+/** Dedicated ALB glyph — a distribution/fan-out icon distinct from the
+ * plain text-in-box treatment other chip types use, so an Application
+ * Load Balancer reads at a glance rather than as "purple square, ALB". */
+function AlbGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="6" r="3" fill="currentColor" />
+      <circle cx="5" cy="18" r="2.4" fill="currentColor" />
+      <circle cx="12" cy="18" r="2.4" fill="currentColor" />
+      <circle cx="19" cy="18" r="2.4" fill="currentColor" />
+      <path
+        d="M12 9V13M12 13L5 15.8M12 13L12 15.6M12 13L19 15.8"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
 }
 
 function regionPrefix(az: string | null | undefined): string | null {
@@ -446,7 +472,7 @@ function severityRing(node: TopologyNode): { ring: string; halo: string } {
   }
 }
 
-function nodeIcon(type: string | null): { symbol: string; bg: string; fg: string } {
+function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: string } {
   switch (type) {
     case "EC2":         return { symbol: "EC2", bg: "#FF9900", fg: "#1A1A1A" }
     case "Lambda":
@@ -468,7 +494,7 @@ function nodeIcon(type: string | null): { symbol: string; bg: string; fg: string
     case "LoadBalancer":
     case "ALB":
     case "ApplicationLoadBalancer":
-      return { symbol: "ALB", bg: "#7E57C2", fg: "white" }
+      return { symbol: <AlbGlyph />, bg: "#7E57C2", fg: "white" }
     default:
       return { symbol: "?", bg: "#5A6B7A", fg: "white" }
   }
@@ -1689,7 +1715,7 @@ export function AwsFrame({
     () => primaryRegionFromSubnets(topo.subnets, canvasVpcId),
     [topo.subnets, canvasVpcId],
   )
-  const { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs } = useMemo(() => {
+  const { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs, albNodes } = useMemo(() => {
     const scopedSubnets = topo.subnets.filter(s =>
       subnetInCanvasScope(s, canvasVpcId, primaryRegion),
     )
@@ -1698,6 +1724,7 @@ export function AwsFrame({
     const serverlessNodes: TopologyNode[] = []
     const unplacedNodes: TopologyNode[] = []
     const staleNodes: TopologyNode[] = []
+    const albNodes: TopologyNode[] = []
 
     const pickSyntheticAz = (tier: SubnetTier): string | null => {
       const tierSubnet = scopedSubnets.find(s => s.tier === tier && s.az)
@@ -1750,6 +1777,16 @@ export function AwsFrame({
     }
 
     for (const n of dedupeLambdaServiceTwins(nodes)) {
+      // ALBs fan out across every AZ — they never belong to a single AZ's
+      // tier grid cell. Route them to the spanning header band instead of
+      // through the normal per-AZ/per-tier placement (previously this fell
+      // through SYNTHETIC_TIER_TYPES.LoadBalancer into a single AZ's web
+      // tier, which is architecturally wrong: an ALB isn't "in" an AZ the
+      // way an EC2 instance is).
+      if (n.type && ALB_HEADER_TYPES.has(n.type)) {
+        albNodes.push(n)
+        continue
+      }
       if (n.stale) {
         // BE-12 interim: stale-but-placed workloads stay on the canvas (greyed +
         // STALE badge). Only unplaced stale nodes are diagnostics-only.
@@ -1768,10 +1805,11 @@ export function AwsFrame({
     }
     serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
     unplacedNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+    albNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
 
     const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
     const populatedAzs = new Set<string>([...byAzAndTier.keys(), ...scaffoldAzs])
-    return { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs }
+    return { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs, albNodes }
   }, [topo.subnets, canvasVpcId, primaryRegion, nodes])
 
   // Group subnets by (az, tier) for cell metadata.
@@ -1963,6 +2001,37 @@ export function AwsFrame({
                       >
                         NAT GW · {n.name}
                       </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Load balancers — rendered ABOVE the AZ grid, spanning its full
+                  width, never inside a single AZ's tier cell. An ALB fans out
+                  across every AZ behind it; it doesn't live "in" one the way
+                  an EC2 instance does. The dashed bottom border deliberately
+                  spans the same width as the AZ grid below to read as "this
+                  connects down into every AZ", mirroring the standard AWS
+                  reference-architecture layout (ALB centered above AZ 1 / AZ 2). */}
+              {albNodes.length > 0 && (
+                <div
+                  className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
+                  style={{ borderColor: "#C2CDD6" }}
+                >
+                  <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
+                    <AlbGlyph size={14} />
+                    <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
+                      {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {albNodes.map(n => (
+                      <WorkloadChip
+                        key={n.id}
+                        node={n}
+                        selected={n.id === selectedNodeId}
+                        onClick={() => onSelect(n.id)}
+                      />
                     ))}
                   </div>
                 </div>
