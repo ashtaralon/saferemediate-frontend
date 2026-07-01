@@ -69,6 +69,46 @@ GET /api/topology-risk/{systemName}/node/{nodeId}
 
 The bulk endpoint serves the topology view (one round-trip per render). The per-node endpoint serves the detail panel and is shape-identical to a single entry in the bulk response — so the detail panel can pre-render from the bulk cache and refresh on click.
 
+#### 3.1.1 Multi-account / multi-region scope (PR 1 — shipped BE #265, FE #247)
+
+Query parameters (all optional; combine with AND semantics):
+
+| Param | Effect |
+|---|---|
+| `?account_id=` | 12-digit AWS account — workloads + scaffold scoped to one account |
+| `?region=` | AWS region (e.g. `eu-west-1`) — workloads + scaffold scoped to one region |
+| `?vpc_id=` | Existing VPC narrow (unchanged) |
+
+**Invariant:** never merge accounts or regions into one VPC grid. The FE account picker shows one account at a time when `available_accounts.length > 1`.
+
+Additional bulk-response fields:
+
+```jsonc
+{
+  "account_id": "745783559495",
+  "selected_account_id": "745783559495",
+  "region": "eu-west-1",
+  "selected_region_id": "eu-west-1",
+  "available_accounts": [{
+    "account_id": "745783559495",
+    "name": "745783559495",
+    "workload_count": 18,
+    "regions": ["eu-west-1"],
+    "evidence_tier": "full",
+    "evidence_tier_by_region": { "eu-west-1": "full" },
+    "tenant_ownership": "owned",
+    "onboarded": true
+  }],
+  "available_regions": ["eu-west-1"]
+}
+```
+
+Nodes may carry `account_id` and `region` for scope-leakage regression tests.
+
+Cache keys (BE + FE proxy): `{system}::{account}::{region}::{vpc}` — client `useCachedFetch` uses `topology-risk:{system}:v6:{account}:{region}:{vpc|all}`.
+
+Canonical enums: `lib/types/scope.ts` (FE) / `unified/enums.py` (BE).
+
 ### 3.2 Response shape (bulk)
 
 ```jsonc
