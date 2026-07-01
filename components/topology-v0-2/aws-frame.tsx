@@ -195,6 +195,21 @@ function subnetInCanvasScope(
   return true
 }
 
+/** Block cross-VPC synthetic placement when a single VPC card is selected. */
+function workloadInCanvasVpc(
+  n: TopologyNode,
+  canvasVpcId: string | null,
+  subnetById: Map<string, SubnetMeta>,
+): boolean {
+  if (!canvasVpcId) return true
+  if (n.vpc_id && n.vpc_id !== canvasVpcId) return false
+  if (n.subnet_id) {
+    const sub = subnetById.get(n.subnet_id)
+    if (sub?.vpc_id && sub.vpc_id !== canvasVpcId) return false
+  }
+  return true
+}
+
 /** AZ columns available for the current VPC / merged canvas scope. */
 export function listTopologyAzs(
   subnets: SubnetMeta[],
@@ -1702,6 +1717,7 @@ export function AwsFrame({
 
     const tryPlaceInGrid = (n: TopologyNode): boolean => {
       if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
+      if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
       const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
       const overrideTier =
         n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
