@@ -874,7 +874,9 @@ function IamRoleCard({
       }
       style={{
         background: "white",
-        border: `1.5px solid ${accent}`,
+        borderStyle: "solid",
+        borderColor: accent,
+        borderWidth: "1.5px",
         borderTopWidth: compact ? "2px" : "3px",
         boxShadow: highlighted ? `0 0 0 3px ${PAL.teal}` : undefined,
       }}
