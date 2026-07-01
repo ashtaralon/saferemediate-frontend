@@ -46,6 +46,7 @@ const ALL_ACCESS_EDGE_TYPES = new Set([
   "API_CALL",
   "S3_OPERATION",
   "CALLS",
+  "ROUTES_TO",
 ])
 
 /** IAM control-plane hops — on attack paths but not drawable as estate flows. */
@@ -169,6 +170,30 @@ function edgeKey(source: string, target: string, port: number | null, protocol: 
   return `${source}::${target}::${port ?? ""}::${protocol ?? ""}`
 }
 
+function filterVisibleTrafficEdges(
+  edges: TrafficEdge[],
+  visible: Set<string>,
+): TrafficEdge[] {
+  return edges.filter(
+    e => visible.has(e.source_id) && (visible.has(e.target_id) || e.target_id === "__igw__"),
+  )
+}
+
+export function mergeTrafficEdges(
+  primary: TrafficEdge[],
+  secondary: TrafficEdge[],
+): TrafficEdge[] {
+  const seen = new Set<string>()
+  const out: TrafficEdge[] = []
+  for (const e of [...primary, ...secondary]) {
+    const key = edgeKey(e.source_id, e.target_id, e.port, e.protocol)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(e)
+  }
+  return out
+}
+
 export function depMapEdgesToTrafficEdges(
   edges: DepMapEdgeLike[],
   visible: Set<string>,
@@ -285,20 +310,13 @@ export function selectEstateFlowEdges(opts: {
       materializationAvailable,
     )
     if (attack.length > 0) return attack
-    return topologyTrafficEdges.filter(
-      e => visible.has(e.source_id) && (visible.has(e.target_id) || e.target_id === "__igw__"),
-    )
+    return filterVisibleTrafficEdges(topologyTrafficEdges, visible)
   }
 
-  const visibleTopo = topologyTrafficEdges.filter(
-    e => visible.has(e.source_id) && (visible.has(e.target_id) || e.target_id === "__igw__"),
-  )
-  if (visibleTopo.length > 0) return visibleTopo
+  const visibleTopo = filterVisibleTrafficEdges(topologyTrafficEdges, visible)
+  const depMapped = depMapEdges?.length
+    ? depMapEdgesToTrafficEdges(depMapEdges, visible, index, nodeTypeById, vpces)
+    : []
 
-  if (depMapEdges?.length) {
-    const mapped = depMapEdgesToTrafficEdges(depMapEdges, visible, index, nodeTypeById, vpces)
-    if (mapped.length > 0) return mapped
-  }
-
-  return visibleTopo
+  return mergeTrafficEdges(visibleTopo, depMapped)
 }
