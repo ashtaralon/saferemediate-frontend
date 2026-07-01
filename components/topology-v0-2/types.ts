@@ -5,6 +5,8 @@
  * Do not duplicate these in other files; import from here.
  */
 
+import type { EvidenceTier, TenantOwnership } from "@/lib/types/scope"
+
 export type ScoreTier = "WORST" | "HIGH" | "ELEVATED" | "QUIET"
 export type ConfidenceTier = "FULL" | "DEGRADED" | "LOW"
 
@@ -80,6 +82,8 @@ export interface TopologyNode {
   type: string | null
   subnet_id: string | null
   vpc_id?: string | null
+  account_id?: string | null
+  region?: string | null
   /** Canvas row override from BE — beats subnet.tier when subnets are misclassified. */
   placement_tier?: SubnetTier | null
   score: NodeScore | null
@@ -224,13 +228,10 @@ export interface AvailableAccount {
   account_id: string
   name: string
   workload_count: number
-  evidence_tier:
-    | "full"
-    | "cloudtrail_only"
-    | "traffic_only"
-    | "inventory_only"
-    | "not_onboarded"
-    | "stale"
+  regions?: string[]
+  evidence_tier: EvidenceTier
+  evidence_tier_by_region?: Record<string, EvidenceTier>
+  tenant_ownership?: TenantOwnership
   last_sync_at?: string | null
   onboarded: boolean
 }
@@ -243,8 +244,11 @@ export interface TopologyRiskResponse {
   selected_vpc_id?: string | null
   account_id?: string | null
   selected_account_id?: string | null
+  region?: string | null
+  selected_region_id?: string | null
   available_vpcs?: AvailableVpc[]
   available_accounts?: AvailableAccount[]
+  available_regions?: string[]
   system_kpis: SystemKpis | null
   nodes: TopologyNode[]
   vpc_topology?: VpcTopology | null

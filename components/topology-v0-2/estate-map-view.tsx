@@ -31,6 +31,11 @@ import type {
   FindingsSeveritySummary,
 } from "@/components/topology-v0-2/estate-enrichment"
 import type { CrownJewelSummary, IdentityAttackPath, IdentityAttackPathsResponse } from "@/components/identity-attack-paths/types"
+import {
+  buildTopologyRiskCacheKey,
+  buildTopologyRiskProxyUrl,
+} from "@/components/topology-v0-2/topology-scope-url"
+import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
@@ -42,6 +47,8 @@ import {
 } from "@/components/topology-v0-2/estate-flow-edges"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
+const ACCOUNT_STORAGE_PREFIX = "topology-account:"
+const REGION_STORAGE_PREFIX = "topology-region:"
 const AZ_STORAGE_PREFIX = "topology-hidden-az:"
 /** Full-width estate shell — no centered max-width cap stealing horizontal space. */
 const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
@@ -100,20 +107,34 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
 }
 
 export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }: EstateMapViewProps) {
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
+  })
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    const acct = window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
+    const key = `${REGION_STORAGE_PREFIX}${systemName}:${acct ?? "default"}`
+    return window.localStorage.getItem(key)
+  })
   const [selectedVpcId, setSelectedVpcId] = useState<string | "all">(() => {
     if (typeof window === "undefined") return "all"
     return window.localStorage.getItem(`${VPC_STORAGE_PREFIX}${systemName}`) ?? "all"
   })
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
-  const azScopeKey = scopedVpc ?? "all"
+  const azScopeKey = `${selectedAccountId ?? "all"}:${selectedRegionId ?? "all"}:${scopedVpc ?? "all"}`
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
-  const cacheKey = scopedVpc
-    ? `topology-risk:${systemName}:v5:${scopedVpc}`
-    : `topology-risk:${systemName}:v5:all`
-  const url = scopedVpc
-    ? `/api/proxy/topology-risk/${encodeURIComponent(systemName)}?vpc_id=${encodeURIComponent(scopedVpc)}`
-    : `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
+  const scopeParams = useMemo(
+    () => ({
+      accountId: selectedAccountId,
+      region: selectedRegionId,
+      vpcId: scopedVpc,
+    }),
+    [selectedAccountId, selectedRegionId, scopedVpc],
+  )
+  const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
+  const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
   const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
@@ -129,7 +150,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
   useEffect(() => {
     let cancelled = false
-    const mergedUrl = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
+    const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
+      accountId: selectedAccountId,
+      region: selectedRegionId,
+    })
     fetch(mergedUrl, { cache: "no-store" })
       .then(res => (res.ok ? res.json() : null))
       .then((body: TopologyRiskResponse | null) => {
@@ -139,7 +163,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     return () => {
       cancelled = true
     }
-  }, [systemName])
+  }, [systemName, selectedAccountId, selectedRegionId])
 
   const serverlessSourceNodes = useMemo(() => {
     const raw = fullSystemNodes ?? data?.nodes ?? []
@@ -202,6 +226,56 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       window.localStorage.setItem(`${VPC_STORAGE_PREFIX}${systemName}`, selectedVpcId)
     }
   }, [selectedVpcId, systemName])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const key = `${ACCOUNT_STORAGE_PREFIX}${systemName}`
+    if (selectedAccountId) window.localStorage.setItem(key, selectedAccountId)
+    else window.localStorage.removeItem(key)
+  }, [selectedAccountId, systemName])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const key = `${REGION_STORAGE_PREFIX}${systemName}:${selectedAccountId ?? "default"}`
+    if (selectedRegionId) window.localStorage.setItem(key, selectedRegionId)
+    else window.localStorage.removeItem(key)
+  }, [selectedRegionId, selectedAccountId, systemName])
+
+  const regionOptions = useMemo(() => {
+    const accounts = data?.available_accounts ?? []
+    if (selectedAccountId) {
+      const acct = accounts.find(a => a.account_id === selectedAccountId)
+      if (acct?.regions?.length) return acct.regions
+    }
+    return data?.available_regions ?? []
+  }, [data?.available_accounts, data?.available_regions, selectedAccountId])
+
+  // Default to primary account when the system spans multiple AWS accounts.
+  useEffect(() => {
+    const accounts = data?.available_accounts ?? []
+    if (accounts.length <= 1) return
+    const key = `${ACCOUNT_STORAGE_PREFIX}${systemName}`
+    if (typeof window !== "undefined" && window.localStorage.getItem(key) != null) return
+    if (selectedAccountId) return
+    const primary = data?.account_id ?? accounts[0]?.account_id
+    if (primary) setSelectedAccountId(primary)
+  }, [data?.available_accounts, data?.account_id, selectedAccountId, systemName])
+
+  // Default region within the selected account.
+  useEffect(() => {
+    if (regionOptions.length <= 1) return
+    const key = `${REGION_STORAGE_PREFIX}${systemName}:${selectedAccountId ?? "default"}`
+    if (typeof window !== "undefined" && window.localStorage.getItem(key) != null) return
+    if (selectedRegionId) return
+    const primary = data?.region ?? regionOptions[0]
+    if (primary) setSelectedRegionId(primary)
+  }, [regionOptions, data?.region, selectedRegionId, selectedAccountId, systemName])
+
+  useEffect(() => {
+    if (!selectedRegionId) return
+    if (regionOptions.length === 0 || regionOptions.includes(selectedRegionId)) return
+    setSelectedRegionId(regionOptions[0] ?? null)
+  }, [regionOptions, selectedRegionId])
 
   // First visit: default to primary VPC when the system spans multiple VPCs.
   useEffect(() => {
@@ -498,6 +572,87 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
   const renderScopeControls = (compact = false) => (
     <>
+      {(data.available_accounts?.length ?? 0) > 1 ? (
+        <div
+          className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+        >
+          <label
+            htmlFor={compact ? "topology-account-select-fs" : "topology-account-select"}
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+            style={{ color: "#5A6B7A" }}
+          >
+            Account scope
+          </label>
+          <select
+            id={compact ? "topology-account-select-fs" : "topology-account-select"}
+            value={selectedAccountId ?? ""}
+            onChange={e => {
+              setSelectedNodeId(null)
+              setHighlightedRoleName(null)
+              setSelectedRegionId(null)
+              setSelectedAccountId(e.target.value || null)
+            }}
+            className={
+              compact
+                ? "text-[11px] font-mono rounded-md border px-2 py-0.5 min-w-[180px] max-w-full"
+                : "text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[220px] max-w-full"
+            }
+            style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
+            data-testid="topology-account-select"
+          >
+            {(data.available_accounts ?? []).map(a => (
+              <option key={a.account_id} value={a.account_id}>
+                {a.name} · {a.account_id} ({a.workload_count} workloads ·{" "}
+                {EVIDENCE_TIER_LABEL[a.evidence_tier] ?? a.evidence_tier})
+              </option>
+            ))}
+          </select>
+          {!compact ? (
+            <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
+              One AWS account at a time — never merged across account boundaries.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {regionOptions.length > 1 ? (
+        <div
+          className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
+          style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+        >
+          <label
+            htmlFor={compact ? "topology-region-select-fs" : "topology-region-select"}
+            className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+            style={{ color: "#5A6B7A" }}
+          >
+            Region scope
+          </label>
+          <select
+            id={compact ? "topology-region-select-fs" : "topology-region-select"}
+            value={selectedRegionId ?? ""}
+            onChange={e => {
+              setSelectedNodeId(null)
+              setHighlightedRoleName(null)
+              setSelectedRegionId(e.target.value || null)
+            }}
+            className={
+              compact
+                ? "text-[11px] font-mono rounded-md border px-2 py-0.5 min-w-[140px] max-w-full"
+                : "text-[12px] font-mono rounded-md border px-2 py-1.5 min-w-[160px] max-w-full"
+            }
+            style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
+            data-testid="topology-region-select"
+          >
+            {regionOptions.map(region => (
+              <option key={region} value={region}>
+                {region}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       {(data.available_vpcs?.length ?? 0) > 0 ? (
         <div
           className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}

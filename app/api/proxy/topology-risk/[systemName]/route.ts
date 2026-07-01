@@ -1,11 +1,32 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
+
+function scopeFromRequest(req: NextRequest) {
+  const accountId = req.nextUrl.searchParams.get("account_id")
+  const region = req.nextUrl.searchParams.get("region")
+  const vpcId = req.nextUrl.searchParams.get("vpc_id")
+  return {
+    accountId: accountId && /^\d{12}$/.test(accountId) ? accountId : null,
+    region: region && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region) ? region : null,
+    vpcId: vpcId && vpcId.startsWith("vpc-") ? vpcId : null,
+  }
+}
+
+function backendQueryString(scope: ReturnType<typeof scopeFromRequest>): string {
+  const params = new URLSearchParams()
+  if (scope.accountId) params.set("account_id", scope.accountId)
+  if (scope.region) params.set("region", scope.region)
+  if (scope.vpcId) params.set("vpc_id", scope.vpcId)
+  const qs = params.toString()
+  return qs ? `?${qs}` : ""
+}
 
 /**
  * Topology Risk proxy — pairs with BE /api/topology-risk/{systemName}
@@ -34,10 +55,8 @@ export async function GET(
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  const vpcId = req.nextUrl.searchParams.get("vpc_id")
-  const cacheKey = vpcId
-    ? `topology-risk:${systemName}:vpc:${vpcId}`
-    : `topology-risk:${systemName}`
+  const scope = scopeFromRequest(req)
+  const cacheKey = buildTopologyRiskServerCacheKey(systemName, scope)
 
   const cached = getCached(cacheKey)
   if (cached) {
@@ -50,7 +69,7 @@ export async function GET(
   }
 
   try {
-    const qs = vpcId ? `?vpc_id=${encodeURIComponent(vpcId)}` : ""
+    const qs = backendQueryString(scope)
     const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(systemName)}${qs}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
