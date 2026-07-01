@@ -3,6 +3,7 @@ import type { IdentityAttackPath } from "@/components/identity-attack-paths/type
 import {
   attackPathEdgesToTrafficEdges,
   depMapEdgesToTrafficEdges,
+  mergeTrafficEdges,
   selectEstateFlowEdges,
 } from "@/components/topology-v0-2/estate-flow-edges"
 import type { TopologyNode } from "@/components/topology-v0-2/types"
@@ -149,15 +150,17 @@ describe("estate-flow-edges", () => {
     expect(out[0]?.via_vpce_id).toBeNull()
   })
 
-  it("prefers topology traffic edges over dependency-map when both exist", () => {
-    const visible = new Set(["web-a", "app-b"])
+  it("merges topology traffic edges with dependency-map observed access", () => {
+    const visible = new Set(["web-a", "app-b", "bucket-b"])
     const index = new Map([
       ["web-a", "web-a"],
       ["app-b", "app-b"],
+      ["bucket-b", "bucket-b"],
     ])
     const types = new Map([
       ["web-a", "EC2"],
       ["app-b", "EC2"],
+      ["bucket-b", "S3"],
     ])
     const topo = [
       {
@@ -175,12 +178,31 @@ describe("estate-flow-edges", () => {
     const out = selectEstateFlowEdges({
       mode: "all_access",
       topologyTrafficEdges: topo,
-      depMapEdges: [{ source: "web-a", target: "app-b", type: "ACTUAL_TRAFFIC", port: 443 }],
+      depMapEdges: [
+        { source: "web-a", target: "app-b", type: "ACTUAL_TRAFFIC", port: 443 },
+        { source: "app-b", target: "bucket-b", type: "ACTUAL_S3_ACCESS" },
+      ],
       visible,
       index,
       nodeTypeById: types,
     })
-    expect(out).toHaveLength(1)
-    expect(out[0]?.port).toBe(8080)
+    expect(out.length).toBeGreaterThanOrEqual(2)
+    expect(out.some(e => e.source_id === "web-a" && e.target_id === "app-b" && e.port === 8080)).toBe(true)
+    expect(out.some(e => e.source_id === "app-b" && e.target_id === "bucket-b")).toBe(true)
+  })
+
+  it("mergeTrafficEdges dedupes identical source/target/port/protocol", () => {
+    const a = {
+      source_id: "x",
+      target_id: "y",
+      port: 443,
+      protocol: "TCP",
+      last_seen: null,
+      edge_class: "internal" as const,
+      external_destinations: null,
+      via_vpce_id: null,
+      via_vpce_service_name: null,
+    }
+    expect(mergeTrafficEdges([a], [{ ...a }])).toHaveLength(1)
   })
 })
