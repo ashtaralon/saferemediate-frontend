@@ -220,6 +220,21 @@ export interface AvailableVpc {
   workload_count: number
 }
 
+export interface AvailableAccount {
+  account_id: string
+  name: string
+  workload_count: number
+  evidence_tier:
+    | "full"
+    | "cloudtrail_only"
+    | "traffic_only"
+    | "inventory_only"
+    | "not_onboarded"
+    | "stale"
+  last_sync_at?: string | null
+  onboarded: boolean
+}
+
 export interface TopologyRiskResponse {
   system: string
   scored_at: string
@@ -227,6 +242,7 @@ export interface TopologyRiskResponse {
   vpc_id: string | null
   selected_vpc_id?: string | null
   available_vpcs?: AvailableVpc[]
+  available_accounts?: AvailableAccount[]
   system_kpis: SystemKpis | null
   nodes: TopologyNode[]
   vpc_topology?: VpcTopology | null
