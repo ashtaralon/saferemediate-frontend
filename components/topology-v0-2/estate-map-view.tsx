@@ -203,14 +203,21 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     }
   }, [selectedVpcId, systemName])
 
-  // First visit: default to primary VPC when the system spans multiple VPCs.
+  // Multi-VPC systems must pick one VPC — merged grid uses a single subnet
+  // scaffold and paints workloads from every VPC into it (misleading layout).
   useEffect(() => {
     if (!data?.available_vpcs?.length) return
+    const vpcs = data.available_vpcs
+    const primary = data.vpc_id ?? vpcs[0]?.vpc_id
+    if (!primary) return
+    if (vpcs.length > 1 && selectedVpcId === "all") {
+      setSelectedVpcId(primary)
+      return
+    }
     const key = `${VPC_STORAGE_PREFIX}${systemName}`
     if (typeof window !== "undefined" && window.localStorage.getItem(key) != null) return
-    const primary = data.vpc_id ?? data.available_vpcs[0]?.vpc_id
-    if (primary) setSelectedVpcId(primary)
-  }, [data?.available_vpcs, data?.vpc_id, systemName])
+    setSelectedVpcId(primary)
+  }, [data?.available_vpcs, data?.vpc_id, systemName, selectedVpcId])
   useEffect(() => {
     if (!data || loading || poisonRetryRef.current) return
     if (!topologyGridWouldBeEmpty(data)) return
@@ -526,7 +533,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
             data-testid="topology-vpc-select"
           >
-            <option value="all">All VPCs (merged)</option>
+            {(data.available_vpcs ?? []).length <= 1 ? (
+              <option value="all">All VPCs (merged)</option>
+            ) : null}
             {(data.available_vpcs ?? []).map(v => (
               <option key={v.vpc_id} value={v.vpc_id}>
                 {v.name} · {v.vpc_id} ({v.workload_count} workloads)
@@ -537,7 +546,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
               {selectedVpcId === "all"
                 ? "Merged view — full system node list; Lambda/S3/DDB on the right edge rail."
-                : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
+                : (data.available_vpcs ?? []).length > 1
+                  ? "Single-VPC layout — pick one VPC for an accurate AZ × tier grid."
+                  : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
           ) : null}
         </div>

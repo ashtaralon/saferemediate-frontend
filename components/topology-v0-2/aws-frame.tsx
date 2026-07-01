@@ -641,7 +641,7 @@ function WorkloadChip({
 
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
-  compact = false, roleForWorkload,
+  compact = false, roleForWorkload, webOnlyVpcScaffold = false,
 }: {
   tier: SubnetTier
   az: string
@@ -652,6 +652,8 @@ function SubnetCell({
   onSelect: (id: string) => void
   compact?: boolean
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
+  /** Default VPC: every subnet is web-tier — app/data rows have no real subnet. */
+  webOnlyVpcScaffold?: boolean
 }) {
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
@@ -686,7 +688,9 @@ function SubnetCell({
         workloadsHere.length > 0 ? (
           <div className="space-y-2">
             <div className="text-[10px] italic" style={{ color: PAL.slate }}>
-              subnet not resolved · placed by type
+              {webOnlyVpcScaffold && tier !== "web"
+                ? `No ${tier} subnet in this VPC — workload placed by type`
+                : "subnet not resolved · placed by type"}
             </div>
             <div className="flex flex-wrap gap-2">
               {workloadsHere.map(n => (
@@ -1689,10 +1693,19 @@ export function AwsFrame({
     () => primaryRegionFromSubnets(topo.subnets, canvasVpcId),
     [topo.subnets, canvasVpcId],
   )
+  const scopedSubnetsForCanvas = useMemo(
+    () => topo.subnets.filter(s => subnetInCanvasScope(s, canvasVpcId, primaryRegion)),
+    [topo.subnets, canvasVpcId, primaryRegion],
+  )
+  const webOnlyVpcScaffold = useMemo(
+    () =>
+      !mergedVpcView
+      && scopedSubnetsForCanvas.length > 0
+      && scopedSubnetsForCanvas.every(s => s.tier === "web"),
+    [mergedVpcView, scopedSubnetsForCanvas],
+  )
   const { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs } = useMemo(() => {
-    const scopedSubnets = topo.subnets.filter(s =>
-      subnetInCanvasScope(s, canvasVpcId, primaryRegion),
-    )
+    const scopedSubnets = scopedSubnetsForCanvas
     const subnetById = createMap(scopedSubnets.map(s => [s.id, s]))
     const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
     const serverlessNodes: TopologyNode[] = []
@@ -1718,6 +1731,7 @@ export function AwsFrame({
     const tryPlaceInGrid = (n: TopologyNode): boolean => {
       if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
       if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
+      if (canvasVpcId && n.stale && !n.subnet_id && !n.vpc_id) return false
       const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
       const overrideTier =
         n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
@@ -1740,6 +1754,8 @@ export function AwsFrame({
       }
       const syntheticTier = n.type ? SYNTHETIC_TIER_TYPES[n.type] : undefined
       if (syntheticTier) {
+        if (n.stale && !n.subnet_id) return false
+        if (canvasVpcId && !n.vpc_id && !n.subnet_id) return false
         const az = pickSyntheticAz(syntheticTier)
         if (az) {
           placeInTier(n, az, syntheticTier)
@@ -1772,7 +1788,7 @@ export function AwsFrame({
     const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
     const populatedAzs = new Set<string>([...byAzAndTier.keys(), ...scaffoldAzs])
     return { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs }
-  }, [topo.subnets, canvasVpcId, primaryRegion, nodes])
+  }, [scopedSubnetsForCanvas, canvasVpcId, primaryRegion, nodes])
 
   // Group subnets by (az, tier) for cell metadata.
   const subnetsByCell = useMemo(() => {
@@ -1815,6 +1831,32 @@ export function AwsFrame({
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
     >
+      {mergedVpcView ? (
+        <div
+          className={
+            presentationMode
+              ? "rounded-md border px-2 py-1 text-[10px]"
+              : "rounded-lg border px-3 py-2 text-[11px]"
+          }
+          style={{ borderColor: "#F5A623", background: "#FFF8E7", color: "#7A5200" }}
+        >
+          Merged VPC view — multiple VPCs share one frame. Subnet tiers are not trustworthy;
+          pick a single VPC from the scope dropdown for an accurate layout.
+        </div>
+      ) : null}
+      {webOnlyVpcScaffold && !mergedVpcView ? (
+        <div
+          className={
+            presentationMode
+              ? "rounded-md border px-2 py-1 text-[10px]"
+              : "rounded-lg border px-3 py-2 text-[11px]"
+          }
+          style={{ borderColor: "#CBD5E1", background: "#F8FAFC", color: "#475569" }}
+        >
+          Default VPC — one public subnet per AZ. App/database rows show workload placement only;
+          AWS has no separate app/data subnets here.
+        </div>
+      ) : null}
       {onFlowModeChange ? (
         <div
           className={
@@ -2068,6 +2110,7 @@ export function AwsFrame({
                                     onSelect={onSelect}
                                     compact={presentationMode}
                                     roleForWorkload={roleForWorkload}
+                                    webOnlyVpcScaffold={webOnlyVpcScaffold}
                                   />
                                 )
                               })}
