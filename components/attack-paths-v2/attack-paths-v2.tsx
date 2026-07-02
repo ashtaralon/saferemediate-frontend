@@ -76,6 +76,7 @@ export function AttackPathsV2({
   systemName: systemNameProp,
   embedded = false,
   defaultMode = "attack-path",
+  onOpenRoleSplit,
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
   // the dashboard and wins over the ?system URL param; the shell renders at a
@@ -89,6 +90,10 @@ export function AttackPathsV2({
   // "Attack Paths" entry passes defaultMode="explorer" to land on the
   // account-wide every-path view (retiring the legacy IdentityAttackPaths).
   defaultMode?: string
+  /** Navigate to the per-resource role-split remediation view (owned by the
+   *  page shell, which holds the section-switch state). Threaded to the
+   *  attack-path panel's shared-role callout. */
+  onOpenRoleSplit?: (roleName: string) => void
 } = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -1019,6 +1024,7 @@ export function AttackPathsV2({
                 siblingPathsFromPage={jewelPaths}
                 isExpanded={isPathExpanded}
                 onToggleExpand={handleToggleExpand}
+                onOpenRoleSplit={onOpenRoleSplit}
               />
             )}
           </>

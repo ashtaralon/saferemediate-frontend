@@ -32,6 +32,7 @@ import { DamageAwarePathCard } from "./damage-aware-path-card"
 import { useDamageScope } from "./use-damage-scope"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { LateralMovesSummaryCard } from "./lateral-moves-summary-card"
+import { SharedRoleCallout, type SharedRoleCalloutData } from "./shared-role-callout"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 interface PathAnalysisPanelProps {
@@ -60,6 +61,14 @@ interface PathAnalysisPanelProps {
   attackMapCyntro?: boolean
   /** Other paths to the same jewel — convergence fallback when API is down. */
   siblingPaths?: IdentityAttackPath[]
+  /** Canonical shared-role fact for the on-path over-permissive role
+   *  (IAMRole.workload_count via role_consumer_rollup, serialized on the
+   *  graph-view role node). Null when the role isn't shared or the rollup
+   *  hasn't run — the callout stays hidden. NEVER derived from canvas card
+   *  counts (the lateral fan-out includes non-role-sharing neighbors). */
+  sharedRoleCallout?: SharedRoleCalloutData | null
+  /** Navigate to the per-resource role-split remediation for a role. */
+  onOpenRoleSplit?: (roleName: string) => void
 }
 
 // V2-1 helper: middle-truncate a jewel name for the caption strip.
@@ -205,6 +214,8 @@ export function PathAnalysisPanel({
   canvasV2 = false,
   attackMapCyntro = true,
   siblingPaths = [],
+  sharedRoleCallout = null,
+  onOpenRoleSplit,
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
@@ -415,6 +426,16 @@ export function PathAnalysisPanel({
               <span className="font-mono">?map=legacy</span>
             </p>
           </div>
+          {/* Shared-role callout — cites the canonical IAMRole.workload_count
+              (role_consumer_rollup) in role terms and links to the role-split
+              remediation. Hidden unless the on-path role is genuinely shared
+              (count >= 2 from the backend). Never card-counts the canvas. */}
+          {sharedRoleCallout ? (
+            <SharedRoleCallout
+              data={sharedRoleCallout}
+              onSplit={onOpenRoleSplit}
+            />
+          ) : null}
           <div
             className="relative overflow-auto min-h-[560px] rounded-[14px] px-3 pt-2 pb-4"
             data-testid="attack-path-flow-map-slot"
