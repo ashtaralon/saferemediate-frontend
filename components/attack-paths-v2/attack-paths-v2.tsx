@@ -54,7 +54,11 @@ import TopologyView from "./topology-view"
 import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
 import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
-import { AttackExplorer } from "./attack-explorer"
+// Explorer tab now renders the real Traffic Map (same TrafficFlowMap engine the
+// Topology tab uses), per Alon 2026-07 — replaced the AttackExplorer
+// graph/surface/scorecard lenses. Static import mirrors attacker-view-v3, which
+// already pulls TrafficFlowMap into this bundle.
+import TrafficFlowMap from "@/components/dependency-map/traffic-flow-map"
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
@@ -769,11 +773,11 @@ export function AttackPathsV2({
               showBeta={showBeta}
             />
             <div style={{ height: "calc(100vh - 150px)" }}>
-              <AttackExplorer
-                jewels={jewels}
-                paths={[...allPaths]}
+              <TrafficFlowMap
                 systemName={systemName}
-                onOpenFull={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId, mode: "attack-path" })}
+                observedMode={true}
+                innerTitleOverride="Traffic Map"
+                innerSubtitleOverride="Observed flows across every attack path"
               />
             </div>
           </>
