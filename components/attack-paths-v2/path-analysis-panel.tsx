@@ -20,7 +20,7 @@ import { HardeningPanel } from "./hardening-panel"
 import { AtlasInlineSection } from "./atlas-inline-section"
 import { AttackPathCardLightView } from "./attack-path-card-light"
 import { AttackPathContainmentMap } from "./attack-path-containment-map"
-import { ConvergenceMapLoader } from "./convergence-map-loader"
+import { AttackPathLaneFlowMap } from "./attack-path-lane-flow-map"
 import { AttackSpineStrip } from "./attack-spine-strip"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { useClosurePreview } from "./use-closure-preview"
@@ -419,19 +419,17 @@ export function PathAnalysisPanel({
             className="relative overflow-auto min-h-[560px] rounded-[14px] px-3 pt-2 pb-4"
             data-testid="attack-path-flow-map-slot"
           >
-            <ConvergenceMapLoader
+            {/* Path-scoped Traffic Map — the exact TrafficFlowMap engine the
+                Topology tab uses, filtered to THIS attack path via pathFilter
+                (on-path chain + lateral pivots), per Alon 2026-07. Replaces the
+                multi-path ConvergenceMapLoader so the Attack Path tab's map
+                shows only the relevant path (e.g. i-… → the crown-jewel bucket)
+                1:1 with Topology's Traffic Map. */}
+            <AttackPathLaneFlowMap
+              path={path}
+              jewel={jewel}
               systemName={systemName}
-              cjArn={
-                jewel?.canonical_id ??
-                (jewel?.id.startsWith("arn:") ? jewel.id : null) ??
-                null
-              }
-              cjName={jewel?.name ?? jewel?.id ?? null}
-              initialSelectedPathId={path.attack_path_id ?? path.id ?? null}
-              fallbackJewel={jewel}
-              fallbackPaths={
-                siblingPaths.length > 0 ? siblingPaths : [path]
-              }
+              architecture={architecture}
             />
           </div>
         </div>
