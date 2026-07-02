@@ -71,6 +71,7 @@ function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
 export function AttackPathsV2({
   systemName: systemNameProp,
   embedded = false,
+  defaultMode = "attack-path",
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
   // the dashboard and wins over the ?system URL param; the shell renders at a
@@ -79,6 +80,11 @@ export function AttackPathsV2({
   // /attack-paths-v2 route behavior exactly.
   systemName?: string | null
   embedded?: boolean
+  // Seeds the view mode when the URL has no explicit ?mode= param. An
+  // explicit ?mode= always wins, so deep links are preserved. The main-page
+  // "Attack Paths" entry passes defaultMode="explorer" to land on the
+  // account-wide every-path view (retiring the legacy IdentityAttackPaths).
+  defaultMode?: string
 } = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -120,7 +126,7 @@ export function AttackPathsV2({
   // ?mode=attacker URLs are redirected below (router.replace) so deep
   // links keep working. Other modes (exposure, attacker_v2, phase,
   // exfil, topology) are unchanged.
-  const modeParam = searchParams?.get("mode") ?? "attack-path"
+  const modeParam = searchParams?.get("mode") ?? defaultMode
   // v0.3 phase view = the 9-lane attacker-phase Attacker View built
   // 2026-05-22. Renders chains from materialized AttackPath nodes (hop-
   // reified per v0.2 §3) — every line on the canvas comes from a real
