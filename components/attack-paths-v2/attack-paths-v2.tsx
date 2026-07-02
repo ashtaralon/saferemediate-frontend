@@ -54,7 +54,11 @@ import TopologyView from "./topology-view"
 import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
 import { LateralMovementPanel } from "./lateral-movement-panel"
 import { AllCrownJewelsView } from "./all-crown-jewels-view"
-import { AttackExplorer } from "./attack-explorer"
+// Explorer tab now renders the real Traffic Map (same TrafficFlowMap engine the
+// Topology tab uses), per Alon 2026-07 — replaced the AttackExplorer
+// graph/surface/scorecard lenses. Static import mirrors attacker-view-v3, which
+// already pulls TrafficFlowMap into this bundle.
+import TrafficFlowMap from "@/components/dependency-map/traffic-flow-map"
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
@@ -71,6 +75,7 @@ function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
 export function AttackPathsV2({
   systemName: systemNameProp,
   embedded = false,
+  defaultMode = "attack-path",
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
   // the dashboard and wins over the ?system URL param; the shell renders at a
@@ -79,6 +84,11 @@ export function AttackPathsV2({
   // /attack-paths-v2 route behavior exactly.
   systemName?: string | null
   embedded?: boolean
+  // Seeds the view mode when the URL has no explicit ?mode= param. An
+  // explicit ?mode= always wins, so deep links are preserved. The main-page
+  // "Attack Paths" entry passes defaultMode="explorer" to land on the
+  // account-wide every-path view (retiring the legacy IdentityAttackPaths).
+  defaultMode?: string
 } = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -120,7 +130,7 @@ export function AttackPathsV2({
   // ?mode=attacker URLs are redirected below (router.replace) so deep
   // links keep working. Other modes (exposure, attacker_v2, phase,
   // exfil, topology) are unchanged.
-  const modeParam = searchParams?.get("mode") ?? "attack-path"
+  const modeParam = searchParams?.get("mode") ?? defaultMode
   // v0.3 phase view = the 9-lane attacker-phase Attacker View built
   // 2026-05-22. Renders chains from materialized AttackPath nodes (hop-
   // reified per v0.2 §3) — every line on the canvas comes from a real
@@ -763,11 +773,11 @@ export function AttackPathsV2({
               showBeta={showBeta}
             />
             <div style={{ height: "calc(100vh - 150px)" }}>
-              <AttackExplorer
-                jewels={jewels}
-                paths={[...allPaths]}
+              <TrafficFlowMap
                 systemName={systemName}
-                onOpenFull={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId, mode: "attack-path" })}
+                observedMode={true}
+                innerTitleOverride="Traffic Map"
+                innerSubtitleOverride="Observed flows across every attack path"
               />
             </div>
           </>

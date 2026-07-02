@@ -19,7 +19,12 @@ import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
 import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
-import { IdentityAttackPaths } from "@/components/identity-attack-paths/identity-attack-paths"
+// Main-page "Attack Paths" now renders the canonical AttackPathsV2 in its
+// account-wide Explorer mode. The legacy IdentityAttackPaths component was
+// retired here (2026-07) to end the two-divergent-components split — V2 has
+// full parity (filterActivePaths gate + IAM/S3/SG remediation modals) plus
+// the every-path Explorer view. Its types remain the shared response shape.
+import { AttackPathsV2 } from "@/components/attack-paths-v2/attack-paths-v2"
 // AttackerMap is consumed by system-detail-dashboard.tsx (Risk → Attacker Map
 // sub-tab), not as a top-level section. The top-level case below was removed
 // when we discovered the (selectedSystem, activeSection) routing can't hold
@@ -1018,7 +1023,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            {selectedSystem ? <IdentityAttackPaths systemName={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="explorer" /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 
