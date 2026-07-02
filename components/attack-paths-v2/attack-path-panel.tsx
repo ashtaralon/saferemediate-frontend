@@ -47,6 +47,7 @@ import type {
   CrownJewelSummary,
   SeverityBreakdown,
 } from "@/components/identity-attack-paths/types"
+import type { SharedRoleCalloutData } from "./shared-role-callout"
 
 interface AttackPathPanelProps {
   systemName: string
@@ -58,6 +59,8 @@ interface AttackPathPanelProps {
   siblingPathsFromPage?: IdentityAttackPath[]
   isExpanded?: boolean
   onToggleExpand?: () => void
+  /** Navigate to per-resource role-split remediation (threaded from the page). */
+  onOpenRoleSplit?: (roleName: string) => void
 }
 
 // Severity fields are all required on the IdentityAttackPath
@@ -95,6 +98,7 @@ export function AttackPathPanel({
   siblingPathsFromPage,
   isExpanded = false,
   onToggleExpand,
+  onOpenRoleSplit,
 }: AttackPathPanelProps) {
   // Canvas v2 — visual polish layer (caption strip, severity halo,
   // ENTRY chip, lateral dimming, verb chips, palette consolidation).
@@ -238,6 +242,48 @@ export function AttackPathPanel({
     )
   }, [payload, identityPath])
 
+  // Shared-role callout data — the on-path over-permissive role's CANONICAL
+  // consumer count, read from the graph-view role node's key_properties
+  // (workload_count / workload_ids, written by role_consumer_rollup.py). We
+  // match each IAMRole node on the path spine to its canvas node and cite the
+  // backend count verbatim. NEVER card-count the canvas compute lane — the
+  // lateral fan-out includes subnet/system neighbors that don't assume the
+  // role, so counting cards overstates a CISO-facing number (see memory
+  // feedback_ciso_facing_numbers_verify_against_edges). Surface only when the
+  // backend gave a concrete count >= 2 (genuinely shared); pick the most-shared
+  // on-path role for multi-role chains.
+  const sharedRoleCallout = useMemo<SharedRoleCalloutData | null>(() => {
+    if (!payload || isFacadeError(payload) || !identityPath) return null
+    const canvasNodes =
+      ((payload.canvas as { nodes?: Array<Record<string, unknown>> } | undefined)
+        ?.nodes) ?? []
+    let best: SharedRoleCalloutData | null = null
+    for (const n of identityPath.nodes ?? []) {
+      if ((n.type ?? "").toLowerCase() !== "iamrole") continue
+      const roleNode = canvasNodes.find(
+        (c) =>
+          String(c.id) === String(n.id) ||
+          String((c as { arn?: unknown }).arn) === String(n.id),
+      )
+      const kp = (roleNode?.key_properties ?? {}) as Record<string, unknown>
+      const count = typeof kp.workload_count === "number" ? kp.workload_count : 0
+      if (count < 2) continue
+      if (!best || count > best.workloadCount) {
+        best = {
+          roleName: n.name || (roleNode?.name as string) || n.id,
+          roleArn: (roleNode?.arn as string) || n.id,
+          workloadCount: count,
+          workloadIds: Array.isArray(kp.workload_ids)
+            ? (kp.workload_ids as string[])
+            : [],
+          confidence:
+            (kp.workload_count_confidence as string | undefined) ?? null,
+        }
+      }
+    }
+    return best
+  }, [payload, identityPath])
+
   // Seed render (2026-06-25) — paint the path skeleton from the
   // list-payload IMMEDIATELY while the per-path facade fetch is in
   // flight. The list (IdentityAttackPathsResponse) already carries
@@ -365,6 +411,8 @@ export function AttackPathPanel({
       canvasV2={canvasV2}
       attackMapCyntro={attackMapCyntro}
       siblingPaths={siblingPathsFromPage ?? []}
+      sharedRoleCallout={sharedRoleCallout}
+      onOpenRoleSplit={onOpenRoleSplit}
     />
   )
 }
