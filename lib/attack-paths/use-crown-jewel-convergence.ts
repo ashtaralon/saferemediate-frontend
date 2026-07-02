@@ -1,11 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import type { CrownJewelSummary, IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import {
   buildConvergenceDetailUrl,
   buildConvergenceSummaryUrl,
 } from "./convergence-fetch-url"
+import { matchConvergencePathId } from "./iap-to-convergence"
 import type {
   ConvergencePath,
   CrownJewelConvergence,
@@ -75,11 +76,25 @@ function summaryToConvergence(
   }
 }
 
-/** Summary first (fast strip) + hop detail for canvas spine wiring. */
+/** Summary first (fast strip) + hop detail for canvas spine wiring.
+ *
+ * `selectedPathId` may arrive in the IAP (identity-attack-paths) id
+ * namespace (e.g. "path-8e64e734b0f6", the URL's ?path= value) rather
+ * than the live convergence namespace `/summary` actually returns
+ * (real Neo4j AttackPath.id hashes). Fetching /detail?path_id=<raw IAP
+ * id> against a namespace it was never in silently 404s (detail is
+ * "optional" — see the catch below), detailsByPathId stays empty, and
+ * summaryToConvergence keeps EVERY path's hops=[] — the map's "Paths
+ * loaded but hop placement is empty" state, even though the real
+ * AttackPath node has a fully populated hops_json. matchConvergencePathId
+ * already exists to solve exactly this (used elsewhere for render-time
+ * path selection) but wasn't being applied to the detail-fetch trigger.
+ * `iapPaths` lets this resolve the id the same way before fetching. */
 export function useCrownJewelConvergence(
   systemName: string | null,
   jewel: CrownJewelSummary | null,
   selectedPathId: string | null = null,
+  iapPaths: IdentityAttackPath[] = [],
 ): UseCrownJewelConvergenceResult {
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
@@ -151,6 +166,16 @@ export function useCrownJewelConvergence(
     }
   }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, nonce])
 
+  // Resolved once summary lands — `iapPaths` is commonly a fresh array
+  // reference per parent render, so this is memoized down to the
+  // resulting primitive string/null before it reaches the fetch effect's
+  // dependency array below (avoids re-triggering the detail fetch on
+  // every unrelated parent render).
+  const resolvedSelectedPathId = useMemo(
+    () => (summary ? matchConvergencePathId(summary.paths, selectedPathId, iapPaths) : null),
+    [summary, selectedPathId, iapPaths],
+  )
+
   // Phase 2: hop detail — drives kill-chain strip + TFM spine lines.
   // Fetches the selected path, or the first real workload path by default
   // so the canvas wires EC2→Subnet→SG→NACL→Role→VPCE→S3 without blocking
@@ -158,7 +183,7 @@ export function useCrownJewelConvergence(
   useEffect(() => {
     if (!systemName || !jewel || !summary) return
 
-    const pathIdToFetch = selectedPathId ?? firstWorkloadPathId(summary.paths)
+    const pathIdToFetch = resolvedSelectedPathId ?? firstWorkloadPathId(summary.paths)
     if (!pathIdToFetch) return
 
     let cancelled = false
@@ -203,7 +228,7 @@ export function useCrownJewelConvergence(
     jewel?.id,
     jewel?.canonical_id,
     jewel?.name,
-    selectedPathId,
+    resolvedSelectedPathId,
     summary,
     nonce,
   ])
