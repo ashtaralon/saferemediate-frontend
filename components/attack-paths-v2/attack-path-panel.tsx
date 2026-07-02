@@ -278,6 +278,8 @@ export function AttackPathPanel({
             : [],
           confidence:
             (kp.workload_count_confidence as string | undefined) ?? null,
+          syncedAt:
+            (kp.workload_count_synced_at as string | undefined) ?? null,
         }
       }
     }

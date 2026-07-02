@@ -12,8 +12,24 @@
 // do NOT assume the role, so counting cards would overstate a CISO-facing
 // number. Rendered only when the backend supplied a concrete count >= 2.
 // See memory: feedback_ciso_facing_numbers_verify_against_edges.
+//
+// FRESHNESS. workload_count is a DERIVED-CACHED value: the rollup is a periodic
+// batch (~4h via consumer_edges_sync), so a role's count is stale from the
+// moment its consumers change until the next batch. `confidence` does NOT guard
+// this — it's a coverage axis (was-evidence-complete when the rollup ran), and a
+// stale count keeps its "complete" badge because they freeze together on the
+// same cache. Only `syncedAt` is on the freshness axis. So we ALWAYS show the
+// age, and past a missed-batch threshold we soften the claim ("~N … count may be
+// stale") so a frozen number can't silently vouch for itself to a CISO.
+// See memory: pattern_derived_value_staleness_on_source_invalidation.
 
 import { Users, Scissors, ArrowRight } from "lucide-react"
+
+// The rollup batch runs ~every 4h (consumer_edges_sync). A count older than a
+// couple of days = ~12 missed batches → the pipeline likely stopped (e.g. a
+// dead Render scheduler) and the number may not reflect current consumers.
+// Erring toward flagging is the safe direction for a security claim.
+const STALE_AFTER_HOURS = 48
 
 export interface SharedRoleCalloutData {
   /** Friendly role name, e.g. "alon-demo-ec2-role". */
@@ -24,8 +40,33 @@ export interface SharedRoleCalloutData {
   workloadCount: number
   /** The workload ids — from IAMRole.workload_ids. Shown on hover. */
   workloadIds: string[]
-  /** Rollup confidence ("complete" | "partial" | …); null when the backend omitted it. */
+  /** Rollup confidence ("complete" | "partial" | …) — a COVERAGE axis, NOT
+   *  freshness. null when the backend omitted it. */
   confidence: string | null
+  /** ISO timestamp the rollup last wrote this count
+   *  (IAMRole.workload_count_synced_at). The ONLY freshness signal. null when
+   *  the backend omitted it. */
+  syncedAt: string | null
+}
+
+/** Relative age + staleness for the rollup timestamp. Returns null when the
+ *  timestamp is absent or unparseable (→ no age shown, no soften — honest,
+ *  never a fabricated freshness). */
+function freshness(
+  syncedAt: string | null,
+): { label: string; isStale: boolean } | null {
+  if (!syncedAt) return null
+  const t = Date.parse(syncedAt)
+  if (Number.isNaN(t)) return null
+  const ageHrs = (Date.now() - t) / 3_600_000
+  const ageDays = ageHrs / 24
+  let label: string
+  if (ageHrs < 1) label = "just now"
+  else if (ageHrs < 24) label = `${Math.round(ageHrs)}h ago`
+  else if (ageDays < 2) label = "yesterday"
+  else if (ageDays < 30) label = `${Math.round(ageDays)} days ago`
+  else label = new Date(t).toISOString().slice(0, 10)
+  return { label, isStale: ageHrs > STALE_AFTER_HOURS }
 }
 
 export function SharedRoleCallout({
@@ -35,8 +76,12 @@ export function SharedRoleCallout({
   data: SharedRoleCalloutData
   onSplit?: (roleName: string) => void
 }) {
-  const { roleName, workloadCount, workloadIds, confidence } = data
+  const { roleName, workloadCount, workloadIds, confidence, syncedAt } = data
+  const fresh = freshness(syncedAt)
+  const stale = fresh?.isStale ?? false
   const noun = workloadCount === 1 ? "workload" : "workloads"
+  // Soften the count itself when stale — "~N" signals "approximately".
+  const countText = stale ? `~${workloadCount}` : `${workloadCount}`
   const idsTitle =
     workloadIds.length > 0
       ? `Workloads assuming ${roleName}: ${workloadIds.join(", ")}`
@@ -51,12 +96,20 @@ export function SharedRoleCallout({
         <Users className="mt-0.5 h-4 w-4 shrink-0 text-pink-600 dark:text-pink-300" />
         <span>
           <span className="font-semibold">
-            {workloadCount} {noun}
+            {countText} {noun}
           </span>{" "}
           share <span className="font-mono font-semibold">{roleName}</span>
           {"'s permissions"} — compromising any one assumes this role and reaches
           the crown jewel. A per-workload role split removes the shared blast
           radius.
+          {stale ? (
+            <span className="font-medium text-amber-700 dark:text-amber-300">
+              {" "}
+              Count may be stale — last synced {fresh?.label}.
+            </span>
+          ) : fresh ? (
+            <span className="opacity-60"> · as of {fresh.label}</span>
+          ) : null}
           {confidence && confidence !== "complete" ? (
             <span className="opacity-60"> · {confidence} coverage</span>
           ) : null}
