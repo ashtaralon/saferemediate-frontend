@@ -773,8 +773,30 @@ export function AttackPathsV2({
               showBeta={showBeta}
             />
             <div style={{ height: "calc(100vh - 150px)" }}>
+              {/* Explorer = the Topology tab's Traffic Map, but with the
+                  attack-path spotlight wired (per Alon 2026-07). The internal
+                  "Attack Paths" picker lets the operator choose a crown jewel;
+                  onCrownJewelSpotlight → setUrl → selectedJewel flows back as
+                  spotlightJewel, and spotlightPathId scopes the canvas to the
+                  ONE selected path (EC2 → … → jewel) instead of the whole
+                  system. Mirrors components/dependency-map-tab.tsx's wiring. */}
               <TrafficFlowMap
                 systemName={systemName}
+                spotlightJewel={
+                  selectedJewel
+                    ? {
+                        id: selectedJewel.id,
+                        canonical_id: selectedJewel.canonical_id,
+                      }
+                    : undefined
+                }
+                spotlightPathId={selectedPathId}
+                systemCrownJewelIds={
+                  jewels.length > 0
+                    ? new Set(jewels.map((j) => j.id))
+                    : undefined
+                }
+                onCrownJewelSpotlight={(cj) => setUrl({ jewel: cj.id })}
                 observedMode={true}
                 innerTitleOverride="Traffic Map"
                 innerSubtitleOverride="Observed flows across every attack path"
