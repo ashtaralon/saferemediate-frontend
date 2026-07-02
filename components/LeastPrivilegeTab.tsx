@@ -1570,10 +1570,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // emitted whenever data.resources.length === 0 — but that's true under
   // three different conditions, only one of which is "system is clean":
   //
-  //   (A) System filter has no LP-tracked resources in this scope
-  //       e.g. /api/proxy/least-privilege/issues?systemName=alon-prod returns []
-  //       while the org-wide call returns 13 issues. The honest answer is
-  //       "no issues *for this system*", not "permissions are clean."
+  //   (A) System filter has no LP-tracked resources in this scope. The
+  //       honest answer is "no issues *for this system*", not "permissions
+  //       are clean." (Historical note, resolved 2026-07-02: before the
+  //       proxy fail-loud fix, a Render cold-start timeout on a
+  //       system-scoped call could ALSO produce a 200-with-[] response
+  //       and get misread as this case — see the proxy's own header
+  //       comment. That failure mode is closed; timeouts now return a
+  //       502/504 error envelope, never a silent empty success.)
   //   (B) No resources tracked at all (collector hasn't ingested yet,
   //       observation window empty, no roles in the account).
   //   (C) Resources exist and every one has gap == 0 — the genuine
