@@ -37,6 +37,7 @@ export function ConvergenceMapLoader({
     systemName,
     jewel,
     initialSelectedPathId,
+    fallbackPaths,
   )
   const [selectedPathId, setSelectedPathId] = useState<string | null>(
     initialSelectedPathId,

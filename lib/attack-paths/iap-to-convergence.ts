@@ -105,7 +105,10 @@ export function iapPathsToConvergence(
 
 /** Map IAP ?path= URL ids to materialized convergence path ids. */
 export function matchConvergencePathId(
-  convergencePaths: ConvergencePath[],
+  // Structural, not ConvergencePath[] — only .path_id is ever read, and
+  // the lightweight /summary response (ConvergencePathSummary[], no
+  // hops) needs to resolve ids too, before its detail fetch even runs.
+  convergencePaths: { path_id: string }[],
   selectedPathId: string | null,
   iapPaths: IdentityAttackPath[],
 ): string | null {
