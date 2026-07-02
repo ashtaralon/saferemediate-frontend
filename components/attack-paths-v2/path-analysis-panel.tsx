@@ -31,6 +31,7 @@ import {
 import { DamageAwarePathCard } from "./damage-aware-path-card"
 import { useDamageScope } from "./use-damage-scope"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
+import { LateralMovesSummaryCard } from "./lateral-moves-summary-card"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
 interface PathAnalysisPanelProps {
@@ -435,6 +436,10 @@ export function PathAnalysisPanel({
           </div>
         </div>
       )}
+
+      {/* Attacker next moves — compact lateral fan-out, full detail in the
+          Lateral Movement tab. docs/specs/attack_path_lateral_movement_v1.md */}
+      <LateralMovesSummaryCard path={path} jewel={jewel} systemName={systemName} />
 
       {/* Supporting evidence — damage card + plane breakdown (map is above when Cyntro) */}
       <div className="border-b border-border bg-muted/30">
