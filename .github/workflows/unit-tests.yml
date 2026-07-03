@@ -1,0 +1,23 @@
+# Unit + contract-gate tests as a real PR rail. Until now only Vercel's
+# build gated FE PRs — vitest (incl. the display-name contract gate that
+# blocks per-surface naming heuristics) ran only on dev machines.
+name: unit-tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx vitest run __tests__
