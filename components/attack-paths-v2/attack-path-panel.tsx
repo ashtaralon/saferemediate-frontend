@@ -410,6 +410,7 @@ export function AttackPathPanel({
       isExpanded={isExpanded}
       onToggleExpand={onToggleExpand}
       architecture={architecture}
+      architectureLoading={(loading || retrying) && !architecture}
       canvasV2={canvasV2}
       attackMapCyntro={attackMapCyntro}
       siblingPaths={siblingPathsFromPage ?? []}

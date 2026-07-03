@@ -3843,6 +3843,26 @@ export function ConnectionLinesSVG({
         let droppedEndpoints = 0;
 
         for (const edge of architecture.edges) {
+          const isHighlighted =
+            hoveredId === edge.source_aws_id || hoveredId === edge.target_aws_id;
+          const isAttackPath =
+            attackPathEdges.has(`${edge.source_aws_id}->${edge.target_aws_id}`) ||
+            attackPathEdges.has(`${edge.target_aws_id}->${edge.source_aws_id}`);
+          // 2026-07-03 density gate — mirror of the legacy-branch gate
+          // below. With the Connections toggle OFF, draw only edges on
+          // the selected chain (architecture.onPathEdgeIds, populated by
+          // build-attacker-architecture) plus hovered/attack-path edges.
+          // Payloads without onPathEdgeIds (System Map et al) keep the
+          // existing treat-all-edges-as-path fallback, so this is a
+          // no-op for consumers that never tag the chain. Gated BEFORE
+          // endpoint lookup so intentionally-filtered edges never count
+          // as trust-guard "dropped endpoint" violations.
+          if (!showAllConnections) {
+            const onChain = architecture.onPathEdgeIds
+              ? architecture.onPathEdgeIds.has(edge.id)
+              : true;
+            if (!onChain && !isAttackPath && !isHighlighted) continue;
+          }
           const sourceEl = findCardForId(edge.source_aws_id);
           const targetEl = findCardForId(edge.target_aws_id);
           if (!sourceEl || !targetEl) {
@@ -3873,8 +3893,6 @@ export function ConnectionLinesSVG({
           // plane to data so the line color matches the surrounding
           // observed data-flow edges (Greenlight constraint #1).
           const plane: EdgePlane = edge.inferred ? 'data' : planeForString(edge.relationship);
-          const isHighlighted =
-            hoveredId === edge.source_aws_id || hoveredId === edge.target_aws_id;
           // Animation gate: ONLY data-plane edges animate, AND only when
           // they carry actual observation (observed=true and bytes>0 or
           // hit_count>0). Identity- and network-plane edges never
@@ -3886,9 +3904,6 @@ export function ConnectionLinesSVG({
             edge.observed === true &&
             ((edge.bytes ?? 0) > 0 || (edge.hit_count ?? 0) > 0);
           const trafficIntensity = getTrafficIntensity(edge.bytes ?? 0);
-          const isAttackPath =
-            attackPathEdges.has(`${edge.source_aws_id}->${edge.target_aws_id}`) ||
-            attackPathEdges.has(`${edge.target_aws_id}->${edge.source_aws_id}`);
 
           newLines.push({
             x1: sourcePos.x,
@@ -3948,9 +3963,15 @@ export function ConnectionLinesSVG({
         // users. This kills the 400-polyline spaghetti the operator
         // complained about on alon-prod's Topology open.
         if (!showAllConnections) {
+          // 2026-07-03: also honor pathFilter dominance (pathEdgePairKeys,
+          // set by applyPathFilter / derivePathDominance) so a path-scoped
+          // map keeps its own chain lines with the toggle off — pathFilter
+          // mode is no longer force-ON'd upstream.
           const onPath =
             attackPathEdges.has(`${flow.sourceId}->${flow.targetId}`) ||
-            attackPathEdges.has(`${flow.targetId}->${flow.sourceId}`);
+            attackPathEdges.has(`${flow.targetId}->${flow.sourceId}`) ||
+            architecture.pathEdgePairKeys?.has(`${flow.sourceId}->${flow.targetId}`) === true ||
+            architecture.pathEdgePairKeys?.has(`${flow.targetId}->${flow.sourceId}`) === true;
           const touchesHover = hoveredId != null && (
             hoveredId === flow.sourceId || hoveredId === flow.targetId ||
             hoveredId === flow.sgId || hoveredId === flow.naclId ||
@@ -7327,7 +7348,16 @@ export default function TrafficFlowMap({
   // pre-filters to flows that touch hovered/attack-path edges when
   // off, so the off-state isn't "all hidden" — it's "narrow to
   // what you're looking at".
-  const [showAllConnections, setShowAllConnections] = useState(true);
+  // 2026-07-03 (operator: "the map changed suddenly / I can't control it"):
+  // when the map is born path-scoped (Attack Path tab passes pathFilter),
+  // default the all-flows overlay OFF — the chain's own edges still draw via
+  // the density gate (onPathEdgeIds / pathEdgePairKeys), so the operator sees
+  // the 3-edge spine, not 20k system-wide flow lines, and the toolbar toggle
+  // now actually works in that mode (it used to be force-ON'd). Unfiltered
+  // Topology / System Map keep the shipped default ON.
+  const [showAllConnections, setShowAllConnections] = useState<boolean>(
+    () => !pathFilter,
+  );
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
@@ -9591,18 +9621,21 @@ export default function TrafficFlowMap({
             canvasV2={canvasV2}
             showLaterals={showLaterals}
             entryNodeId={entryNodeId}
-            // 2026-06-25: auto-on Connections when the canvas is in a
-            // drilled-in mode (pathFilter set OR onPathNodeAction
-            // registered — both match pathMode={!!pathFilter || !!onPathNodeAction}
-            // above). Reason: when an operator drills into one chain
-            // they EXPECT to see that chain's flow lines; defaulting
-            // off was the right move for the unfiltered Topology
-            // (40-EC2 spaghetti) but wrong when the canvas is already
-            // narrowed to 1 chain. Toolbar toggle still works to flip
-            // back to all-flows on the broad view.
+            // 2026-06-25: auto-on Connections for legacy drill-in modes
+            // (onPathNodeAction / spotlight) — when an operator drills
+            // into one chain they EXPECT that chain's flow lines.
+            //
+            // 2026-07-03: pathFilter REMOVED from this force-on. It made
+            // the toolbar toggle a no-op in the Attack Path tab and drew
+            // every system-wide flow over a 3-edge path ("the map changed
+            // suddenly / 23k red lines"). The chain's own lines no longer
+            // need the force-on: with the toggle OFF, the density gates
+            // keep on-chain edges visible (explicit-edges branch via
+            // architecture.onPathEdgeIds, legacy branch via
+            // pathEdgePairKeys). So pathFilter mode now defaults to
+            // spine-only and the toggle genuinely flips all-flows.
             showAllConnections={
               showAllConnections ||
-              !!pathFilter ||
               !!onPathNodeAction ||
               (effectiveSpotlightActiveNodeIds?.size ?? 0) > 0
             }
