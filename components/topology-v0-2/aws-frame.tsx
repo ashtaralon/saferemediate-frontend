@@ -89,6 +89,21 @@ interface Props {
   /** AZ ids hidden by the operator — remaining columns expand to fill the grid. */
   hiddenAzs?: string[]
   presentationMode?: boolean
+  /**
+   * Fit-to-viewport zoom factor. The fullscreen host wraps this frame in a
+   * `transform: scale()` container; AwsFrame does NOT apply the transform, it
+   * only forwards the factor to FlowOverlay so the animated edges undo the
+   * scale ((rect - origin) / scale) and stay pinned to chips at any zoom —
+   * retiring the PR #227 no-scale constraint. Default 1 = inline page, no change.
+   */
+  scale?: number
+  /**
+   * At Fit zoom, chips are unreadable at full density. When true, cells with
+   * more than DENSITY_STACK_THRESHOLD same-type workloads collapse into an
+   * icon + count stack tile, and the right rails group by service type. Full
+   * cards return at 100%. Driven by the host from the live zoom (P0-B).
+   */
+  densityCollapsed?: boolean
 }
 
 const REGIONAL_EDGE_SERVICE_TYPES = new Set([
@@ -667,7 +682,7 @@ function WorkloadChip({
 
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
-  compact = false, roleForWorkload,
+  compact = false, roleForWorkload, densityCollapsed = false,
 }: {
   tier: SubnetTier
   az: string
@@ -678,6 +693,7 @@ function SubnetCell({
   onSelect: (id: string) => void
   compact?: boolean
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
+  densityCollapsed?: boolean
 }) {
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
@@ -746,6 +762,25 @@ function SubnetCell({
           {workloadsHere.length === 0 ? (
             <div className="text-[11px] italic" style={{ color: PAL.slate }}>
               no workloads here
+            </div>
+          ) : densityCollapsed && workloadsHere.length > DENSITY_STACK_THRESHOLD ? (
+            // P0-B — at Fit zoom a cell of N same-type workloads is confetti;
+            // collapse to icon+count stack tiles. Click a tile → jump to the
+            // riskiest workload of that type (full cards return on zoom-in).
+            <div className="flex flex-wrap gap-1.5" data-testid="topology-cell-density">
+              {groupNodesByType(workloadsHere).map(g => (
+                <StackTile
+                  key={g.key}
+                  group={g}
+                  onExpand={() => {
+                    const worst =
+                      g.nodes.find(n => n.score?.tier === "WORST") ??
+                      g.nodes.find(n => n.score?.tier === "HIGH") ??
+                      g.nodes[0]
+                    if (worst) onSelect(worst.id)
+                  }}
+                />
+              ))}
             </div>
           ) : (
             // Group workloads by their security_group_ids. Workloads in
@@ -1123,20 +1158,102 @@ function TrafficFlowBand({
   )
 }
 
+// ── P0-B: semantic-zoom density tiles ──────────────────────────────────────
+// At Fit zoom, full cards are unreadable confetti. Collapse same-type workloads
+// into an icon + count "stack tile" ("EC2 × 22 · 3 crit"). Counts are REAL
+// (node.score.tier — no fabrication). Click a tile to expand that group into
+// full chips; click the header to re-collapse.
+const DENSITY_STACK_THRESHOLD = 4
+
+type NodeTypeGroup = { key: string; nodes: TopologyNode[]; criticalCount: number }
+
+function groupNodesByType(nodes: TopologyNode[]): NodeTypeGroup[] {
+  const groups = new Map<string, NodeTypeGroup>()
+  for (const n of nodes) {
+    const key = n.type ?? "Other"
+    const g = groups.get(key) ?? { key, nodes: [], criticalCount: 0 }
+    g.nodes.push(n)
+    if (n.score?.tier === "WORST" || n.score?.tier === "HIGH") g.criticalCount += 1
+    groups.set(key, g)
+  }
+  // Risk-first: most-critical groups, then largest, first.
+  return [...groups.values()].sort(
+    (a, b) => b.criticalCount - a.criticalCount || b.nodes.length - a.nodes.length,
+  )
+}
+
+/** Short, human type label for a stack tile ("EC2Instance" → "EC2"). */
+function shortTypeLabel(type: string): string {
+  return type.replace(/Function|Instance|Table|Bucket|Key|Manager/g, "") || type
+}
+
+function StackTile({ group, onExpand }: { group: NodeTypeGroup; onExpand: () => void }) {
+  const icon = nodeIcon(group.nodes[0]?.type ?? null)
+  const worst = group.criticalCount > 0
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title={`${group.nodes.length} × ${group.key}${group.criticalCount ? ` · ${group.criticalCount} critical` : ""} — click to expand`}
+      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 transition hover:brightness-95"
+      style={{
+        background: "#FFFFFF",
+        borderColor: worst ? PAL.carmine : "#CBD5E1",
+        boxShadow: worst ? "0 0 0 2px rgba(224,69,69,0.12)" : undefined,
+      }}
+      data-testid="topology-density-stack-tile"
+    >
+      <span
+        className="inline-flex items-center justify-center rounded text-[9px] font-bold w-6 h-6 shrink-0"
+        style={{ background: icon.bg, color: icon.fg }}
+      >
+        {icon.symbol}
+      </span>
+      <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: "#1A2330" }}>
+        {shortTypeLabel(group.key)} × {group.nodes.length}
+      </span>
+      {group.criticalCount > 0 ? (
+        <span className="text-[9px] font-bold rounded px-1 py-0.5" style={{ background: PAL.carmine, color: "white" }}>
+          {group.criticalCount} crit
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+/** Collapse header shown above an expanded group so it can be re-collapsed. */
+function ExpandedGroupHeader({ group, onCollapse }: { group: NodeTypeGroup; onCollapse: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onCollapse}
+      className="inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors self-start"
+      style={{ borderColor: "#CBD5E1", color: "#5A6B7A" }}
+      title="Collapse"
+    >
+      {shortTypeLabel(group.key)} × {group.nodes.length} ▴
+    </button>
+  )
+}
+
 function ServerlessComputeTier({
   nodes,
   selectedNodeId,
   onSelect,
   roleForWorkload,
   compact = false,
+  densityCollapsed = false,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   compact?: boolean
+  densityCollapsed?: boolean
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (nodes.length === 0) return null
+  const groups = densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD ? groupNodesByType(nodes) : null
   return (
     <div
       className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
@@ -1157,18 +1274,45 @@ function ServerlessComputeTier({
             : "flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full"
         }
       >
-        {nodes.map(n => {
-          const role = roleForWorkload?.(n.id)
-          return (
-            <WorkloadChip
-              key={n.id}
-              node={n}
-              selected={n.id === selectedNodeId}
-              onClick={() => onSelect(n.id)}
-              iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
-            />
+        {groups ? (
+          groups.map(g =>
+            expanded.has(g.key) ? (
+              <div key={g.key} className="flex flex-wrap items-center gap-1.5 w-full">
+                <ExpandedGroupHeader
+                  group={g}
+                  onCollapse={() => setExpanded(s => { const n = new Set(s); n.delete(g.key); return n })}
+                />
+                {g.nodes.map(n => {
+                  const role = roleForWorkload?.(n.id)
+                  return (
+                    <WorkloadChip
+                      key={n.id}
+                      node={n}
+                      selected={n.id === selectedNodeId}
+                      onClick={() => onSelect(n.id)}
+                      iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
+                    />
+                  )
+                })}
+              </div>
+            ) : (
+              <StackTile key={g.key} group={g} onExpand={() => setExpanded(s => new Set(s).add(g.key))} />
+            ),
           )
-        })}
+        ) : (
+          nodes.map(n => {
+            const role = roleForWorkload?.(n.id)
+            return (
+              <WorkloadChip
+                key={n.id}
+                node={n}
+                selected={n.id === selectedNodeId}
+                onClick={() => onSelect(n.id)}
+                iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
+              />
+            )
+          })
+        )}
       </div>
     </div>
   )
@@ -1179,13 +1323,17 @@ function RegionalDataServicesTier({
   selectedNodeId,
   onSelect,
   compact = false,
+  densityCollapsed = false,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
+  densityCollapsed?: boolean
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (nodes.length === 0) return null
+  const groups = densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD ? groupNodesByType(nodes) : null
   return (
     <div
       className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
@@ -1200,14 +1348,37 @@ function RegionalDataServicesTier({
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
       <div className="flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full">
-        {nodes.map(n => (
-          <WorkloadChip
-            key={n.id}
-            node={n}
-            selected={n.id === selectedNodeId}
-            onClick={() => onSelect(n.id)}
-          />
-        ))}
+        {groups ? (
+          groups.map(g =>
+            expanded.has(g.key) ? (
+              <div key={g.key} className="flex flex-wrap items-center gap-1.5 w-full">
+                <ExpandedGroupHeader
+                  group={g}
+                  onCollapse={() => setExpanded(s => { const n = new Set(s); n.delete(g.key); return n })}
+                />
+                {g.nodes.map(n => (
+                  <WorkloadChip
+                    key={n.id}
+                    node={n}
+                    selected={n.id === selectedNodeId}
+                    onClick={() => onSelect(n.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <StackTile key={g.key} group={g} onExpand={() => setExpanded(s => new Set(s).add(g.key))} />
+            ),
+          )
+        ) : (
+          nodes.map(n => (
+            <WorkloadChip
+              key={n.id}
+              node={n}
+              selected={n.id === selectedNodeId}
+              onClick={() => onSelect(n.id)}
+            />
+          ))
+        )}
       </div>
     </div>
   )
@@ -1317,11 +1488,15 @@ function buildPath(
   src: DOMRect,
   dst: DOMRect,
   containerRect: DOMRect,
+  scale = 1,
 ): string {
-  const sx = src.left + src.width / 2 - containerRect.left
-  const sy = src.top + src.height / 2 - containerRect.top
-  const dx = dst.left + dst.width / 2 - containerRect.left
-  const dy = dst.top + dst.height / 2 - containerRect.top
+  // getBoundingClientRect returns POST-transform (viewport) coords, so under a
+  // parent `transform: scale(s)` the container-relative delta is s× too large.
+  // Divide by scale to recover the frame's natural coordinate space.
+  const sx = (src.left + src.width / 2 - containerRect.left) / scale
+  const sy = (src.top + src.height / 2 - containerRect.top) / scale
+  const dx = (dst.left + dst.width / 2 - containerRect.left) / scale
+  const dy = (dst.top + dst.height / 2 - containerRect.top) / scale
   // Smooth cubic bezier — pull the control points horizontally so the
   // arrow looks like a polite "around the chrome" curve instead of a
   // straight line that overlaps frame borders.
@@ -1341,13 +1516,14 @@ function buildPathViaIntermediate(
   intermediate: DOMRect,
   dst: DOMRect,
   containerRect: DOMRect,
+  scale = 1,
 ): string {
-  const sx = src.left + src.width / 2 - containerRect.left
-  const sy = src.top + src.height / 2 - containerRect.top
-  const ix = intermediate.left + intermediate.width / 2 - containerRect.left
-  const iy = intermediate.top + intermediate.height / 2 - containerRect.top
-  const dx = dst.left + dst.width / 2 - containerRect.left
-  const dy = dst.top + dst.height / 2 - containerRect.top
+  const sx = (src.left + src.width / 2 - containerRect.left) / scale
+  const sy = (src.top + src.height / 2 - containerRect.top) / scale
+  const ix = (intermediate.left + intermediate.width / 2 - containerRect.left) / scale
+  const iy = (intermediate.top + intermediate.height / 2 - containerRect.top) / scale
+  const dx = (dst.left + dst.width / 2 - containerRect.left) / scale
+  const dy = (dst.top + dst.height / 2 - containerRect.top) / scale
   // First segment: src → intermediate
   const m1 = (sx + ix) / 2
   const c1ax = sx + (m1 - sx) * 0.65
@@ -1408,10 +1584,15 @@ function FlowModeToggle({
 }
 
 function FlowOverlay({
-  edges, containerRef,
+  edges, containerRef, scale = 1,
 }: {
   edges: TrafficEdge[]
   containerRef: React.RefObject<HTMLDivElement | null>
+  /** Host zoom factor. getBoundingClientRect returns post-transform coords, so
+   *  every measured delta and the SVG's own size are divided by `scale` to draw
+   *  in the frame's natural (pre-scale) space — edges stay pinned to chips at
+   *  any zoom. Default 1 = no parent transform, unchanged behavior. */
+  scale?: number
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -1431,7 +1612,9 @@ function FlowOverlay({
       if (cancelled) return
       const containerRect = container.getBoundingClientRect()
       if (containerRect.width === 0) return
-      setSize({ w: containerRect.width, h: containerRect.height })
+      // Natural (pre-scale) size: containerRect is the post-transform box, so
+      // dividing recovers the SVG's own coordinate extent (viewBox === natural).
+      setSize({ w: containerRect.width / scale, h: containerRect.height / scale })
       const next: FlowPath[] = []
       for (const e of edges) {
         const srcEl = container.querySelector<HTMLElement>(
@@ -1443,10 +1626,10 @@ function FlowOverlay({
         if (!srcEl || !dstEl) continue
         const srcRect = srcEl.getBoundingClientRect()
         const dstRect = dstEl.getBoundingClientRect()
-        const sx = srcRect.left + srcRect.width / 2 - containerRect.left
-        const sy = srcRect.top + srcRect.height / 2 - containerRect.top
-        const dx = dstRect.left + dstRect.width / 2 - containerRect.left
-        const dy = dstRect.top + dstRect.height / 2 - containerRect.top
+        const sx = (srcRect.left + srcRect.width / 2 - containerRect.left) / scale
+        const sy = (srcRect.top + srcRect.height / 2 - containerRect.top) / scale
+        const dx = (dstRect.left + dstRect.width / 2 - containerRect.left) / scale
+        const dy = (dstRect.top + dstRect.height / 2 - containerRect.top) / scale
         const cls = e.edge_class ?? "internal"
         // via_vpce routing — for S3/DDB Gateway VPCE paths the BE attaches
         // the VPCE id so the FE renders the arrow as a two-segment path
@@ -1462,14 +1645,14 @@ function FlowOverlay({
           )
           if (interEl) {
             const interRect = interEl.getBoundingClientRect()
-            d = buildPathViaIntermediate(srcRect, interRect, dstRect, containerRect)
-            const ix = interRect.left + interRect.width / 2 - containerRect.left
-            const iy = interRect.top + interRect.height / 2 - containerRect.top
+            d = buildPathViaIntermediate(srcRect, interRect, dstRect, containerRect, scale)
+            const ix = (interRect.left + interRect.width / 2 - containerRect.left) / scale
+            const iy = (interRect.top + interRect.height / 2 - containerRect.top) / scale
             badgeX = ix
             badgeY = iy + 16
             routedViaVpce = true
           } else {
-            d = buildPath(srcRect, dstRect, containerRect)
+            d = buildPath(srcRect, dstRect, containerRect, scale)
             badgeX = (sx + dx) / 2
             badgeY = (sy + dy) / 2 - 6
           }
@@ -1535,12 +1718,13 @@ function FlowOverlay({
       ro.disconnect()
       window.removeEventListener("resize", recompute)
     }
-    // edges is the only meaningful dependency — containerRef is stable
+    // edges + scale are the meaningful deps — containerRef is stable
     // by definition (React.useRef returns the same object every render),
     // and adding it has historically masked real prod-only mount-timing
-    // bugs (see comment above).
+    // bugs (see comment above). scale must be here so the recompute closure
+    // (and its ResizeObserver callback) always divides by the CURRENT zoom.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges])
+  }, [edges, scale])
 
   const colorByCls: Record<TrafficEdgeClass, string> = {
     internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
@@ -1666,6 +1850,8 @@ export function AwsFrame({
   highlightedRoleName = null,
   onSelect,
   presentationMode = false,
+  scale = 1,
+  densityCollapsed = false,
 }: Props) {
   const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
   const canvasVpcId = mergedVpcView ? null : topo.vpc_id
@@ -2084,10 +2270,13 @@ export function AwsFrame({
                       style={
                         presentationMode
                           ? {
-                              maxHeight: "calc(100vh - 220px)",
+                              // Fullscreen grows to content — the zoom viewport fits
+                              // it to screen. Was capped at calc(100vh-220px) + 1fr
+                              // rows, which clipped dense cells and left the flow
+                              // overlay anchoring to scrolled-out rects (P0-A/B fix).
                               minHeight: "320px",
                               display: "grid",
-                              gridTemplateRows: "repeat(3, minmax(88px, 1fr)) minmax(0, 64px)",
+                              gridTemplateRows: "repeat(3, minmax(88px, auto)) minmax(0, auto)",
                             }
                           : undefined
                       }
@@ -2096,7 +2285,7 @@ export function AwsFrame({
                         <div
                           key={tier}
                           className="flex gap-0 min-h-0"
-                          style={presentationMode ? { minHeight: 0, overflow: "hidden" } : undefined}
+                          style={presentationMode ? { minHeight: 0 } : undefined}
                         >
                           <div
                             className="rounded-l-md flex items-center justify-center shrink-0"
@@ -2117,7 +2306,7 @@ export function AwsFrame({
                             className={presentationMode ? "rounded-r-md p-1.5 flex-1" : "rounded-r-md p-2.5 flex-1"}
                             style={{
                               background: TIER_BG[tier],
-                              ...(presentationMode ? { overflowY: "auto", minHeight: 0 } : {}),
+                              ...(presentationMode ? { minHeight: 0 } : {}),
                             }}
                           >
                             <div
@@ -2139,6 +2328,7 @@ export function AwsFrame({
                                     onSelect={onSelect}
                                     compact={presentationMode}
                                     roleForWorkload={roleForWorkload}
+                                    densityCollapsed={densityCollapsed}
                                   />
                                 )
                               })}
@@ -2284,7 +2474,10 @@ export function AwsFrame({
                 />
                 <div
                   className="flex flex-col gap-2 shrink-0 w-[188px] max-w-[188px] ml-1 min-h-0"
-                  style={presentationMode ? { maxHeight: "calc(100vh - 220px)", overflowY: "auto" } : undefined}
+                  // In fullscreen the zoom viewport owns scrolling + fits the map;
+                  // the old internal rail scroll clipped chips and broke flow
+                  // anchoring under scale. Let the rail grow; density tiles keep
+                  // it short. (P0-A/B — replaces the calc(100vh-220px) overflow.)
                   data-testid="topology-edge-services-rail"
                 >
                   <ServerlessComputeTier
@@ -2293,12 +2486,14 @@ export function AwsFrame({
                     onSelect={onSelect}
                     roleForWorkload={roleForWorkload}
                     compact={presentationMode}
+                    densityCollapsed={densityCollapsed}
                   />
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     compact={presentationMode}
+                    densityCollapsed={densityCollapsed}
                   />
                 </div>
               </>
@@ -2367,7 +2562,7 @@ export function AwsFrame({
           order paints them on top of every chip box. z-index alone was
           not enough on prod (the subnet/AZ boxes are static siblings,
           and elementsFromPoint still returned them first). */}
-      <FlowOverlay edges={visibleEdges} containerRef={flowContainerRef} />
+      <FlowOverlay edges={visibleEdges} containerRef={flowContainerRef} scale={scale} />
     </div>
   )
 }
