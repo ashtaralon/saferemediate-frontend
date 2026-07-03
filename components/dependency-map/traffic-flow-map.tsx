@@ -7358,6 +7358,15 @@ export default function TrafficFlowMap({
   const [showAllConnections, setShowAllConnections] = useState<boolean>(
     () => !pathFilter,
   );
+  // 2026-07-03 (QA finding: "toggling OFF after ON doesn't clear the overlay
+  // until reload"). Once the operator explicitly clicks the Connections
+  // toggle, their choice is authoritative. Without this, the soft force-on
+  // defaults below (onPathNodeAction / spotlight) override an explicit OFF —
+  // so after a spotlight activates on drill-in, the toggle sticks ON and
+  // can't be cleared. This flag makes an explicit toggle win over the
+  // force-on defaults; before any user interaction, the drill-in defaults
+  // still apply (operator drilling into a chain sees that chain's flows).
+  const [userToggledConnections, setUserToggledConnections] = useState(false);
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
@@ -9430,7 +9439,10 @@ export default function TrafficFlowMap({
               before Attack Paths so the density story is the first
               thing on the toolbar. */}
           <button
-            onClick={() => setShowAllConnections(!showAllConnections)}
+            onClick={() => {
+              setUserToggledConnections(true);
+              setShowAllConnections((prev) => !prev);
+            }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
               showAllConnections
                 ? 'bg-violet-500 text-white shadow-md'
@@ -9635,9 +9647,15 @@ export default function TrafficFlowMap({
             // pathEdgePairKeys). So pathFilter mode now defaults to
             // spine-only and the toggle genuinely flips all-flows.
             showAllConnections={
-              showAllConnections ||
-              !!onPathNodeAction ||
-              (effectiveSpotlightActiveNodeIds?.size ?? 0) > 0
+              // 2026-07-03: an explicit operator toggle wins over the soft
+              // force-on defaults, so OFF stays OFF (fixes the stuck-ON bug).
+              // Before any explicit toggle, drill-in defaults still force the
+              // chain's own flows on.
+              userToggledConnections
+                ? showAllConnections
+                : showAllConnections ||
+                  !!onPathNodeAction ||
+                  (effectiveSpotlightActiveNodeIds?.size ?? 0) > 0
             }
             onSelectService={(service, type) => {
               // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
