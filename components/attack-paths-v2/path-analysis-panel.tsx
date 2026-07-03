@@ -51,6 +51,10 @@ interface PathAnalysisPanelProps {
    *  while the header / breadcrumb / closure card stay Per-Path. When
    *  null/undefined, the legacy path-filter mode renders. */
   architecture?: SystemArchitecture | null
+  /** True while the facade fetch that supplies `architecture` is still in
+   *  flight — the embedded Flow Map shows an honest "partial view" chip so
+   *  the sparse→full lane swap doesn't read as the map mutating on its own. */
+  architectureLoading?: boolean
   /** Visual v2 opt-in (?canvas=v2). Adds the caption strip above the
    *  canvas, the severity halo on the jewel card, and (in later
    *  passes) lateral dimming + verb chips + palette consolidation.
@@ -211,6 +215,7 @@ export function PathAnalysisPanel({
   isExpanded = false,
   onToggleExpand,
   architecture,
+  architectureLoading = false,
   canvasV2 = false,
   attackMapCyntro = true,
   siblingPaths = [],
@@ -451,6 +456,7 @@ export function PathAnalysisPanel({
               jewel={jewel}
               systemName={systemName}
               architecture={architecture}
+              architectureLoading={architectureLoading}
             />
           </div>
         </div>
