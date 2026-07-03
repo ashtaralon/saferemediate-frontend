@@ -1202,6 +1202,11 @@ function StackTile({ group, onExpand }: { group: NodeTypeGroup; onExpand: () => 
         boxShadow: worst ? "0 0 0 2px rgba(224,69,69,0.12)" : undefined,
       }}
       data-testid="topology-density-stack-tile"
+      // Flow-edge anchor fallback: when density collapse removes the member
+      // chips from the DOM, FlowOverlay re-anchors their edges to this tile
+      // (matched via the member ids below) instead of dropping the whole
+      // flow story at overview zoom.
+      data-flow-ids={group.nodes.map(n => n.id).join("|")}
     >
       <span
         className="inline-flex items-center justify-center rounded text-[9px] font-bold w-6 h-6 shrink-0"
@@ -1584,7 +1589,7 @@ function FlowModeToggle({
 }
 
 function FlowOverlay({
-  edges, containerRef, scale = 1,
+  edges, containerRef, scale = 1, densityCollapsed = false,
 }: {
   edges: TrafficEdge[]
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -1593,6 +1598,9 @@ function FlowOverlay({
    *  in the frame's natural (pre-scale) space — edges stay pinned to chips at
    *  any zoom. Default 1 = no parent transform, unchanged behavior. */
   scale?: number
+  /** In deps so the LOD chip↔stack-tile swap always triggers a re-measure —
+   *  member chips leave/enter the DOM on this flag. */
+  densityCollapsed?: boolean
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -1608,6 +1616,55 @@ function FlowOverlay({
     const container = containerRef.current
     if (!container) return
     let cancelled = false
+
+    // Resolve an edge endpoint to a live element. Exact chip first; when the
+    // LOD density collapse has replaced chips with stack tiles, fall back to
+    // the tile that lists the id in data-flow-ids — the flow story must
+    // survive overview zoom (2026-07-04 prod bug: every edge vanished at Fit).
+    const resolveFlowEl = (id: string): { el: HTMLElement; grouped: boolean } | null => {
+      const exact = container.querySelector<HTMLElement>(
+        `[data-flow-id="${CSS.escape(id)}"]`,
+      )
+      if (exact) return { el: exact, grouped: false }
+      const tiles = container.querySelectorAll<HTMLElement>("[data-flow-ids]")
+      for (const t of tiles) {
+        const ids = (t.getAttribute("data-flow-ids") ?? "").split("|")
+        if (ids.includes(id)) return { el: t, grouped: true }
+      }
+      return null
+    }
+
+    // Clip an endpoint rect against its scrollable/overflow-hidden ancestors.
+    // A rail chip scrolled out of its rail otherwise anchors the edge at its
+    // off-screen position — the arrow lands over unrelated content (the
+    // "dangling ACTUAL_S3_CALL" prod bug). Fully-clipped endpoints collapse
+    // to the nearest visible point on the clipping boundary, so the edge
+    // honestly points INTO the rail instead of through it.
+    const visibleRect = (el: HTMLElement, rect: DOMRect): DOMRect => {
+      let clipL = -Infinity, clipT = -Infinity, clipR = Infinity, clipB = Infinity
+      let p = el.parentElement
+      while (p && p !== container.parentElement) {
+        const st = window.getComputedStyle(p)
+        if (/(auto|scroll|hidden)/.test(st.overflowY + st.overflowX)) {
+          const pr = p.getBoundingClientRect()
+          clipL = Math.max(clipL, pr.left)
+          clipT = Math.max(clipT, pr.top)
+          clipR = Math.min(clipR, pr.right)
+          clipB = Math.min(clipB, pr.bottom)
+        }
+        p = p.parentElement
+      }
+      const L = Math.max(rect.left, clipL)
+      const T = Math.max(rect.top, clipT)
+      const R = Math.min(rect.right, clipR)
+      const B = Math.min(rect.bottom, clipB)
+      if (R > L && B > T) return new DOMRect(L, T, R - L, B - T)
+      // Fully clipped — pin a 2px anchor at the clamped center.
+      const cx = Math.min(Math.max((rect.left + rect.right) / 2, clipL), clipR)
+      const cy = Math.min(Math.max((rect.top + rect.bottom) / 2, clipT), clipB)
+      return new DOMRect(cx - 1, cy - 1, 2, 2)
+    }
+
     const recompute = () => {
       if (cancelled) return
       const containerRect = container.getBoundingClientRect()
@@ -1616,16 +1673,38 @@ function FlowOverlay({
       // dividing recovers the SVG's own coordinate extent (viewBox === natural).
       setSize({ w: containerRect.width / scale, h: containerRect.height / scale })
       const next: FlowPath[] = []
+      // Bundle edges that resolve to the same element pair once an endpoint
+      // is a stack tile — N member edges become ONE line with an "N flows"
+      // chip instead of N overlapping curves into the same tile.
+      const elKeys = new Map<HTMLElement, number>()
+      const keyOf = (el: HTMLElement) => {
+        const k = elKeys.get(el) ?? elKeys.size
+        elKeys.set(el, k)
+        return k
+      }
+      const bundles = new Map<string, { idx: number; count: number }>()
       for (const e of edges) {
-        const srcEl = container.querySelector<HTMLElement>(
-          `[data-flow-id="${CSS.escape(e.source_id)}"]`,
-        )
-        const dstEl = container.querySelector<HTMLElement>(
-          `[data-flow-id="${CSS.escape(e.target_id)}"]`,
-        )
-        if (!srcEl || !dstEl) continue
-        const srcRect = srcEl.getBoundingClientRect()
-        const dstRect = dstEl.getBoundingClientRect()
+        const src = resolveFlowEl(e.source_id)
+        const dst = resolveFlowEl(e.target_id)
+        if (!src || !dst) continue
+        const srcEl = src.el
+        const dstEl = dst.el
+        if (srcEl === dstEl) continue // both ends collapsed into the same tile — no self-arrow
+        const grouped = src.grouped || dst.grouped
+        if (grouped) {
+          const bk = `${keyOf(srcEl)}→${keyOf(dstEl)}·${e.edge_class ?? "internal"}`
+          const existing = bundles.get(bk)
+          if (existing) {
+            existing.count += 1
+            const bp = next[existing.idx]
+            bp.badgeLabel = `${existing.count} flows`
+            if (e.flow_highlight === "attack_path") bp.highlight = "attack_path"
+            continue
+          }
+          bundles.set(bk, { idx: next.length, count: 1 })
+        }
+        const srcRect = visibleRect(srcEl, srcEl.getBoundingClientRect())
+        const dstRect = visibleRect(dstEl, dstEl.getBoundingClientRect())
         const sx = (srcRect.left + srcRect.width / 2 - containerRect.left) / scale
         const sy = (srcRect.top + srcRect.height / 2 - containerRect.top) / scale
         const dx = (dstRect.left + dstRect.width / 2 - containerRect.left) / scale
@@ -1644,7 +1723,7 @@ function FlowOverlay({
             `[data-flow-id="${CSS.escape(e.via_vpce_id)}"]`,
           )
           if (interEl) {
-            const interRect = interEl.getBoundingClientRect()
+            const interRect = visibleRect(interEl, interEl.getBoundingClientRect())
             d = buildPathViaIntermediate(srcRect, interRect, dstRect, containerRect, scale)
             const ix = (interRect.left + interRect.width / 2 - containerRect.left) / scale
             const iy = (interRect.top + interRect.height / 2 - containerRect.top) / scale
@@ -1657,7 +1736,12 @@ function FlowOverlay({
             badgeY = (sy + dy) / 2 - 6
           }
         } else {
-          d = buildPath(srcRect, dstRect, containerRect)
+          // scale MUST be forwarded here too — building the path in
+          // post-transform pixels while the SVG is sized in natural
+          // coordinates shrinks/stretches every edge by the zoom factor
+          // (2026-07-04 prod bug: the whole ALB bundle converged ~150px
+          // off-target at 64% and "moved" on every zoom change).
+          d = buildPath(srcRect, dstRect, containerRect, scale)
           badgeX = (sx + dx) / 2
           badgeY = (sy + dy) / 2 - 6
         }
@@ -1700,6 +1784,19 @@ function FlowOverlay({
       }
       setPaths(next)
     }
+    // Double-rAF scheduler: measuring in the same frame as a transform /
+    // LOD commit reads pre-commit rects (one whole zoom step behind). Two
+    // animation frames guarantee layout has settled before we measure.
+    let raf1 = 0
+    let raf2 = 0
+    const schedule = () => {
+      if (cancelled) return
+      window.cancelAnimationFrame(raf1)
+      window.cancelAnimationFrame(raf2)
+      raf1 = window.requestAnimationFrame(() => {
+        raf2 = window.requestAnimationFrame(recompute)
+      })
+    }
     // Initial run + a short retry ladder. If no chips have refs yet
     // (data still loading, fonts mid-layout, etc.) we'll catch them on
     // the next tick or two. Cheap; max ~600ms of polling.
@@ -1707,24 +1804,34 @@ function FlowOverlay({
     const t1 = window.setTimeout(recompute, 100)
     const t2 = window.setTimeout(recompute, 300)
     const t3 = window.setTimeout(recompute, 600)
-    const ro = new ResizeObserver(recompute)
+    const ro = new ResizeObserver(schedule)
     ro.observe(container)
-    window.addEventListener("resize", recompute)
+    window.addEventListener("resize", schedule)
+    // Any scroll inside the frame (tier cells, serverless/regional rails)
+    // moves chip rects without resizing anything — capture-phase listener
+    // catches every scrollable descendant so edges follow their chips
+    // instead of dangling at the pre-scroll position.
+    container.addEventListener("scroll", schedule, { capture: true, passive: true })
     return () => {
       cancelled = true
       window.clearTimeout(t1)
       window.clearTimeout(t2)
       window.clearTimeout(t3)
+      window.cancelAnimationFrame(raf1)
+      window.cancelAnimationFrame(raf2)
       ro.disconnect()
-      window.removeEventListener("resize", recompute)
+      window.removeEventListener("resize", schedule)
+      container.removeEventListener("scroll", schedule, { capture: true })
     }
-    // edges + scale are the meaningful deps — containerRef is stable
-    // by definition (React.useRef returns the same object every render),
-    // and adding it has historically masked real prod-only mount-timing
-    // bugs (see comment above). scale must be here so the recompute closure
-    // (and its ResizeObserver callback) always divides by the CURRENT zoom.
+    // edges + scale + densityCollapsed are the meaningful deps — containerRef
+    // is stable by definition (React.useRef returns the same object every
+    // render), and adding it has historically masked real prod-only
+    // mount-timing bugs (see comment above). scale must be here so the
+    // recompute closure (and its ResizeObserver callback) always divides by
+    // the CURRENT zoom; densityCollapsed because the chip↔stack-tile swap
+    // replaces the DOM elements edges anchor to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges, scale])
+  }, [edges, scale, densityCollapsed])
 
   const colorByCls: Record<TrafficEdgeClass, string> = {
     internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
@@ -2562,7 +2669,7 @@ export function AwsFrame({
           order paints them on top of every chip box. z-index alone was
           not enough on prod (the subnet/AZ boxes are static siblings,
           and elementsFromPoint still returned them first). */}
-      <FlowOverlay edges={visibleEdges} containerRef={flowContainerRef} scale={scale} />
+      <FlowOverlay edges={visibleEdges} containerRef={flowContainerRef} scale={scale} densityCollapsed={densityCollapsed} />
     </div>
   )
 }
