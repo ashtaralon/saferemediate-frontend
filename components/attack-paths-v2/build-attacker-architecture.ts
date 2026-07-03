@@ -46,6 +46,12 @@ import { isOpaqueIamId } from "./friendly-names"
 export interface GraphViewNode {
   id: string
   name: string | null
+  /** Canonical display identity (backend display-name contract,
+   *  unified/graph/display_name.py): collector name → AWS Name tag →
+   *  type-derived → id fallback, resolved server-side with provenance.
+   *  Null until the reconciler has stamped the node — consumers fall
+   *  back to `name`. */
+  display_name?: string | null
   labels: string[]
   type: string
   key_properties: Record<string, any>
@@ -996,11 +1002,18 @@ export function buildAttackerArchitecture(
   for (const node of graph.nodes) {
     const bucket = bucketForGraphType(node.type, node.id)
     const props = (node.key_properties as Record<string, any> | undefined) ?? null
-    if (bucket === "compute") addAsCompute(node.id, node.type, node.name)
-    else if (bucket === "resource") addAsResource(node.id, node.type, node.name)
-    else if (bucket === "iam_role") addAsRole(node.id, node.type, node.name, props)
-    else if (bucket === "instance_profile") addAsInstanceProfile(node.id, node.name)
-    else if (bucket === "iam_policy") addAsPolicy(node.id, node.name, props)
+    // Canonical display identity — resolved ONCE here so every lane card
+    // inherits the backend contract (display_name > name); key_properties
+    // carries it too for payloads that predate the top-level projection.
+    const displayName =
+      node.display_name ??
+      (props?.display_name as string | undefined) ??
+      node.name
+    if (bucket === "compute") addAsCompute(node.id, node.type, displayName)
+    else if (bucket === "resource") addAsResource(node.id, node.type, displayName)
+    else if (bucket === "iam_role") addAsRole(node.id, node.type, displayName, props)
+    else if (bucket === "instance_profile") addAsInstanceProfile(node.id, displayName)
+    else if (bucket === "iam_policy") addAsPolicy(node.id, displayName, props)
     else if (bucket === "sg") {
       // Strict path-only filter (user audit 2026-05-29): only render
       // SGs that have a SECURED_BY / HAS_SECURITY_GROUP / etc. attach
@@ -1014,14 +1027,14 @@ export function buildAttackerArchitecture(
       // Service-agnostic — onPathSgIds is derived from edge types, not
       // SG name patterns.
       if (onPathSgIds.has(node.id)) {
-        addAsSG(node.id, node.name, props, true)
+        addAsSG(node.id, displayName, props, true)
       }
     }
     else if (bucket === "nacl") {
       // Same strict path-only filter for NACLs — only render NACLs
       // associated with the path's subnet, not every NACL in the VPC.
       if (onPathNaclIds.has(node.id)) {
-        addAsNACL(node.id, node.name, props, true)
+        addAsNACL(node.id, displayName, props, true)
       }
     }
     else if (bucket === "principal") {
@@ -1042,13 +1055,13 @@ export function buildAttackerArchitecture(
         ec2IdPattern.test(node.id || "") ||
         ec2IdPattern.test(node.name || "")
       if (looksLikeEc2Id) {
-        addAsCompute(node.id, "EC2Instance", node.name)
+        addAsCompute(node.id, "EC2Instance", displayName)
       } else {
-        addAsPrincipal(node.id, node.name)
+        addAsPrincipal(node.id, displayName)
       }
     }
     else if (bucket === "vpc") {
-      addAsVPC(node.id, node.name, (props?.cidr_block as string | undefined) ?? null)
+      addAsVPC(node.id, displayName, (props?.cidr_block as string | undefined) ?? null)
     }
     else if (bucket === "egress_gateway") {
       const vpcId = props?.vpc_id ?? null
@@ -1056,9 +1069,9 @@ export function buildAttackerArchitecture(
       // ('com.amazonaws.<region>.<service>') by attack_chain_view.py's
       // SEC_CRITICAL_LABELS enrichment pass; unused for IGW/NAT.
       const serviceName = (props?.service_name as string | undefined) ?? null
-      addAsEgressGateway(node.id, node.name, node.type, vpcId, serviceName)
+      addAsEgressGateway(node.id, displayName, node.type, vpcId, serviceName)
     } else if (bucket === "network_interface") {
-      addAsNetworkInterface(node.id, node.name)
+      addAsNetworkInterface(node.id, displayName)
     } else if (bucket === "subnet") {
       const vpcId = props?.vpc_id ?? null
       // Subnet is_public has three collector-side property names in
@@ -1084,7 +1097,7 @@ export function buildAttackerArchitecture(
       }
       addAsSubnet(
         node.id,
-        node.name,
+        displayName,
         vpcId,
         isPub,
         rt,
