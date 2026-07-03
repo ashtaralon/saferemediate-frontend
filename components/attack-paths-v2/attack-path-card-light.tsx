@@ -21,6 +21,7 @@ import {
   Box,
   Crosshair,
   EyeOff,
+  Network,
 } from "lucide-react"
 import type {
   IdentityAttackPath,
@@ -68,18 +69,41 @@ const C = {
 } as const
 
 // AWS node → icon + service color + human label. Drives the header path line
-// chips. Pattern-matched off the node type the graph emits.
-function awsNodeMeta(type: string): { label: string; color: string; Icon: typeof Server } {
+// chips. Pattern-matched off the node type the graph emits. Exported for the
+// chip-identity unit test (operator report 2026-07-03: "RESOURCE i-0ee…" told
+// them nothing about what service it was).
+export function awsNodeMeta(type: string): { label: string; color: string; Icon: typeof Server } {
   const t = (type || "").toLowerCase()
   if (/lambda/.test(t)) return { label: "Lambda", color: "#ec7211", Icon: Box }
-  if (/ec2|instance/.test(t)) return { label: "EC2", color: "#ec7211", Icon: Server }
+  if (/ec2|instance/.test(t)) return { label: "EC2 instance", color: "#ec7211", Icon: Server }
   if (/s3|bucket/.test(t)) return { label: "S3 bucket", color: "#4e9a3e", Icon: Database }
   if (/dynamo/.test(t)) return { label: "DynamoDB", color: "#4e9a3e", Icon: Database }
   if (/rds/.test(t)) return { label: "RDS", color: "#3b73c4", Icon: Database }
   if (/kms|key/.test(t)) return { label: "KMS key", color: "#5b4fc4", Icon: KeyRound }
   if (/secret/.test(t)) return { label: "Secret", color: "#c2335e", Icon: Lock }
   if (/role|principal|user|policy|iam/.test(t)) return { label: "IAM role", color: "#c2335e", Icon: User }
+  // ALB-fronted paths can legitimately start at the load balancer; without
+  // this pattern it fell to the generic "Resource" chip.
+  if (/loadbalancer|load.?balancer|\balb\b|\belb\b/.test(t)) return { label: "Load balancer", color: "#8c4fff", Icon: Network }
+  if (/subnet|vpc|igw|nat|gateway|route/.test(t)) return { label: "Network", color: "#3b73c4", Icon: Network }
   return { label: "Resource", color: C.muted, Icon: Box }
+}
+
+// Resolve the path node the report's label actually refers to (by name,
+// canonical ARN, or raw id). The chip's NAME comes from the report's
+// source_label/target_label; its TYPE + ICON must come from the SAME node —
+// nodes[0] is the path's entry (on ALB-fronted paths, the load balancer),
+// not necessarily the workload the label names. Mixing the two rendered
+// "RESOURCE i-0ee29afa0048943e0" — the EC2's name under the ALB's
+// (unrecognized) type. Exported for unit tests.
+export function resolveReportNode(
+  nodes: PathNodeDetail[],
+  label: string | null | undefined,
+): PathNodeDetail | undefined {
+  if (!label) return undefined
+  return nodes.find(
+    (n) => n.name === label || n.canonical_id === label || n.id === label,
+  )
 }
 
 // Severity → gold-badge gradient tone. The mockup badge is a single gold
@@ -185,13 +209,16 @@ export function AttackPathCardLightView({
   const cs = report.current_state
   const diff = report.remediation_diff
   const nodes = path.nodes ?? []
-  const sourceNode = nodes[0]
+  // Resolve the node source_label NAMES (usually the workload) so the chip's
+  // type + icon describe the same node as its name; nodes[0] is only the
+  // fallback (it's the path ENTRY — on ALB-fronted paths, the load balancer).
+  const sourceNode = resolveReportNode(nodes, cs.source_label) ?? nodes[0]
   // The crown jewel is the node matching the report's target (by name/id), NOT
   // blindly nodes[last] — the backend chain can carry a trailing node past the
   // jewel (e.g. the bucket's KMS key), which would mistype an S3 bucket as a
   // KMS key. Prefer the authoritative jewel service from damage_capability.
   const targetNode =
-    nodes.find((n) => n.name === cs.target_label || n.canonical_id === cs.target_label || n.id === cs.target_label) ??
+    resolveReportNode(nodes, cs.target_label) ??
     nodes.filter((n) => n.tier === "crown_jewel").slice(-1)[0] ??
     nodes[nodes.length - 1]
   const sourceMeta = awsNodeMeta(sourceNode?.type ?? "")
@@ -205,6 +232,27 @@ export function AttackPathCardLightView({
   // "EC2 alon-demo-app2 → KMS KEY saferemediate-logs-…" mismatch where
   // the label said KMS but the name was an S3 bucket.
   const targetMeta = awsNodeMeta(targetNode?.type || path.damage_capability?.jewel_service || "")
+
+  // Real service name for the source chip. The report's source_label is the
+  // raw instance id (that IS the EC2Instance node's name in the graph), but
+  // the canvas architecture carries the graph's friendly name (e.g.
+  // "cyntro-web-server") on the compute card. Prefer it and demote the id to
+  // the chip's secondary line. Falls back to the raw label when the
+  // architecture hasn't landed yet or has no friendlier name — real data
+  // only, nothing invented.
+  const sourceRaw = cs.source_label || nodeName(sourceNode)
+  const sourceInstId = sourceRaw.match(/i-[0-9a-f]{8,}/i)?.[0] ?? null
+  const sourceCard = sourceInstId
+    ? architecture?.computeServices.find(
+        (c) =>
+          c.id === sourceInstId ||
+          c.instanceId === sourceInstId ||
+          c.id.includes(sourceInstId),
+      )
+    : undefined
+  const sourceName =
+    sourceCard?.name && sourceCard.name !== sourceRaw ? sourceCard.name : sourceRaw
+  const sourceSub = sourceName !== sourceRaw ? sourceRaw : undefined
 
   const severity = cs.severity ?? path.severity?.severity
   const pathScore = path.severity?.overall_score
@@ -260,7 +308,7 @@ export function AttackPathCardLightView({
             Attack path · {cs.target_label}
           </div>
           <div className="flex items-center gap-4 flex-wrap">
-            <NodeChip meta={sourceMeta} name={cs.source_label || nodeName(sourceNode)} />
+            <NodeChip meta={sourceMeta} name={sourceName} sub={sourceSub} />
             <span style={{ color: "#9aa3b1" }} className="text-xl">→</span>
             <NodeChip meta={targetMeta} name={cs.target_label || nodeName(targetNode)} />
           </div>
@@ -533,7 +581,17 @@ function Section({ title, hint, children }: { title: string; hint: string; child
   )
 }
 
-function NodeChip({ meta, name }: { meta: { label: string; color: string; Icon: typeof Server }; name: string }) {
+function NodeChip({
+  meta,
+  name,
+  sub,
+}: {
+  meta: { label: string; color: string; Icon: typeof Server }
+  name: string
+  /** Secondary line (e.g. the raw instance id when `name` is the friendly
+   *  service name) — kept visible so operators can still copy the AWS id. */
+  sub?: string
+}) {
   const { label, color, Icon } = meta
   return (
     <div className="flex items-center gap-3 min-w-0">
@@ -547,9 +605,18 @@ function NodeChip({ meta, name }: { meta: { label: string; color: string; Icon: 
         <div className="text-[11px] font-semibold uppercase tracking-[0.06em] leading-tight" style={{ color: C.faint }}>
           {label}
         </div>
-        <div className="text-[18px] font-bold leading-tight truncate" style={{ color: C.ink }} title={name}>
+        <div
+          className="text-[18px] font-bold leading-tight truncate"
+          style={{ color: C.ink }}
+          title={sub ? `${name} (${sub})` : name}
+        >
           {name}
         </div>
+        {sub && (
+          <div className="text-[11px] font-mono leading-tight truncate" style={{ color: C.faint }} title={sub}>
+            {sub}
+          </div>
+        )}
       </div>
     </div>
   )
