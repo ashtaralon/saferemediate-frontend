@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
-import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
@@ -300,6 +300,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [highlightedRoleName, setHighlightedRoleName] = useState<string | null>(null)
   const [mapEnlarged, setMapEnlarged] = useState(false)
+  const [fsScopeOpen, setFsScopeOpen] = useState(false)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   // Default to the visual map; the risk-guided inventory is the secondary tab.
@@ -321,6 +322,119 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       window.removeEventListener("keydown", onKeyDown)
     }
   }, [mapEnlarged, closeEnlarged])
+
+  // ── Fullscreen fit-to-viewport zoom + pan (P0-A) ──────────────────────────
+  // The frame's height is data-driven; the viewport isn't. We wrap the frame in
+  // a transform: translate()/scale() container and drive it with a computed Fit
+  // scale, +/− steps, wheel-zoom-around-cursor, and background drag-pan.
+  // AwsFrame forwards `zoom` to FlowOverlay, which divides its measured rects by
+  // it so the animated edges stay pinned to chips at any zoom (retires PR #227).
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [fitScale, setFitScale] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [panning, setPanning] = useState(false)
+  const panDrag = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  const MIN_ZOOM = 0.15
+  const MAX_ZOOM = 2
+  // Below this zoom, full cards are unreadable → collapse to density tiles.
+  const LOD_THRESHOLD = 0.55
+  const densityCollapsed = mapEnlarged && zoom < LOD_THRESHOLD
+
+  const computeFit = useCallback((apply: boolean) => {
+    const vp = viewportRef.current
+    const content = contentRef.current
+    if (!vp || !content) return
+    const nw = content.offsetWidth // natural (pre-transform) size — offsetWidth ignores CSS transform
+    const nh = content.offsetHeight
+    if (nw === 0 || nh === 0) return
+    const pad = 24
+    const fit = Math.max(
+      MIN_ZOOM,
+      Math.min(1, (vp.clientWidth - pad) / nw, (vp.clientHeight - pad) / nh),
+    )
+    setFitScale(fit)
+    if (apply) {
+      setZoom(fit)
+      const scaledW = nw * fit
+      setPan({ x: Math.max(0, (vp.clientWidth - scaledW) / 2), y: pad / 2 })
+    }
+  }, [])
+
+  // On open, apply Fit once the frame has laid out (double rAF lets fonts +
+  // grid settle so offsetWidth is the true natural width). Recompute Fit target
+  // on resize without stealing the operator's current manual zoom.
+  useEffect(() => {
+    if (!mapEnlarged) return
+    let r1 = 0
+    let r2 = 0
+    r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => computeFit(true))
+    })
+    const onResize = () => computeFit(false)
+    window.addEventListener("resize", onResize)
+    return () => {
+      cancelAnimationFrame(r1)
+      cancelAnimationFrame(r2)
+      window.removeEventListener("resize", onResize)
+    }
+  }, [mapEnlarged, computeFit])
+
+  const zoomTo = useCallback((next: number, originClientX?: number, originClientY?: number) => {
+    const vp = viewportRef.current
+    setZoom(prev => {
+      const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next))
+      if (vp && originClientX != null && originClientY != null && clamped !== prev) {
+        const rect = vp.getBoundingClientRect()
+        const cx = originClientX - rect.left
+        const cy = originClientY - rect.top
+        // Keep the point under the cursor stationary through the zoom.
+        setPan(p => ({
+          x: cx - ((cx - p.x) * clamped) / prev,
+          y: cy - ((cy - p.y) * clamped) / prev,
+        }))
+      }
+      return clamped
+    })
+  }, [])
+
+  const fitView = useCallback(() => computeFit(true), [computeFit])
+  const zoom100 = useCallback(() => {
+    const vp = viewportRef.current
+    const content = contentRef.current
+    setZoom(1)
+    if (vp && content) {
+      setPan({ x: Math.max(0, (vp.clientWidth - content.offsetWidth) / 2), y: 12 })
+    } else {
+      setPan({ x: 0, y: 0 })
+    }
+  }, [])
+  const zoomInStep = useCallback(() => zoomTo(zoom * 1.25), [zoom, zoomTo])
+  const zoomOutStep = useCallback(() => zoomTo(zoom / 1.25), [zoom, zoomTo])
+
+  const onViewportWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault()
+    zoomTo(zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY)
+  }, [zoom, zoomTo])
+
+  const onPanDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    // Let chips / buttons / links handle their own clicks; only the bare canvas pans.
+    const t = e.target as HTMLElement
+    if (t.closest('button, a, input, select, [data-flow-id], [role="button"]')) return
+    panDrag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }
+    setPanning(true)
+  }, [pan.x, pan.y])
+  const onPanMove = useCallback((e: React.PointerEvent) => {
+    const d = panDrag.current
+    if (!d) return
+    setPan({ x: d.px + (e.clientX - d.x), y: d.py + (e.clientY - d.y) })
+  }, [])
+  const onPanUp = useCallback(() => {
+    panDrag.current = null
+    setPanning(false)
+  }, [])
 
   const chipCountNodes = useMemo(() => {
     const byId = new Map<string, TopologyNode>()
@@ -540,7 +654,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     ? `iam:${highlightedRoleName}`
     : selectedNodeId
 
-  const renderMap = (presentationMode: boolean) => (data.vpc_topology ? (
+  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsed = false) => (data.vpc_topology ? (
     <AwsFrame
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
@@ -560,6 +674,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
         setHighlightedRoleName(null)
       }}
       presentationMode={presentationMode}
+      scale={scale}
+      densityCollapsed={densityCollapsed}
     />
   ) : (
     <CanvasPane
@@ -974,29 +1090,126 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           aria-modal="true"
           aria-label="Topology map full screen"
         >
+          {/* P0-C — slim one-row chrome: identity · scope toggle · zoom controls · exit */}
           <div
-            className="flex flex-col shrink-0 border-b"
+            className="flex items-center gap-3 shrink-0 border-b px-4 h-11"
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           >
-            <div className="flex items-center justify-between gap-3 px-4 py-1">
-              <div className="text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: "#5A6B7A" }}>
-                Map fullscreen · {data.system}
-              </div>
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0" style={{ color: "#5A6B7A" }}>
+                Estate map
+              </span>
+              <span className="text-[13px] font-semibold truncate" style={{ color: "#1A2330" }}>
+                {data.system}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFsScopeOpen(o => !o)}
+              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors shrink-0"
+              style={{ borderColor: fsScopeOpen ? "#0E8B7A" : "#CBD5E1", color: fsScopeOpen ? "#0E8B7A" : "#5A6B7A" }}
+              aria-expanded={fsScopeOpen}
+            >
+              <SlidersHorizontal className="h-3 w-3" />
+              Scope
+            </button>
+
+            <div className="flex-1" />
+
+            {/* Zoom controls */}
+            <div className="flex items-center gap-0.5 rounded-md border p-0.5 shrink-0" style={{ borderColor: "#CBD5E1", background: "#FFFFFF" }}>
               <button
                 type="button"
-                onClick={closeEnlarged}
-                className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors shrink-0"
-                style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
-                aria-label="Exit map fullscreen"
+                onClick={fitView}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
+                style={{ color: "#1A2330" }}
+                title="Fit the whole estate to the screen"
               >
-                <Minimize2 className="h-3.5 w-3.5" />
-                Exit map
+                <Scan className="h-3.5 w-3.5" />
+                Fit
+              </button>
+              <button
+                type="button"
+                onClick={zoom100}
+                className="rounded px-2 py-1 text-[10px] font-semibold hover:bg-[#F4F6F8] transition-colors"
+                style={{ color: Math.abs(zoom - 1) < 0.01 ? "#0E8B7A" : "#5A6B7A" }}
+                title="Actual size (100%)"
+              >
+                100%
+              </button>
+              <button
+                type="button"
+                onClick={zoomOutStep}
+                className="inline-flex items-center justify-center rounded p-1 hover:bg-[#F4F6F8] transition-colors"
+                style={{ color: "#1A2330" }}
+                aria-label="Zoom out"
+              >
+                <ZoomOut className="h-3.5 w-3.5" />
+              </button>
+              <span className="w-10 text-center text-[10px] font-mono tabular-nums" style={{ color: "#5A6B7A" }}>
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={zoomInStep}
+                className="inline-flex items-center justify-center rounded p-1 hover:bg-[#F4F6F8] transition-colors"
+                style={{ color: "#1A2330" }}
+                aria-label="Zoom in"
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
               </button>
             </div>
-            {renderScopeControls(true)}
+
+            <button
+              type="button"
+              onClick={closeEnlarged}
+              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors shrink-0"
+              style={{ borderColor: "#CBD5E1", color: "#1A2330" }}
+              aria-label="Exit map fullscreen"
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
+              Exit
+            </button>
           </div>
-          <div className="flex-1 min-h-0 overflow-auto p-2">
-            {renderMap(true)}
+
+          {/* Scope controls — collapsed by default in fullscreen to reclaim chrome */}
+          {fsScopeOpen ? (
+            <div className="shrink-0 border-b px-2 py-1" style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}>
+              {renderScopeControls(true)}
+            </div>
+          ) : null}
+
+          {/* P0-A — zoom/pan viewport. overflow-hidden (was overflow-auto): the map
+              fits via transform, it does not scroll. */}
+          <div
+            ref={viewportRef}
+            className="flex-1 min-h-0 relative overflow-hidden"
+            style={{ cursor: panning ? "grabbing" : "grab", touchAction: "none" }}
+            onWheel={onViewportWheel}
+            onPointerDown={onPanDown}
+            onPointerMove={onPanMove}
+            onPointerUp={onPanUp}
+            onPointerLeave={onPanUp}
+          >
+            <div
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: "top left",
+                willChange: "transform",
+              }}
+            >
+              <div ref={contentRef} className="inline-block">
+                {renderMap(true, zoom, densityCollapsed)}
+              </div>
+            </div>
+            {densityCollapsed ? (
+              <div
+                className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
+                style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
+              >
+                Overview density — zoom in (or click a stack tile) for full cards
+              </div>
+            ) : null}
           </div>
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
