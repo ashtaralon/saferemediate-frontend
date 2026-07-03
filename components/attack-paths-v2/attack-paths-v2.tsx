@@ -40,6 +40,7 @@ import { PathListGrouped } from "./path-list-grouped"
 import { ExfilPathListColumn } from "./exfil-path-list-column"
 import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import { AttackPathPanel } from "./attack-path-panel"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
@@ -305,6 +306,16 @@ export function AttackPathsV2({
   }, [rawData])
 
   const jewels: CrownJewelSummary[] = data?.crown_jewels ?? []
+  // Trust gate: distinguish a real "0 crown jewels" from a cold/failed
+  // routing compute that returned HTTP 200 with an error envelope (jewels
+  // are derived from the Neo4j graph, so an empty list is only meaningful
+  // when the graph source was actually read). Prevents the false-empty
+  // "No crown jewels defined for this system yet" on a slow/erroring
+  // backend — CLAUDE.md rule #1. See lib/attack-paths/iap-response-health.
+  const iapHealth = useMemo(
+    () => classifyIapResponse(rawData, data),
+    [rawData, data],
+  )
   // Client-side stale-node gate. Runs on EVERY render — fresh AND
   // localStorage-SWR-cached. Drops paths whose nodes carry
   // is_active=false. The backend already filters on fresh responses;
@@ -657,6 +668,39 @@ export function AttackPathsV2({
           <button
             onClick={retry}
             className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/20 transition-colors"
+          >
+            <RefreshCw className="h-3 w-3" /> Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Errored / cold-compute envelope with no usable jewels — show an honest
+  // "couldn't compute" state, NEVER the false "No crown jewels defined"
+  // empty. Once the response is healthy (or has any jewels) this yields to
+  // the normal layout. Any-system: gated on the response's own provenance.
+  if (jewels.length === 0 && iapHealth.failed) {
+    return (
+      <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-6 max-w-md">
+          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-2">
+            <AlertTriangle className="h-5 w-5" />
+            <span className="text-sm font-semibold">Attack paths not computed yet</span>
+          </div>
+          <div className="text-xs text-muted-foreground mb-1">
+            The crown-jewel routing compute didn&apos;t complete for {systemName}
+            {" "}— this is not the same as &quot;no crown jewels.&quot; The backend
+            was likely cold or the graph snapshot wasn&apos;t ready.
+          </div>
+          {iapHealth.reason && (
+            <div className="text-[11px] font-mono text-muted-foreground/80 mb-3">
+              {iapHealth.reason}
+            </div>
+          )}
+          <button
+            onClick={retry}
+            className="inline-flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition-colors"
           >
             <RefreshCw className="h-3 w-3" /> Retry
           </button>
