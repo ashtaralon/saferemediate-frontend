@@ -148,9 +148,14 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
               <span>Checking activity…</span>
             </div>
           ) : state.kind === "error" ? (
-            <div className="flex items-center gap-2 text-sm text-rose-700">
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>Activity feed unavailable — {state.message}</span>
+            // A background "LIVE NOW" strip must never be the loudest failure on
+            // the page. The proxy now degrades to last-good / empty and returns
+            // 200 even when the backend is saturated, so this branch is reached
+            // only if the proxy itself is unreachable — degrade to a quiet muted
+            // line with a retry affordance, not a red alarm.
+            <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+              <AlertCircle className="w-3.5 h-3.5 opacity-60" />
+              <span>Couldn't refresh activity{state.message ? ` — ${state.message}` : ""}</span>
               <button
                 onClick={fetchLatest}
                 className="ml-1 text-xs font-medium text-[#2D51DA] hover:underline"

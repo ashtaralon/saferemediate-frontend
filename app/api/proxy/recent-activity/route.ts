@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "recent-activity"
@@ -68,6 +68,37 @@ export async function GET(_req: NextRequest) {
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
+
+  // This is a background "LIVE NOW" strip — a nice-to-have. It must NEVER be
+  // the loudest failure on the home page. Under the home-page thundering herd
+  // (~25 concurrent proxy calls saturating the single Render worker) the three
+  // backend sources can all 500/timeout, and any unhandled throw in here would
+  // surface to the browser as a raw Vercel 500 ("Activity feed unavailable —
+  // HTTP 500"). So: wrap the whole compute, and on ANY failure OR a fresh-but-
+  // empty result, fall back to the last-good feed. We always return 200 with an
+  // honest envelope; the strip degrades to last-good or a quiet idle, never a
+  // red alarm. (Matches the proxy contract in CLAUDE.md: stale fallback + honest
+  // error envelope.)
+  try {
+    return await computeFeed()
+  } catch (err) {
+    const stale = getStaleCached<typeof EMPTY_PAYLOAD>(CACHE_KEY)
+    if (stale) {
+      return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
+    }
+    return NextResponse.json(
+      {
+        ...EMPTY_PAYLOAD,
+        errors: [`recent-activity: ${err instanceof Error ? err.message : String(err)}`],
+      },
+      { headers: { "X-Cache": "ERROR-EMPTY" } },
+    )
+  }
+}
+
+const EMPTY_PAYLOAD = { items: [] as ActivityItem[], total: 0, errors: [] as string[] }
+
+async function computeFeed(): Promise<NextResponse> {
   const items: ActivityItem[] = []
   const errors: string[] = []
 
@@ -172,6 +203,24 @@ export async function GET(_req: NextRequest) {
     total: items.length,
     errors,
   }
+
+  if (items.length > 0) {
+    // Good fresh result — cache it (this also becomes the next stale fallback).
+    setCached(CACHE_KEY, payload, TTL_STD)
+    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
+  }
+
+  // Zero items. This is either a genuinely-quiet account or every source failed
+  // under load (errors[] is populated). Prefer the last-good feed so a transient
+  // backend hiccup doesn't blank the strip — but only if that stale actually had
+  // activity, so we never resurrect a stale over a truly-empty account.
+  const stale = getStaleCached<typeof payload>(CACHE_KEY)
+  if (stale && stale.items.length > 0) {
+    return NextResponse.json(stale, { headers: { "X-Cache": "STALE-EMPTY" } })
+  }
+
+  // Genuinely nothing to show. Cache the empty (with its errors) so we don't
+  // hammer the backend on every poll; the strip renders an honest quiet state.
   setCached(CACHE_KEY, payload, TTL_STD)
-  return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
+  return NextResponse.json(payload, { headers: { "X-Cache": "MISS-EMPTY" } })
 }
