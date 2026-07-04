@@ -103,8 +103,22 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await response.json()
+    const freshCount = Array.isArray(data?.events) ? data.events.length : 0
+    if (freshCount > 0) {
+      setCached(cacheKey, data, TTL_STD)
+      return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
+    }
+    // Backend answered 200 but with zero events. That's legitimate for a quiet
+    // query, but a cold/degraded Render worker also returns empty-200 (observed
+    // live: limit=1 flips empty→1-event as the worker warms). Prefer a last-good
+    // response that HAD events over blanking the surface; otherwise cache+serve
+    // the honest empty so a truly-quiet query still reads idle.
+    const staleWithEvents = getStaleCached<{ events?: unknown[] }>(cacheKey)
+    if (staleWithEvents && Array.isArray(staleWithEvents.events) && staleWithEvents.events.length > 0) {
+      return NextResponse.json(staleWithEvents, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
+    }
     setCached(cacheKey, data, TTL_STD)
-    return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
+    return NextResponse.json(data, { headers: { "X-Cache": "MISS-EMPTY" } })
   } catch (error: any) {
     // Timeout / network / parse — same posture: last-good, else empty. Always 200.
     console.error("[Remediation Timeline Proxy] error:", error?.message ?? String(error))
