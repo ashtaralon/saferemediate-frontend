@@ -180,12 +180,6 @@ export default function HomePage() {
   })
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
-  const [showSimulator, setShowSimulator] = useState(false)
-  const [isSimulating, setIsSimulating] = useState(false)
-  const [simSource, setSimSource] = useState("SafeRemediate-Test-App-1")
-  const [simTarget, setSimTarget] = useState("cyntro-demo-prod-data-745783559495")
-  const [simDays, setSimDays] = useState(420)
-  const [simEventsPerDay, setSimEventsPerDay] = useState(3)
 
   const fetchGapAnalysis = useCallback(() => {
     // Fetch from issues-summary which has aggregated permission data from all roles
@@ -608,40 +602,6 @@ export default function HomePage() {
     )
   }
 
-  // Demo scenarios for traffic simulation
-  const DEMO_SCENARIOS = [
-    { name: "EC2 → S3 (Prod)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", days: 420, eventsPerDay: 3 },
-    { name: "EC2 → Analytics", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", days: 180, eventsPerDay: 10 },
-    { name: "Lambda → Analytics", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", days: 90, eventsPerDay: 25 },
-  ]
-
-  const simulateTraffic = async () => {
-    setIsSimulating(true)
-    try {
-      const params = new URLSearchParams({
-        source: simSource,
-        target: simTarget,
-        days: simDays.toString(),
-        events_per_day: simEventsPerDay.toString(),
-        operations: "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
-      })
-
-      const response = await fetch(`/api/proxy/debug/simulate-traffic?${params}`, { method: 'POST' })
-      const data = await response.json()
-
-      if (data.success) {
-        alert(`Traffic Simulated!\n\n${data.message}\n\nTotal: ${data.details.total_events} events over ${data.details.days} days`)
-        setShowSimulator(false)
-      } else {
-        alert(`Error: ${data.detail || 'Unknown error'}`)
-      }
-    } catch (error) {
-      alert(`Error: ${error}`)
-    } finally {
-      setIsSimulating(false)
-    }
-  }
-
   const AutoRefreshToggle = () => (
     <div className="flex items-center gap-3 bg-white rounded-lg px-4 py-2 border border-[var(--border,#e5e7eb)] shadow-sm">
       <RefreshCw className={`h-4 w-4 text-[var(--muted-foreground,#6b7280)] ${autoRefresh ? "animate-spin" : ""}`} />
@@ -687,15 +647,6 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => setShowSimulator(true)}
-                  className="flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-green-700"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Simulate Traffic
-                </button>
                 <AutoRefreshToggle />
               </div>
             </div>
@@ -1061,74 +1012,6 @@ export default function HomePage() {
       <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
       <div className="flex-1 p-8">{renderContent()}</div>
 
-      {/* Traffic Simulator Modal */}
-      {showSimulator && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSimulator(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Simulate Traffic
-              </h2>
-              <button onClick={() => setShowSimulator(false)} className="p-1 hover:bg-white/20 rounded">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-2">Quick Scenarios</label>
-                <div className="flex flex-wrap gap-2">
-                  {DEMO_SCENARIOS.map((scenario, i) => (
-                    <button
-                      key={i}
-                      onClick={() => { setSimSource(scenario.source); setSimTarget(scenario.target); setSimDays(scenario.days); setSimEventsPerDay(scenario.eventsPerDay); }}
-                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition-colors"
-                    >
-                      {scenario.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Source Resource</label>
-                <input type="text" value={simSource} onChange={(e) => setSimSource(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Target S3 Bucket</label>
-                <input type="text" value={simTarget} onChange={(e) => setSimTarget(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Days</label>
-                  <input type="number" value={simDays} onChange={(e) => setSimDays(parseInt(e.target.value) || 30)}
-                    className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="730" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Events/Day</label>
-                  <input type="number" value={simEventsPerDay} onChange={(e) => setSimEventsPerDay(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="100" />
-                </div>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg text-sm text-[var(--muted-foreground,#4b5563)]">
-                <strong>Will simulate:</strong> {simDays * simEventsPerDay} events over {simDays} days ({Math.round(simDays/30)} months)
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button onClick={() => setShowSimulator(false)} className="flex-1 px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50">Cancel</button>
-                <button onClick={simulateTraffic} disabled={isSimulating || !simSource || !simTarget}
-                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-medium flex items-center justify-center gap-2">
-                  {isSimulating ? 'Simulating...' : 'Simulate Traffic'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

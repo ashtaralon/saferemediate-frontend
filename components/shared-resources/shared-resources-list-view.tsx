@@ -103,9 +103,12 @@ interface Filters {
   systemName: string
 }
 
+// systemName starts empty and is resolved on mount (URL ?system= → first
+// system from /api/systems) — a pinned demo default rendered the wrong
+// tenant's shared resources everywhere else.
 const DEFAULT_FILTERS: Filters = {
   showAllStates: false,
-  systemName: "alon-prod",
+  systemName: "",
 }
 
 export function SharedResourcesListView() {
@@ -157,6 +160,33 @@ export function SharedResourcesListView() {
       setLoading(false)
     }
   }, [filters.systemName])
+
+  // Resolve the active system once when unset (URL param → first system).
+  useEffect(() => {
+    if (filters.systemName) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const fromUrl = new URLSearchParams(window.location.search).get("system")
+        if (fromUrl) {
+          if (!cancelled) setFilters((f) => ({ ...f, systemName: fromUrl }))
+          return
+        }
+        const res = await fetch("/api/proxy/systems", { cache: "no-store" })
+        const json = res.ok ? await res.json() : {}
+        const name = (json.systems ?? [])[0]?.name
+        if (!cancelled && typeof name === "string" && name) {
+          setFilters((f) => ({ ...f, systemName: name }))
+        }
+      } catch {
+        // stay unresolved — the view renders its honest empty/error state
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     void fetchAll()

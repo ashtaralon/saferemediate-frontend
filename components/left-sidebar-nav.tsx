@@ -20,15 +20,35 @@ interface LeftSidebarNavProps {
  *  /api/iam/shared-roles + /api/sg/shared-sgs. Renders 4 today on
  *  alon-prod (3 IAM + 1 SG, empirically verified 2026-06-01). Honest
  *  small number per the spec's substrate-honesty contract. */
+/** Resolve the active system without pinning an environment: the URL's
+ *  ?system= param when present, else the first system from /api/systems.
+ *  Null = unknown (callers skip their fetch and render without a count). */
+async function resolveActiveSystem(): Promise<string | null> {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("system")
+    if (fromUrl) return fromUrl
+    const res = await fetch("/api/proxy/systems", { cache: "no-store" })
+    if (!res.ok) return null
+    const json = await res.json()
+    const name = (json.systems ?? [])[0]?.name
+    return typeof name === "string" && name.length > 0 ? name : null
+  } catch {
+    return null
+  }
+}
+
 function useSharedResourcesActionableCount(): number | null {
   const [count, setCount] = useState<number | null>(null)
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
+        const system = await resolveActiveSystem()
+        if (cancelled || !system) return
+        const qs = `system_name=${encodeURIComponent(system)}`
         const [iamRes, sgRes] = await Promise.all([
-          fetch("/api/proxy/iam/shared-roles?system_name=alon-prod", { cache: "no-store" }),
-          fetch("/api/proxy/sg/shared-sgs?system_name=alon-prod", { cache: "no-store" }),
+          fetch(`/api/proxy/iam/shared-roles?${qs}`, { cache: "no-store" }),
+          fetch(`/api/proxy/sg/shared-sgs?${qs}`, { cache: "no-store" }),
         ])
         if (cancelled) return
         const iamJson = iamRes.ok ? await iamRes.json() : {}
@@ -137,7 +157,10 @@ export function LeftSidebarNav({
     // "Observed-First Map". Renamed here to stop the drift before it spreads.
     // The route id stays "dependency-map" for URL stability (it's the route
     // path); only the operator-facing label changes.
-    { id: "dependency-map", label: "Observed-First Map", icon: MapIcon, href: "/dependency-map?system=alon-prod" },
+    // 2026-07-04 — dropped the pinned "?system=alon-prod" (same rationale as
+    // the attack-paths-v2 entry above): the page now resolves the system
+    // itself when the param is absent.
+    { id: "dependency-map", label: "Observed-First Map", icon: MapIcon, href: "/dependency-map" },
     { id: "network-lp", label: "Network LP", icon: Network, href: "/network-lp" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "orphan-resources", label: "Orphan Resources", icon: Trash2, href: "/orphan-resources" },

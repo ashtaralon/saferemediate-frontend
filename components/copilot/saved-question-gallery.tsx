@@ -6,14 +6,19 @@ import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-ro
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 
-const EXAMPLE_PROMPTS = [
-  "how many S3 buckets do I have?",
-  "which IAM role has the most unused permissions?",
-  "list lambda functions in alon-prod",
-  "what's the blast radius of alon-prod?",
-  "what changed in the last 7 days?",
-  "what can I safely remediate right now?",
-]
+// Example prompts derive from the active system — never name a pinned one.
+function examplePrompts(systemName?: string): string[] {
+  const scope = systemName ? ` in ${systemName}` : ""
+  const target = systemName ?? "my environment"
+  return [
+    "how many S3 buckets do I have?",
+    "which IAM role has the most unused permissions?",
+    `list lambda functions${scope}`,
+    `what's the blast radius of ${target}?`,
+    "what changed in the last 7 days?",
+    "what can I safely remediate right now?",
+  ]
+}
 
 interface SavedQuestionGalleryProps {
   systemName?: string
@@ -204,7 +209,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         </div>
         {!answer.loading && !answer.result && !answer.error && (
           <div className="mt-3 flex flex-wrap gap-2">
-            {EXAMPLE_PROMPTS.map((p) => (
+            {examplePrompts(systemName).map((p) => (
               <button
                 key={p}
                 onClick={() => handleFreeformAsk(p)}
