@@ -8,6 +8,9 @@
  *   - SecurityGroup → rules (configured + observed usage + unused-rule recs)
  *   - S3            → public-access block + bucket policy statements
  *   - Subnet        → properties, route targets, NACLs, placed resources
+ *   - KMSKey        → key policy, rotation/key state, observed accessors
+ *   - Secret        → resource policy, rotation config (never the material)
+ *   - DynamoDB      → table properties, encryption, PITR, observed accessors
  *   - RDS / EC2 / NetworkACL → unified current/observed sections
  *
  * Every value is payload-backed; absent data renders an honest empty state
@@ -306,6 +309,257 @@ function SubnetProperties({ data }: { data: InspectorPayload }) {
   )
 }
 
+// ── Shared building blocks for the KMS / Secret / DynamoDB sections ──
+
+function PolicyStatements({ policy, emptyLabel }: { policy: any; emptyLabel: string }) {
+  if (!policy || policy.exists === false) return <EmptyNote>{emptyLabel}</EmptyNote>
+  const statements: any[] = Array.isArray(policy.statements) ? policy.statements : []
+  if (statements.length === 0) {
+    return <EmptyNote>Policy present but statements not readable.</EmptyNote>
+  }
+  return (
+    <div className="space-y-2">
+      {statements.map((st: any, i: number) => (
+        <details key={i} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <summary className="cursor-pointer text-sm text-slate-800">
+            <span className={`font-semibold ${st.Effect === "Deny" ? "text-red-700" : "text-slate-900"}`}>{st.Effect}</span>
+            <span className="font-mono text-xs text-slate-600 ml-2">
+              {Array.isArray(st.Action) ? st.Action.join(", ") : String(st.Action ?? "—")}
+            </span>
+            {st.Sid ? <span className="text-xs text-slate-400 ml-2">({st.Sid})</span> : null}
+          </summary>
+          <pre className="mt-2 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap">
+            {JSON.stringify(st, null, 2)}
+          </pre>
+        </details>
+      ))}
+    </div>
+  )
+}
+
+function ObservedAccessors({ observed }: { observed: any }) {
+  const accessors: any[] = Array.isArray(observed?.accessors) ? observed.accessors : []
+  if (observed?.available === false) {
+    return <EmptyNote>{observed?.message ?? "Behavioral usage unavailable."}</EmptyNote>
+  }
+  if (accessors.length === 0) {
+    return <EmptyNote>No accessors recorded in the graph for this resource.</EmptyNote>
+  }
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-left text-xs text-slate-500">
+          <tr>
+            <th className="px-3 py-2 font-medium">Principal</th>
+            <th className="px-3 py-2 font-medium">Actions</th>
+            <th className="px-3 py-2 font-medium">Last seen</th>
+            <th className="px-3 py-2 font-medium">Hits</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {accessors.map((a, i) => (
+            <tr key={i} className="align-top">
+              <td className="px-3 py-2">
+                <span className="font-mono text-xs text-slate-900">{a.principal}</span>
+                {a.principal_type && (
+                  <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
+                    {a.principal_type}
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px] text-slate-700">
+                {Array.isArray(a.actions) && a.actions.length > 0 ? a.actions.join(", ") : "—"}
+              </td>
+              <td className="px-3 py-2 text-xs text-slate-500">{a.last_seen ?? "—"}</td>
+              <td className="px-3 py-2 text-xs text-slate-700">{a.hit_count ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const REC_BADGE: Record<string, string> = {
+  high: "bg-red-50 text-red-700 border-red-200",
+  warning: "bg-amber-50 text-amber-700 border-amber-200",
+  info: "bg-slate-50 text-slate-600 border-slate-200",
+}
+
+function Recommendations({ remove }: { remove: any }) {
+  const items: any[] = Array.isArray(remove?.items) ? remove.items : []
+  if (items.length === 0) return null
+  return (
+    <div>
+      <SectionTitle>Recommendations</SectionTitle>
+      <ul className="space-y-1.5">
+        {items.map((rec, i) => (
+          <li key={i} className="text-sm text-slate-700 flex items-baseline gap-2">
+            <span className={`text-[11px] px-1.5 py-0.5 rounded border shrink-0 ${REC_BADGE[rec.severity] ?? REC_BADGE.info}`}>
+              {(rec.type ?? "review").replace(/_/g, " ")}
+            </span>
+            <span className="text-xs">{rec.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function StateChip({ label, value, tone }: { label: string; value: any; tone: "good" | "bad" | "warn" | "muted" }) {
+  const tones: Record<string, string> = {
+    good: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    bad: "bg-red-50 text-red-700 border-red-200",
+    warn: "bg-amber-50 text-amber-700 border-amber-200",
+    muted: "bg-slate-50 text-slate-600 border-slate-200",
+  }
+  return (
+    <span className={`px-2 py-1 rounded-md border text-xs ${tones[tone]}`}>
+      {label}: <strong>{value === null || value === undefined ? "—" : String(value)}</strong>
+    </span>
+  )
+}
+
+function KmsKeySections({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const encrypted: any[] = Array.isArray(data.observed?.encrypted_resources)
+    ? data.observed.encrypted_resources
+    : []
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        <StateChip
+          label="Key state"
+          value={current.key_state}
+          tone={current.key_state === "Enabled" ? "good" : current.key_state ? "bad" : "muted"}
+        />
+        <StateChip
+          label="Rotation"
+          value={current.rotation_enabled === null || current.rotation_enabled === undefined ? null : current.rotation_enabled ? "enabled" : "disabled"}
+          tone={current.rotation_enabled ? "good" : current.rotation_enabled === false ? "warn" : "muted"}
+        />
+        <StateChip label="Manager" value={current.key_manager} tone="muted" />
+        <StateChip label="Spec" value={current.key_spec} tone="muted" />
+        <StateChip label="Usage" value={current.key_usage} tone="muted" />
+        {current.policy_flags?.has_wildcard_principal && (
+          <StateChip label="Policy" value="wildcard principal" tone="warn" />
+        )}
+      </div>
+
+      {Array.isArray(current.aliases) && current.aliases.length > 0 && (
+        <p className="text-xs text-slate-500 font-mono">{current.aliases.join(", ")}</p>
+      )}
+
+      <div>
+        <SectionTitle>Key policy</SectionTitle>
+        <PolicyStatements policy={current.key_policy} emptyLabel="Key policy not recorded for this key." />
+      </div>
+
+      <div>
+        <SectionTitle>Observed usage</SectionTitle>
+        <ObservedAccessors observed={data.observed} />
+      </div>
+
+      {encrypted.length > 0 && (
+        <div>
+          <SectionTitle>Encrypts · {encrypted.length}</SectionTitle>
+          <ul className="space-y-1 text-sm">
+            {encrypted.map((r, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <span className="text-[11px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
+                  {r.type ?? "resource"}
+                </span>
+                <span className="font-mono text-xs text-slate-900">{r.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <Recommendations remove={data.remove} />
+      {current.source && <p className="text-[11px] text-slate-400">Source: {current.source}</p>}
+    </div>
+  )
+}
+
+function SecretSections({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const rotation = current.rotation ?? {}
+  const observed = data.observed ?? {}
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        <StateChip
+          label="Rotation"
+          value={rotation.enabled === null || rotation.enabled === undefined ? null : rotation.enabled ? "enabled" : "disabled"}
+          tone={rotation.enabled ? "good" : rotation.enabled === false ? "warn" : "muted"}
+        />
+        {rotation.lambda_arn && <StateChip label="Rotation λ" value={String(rotation.lambda_arn).split(":").pop()} tone="muted" />}
+        {current.kms_key_id && <StateChip label="KMS key" value={String(current.kms_key_id).split("/").pop()} tone="muted" />}
+        <StateChip label="Last accessed" value={observed.last_accessed} tone="muted" />
+        <StateChip label="Last changed" value={observed.last_changed} tone="muted" />
+      </div>
+
+      <div>
+        <SectionTitle>Resource policy</SectionTitle>
+        <PolicyStatements policy={current.resource_policy} emptyLabel="No resource policy attached." />
+      </div>
+
+      <div>
+        <SectionTitle>Observed access</SectionTitle>
+        <ObservedAccessors observed={observed} />
+      </div>
+
+      <Recommendations remove={data.remove} />
+      <p className="text-[11px] text-slate-400">
+        Metadata and policy only — the secret material is never read or displayed.
+        {current.source ? ` Source: ${current.source}` : ""}
+      </p>
+    </div>
+  )
+}
+
+function DynamoDbSections({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const encryption = current.encryption ?? {}
+  const pitr = current.point_in_time_recovery ?? {}
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        <StateChip
+          label="Encryption"
+          value={encryption.available === false ? "unavailable" : encryption.type ?? encryption.status}
+          tone={encryption.available === false ? "muted" : "good"}
+        />
+        <StateChip
+          label="PITR"
+          value={pitr.available === false ? "unavailable" : pitr.enabled ? "enabled" : "disabled"}
+          tone={pitr.available === false ? "muted" : pitr.enabled ? "good" : "warn"}
+        />
+      </div>
+      {(encryption.available === false || pitr.available === false) && (
+        <p className="text-[11px] text-slate-400">
+          {encryption.available === false ? `Encryption: ${encryption.message ?? "unavailable"}. ` : ""}
+          {pitr.available === false ? `PITR: ${pitr.message ?? "unavailable"}.` : ""}
+        </p>
+      )}
+
+      <div>
+        <SectionTitle>Table properties</SectionTitle>
+        <KeyValueGrid obj={current.properties ?? {}} />
+      </div>
+
+      <div>
+        <SectionTitle>Observed access</SectionTitle>
+        <ObservedAccessors observed={data.observed} />
+      </div>
+
+      <Recommendations remove={data.remove} />
+      {current.source && <p className="text-[11px] text-slate-400">Source: {current.source}</p>}
+    </div>
+  )
+}
+
 function UnifiedSections({ data }: { data: InspectorPayload }) {
   const sections = [data.current, data.observed, data.remove].filter(Boolean)
   if (sections.length === 0) {
@@ -395,5 +649,8 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   if (kind === "SecurityGroup") return <SecurityGroupRules data={data} />
   if (kind === "S3") return <S3Policies data={data} />
   if (kind === "Subnet") return <SubnetProperties data={data} />
+  if (kind === "KMSKey") return <KmsKeySections data={data} />
+  if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
+  if (kind === "DynamoDB" || kind === "DynamoDBTable") return <DynamoDbSections data={data} />
   return <UnifiedSections data={data} />
 }
