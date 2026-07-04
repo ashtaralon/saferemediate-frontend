@@ -25,7 +25,7 @@ import { SavedQuestionGallery } from "@/components/copilot/saved-question-galler
 // full parity (filterActivePaths gate + IAM/S3/SG remediation modals) plus
 // the every-path Explorer view. Its types remain the shared response shape.
 import { AttackPathsV2 } from "@/components/attack-paths-v2/attack-paths-v2"
-// AttackerMap is consumed by system-detail-dashboard.tsx (Risk → Attacker Map
+// AttackerMap is consumed by attack-paths-v2.tsx (Risk → Attack Paths → Attacker Map, 2026-07 merge
 // sub-tab), not as a top-level section. The top-level case below was removed
 // when we discovered the (selectedSystem, activeSection) routing can't hold
 // both at once — see system-detail-dashboard.tsx for the canonical entry.
@@ -1023,7 +1023,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="explorer" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attacker_map" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 
