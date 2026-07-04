@@ -297,7 +297,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   useEffect(() => {
     if (!data?.available_vpcs?.length) return
     const key = `${VPC_STORAGE_PREFIX}${systemName}`
-    if (typeof window !== "undefined" && window.localStorage.getItem(key) != null) return
+    // Treat a persisted "all" as unset. The merged view crams cross-VPC
+    // workloads into ONE VPC's subnet frame (the backend's vpc_topology only
+    // carries the primary VPC's subnets, so a second VPC's workloads get
+    // force-fit into the primary's tiers) — honest per-VPC frames are a
+    // follow-up. Until then a multi-VPC system should LAND on its primary
+    // VPC (a true 1:1 scoped view), not the confusing merged canvas. An
+    // explicit non-"all" VPC choice is still respected.
+    const persisted =
+      typeof window !== "undefined" ? window.localStorage.getItem(key) : null
+    if (persisted != null && persisted !== "all") return
     const primary = data.vpc_id ?? data.available_vpcs[0]?.vpc_id
     if (primary) setSelectedVpcId(primary)
   }, [data?.available_vpcs, data?.vpc_id, systemName])
