@@ -30,6 +30,7 @@ import {
   SEVERITY_ACCENT,
   rankedInitialAccessForPath,
 } from "@/lib/attack-paths/initial-access-labels"
+import { postEc2ImdsShadowRemediation } from "@/lib/use-ec2-imds-remediation"
 
 interface CJSpotlightStripProps {
   jewel: CrownJewelSummary
@@ -392,9 +393,52 @@ function PathDropdown({
   )
 }
 
+function ec2InstanceIdFromPath(path: ConvergencePath): string | null {
+  const ia = rankedInitialAccessForPath(path)[0]
+  const pivot = ia?.pivot_node_id
+  if (pivot) {
+    const match = pivot.match(/i-[a-f0-9]+/i)
+    if (match) return match[0]
+  }
+  for (const hop of path.hops ?? []) {
+    const type = (hop.node_type ?? "").toLowerCase()
+    if (type.includes("ec2") || type.includes("instance")) {
+      const id = hop.node_id ?? ""
+      const match = id.match(/i-[a-f0-9]+/i)
+      if (match) return match[0]
+    }
+  }
+  return null
+}
+
 function AC1EvidenceCard({ path }: { path: ConvergencePath }) {
   const title = path.catalog_title ?? "SSRF → IMDSv1 → instance role → S3"
   const ia = rankedInitialAccessForPath(path)[0]
+  const instanceId = ec2InstanceIdFromPath(path)
+  const [shadowState, setShadowState] = useState<"idle" | "loading" | "done" | "error">("idle")
+  const [shadowMessage, setShadowMessage] = useState<string | null>(null)
+
+  const handleShadowRemediate = async () => {
+    if (!instanceId) return
+    setShadowState("loading")
+    setShadowMessage(null)
+    try {
+      const result = await postEc2ImdsShadowRemediation({
+        instance_id: instanceId,
+        annotation: `AC-1 shadow IMDSv2 for path ${path.path_id}`,
+      })
+      setShadowState("done")
+      setShadowMessage(
+        result.blocked_reasons?.length
+          ? `Shadow recorded (${result.shadow_record_id}) — blocked: ${result.blocked_reasons.join(", ")}`
+          : `Shadow recorded — would set HttpTokens=${result.would_set_http_tokens ?? "required"}`,
+      )
+    } catch (err) {
+      setShadowState("error")
+      setShadowMessage(err instanceof Error ? err.message : "Shadow remediation failed")
+    }
+  }
+
   return (
     <div
       className="w-full rounded-lg border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-[11px] text-rose-100"
@@ -417,6 +461,29 @@ function AC1EvidenceCard({ path }: { path: ConvergencePath }) {
           {ia.pivot_name ? ` via ${ia.pivot_name}` : ""}
         </div>
       )}
+      {instanceId ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="ac1-shadow-imds-button"
+            disabled={shadowState === "loading"}
+            onClick={() => void handleShadowRemediate()}
+            className="rounded-md border border-rose-400/50 bg-rose-900/40 px-2 py-1 text-[10px] font-medium text-rose-100 hover:bg-rose-900/60 disabled:opacity-50"
+          >
+            {shadowState === "loading" ? "Recording shadow…" : "Shadow enforce IMDSv2"}
+          </button>
+          <span className="text-[10px] text-rose-300/70 font-mono">{instanceId}</span>
+        </div>
+      ) : null}
+      {shadowMessage ? (
+        <div
+          className={`mt-1 text-[10px] ${
+            shadowState === "error" ? "text-rose-300" : "text-emerald-300"
+          }`}
+        >
+          {shadowMessage}
+        </div>
+      ) : null}
     </div>
   )
 }
