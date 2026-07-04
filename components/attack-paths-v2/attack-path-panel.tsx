@@ -63,6 +63,8 @@ interface AttackPathPanelProps {
   onOpenRoleSplit?: (roleName: string) => void
   /** Hide the per-path Attack map block (see AttackPathsV2.showEmbeddedAttackMap). */
   showEmbeddedAttackMap?: boolean
+  /** Attacker Map tab: render only the embedded Attack map block. */
+  mapOnlyPanel?: boolean
 }
 
 // Severity fields are all required on the IdentityAttackPath
@@ -102,6 +104,7 @@ export function AttackPathPanel({
   onToggleExpand,
   onOpenRoleSplit,
   showEmbeddedAttackMap = true,
+  mapOnlyPanel = false,
 }: AttackPathPanelProps) {
   // Canvas v2 — visual polish layer (caption strip, severity halo,
   // ENTRY chip, lateral dimming, verb chips, palette consolidation).
@@ -420,6 +423,7 @@ export function AttackPathPanel({
       sharedRoleCallout={sharedRoleCallout}
       onOpenRoleSplit={onOpenRoleSplit}
       showEmbeddedAttackMap={showEmbeddedAttackMap}
+      mapOnlyPanel={mapOnlyPanel}
     />
   )
 }

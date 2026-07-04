@@ -76,6 +76,8 @@ interface PathAnalysisPanelProps {
   /** When false, hides the per-path Attack map block (AttackPathLaneFlowMap).
    *  Dashboard Attack Paths tab sets false; Attacker Map tab sets true. */
   showEmbeddedAttackMap?: boolean
+  /** Attacker Map tab: only the Attack map block — no header, report, or evidence. */
+  mapOnlyPanel?: boolean
 }
 
 // V2-1 helper: middle-truncate a jewel name for the caption strip.
@@ -225,6 +227,7 @@ export function PathAnalysisPanel({
   sharedRoleCallout = null,
   onOpenRoleSplit,
   showEmbeddedAttackMap = true,
+  mapOnlyPanel = false,
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
@@ -319,6 +322,51 @@ export function PathAnalysisPanel({
       .join(" · ")
     return { parts, pathLabel, detail }
   }, [path.materialized_path])
+
+  const embeddedAttackMap = showEmbeddedAttackMap && attackMapCyntro ? (
+    <div className="border-b border-border bg-background flex flex-col flex-1 min-h-0">
+      <div className="px-6 pt-4 pb-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+          Attack map
+        </p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          All paths to this crown jewel, placed on the live VPC topology.
+          Observed (CloudTrail) vs configured. Legacy map:{" "}
+          <span className="font-mono">?map=legacy</span>
+        </p>
+      </div>
+      {sharedRoleCallout ? (
+        <SharedRoleCallout
+          data={sharedRoleCallout}
+          onSplit={onOpenRoleSplit}
+        />
+      ) : null}
+      <div
+        className={`relative overflow-auto rounded-[14px] px-3 pt-2 pb-4 ${mapOnlyPanel ? "flex-1 min-h-[70vh]" : "min-h-[560px]"}`}
+        data-testid="attack-path-flow-map-slot"
+      >
+        <AttackPathLaneFlowMap
+          path={path}
+          jewel={jewel}
+          systemName={systemName}
+          architecture={architecture}
+          architectureLoading={architectureLoading}
+        />
+      </div>
+    </div>
+  ) : null
+
+  if (mapOnlyPanel) {
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        {embeddedAttackMap ?? (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground px-6">
+            Attack map unavailable — enable Cyntro map mode or select a path.
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -424,48 +472,7 @@ export function PathAnalysisPanel({
 
       {/* Attack map — primary visual; lives on Attacker Map tab only when
           showEmbeddedAttackMap is false on the Attack Paths tab. */}
-      {showEmbeddedAttackMap && attackMapCyntro && (
-        <div className="border-b border-border bg-background">
-          <div className="px-6 pt-4 pb-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-              Attack map
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              All paths to this crown jewel, placed on the live VPC topology.
-              Observed (CloudTrail) vs configured. Legacy map:{" "}
-              <span className="font-mono">?map=legacy</span>
-            </p>
-          </div>
-          {/* Shared-role callout — cites the canonical IAMRole.workload_count
-              (role_consumer_rollup) in role terms and links to the role-split
-              remediation. Hidden unless the on-path role is genuinely shared
-              (count >= 2 from the backend). Never card-counts the canvas. */}
-          {sharedRoleCallout ? (
-            <SharedRoleCallout
-              data={sharedRoleCallout}
-              onSplit={onOpenRoleSplit}
-            />
-          ) : null}
-          <div
-            className="relative overflow-auto min-h-[560px] rounded-[14px] px-3 pt-2 pb-4"
-            data-testid="attack-path-flow-map-slot"
-          >
-            {/* Path-scoped Traffic Map — the exact TrafficFlowMap engine the
-                Topology tab uses, filtered to THIS attack path via pathFilter
-                (on-path chain + lateral pivots), per Alon 2026-07. Replaces the
-                multi-path ConvergenceMapLoader so the Attack Path tab's map
-                shows only the relevant path (e.g. i-… → the crown-jewel bucket)
-                1:1 with Topology's Traffic Map. */}
-            <AttackPathLaneFlowMap
-              path={path}
-              jewel={jewel}
-              systemName={systemName}
-              architecture={architecture}
-              architectureLoading={architectureLoading}
-            />
-          </div>
-        </div>
-      )}
+      {embeddedAttackMap}
 
       {/* Attacker next moves — compact lateral fan-out, full detail in the
           Lateral Movement tab. docs/specs/attack_path_lateral_movement_v1.md */}

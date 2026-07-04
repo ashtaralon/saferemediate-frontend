@@ -2589,15 +2589,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "attacker-map" && (
         <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          {/* 2026-07 split: Attacker Map tab — same 3-column Attack Paths
-              surface with the embedded per-path Attack map (1:1 move from
-              the old Attack Paths right panel). */}
+          {/* Attacker Map tab: map-only right panel (no mode chips / report). */}
           <SystemAttackPaths
             key={`${systemName}-${refreshKey}-map`}
             systemName={systemName}
             embedded
             defaultMode="attack-path"
             showEmbeddedAttackMap={true}
+            mapOnlyPanel={true}
           />
         </div>
         </LightRouteIsland>
