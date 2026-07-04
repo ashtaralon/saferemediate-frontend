@@ -61,13 +61,15 @@ interface RiskyPort {
 interface SimulationResult {
   port: number
   can_remediate: boolean
-  confidence: number
+  // Backend simulate verdict (graph-backed) — null if the backend omitted it
+  backend_is_safe: boolean | null
+  backend_warnings: string[]
   reason: string
   traffic_summary: {
     total_bytes: number
     total_packets: number
     last_activity: string | null
-    days_since_activity: number
+    days_since_activity: number | null
     sources: number
   }
   impact: {
@@ -76,7 +78,6 @@ interface SimulationResult {
     will_break_connections: boolean
   }
   recommendation: 'SAFE_TO_BLOCK' | 'BLOCK_WITH_CAUTION' | 'DO_NOT_BLOCK' | 'RESTRICT_INSTEAD'
-  action_items: string[]
 }
 
 // Port to service mapping
@@ -122,6 +123,7 @@ export function RiskyPortsDashboard() {
   const [expandedPort, setExpandedPort] = useState<number | null>(null)
   const [simulating, setSimulating] = useState<number | null>(null)
   const [simulationResults, setSimulationResults] = useState<Record<number, SimulationResult>>({})
+  const [simulationErrors, setSimulationErrors] = useState<Record<number, string>>({})
   const [runningBulkSimulation, setRunningBulkSimulation] = useState(false)
 
   useEffect(() => {
@@ -313,77 +315,54 @@ export function RiskyPortsDashboard() {
         })
       })
 
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}))
+        throw new Error(errBody.error || `Simulation failed: HTTP ${response.status}`)
+      }
       const simData = await response.json()
 
-      // Build simulation result
+      // Backend verdict is graph-backed: potential_impact carries active
+      // connections observed on the rule; safety.warnings are the engine's
+      // own caveats. Never override these with client-side guesses.
+      const backendIsSafe: boolean | null = typeof simData.safety?.is_safe === 'boolean' ? simData.safety.is_safe : null
+      const backendWarnings: string[] = simData.safety?.warnings || []
+      const backendImpact: any[] = simData.potential_impact || []
+
+      // Route the verdict from real observations (VPC Flow traffic on the
+      // port + the backend's active-connection check). This is a client-side
+      // routing of real data, labeled as such in the UI — not a confidence
+      // score, which only the engine may claim.
       const trafficBytes = port.traffic.bytes
       const hasTraffic = trafficBytes > 0
-      const isOld = port.traffic.days_observed > 30
       const daysSinceActivity = port.traffic.last_seen
         ? Math.floor((Date.now() - new Date(port.traffic.last_seen).getTime()) / (1000 * 60 * 60 * 24))
-        : 999
+        : null
 
       let recommendation: SimulationResult['recommendation']
-      let confidence: number
       let reason: string
-      let actionItems: string[] = []
 
-      if (!hasTraffic) {
+      if (!hasTraffic && backendIsSafe !== false) {
         recommendation = 'SAFE_TO_BLOCK'
-        confidence = 95
-        reason = 'No traffic observed on this port. Safe to block without service disruption.'
-        actionItems = [
-          'Create snapshot before blocking',
-          'Block the port',
-          'Monitor for 24h for any issues',
-          'Remove snapshot after confirmation'
-        ]
-      } else if (daysSinceActivity > 30) {
+        reason = 'No traffic observed on this port and the backend simulation found no active connections on the rule.'
+      } else if (daysSinceActivity !== null && daysSinceActivity > 30 && backendIsSafe !== false) {
         recommendation = 'SAFE_TO_BLOCK'
-        confidence = 85
-        reason = `Last activity was ${daysSinceActivity} days ago. Port appears dormant and safe to block.`
-        actionItems = [
-          'Verify with application team',
-          'Create snapshot',
-          'Block during maintenance window',
-          'Keep snapshot for 7 days'
-        ]
-      } else if (trafficBytes < 1000000 && port.traffic.unique_sources < 5) {
-        recommendation = 'BLOCK_WITH_CAUTION'
-        confidence = 70
-        reason = `Low traffic (${formatBytes(trafficBytes)}) from ${port.traffic.unique_sources} sources. Consider blocking with monitoring.`
-        actionItems = [
-          'Alert application owners',
-          'Create snapshot',
-          'Block during low-usage period',
-          'Monitor closely for 48h'
-        ]
-      } else if (port.is_public && port.highest_cvss >= 9.0) {
+        reason = `Last activity was ${daysSinceActivity} days ago and the backend simulation found no active connections on the rule.`
+      } else if (port.is_public && port.highest_cvss >= 9.0 && hasTraffic) {
         recommendation = 'RESTRICT_INSTEAD'
-        confidence = 80
-        reason = `High traffic but CRITICAL vulnerabilities (CVSS ${port.highest_cvss}). Restrict to known IPs instead of full block.`
-        actionItems = [
-          'Identify legitimate source IPs',
-          'Replace 0.0.0.0/0 with specific CIDRs',
-          'Apply patches urgently',
-          'Consider WAF/firewall rules'
-        ]
-      } else {
+        reason = `Active traffic with CRITICAL vulnerabilities (CVSS ${port.highest_cvss}). Restrict to known sources instead of a full block.`
+      } else if (hasTraffic && (backendIsSafe === false || (daysSinceActivity !== null && daysSinceActivity < 7))) {
         recommendation = 'DO_NOT_BLOCK'
-        confidence = 90
-        reason = `Active traffic (${formatBytes(trafficBytes)}) with ${port.traffic.unique_sources} unique sources. Blocking will disrupt services.`
-        actionItems = [
-          'Apply software patches instead',
-          'Implement network segmentation',
-          'Add monitoring/alerting',
-          'Schedule maintenance window for patching'
-        ]
+        reason = `Active traffic (${formatBytes(trafficBytes)}) from ${port.traffic.unique_sources} sources${backendImpact.length > 0 ? `; backend found ${backendImpact.length} rule(s) with active connections` : ''}. Blocking will disrupt services.`
+      } else {
+        recommendation = 'BLOCK_WITH_CAUTION'
+        reason = `Some traffic observed (${formatBytes(trafficBytes)}, ${port.traffic.unique_sources} sources). Review with owners before blocking.`
       }
 
       const result: SimulationResult = {
         port: port.port,
         can_remediate: recommendation === 'SAFE_TO_BLOCK' || recommendation === 'BLOCK_WITH_CAUTION',
-        confidence,
+        backend_is_safe: backendIsSafe,
+        backend_warnings: backendWarnings,
         reason,
         traffic_summary: {
           total_bytes: trafficBytes,
@@ -395,15 +374,17 @@ export function RiskyPortsDashboard() {
         impact: {
           affected_resources: port.affected_resources.length,
           affected_sgs: port.sg_rules.length,
-          will_break_connections: hasTraffic && daysSinceActivity < 7
+          // Backend's graph check, not a client guess
+          will_break_connections: backendImpact.length > 0
         },
         recommendation,
-        action_items: actionItems
       }
 
       setSimulationResults(prev => ({ ...prev, [port.port]: result }))
+      setSimulationErrors(prev => { const next = { ...prev }; delete next[port.port]; return next })
     } catch (err: any) {
       console.error('Simulation failed:', err)
+      setSimulationErrors(prev => ({ ...prev, [port.port]: err.message || 'Simulation failed' }))
     } finally {
       setSimulating(null)
     }
@@ -856,16 +837,10 @@ export function RiskyPortsDashboard() {
                                     {simResult.recommendation.replace(/_/g, ' ')}
                                   </h4>
                                   <p className="text-sm opacity-80">
-                                    Confidence: {simResult.confidence}%
+                                    Routed from observed traffic + backend simulation
                                   </p>
                                 </div>
                               </div>
-                              {simResult.can_remediate && (
-                                <button className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 flex items-center gap-2">
-                                  <ShieldCheck className="w-4 h-4" />
-                                  Apply Remediation
-                                </button>
-                              )}
                             </div>
 
                             <p className="mb-4">{simResult.reason}</p>
@@ -876,18 +851,28 @@ export function RiskyPortsDashboard() {
                                 <ul className="text-sm space-y-1">
                                   <li>• {simResult.impact.affected_resources} resources affected</li>
                                   <li>• {simResult.impact.affected_sgs} security groups</li>
-                                  <li>• {simResult.impact.will_break_connections ? '⚠️ Will break active connections' : '✓ No active connections to break'}</li>
+                                  <li>• {simResult.impact.will_break_connections ? '⚠️ Backend found active connections on this rule' : '✓ Backend found no active connections on this rule'}</li>
                                 </ul>
                               </div>
                               <div>
-                                <h5 className="font-semibold mb-2">Recommended Actions</h5>
-                                <ol className="text-sm space-y-1 list-decimal list-inside">
-                                  {simResult.action_items.map((item, idx) => (
-                                    <li key={idx}>{item}</li>
-                                  ))}
-                                </ol>
+                                <h5 className="font-semibold mb-2">Engine Warnings</h5>
+                                {simResult.backend_warnings.length > 0 ? (
+                                  <ul className="text-sm space-y-1">
+                                    {simResult.backend_warnings.map((item, idx) => (
+                                      <li key={idx}>• {item}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-sm opacity-70">No warnings from the backend simulation.</p>
+                                )}
                               </div>
                             </div>
+                          </div>
+                        )}
+
+                        {simulationErrors[port.port] && !simResult && (
+                          <div className="rounded-lg border p-3 text-sm" style={{ background: '#ef444410', borderColor: '#ef444440', color: '#b91c1c' }}>
+                            Simulation failed: {simulationErrors[port.port]}
                           </div>
                         )}
 

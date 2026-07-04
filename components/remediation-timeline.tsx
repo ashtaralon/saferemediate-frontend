@@ -1046,32 +1046,39 @@ export function RemediationTimeline({
         const newRole = snapshot.new_role
         resourceId = originalRole
 
-        // Use actual data from before/after states when available
-        const originalPermCount = parsedBefore.total_permissions || parsedBefore.allowed_actions?.length || snapshot.original_permissions_count || 30
-        const usedPermCount = parsedAfter.total_permissions || parsedAfter.allowed_actions?.length || snapshot.used_permissions_count || 6
-        permissionsRemoved = snapshot.permissions_removed || (originalPermCount - usedPermCount)
+        // Use actual data from before/after states when available. When no
+        // source records the counts, keep them null and say so — never
+        // substitute invented numbers.
+        const originalPermCount: number | null = parsedBefore.total_permissions || parsedBefore.allowed_actions?.length || snapshot.original_permissions_count || null
+        const usedPermCount: number | null = parsedAfter.total_permissions || parsedAfter.allowed_actions?.length || snapshot.used_permissions_count || null
+        permissionsRemoved = snapshot.permissions_removed ||
+          (originalPermCount !== null && usedPermCount !== null ? originalPermCount - usedPermCount : 0)
 
         beforeState = Object.keys(parsedBefore).length > 0 ? parsedBefore : {
           role_name: originalRole,
-          permissions_count: originalPermCount,
+          ...(originalPermCount !== null ? { permissions_count: originalPermCount } : {}),
           description: "Original role with all attached permissions",
           status: "over-privileged"
         }
 
         afterState = Object.keys(parsedAfter).length > 0 ? parsedAfter : {
           role_name: newRole,
-          permissions_count: usedPermCount,
+          ...(usedPermCount !== null ? { permissions_count: usedPermCount } : {}),
           description: "New least-privilege role with only used permissions",
           status: "least-privilege"
         }
 
         removedPermissionsList = [
-          `Removed ${permissionsRemoved} unused permissions`,
-          `Original: ${originalRole} (${originalPermCount} permissions)`,
-          `New: ${newRole} (${usedPermCount} permissions)`,
+          permissionsRemoved > 0
+            ? `Removed ${permissionsRemoved} unused permissions`
+            : `Permission counts not recorded in this snapshot`,
+          `Original: ${originalRole}${originalPermCount !== null ? ` (${originalPermCount} permissions)` : ""}`,
+          `New: ${newRole}${usedPermCount !== null ? ` (${usedPermCount} permissions)` : ""}`,
         ]
 
-        summary = `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
+        summary = permissionsRemoved > 0
+          ? `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
+          : `Created least-privilege role ${newRole} from ${originalRole}`
       } else {
         // Same-role remediation or older format (SNAP-* with original_role but
         // no new_role, or IAMRole-*).
