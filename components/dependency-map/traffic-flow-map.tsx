@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
 import {
@@ -35,7 +35,7 @@ import {
 // ============================================
 // TYPES
 // ============================================
-export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal' | 'vpc_endpoint';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'instance_profile' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal' | 'vpc_endpoint' | 'kms' | 'secret';
 
 export interface ServiceNode {
   id: string;
@@ -535,6 +535,8 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
   api_gateway: { icon: Network, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-violet-500/20', border: 'border-indigo-500/50', text: 'API GW' },
   load_balancer: { icon: Network, color: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'ALB' },
   dynamodb: { icon: Database, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/50', text: 'DynamoDB' },
+  kms: { icon: KeyRound, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/50', text: 'KMS' },
+  secret: { icon: LockKeyhole, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/50', text: 'Secret' },
   sqs: { icon: Network, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/50', text: 'SQS' },
   sns: { icon: Network, color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-500/20', border: 'border-violet-500/50', text: 'SNS' },
   iam_role: { icon: Key, color: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/50', text: 'IAM' },
@@ -4417,6 +4419,8 @@ export function UnifiedArchitectureDiagram({
   showLaterals = false,
   entryNodeId,
   showAllConnections = false,
+  pathBlastRadius = null,
+  onShowBlastRadius,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -4484,6 +4488,12 @@ export function UnifiedArchitectureDiagram({
   // restores legacy "every flow always" rendering. See the toolbar
   // "Connections" button + the prop declaration on ConnectionLinesSVG.
   showAllConnections?: boolean;
+  pathBlastRadius?: {
+    identityName: string;
+    targetJewelId: string | null;
+    otherCrownJewelCount: number;
+  } | null;
+  onShowBlastRadius?: () => void;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -4558,7 +4568,7 @@ export function UnifiedArchitectureDiagram({
   // showing the unfiltered count for now — operator can still see
   // "this system has 40 EC2s, but only 1 is on this path."
   const pathEmphasisClass = useCallback(
-    (nodeId: string): string => {
+    (nodeId: string, isCrownJewel = false): string => {
       if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0) {
         if (spotlightActiveNodeIds.has(nodeId)) {
           return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
@@ -4566,11 +4576,16 @@ export function UnifiedArchitectureDiagram({
         return ' hidden';
       }
       if (!pathFilterActive) return '';
-      return isOnSelectedPath(nodeId)
-        ? ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md'
-        : ' hidden';
+      if (isOnSelectedPath(nodeId)) {
+        return ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md';
+      }
+      // Blast-radius mode: off-path crown jewels stay visible (grouped under OTHER).
+      if (showAllConnections && isCrownJewel) {
+        return ' rounded-xl ring-1 ring-amber-400/40 opacity-95';
+      }
+      return ' hidden';
     },
-    [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
+    [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds, showAllConnections],
   );
 
   // 2026-06-24: when a spotlight/path is active, column headers should
@@ -4677,6 +4692,43 @@ export function UnifiedArchitectureDiagram({
   );
   const identityCollapsed =
     pathFilterActive && !identityDetailOpen && !!firstOnPathRoleId;
+
+  const resourceLaneGroups = useMemo(() => {
+    const blastExpanded =
+      pathFilterActive &&
+      showAllConnections &&
+      !!pathBlastRadius?.targetJewelId;
+    if (!blastExpanded) {
+      return [{ label: null as string | null, nodes: architecture.resources }];
+    }
+    const targetId = pathBlastRadius!.targetJewelId!;
+    const target = architecture.resources.filter(
+      (r) => r.isCrownJewel && r.id === targetId,
+    );
+    const otherJewels = architecture.resources.filter(
+      (r) => r.isCrownJewel && r.id !== targetId,
+    );
+    const otherResources = architecture.resources.filter((r) => !r.isCrownJewel);
+    const groups: { label: string | null; nodes: ServiceNode[] }[] = [];
+    if (target.length) groups.push({ label: 'Target crown jewel', nodes: target });
+    if (otherJewels.length) {
+      groups.push({
+        label: 'Other crown jewels reachable by this identity · blast radius',
+        nodes: otherJewels,
+      });
+    }
+    if (otherResources.length) {
+      groups.push({ label: 'Other resources', nodes: otherResources });
+    }
+    return groups.length
+      ? groups
+      : [{ label: null, nodes: architecture.resources }];
+  }, [
+    architecture.resources,
+    pathBlastRadius,
+    pathFilterActive,
+    showAllConnections,
+  ]);
   const collapsedIdentityAnchors = useMemo(() => {
     if (!identityCollapsed) return [] as Array<{ id: string; kind: 'ip' | 'policy' }>;
     return [
@@ -6029,7 +6081,34 @@ export function UnifiedArchitectureDiagram({
                 Global
               </span>
             </div>
-            {architecture.resources.map(node => {
+            {pathFilterActive &&
+              !showAllConnections &&
+              pathBlastRadius &&
+              pathBlastRadius.otherCrownJewelCount > 0 && (
+                <div
+                  className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                  data-testid="path-blast-radius-teaser"
+                >
+                  ⚠ {pathBlastRadius.identityName} also reaches{' '}
+                  {pathBlastRadius.otherCrownJewelCount} other crown jewel
+                  {pathBlastRadius.otherCrownJewelCount === 1 ? '' : 's'} —{' '}
+                  <button
+                    type="button"
+                    className="font-semibold underline hover:text-amber-900 dark:hover:text-amber-100"
+                    onClick={onShowBlastRadius}
+                  >
+                    Show blast radius
+                  </button>
+                </div>
+              )}
+            {resourceLaneGroups.map((group, groupIdx) => (
+              <div key={group.label ?? `resources-${groupIdx}`} className="flex flex-col gap-3">
+                {group.label ? (
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {group.label}
+                  </div>
+                ) : null}
+                {group.nodes.map(node => {
               const vuln = nodeVulnerabilities.get(node.id);
               const isInAttackPath = attackPathNodeIds.has(node.id);
               const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
@@ -6086,7 +6165,7 @@ export function UnifiedArchitectureDiagram({
                   data-route-precedence-gateway-id={routePrecedence?.gateway.id}
                   className={`relative transition-transform duration-200 ${
                     emphasizeJewel ? 'scale-[1.15] z-20' : ''
-                  }${pathEmphasisClass(node.id)}`}
+                  }${pathEmphasisClass(node.id, !!node.isCrownJewel)}`}
                   style={emphasizeJewel ? {
                     filter: jewelHaloFilter,
                   } : undefined}
@@ -6162,6 +6241,8 @@ export function UnifiedArchitectureDiagram({
                 </div>
               );
             })}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -6674,7 +6755,12 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       computeServices.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype, instanceId: pn.id.substring(0, 12) });
     } else if (bucket === 'resource') {
       const t = (pn.type || '').toLowerCase();
-      const subtype: NodeType = t.includes('s3') || t.includes('bucket') ? 'storage' : t.includes('dynamo') ? 'dynamodb' : t.includes('rds') || t.includes('aurora') || t.includes('database') ? 'database' : 'storage';
+      const subtype: NodeType = t.includes('s3') || t.includes('bucket') ? 'storage'
+        : t.includes('dynamo') ? 'dynamodb'
+        : t.includes('rds') || t.includes('aurora') || t.includes('database') ? 'database'
+        : t.includes('kms') ? 'kms'
+        : t.includes('secret') ? 'secret'
+        : 'storage';
       resources.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype });
     } else if (bucket === 'security_group') {
       // Hydrate from arch.securityGroups when possible — the path node
@@ -6998,8 +7084,8 @@ function resolveDamageScopeNodeType(
   if (t === 'storage' || id.includes(':s3:') || id.includes('s3:::')) return 'S3Bucket'
   if (t === 'dynamodb' || id.includes('dynamodb')) return 'DynamoDBTable'
   if (t === 'database' || id.includes(':rds:')) return 'RDSInstance'
-  if (id.includes('kms') || t.includes('kms')) return 'KMSKey'
-  if (id.includes('secretsmanager')) return 'SecretsManagerSecret'
+  if (t === 'kms' || id.includes('kms')) return 'KMSKey'
+  if (t === 'secret' || id.includes('secretsmanager')) return 'SecretsManagerSecret'
   return null
 }
 
@@ -7210,6 +7296,48 @@ export default function TrafficFlowMap({
     );
   }, [baseArchitecture, spotlightPaths, spotlightPathId]);
 
+  const pathFilterKey = useMemo(() => {
+    if (!pathFilter) return null;
+    const nodeIds =
+      pathFilter.pathNodes?.map((n) => n.id) ?? pathFilter.nodeIds ?? [];
+    return `${pathFilter.pathLabel ?? ""}|${pathFilter.jewelName ?? ""}|${nodeIds.join(",")}`;
+  }, [pathFilter]);
+
+  const pathBlastRadius = useMemo(() => {
+    if (!pathFilter || !architecture?.pathStepByNodeId?.size) return null;
+    const pathNodes = pathFilter.pathNodes ?? [];
+    const identityNode =
+      pathNodes.find((n) => {
+        const t = (n.type || "").toLowerCase();
+        return (
+          t.includes("iamrole") ||
+          t === "role" ||
+          t.includes("principal") ||
+          t.includes("ec2") ||
+          t.includes("sts")
+        );
+      }) ??
+      pathNodes.find((n) => n.tier !== "crown_jewel") ??
+      pathNodes[0];
+    const targetNode =
+      [...pathNodes]
+        .reverse()
+        .find(
+          (n) =>
+            n.tier === "crown_jewel" ||
+            pathFilter.crownJewelIds?.includes(n.id),
+        ) ?? pathNodes[pathNodes.length - 1];
+    const targetId = targetNode?.id ?? pathFilter.crownJewelIds?.[0] ?? null;
+    const otherCount = architecture.resources.filter(
+      (r) => r.isCrownJewel && r.id !== targetId,
+    ).length;
+    return {
+      identityName: identityNode?.name || identityNode?.id || "this identity",
+      targetJewelId: targetId,
+      otherCrownJewelCount: otherCount,
+    };
+  }, [pathFilter, architecture]);
+
   const effectiveSpotlightActiveNodeIds = useMemo(() => {
     if (spotlightPaths?.length) {
       const built = buildSpotlightActiveNodeIds({
@@ -7379,6 +7507,19 @@ export default function TrafficFlowMap({
   // force-on defaults; before any user interaction, the drill-in defaults
   // still apply (operator drilling into a chain sees that chain's flows).
   const [userToggledConnections, setUserToggledConnections] = useState(false);
+
+  // Seed Connections OFF once per path selection; operator toggle wins after that.
+  useEffect(() => {
+    if (!pathFilterKey) return;
+    setShowAllConnections(false);
+    setUserToggledConnections(false);
+  }, [pathFilterKey]);
+
+  const handleShowBlastRadius = useCallback(() => {
+    setUserToggledConnections(true);
+    setShowAllConnections(true);
+  }, []);
+
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
@@ -9455,17 +9596,28 @@ export default function TrafficFlowMap({
               setUserToggledConnections(true);
               setShowAllConnections((prev) => !prev);
             }}
+            data-testid="canvas-connections-toggle"
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
               showAllConnections
                 ? 'bg-violet-500 text-white shadow-md'
                 : 'bg-muted text-muted-foreground hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-500/10'
             }`}
-            title={showAllConnections
-              ? "Showing all flow connections. Click to hide and only highlight on hover."
-              : "Click to show all flow connections at once (heavier rendering)."}
+            title={
+              pathFilter
+                ? showAllConnections
+                  ? `Hide ${pathBlastRadius?.identityName ?? "this identity"}'s blast radius — show only the selected path spine.`
+                  : `Show this identity's blast radius — other resources ${pathBlastRadius?.identityName ?? "on this path"} can also reach beyond the selected path.`
+                : showAllConnections
+                  ? "Showing all flow connections. Click to hide and only highlight on hover."
+                  : "Click to show all flow connections at once (heavier rendering)."
+            }
           >
             <Network className="w-3 h-3" />
-            Connections
+            {pathFilter
+              ? showAllConnections
+                ? "Hide blast radius"
+                : "Show blast radius"
+              : "Connections"}
           </button>
           {/* Attack Paths toggle */}
           <button
@@ -9675,6 +9827,8 @@ export default function TrafficFlowMap({
                   !!onPathNodeAction ||
                   (effectiveSpotlightActiveNodeIds?.size ?? 0) > 0
             }
+            pathBlastRadius={pathBlastRadius}
+            onShowBlastRadius={handleShowBlastRadius}
             onSelectService={(service, type) => {
               // 2026-06-22 Crown Jewel Spotlight: CJ-tagged Resources route
               // to Spotlight when the parent wires the callback. Runs BEFORE

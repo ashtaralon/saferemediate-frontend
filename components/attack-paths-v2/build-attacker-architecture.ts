@@ -139,6 +139,18 @@ function shortName(name: string, maxLen = 22): string {
   return name.slice(0, half) + "…" + name.slice(-(maxLen - half - 1))
 }
 
+/** Map backend resource types to canvas NodeType for the RESOURCES lane. */
+export type ResourceSubtype = "storage" | "database" | "dynamodb" | "kms" | "secret"
+
+export function resourceSubtype(type: string): ResourceSubtype {
+  const t = type.toLowerCase()
+  if (t.includes("dynamo")) return "dynamodb"
+  if (t.includes("rds") || t.includes("database")) return "database"
+  if (t.includes("kms")) return "kms"
+  if (t.includes("secret")) return "secret"
+  return "storage"
+}
+
 // Map graph-view node type → TrafficFlowMap lane bucket. The TFM has
 // 5 lanes the attacker view will populate:
 //   compute            → COMPUTE
@@ -411,12 +423,6 @@ export function buildAttackerArchitecture(
 
   const computeSubtype = (type: string): "compute" | "lambda" => {
     return type.toLowerCase().includes("lambda") ? "lambda" : "compute"
-  }
-  const resourceSubtype = (type: string): "storage" | "database" | "dynamodb" => {
-    const t = type.toLowerCase()
-    if (t.includes("dynamo")) return "dynamodb"
-    if (t.includes("rds") || t.includes("database")) return "database"
-    return "storage"
   }
 
   const addAsCompute = (id: string, type: string, name: string | null) => {
