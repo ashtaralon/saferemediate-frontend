@@ -1489,58 +1489,104 @@ interface FlowPath {
   highlight?: "attack_path" | null
 }
 
-function buildPath(
-  src: DOMRect,
-  dst: DOMRect,
-  containerRect: DOMRect,
-  scale = 1,
-): string {
-  // getBoundingClientRect returns POST-transform (viewport) coords, so under a
-  // parent `transform: scale(s)` the container-relative delta is s× too large.
-  // Divide by scale to recover the frame's natural coordinate space.
-  const sx = (src.left + src.width / 2 - containerRect.left) / scale
-  const sy = (src.top + src.height / 2 - containerRect.top) / scale
-  const dx = (dst.left + dst.width / 2 - containerRect.left) / scale
-  const dy = (dst.top + dst.height / 2 - containerRect.top) / scale
-  // Smooth cubic bezier — pull the control points horizontally so the
-  // arrow looks like a polite "around the chrome" curve instead of a
-  // straight line that overlaps frame borders.
-  const midX = (sx + dx) / 2
-  const c1x = sx + (midX - sx) * 0.65
-  const c2x = dx - (dx - midX) * 0.65
-  return `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${dy}, ${dx} ${dy}`
+// ── Orthogonal flow routing ─────────────────────────────────────────────
+// AWS reference diagrams route flows with right-angle elbows through the
+// gutters BETWEEN panels — never diagonally through a subnet card. Free-form
+// beziers made the map unreadable the moment more than a handful of edges
+// rendered (2026-07-04, Alon on prod: "no way to see the map e2e with the
+// right data flow"). Rects arrive here already in the frame's natural
+// (pre-scale) coordinate space.
+
+type Pt = { x: number; y: number }
+
+/** Chip rect in natural coordinates with derived edges/center. */
+type NatRect = { l: number; t: number; r: number; b: number; cx: number; cy: number }
+
+/** Manhattan polyline → SVG path with rounded corners. */
+function orthoPath(pts: Pt[], radius = 8): string {
+  // Drop zero-length segments so corner math never divides by zero.
+  const p: Pt[] = [pts[0]]
+  for (const q of pts.slice(1)) {
+    const last = p[p.length - 1]
+    if (Math.abs(q.x - last.x) > 0.5 || Math.abs(q.y - last.y) > 0.5) p.push(q)
+  }
+  if (p.length < 2) return ""
+  let d = `M ${p[0].x} ${p[0].y}`
+  for (let i = 1; i < p.length - 1; i++) {
+    const a = p[i - 1], b = p[i], c = p[i + 1]
+    const rIn = Math.min(radius, Math.hypot(b.x - a.x, b.y - a.y) / 2, Math.hypot(c.x - b.x, c.y - b.y) / 2)
+    const inX = b.x - Math.sign(b.x - a.x) * rIn
+    const inY = b.y - Math.sign(b.y - a.y) * rIn
+    const outX = b.x + Math.sign(c.x - b.x) * rIn
+    const outY = b.y + Math.sign(c.y - b.y) * rIn
+    d += ` L ${inX} ${inY} Q ${b.x} ${b.y} ${outX} ${outY}`
+  }
+  d += ` L ${p[p.length - 1].x} ${p[p.length - 1].y}`
+  return d
 }
 
-// Two-segment path: src → intermediate → dst. Used for S3/DDB edge_service
-// edges that route through a Gateway VPCE — the BE attaches `via_vpce_id`
-// so the FE can find the intermediate chip and physically render the
-// VPCE in the access path (instead of drawing a direct chip→S3 arrow
-// that lies about how the bytes flow).
-function buildPathViaIntermediate(
-  src: DOMRect,
-  intermediate: DOMRect,
-  dst: DOMRect,
-  containerRect: DOMRect,
-  scale = 1,
-): string {
-  const sx = (src.left + src.width / 2 - containerRect.left) / scale
-  const sy = (src.top + src.height / 2 - containerRect.top) / scale
-  const ix = (intermediate.left + intermediate.width / 2 - containerRect.left) / scale
-  const iy = (intermediate.top + intermediate.height / 2 - containerRect.top) / scale
-  const dx = (dst.left + dst.width / 2 - containerRect.left) / scale
-  const dy = (dst.top + dst.height / 2 - containerRect.top) / scale
-  // First segment: src → intermediate
-  const m1 = (sx + ix) / 2
-  const c1ax = sx + (m1 - sx) * 0.65
-  const c1bx = ix - (ix - m1) * 0.65
-  // Second segment: intermediate → dst
-  const m2 = (ix + dx) / 2
-  const c2ax = ix + (m2 - ix) * 0.65
-  const c2bx = dx - (dx - m2) * 0.65
-  return (
-    `M ${sx} ${sy} C ${c1ax} ${sy}, ${c1bx} ${iy}, ${ix} ${iy} ` +
-    `C ${c2ax} ${iy}, ${c2bx} ${dy}, ${dx} ${dy}`
-  )
+/** Midpoint of the longest segment — where the badge reads as "on the line". */
+function longestSegmentMid(pts: Pt[]): Pt {
+  let best: Pt = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: (pts[0].y + pts[pts.length - 1].y) / 2 }
+  let bestLen = -1
+  for (let i = 1; i < pts.length; i++) {
+    const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+    if (len > bestLen) {
+      bestLen = len
+      best = { x: (pts[i].x + pts[i - 1].x) / 2, y: (pts[i].y + pts[i - 1].y) / 2 }
+    }
+  }
+  return best
+}
+
+/** One orthogonal leg src→dst.
+ *  Rightward legs exit the chip's RIGHT edge, run a vertical corridor just
+ *  before the target column (shared bus when `corridorX` is set), and enter
+ *  the target's LEFT edge. Vertical legs exit bottom/top with a per-edge
+ *  `exitSpread` so a fan-out (ALB → N workloads) spreads at the source like
+ *  a real architecture diagram instead of stacking on one line. */
+function orthoLeg(src: NatRect, dst: NatRect, corridorX: number | null, exitSpread: number): Pt[] {
+  const H_GAP = 40
+  if (dst.l - src.r > H_GAP) {
+    const cx = Math.max(src.r + 12, corridorX ?? dst.l - 20)
+    return [
+      { x: src.r, y: src.cy },
+      { x: cx, y: src.cy },
+      { x: cx, y: dst.cy },
+      { x: dst.l, y: dst.cy },
+    ]
+  }
+  if (src.l - dst.r > H_GAP) {
+    const cx = Math.min(src.l - 12, corridorX ?? dst.r + 20)
+    return [
+      { x: src.l, y: src.cy },
+      { x: cx, y: src.cy },
+      { x: cx, y: dst.cy },
+      { x: dst.r, y: dst.cy },
+    ]
+  }
+  const exitX = Math.min(Math.max(src.cx + exitSpread, src.l + 8), Math.max(src.l + 8, src.r - 8))
+  const vOverlap = !(dst.t > src.b + 4 || dst.b < src.t - 4)
+  if (vOverlap) {
+    // Side-by-side chips: loop below both instead of slicing through them.
+    const midY = Math.max(src.b, dst.b) + 14
+    return [
+      { x: exitX, y: src.b },
+      { x: exitX, y: midY },
+      { x: dst.cx, y: midY },
+      { x: dst.cx, y: dst.b },
+    ]
+  }
+  const goingDown = dst.cy >= src.cy
+  const exitY = goingDown ? src.b : src.t
+  const enterY = goingDown ? dst.t : dst.b
+  const midY = (exitY + enterY) / 2
+  return [
+    { x: exitX, y: exitY },
+    { x: exitX, y: midY },
+    { x: dst.cx, y: midY },
+    { x: dst.cx, y: enterY },
+  ]
 }
 
 function FlowModeToggle({
@@ -1672,79 +1718,134 @@ function FlowOverlay({
       // Natural (pre-scale) size: containerRect is the post-transform box, so
       // dividing recovers the SVG's own coordinate extent (viewBox === natural).
       setSize({ w: containerRect.width / scale, h: containerRect.height / scale })
-      const next: FlowPath[] = []
-      // Bundle edges that resolve to the same element pair once an endpoint
-      // is a stack tile — N member edges become ONE line with an "N flows"
-      // chip instead of N overlapping curves into the same tile.
+      const toNat = (rect: DOMRect): NatRect => {
+        const l = (rect.left - containerRect.left) / scale
+        const t = (rect.top - containerRect.top) / scale
+        const w = rect.width / scale
+        const h = rect.height / scale
+        return { l, t, r: l + w, b: t + h, cx: l + w / 2, cy: t + h / 2 }
+      }
+
+      // Pass 1 — resolve endpoints, bundle same-pair edges (a stack tile
+      // absorbing N member edges renders ONE line with an "N flows" chip),
+      // measure each element once.
+      type RouteJob = {
+        e: TrafficEdge
+        cls: TrafficEdgeClass
+        src: NatRect
+        dst: NatRect
+        inter: NatRect | null
+        srcKey: number
+        count: number
+        highlight: "attack_path" | null
+      }
       const elKeys = new Map<HTMLElement, number>()
       const keyOf = (el: HTMLElement) => {
         const k = elKeys.get(el) ?? elKeys.size
         elKeys.set(el, k)
         return k
       }
-      const bundles = new Map<string, { idx: number; count: number }>()
+      const bundles = new Map<string, RouteJob>()
+      const jobs: RouteJob[] = []
       for (const e of edges) {
         const src = resolveFlowEl(e.source_id)
         const dst = resolveFlowEl(e.target_id)
         if (!src || !dst) continue
-        const srcEl = src.el
-        const dstEl = dst.el
-        if (srcEl === dstEl) continue // both ends collapsed into the same tile — no self-arrow
+        if (src.el === dst.el) continue // both ends collapsed into the same tile — no self-arrow
+        const cls = e.edge_class ?? "internal"
         const grouped = src.grouped || dst.grouped
+        const bk = `${keyOf(src.el)}→${keyOf(dst.el)}·${cls}`
         if (grouped) {
-          const bk = `${keyOf(srcEl)}→${keyOf(dstEl)}·${e.edge_class ?? "internal"}`
           const existing = bundles.get(bk)
           if (existing) {
             existing.count += 1
-            const bp = next[existing.idx]
-            bp.badgeLabel = `${existing.count} flows`
-            if (e.flow_highlight === "attack_path") bp.highlight = "attack_path"
+            if (e.flow_highlight === "attack_path") existing.highlight = "attack_path"
             continue
           }
-          bundles.set(bk, { idx: next.length, count: 1 })
         }
-        const srcRect = visibleRect(srcEl, srcEl.getBoundingClientRect())
-        const dstRect = visibleRect(dstEl, dstEl.getBoundingClientRect())
-        const sx = (srcRect.left + srcRect.width / 2 - containerRect.left) / scale
-        const sy = (srcRect.top + srcRect.height / 2 - containerRect.top) / scale
-        const dx = (dstRect.left + dstRect.width / 2 - containerRect.left) / scale
-        const dy = (dstRect.top + dstRect.height / 2 - containerRect.top) / scale
-        const cls = e.edge_class ?? "internal"
         // via_vpce routing — for S3/DDB Gateway VPCE paths the BE attaches
-        // the VPCE id so the FE renders the arrow as a two-segment path
-        // through that chip. Falls back to a direct chip→dst arrow if the
-        // VPCE chip can't be found (e.g. older BE deploy with no field).
-        let d: string
-        let badgeX: number
-        let badgeY: number
-        let routedViaVpce = false
+        // the VPCE id so the flow physically renders THROUGH that chip.
+        // Falls back to a direct route if the chip isn't in the DOM.
+        let inter: NatRect | null = null
         if (e.via_vpce_id) {
           const interEl = container.querySelector<HTMLElement>(
             `[data-flow-id="${CSS.escape(e.via_vpce_id)}"]`,
           )
-          if (interEl) {
-            const interRect = visibleRect(interEl, interEl.getBoundingClientRect())
-            d = buildPathViaIntermediate(srcRect, interRect, dstRect, containerRect, scale)
-            const ix = (interRect.left + interRect.width / 2 - containerRect.left) / scale
-            const iy = (interRect.top + interRect.height / 2 - containerRect.top) / scale
-            badgeX = ix
-            badgeY = iy + 16
-            routedViaVpce = true
-          } else {
-            d = buildPath(srcRect, dstRect, containerRect, scale)
-            badgeX = (sx + dx) / 2
-            badgeY = (sy + dy) / 2 - 6
-          }
-        } else {
-          // scale MUST be forwarded here too — building the path in
-          // post-transform pixels while the SVG is sized in natural
-          // coordinates shrinks/stretches every edge by the zoom factor
-          // (2026-07-04 prod bug: the whole ALB bundle converged ~150px
-          // off-target at 64% and "moved" on every zoom change).
-          d = buildPath(srcRect, dstRect, containerRect, scale)
-          badgeX = (sx + dx) / 2
-          badgeY = (sy + dy) / 2 - 6
+          if (interEl) inter = toNat(visibleRect(interEl, interEl.getBoundingClientRect()))
         }
+        const job: RouteJob = {
+          e,
+          cls,
+          src: toNat(visibleRect(src.el, src.el.getBoundingClientRect())),
+          dst: toNat(visibleRect(dst.el, dst.el.getBoundingClientRect())),
+          inter,
+          srcKey: keyOf(src.el),
+          count: 1,
+          highlight: e.flow_highlight ?? null,
+        }
+        if (grouped) bundles.set(bk, job)
+        jobs.push(job)
+      }
+
+      // Pass 2 — lane assignment. Rail-bound legs bucket by target column and
+      // share one corridor (bus) with a small per-edge offset so parallel
+      // lines read as lanes, not a tangle; vertical fan-outs spread their
+      // exit points across the source chip.
+      const H_GAP = 40
+      const corridorLane = new Map<RouteJob, number | null>()
+      const colBuckets = new Map<number, RouteJob[]>()
+      for (const j of jobs) {
+        const target = j.inter ?? j.dst
+        if (target.l - j.src.r > H_GAP) {
+          const bucket = Math.round(target.l / 32)
+          const arr = colBuckets.get(bucket) ?? []
+          arr.push(j)
+          colBuckets.set(bucket, arr)
+        } else {
+          corridorLane.set(j, null)
+        }
+      }
+      for (const arr of colBuckets.values()) {
+        const colLeft = Math.min(...arr.map(j => (j.inter ?? j.dst).l))
+        arr.sort((a, b) => a.src.cy - b.src.cy)
+        arr.forEach((j, i) => corridorLane.set(j, colLeft - 18 - i * 7))
+      }
+      const fanGroups = new Map<number, RouteJob[]>()
+      for (const j of jobs) {
+        if (corridorLane.get(j) === null) {
+          const arr = fanGroups.get(j.srcKey) ?? []
+          arr.push(j)
+          fanGroups.set(j.srcKey, arr)
+        }
+      }
+      const exitSpreads = new Map<RouteJob, number>()
+      for (const arr of fanGroups.values()) {
+        arr.sort((a, b) => a.dst.cx - b.dst.cx)
+        arr.forEach((j, i) => exitSpreads.set(j, (i - (arr.length - 1) / 2) * 12))
+      }
+
+      // Pass 3 — generate orthogonal paths + on-line badges.
+      const next: FlowPath[] = []
+      for (const j of jobs) {
+        const laneX = corridorLane.get(j) ?? null
+        const spread = exitSpreads.get(j) ?? 0
+        let pts: Pt[]
+        let badge: Pt
+        let routedViaVpce = false
+        if (j.inter) {
+          const leg1 = orthoLeg(j.src, j.inter, laneX, spread)
+          const leg2 = orthoLeg(j.inter, j.dst, null, 0)
+          pts = [...leg1, ...leg2]
+          badge = { x: j.inter.cx, y: j.inter.cy + 18 }
+          routedViaVpce = true
+        } else {
+          pts = orthoLeg(j.src, j.dst, laneX, spread)
+          badge = longestSegmentMid(pts)
+        }
+        const d = orthoPath(pts)
+        if (!d) continue
+        const e = j.e
+        const cls = j.cls
         let badgeLabel = ""
         if (cls === "egress") {
           badgeLabel = e.external_destinations
@@ -1770,17 +1871,28 @@ function FlowOverlay({
         } else {
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }
+        if (j.count > 1) badgeLabel = `${j.count} flows`
         next.push({
           d,
           cls,
           protocol: e.protocol,
           port: e.port,
           externalDestinations: e.external_destinations ?? null,
-          badgeX,
-          badgeY,
+          badgeX: badge.x,
+          badgeY: badge.y - 6,
           badgeLabel,
-          highlight: e.flow_highlight ?? null,
+          highlight: j.highlight,
         })
+      }
+
+      // Pass 4 — de-overlap badges: stacked labels shift down in 15px steps
+      // so every chip stays readable (prod had three ROUTES_TO chips fused).
+      const placedBadges: Pt[] = []
+      for (const p of next) {
+        let y = p.badgeY
+        while (placedBadges.some(q => Math.abs(q.x - p.badgeX) < 70 && Math.abs(q.y - y) < 13)) y += 15
+        p.badgeY = y
+        placedBadges.push({ x: p.badgeX, y })
       }
       setPaths(next)
     }
