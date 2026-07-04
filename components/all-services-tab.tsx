@@ -35,10 +35,11 @@ interface ServiceNode {
   name: string
   type: string
   systemName: string
-  environment: string
-  region: string
+  // null = not reported by the backend — render "—", never a guessed value
+  environment: string | null
+  region: string | null
   status: string
-  lastSeen: string
+  lastSeen: string | null
   properties: Record<string, any>
   // IAM specific
   attachedPolicies?: number
@@ -190,10 +191,10 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               name: r.name || "Unknown",
               type: normalizedType,
               systemName: r.systemName || systemName,
-              environment: r.environment || "Production",
-              region: "eu-west-1",
+              environment: r.environment || null,
+              region: r.region || null,
               status: r.is_seed ? "Seed" : "Discovered",
-              lastSeen: new Date().toISOString(),
+              lastSeen: r.last_seen || r.lastSeen || null,
               properties: {},
               attachedPolicies: normalizedType === 'IAMRole' ? (r.connections || 0) : 0,
               permissionCount: r.connections || 0,
@@ -275,10 +276,10 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           name: r.resourceName || "Unknown",
           type: r.resourceType || "Unknown",
           systemName: actualSystemName || systemName || "Ungrouped",
-          environment: r.environment || tags.Environment || "Production",
-          region: r.evidence?.coverage?.regions?.[0] || "eu-west-1",
+          environment: r.environment || tags.Environment || null,
+          region: r.evidence?.coverage?.regions?.[0] || null,
           status: "Active",
-          lastSeen: new Date().toISOString(),
+          lastSeen: r.lastSeen || r.last_seen || null,
           properties: r.evidence || {},
           attachedPolicies: r.resourceType === 'IAMRole' ? (r.allowedCount || 0) : 0,
           permissionCount: r.allowedCount || 0,
@@ -318,10 +319,10 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           name: r.name || r.id || "Unknown",
           type: detectedType,
           systemName: actualSystemName || "Untagged",
-          environment: tags.Environment || tags.environment || "Production",
-          region: r._region || r.region || "eu-west-1",
+          environment: tags.Environment || tags.environment || null,
+          region: r._region || r.region || null,
           status: r.status || r.state || r.key_state || "Active",
-          lastSeen: r.last_modified || r.creation_date || new Date().toISOString(),
+          lastSeen: r.last_modified || r.creation_date || null,
           properties: r,
           attachedPolicies: 0,
           permissionCount: 0,
@@ -936,11 +937,15 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
-                            {service.environment}
-                          </span>
+                          {service.environment ? (
+                            <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
+                              {service.environment}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">—</span>
+                          )}
                         </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#4b5563)]">{service.region}</TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#4b5563)]">{service.region ?? "—"}</TableCell>
                         <TableCell>
                           <span
                             className={`text-xs px-2 py-1 rounded ${getStatusColor(service.instanceState || service.status)}`}
@@ -948,7 +953,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             {service.instanceState || service.status}
                           </span>
                         </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{formatDate(service.lastSeen)}</TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{service.lastSeen ? formatDate(service.lastSeen) : "—"}</TableCell>
                       </TableRow>
                     )
                   })
@@ -1050,9 +1055,13 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
-                            {service.environment}
-                          </span>
+                          {service.environment ? (
+                            <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
+                              {service.environment}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {isIAMRole ? (
@@ -1074,7 +1083,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             <span className="text-[var(--muted-foreground,#9ca3af)]">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{formatDate(service.lastSeen)}</TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{service.lastSeen ? formatDate(service.lastSeen) : "—"}</TableCell>
                       </TableRow>
                     )
                   })
@@ -1205,11 +1214,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 </div>
                 <div>
                   <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Environment</div>
-                  <div className="font-medium">{selectedService.environment}</div>
+                  <div className="font-medium">{selectedService.environment ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Region</div>
-                  <div className="font-medium">{selectedService.region}</div>
+                  <div className="font-medium">{selectedService.region ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Status</div>
@@ -1219,7 +1228,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 </div>
                 <div>
                   <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Last Seen</div>
-                  <div className="font-medium">{formatDate(selectedService.lastSeen)}</div>
+                  <div className="font-medium">{selectedService.lastSeen ? formatDate(selectedService.lastSeen) : "—"}</div>
                 </div>
                 {selectedService.attachedPolicies !== undefined && (
                   <div>
