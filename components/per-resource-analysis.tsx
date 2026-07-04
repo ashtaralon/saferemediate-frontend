@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import Link from "next/link"
 import {
   Split,
   Search,
@@ -120,33 +121,6 @@ interface RemediateData {
   summary: { before_total: number; after_total: number; reduction: number }
 }
 
-interface PerResourceRemediateResult {
-  resource_id: string
-  resource_name: string
-  resource_type: string
-  permissions_count: number
-  permissions: string[]
-  new_role_name: string | null
-  new_role_arn: string | null
-  snapshot_id: string | null
-  steps: RemediateStep[]
-}
-
-interface PerResourceRemediateData {
-  success: boolean
-  dry_run: boolean
-  original_role: string
-  total_resources: number
-  resources: PerResourceRemediateResult[]
-  summary: {
-    before_total_exposure: number
-    after_total_exposure: number
-    reduction_percentage: number
-  }
-  snapshots: string[]
-  message: string
-}
-
 type Stage = "scan" | "analysis" | "comparison" | "simulation" | "remediation"
 
 // ── Component ────────────────────────────────────────
@@ -166,17 +140,15 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
   const [recommendData, setRecommendData] = useState<RecommendData | null>(null)
   const [simData, setSimData] = useState<SimData | null>(null)
   const [remediateData, setRemediateData] = useState<RemediateData | null>(null)
-  const [perResourceRemediateData, setPerResourceRemediateData] = useState<PerResourceRemediateData | null>(null)
 
-  // SG restructure state
-  const [sgRestructurePhase, setSgRestructurePhase] = useState<"idle" | "analyzing" | "proposing" | "proposed" | "executing" | "done">("idle")
+  // SG restructure state (analysis + proposal preview only — execution retired,
+  // see /shared-resources for the plan-first flow)
+  const [sgRestructurePhase, setSgRestructurePhase] = useState<"idle" | "analyzing" | "proposing" | "proposed">("idle")
   const [sgEniAnalysis, setSgEniAnalysis] = useState<any>(null)
   const [sgProposal, setSgProposal] = useState<any>(null)
-  const [sgExecResult, setSgExecResult] = useState<any>(null)
 
   // UI state
   const [activeTab, setActiveTab] = useState<"aggregated" | "per-resource">("aggregated")
-  const [aggApplied, setAggApplied] = useState(false)
   const [scanTab, setScanTab] = useState<"action-required" | "no-issues">("action-required")
 
   // ── API helper ──
@@ -200,7 +172,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     setSgRestructurePhase("analyzing")
     setSgEniAnalysis(null)
     setSgProposal(null)
-    setSgExecResult(null)
     setError(null)
     try {
       const data = await apiCall("GET", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/per-eni-analysis?days=90`)
@@ -226,40 +197,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     }
   }, [apiCall, selectedSGData])
 
-  const handleSgExecute = useCallback(async () => {
-    if (!selectedSGData?.sg_id || !sgProposal?.proposal_id) return
-    setSgRestructurePhase("executing")
-    setError(null)
-    try {
-      const data = await apiCall("POST", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/execute-restructure`, {
-        proposal_id: sgProposal.proposal_id,
-        create_snapshot: true,
-      })
-      setSgExecResult(data)
-      setSgRestructurePhase("done")
-    } catch (e: any) {
-      setError(e.message)
-      setSgRestructurePhase("proposed")
-    }
-  }, [apiCall, selectedSGData, sgProposal])
-
-  const handleSgRollback = useCallback(async () => {
-    if (!selectedSGData?.sg_id || !sgExecResult?.snapshot_id) return
-    setSgRestructurePhase("executing")
-    setError(null)
-    try {
-      await apiCall("POST", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/rollback-restructure`, {
-        snapshot_id: sgExecResult.snapshot_id,
-      })
-      setSgRestructurePhase("idle")
-      setSgProposal(null)
-      setSgExecResult(null)
-    } catch (e: any) {
-      setError(e.message)
-      setSgRestructurePhase("done")
-    }
-  }, [apiCall, selectedSGData, sgExecResult])
-
   // ── Scan ──
   const runScan = useCallback(async () => {
     setLoading(true)
@@ -271,7 +208,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     setRecommendData(null)
     setSimData(null)
     setRemediateData(null)
-    setPerResourceRemediateData(null)
     setStage("scan")
 
     try {
@@ -297,12 +233,13 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
         total_permissions: r.allowed_count ?? 0,
         all_permissions: [],
         // The canonical endpoint returns consumer_count + consumer_kinds
-        // (an array of {kind, count} pairs). Map each kind to a single
-        // summary ScanResource the per-row UI can render as a chip.
-        resources: (r.consumer_kinds || []).map((ck: any) => ({
-          resource_id: `${r.role_arn}::${ck.kind}`,
-          resource_name: `${ck.kind} × ${ck.count}`,
-          resource_type: ck.kind,
+        // (an object map of kind → count, like the SG consumer_breakdown).
+        // Map each kind to a single summary ScanResource the per-row UI
+        // can render as a chip.
+        resources: Object.entries(r.consumer_kinds || {}).map(([kind, count]) => ({
+          resource_id: `${r.role_arn}::${kind}`,
+          resource_name: `${kind} × ${count}`,
+          resource_type: kind,
         })),
       }))
 
@@ -352,7 +289,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
       setSelectedSGData(sgItem || null)
       setSelectedRole(roleName)
       setActiveTab("aggregated")
-      setAggApplied(false)
       setRecommendData(null)
       setSimData(null)
       setRemediateData(null)
@@ -365,7 +301,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
         setSgRestructurePhase("idle")
         setSgEniAnalysis(null)
         setSgProposal(null)
-        setSgExecResult(null)
         return
       }
 
@@ -460,32 +395,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     [apiCall, selectedRole]
   )
 
-  // ── Per-Resource Remediate ──
-  const runPerResourceRemediation = useCallback(
-    async (dryRun: boolean) => {
-      if (!selectedRole) return
-      setLoading(true)
-      setLoadingMsg(dryRun ? "Creating per-resource roles (dry run)..." : "Creating per-resource roles (LIVE)...")
-      setError(null)
-      setStage("remediation")
-      setPerResourceRemediateData(null)
-
-      try {
-        const data = await apiCall("POST", "/api/proxy/cyntro/remediate-per-resource", {
-          role_name: selectedRole,
-          dry_run: dryRun,
-        })
-        setPerResourceRemediateData(data)
-      } catch (e: any) {
-        setError(e.message)
-      } finally {
-        setLoading(false)
-        setLoadingMsg("")
-      }
-    },
-    [apiCall, selectedRole]
-  )
-
   // Get icon and display info for resource type
   const getResourceTypeInfo = (type: string) => {
     const typeUpper = type?.toUpperCase() || ""
@@ -569,7 +478,8 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
         <div>
           <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Shared Resource Analysis</h2>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Discover shared IAM roles and Security Groups, split into per-resource least-privilege policies
+            Discover shared IAM roles and Security Groups and analyze per-resource usage. Split-plan
+            creation and execution live in <Link href="/shared-resources" className="underline" style={{ color: "#8b5cf6" }}>Shared Resources</Link>.
           </p>
         </div>
         {selectedRole && (
@@ -1096,7 +1006,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
           {/* ── Action & Analysis section ── */}
           <div className="rounded-lg border p-5" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
             {/* Action buttons */}
-            {sgRestructurePhase !== "proposed" && sgRestructurePhase !== "done" && (
+            {sgRestructurePhase !== "proposed" && (
               <div className="flex flex-wrap gap-3 mb-5">
                 <button
                   onClick={handleSgAnalyze}
@@ -1122,7 +1032,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
             )}
 
             {/* Per-ENI Analysis Results — REDESIGNED */}
-            {sgEniAnalysis && sgRestructurePhase !== "proposed" && sgRestructurePhase !== "done" && (() => {
+            {sgEniAnalysis && sgRestructurePhase !== "proposed" && (() => {
               const eniList = sgEniAnalysis.eni_analysis || []
               const sgRules = sgEniAnalysis.sg_rules || []
               const servicePorts = sgEniAnalysis.service_port_summary || []
@@ -1297,12 +1207,12 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               )
             })()}
 
-            {/* Restructure Proposal */}
-            {sgProposal && (sgRestructurePhase === "proposed" || sgRestructurePhase === "executing") && (
+            {/* Restructure Proposal — preview only, execution retired from this surface */}
+            {sgProposal && sgRestructurePhase === "proposed" && (
               <div className="space-y-4">
                 <h4 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
                   <Split className="w-4 h-4" style={{ color: "#8b5cf6" }} />
-                  Restructure Plan
+                  Restructure Plan (Preview — analysis only)
                 </h4>
 
                 {/* Summary stats */}
@@ -1369,7 +1279,30 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   </div>
                 )}
 
-                {/* Execute buttons */}
+                {/* Execution hand-off — this surface is analysis-only */}
+                <div className="rounded-lg border p-4" style={{ background: "#8b5cf608", borderColor: "#8b5cf640" }}>
+                  <div className="flex items-start gap-3">
+                    <ArrowRight className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#8b5cf6" }} />
+                    <div>
+                      <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                        Execution from this view has been retired
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                        This restructure plan is a traffic-based preview. Shared security group split plans are
+                        created and reviewed on the Shared Resources surface, which builds a plan first and shows
+                        exactly what would change before anything is applied.
+                      </p>
+                      <Link
+                        href="/shared-resources"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium mt-2 px-3 py-1.5 rounded-lg"
+                        style={{ background: "#8b5cf615", color: "#8b5cf6", border: "1px solid #8b5cf640" }}
+                      >
+                        Open Shared Resources <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-2">
                   <button
                     onClick={() => { setSgRestructurePhase("idle"); setSgProposal(null) }}
@@ -1378,51 +1311,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   >
                     Back
                   </button>
-                  <button
-                    onClick={handleSgExecute}
-                    disabled={sgRestructurePhase === "executing"}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium"
-                    style={{ background: "#22c55e", color: "#fff", opacity: sgRestructurePhase === "executing" ? 0.6 : 1 }}
-                  >
-                    {sgRestructurePhase === "executing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                    {sgRestructurePhase === "executing" ? "Executing..." : "Execute Restructure"}
-                  </button>
                 </div>
-              </div>
-            )}
-
-            {/* Execution result */}
-            {sgExecResult && sgRestructurePhase === "done" && (
-              <div className="rounded-lg border p-4" style={{
-                background: sgExecResult.success ? "#22c55e08" : "#ef444408",
-                borderColor: sgExecResult.success ? "#22c55e40" : "#ef444440",
-              }}>
-                <div className="flex items-center gap-2 mb-3">
-                  {sgExecResult.success ? <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} /> : <XCircle className="w-5 h-5" style={{ color: "#ef4444" }} />}
-                  <h4 className="text-sm font-semibold" style={{ color: sgExecResult.success ? "#22c55e" : "#ef4444" }}>
-                    {sgExecResult.success ? "Restructure Complete" : "Restructure Failed"}
-                  </h4>
-                </div>
-                {(sgExecResult.created_sgs || []).map((sg: any) => (
-                  <div key={sg.sg_id} className="flex items-center gap-2 py-1.5 px-3 rounded-lg mb-1.5" style={{ background: "var(--bg-secondary)" }}>
-                    <Shield className="w-4 h-4" style={{ color: "#8b5cf6" }} />
-                    <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>{sg.sg_id}</span>
-                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{sg.name}</span>
-                    <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>{sg.eni_count} ENIs</span>
-                  </div>
-                ))}
-                <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-                  {sgExecResult.summary?.new_sgs_created} SGs created, {sgExecResult.summary?.enis_modified} ENIs modified
-                </p>
-                {sgExecResult.rollback_available && (
-                  <button
-                    onClick={handleSgRollback}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium mt-3"
-                    style={{ background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440" }}
-                  >
-                    <ArrowLeft className="w-3 h-3" /> Rollback Restructure
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -1624,31 +1513,18 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                       </>
                     )
                   })()}
-                  <div className="flex gap-2 mt-4">
-                    <button onClick={() => setAggApplied(true)} className="text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors hover:opacity-90" style={{ background: "#8b5cf6" }}>
-                      Apply Aggregated Fix
+                  {/* Aggregated remediation is intentionally not executable here —
+                      it flattens per-resource differences. The real, gated path is
+                      the per-resource Remediate flow below / /shared-resources. */}
+                  <div className="mt-4 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
+                    <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      An aggregated fix would trim this role to the union of used permissions ({analysisData.aggregated.used_permissions}) — but do all {analysisData.analyses.length} resources need the same {analysisData.aggregated.used_permissions} permissions?
+                    </p>
+                    <button onClick={() => setActiveTab("per-resource")} className="text-xs underline mt-1" style={{ color: "#8b5cf6" }}>
+                      Switch to Per-Resource View to find out
                     </button>
                   </div>
                 </div>
-
-                {aggApplied && (
-                  <div className="mt-4 space-y-2 p-4 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
-                    <div className="flex items-center gap-2 text-sm" style={{ color: "#22c55e" }}><CheckCircle2 className="w-4 h-4" /> Policy updated</div>
-                    <div className="flex items-center gap-2 text-sm" style={{ color: "#22c55e" }}><CheckCircle2 className="w-4 h-4" /> Role reduced: {analysisData.aggregated.total_permissions} → {analysisData.aggregated.used_permissions} permissions</div>
-                    <div className="flex items-center gap-2 text-sm" style={{ color: "#22c55e" }}><CheckCircle2 className="w-4 h-4" /> All {analysisData.analyses.length} resources now have {analysisData.aggregated.used_permissions} permissions</div>
-                    <p className="text-sm font-semibold mt-2" style={{ color: "#22c55e" }}>
-                      Risk reduced by {analysisData.aggregated.total_permissions > 0 ? Math.round(((analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions) / analysisData.aggregated.total_permissions) * 100) : 0}%
-                    </p>
-                    <div className="mt-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
-                      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                        But do all {analysisData.analyses.length} resources need the same {analysisData.aggregated.used_permissions} permissions?
-                      </p>
-                      <button onClick={() => setActiveTab("per-resource")} className="text-xs underline mt-1" style={{ color: "#8b5cf6" }}>
-                        Switch to Per-Resource View to find out
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -2018,24 +1894,25 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 Aggregated Remediation
               </button>
             </div>
-            <div className="rounded-lg border-2 p-4" style={{ background: "#22c55e10", borderColor: "#22c55e80" }}>
-              <div className="flex items-center justify-between">
+            <div className="rounded-lg border-2 p-4" style={{ background: "#8b5cf608", borderColor: "#8b5cf660" }}>
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <Split className="w-5 h-5" style={{ color: "#22c55e" }} />
-                    <span className="font-semibold" style={{ color: "#22c55e" }}>Per-Resource Remediation</span>
-                    <span className="text-xs px-2 py-0.5 rounded" style={{ background: "#22c55e20", color: "#22c55e" }}>Recommended</span>
+                    <Split className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+                    <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Per-resource execution has moved to Split Plans</span>
                   </div>
-                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Creates separate least-privilege roles for each resource</p>
+                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    This view is analysis-only. Per-resource role splits are created as reviewable split plans on
+                    the Shared Resources surface{selectedRole ? <> — look for <span className="font-mono font-semibold" style={{ color: "var(--text-primary)" }}>{selectedRole}</span> in the list</> : null}.
+                  </p>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => runPerResourceRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
-                    <Eye className="w-4 h-4" /> Preview
-                  </button>
-                  <button onClick={() => runPerResourceRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#16a34a" }}>
-                    <Zap className="w-4 h-4" /> Execute Live
-                  </button>
-                </div>
+                <Link
+                  href="/shared-resources"
+                  className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg shrink-0"
+                  style={{ background: "#8b5cf615", color: "#8b5cf6", border: "1px solid #8b5cf640" }}
+                >
+                  Open Shared Resources <ArrowRight className="w-4 h-4" />
+                </Link>
               </div>
             </div>
           </div>
@@ -2147,99 +2024,6 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               <button onClick={() => runRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
                 Execute Live Remediation
               </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ──────────── PER-RESOURCE REMEDIATION RESULTS ──────────── */}
-      {perResourceRemediateData && stage === "remediation" && (
-        <div className="rounded-lg border-2 p-6" style={{ background: "var(--bg-secondary)", borderColor: "#22c55e80" }}>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "#22c55e20" }}>
-              <Split className="w-5 h-5" style={{ color: "#22c55e" }} />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
-                Per-Resource Remediation {perResourceRemediateData.dry_run ? "(Preview)" : "Complete"}
-              </h3>
-              <p className="text-sm" style={{ color: "var(--text-muted)" }}>{perResourceRemediateData.message}</p>
-            </div>
-          </div>
-
-          {/* Summary stats */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            {[
-              { value: perResourceRemediateData.total_resources, label: "Resources", color: "var(--text-primary)" },
-              { value: perResourceRemediateData.summary.before_total_exposure, label: "Before (exposure)", color: "#ef4444" },
-              { value: perResourceRemediateData.summary.after_total_exposure, label: "After (exposure)", color: "#22c55e" },
-              { value: `${perResourceRemediateData.summary.reduction_percentage}%`, label: "Risk Reduction", color: "#8b5cf6" },
-            ].map((stat, i) => (
-              <div key={i} className="rounded-lg p-4 text-center border" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
-                <div className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{stat.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Per-resource results */}
-          <div className="space-y-3">
-            <div className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>Individual Resource Roles:</div>
-            {perResourceRemediateData.resources.map((resource, idx) => (
-              <div key={idx} className="rounded-lg border p-4" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <Server className="w-5 h-5" style={{ color: "var(--text-muted)" }} />
-                    <div>
-                      <div className="font-semibold" style={{ color: "var(--text-primary)" }}>{resource.resource_name}</div>
-                      <div className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{resource.resource_id}</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold" style={{ color: "#22c55e" }}>{resource.permissions_count} permissions</div>
-                    {resource.new_role_name && <div className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{resource.new_role_name}</div>}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  {resource.steps.map((step, stepIdx) => (
-                    <div key={stepIdx} className="flex items-center gap-2 text-xs">
-                      {step.status === "completed" ? <CheckCircle2 className="w-4 h-4" style={{ color: "#22c55e" }} /> : step.status === "skipped" || step.status === "preview" ? <div className="w-4 h-4 rounded-full" style={{ background: "var(--text-muted)" }} /> : <XCircle className="w-4 h-4" style={{ color: "#ef4444" }} />}
-                      <span style={{ color: "var(--text-secondary)" }}>{step.details}</span>
-                    </div>
-                  ))}
-                </div>
-                {resource.permissions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
-                    <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>Permissions:</div>
-                    <div className="flex flex-wrap gap-1">
-                      {resource.permissions.map((perm, permIdx) => (
-                        <span key={permIdx} className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: "#22c55e15", color: "#22c55e" }}>{perm}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {resource.snapshot_id && <div className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>Snapshot: {resource.snapshot_id}</div>}
-              </div>
-            ))}
-          </div>
-
-          {perResourceRemediateData.dry_run && (
-            <div className="mt-6 flex gap-3">
-              <button onClick={() => runPerResourceRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
-                <Zap className="w-4 h-4" /> Execute Per-Resource Remediation (Live)
-              </button>
-            </div>
-          )}
-
-          {!perResourceRemediateData.dry_run && perResourceRemediateData.success && (
-            <div className="mt-6 rounded-lg border p-4" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} />
-                <span className="font-semibold" style={{ color: "#22c55e" }}>Per-resource remediation complete! Each resource now has its own least-privilege role.</span>
-              </div>
-              {perResourceRemediateData.snapshots.length > 0 && (
-                <div className="mt-2 text-sm" style={{ color: "#22c55e" }}>{perResourceRemediateData.snapshots.length} snapshot(s) created for rollback.</div>
-              )}
             </div>
           )}
         </div>

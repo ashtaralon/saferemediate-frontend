@@ -2243,6 +2243,24 @@ export function AwsFrame({
   const vpcGridMinWidth =
     azs.length > 0 ? Math.max(240, azs.length * (AZ_COLUMN_MIN_PX + 6) + 40) : 240
   const hasIgw = topo.edges.igws.length > 0
+  // igws[0] is frame-aligned (BE #305). Name tags are free-form and may not
+  // match the frame system's naming, so the tooltip carries the id + owning
+  // VPC as provenance; "+N" flags sibling-VPC IGWs also in the payload.
+  const primaryIgw = topo.edges.igws[0]
+  const extraIgwCount = topo.edges.igws.length - 1
+  const igwStripLabel = primaryIgw
+    ? `IGW · ${primaryIgw.name}${extraIgwCount > 0 ? ` +${extraIgwCount}` : ""}`
+    : "no IGW"
+  const igwStripTitle = primaryIgw
+    ? [
+        `${primaryIgw.name} (${[primaryIgw.id, primaryIgw.vpc_id].filter(Boolean).join(" · ")})`,
+        extraIgwCount > 0
+          ? `+${extraIgwCount} more IGW${extraIgwCount > 1 ? "s" : ""} not shown`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined
   const hasNats = topo.edges.nat_gws.length > 0
   const hasVpces = topo.edges.vpces.length > 0
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
@@ -2337,9 +2355,9 @@ export function AwsFrame({
                 ? "text-[8px] uppercase tracking-wider font-semibold truncate max-w-[140px]"
                 : "text-[10px] uppercase tracking-wider font-semibold"
             }
-            title={hasIgw ? topo.edges.igws[0].name : undefined}
+            title={igwStripTitle}
           >
-            {hasIgw ? `IGW · ${topo.edges.igws[0].name}` : "no IGW"}
+            {igwStripLabel}
           </span>
         </div>
       </div>
