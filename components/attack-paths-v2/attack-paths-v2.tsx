@@ -59,7 +59,6 @@ import { AllCrownJewelsView } from "./all-crown-jewels-view"
 // Topology tab uses), per Alon 2026-07 — replaced the AttackExplorer
 // graph/surface/scorecard lenses. Static import mirrors attacker-view-v3, which
 // already pulls TrafficFlowMap into this bundle.
-import { AttackerMap } from "@/components/attacker-map/attacker-map"
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
@@ -782,7 +781,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "attacker_map" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -822,20 +821,7 @@ export function AttackPathsV2({
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
-        {viewMode === "attacker_map" ? (
-          <>
-            <ModeToggle
-              mode={viewMode}
-              onChange={handleSetMode}
-              jewelName={null}
-              pathCount={allPaths.length}
-              isExpanded={isPathExpanded}
-              onToggleExpand={handleToggleExpand}
-              showBeta={showBeta}
-            />
-            <AttackerMap systemName={systemName} />
-          </>
-        ) : viewMode === "topology" ? (
+        {viewMode === "topology" ? (
           <>
             <ModeToggle
               mode={viewMode}
@@ -880,8 +866,6 @@ export function AttackPathsV2({
           />
         ) : (
           <>
-            {/* Mode toggle — hidden on Attacker Map tab (mapOnlyPanel). */}
-            {!mapOnlyPanel && (
             <ModeToggle
               mode={viewMode}
               onChange={handleSetMode}
@@ -891,7 +875,6 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            )}
             {viewMode === "exposure" ? (
               <JewelExposurePanel
                 jewel={jewels.find((j) => j.id === selectedJewelId)!}
@@ -1001,6 +984,31 @@ export function AttackPathsV2({
                   large
                 />
               )
+            ) : viewMode === "attacker_map" ? (
+              // Attacker Map — embedded per-path flow map only (same as the
+              // former top-level Attacker Map tab). Sits next to Attack Path
+              // in the mode bar; left + center columns stay for selection.
+              !selectedPath || !selectedJewelId ? (
+                <EmptyState
+                  title="Select a path"
+                  subtitle="Attacker Map shows the per-path VPC topology canvas. Pick a crown jewel and path on the left."
+                  large
+                />
+              ) : (
+                <AttackPathPanel
+                  systemName={systemName}
+                  jewelId={selectedJewelId}
+                  pathId={selectedPath.id}
+                  pathFromPage={selectedPath}
+                  jewelFromPage={selectedJewel}
+                  siblingPathsFromPage={jewelPaths}
+                  isExpanded={isPathExpanded}
+                  onToggleExpand={handleToggleExpand}
+                  onOpenRoleSplit={onOpenRoleSplit}
+                  showEmbeddedAttackMap={true}
+                  mapOnlyPanel={true}
+                />
+              )
             ) : jewelPaths.length === 0 && selectedPathId && selectedJewel ? (
               // IAP has no synthesized paths for this jewel (e.g. materialized-only
               // convergence rows) — render the convergence spine directly.
@@ -1101,11 +1109,12 @@ function ModeToggle({
       title:
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
     },
-    // 2026-07: Attacker Map moved back to its own top-level sibling tab
-    // (Risk → Attacker Map). The internal chip is removed so the operator
-    // navigates via the top-level tab. The viewMode is still reachable via
-    // deep-link (?mode=attacker_map) and via defaultMode="attacker_map"
-    // passed by the Attacker Map tab's render.
+    {
+      key: "attacker_map",
+      label: "Attacker Map",
+      title:
+        "Per-path attack map on live VPC topology — observed (CloudTrail) vs configured paths to this crown jewel.",
+    },
     {
       key: "lateral",
       label: "Lateral Movement",
