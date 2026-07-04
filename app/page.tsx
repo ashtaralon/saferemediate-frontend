@@ -577,10 +577,18 @@ export default function HomePage() {
   // was set, which made every sidebar click bounce back to the system-
   // detail page (the user reported "every click pushes me to alon-prod").
   if (selectedSystem && activeSection === "home") {
+    const jewel = searchParams.get("jewel")
+    const path = searchParams.get("path")
+    const mode = searchParams.get("mode")
+    const attackPathDeepLink = Boolean(jewel || path || mode)
     return (
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={selectedSystem}
+          initialTab={attackPathDeepLink ? "attack-paths" : undefined}
+          initialAttackPathMode={
+            mode || (attackPathDeepLink ? "attack-path" : undefined)
+          }
           onBack={handleBackFromSystem}
           onNavigateToSection={handleSidebarClick}
         />

@@ -54,9 +54,10 @@ test.describe("IAP prod reliability", () => {
   test("Attack Paths tab loads without 500 error card", async ({ page, context }) => {
     test.setTimeout(120_000)
     await seedAuthCookie(context)
-    await page.goto(`${liveBaseUrl()}/systems?systemName=${SYSTEM}&tab=attack-paths`, {
-      waitUntil: "domcontentloaded",
-    })
+    await page.goto(
+      `${liveBaseUrl()}/systems?systemName=${SYSTEM}&tab=attack-paths&jewel=${encodeURIComponent("arn:aws:s3:::saferemediate-logs-745783559495")}`,
+      { waitUntil: "domcontentloaded" },
+    )
     await page.waitForTimeout(12_000)
     await expect(page.getByText(/500.*Unable to retrieve routing information/i)).toHaveCount(0)
     await expect(page.getByText(/Attack paths not computed yet/i)).toHaveCount(0)

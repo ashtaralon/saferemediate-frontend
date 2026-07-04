@@ -69,9 +69,11 @@ test.describe("Attacker Map mode chip", () => {
       { waitUntil: "domcontentloaded" },
     )
     await page.waitForTimeout(8000)
-    await expect(page.getByRole("button", { name: "Attack Paths", exact: true })).toHaveClass(
-      /text-\[#2D51DA\]/,
-    )
+    const riskAttackPathsTab = page
+      .locator("button")
+      .filter({ hasText: /^Attack Paths$/ })
+      .first()
+    await expect(riskAttackPathsTab).toHaveClass(/text-\[#2D51DA\]/)
     await expect(page.getByRole("button", { name: "Attacker Map", exact: true })).toHaveClass(
       /text-primary|bg-primary/,
     )
