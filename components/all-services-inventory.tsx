@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
+import { dedupeKmsListRows } from '@/lib/inventory-list'
 
 // Service icons by type
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
@@ -102,6 +103,81 @@ interface Props {
   systemName: string
 }
 
+// Graph-backed listing rows (registry aliases in api/resource_inventory.py).
+// Non-fatal: the inventory renders without a type when its fetch errors.
+async function fetchGraphListRows(alias: string, systemName?: string): Promise<any[]> {
+  try {
+    const system = systemName ? `&system=${encodeURIComponent(systemName)}` : ''
+    const res = await fetch(
+      `/api/proxy/resource-inventory/list?resource_type=${alias}${system}&limit=100`
+    )
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.items) ? data.items : []
+  } catch (e) {
+    console.warn(`${alias} list fetch failed:`, e)
+    return []
+  }
+}
+
+// KMS keys, secrets, and DynamoDB tables — the unified inspector has config
+// tabs for all three (backend #310 / FE #273), listed here so they're
+// clickable. KMS and secrets are fetched UNSCOPED: most of those nodes carry
+// no system tags yet (auto-tagger gap), so a system filter would blank them;
+// the data plane is single-account, which keeps the unscoped list honest.
+// DynamoDB nodes are system-tagged and stay scoped.
+async function fetchDataSecurityServiceItems(systemName: string): Promise<ServiceItem[]> {
+  const [kmsRows, secretRows, ddbRows] = await Promise.all([
+    fetchGraphListRows('kms'),
+    fetchGraphListRows('secret'),
+    fetchGraphListRows('dynamodb', systemName),
+  ])
+
+  const items: ServiceItem[] = []
+
+  for (const k of dedupeKmsListRows(kmsRows)) {
+    if (!k.id) continue
+    items.push({
+      id: String(k.id),
+      name: String(k.name || k.key_id || k.id),
+      type: 'KMSKey',
+      category: 'Security',
+      status: k.key_state === 'Enabled' ? 'active' : String(k.key_state || 'unknown').toLowerCase(),
+      region: k.region || undefined,
+      details: k,
+    })
+  }
+
+  for (const s of secretRows) {
+    const id = s?.id || s?.arn
+    if (!id) continue
+    items.push({
+      id: String(id),
+      name: String(s.name || id),
+      type: 'Secret',
+      category: 'Security',
+      status: 'active',
+      region: s.region || undefined,
+      details: s,
+    })
+  }
+
+  for (const t of ddbRows) {
+    if (!t?.id) continue
+    items.push({
+      id: String(t.id),
+      name: String(t.name || t.id),
+      type: 'DynamoDB',
+      category: 'Database',
+      status: String(t.status || 'unknown').toLowerCase(),
+      region: t.region || undefined,
+      details: t,
+    })
+  }
+
+  return items
+}
+
 // Subnets — graph-backed listing (registry alias `subnet`), scoped to the
 // system. Non-fatal: the inventory renders without subnets on error.
 async function fetchSubnetServiceItems(systemName: string): Promise<ServiceItem[]> {
@@ -182,7 +258,11 @@ export default function AllServicesInventory({ systemName }: Props) {
           details: r
         }))
         
-        setServices([...mappedServices, ...(await fetchSubnetServiceItems(systemName))])
+        const [subnetItems, dataSecurityItems] = await Promise.all([
+          fetchSubnetServiceItems(systemName),
+          fetchDataSecurityServiceItems(systemName),
+        ])
+        setServices([...mappedServices, ...subnetItems, ...dataSecurityItems])
         setLastSync(new Date().toISOString())
         setLoading(false)
         return
@@ -255,6 +335,14 @@ export default function AllServicesInventory({ systemName }: Props) {
       }
 
       allServices.push(...(await fetchSubnetServiceItems(systemName)))
+
+      // Graph-backed KMS/Secret/DynamoDB rows. resources/all may have
+      // already mapped some of these types — keep whichever id arrived
+      // first rather than rendering duplicates.
+      const seenIds = new Set(allServices.map((s) => s.id))
+      for (const item of await fetchDataSecurityServiceItems(systemName)) {
+        if (!seenIds.has(item.id)) allServices.push(item)
+      }
 
       setServices(allServices)
       setLastSync(new Date().toISOString())
