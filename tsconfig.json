@@ -35,9 +35,7 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     ".next-preview-fable-3/types/**/*.ts",
-    ".next-preview-fable-3/dev/types/**/*.ts",
-    ".next-preview-fable-2/types/**/*.ts",
-    ".next-preview-fable-2/dev/types/**/*.ts"
+    ".next-preview-fable-3/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"
