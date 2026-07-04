@@ -73,6 +73,9 @@ interface PathAnalysisPanelProps {
   sharedRoleCallout?: SharedRoleCalloutData | null
   /** Navigate to the per-resource role-split remediation for a role. */
   onOpenRoleSplit?: (roleName: string) => void
+  /** When false, hides the per-path Attack map block (AttackPathLaneFlowMap).
+   *  Dashboard Attack Paths tab sets false; Attacker Map tab sets true. */
+  showEmbeddedAttackMap?: boolean
 }
 
 // V2-1 helper: middle-truncate a jewel name for the caption strip.
@@ -221,6 +224,7 @@ export function PathAnalysisPanel({
   siblingPaths = [],
   sharedRoleCallout = null,
   onOpenRoleSplit,
+  showEmbeddedAttackMap = true,
 }: PathAnalysisPanelProps) {
   const [damageScopeTarget, setDamageScopeTarget] = useState<DamageScopeTarget | null>(
     null,
@@ -418,8 +422,9 @@ export function PathAnalysisPanel({
         )}
       </div>
 
-      {/* Attack map — primary visual; always visible (not inside Supporting evidence) */}
-      {attackMapCyntro && (
+      {/* Attack map — primary visual; lives on Attacker Map tab only when
+          showEmbeddedAttackMap is false on the Attack Paths tab. */}
+      {showEmbeddedAttackMap && attackMapCyntro && (
         <div className="border-b border-border bg-background">
           <div className="px-6 pt-4 pb-1">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">

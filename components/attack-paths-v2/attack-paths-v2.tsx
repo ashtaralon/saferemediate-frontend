@@ -77,6 +77,7 @@ export function AttackPathsV2({
   systemName: systemNameProp,
   embedded = false,
   defaultMode = "attack-path",
+  showEmbeddedAttackMap = true,
   onOpenRoleSplit,
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
@@ -91,6 +92,10 @@ export function AttackPathsV2({
   // "Attack Paths" entry passes defaultMode="attacker_map" to land on the
   // account-wide every-path view (retiring the legacy IdentityAttackPaths).
   defaultMode?: string
+  /** When false, PathAnalysisPanel hides the per-path Attack map block
+   *  (AttackPathLaneFlowMap). Dashboard Attack Paths tab sets this false;
+   *  Attacker Map tab sets true so the map lives only there. */
+  showEmbeddedAttackMap?: boolean
   /** Navigate to the per-resource role-split remediation view (owned by the
    *  page shell, which holds the section-switch state). Threaded to the
    *  attack-path panel's shared-role callout. */
@@ -1043,6 +1048,7 @@ export function AttackPathsV2({
                 isExpanded={isPathExpanded}
                 onToggleExpand={handleToggleExpand}
                 onOpenRoleSplit={onOpenRoleSplit}
+                showEmbeddedAttackMap={showEmbeddedAttackMap}
               />
             )}
           </>

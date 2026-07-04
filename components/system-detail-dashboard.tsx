@@ -2572,15 +2572,15 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "attack-paths" && (
         <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          {/* 2026-07 split: Attack Paths tab does NOT render the map.
-              defaultMode='attack-path' pins the internal view to the
-              per-path analysis. The map lives on the sibling Attacker Map
-              tab below. */}
+          {/* 2026-07 split: Attack Paths tab does NOT render the embedded
+              per-path Attack map (AttackPathLaneFlowMap). Map lives on the
+              sibling Attacker Map tab only. */}
           <SystemAttackPaths
             key={`${systemName}-${refreshKey}`}
             systemName={systemName}
             embedded
             defaultMode="attack-path"
+            showEmbeddedAttackMap={false}
           />
         </div>
         </LightRouteIsland>
@@ -2589,15 +2589,15 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "attacker-map" && (
         <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          {/* 2026-07 split: dedicated Attacker Map tab. Reuses the same
-              AttackPathsV2 component but pins the view to the map mode.
-              Keeps a single canvas / data source; only the outer chrome
-              differs between the two tabs. */}
+          {/* 2026-07 split: Attacker Map tab — same 3-column Attack Paths
+              surface with the embedded per-path Attack map (1:1 move from
+              the old Attack Paths right panel). */}
           <SystemAttackPaths
             key={`${systemName}-${refreshKey}-map`}
             systemName={systemName}
             embedded
-            defaultMode="attacker_map"
+            defaultMode="attack-path"
+            showEmbeddedAttackMap={true}
           />
         </div>
         </LightRouteIsland>
