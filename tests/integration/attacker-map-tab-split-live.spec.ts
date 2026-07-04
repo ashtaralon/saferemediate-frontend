@@ -43,6 +43,9 @@ test.describe("Attacker Map tab split", () => {
     )
     await page.waitForTimeout(8000)
     await expect(page.getByTestId("attack-path-flow-map-slot")).toHaveCount(1)
+    await expect(page.getByRole("button", { name: "Attack Path", exact: true })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Lateral Movement", exact: true })).toHaveCount(0)
+    await expect(page.getByText("Supporting evidence")).toHaveCount(0)
   })
 
   test("Deep link tab=attacker-map selects Attacker Map sub-tab", async ({ page, context }) => {

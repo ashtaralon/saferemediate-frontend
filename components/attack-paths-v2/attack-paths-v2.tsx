@@ -78,6 +78,7 @@ export function AttackPathsV2({
   embedded = false,
   defaultMode = "attack-path",
   showEmbeddedAttackMap = true,
+  mapOnlyPanel = false,
   onOpenRoleSplit,
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
@@ -96,6 +97,9 @@ export function AttackPathsV2({
    *  (AttackPathLaneFlowMap). Dashboard Attack Paths tab sets this false;
    *  Attacker Map tab sets true so the map lives only there. */
   showEmbeddedAttackMap?: boolean
+  /** Attacker Map tab: right column is ONLY the embedded Attack map block —
+   *  no mode chips, path report, lateral summary, or supporting evidence. */
+  mapOnlyPanel?: boolean
   /** Navigate to the per-resource role-split remediation view (owned by the
    *  page shell, which holds the section-switch state). Threaded to the
    *  attack-path panel's shared-role callout. */
@@ -876,9 +880,8 @@ export function AttackPathsV2({
           />
         ) : (
           <>
-            {/* Mode toggle — sticky header above the per-mode panel. URL-driven
-                so deep links to ?mode=exposure work, and switching is instant
-                (no refetch of the jewels list). */}
+            {/* Mode toggle — hidden on Attacker Map tab (mapOnlyPanel). */}
+            {!mapOnlyPanel && (
             <ModeToggle
               mode={viewMode}
               onChange={handleSetMode}
@@ -888,6 +891,7 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
+            )}
             {viewMode === "exposure" ? (
               <JewelExposurePanel
                 jewel={jewels.find((j) => j.id === selectedJewelId)!}
@@ -1049,6 +1053,7 @@ export function AttackPathsV2({
                 onToggleExpand={handleToggleExpand}
                 onOpenRoleSplit={onOpenRoleSplit}
                 showEmbeddedAttackMap={showEmbeddedAttackMap}
+                mapOnlyPanel={mapOnlyPanel}
               />
             )}
           </>
