@@ -2503,6 +2503,7 @@ export function AwsFrame({
                       IAM inside the stack prevents it from overlapping tier rows.
                     */}
                     <div
+                      data-testid="topology-tier-stack"
                       className={presentationMode ? "gap-1 min-h-0" : "contents"}
                       style={
                         presentationMode
