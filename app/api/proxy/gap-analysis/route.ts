@@ -14,16 +14,13 @@ const BACKEND_URL =
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
-// Map system names to IAM role names
-const SYSTEM_TO_ROLE_MAP: Record<string, string> = {
-  "alon-prod": "AlonIAMTest",
-  "SafeRemediate-Test": "AlonIAMTest",
-  "SafeRemediate-Lambda": "SafeRemediate-Lambda-Remediation-Role",
-  "SafeRemediate-Lambda-Remediation-Role": "SafeRemediate-Lambda-Remediation-Role",
-}
-
+// 2026-07-04 — removed SYSTEM_TO_ROLE_MAP. It silently substituted the
+// AlonIAMTest role's gap numbers for the "alon-prod" SYSTEM card (and two
+// dead legacy names) — wrong data presented as the system's. Pass-through:
+// an unknown name gets the backend's honest 404/error and the UI's honest
+// error state, never someone else's numbers.
 function getRoleName(systemName: string): string {
-  return SYSTEM_TO_ROLE_MAP[systemName] || systemName
+  return systemName
 }
 
 export async function GET(req: NextRequest) {
