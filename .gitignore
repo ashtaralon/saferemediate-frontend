@@ -10,6 +10,10 @@ node_modules
 
 # next.js
 /.next/
+# per-session preview dist dirs (NEXT_DIST_DIR in .claude/launch.json) —
+# must stay gitignored or Tailwind v4's content scanner reads their build
+# chunks and emits corrupted utilities (CSS parse failure).
+/.next-preview*/
 /out/
 
 # production
