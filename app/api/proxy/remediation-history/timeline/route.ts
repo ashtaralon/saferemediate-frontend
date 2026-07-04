@@ -27,6 +27,13 @@ const EMPTY_TIMELINE = {
   },
 }
 
+// Same empty shape, but flagged so the consumer can tell "the backend genuinely
+// has no events" (honest idle) apart from "we failed to load and have no stale"
+// (a degraded refresh). Without this, the LIVE NOW strip would render an empty
+// error-fallback as "no remediations recorded yet" — a lie when events exist but
+// the herd-saturated backend just couldn't answer this one cold cache key.
+const DEGRADED_TIMELINE = { ...EMPTY_TIMELINE, degraded: true }
+
 // Cap the upstream fetch below the browser's 25s AbortSignal so a cold/hung
 // Render worker fails over to stale here instead of timing out in the component.
 const UPSTREAM_TIMEOUT_MS = 20_000
@@ -92,7 +99,7 @@ export async function GET(req: NextRequest) {
       if (stale) {
         return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
       }
-      return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+      return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
     }
 
     const data = await response.json()
