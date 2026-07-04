@@ -227,6 +227,38 @@ export function useCachedFetch<T = unknown>(
   const [loading, setLoading] = useState<boolean>(initial === null && !!url)
   const [error, setError] = useState<string | null>(null)
 
+  // Re-sync rendered state when `cacheKey` changes mid-mount — e.g. the
+  // estate map's VPC scope picker swaps to a different scoped key, or a
+  // search box re-keys per query. The synchronous cache read above only
+  // runs on the FIRST render (useState initializers run once), so without
+  // this the hook keeps showing the PREVIOUS key's `data` until the new
+  // fetch resolves. Two real failure modes that caused:
+  //   1. Transient: the old scope's numbers linger under the new scope's
+  //      label during the (cold-backend, multi-second) refetch.
+  //   2. Sticky: if the new scoped fetch FAILS, the catch below only
+  //      surfaces the error when `data === null` — but `data` still holds
+  //      the old scope's payload, so the error is swallowed and the
+  //      operator sees the WRONG scope's data indefinitely, with no stale
+  //      indicator. (Estate map: switch VPC → EC2 chip stuck on the old
+  //      VPC's count.)
+  // Fix: on key change, re-read the NEW key's cache synchronously (React's
+  // documented "adjust state while rendering" pattern — guarded by
+  // prevKeyRef so it runs once per change, no loop) and reset the derived
+  // state to match, exactly as the mount-time init above does. Consumers
+  // with a static cacheKey (most dashboard cards) never enter this branch,
+  // so their behavior is unchanged.
+  const prevKeyRef = useRef<string>(cacheKey)
+  if (prevKeyRef.current !== cacheKey) {
+    prevKeyRef.current = cacheKey
+    const nextFresh = readCache<T>(cacheKey, maxStaleMs)
+    const nextInitial = nextFresh ?? readCacheAny<T>(cacheKey)
+    setData(nextInitial?.data ?? null)
+    setIsStale(nextInitial !== null && nextFresh === null)
+    setCachedAt(nextInitial?.ts ?? null)
+    setLoading(nextInitial === null && !!url)
+    setError(null)
+  }
+
   // Why no AbortController on cleanup: 15+ dashboard cards each call this
   // hook in parallel on initial mount. If any of them re-runs the effect
   // (URL change, parent re-render with new dep) the previous in-flight

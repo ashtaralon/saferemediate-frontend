@@ -53,6 +53,22 @@ const AZ_STORAGE_PREFIX = "topology-hidden-az:"
 /** Full-width estate shell — no centered max-width cap stealing horizontal space. */
 const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
 
+// Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secret) have no VPC
+// — they render on the right rails, not the subnet grid. Their SERVICES-chip
+// counts are therefore ALWAYS account/system-wide; the VPC-grid services
+// (EC2/RDS/LoadBalancer) are counted for the current scope (per-VPC when a VPC
+// is picked). Splitting the two keeps the chips 1:1 with the map and the
+// per-VPC header — mixing them read as the map lying about a VPC's workloads.
+// (Type sets mirror aws-frame's SERVERLESS_TYPES + REGIONAL_EDGE_SERVICE_TYPES.)
+const RAIL_SERVICE_TYPES = new Set<string>([
+  "Lambda", "LambdaFunction",
+  "S3", "S3Bucket",
+  "KMSKey",
+  "DynamoDB", "DynamoDBTable",
+  "Secret", "SecretsManagerSecret",
+])
+const isRailServiceType = (t?: string | null): boolean => !!t && RAIL_SERVICE_TYPES.has(t)
+
 function azStorageKey(systemName: string, vpcKey: string): string {
   return `${AZ_STORAGE_PREFIX}${systemName}:${vpcKey}`
 }
@@ -683,9 +699,21 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
 
   const outerClass = embedded ? "w-full" : "min-h-screen"
 
+  // VPC-grid services (EC2/RDS/LB) counted for the CURRENT scope — per-VPC when a
+  // VPC is picked (gridSourceNodes is the scoped fetch then), account-wide when
+  // merged. Regional/serverless services counted account-wide from the full node
+  // superset. See RAIL_SERVICE_TYPES for why the two are scoped differently.
+  const vpcServiceRows = useMemo(
+    () => workloadTypeRowsFromNodes(gridSourceNodes.filter(n => !isRailServiceType(n.type))),
+    [gridSourceNodes],
+  )
+  const systemWideRows = useMemo(
+    () => workloadTypeRowsFromNodes(serverlessSourceNodes.filter(n => isRailServiceType(n.type))),
+    [serverlessSourceNodes],
+  )
   const workloadTypeRows = useMemo(
-    () => workloadTypeRowsFromNodes(chipCountNodes),
-    [chipCountNodes],
+    () => [...vpcServiceRows, ...systemWideRows],
+    [vpcServiceRows, systemWideRows],
   )
 
   const toggleWorkloadType = useCallback(
@@ -967,33 +995,70 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           data-testid="topology-service-scope"
         >
-          <span
-            className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0"
-            style={{ color: "#5A6B7A" }}
-          >
-            Services
-          </span>
-          {workloadTypeRows.map(([t, v]) => {
-            const on = effectiveFilters.types.has(t)
-            return (
-              <button
-                key={t}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleWorkloadType(t)}
-                className="text-[11px] rounded-md border px-2 py-1 transition-colors"
-                style={{
-                  borderColor: on ? "#00C2A8" : "#CBD5E1",
-                  background: on ? "#E6FBF7" : "#F8FAFC",
-                  color: on ? "#0E8B7A" : "#94A3B8",
-                  textDecoration: on ? "none" : "line-through",
-                }}
-                data-testid={`topology-service-toggle-${t}`}
+          {vpcServiceRows.length > 0 ? (
+            <>
+              <span
+                className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0"
+                style={{ color: "#5A6B7A" }}
+                title={scopedVpc ? "EC2 / RDS / LoadBalancer in the selected VPC" : "EC2 / RDS / LoadBalancer across all VPCs"}
               >
-                {t} ({v})
-              </button>
-            )
-          })}
+                {scopedVpc ? "In this VPC" : "VPC services"}
+              </span>
+              {vpcServiceRows.map(([t, v]) => {
+                const on = effectiveFilters.types.has(t)
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleWorkloadType(t)}
+                    className="text-[11px] rounded-md border px-2 py-1 transition-colors"
+                    style={{
+                      borderColor: on ? "#00C2A8" : "#CBD5E1",
+                      background: on ? "#E6FBF7" : "#F8FAFC",
+                      color: on ? "#0E8B7A" : "#94A3B8",
+                      textDecoration: on ? "none" : "line-through",
+                    }}
+                    data-testid={`topology-service-toggle-${t}`}
+                  >
+                    {t} ({v})
+                  </button>
+                )
+              })}
+            </>
+          ) : null}
+          {systemWideRows.length > 0 ? (
+            <>
+              <span
+                className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0 border-l pl-2 ml-1"
+                style={{ color: "#5A6B7A", borderColor: "#E2E8F0" }}
+                title="Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secrets) have no VPC — count is always account/system-wide"
+              >
+                System-wide
+              </span>
+              {systemWideRows.map(([t, v]) => {
+                const on = effectiveFilters.types.has(t)
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleWorkloadType(t)}
+                    className="text-[11px] rounded-md border px-2 py-1 transition-colors"
+                    style={{
+                      borderColor: on ? "#00C2A8" : "#CBD5E1",
+                      background: on ? "#E6FBF7" : "#F8FAFC",
+                      color: on ? "#0E8B7A" : "#94A3B8",
+                      textDecoration: on ? "none" : "line-through",
+                    }}
+                    data-testid={`topology-service-toggle-${t}`}
+                  >
+                    {t} ({v})
+                  </button>
+                )
+              })}
+            </>
+          ) : null}
           <button
             type="button"
             onClick={() =>
