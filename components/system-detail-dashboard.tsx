@@ -644,11 +644,11 @@ const ENVIRONMENT_OPTIONS = [
 // =============================================================================
 
 export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab }: SystemDetailDashboardProps) {
-  // The standalone "Attacker Map" tab was merged into Attack Paths
-  // (2026-07); redirect any deep link that still targets it.
-  const [activeTab, setActiveTab] = useState(
-    (initialTab === "attacker-map" ? "attack-paths" : initialTab) ?? "overview",
-  )
+  // 2026-07 (split undo): Attacker Map is a distinct top-level tab again.
+  // Deep links to ?section=attacker-map now land on the Attacker Map tab
+  // directly. No redirect. (The previous merge is documented in the
+  // Risk sub-tabs comment above.)
+  const [activeTab, setActiveTab] = useState(initialTab ?? "overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // chunk #2a: cross-tab navigation + deep-link. The Attack Path
@@ -1571,6 +1571,10 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         { id: "least-privilege", label: "Resource Risk" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
+        // 2026-07: Attacker Map split back out to its own tab (undoes the
+        // 2026-07 merge into Attack Paths). Attack Paths tab no longer
+        // presents the map — dedicated tab does.
+        { id: "attacker-map", label: "Attacker Map" },
         { id: "crown-jewels", label: "Crown Jewels" },
         { id: "egress", label: "Traffic" },
       ],
@@ -2568,7 +2572,33 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "attack-paths" && (
         <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} embedded />
+          {/* 2026-07 split: Attack Paths tab does NOT render the map.
+              defaultMode='attack-path' pins the internal view to the
+              per-path analysis. The map lives on the sibling Attacker Map
+              tab below. */}
+          <SystemAttackPaths
+            key={`${systemName}-${refreshKey}`}
+            systemName={systemName}
+            embedded
+            defaultMode="attack-path"
+          />
+        </div>
+        </LightRouteIsland>
+      )}
+
+      {activeTab === "attacker-map" && (
+        <LightRouteIsland>
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          {/* 2026-07 split: dedicated Attacker Map tab. Reuses the same
+              AttackPathsV2 component but pins the view to the map mode.
+              Keeps a single canvas / data source; only the outer chrome
+              differs between the two tabs. */}
+          <SystemAttackPaths
+            key={`${systemName}-${refreshKey}-map`}
+            systemName={systemName}
+            embedded
+            defaultMode="attacker_map"
+          />
         </div>
         </LightRouteIsland>
       )}

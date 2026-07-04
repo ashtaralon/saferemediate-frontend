@@ -1090,12 +1090,11 @@ function ModeToggle({
       title:
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
     },
-    {
-      key: "attacker_map",
-      label: "Attacker Map",
-      title:
-        "The attacker's-eye map for this system — every entry point and the crown jewels it can reach, from the canonical attacker view (moved here from the standalone Attacker Map tab, 2026-07).",
-    },
+    // 2026-07: Attacker Map moved back to its own top-level sibling tab
+    // (Risk → Attacker Map). The internal chip is removed so the operator
+    // navigates via the top-level tab. The viewMode is still reachable via
+    // deep-link (?mode=attacker_map) and via defaultMode="attacker_map"
+    // passed by the Attacker Map tab's render.
     {
       key: "lateral",
       label: "Lateral Movement",
