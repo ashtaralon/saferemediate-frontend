@@ -120,7 +120,12 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
       const data = await res.json()
       const events: RemediationEvent[] = Array.isArray(data?.events) ? data.events : []
       if (events.length === 0) {
-        setState({ kind: "idle" })
+        // An empty feed is honest "engine idle" ONLY when the backend actually
+        // answered with no events. If the proxy flagged the response as degraded
+        // (it failed to load under the herd and had no stale to serve), don't
+        // claim "no remediations recorded yet" — that contradicts the activity
+        // card when events do exist. Surface the quiet "couldn't refresh" state.
+        setState(data?.degraded ? { kind: "error", message: "" } : { kind: "idle" })
         return
       }
       setState({ kind: "has-event", event: events[0] })
