@@ -567,6 +567,8 @@ interface SystemDetailDashboardProps {
   // (e.g. /systems?systemName=X&tab=orphan-services from the IAM
   // Quarantine-candidates flow).
   initialTab?: string
+  /** Seeds Attack Paths internal mode when landing from ?tab=attacker-map. */
+  initialAttackPathMode?: string
 }
 
 interface CriticalIssue {
@@ -643,12 +645,10 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab }: SystemDetailDashboardProps) {
-  // 2026-07 (split undo): Attacker Map is a distinct top-level tab again.
-  // Deep links to ?section=attacker-map now land on the Attacker Map tab
-  // directly. No redirect. (The previous merge is documented in the
-  // Risk sub-tabs comment above.)
-  const [activeTab, setActiveTab] = useState(initialTab ?? "overview")
+export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
+  // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
+  const resolvedInitialTab = initialTab === "attacker-map" ? "attack-paths" : (initialTab ?? "overview")
+  const [activeTab, setActiveTab] = useState(resolvedInitialTab)
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // chunk #2a: cross-tab navigation + deep-link. The Attack Path
@@ -1571,10 +1571,6 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         { id: "least-privilege", label: "Resource Risk" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
-        // 2026-07: Attacker Map split back out to its own tab (undoes the
-        // 2026-07 merge into Attack Paths). Attack Paths tab no longer
-        // presents the map — dedicated tab does.
-        { id: "attacker-map", label: "Attacker Map" },
         { id: "crown-jewels", label: "Crown Jewels" },
         { id: "egress", label: "Traffic" },
       ],
@@ -2572,31 +2568,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "attack-paths" && (
         <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          {/* 2026-07 split: Attack Paths tab does NOT render the embedded
-              per-path Attack map (AttackPathLaneFlowMap). Map lives on the
-              sibling Attacker Map tab only. */}
+          {/* Attack Paths: map lives on the Attacker Map mode chip (next to
+              Attack Path). This tab never embeds the flow map. */}
           <SystemAttackPaths
             key={`${systemName}-${refreshKey}`}
             systemName={systemName}
             embedded
-            defaultMode="attack-path"
+            defaultMode={initialAttackPathMode ?? "attack-path"}
             showEmbeddedAttackMap={false}
-          />
-        </div>
-        </LightRouteIsland>
-      )}
-
-      {activeTab === "attacker-map" && (
-        <LightRouteIsland>
-        <div className="max-w-[1800px] mx-auto px-8 py-6">
-          {/* Attacker Map tab: map-only right panel (no mode chips / report). */}
-          <SystemAttackPaths
-            key={`${systemName}-${refreshKey}-map`}
-            systemName={systemName}
-            embedded
-            defaultMode="attack-path"
-            showEmbeddedAttackMap={true}
-            mapOnlyPanel={true}
           />
         </div>
         </LightRouteIsland>

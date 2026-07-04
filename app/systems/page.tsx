@@ -25,7 +25,9 @@ function SystemsPageInner() {
   const sp = useSearchParams()
   const router = useRouter()
   const systemName = sp.get("systemName") || undefined
-  const initialTab = sp.get("tab") || undefined
+  const rawTab = sp.get("tab") || undefined
+  const initialTab = rawTab === "attacker-map" ? "attack-paths" : rawTab
+  const initialAttackPathMode = rawTab === "attacker-map" ? "attacker_map" : undefined
 
   if (systemName) {
     return (
@@ -33,6 +35,7 @@ function SystemsPageInner() {
         <SystemDetailDashboard
           systemName={systemName}
           initialTab={initialTab}
+          initialAttackPathMode={initialAttackPathMode}
           onBack={() => router.push("/systems")}
         />
       </ErrorBoundary>
