@@ -343,21 +343,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   const MIN_ZOOM = 0.15
   const MAX_ZOOM = 2
   // Below this zoom, full cards are unreadable → collapse to density tiles.
-  // HYSTERESIS: collapse below LOD_COLLAPSE, expand above LOD_EXPAND, and HOLD
-  // the current state in the dead-band between. Without the band, a fit that
-  // lands near the threshold flip-flops tiles↔cards; because the ResizeObserver
-  // below re-fits on the resulting content-size change, that flip-flop fed an
-  // infinite re-fit loop that froze the renderer in fullscreen (2026-07-04).
-  const LOD_COLLAPSE = 0.5
-  const LOD_EXPAND = 0.6
+  // ONE-WAY lock: the fit is a function of content size, and collapsing to tiles
+  // CHANGES that size. A two-way threshold flip-flops tiles↔cards and (via the
+  // ResizeObserver below) fed an infinite re-fit loop that froze the tab
+  // (2026-07-04). So the decision is monotonic per fullscreen session: while
+  // showing full cards, if the scale needed to show the WHOLE map drops below
+  // LOD_THRESHOLD we collapse to tiles and STAY collapsed. That lets the refit
+  // safely re-fit the now-shorter tile content so the tiers fill the viewport,
+  // instead of being stuck at the small card-fit with big empty margins.
+  const LOD_THRESHOLD = 0.55
+  const densityLockRef = useRef(false)
   const [densityCollapsed, setDensityCollapsed] = useState(false)
-  useEffect(() => {
-    if (!mapEnlarged) {
-      setDensityCollapsed(false)
-      return
-    }
-    setDensityCollapsed((prev) => (zoom < LOD_COLLAPSE ? true : zoom > LOD_EXPAND ? false : prev))
-  }, [zoom, mapEnlarged])
 
   const computeFit = useCallback((apply: boolean) => {
     const vp = viewportRef.current
@@ -375,6 +371,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
       MIN_ZOOM,
       Math.min(1, (vp.clientWidth - pad) / nw, (vp.clientHeight - pad) / nh),
     )
+    // One-way LOD (see lock comment above). While still showing full cards, if
+    // the whole map won't fit at a readable scale, drop to density tiles and
+    // stay there — the ResizeObserver then re-fits the shorter tile content so
+    // the three subnet tiers fill the viewport. Never re-expands, so no bounce.
+    if (!densityLockRef.current && fit < LOD_THRESHOLD) {
+      densityLockRef.current = true
+      setDensityCollapsed(true)
+    }
     setFitScale(fit)
     if (apply) {
       setZoom(fit)
@@ -383,64 +387,47 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     }
   }, [])
 
-  // On open, apply Fit once the frame has laid out (double rAF lets fonts +
-  // grid settle so the measured natural size is real). The map keeps GROWING
-  // after open — rails and tier cells render as their fetches land — so fit
-  // must follow content growth: a ResizeObserver re-applies fit until the
-  // operator manually zooms or pans; after that it only refreshes the fit
-  // TARGET (readout stays honest) without stealing their view.
+  // On open, Fit once the frame has laid out (double rAF lets fonts + grid
+  // settle so the measured size is real), then keep fitting as the map settles:
+  // async cells/rails land (GROW) and, once, the density collapse SHRINKS the
+  // content so the three tiers fill the viewport. A ResizeObserver drives both.
   useEffect(() => {
     if (!mapEnlarged) return
     userAdjustedRef.current = false
+    densityLockRef.current = false // re-decide LOD fresh each time fullscreen opens
+    setDensityCollapsed(false)
     let r1 = 0
     let r2 = 0
     let winRaf = 0
     let roRaf = 0
-    let lastNw = 0
-    let lastNh = 0
     let autoRefits = 0
-    // Hard backstop. The estate map only GROWS as async cells/rails land, so a
-    // legitimate auto-fit sequence is short and monotonic. Anything past this is
-    // an oscillation (the density-LOD toggle changing content size → changing the
-    // fit → flipping the toggle). Cap it so the refit can NEVER freeze the tab.
-    const MAX_AUTO_REFITS = 24
-
-    const measure = () => {
-      const content = contentRef.current
-      if (!content) return null
-      return {
-        nw: Math.max(content.offsetWidth, content.scrollWidth),
-        nh: Math.max(content.offsetHeight, content.scrollHeight),
-      }
-    }
-    const applyFit = (apply: boolean) => {
-      computeFit(apply)
-      const m = measure()
-      if (m) {
-        lastNw = m.nw
-        lastNh = m.nh
-      }
-    }
+    // Hard backstop against a runaway refit. With the one-way LOD lock the fit
+    // sequence is short (async growth + a single collapse), so anything past this
+    // cap is a pathology — stop it so the refit can NEVER freeze the tab again.
+    const MAX_AUTO_REFITS = 40
 
     // Initial fit once fonts + grid settle (double rAF).
     r1 = requestAnimationFrame(() => {
-      r2 = requestAnimationFrame(() => applyFit(true))
+      r2 = requestAnimationFrame(() => computeFit(true))
     })
 
-    // Window resize changes the VIEWPORT basis → always recompute. Not the
-    // oscillation source, so it is not counted against the cap.
+    // Window resize changes the VIEWPORT basis. Re-decide LOD (a bigger window
+    // may now fit full cards) and re-fit. User-driven, not the loop — uncapped.
     const onWinResize = () => {
       if (winRaf) return
       winRaf = requestAnimationFrame(() => {
         winRaf = 0
-        applyFit(!userAdjustedRef.current)
+        if (!userAdjustedRef.current) densityLockRef.current = false
+        computeFit(!userAdjustedRef.current)
       })
     }
     window.addEventListener("resize", onWinResize)
 
-    // Content ResizeObserver: re-apply fit ONLY when the content genuinely GREW
-    // (data still landing). Shrink/jitter is ignored — it comes from the LOD/flow
-    // re-layout our own fit triggers, and chasing it is what froze the renderer.
+    // Content ResizeObserver: re-fit on ANY content-size change — async cells/
+    // rails landing AND the one-time density collapse (which SHRINKS the content
+    // so the tiers can fill the viewport). Safe from the old freeze because the
+    // LOD lock makes collapse one-way (content size settles, never bounces);
+    // rAF-coalesced, and the hard cap is the last-resort guard.
     const onContentResize = () => {
       if (roRaf) return
       roRaf = requestAnimationFrame(() => {
@@ -449,13 +436,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
           computeFit(false) // refresh the % target only; never steal the view
           return
         }
-        const m = measure()
-        if (!m) return
-        const grew = m.nw > lastNw + 2 || m.nh > lastNh + 2
-        if (!grew) return
         if (autoRefits >= MAX_AUTO_REFITS) return
         autoRefits += 1
-        applyFit(true)
+        computeFit(true)
       })
     }
     const content = contentRef.current
