@@ -366,10 +366,28 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     const nw = Math.max(content.offsetWidth, content.scrollWidth)
     const nh = Math.max(content.offsetHeight, content.scrollHeight)
     if (nw === 0 || nh === 0) return
+    // The fit targets the PRIMARY column — the 3 subnet tiers + IAM
+    // (data-testid topology-tier-stack), measured from the content top — so the
+    // tall side rails (VPCE/serverless/regional, which stretch the row and used
+    // to shrink everything) do NOT drive the fit. Rails that run taller overflow
+    // below and pan. Ratio-based so the current scale cancels out; falls back to
+    // full content height if the anchor isn't in the DOM yet.
+    let fitH = nh
+    const stack = content.querySelector(
+      '[data-testid="topology-tier-stack"]',
+    ) as HTMLElement | null
+    if (stack) {
+      const cr = content.getBoundingClientRect()
+      const sr = stack.getBoundingClientRect()
+      if (cr.height > 0) {
+        const frac = (sr.bottom - cr.top) / cr.height // 0..1
+        if (frac > 0.1 && frac <= 1) fitH = nh * frac
+      }
+    }
     const pad = 24
     const fit = Math.max(
       MIN_ZOOM,
-      Math.min(1, (vp.clientWidth - pad) / nw, (vp.clientHeight - pad) / nh),
+      Math.min(1, (vp.clientWidth - pad) / nw, (vp.clientHeight - pad) / fitH),
     )
     // One-way LOD (see lock comment above). While still showing full cards, if
     // the whole map won't fit at a readable scale, drop to density tiles and
