@@ -956,49 +956,36 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
-      // Use proxy endpoint for IAM gap analysis
-      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
+      // System-scoped aggregate from issues-summary — the legacy
+      // /api/proxy/gap-analysis?systemName= path treated systemName as an
+      // IAM role name and 404'd for alon-prod (Defect 2, live QA 2026-07-04).
+      const response = await fetch(
+        `/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`,
+      )
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      console.log("[v0] IAM gap analysis response:", data.role_name || data.systemName)
+      const permissions = data.byCategory?.permissions || {}
+      const allowed = Number(permissions.allowed) || 0
+      const actual = Number(permissions.used) || 0
+      const gap = Number(permissions.unused) || Math.max(0, allowed - actual)
+      const gapPct = Number(permissions.gap_percentage) || 0
+      const confidence =
+        allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
+      const roleName = `${data.resources?.iam_roles ?? 0} IAM roles (system aggregate)`
 
-      // Handle new /api/iam-roles/{role}/gap-analysis format
-      const allowed = Number(data.summary?.total_permissions || data.allowed_actions || data.allowed_count) || 0
-      const actual = Number(data.summary?.used_count || data.used_actions || data.used_count) || 0
-      const gap = Number(data.summary?.unused_count || data.unused_actions || data.unused_count) || 0
-      const confidence = Number(data.summary?.lp_score || data.confidence || data.statistics?.confidence) || 75
-
-      // Capture the resolved role name from the proxy response so the
-      // Access Exposure card can surface its scope honestly. The proxy
-      // resolves each systemName → a single IAM role; without surfacing
-      // that, "1 unused permission" reads as a system-wide claim when
-      // it's actually about one role.
-      const roleName: string | undefined =
-        data.role_name || data.roleName || data.summary?.role_name
       setGapAnalysis({
         allowed,
         actual,
         gap,
         gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
-        confidence,
+        confidence: Math.round(confidence),
         roleName,
       })
-
-      // Handle new format: unused_permissions array instead of unused_actions_list
-      const unusedActions = data.unused_permissions || data.unused_actions_list || data.unused_actions || []
-      setUnusedActionsList(Array.isArray(unusedActions) ? unusedActions : [])
-      console.log("[v0] Gap analysis - unused permissions:", unusedActions.length, "items")
-
-      // Severity counts now come from issues-summary endpoint
-      // Gap analysis is just for the IAM permissions breakdown
-
-      // REMOVED: Don't populate mock/demo issues from gap analysis
-      // Only show real issues from backend security findings
-      // Keeping issues array empty - not used in Issues tab anymore
+      setUnusedActionsList([])
       setIssues([])
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)

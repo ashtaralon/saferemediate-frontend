@@ -6849,6 +6849,17 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   const flows: TrafficFlow[] = [...flowMap.values()];
 
+  // Sidebar buckets — path nodes classified as principals (not folded into compute).
+  const principals: ServiceNode[] = (filter.pathNodes ?? [])
+    .filter((pn) => bucketForType(pn.type) === 'principal')
+    .filter((pn) => !seenIds.has(pn.id) || computeServices.every((c) => c.id !== pn.id))
+    .map((pn) => ({
+      id: pn.id,
+      name: pn.name,
+      shortName: shortName(pn.name),
+      type: 'principal',
+    }));
+
   // VPCE rendering rule — STRICT after 2026-05-21 credibility audit.
   //
   // VPCEs render ONLY when there's actual evidence the path's traffic
@@ -6927,6 +6938,7 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     securityGroups,
     nacls,
     iamRoles,
+    principals,
     vpcEndpoints,
     egressGateways,
     flows,

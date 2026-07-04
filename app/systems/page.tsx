@@ -26,8 +26,18 @@ function SystemsPageInner() {
   const router = useRouter()
   const systemName = sp.get("systemName") || undefined
   const rawTab = sp.get("tab") || undefined
-  const initialTab = rawTab === "attacker-map" ? "attack-paths" : rawTab
-  const initialAttackPathMode = rawTab === "attacker-map" ? "attacker_map" : undefined
+  const jewel = sp.get("jewel")
+  const path = sp.get("path")
+  const mode = sp.get("mode")
+  const hasAttackPathDeepLink = Boolean(jewel || path || mode)
+  const initialTab =
+    rawTab === "attacker-map" || hasAttackPathDeepLink
+      ? "attack-paths"
+      : rawTab
+  const initialAttackPathMode =
+    rawTab === "attacker-map"
+      ? "attacker_map"
+      : mode || (hasAttackPathDeepLink ? "attack-path" : undefined)
 
   if (systemName) {
     return (

@@ -402,19 +402,14 @@ export function StackSidebar({
     return 'red';
   };
 
-  // Total count across all groups
+  // Total count — sum visible sidebar groups so header matches buckets
+  // (path-filtered arch can carry resources that don't match a group predicate).
   const totalCount = useMemo(() => {
-    return (
-      (architecture.principals?.length ?? 0) +
-      architecture.computeServices.length +
-      architecture.securityGroups.length +
-      architecture.nacls.length +
-      architecture.iamRoles.length +
-      (architecture.instanceProfiles?.length ?? 0) +
-      (architecture.iamPolicies?.length ?? 0) +
-      architecture.resources.length
-    );
-  }, [architecture]);
+    return Object.values(groupedResources).reduce(
+      (sum, items) => sum + (items?.length ?? 0),
+      0,
+    )
+  }, [groupedResources])
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
