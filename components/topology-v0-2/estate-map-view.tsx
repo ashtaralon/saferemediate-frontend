@@ -400,18 +400,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   }, [])
 
   const fitView = useCallback(() => computeFit(true), [computeFit])
-  const zoom100 = useCallback(() => {
-    const vp = viewportRef.current
-    const content = contentRef.current
-    setZoom(1)
-    if (vp && content) {
-      setPan({ x: Math.max(0, (vp.clientWidth - content.offsetWidth) / 2), y: 12 })
-    } else {
-      setPan({ x: 0, y: 0 })
-    }
-  }, [])
   const zoomInStep = useCallback(() => zoomTo(zoom * 1.25), [zoom, zoomTo])
   const zoomOutStep = useCallback(() => zoomTo(zoom / 1.25), [zoom, zoomTo])
+  // Zoom is DISPLAYED relative to the fit scale: "100%" = 100% OF THE MAP on
+  // screen (Alon, 2026-07-04 — a CSS-pixel 100% that clips the map is a
+  // meaningless number to an operator). Fit ⇒ 100%; zooming in reads 125%,
+  // 185%, …; the raw CSS scale stays internal.
+  const relZoomPct = Math.round((zoom / (fitScale || 1)) * 100)
 
   const onViewportWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
@@ -1122,19 +1117,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
                 type="button"
                 onClick={fitView}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
-                style={{ color: "#1A2330" }}
-                title="Fit the whole estate to the screen"
+                style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#1A2330" }}
+                title="Show 100% of the map (fit to screen)"
               >
                 <Scan className="h-3.5 w-3.5" />
-                Fit
-              </button>
-              <button
-                type="button"
-                onClick={zoom100}
-                className="rounded px-2 py-1 text-[10px] font-semibold hover:bg-[#F4F6F8] transition-colors"
-                style={{ color: Math.abs(zoom - 1) < 0.01 ? "#0E8B7A" : "#5A6B7A" }}
-                title="Actual size (100%)"
-              >
                 100%
               </button>
               <button
@@ -1146,8 +1132,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
-              <span className="w-10 text-center text-[10px] font-mono tabular-nums" style={{ color: "#5A6B7A" }}>
-                {Math.round(zoom * 100)}%
+              <span
+                className="w-10 text-center text-[10px] font-mono tabular-nums"
+                style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#5A6B7A" }}
+                title="Zoom relative to the whole map — 100% = entire estate on screen"
+              >
+                {relZoomPct}%
               </span>
               <button
                 type="button"
