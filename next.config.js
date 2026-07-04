@@ -2,10 +2,9 @@
 const nextConfig = {
   reactStrictMode: false,
 
-  // Per-session dist dir so a second `next dev` (agent preview servers in
-  // .claude/launch.json) doesn't collide with the default server's
-  // .next/dev/lock. Unset ⇒ standard .next — no effect on normal dev/build.
-  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Parallel dev instances (e.g. two agent sessions previewing the same
+  // checkout) collide on .next/dev/lock — give each its own dist dir.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
 
   typescript: {
     ignoreBuildErrors: true,

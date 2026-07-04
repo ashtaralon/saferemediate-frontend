@@ -10,6 +10,8 @@ import {
   TrendingUp, CheckCircle, User
 } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
+import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
+import { dedupeKmsListRows } from '@/lib/inventory-list'
 
 // Service icons by type
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
@@ -44,7 +46,27 @@ const SERVICE_ICONS: Record<string, React.ReactNode> = {
   NATGateway: <Network className="w-5 h-5" />,
   InternetGateway: <Globe className="w-5 h-5" />,
   ACMCertificate: <Shield className="w-5 h-5" />,
+  Subnet: <Network className="w-5 h-5" />,
   default: <Server className="w-5 h-5" />
+}
+
+// Types whose configuration the unified inspector (/api/proxy/inspector) can
+// render. IAMRole is deliberately absent — it has its own "IAM Role &
+// Policies" tab backed by gap-analysis.
+const CONFIG_TAB_LABEL: Record<string, string> = {
+  SecurityGroup: 'Rules',
+  S3: 'Policies',
+  S3Bucket: 'Policies',
+  Subnet: 'Properties',
+  RDS: 'Configuration',
+  RDSInstance: 'Configuration',
+  EC2: 'Configuration',
+  NetworkACL: 'Configuration',
+  KMSKey: 'Policies',
+  Secret: 'Policies',
+  SecretsManagerSecret: 'Policies',
+  DynamoDB: 'Configuration',
+  DynamoDBTable: 'Configuration',
 }
 
 // Category configuration
@@ -81,6 +103,109 @@ interface Props {
   systemName: string
 }
 
+// Graph-backed listing rows (registry aliases in api/resource_inventory.py).
+// Non-fatal: the inventory renders without a type when its fetch errors.
+async function fetchGraphListRows(alias: string, systemName?: string): Promise<any[]> {
+  try {
+    const system = systemName ? `&system=${encodeURIComponent(systemName)}` : ''
+    const res = await fetch(
+      `/api/proxy/resource-inventory/list?resource_type=${alias}${system}&limit=100`
+    )
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.items) ? data.items : []
+  } catch (e) {
+    console.warn(`${alias} list fetch failed:`, e)
+    return []
+  }
+}
+
+// KMS keys, secrets, and DynamoDB tables — the unified inspector has config
+// tabs for all three (backend #310 / FE #273), listed here so they're
+// clickable. KMS and secrets are fetched UNSCOPED: most of those nodes carry
+// no system tags yet (auto-tagger gap), so a system filter would blank them;
+// the data plane is single-account, which keeps the unscoped list honest.
+// DynamoDB nodes are system-tagged and stay scoped.
+async function fetchDataSecurityServiceItems(systemName: string): Promise<ServiceItem[]> {
+  const [kmsRows, secretRows, ddbRows] = await Promise.all([
+    fetchGraphListRows('kms'),
+    fetchGraphListRows('secret'),
+    fetchGraphListRows('dynamodb', systemName),
+  ])
+
+  const items: ServiceItem[] = []
+
+  for (const k of dedupeKmsListRows(kmsRows)) {
+    if (!k.id) continue
+    items.push({
+      id: String(k.id),
+      name: String(k.name || k.key_id || k.id),
+      type: 'KMSKey',
+      category: 'Security',
+      status: k.key_state === 'Enabled' ? 'active' : String(k.key_state || 'unknown').toLowerCase(),
+      region: k.region || undefined,
+      details: k,
+    })
+  }
+
+  for (const s of secretRows) {
+    const id = s?.id || s?.arn
+    if (!id) continue
+    items.push({
+      id: String(id),
+      name: String(s.name || id),
+      type: 'Secret',
+      category: 'Security',
+      status: 'active',
+      region: s.region || undefined,
+      details: s,
+    })
+  }
+
+  for (const t of ddbRows) {
+    if (!t?.id) continue
+    items.push({
+      id: String(t.id),
+      name: String(t.name || t.id),
+      type: 'DynamoDB',
+      category: 'Database',
+      status: String(t.status || 'unknown').toLowerCase(),
+      region: t.region || undefined,
+      details: t,
+    })
+  }
+
+  return items
+}
+
+// Subnets — graph-backed listing (registry alias `subnet`), scoped to the
+// system. Non-fatal: the inventory renders without subnets on error.
+async function fetchSubnetServiceItems(systemName: string): Promise<ServiceItem[]> {
+  try {
+    const res = await fetch(
+      `/api/proxy/resource-inventory/list?resource_type=subnet&system=${encodeURIComponent(systemName)}&limit=100`
+    )
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.items || [])
+      .filter((s: any) => s?.id)
+      .map((s: any) => ({
+        id: s.id,
+        name: s.name || s.id,
+        type: 'Subnet',
+        category: 'Networking',
+        status: 'active',
+        region: typeof s.availability_zone === 'string' && s.availability_zone.length > 2
+          ? s.availability_zone.slice(0, -1)
+          : s.availability_zone,
+        details: s,
+      }))
+  } catch (e) {
+    console.warn('Subnet list fetch failed:', e)
+    return []
+  }
+}
+
 export default function AllServicesInventory({ systemName }: Props) {
   const [services, setServices] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -97,7 +222,7 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [iamData, setIamData] = useState<any>(null)
   const [iamLoading, setIamLoading] = useState(false)
   const [iamError, setIamError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'iam'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'iam' | 'config'>('overview')
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [showUsedPerms, setShowUsedPerms] = useState(true)
   const [showUnusedPerms, setShowUnusedPerms] = useState(true)
@@ -117,7 +242,9 @@ export default function AllServicesInventory({ systemName }: Props) {
         const lpData = await lpResponse.json()
         
         const mappedServices: ServiceItem[] = (lpData.resources || []).map((r: any) => ({
-          id: r.resourceArn || r.resourceName,
+          // Prefer the canonical resource id (sg-…, subnet-…) — the config
+          // inspector resolves by id/ARN, not by friendly name.
+          id: r.resourceArn || r.resourceId || r.resourceName,
           name: r.resourceName,
           type: r.resourceType,
           category: getCategoryForType(r.resourceType),
@@ -131,7 +258,11 @@ export default function AllServicesInventory({ systemName }: Props) {
           details: r
         }))
         
-        setServices(mappedServices)
+        const [subnetItems, dataSecurityItems] = await Promise.all([
+          fetchSubnetServiceItems(systemName),
+          fetchDataSecurityServiceItems(systemName),
+        ])
+        setServices([...mappedServices, ...subnetItems, ...dataSecurityItems])
         setLastSync(new Date().toISOString())
         setLoading(false)
         return
@@ -185,7 +316,7 @@ export default function AllServicesInventory({ systemName }: Props) {
         
         ;(lpData.resources || []).forEach((r: any) => {
           allServices.push({
-            id: r.resourceArn || r.resourceName,
+            id: r.resourceArn || r.resourceId || r.resourceName,
             name: r.resourceName,
             type: r.resourceType,
             category: getCategoryForType(r.resourceType),
@@ -202,7 +333,17 @@ export default function AllServicesInventory({ systemName }: Props) {
       } catch (e) {
         console.warn('LP issues fetch failed:', e)
       }
-      
+
+      allServices.push(...(await fetchSubnetServiceItems(systemName)))
+
+      // Graph-backed KMS/Secret/DynamoDB rows. resources/all may have
+      // already mapped some of these types — keep whichever id arrived
+      // first rather than rendering duplicates.
+      const seenIds = new Set(allServices.map((s) => s.id))
+      for (const item of await fetchDataSecurityServiceItems(systemName)) {
+        if (!seenIds.has(item.id)) allServices.push(item)
+      }
+
       setServices(allServices)
       setLastSync(new Date().toISOString())
       
@@ -225,6 +366,7 @@ export default function AllServicesInventory({ systemName }: Props) {
       RDSInstance: 'Database',
       DynamoDB: 'Database',
       EC2: 'Compute',
+      Subnet: 'Networking',
     }
     return categoryMap[type] || 'Other'
   }
@@ -722,7 +864,7 @@ export default function AllServicesInventory({ systemName }: Props) {
             </div>
 
             {/* Tabs */}
-            {getIAMRoleName(selectedService) && (
+            {(getIAMRoleName(selectedService) || CONFIG_TAB_LABEL[selectedService.type]) && (
               <div className="flex border-b bg-slate-50">
                 <button
                   onClick={() => setActiveTab('overview')}
@@ -734,23 +876,44 @@ export default function AllServicesInventory({ systemName }: Props) {
                 >
                   Overview
                 </button>
-                <button
-                  onClick={() => setActiveTab('iam')}
-                  className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
-                    activeTab === 'iam'
-                      ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Key className="w-4 h-4" />
-                  IAM Role & Policies
-                </button>
+                {CONFIG_TAB_LABEL[selectedService.type] && (
+                  <button
+                    onClick={() => setActiveTab('config')}
+                    className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                      activeTab === 'config'
+                        ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4" />
+                    {CONFIG_TAB_LABEL[selectedService.type]}
+                  </button>
+                )}
+                {getIAMRoleName(selectedService) && (
+                  <button
+                    onClick={() => setActiveTab('iam')}
+                    className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                      activeTab === 'iam'
+                        ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Key className="w-4 h-4" />
+                    IAM Role & Policies
+                  </button>
+                )}
               </div>
             )}
             
             {/* Content */}
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
-              {activeTab === 'overview' ? (
+              {activeTab === 'config' && CONFIG_TAB_LABEL[selectedService.type] ? (
+                <ResourceConfigTab
+                  resourceId={selectedService.id}
+                  resourceType={selectedService.type}
+                  systemName={systemName}
+                />
+              ) : activeTab !== 'iam' || !getIAMRoleName(selectedService) ? (
                 <>
                   <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="bg-slate-50 rounded-xl p-4">

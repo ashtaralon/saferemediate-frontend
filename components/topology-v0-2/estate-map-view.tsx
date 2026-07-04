@@ -336,6 +336,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [panning, setPanning] = useState(false)
   const panDrag = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  // True once the operator zooms/pans by hand — auto-refit (content growth,
+  // window resize) then stops stealing the view and only refreshes the fit
+  // target so the relative-% readout stays honest.
+  const userAdjustedRef = useRef(false)
   const MIN_ZOOM = 0.15
   const MAX_ZOOM = 2
   // Below this zoom, full cards are unreadable → collapse to density tiles.
@@ -346,8 +350,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     const vp = viewportRef.current
     const content = contentRef.current
     if (!vp || !content) return
-    const nw = content.offsetWidth // natural (pre-transform) size — offsetWidth ignores CSS transform
-    const nh = content.offsetHeight
+    // Natural (pre-transform) size — offset* ignores CSS transform; scroll*
+    // additionally includes children that overflow the content box (the
+    // regional/serverless rails). offsetHeight alone under-measured a tall
+    // map so "fit" cut the DATA TIER off below the fold (2026-07-04).
+    const nw = Math.max(content.offsetWidth, content.scrollWidth)
+    const nh = Math.max(content.offsetHeight, content.scrollHeight)
     if (nw === 0 || nh === 0) return
     const pad = 24
     const fit = Math.max(
@@ -363,26 +371,38 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   }, [])
 
   // On open, apply Fit once the frame has laid out (double rAF lets fonts +
-  // grid settle so offsetWidth is the true natural width). Recompute Fit target
-  // on resize without stealing the operator's current manual zoom.
+  // grid settle so the measured natural size is real). The map keeps GROWING
+  // after open — rails and tier cells render as their fetches land — so fit
+  // must follow content growth: a ResizeObserver re-applies fit until the
+  // operator manually zooms or pans; after that it only refreshes the fit
+  // TARGET (readout stays honest) without stealing their view.
   useEffect(() => {
     if (!mapEnlarged) return
+    userAdjustedRef.current = false
     let r1 = 0
     let r2 = 0
     r1 = requestAnimationFrame(() => {
       r2 = requestAnimationFrame(() => computeFit(true))
     })
-    const onResize = () => computeFit(false)
-    window.addEventListener("resize", onResize)
+    const refit = () => computeFit(!userAdjustedRef.current)
+    window.addEventListener("resize", refit)
+    const content = contentRef.current
+    let ro: ResizeObserver | null = null
+    if (content) {
+      ro = new ResizeObserver(refit)
+      ro.observe(content)
+    }
     return () => {
       cancelAnimationFrame(r1)
       cancelAnimationFrame(r2)
-      window.removeEventListener("resize", onResize)
+      window.removeEventListener("resize", refit)
+      ro?.disconnect()
     }
   }, [mapEnlarged, computeFit])
 
   const zoomTo = useCallback((next: number, originClientX?: number, originClientY?: number) => {
     const vp = viewportRef.current
+    userAdjustedRef.current = true // manual zoom — stop auto-refit stealing the view
     setZoom(prev => {
       const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next))
       if (vp && originClientX != null && originClientY != null && clamped !== prev) {
@@ -399,19 +419,18 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     })
   }, [])
 
-  const fitView = useCallback(() => computeFit(true), [computeFit])
-  const zoom100 = useCallback(() => {
-    const vp = viewportRef.current
-    const content = contentRef.current
-    setZoom(1)
-    if (vp && content) {
-      setPan({ x: Math.max(0, (vp.clientWidth - content.offsetWidth) / 2), y: 12 })
-    } else {
-      setPan({ x: 0, y: 0 })
-    }
-  }, [])
+  const fitView = useCallback(() => {
+    // Returning to 100%-of-map re-enables auto-refit on content growth.
+    userAdjustedRef.current = false
+    computeFit(true)
+  }, [computeFit])
   const zoomInStep = useCallback(() => zoomTo(zoom * 1.25), [zoom, zoomTo])
   const zoomOutStep = useCallback(() => zoomTo(zoom / 1.25), [zoom, zoomTo])
+  // Zoom is DISPLAYED relative to the fit scale: "100%" = 100% OF THE MAP on
+  // screen (Alon, 2026-07-04 — a CSS-pixel 100% that clips the map is a
+  // meaningless number to an operator). Fit ⇒ 100%; zooming in reads 125%,
+  // 185%, …; the raw CSS scale stays internal.
+  const relZoomPct = Math.round((zoom / (fitScale || 1)) * 100)
 
   const onViewportWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
@@ -423,6 +442,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     // Let chips / buttons / links handle their own clicks; only the bare canvas pans.
     const t = e.target as HTMLElement
     if (t.closest('button, a, input, select, [data-flow-id], [role="button"]')) return
+    userAdjustedRef.current = true // manual pan — stop auto-refit stealing the view
     panDrag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }
     setPanning(true)
   }, [pan.x, pan.y])
@@ -1122,19 +1142,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
                 type="button"
                 onClick={fitView}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
-                style={{ color: "#1A2330" }}
-                title="Fit the whole estate to the screen"
+                style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#1A2330" }}
+                title="Show 100% of the map (fit to screen)"
               >
                 <Scan className="h-3.5 w-3.5" />
-                Fit
-              </button>
-              <button
-                type="button"
-                onClick={zoom100}
-                className="rounded px-2 py-1 text-[10px] font-semibold hover:bg-[#F4F6F8] transition-colors"
-                style={{ color: Math.abs(zoom - 1) < 0.01 ? "#0E8B7A" : "#5A6B7A" }}
-                title="Actual size (100%)"
-              >
                 100%
               </button>
               <button
@@ -1146,8 +1157,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
-              <span className="w-10 text-center text-[10px] font-mono tabular-nums" style={{ color: "#5A6B7A" }}>
-                {Math.round(zoom * 100)}%
+              <span
+                className="w-10 text-center text-[10px] font-mono tabular-nums"
+                style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#5A6B7A" }}
+                title="Zoom relative to the whole map — 100% = entire estate on screen"
+              >
+                {relZoomPct}%
               </span>
               <button
                 type="button"
