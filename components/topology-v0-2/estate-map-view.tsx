@@ -343,8 +343,21 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   const MIN_ZOOM = 0.15
   const MAX_ZOOM = 2
   // Below this zoom, full cards are unreadable → collapse to density tiles.
-  const LOD_THRESHOLD = 0.55
-  const densityCollapsed = mapEnlarged && zoom < LOD_THRESHOLD
+  // HYSTERESIS: collapse below LOD_COLLAPSE, expand above LOD_EXPAND, and HOLD
+  // the current state in the dead-band between. Without the band, a fit that
+  // lands near the threshold flip-flops tiles↔cards; because the ResizeObserver
+  // below re-fits on the resulting content-size change, that flip-flop fed an
+  // infinite re-fit loop that froze the renderer in fullscreen (2026-07-04).
+  const LOD_COLLAPSE = 0.5
+  const LOD_EXPAND = 0.6
+  const [densityCollapsed, setDensityCollapsed] = useState(false)
+  useEffect(() => {
+    if (!mapEnlarged) {
+      setDensityCollapsed(false)
+      return
+    }
+    setDensityCollapsed((prev) => (zoom < LOD_COLLAPSE ? true : zoom > LOD_EXPAND ? false : prev))
+  }, [zoom, mapEnlarged])
 
   const computeFit = useCallback((apply: boolean) => {
     const vp = viewportRef.current
@@ -381,21 +394,82 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     userAdjustedRef.current = false
     let r1 = 0
     let r2 = 0
+    let winRaf = 0
+    let roRaf = 0
+    let lastNw = 0
+    let lastNh = 0
+    let autoRefits = 0
+    // Hard backstop. The estate map only GROWS as async cells/rails land, so a
+    // legitimate auto-fit sequence is short and monotonic. Anything past this is
+    // an oscillation (the density-LOD toggle changing content size → changing the
+    // fit → flipping the toggle). Cap it so the refit can NEVER freeze the tab.
+    const MAX_AUTO_REFITS = 24
+
+    const measure = () => {
+      const content = contentRef.current
+      if (!content) return null
+      return {
+        nw: Math.max(content.offsetWidth, content.scrollWidth),
+        nh: Math.max(content.offsetHeight, content.scrollHeight),
+      }
+    }
+    const applyFit = (apply: boolean) => {
+      computeFit(apply)
+      const m = measure()
+      if (m) {
+        lastNw = m.nw
+        lastNh = m.nh
+      }
+    }
+
+    // Initial fit once fonts + grid settle (double rAF).
     r1 = requestAnimationFrame(() => {
-      r2 = requestAnimationFrame(() => computeFit(true))
+      r2 = requestAnimationFrame(() => applyFit(true))
     })
-    const refit = () => computeFit(!userAdjustedRef.current)
-    window.addEventListener("resize", refit)
+
+    // Window resize changes the VIEWPORT basis → always recompute. Not the
+    // oscillation source, so it is not counted against the cap.
+    const onWinResize = () => {
+      if (winRaf) return
+      winRaf = requestAnimationFrame(() => {
+        winRaf = 0
+        applyFit(!userAdjustedRef.current)
+      })
+    }
+    window.addEventListener("resize", onWinResize)
+
+    // Content ResizeObserver: re-apply fit ONLY when the content genuinely GREW
+    // (data still landing). Shrink/jitter is ignored — it comes from the LOD/flow
+    // re-layout our own fit triggers, and chasing it is what froze the renderer.
+    const onContentResize = () => {
+      if (roRaf) return
+      roRaf = requestAnimationFrame(() => {
+        roRaf = 0
+        if (userAdjustedRef.current) {
+          computeFit(false) // refresh the % target only; never steal the view
+          return
+        }
+        const m = measure()
+        if (!m) return
+        const grew = m.nw > lastNw + 2 || m.nh > lastNh + 2
+        if (!grew) return
+        if (autoRefits >= MAX_AUTO_REFITS) return
+        autoRefits += 1
+        applyFit(true)
+      })
+    }
     const content = contentRef.current
     let ro: ResizeObserver | null = null
     if (content) {
-      ro = new ResizeObserver(refit)
+      ro = new ResizeObserver(onContentResize)
       ro.observe(content)
     }
     return () => {
       cancelAnimationFrame(r1)
       cancelAnimationFrame(r2)
-      window.removeEventListener("resize", refit)
+      if (winRaf) cancelAnimationFrame(winRaf)
+      if (roRaf) cancelAnimationFrame(roRaf)
+      window.removeEventListener("resize", onWinResize)
       ro?.disconnect()
     }
   }, [mapEnlarged, computeFit])
