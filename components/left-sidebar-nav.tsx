@@ -96,7 +96,7 @@ export function LeftSidebarNav({
     // operators on any customer reach a working state without us
     // pre-selecting a demo system that doesn't exist on their tenant.
     { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2" },
-    // Attacker Map is reachable from inside system detail: Risk → Attacker Map.
+    // Attacker Map is reachable from inside system detail: Risk → Attack Paths → Attacker Map (2026-07 merge).
     // The top-level sidebar entry was removed because the page routing in
     // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
     // the same time — see system-detail-dashboard.tsx tab integration.

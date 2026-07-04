@@ -59,7 +59,7 @@ import { AllCrownJewelsView } from "./all-crown-jewels-view"
 // Topology tab uses), per Alon 2026-07 — replaced the AttackExplorer
 // graph/surface/scorecard lenses. Static import mirrors attacker-view-v3, which
 // already pulls TrafficFlowMap into this bundle.
-import TrafficFlowMap from "@/components/dependency-map/traffic-flow-map"
+import { AttackerMap } from "@/components/attacker-map/attacker-map"
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
@@ -88,7 +88,7 @@ export function AttackPathsV2({
   embedded?: boolean
   // Seeds the view mode when the URL has no explicit ?mode= param. An
   // explicit ?mode= always wins, so deep links are preserved. The main-page
-  // "Attack Paths" entry passes defaultMode="explorer" to land on the
+  // "Attack Paths" entry passes defaultMode="attacker_map" to land on the
   // account-wide every-path view (retiring the legacy IdentityAttackPaths).
   defaultMode?: string
   /** Navigate to the per-resource role-split remediation view (owned by the
@@ -153,9 +153,12 @@ export function AttackPathsV2({
   // attacker/per-path/exposure tabs (which BFS backwards toward
   // entry points). See components/attack-paths-v2/exfil-view-v3.tsx
   // (greenfield rebuild 2026-05-26 — single dynamic TFM, no static grid).
-  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence" =
-    modeParam === "explorer"
-      ? "explorer"
+  const viewMode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence" =
+    // back-compat: mode renamed explorer -> attacker_map (2026-07) when the
+    // Explorer traffic-map was replaced by the Attacker Map. Old deep links
+    // still land here.
+    modeParam === "attacker_map" || modeParam === "explorer"
+      ? "attacker_map"
       : modeParam === "exposure"
       ? "exposure"
       : modeParam === "convergence"
@@ -555,7 +558,7 @@ export function AttackPathsV2({
     router.replace(`${pathname}?${params.toString()}`)
   }
 
-  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence") => {
+  const handleSetMode = (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence") => {
     // Switching to exposure / phase / topology clears the path
     // selection — those aggregate across paths (phase shows every
     // chain targeting the jewel; topology / exposure are jewel-scoped
@@ -770,7 +773,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "explorer" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "attacker_map" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -810,7 +813,7 @@ export function AttackPathsV2({
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
-        {viewMode === "explorer" ? (
+        {viewMode === "attacker_map" ? (
           <>
             <ModeToggle
               mode={viewMode}
@@ -821,36 +824,7 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            <div style={{ height: "calc(100vh - 150px)" }}>
-              {/* Explorer = the Topology tab's Traffic Map, but with the
-                  attack-path spotlight wired (per Alon 2026-07). The internal
-                  "Attack Paths" picker lets the operator choose a crown jewel;
-                  onCrownJewelSpotlight → setUrl → selectedJewel flows back as
-                  spotlightJewel, and spotlightPathId scopes the canvas to the
-                  ONE selected path (EC2 → … → jewel) instead of the whole
-                  system. Mirrors components/dependency-map-tab.tsx's wiring. */}
-              <TrafficFlowMap
-                systemName={systemName}
-                spotlightJewel={
-                  selectedJewel
-                    ? {
-                        id: selectedJewel.id,
-                        canonical_id: selectedJewel.canonical_id,
-                      }
-                    : undefined
-                }
-                spotlightPathId={selectedPathId}
-                systemCrownJewelIds={
-                  jewels.length > 0
-                    ? new Set(jewels.map((j) => j.id))
-                    : undefined
-                }
-                onCrownJewelSpotlight={(cj) => setUrl({ jewel: cj.id })}
-                observedMode={true}
-                innerTitleOverride="Traffic Map"
-                innerSubtitleOverride="Observed flows across every attack path"
-              />
-            </div>
+            <AttackerMap systemName={systemName} />
           </>
         ) : viewMode === "topology" ? (
           <>
@@ -1094,8 +1068,8 @@ function ModeToggle({
   onToggleExpand,
   showBeta = false,
 }: {
-  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence"
-  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence") => void
+  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence"
+  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence") => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
@@ -1105,7 +1079,7 @@ function ModeToggle({
       engineering-internal surfaces out of the default operator UI. */
   showBeta?: boolean
 }) {
-  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "explorer" | "convergence"
+  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence"
   // Capability-named tabs — no version stamps in the operator UI.
   // Engineering context (DTO provenance, phase docs) lives in the
   // title tooltips, not the labels.
@@ -1117,10 +1091,10 @@ function ModeToggle({
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
     },
     {
-      key: "explorer",
-      label: "Explorer",
+      key: "attacker_map",
+      label: "Attacker Map",
       title:
-        "Account-wide map — every foothold and crown jewel on the system at once. Click a crown jewel to light up all its connections, or a foothold to see everything it reaches.",
+        "The attacker's-eye map for this system — every entry point and the crown jewels it can reach, from the canonical attacker view (moved here from the standalone Attacker Map tab, 2026-07).",
     },
     {
       key: "lateral",
