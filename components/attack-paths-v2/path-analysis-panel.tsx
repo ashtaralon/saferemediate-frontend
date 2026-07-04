@@ -342,7 +342,11 @@ export function PathAnalysisPanel({
         />
       ) : null}
       <div
-        className={`relative overflow-auto rounded-[14px] px-3 pt-2 pb-4 ${mapOnlyPanel ? "flex-1 min-h-[70vh]" : "min-h-[560px]"}`}
+        className={`relative rounded-[14px] px-3 pt-2 pb-4 ${
+          mapOnlyPanel
+            ? "flex flex-1 flex-col min-h-0 overflow-hidden"
+            : "min-h-[560px] overflow-auto"
+        }`}
         data-testid="attack-path-flow-map-slot"
       >
         <AttackPathLaneFlowMap
@@ -351,6 +355,7 @@ export function PathAnalysisPanel({
           systemName={systemName}
           architecture={architecture}
           architectureLoading={architectureLoading}
+          fillHeight={mapOnlyPanel}
         />
       </div>
     </div>

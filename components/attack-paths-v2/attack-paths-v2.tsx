@@ -817,7 +817,13 @@ export function AttackPathsV2({
       </section>
 
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
-      <main className="flex-1 overflow-y-auto bg-background">
+      <main
+        className={`flex-1 bg-background ${
+          isPathExpanded && viewMode === "attacker_map"
+            ? "flex flex-col min-h-0 overflow-hidden"
+            : "overflow-y-auto"
+        }`}
+      >
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
@@ -1165,18 +1171,19 @@ function ModeToggle({
       : []),
   ]
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
           implicit "live" framing the tab subtitles use. */}
-      <FreshnessBanner variant="pill" />
+      <FreshnessBanner variant="pill" className="shrink-0" />
       {/* ATLAS is an inline section at the bottom of the Attacker View
           canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
           direction: jewel = SOURCE, external destinations = SINKS.
           Topology shows the customer's architecture, not the
           attacker's path. */}
-      <div className="flex rounded-md border border-border overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="flex rounded-md border border-border overflow-hidden w-max max-w-full">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -1191,12 +1198,13 @@ function ModeToggle({
             {tab.label}
           </button>
         ))}
+        </div>
       </div>
       {/* Quiet context — mode descriptions live in the tab tooltips. The
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
          different number). Showing both invites confusion. */}
-      <div className="text-[10px] text-muted-foreground min-w-0 truncate flex-1">
+      <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink">
         {jewelName
           ? mode === "topology"
             ? jewelName

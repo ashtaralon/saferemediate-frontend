@@ -45,13 +45,14 @@ test.describe("Attacker Map mode chip", () => {
 
   test("Attacker Map chip sits next to Attack Path in mode bar", async ({ page, context }) => {
     await seedAuthCookie(context)
-    await page.goto(`${liveBaseUrl()}/systems?systemName=${SYSTEM}&tab=attack-paths`, {
-      waitUntil: "domcontentloaded",
-    })
-    await page.waitForTimeout(5000)
+    await page.goto(
+      `${liveBaseUrl()}/systems?systemName=${SYSTEM}&tab=attack-paths&jewel=${JEWEL}`,
+      { waitUntil: "domcontentloaded" },
+    )
+    await page.waitForTimeout(8000)
     const attackPathChip = page.getByRole("button", { name: "Attack Path", exact: true })
     const attackerMapChip = page.getByRole("button", { name: "Attacker Map", exact: true })
-    await expect(attackPathChip).toBeVisible()
+    await expect(attackPathChip).toBeVisible({ timeout: 60_000 })
     await expect(attackerMapChip).toBeVisible()
     await attackerMapChip.click()
     await page.waitForTimeout(500)

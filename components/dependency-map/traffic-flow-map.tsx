@@ -9328,8 +9328,8 @@ export default function TrafficFlowMap({
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header with refresh controls */}
-      <div className="flex items-center justify-between px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 overflow-visible">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 min-w-0">
+        <div className="flex items-center gap-4 shrink-0 min-w-0 max-w-[42%] overflow-hidden">
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -9431,7 +9431,7 @@ export default function TrafficFlowMap({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto">
           {/* Connections toggle — 2026-06-25. Defaults OFF: the canvas
               shows zero global flow polylines, only the ones that
               touch the hovered chip + active attack paths. Toggling
@@ -9585,18 +9585,24 @@ export default function TrafficFlowMap({
             <RefreshCw className={`w-4 h-4 ${refreshStatus === 'fetching' ? 'animate-spin' : ''}`} />
             {refreshStatus === 'fetching' ? 'Syncing...' : 'Refresh Data'}
           </button>
-
-          {/* Fullscreen toggle */}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            data-testid="canvas-fullscreen-toggle"
-            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-            className="px-3 py-1.5 bg-muted hover:bg-accent text-foreground rounded-lg text-xs font-medium"
-          >
-            {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
-          </button>
         </div>
+
+        {/* Pinned fullscreen — stays visible when toolbar controls scroll off-screen */}
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          data-testid="canvas-fullscreen-toggle"
+          title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          aria-label={isFullscreen ? "Exit map fullscreen" : "Open map fullscreen"}
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-muted hover:bg-accent text-foreground rounded-lg text-xs font-medium border border-border"
+        >
+          {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+          {pathFilter ? (
+            <span className="hidden sm:inline uppercase tracking-wider text-[10px] font-semibold">
+              {isFullscreen ? "Exit" : "Fullscreen"}
+            </span>
+          ) : null}
+        </button>
       </div>
 
       <div ref={mapContainerRef} className="flex-1 overflow-y-auto p-4 relative">

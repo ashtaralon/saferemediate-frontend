@@ -21,6 +21,7 @@ export function AttackPathLaneFlowMap({
   canvasV2 = false,
   fullscreenContainerRef,
   onDamageScopeDataNode,
+  fillHeight = false,
 }: {
   path: IdentityAttackPath
   jewel: CrownJewelSummary | null
@@ -36,6 +37,8 @@ export function AttackPathLaneFlowMap({
   canvasV2?: boolean
   fullscreenContainerRef?: RefObject<HTMLDivElement | null>
   onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void
+  /** When true (Attacker Map expanded), grow with the panel instead of a fixed 520px slot. */
+  fillHeight?: boolean
 }) {
   const pathFilter = useMemo(
     () => buildTrafficFlowPathFilter(path, jewel),
@@ -44,7 +47,9 @@ export function AttackPathLaneFlowMap({
   const start = path.nodes?.[0]
 
   return (
-    <div className="relative h-[520px] min-h-[480px] w-full">
+    <div
+      className={`relative w-full ${fillHeight ? "h-full min-h-0 flex-1" : "h-[520px] min-h-[480px]"}`}
+    >
       {architectureLoading && !architecture && (
         <div
           className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2"
