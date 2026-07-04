@@ -105,16 +105,27 @@ function describeAction(event: RemediationEvent): string {
 export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
   const [state, setState] = useState<StripState>({ kind: "loading" })
 
-  const fetchLatest = useCallback(async () => {
-    setState({ kind: "loading" })
+  const fetchLatest = useCallback(async (opts?: { silent?: boolean }) => {
+    // On the initial load (and manual retry) show the "Checking…" state. On the
+    // background poll, refresh silently so the strip never flickers back to a
+    // spinner while it already has a good last event on screen.
+    if (!opts?.silent) setState({ kind: "loading" })
     try {
       const params = new URLSearchParams({ limit: "1" })
       if (systemName) params.set("system_name", systemName)
       const res = await fetch(`/api/proxy/remediation-history/timeline?${params.toString()}`, {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
+      // A background poll must never DOWNGRADE a good event already on screen:
+      // the backend can transiently return an empty/degraded response on a cold
+      // worker (we proved limit=1 flips empty→1-event as it warms), so a poll
+      // that comes back worse than what we're showing is ignored. Initial load
+      // and manual retry are not silent, so they always settle to the truth.
+      const settleDown = (next: StripState) =>
+        setState((prev) => (opts?.silent && prev.kind === "has-event" ? prev : next))
+
       if (!res.ok) {
-        setState({ kind: "error", message: `HTTP ${res.status}` })
+        settleDown({ kind: "error", message: `HTTP ${res.status}` })
         return
       }
       const data = await res.json()
@@ -125,18 +136,22 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
         // (it failed to load under the herd and had no stale to serve), don't
         // claim "no remediations recorded yet" — that contradicts the activity
         // card when events do exist. Surface the quiet "couldn't refresh" state.
-        setState(data?.degraded ? { kind: "error", message: "" } : { kind: "idle" })
+        settleDown(data?.degraded ? { kind: "error", message: "" } : { kind: "idle" })
         return
       }
       setState({ kind: "has-event", event: events[0] })
     } catch (err: any) {
       const message = err?.name === "TimeoutError" ? "timed out" : err?.message ?? "unreachable"
-      setState({ kind: "error", message })
+      setState((prev) => (opts?.silent && prev.kind === "has-event" ? prev : { kind: "error", message }))
     }
   }, [systemName])
 
   useEffect(() => {
     fetchLatest()
+    // "LIVE NOW" should be live: poll quietly so a cold-start empty self-heals
+    // once the backend warms, and new remediations surface without a reload.
+    const id = setInterval(() => fetchLatest({ silent: true }), 60_000)
+    return () => clearInterval(id)
   }, [fetchLatest])
 
   return (
@@ -162,7 +177,7 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
               <AlertCircle className="w-3.5 h-3.5 opacity-60" />
               <span>Couldn't refresh activity{state.message ? ` — ${state.message}` : ""}</span>
               <button
-                onClick={fetchLatest}
+                onClick={() => fetchLatest()}
                 className="ml-1 text-xs font-medium text-[#2D51DA] hover:underline"
               >
                 retry
