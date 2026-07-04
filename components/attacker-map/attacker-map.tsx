@@ -240,7 +240,7 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center min-h-[600px]">
+      <div data-testid="attacker-map-root" className="flex items-center justify-center min-h-[600px]">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
           <p className="text-sm text-slate-400">Loading attacker map…</p>
@@ -251,7 +251,7 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
 
   if (error && !data) {
     return (
-      <div className="flex items-center justify-center min-h-[600px]">
+      <div data-testid="attacker-map-root" className="flex items-center justify-center min-h-[600px]">
         <div className="flex flex-col items-center gap-3 text-center max-w-md">
           <AlertTriangle className="w-8 h-8 text-amber-400" />
           <p className="text-sm text-white font-medium">Failed to load attack paths</p>
@@ -269,7 +269,7 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
 
   if (!data || (data.total_paths ?? 0) === 0 || jewels.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[600px]">
+      <div data-testid="attacker-map-root" className="flex items-center justify-center min-h-[600px]">
         <div className="flex flex-col items-center gap-3 text-center max-w-md px-6">
           <Shield className="w-10 h-10 text-green-400" />
           <p className="text-sm text-white font-medium">No attack paths to crown jewels</p>
@@ -283,7 +283,7 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
 
   if (!currentPath) {
     return (
-      <div className="flex items-center justify-center min-h-[600px]">
+      <div data-testid="attacker-map-root" className="flex items-center justify-center min-h-[600px]">
         <p className="text-sm text-slate-400">Select a crown jewel to view its attack paths</p>
       </div>
     )
@@ -298,7 +298,11 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
   const totalEdgeCount = (currentPath.edges ?? []).length
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]" style={{ background: "rgb(15, 23, 42)" }}>
+    <div
+      data-testid="attacker-map-root"
+      className="flex flex-col h-[calc(100vh-4rem)]"
+      style={{ background: "rgb(15, 23, 42)" }}
+    >
       {/* Header */}
       <div
         className="px-5 py-3 border-b"
