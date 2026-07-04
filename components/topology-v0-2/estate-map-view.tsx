@@ -294,8 +294,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
   }, [regionOptions, selectedRegionId])
 
   // First visit: default to primary VPC when the system spans multiple VPCs.
+  // Runs at most ONCE per system per mount (defaultedVpcSystemRef) so it never
+  // fights a later user switch. Without the guard this effect re-fires on every
+  // `data` refetch, and because we treat a persisted "all" as unset (below),
+  // selecting "All VPCs" triggers a merged refetch → new data ref → effect
+  // re-runs → snaps straight back to the primary VPC. The guard lets an
+  // explicit "All VPCs" choice stick for the session.
+  const defaultedVpcSystemRef = useRef<string | null>(null)
   useEffect(() => {
     if (!data?.available_vpcs?.length) return
+    if (defaultedVpcSystemRef.current === systemName) return
+    defaultedVpcSystemRef.current = systemName
     const key = `${VPC_STORAGE_PREFIX}${systemName}`
     // Treat a persisted "all" as unset. The merged view crams cross-VPC
     // workloads into ONE VPC's subnet frame (the backend's vpc_topology only
