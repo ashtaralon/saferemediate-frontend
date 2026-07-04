@@ -59,7 +59,6 @@ import { AllCrownJewelsView } from "./all-crown-jewels-view"
 // Topology tab uses), per Alon 2026-07 — replaced the AttackExplorer
 // graph/surface/scorecard lenses. Static import mirrors attacker-view-v3, which
 // already pulls TrafficFlowMap into this bundle.
-import { AttackerMap } from "@/components/attacker-map/attacker-map"
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
@@ -77,6 +76,8 @@ export function AttackPathsV2({
   systemName: systemNameProp,
   embedded = false,
   defaultMode = "attack-path",
+  showEmbeddedAttackMap = true,
+  mapOnlyPanel = false,
   onOpenRoleSplit,
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
@@ -91,6 +92,13 @@ export function AttackPathsV2({
   // "Attack Paths" entry passes defaultMode="attacker_map" to land on the
   // account-wide every-path view (retiring the legacy IdentityAttackPaths).
   defaultMode?: string
+  /** When false, PathAnalysisPanel hides the per-path Attack map block
+   *  (AttackPathLaneFlowMap). Dashboard Attack Paths tab sets this false;
+   *  Attacker Map tab sets true so the map lives only there. */
+  showEmbeddedAttackMap?: boolean
+  /** Attacker Map tab: right column is ONLY the embedded Attack map block —
+   *  no mode chips, path report, lateral summary, or supporting evidence. */
+  mapOnlyPanel?: boolean
   /** Navigate to the per-resource role-split remediation view (owned by the
    *  page shell, which holds the section-switch state). Threaded to the
    *  attack-path panel's shared-role callout. */
@@ -773,7 +781,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "attacker_map" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -809,24 +817,17 @@ export function AttackPathsV2({
       </section>
 
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
-      <main className="flex-1 overflow-y-auto bg-background">
+      <main
+        className={`flex-1 bg-background ${
+          isPathExpanded && viewMode === "attacker_map"
+            ? "flex flex-col min-h-0 overflow-hidden"
+            : "overflow-y-auto"
+        }`}
+      >
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
-        {viewMode === "attacker_map" ? (
-          <>
-            <ModeToggle
-              mode={viewMode}
-              onChange={handleSetMode}
-              jewelName={null}
-              pathCount={allPaths.length}
-              isExpanded={isPathExpanded}
-              onToggleExpand={handleToggleExpand}
-              showBeta={showBeta}
-            />
-            <AttackerMap systemName={systemName} />
-          </>
-        ) : viewMode === "topology" ? (
+        {viewMode === "topology" ? (
           <>
             <ModeToggle
               mode={viewMode}
@@ -871,9 +872,6 @@ export function AttackPathsV2({
           />
         ) : (
           <>
-            {/* Mode toggle — sticky header above the per-mode panel. URL-driven
-                so deep links to ?mode=exposure work, and switching is instant
-                (no refetch of the jewels list). */}
             <ModeToggle
               mode={viewMode}
               onChange={handleSetMode}
@@ -992,6 +990,31 @@ export function AttackPathsV2({
                   large
                 />
               )
+            ) : viewMode === "attacker_map" ? (
+              // Attacker Map — embedded per-path flow map only (same as the
+              // former top-level Attacker Map tab). Sits next to Attack Path
+              // in the mode bar; left + center columns stay for selection.
+              !selectedPath || !selectedJewelId ? (
+                <EmptyState
+                  title="Select a path"
+                  subtitle="Attacker Map shows the per-path VPC topology canvas. Pick a crown jewel and path on the left."
+                  large
+                />
+              ) : (
+                <AttackPathPanel
+                  systemName={systemName}
+                  jewelId={selectedJewelId}
+                  pathId={selectedPath.id}
+                  pathFromPage={selectedPath}
+                  jewelFromPage={selectedJewel}
+                  siblingPathsFromPage={jewelPaths}
+                  isExpanded={isPathExpanded}
+                  onToggleExpand={handleToggleExpand}
+                  onOpenRoleSplit={onOpenRoleSplit}
+                  showEmbeddedAttackMap={true}
+                  mapOnlyPanel={true}
+                />
+              )
             ) : jewelPaths.length === 0 && selectedPathId && selectedJewel ? (
               // IAP has no synthesized paths for this jewel (e.g. materialized-only
               // convergence rows) — render the convergence spine directly.
@@ -1043,6 +1066,8 @@ export function AttackPathsV2({
                 isExpanded={isPathExpanded}
                 onToggleExpand={handleToggleExpand}
                 onOpenRoleSplit={onOpenRoleSplit}
+                showEmbeddedAttackMap={showEmbeddedAttackMap}
+                mapOnlyPanel={mapOnlyPanel}
               />
             )}
           </>
@@ -1090,11 +1115,12 @@ function ModeToggle({
       title:
         "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
     },
-    // 2026-07: Attacker Map moved back to its own top-level sibling tab
-    // (Risk → Attacker Map). The internal chip is removed so the operator
-    // navigates via the top-level tab. The viewMode is still reachable via
-    // deep-link (?mode=attacker_map) and via defaultMode="attacker_map"
-    // passed by the Attacker Map tab's render.
+    {
+      key: "attacker_map",
+      label: "Attacker Map",
+      title:
+        "Per-path attack map on live VPC topology — observed (CloudTrail) vs configured paths to this crown jewel.",
+    },
     {
       key: "lateral",
       label: "Lateral Movement",
@@ -1145,18 +1171,19 @@ function ModeToggle({
       : []),
   ]
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
           implicit "live" framing the tab subtitles use. */}
-      <FreshnessBanner variant="pill" />
+      <FreshnessBanner variant="pill" className="shrink-0" />
       {/* ATLAS is an inline section at the bottom of the Attacker View
           canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
           direction: jewel = SOURCE, external destinations = SINKS.
           Topology shows the customer's architecture, not the
           attacker's path. */}
-      <div className="flex rounded-md border border-border overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="flex rounded-md border border-border overflow-hidden w-max max-w-full">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -1171,12 +1198,13 @@ function ModeToggle({
             {tab.label}
           </button>
         ))}
+        </div>
       </div>
       {/* Quiet context — mode descriptions live in the tab tooltips. The
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
          different number). Showing both invites confusion. */}
-      <div className="text-[10px] text-muted-foreground min-w-0 truncate flex-1">
+      <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink">
         {jewelName
           ? mode === "topology"
             ? jewelName
