@@ -55,4 +55,25 @@ describe("normalizeVpcTopology", () => {
     expect(normalized.edges.nat_gws).toEqual([])
     expect(normalized.edges.vpces).toEqual([])
   })
+
+  test("keeps igw rows intact, including vpc_id provenance", () => {
+    const topo = {
+      region: "eu-west-1",
+      account_id: "123",
+      vpc_id: "vpc-1",
+      azs: [],
+      subnets: [],
+      edges: {
+        igws: [{ id: "igw-1", name: "frame-igw", vpc_id: "vpc-1" }],
+        nat_gws: [],
+        vpces: [],
+      },
+      unknown_subnet_count: 0,
+    } satisfies VpcTopology
+
+    const normalized = normalizeVpcTopology(topo)
+    expect(normalized.edges.igws).toEqual([
+      { id: "igw-1", name: "frame-igw", vpc_id: "vpc-1" },
+    ])
+  })
 })

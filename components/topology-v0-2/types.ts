@@ -132,6 +132,8 @@ export interface SubnetMeta {
 export interface EdgeIgw {
   id: string
   name: string
+  // Owning VPC (BE >= #305) — older BE deploys may omit this.
+  vpc_id?: string | null
 }
 
 export interface EdgeNatGw {
