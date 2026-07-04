@@ -61,6 +61,11 @@ const CONFIG_TAB_LABEL: Record<string, string> = {
   RDSInstance: 'Configuration',
   EC2: 'Configuration',
   NetworkACL: 'Configuration',
+  KMSKey: 'Policies',
+  Secret: 'Policies',
+  SecretsManagerSecret: 'Policies',
+  DynamoDB: 'Configuration',
+  DynamoDBTable: 'Configuration',
 }
 
 // Category configuration
