@@ -4,7 +4,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
- * Render keep-warm ping.
+ * Render keep-warm ping + identity-attack-paths snapshot prewarm.
  *
  * Render's hosted Python backend cold-cycles after ~15 min of idle (the
  * service tier sleeps the worker when nothing is hitting it). Every
@@ -14,15 +14,24 @@ export const maxDuration = 60
  * doesn't help because the first click on the slow path IS the cache
  * miss and cold workers can't serve cached responses anyway.
  *
- * The fix is to keep the worker awake. This route runs as a Vercel cron
- * (see vercel.json `crons` entry) every 10 minutes and pings a cheap
- * authoritative backend endpoint (`/api/systems`). We don't need the
- * response body — only that the worker handled a request, which resets
- * its idle clock.
+ * Part 1 — keep the worker awake: ping a cheap authoritative backend
+ * endpoint (`/api/systems`) every 10 minutes (see vercel.json `crons`).
+ * We read the response body for part 2, but the wake side-effect is the
+ * point: elapsed > 5000ms = we caught a cold worker.
  *
- * Outputs status + elapsed so deploy logs / Vercel cron history make
- * it clear when we caught a cold worker (elapsed > 5000ms = cold hit;
- * those first wakes are exactly what we're shortening for real users).
+ * Part 2 — prewarm identity-attack-paths durable snapshots: the Risk →
+ * Attack Paths tab reads GET /api/identity-attack-paths/{system} (8×8),
+ * a 45-91s compute on alon-prod-scale systems that overflowed the FE
+ * proxy's 55s abort on every cold cache → customer-visible 502 /
+ * "Attack paths not computed yet" (2026-07-04). The backend now serves
+ * a DynamoDB-backed snapshot (cross-worker, survives restarts) and
+ * recomputes behind a single-flight lease — this sweep guarantees the
+ * snapshot exists and stays fresh even when the backend's own 4-min
+ * leader prewarm is down (its APScheduler has silently disabled itself
+ * before — see requirements.txt apscheduler note). System names come
+ * from the ping response — never hardcoded. Fetches that outlive our
+ * abort still finish server-side and write the snapshot, so the NEXT
+ * sweep (and any operator click) lands warm.
  *
  * Companion memory: `feedback_render_backend_cold_start_curve`.
  */
@@ -30,8 +39,64 @@ const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   "https://saferemediate-backend-f.onrender.com"
 
+// Must match the Attack Paths v2 proxy defaults (lib/server/iap-proxy-query.ts)
+// so the sweep warms the exact cache/snapshot key the tab reads.
+const IAP_PREWARM_MAX_JEWELS = 8
+const IAP_PREWARM_MAX_PATHS_PER_JEWEL = 8
+// Under maxDuration=60 with headroom; an aborted fetch still completes
+// and snapshots server-side.
+const IAP_PREWARM_FETCH_TIMEOUT_MS = 50_000
+
+type SweepResult = {
+  system: string
+  status: number | "timeout" | "error"
+  elapsed_ms: number
+  from_snapshot?: boolean
+  stale?: boolean
+}
+
+async function prewarmIdentityAttackPaths(system: string): Promise<SweepResult> {
+  const t0 = Date.now()
+  const url =
+    `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(system)}` +
+    `?max_jewels=${IAP_PREWARM_MAX_JEWELS}` +
+    `&max_paths_per_jewel=${IAP_PREWARM_MAX_PATHS_PER_JEWEL}`
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(IAP_PREWARM_FETCH_TIMEOUT_MS),
+      headers: { "User-Agent": "cyntro-keep-warm/1.0" },
+    })
+    let fromSnapshot: boolean | undefined
+    let stale: boolean | undefined
+    try {
+      const body = await res.json()
+      fromSnapshot = body?.from_snapshot === true
+      stale = body?.fromStaleCache === true
+    } catch {
+      // body unused beyond telemetry — a parse failure is not a sweep failure
+    }
+    return {
+      system,
+      status: res.status,
+      elapsed_ms: Date.now() - t0,
+      from_snapshot: fromSnapshot,
+      stale,
+    }
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "TimeoutError"
+    return {
+      system,
+      status: isTimeout ? "timeout" : "error",
+      elapsed_ms: Date.now() - t0,
+    }
+  }
+}
+
 export async function GET() {
   const start = Date.now()
+  let pingStatus = 0
+  let systems: string[] = []
   try {
     const res = await fetch(`${BACKEND_URL}/api/systems`, {
       cache: "no-store",
@@ -40,6 +105,7 @@ export async function GET() {
         "User-Agent": "cyntro-keep-warm/1.0",
       },
     })
+    pingStatus = res.status
     const elapsed = Date.now() - start
     const cold = elapsed > 5000
     if (cold) {
@@ -51,11 +117,36 @@ export async function GET() {
         `[keep-warm] backend warm — pong in ${elapsed}ms (status=${res.status})`,
       )
     }
+    try {
+      const body = await res.json()
+      systems = (body?.systems ?? [])
+        .map((s: { name?: string }) => s?.name)
+        .filter((n: unknown): n is string => typeof n === "string" && n.length > 0)
+    } catch {
+      // Non-JSON ping response — skip the sweep this run; the next cron
+      // (10 min) hits a woken backend and gets the list.
+    }
+
+    const sweep = await Promise.all(systems.map(prewarmIdentityAttackPaths))
+    const failures = sweep.filter(
+      (r) => r.status !== 200 && r.status !== 503, // 503 = compute_in_progress: single-flight working, not a failure
+    )
+    if (failures.length > 0) {
+      console.warn(
+        `[keep-warm] iap sweep failures: ${JSON.stringify(failures)}`,
+      )
+    } else if (sweep.length > 0) {
+      console.log(
+        `[keep-warm] iap sweep ok — ${sweep.length} systems in ${Date.now() - start}ms`,
+      )
+    }
+
     return NextResponse.json({
       ok: true,
-      backend_status: res.status,
-      elapsed_ms: elapsed,
+      backend_status: pingStatus,
+      elapsed_ms: Date.now() - start,
       cold,
+      iap_sweep: sweep,
     })
   } catch (err) {
     const elapsed = Date.now() - start
