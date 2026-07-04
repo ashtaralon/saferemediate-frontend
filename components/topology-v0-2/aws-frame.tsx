@@ -2408,7 +2408,7 @@ export function AwsFrame({
                 className="absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
                 style={{ background: PAL.cardBg, color: "#0E8B7A" }}
               >
-                VPC · {topo.vpc_id ?? "unknown"}
+                {mergedVpcView ? "All VPCs (merged)" : `VPC · ${topo.vpc_id ?? "unknown"}`}
               </div>
 
               {/* NAT GW perimeter band */}
