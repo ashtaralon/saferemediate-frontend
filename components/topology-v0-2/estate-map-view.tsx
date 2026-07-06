@@ -104,6 +104,17 @@ export interface EstateMapViewProps {
    *  "attack_paths" so the estate map lands showing reachability, not all
    *  access. Users can still toggle back to all-access. */
   defaultFlowMode?: EstateFlowMode
+  /** Collapse AZ columns that hold no workloads by default (the Business
+   *  System view — keeps the map from wasting canvas on empty AZs). Applied
+   *  once per scope on first load and never over an explicit user choice; the
+   *  AZ chips / "Show all AZs" reveal them. */
+  collapseEmptyAzsByDefault?: boolean
+  /** Open on the merged all-VPCs view (every VPC as its own frame) instead of
+   *  landing on the primary VPC. The Business System Blast Radius shows the
+   *  WHOLE system, so it must not hide the system's other VPCs. Safe now that
+   *  the merged view renders one honest frame per VPC (BE #380), which the
+   *  old primary-default was working around. */
+  defaultToAllVpcs?: boolean
 }
 
 const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"])
@@ -126,7 +137,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access" }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
     return window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
@@ -138,6 +149,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return window.localStorage.getItem(key)
   })
   const [selectedVpcId, setSelectedVpcId] = useState<string | "all">(() => {
+    if (defaultToAllVpcs) return "all"
     if (typeof window === "undefined") return "all"
     return window.localStorage.getItem(`${VPC_STORAGE_PREFIX}${systemName}`) ?? "all"
   })
@@ -202,7 +214,39 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return listTopologyAzs(subnets, scopedVpc)
   }, [data?.vpc_topology?.subnets, scopedVpc])
 
+  // AZs that have subnets but zero workloads landing in the grid (mirrors
+  // topologyGridWouldBeEmpty's per-node rule — stale + non-edge nodes count).
+  const emptyAzs = useMemo(() => {
+    const subnets = data?.vpc_topology?.subnets ?? []
+    if (subnets.length === 0 || availableAzs.length === 0) return []
+    const subnetById = createMap(subnets.map((s) => [s.id, s]))
+    const populated = new Set<string>()
+    for (const n of gridSourceNodes) {
+      const sub = n.subnet_id ? subnetById.get(n.subnet_id) : undefined
+      if (!sub?.az) continue
+      if (n.stale) {
+        populated.add(sub.az)
+        continue
+      }
+      if (n.type && EDGE_SERVICE_TYPES.has(n.type)) continue
+      populated.add(sub.az)
+    }
+    return availableAzs.filter((az) => !populated.has(az))
+  }, [data?.vpc_topology?.subnets, gridSourceNodes, availableAzs])
+
+  // Track, per scope, whether the user already had a saved AZ preference when we
+  // first loaded it (so auto-collapse never overrides an explicit choice) and
+  // which scopes we've already auto-collapsed this mount.
+  const azPrefExistedRef = useRef<Map<string, boolean>>(new Map())
+  const azAutoCollapsedRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
+    if (!azPrefExistedRef.current.has(azScopeKey)) {
+      const existed =
+        typeof window !== "undefined" &&
+        window.localStorage.getItem(azStorageKey(systemName, azScopeKey)) != null
+      azPrefExistedRef.current.set(azScopeKey, existed)
+    }
     setHiddenAzs(loadHiddenAzs(systemName, azScopeKey))
   }, [systemName, azScopeKey])
 
@@ -210,6 +254,23 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (typeof window === "undefined") return
     window.localStorage.setItem(azStorageKey(systemName, azScopeKey), JSON.stringify(hiddenAzs))
   }, [hiddenAzs, systemName, azScopeKey])
+
+  // Default-collapse empty AZs once per scope, only on first data load with no
+  // prior user preference. Never hides ALL AZs. The AZ chips + "Show all AZs"
+  // reveal them, and a revealed AZ persists (we don't re-collapse).
+  useEffect(() => {
+    if (!collapseEmptyAzsByDefault) return
+    if (availableAzs.length === 0 || emptyAzs.length === 0) return
+    if (azAutoCollapsedRef.current.has(azScopeKey)) return
+    if (azPrefExistedRef.current.get(azScopeKey)) return
+    azAutoCollapsedRef.current.add(azScopeKey)
+    setHiddenAzs((prev) => {
+      const set = new Set(prev)
+      for (const az of emptyAzs) set.add(az)
+      if (set.size >= availableAzs.length) return prev
+      return [...set]
+    })
+  }, [collapseEmptyAzsByDefault, availableAzs, emptyAzs, azScopeKey])
 
   useEffect(() => {
     if (availableAzs.length === 0) return
@@ -309,6 +370,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (!data?.available_vpcs?.length) return
     if (defaultedVpcSystemRef.current === systemName) return
     defaultedVpcSystemRef.current = systemName
+    // Business System Blast Radius shows the whole system — stay on the merged
+    // all-VPCs frame (per-VPC islands) rather than landing on the primary VPC.
+    if (defaultToAllVpcs) return
     const key = `${VPC_STORAGE_PREFIX}${systemName}`
     // Treat a persisted "all" as unset. The merged view crams cross-VPC
     // workloads into ONE VPC's subnet frame (the backend's vpc_topology only

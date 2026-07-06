@@ -64,7 +64,13 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
             attack-paths-only so it lands showing reachability. It manages its
             own loading / error / scope controls. */}
         <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <EstateMapView systemName={systemName} embedded defaultFlowMode="attack_paths" />
+          <EstateMapView
+            systemName={systemName}
+            embedded
+            defaultFlowMode="attack_paths"
+            defaultToAllVpcs
+            collapseEmptyAzsByDefault
+          />
         </div>
 
         {d && d.recommended_cuts.length > 0 && <CutsStrip cuts={d.recommended_cuts} />}
