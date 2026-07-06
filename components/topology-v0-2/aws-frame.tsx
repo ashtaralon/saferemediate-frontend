@@ -1844,7 +1844,7 @@ function FlowOverlay({
           // longest-segment midpoint, which lands up in the IGW / subnet-header
           // band where every egress line converges and the tags pile up.
           badge = j.cls === "egress"
-            ? { x: j.src.cx, y: j.src.t - 12 }
+            ? { x: j.src.cx, y: j.src.t - 16 }
             : longestSegmentMid(pts)
         }
         const d = orthoPath(pts)
@@ -1890,9 +1890,12 @@ function FlowOverlay({
         })
       }
 
-      // Pass 4 — de-overlap badges against BOTH other badges AND chip boxes, so
-      // a flow label never paints over a workload chip or its name (prod: VPCE
-      // tags landed on EC2 names; egress tags stacked on the subnet header).
+      // Pass 4 — de-overlap badges against BOTH other badges AND chip boxes.
+      // Each label is treated as a BOX (half-width ≈ 3.2px/char) and nudged to
+      // the NEAREST clear y — searching up and down from its anchor — so a tag
+      // never paints over a chip or its name, and egress labels lift clear of
+      // their source chip. Point-only checks under-detected wide labels (prod:
+      // VPCE tags on EC2 names, egress tags on the subnet header).
       const chipObstacles: NatRect[] = []
       const seenObstacle = new Set<string>()
       for (const j of jobs) {
@@ -1903,30 +1906,35 @@ function FlowOverlay({
           chipObstacles.push(r)
         }
       }
-      const onChip = (x: number, y: number) =>
-        chipObstacles.some(o => x > o.l - 30 && x < o.r + 30 && y > o.t - 8 && y < o.b + 8)
-      const collides = (x: number, y: number, placed: Pt[]) =>
-        placed.some(q => Math.abs(q.x - x) < 70 && Math.abs(q.y - y) < 13) || onChip(x, y)
-      const placedBadges: Pt[] = []
-      for (const p of next) {
-        let y = p.badgeY
-        let tries = 0
-        while (collides(p.badgeX, y, placedBadges) && tries < 10) {
-          y += 15
-          tries++
-        }
-        if (collides(p.badgeX, y, placedBadges)) {
-          // downward didn't clear — try upward from the anchor instead
-          let up = p.badgeY
-          let t2 = 0
-          while (collides(p.badgeX, up, placedBadges) && t2 < 10) {
-            up -= 15
-            t2++
+      const placed: { x: number; y: number; hw: number }[] = []
+      const clearAt = (x: number, y: number, hw: number): boolean => {
+        for (const o of chipObstacles) {
+          if (x + hw > o.l - 4 && x - hw < o.r + 4 && y + 7 > o.t - 4 && y - 7 < o.b + 4) {
+            return false
           }
-          if (!collides(p.badgeX, up, placedBadges)) y = up
+        }
+        for (const q of placed) {
+          if (Math.abs(q.x - x) < hw + q.hw + 6 && Math.abs(q.y - y) < 13) return false
+        }
+        return true
+      }
+      for (const p of next) {
+        const hw = Math.max(14, (p.badgeLabel.length * 6.4) / 2)
+        let y = p.badgeY
+        if (!clearAt(p.badgeX, y, hw)) {
+          let found = false
+          for (let dist = 14; dist <= 160 && !found; dist += 14) {
+            for (const cand of [p.badgeY - dist, p.badgeY + dist]) {
+              if (clearAt(p.badgeX, cand, hw)) {
+                y = cand
+                found = true
+                break
+              }
+            }
+          }
         }
         p.badgeY = y
-        placedBadges.push({ x: p.badgeX, y })
+        placed.push({ x: p.badgeX, y, hw })
       }
       setPaths(next)
     }
