@@ -64,11 +64,17 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
             attack-paths-only so it lands showing reachability. It manages its
             own loading / error / scope controls. */}
         <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          {/* NOTE: defaultToAllVpcs is intentionally NOT passed yet. The merged
+              all-VPCs topology recompute exceeds the proxy's 55s budget on a
+              cold Render worker (which cold-cycles in ~60s), so defaulting to it
+              regressed the map to "topology unavailable" on first load. The
+              scoped (primary-VPC) default is lighter and reliable; users can
+              still pick "All VPCs" in the map's VPC selector. Re-enable once the
+              merged topology snapshot is kept warm (keep-warm cron + TTL). */}
           <EstateMapView
             systemName={systemName}
             embedded
             defaultFlowMode="attack_paths"
-            defaultToAllVpcs
             collapseEmptyAzsByDefault
           />
         </div>
