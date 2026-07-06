@@ -37,6 +37,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { PathListGrouped } from "./path-list-grouped"
+import { BlastRadiusKpiStrip } from "./blast-radius-kpi-strip"
 import { ExfilPathListColumn } from "./exfil-path-list-column"
 import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
@@ -824,6 +825,14 @@ export function AttackPathsV2({
             : "overflow-y-auto"
         }`}
       >
+        {/* Blast-radius headline — system-level KPIs + killer path, from the
+            real /business-system/{system}/blast-radius view-model. Renders in
+            every mode; self-hides when no system is selected or data is absent. */}
+        {systemName ? (
+          <div className="shrink-0 px-3 pt-3">
+            <BlastRadiusKpiStrip systemName={systemName} />
+          </div>
+        ) : null}
         {/* Topology view is system-level, not jewel-level — render it
             even when no jewel is selected. The mode toggle still
             renders so the user can switch back to a path view. */}
