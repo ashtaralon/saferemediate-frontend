@@ -49,6 +49,7 @@ const IAP_PREWARM_FETCH_TIMEOUT_MS = 50_000
 
 type SweepResult = {
   system: string
+  kind: "iap" | "blast_radius"
   status: number | "timeout" | "error"
   elapsed_ms: number
   from_snapshot?: boolean
@@ -78,6 +79,7 @@ async function prewarmIdentityAttackPaths(system: string): Promise<SweepResult> 
     }
     return {
       system,
+      kind: "iap",
       status: res.status,
       elapsed_ms: Date.now() - t0,
       from_snapshot: fromSnapshot,
@@ -87,6 +89,52 @@ async function prewarmIdentityAttackPaths(system: string): Promise<SweepResult> 
     const isTimeout = err instanceof Error && err.name === "TimeoutError"
     return {
       system,
+      kind: "iap",
+      status: isTimeout ? "timeout" : "error",
+      elapsed_ms: Date.now() - t0,
+    }
+  }
+}
+
+/**
+ * Prewarm the Business System Blast Radius compose (BE PR #386 / FE PR #305).
+ * GET /business-systems reads /api/business-system/{system}/blast-radius, which
+ * composes the topology-risk snapshot + several :AttackPath / observed-edge
+ * Cypher passes — a heavy first-hit that overflows the FE proxy's 55s abort on
+ * a cold Render worker (customer-visible "Couldn't load the blast radius" /
+ * timeout, 2026-07-06). Sweeping it here wakes the worker AND refreshes the
+ * topology-risk snapshot the compose depends on; an aborted fetch still
+ * finishes server-side, so the next operator click lands warm. Symmetric with
+ * the IAP prewarm above — same cold-cycle, same fix.
+ */
+async function prewarmBlastRadius(system: string): Promise<SweepResult> {
+  const t0 = Date.now()
+  const url = `${BACKEND_URL}/api/business-system/${encodeURIComponent(system)}/blast-radius`
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(IAP_PREWARM_FETCH_TIMEOUT_MS),
+      headers: { "User-Agent": "cyntro-keep-warm/1.0" },
+    })
+    let fromSnapshot: boolean | undefined
+    try {
+      const body = await res.json()
+      fromSnapshot = body?.from_snapshot === true
+    } catch {
+      // body unused beyond telemetry — a parse failure is not a sweep failure
+    }
+    return {
+      system,
+      kind: "blast_radius",
+      status: res.status,
+      elapsed_ms: Date.now() - t0,
+      from_snapshot: fromSnapshot,
+    }
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "TimeoutError"
+    return {
+      system,
+      kind: "blast_radius",
       status: isTimeout ? "timeout" : "error",
       elapsed_ms: Date.now() - t0,
     }
@@ -127,17 +175,21 @@ export async function GET() {
       // (10 min) hits a woken backend and gets the list.
     }
 
-    const sweep = await Promise.all(systems.map(prewarmIdentityAttackPaths))
+    // Warm BOTH heavy Attack-Paths-family snapshots per system — IAP (Attack
+    // Paths v2) and Blast Radius (/business-systems). Same cold-cycle, same fix.
+    const sweep = await Promise.all(
+      systems.flatMap((s) => [prewarmIdentityAttackPaths(s), prewarmBlastRadius(s)]),
+    )
     const failures = sweep.filter(
       (r) => r.status !== 200 && r.status !== 503, // 503 = compute_in_progress: single-flight working, not a failure
     )
     if (failures.length > 0) {
       console.warn(
-        `[keep-warm] iap sweep failures: ${JSON.stringify(failures)}`,
+        `[keep-warm] prewarm sweep failures: ${JSON.stringify(failures)}`,
       )
     } else if (sweep.length > 0) {
       console.log(
-        `[keep-warm] iap sweep ok — ${sweep.length} systems in ${Date.now() - start}ms`,
+        `[keep-warm] prewarm sweep ok — ${sweep.length} probes (${systems.length} systems × iap+blast_radius) in ${Date.now() - start}ms`,
       )
     }
 
@@ -146,7 +198,7 @@ export async function GET() {
       backend_status: pingStatus,
       elapsed_ms: Date.now() - start,
       cold,
-      iap_sweep: sweep,
+      sweep,
     })
   } catch (err) {
     const elapsed = Date.now() - start
