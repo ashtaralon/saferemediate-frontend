@@ -2233,7 +2233,15 @@ export function buildVpcFrames(
   const nodesByFrame = new Map<string, TopologyNode[]>()
   for (const id of ids) nodesByFrame.set(id, [])
   const outside: TopologyNode[] = []
+  // Dedupe by node id: the merged `fullSystemNodes` source can carry the same
+  // workload twice (e.g. a :Service:EC2Instance twin sharing the id), which
+  // otherwise renders the chip twice in one cell and gives the flow overlay two
+  // anchors for one id — querySelector picks the first, mis-routing that edge.
+  // dedupeLambdaServiceTwins only collapses Lambda twins; this covers the rest.
+  const seenNodeId = new Set<string>()
   for (const n of dedupeLambdaServiceTwins(nodes)) {
+    if (seenNodeId.has(n.id)) continue
+    seenNodeId.add(n.id)
     const v = resolveVpc(n)
     if (v && frameIdSet.has(v)) nodesByFrame.get(v)!.push(n)
     else outside.push(n)

@@ -128,6 +128,21 @@ describe("buildVpcFrames — scoped view", () => {
   })
 })
 
+describe("buildVpcFrames — duplicate node hardening", () => {
+  it("renders a workload once even when the node list carries an id twice", () => {
+    // fullSystemNodes can carry a :Service twin sharing the id — must not
+    // double-render the chip (two flow anchors mis-route the overlay).
+    const dupNodes = [EC2_OWN, EC2_SHARED, { ...EC2_SHARED }, ALB_SHARED]
+    const { frames } = buildVpcFrames(SUBNETS, dupNodes, OWN, [], [], true)
+    const shared = frames.find(f => f.vid === SHARED)!.grid
+    let count = 0
+    for (const azMap of shared.byAzAndTier.values())
+      for (const cell of azMap.values())
+        for (const n of cell) if (n.id === EC2_SHARED.id) count++
+    expect(count).toBe(1)
+  })
+})
+
 describe("computeCanvasGrid — VPC isolation", () => {
   it("excludes a workload whose VPC differs from the canvas VPC", () => {
     // Defense in depth: even handed a mixed node list, a frame drops foreign VPC nodes.
