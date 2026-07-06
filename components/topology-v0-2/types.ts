@@ -127,6 +127,14 @@ export interface SubnetMeta {
   tier: SubnetTier
   tier_source: "property" | "name" | "default_vpc_cidr" | "unknown"
   vpc_id?: string | null
+  // Provenance (BE >= per-vpc-frames deploy) — older BE deploys omit these.
+  // `owner_system_name`: the subnet's own SystemName tag.
+  // `is_foreign`: true when THIS system's workloads occupy the subnet but it is
+  // tagged for a DIFFERENT system (a co-tenant's shared-VPC subnet). The merged
+  // Estate Map renders such a subnet in its real VPC frame and badges it, never
+  // silently reattributing it.
+  owner_system_name?: string | null
+  is_foreign?: boolean
 }
 
 export interface EdgeIgw {
