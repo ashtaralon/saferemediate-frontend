@@ -100,6 +100,10 @@ export interface EstateMapViewProps {
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
+  /** Initial flow overlay. The Business System Blast Radius view opens in
+   *  "attack_paths" so the estate map lands showing reachability, not all
+   *  access. Users can still toggle back to all-access. */
+  defaultFlowMode?: EstateFlowMode
 }
 
 const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"])
@@ -122,7 +126,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access" }: EstateMapViewProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
     return window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
@@ -224,7 +228,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap }
     })
   }, [availableAzs.length])
 
-  const [flowMode, setFlowMode] = useState<EstateFlowMode>("all_access")
+  const [flowMode, setFlowMode] = useState<EstateFlowMode>(defaultFlowMode)
 
   const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=500`
   const { data: depMapData } = useCachedFetch<{
