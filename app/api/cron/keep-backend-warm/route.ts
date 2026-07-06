@@ -46,6 +46,13 @@ const IAP_PREWARM_MAX_PATHS_PER_JEWEL = 8
 // Under maxDuration=60 with headroom; an aborted fetch still completes
 // and snapshots server-side.
 const IAP_PREWARM_FETCH_TIMEOUT_MS = 50_000
+// Blast Radius compose is ~10s each and there's ONE Render worker — warm these
+// serially inside a wall-clock budget so we never pile heavy composes on the
+// worker at once (doing so starves user requests and times out all but the
+// first). Per-call abort is short: warm is ~10s; a slower one aborts but still
+// completes + caches server-side.
+const BLAST_PREWARM_FETCH_TIMEOUT_MS = 22_000
+const BLAST_PREWARM_BUDGET_MS = 40_000
 
 type SweepResult = {
   system: string
@@ -113,7 +120,7 @@ async function prewarmBlastRadius(system: string): Promise<SweepResult> {
   try {
     const res = await fetch(url, {
       cache: "no-store",
-      signal: AbortSignal.timeout(IAP_PREWARM_FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(BLAST_PREWARM_FETCH_TIMEOUT_MS),
       headers: { "User-Agent": "cyntro-keep-warm/1.0" },
     })
     let fromSnapshot: boolean | undefined
@@ -175,11 +182,19 @@ export async function GET() {
       // (10 min) hits a woken backend and gets the list.
     }
 
-    // Warm BOTH heavy Attack-Paths-family snapshots per system — IAP (Attack
-    // Paths v2) and Blast Radius (/business-systems). Same cold-cycle, same fix.
-    const sweep = await Promise.all(
-      systems.flatMap((s) => [prewarmIdentityAttackPaths(s), prewarmBlastRadius(s)]),
-    )
+    // IAP snapshots are cheap (DynamoDB reads, ~1s) — warm all concurrently.
+    const iapSweep = await Promise.all(systems.map(prewarmIdentityAttackPaths))
+    // Blast Radius compose is ~10s each on ONE worker — warm SERIALLY within a
+    // wall-clock budget so heavy composes never pile up. Systems past the budget
+    // stay on-demand: ~10s on the now-warm worker, under the proxy's 55s cap.
+    // (Front-of-list systems get a warm cache; order comes from the ping.)
+    const blastSweep: SweepResult[] = []
+    const blastDeadline = Date.now() + BLAST_PREWARM_BUDGET_MS
+    for (const system of systems) {
+      if (Date.now() >= blastDeadline) break
+      blastSweep.push(await prewarmBlastRadius(system))
+    }
+    const sweep = [...iapSweep, ...blastSweep]
     const failures = sweep.filter(
       (r) => r.status !== 200 && r.status !== 503, // 503 = compute_in_progress: single-flight working, not a failure
     )
