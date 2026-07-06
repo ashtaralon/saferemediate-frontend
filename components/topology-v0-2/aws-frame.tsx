@@ -2053,6 +2053,527 @@ function FlowOverlay({
   )
 }
 
+/** Ordered VPC ids to render as frames: primary first (the canonical frame),
+ *  then every other VPC that owns >=1 subnet in the payload, stable by id.
+ *  Scoped mode passes a single id instead. */
+export function frameVpcIds(subnets: SubnetMeta[], primaryVpcId: string | null): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  if (primaryVpcId) {
+    ids.push(primaryVpcId)
+    seen.add(primaryVpcId)
+  }
+  for (const s of subnets) {
+    const v = s.vpc_id
+    if (v && !seen.has(v)) {
+      seen.add(v)
+      ids.push(v)
+    }
+  }
+  return ids
+}
+
+interface CanvasGrid {
+  byAzAndTier: Map<string, Map<SubnetTier, TopologyNode[]>>
+  subnetsByCell: Map<string, SubnetMeta[]>
+  albNodes: TopologyNode[]
+  staleNodes: TopologyNode[]
+  azs: string[]
+  azGridColumns: string
+  vpcGridMinWidth: number
+}
+
+/** Pure per-VPC grid computation — no hooks, so it runs once per frame inside a
+ *  single parent useMemo. `nodes` MUST already be scoped to `canvasVpcId` (the
+ *  parent partitions workloads by resolved VPC); this only buckets them into
+ *  the (az x tier) cells for that one frame. */
+export function computeCanvasGrid(
+  canvasVpcId: string | null,
+  subnets: SubnetMeta[],
+  nodes: TopologyNode[],
+  hiddenAzs: string[],
+): CanvasGrid {
+  const primaryRegion = primaryRegionFromSubnets(subnets, canvasVpcId)
+  const scopedSubnets = subnets.filter(s => subnetInCanvasScope(s, canvasVpcId, primaryRegion))
+  const subnetById = createMap(scopedSubnets.map(s => [s.id, s]))
+  const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
+  const serverlessNodes: TopologyNode[] = []
+  const unplacedNodes: TopologyNode[] = []
+  const staleNodes: TopologyNode[] = []
+  const albNodes: TopologyNode[] = []
+
+  const pickSyntheticAz = (tier: SubnetTier): string | null => {
+    const tierSubnet = scopedSubnets.find(s => s.tier === tier && s.az)
+    if (tierSubnet?.az) return tierSubnet.az
+    const anySub = scopedSubnets.find(s => s.az)
+    if (anySub?.az) return anySub.az
+    return [...byAzAndTier.keys()][0] ?? null
+  }
+
+  const placeInTier = (n: TopologyNode, az: string, tier: SubnetTier) => {
+    const azMap = byAzAndTier.get(az) ?? new Map<SubnetTier, TopologyNode[]>()
+    const cell = azMap.get(tier) ?? []
+    cell.push(n)
+    azMap.set(tier, cell)
+    byAzAndTier.set(az, azMap)
+  }
+
+  const tryPlaceInGrid = (n: TopologyNode): boolean => {
+    if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
+    if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
+    const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
+    const overrideTier =
+      n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
+        ? n.placement_tier
+        : null
+    if (overrideTier) {
+      const az = sub?.az ?? pickSyntheticAz(overrideTier)
+      if (az) {
+        placeInTier(n, az, overrideTier)
+        return true
+      }
+    }
+    if (sub?.az) {
+      placeInTier(n, sub.az, sub.tier)
+      return true
+    }
+    if (n.type && SERVERLESS_TYPES.has(n.type)) {
+      serverlessNodes.push(n)
+      return true
+    }
+    const syntheticTier = n.type ? SYNTHETIC_TIER_TYPES[n.type] : undefined
+    if (syntheticTier) {
+      const az = pickSyntheticAz(syntheticTier)
+      if (az) {
+        placeInTier(n, az, syntheticTier)
+        return true
+      }
+    }
+    return false
+  }
+
+  for (const n of dedupeLambdaServiceTwins(nodes)) {
+    // ALBs fan out across every AZ -> spanning header band, never a tier cell.
+    // Gate by canvas VPC so a sibling VPC's ALB never leaks into this frame.
+    if (n.type && ALB_HEADER_TYPES.has(n.type)) {
+      if (workloadInCanvasVpc(n, canvasVpcId, subnetById)) albNodes.push(n)
+      continue
+    }
+    if (n.stale) {
+      if (tryPlaceInGrid(n)) continue
+      staleNodes.push(n)
+      continue
+    }
+    if (tryPlaceInGrid(n)) continue
+    unplacedNodes.push(n)
+  }
+
+  for (const azMap of byAzAndTier.values()) {
+    for (const list of azMap.values()) {
+      list.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+    }
+  }
+  serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+  unplacedNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+  albNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+
+  const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
+  const populatedAzs = new Set<string>([...byAzAndTier.keys(), ...scaffoldAzs])
+
+  const subnetsByCell = new Map<string, SubnetMeta[]>()
+  for (const s of subnets) {
+    if (!subnetInCanvasScope(s, canvasVpcId, primaryRegion)) continue
+    if (!s.az || !populatedAzs.has(s.az)) continue
+    const k = `${s.az}::${s.tier}`
+    const list = subnetsByCell.get(k) ?? []
+    list.push(s)
+    subnetsByCell.set(k, list)
+  }
+
+  const azs = visibleTopologyAzs([...populatedAzs].sort(), hiddenAzs)
+  const azGridColumns = azs.map(() => `minmax(${AZ_COLUMN_MIN_PX}px, 1fr)`).join(" ")
+  const vpcGridMinWidth =
+    azs.length > 0 ? Math.max(240, azs.length * (AZ_COLUMN_MIN_PX + 6) + 40) : 240
+
+  return { byAzAndTier, subnetsByCell, albNodes, staleNodes, azs, azGridColumns, vpcGridMinWidth }
+}
+
+export interface VpcFrameSpec {
+  vid: string | null
+  grid: CanvasGrid
+  natGws: VpcTopology["edges"]["nat_gws"]
+  isForeign: boolean
+  ownerSystem: string | null
+  showIamControlPlane: boolean
+}
+
+/** Assemble the per-VPC frame specs + the aggregated stale-workload list the
+ *  merged Estate Map renders. Pure (no hooks) so it is unit-testable and runs
+ *  inside a single parent useMemo. Partitions workloads by resolved VPC so each
+ *  frame only ever sees its OWN VPC's compute — the anti-cramming guarantee
+ *  behind FE #299/#301. Scoped mode (mergedVpcView=false) renders just the
+ *  primary VPC; merged mode renders one frame per VPC in the payload. */
+export function buildVpcFrames(
+  subnets: SubnetMeta[],
+  nodes: TopologyNode[],
+  primaryVpcId: string | null,
+  natGws: VpcTopology["edges"]["nat_gws"],
+  hiddenAzs: string[],
+  mergedVpcView: boolean,
+): { frames: VpcFrameSpec[]; staleNodes: TopologyNode[] } {
+  const subnetVpc = createMap(subnets.map(s => [s.id, s.vpc_id ?? null]))
+  const resolveVpc = (n: TopologyNode): string | null =>
+    n.vpc_id ?? (n.subnet_id ? subnetVpc.get(n.subnet_id) ?? null : null)
+  const ids = mergedVpcView
+    ? frameVpcIds(subnets, primaryVpcId)
+    : primaryVpcId
+      ? [primaryVpcId]
+      : frameVpcIds(subnets, primaryVpcId)
+  const frameIdSet = new Set(ids)
+  const nodesByFrame = new Map<string, TopologyNode[]>()
+  for (const id of ids) nodesByFrame.set(id, [])
+  const outside: TopologyNode[] = []
+  for (const n of dedupeLambdaServiceTwins(nodes)) {
+    const v = resolveVpc(n)
+    if (v && frameIdSet.has(v)) nodesByFrame.get(v)!.push(n)
+    else outside.push(n)
+  }
+  // NAT gateways grouped by their subnet's VPC; unresolved -> primary frame.
+  const natByVpc = new Map<string, VpcTopology["edges"]["nat_gws"]>()
+  for (const nat of natGws) {
+    const v0 = nat.subnet_id ? subnetVpc.get(nat.subnet_id) ?? null : null
+    const target = v0 && frameIdSet.has(v0) ? v0 : ids[0] ?? null
+    if (!target) continue
+    const list = natByVpc.get(target) ?? []
+    list.push(nat)
+    natByVpc.set(target, list)
+  }
+  const frames: VpcFrameSpec[] = ids.map((vid, idx) => {
+    const vidSubnets = subnets.filter(s => s.vpc_id === vid)
+    // A frame is "foreign" when THIS system owns none of its subnets — it only
+    // occupies a co-tenant's shared-VPC subnets (all is_foreign). Badge it.
+    const isForeign = vidSubnets.length > 0 && vidSubnets.every(s => s.is_foreign === true)
+    const ownerSystem = isForeign
+      ? vidSubnets.find(s => s.owner_system_name)?.owner_system_name ?? null
+      : null
+    return {
+      vid,
+      grid: computeCanvasGrid(vid, subnets, nodesByFrame.get(vid) ?? [], hiddenAzs),
+      natGws: natByVpc.get(vid) ?? [],
+      isForeign,
+      ownerSystem,
+      showIamControlPlane: idx === 0,
+    }
+  })
+  // Diagnostics "Stale workloads" = stale-unplaced across every frame, plus
+  // stale nodes with no VPC frame that aren't serverless / regional (those have
+  // their own tiers). Each node is in exactly one bucket — no dedupe needed.
+  const staleNodes: TopologyNode[] = [
+    ...frames.flatMap(f => f.grid.staleNodes),
+    ...outside.filter(n =>
+      n.stale
+      && !(n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type))
+      && !(n.type && SERVERLESS_TYPES.has(n.type)),
+    ),
+  ]
+  return { frames, staleNodes }
+}
+
+const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
+
+interface VpcCanvasFrameProps {
+  vpcId: string | null
+  grid: CanvasGrid
+  natGws: VpcTopology["edges"]["nat_gws"]
+  isForeign: boolean
+  ownerSystem: string | null
+  showIamControlPlane: boolean
+  iamRoles: IamRoleRollup[]
+  allWorkloads: TopologyNode[]
+  sgIndex: Map<string, SecurityGroupMeta>
+  roleForWorkload: (id: string) => IamRoleRollup | undefined
+  selectedNodeId: string | null
+  highlightedRoleName: string | null
+  onSelect: (id: string) => void
+  presentationMode: boolean
+  densityCollapsed: boolean
+}
+
+/** One AWS VPC frame — its own AZ x tier grid, subnets, workloads, NAT band,
+ *  and (primary frame only) IAM control plane. Presentational: all placement
+ *  is precomputed in `grid`. Rendered once per VPC so the merged Estate Map
+ *  shows each VPC's REAL subnet skeleton instead of cramming every VPC's
+ *  workloads into the primary VPC's tiles (FE #299/#301 follow-up). */
+function VpcCanvasFrame({
+  vpcId,
+  grid,
+  natGws,
+  isForeign,
+  ownerSystem,
+  showIamControlPlane,
+  iamRoles,
+  allWorkloads,
+  sgIndex,
+  roleForWorkload,
+  selectedNodeId,
+  highlightedRoleName,
+  onSelect,
+  presentationMode,
+  densityCollapsed,
+}: VpcCanvasFrameProps) {
+  const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
+  const hasNats = natGws.length > 0
+  return (
+    <div
+      className={presentationMode ? "rounded-md p-2.5 relative shrink-0" : "rounded-md p-3 relative shrink-0"}
+      style={{
+        background: PAL.cardBg,
+        border: `2px solid #00C2A8`,
+        minWidth: `${vpcGridMinWidth}px`,
+        flex: "1 1 auto",
+      }}
+    >
+      <div
+        className="absolute -top-2.5 left-4 px-2 flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] font-semibold"
+        style={{ background: PAL.cardBg, color: "#0E8B7A" }}
+      >
+        <span>VPC · {vpcId ?? "unknown"}</span>
+        {isForeign && ownerSystem ? (
+          <span
+            className="px-1 rounded-sm text-[8px] font-semibold normal-case tracking-normal"
+            style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+            title={`Shared VPC — these subnets are tagged for "${ownerSystem}". This system's workloads run here, but ${ownerSystem} owns the subnets.`}
+          >
+            shared · {ownerSystem}
+          </span>
+        ) : null}
+      </div>
+
+      {/* NAT GW perimeter band */}
+      {hasNats && (
+        <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
+          <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
+            NAT gateways ({natGws.length})
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {natGws.map(n => (
+              <span
+                key={n.id}
+                className="text-[10px] px-2 py-0.5 rounded-md"
+                style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+              >
+                NAT GW · {n.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Load balancers — rendered ABOVE the AZ grid, spanning its full
+          width, never inside a single AZ's tier cell. An ALB fans out
+          across every AZ behind it; it doesn't live "in" one the way
+          an EC2 instance does. The dashed bottom border deliberately
+          spans the same width as the AZ grid below to read as "this
+          connects down into every AZ", mirroring the standard AWS
+          reference-architecture layout (ALB centered above AZ 1 / AZ 2). */}
+      {albNodes.length > 0 && (
+        <div
+          className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
+          style={{ borderColor: "#C2CDD6" }}
+        >
+          <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
+            <AlbGlyph size={14} />
+            <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
+              {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
+            </span>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {albNodes.map(n => (
+              <WorkloadChip
+                key={n.id}
+                node={n}
+                selected={n.id === selectedNodeId}
+                onClick={() => onSelect(n.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AZ headers + tier rows with sidebar labels */}
+      {azs.length === 0 ? (
+        <div className="text-[12px] italic py-6 text-center" style={{ color: PAL.slate }}>
+          No tagged subnets in this VPC.
+        </div>
+      ) : (
+        <div className={presentationMode ? "mt-1" : "mt-2"}>
+          <div className={presentationMode ? "space-y-1.5" : "space-y-2"}>
+            <div className="flex gap-0">
+              <div
+                className="rounded-l-md shrink-0"
+                style={{ width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal }}
+                aria-hidden
+              />
+              <div
+                className={presentationMode ? "rounded-r-md px-2 pt-1 pb-0.5 flex-1" : "rounded-r-md px-2.5 pt-1.5 pb-1 flex-1"}
+                style={{ background: "#EEF2F6" }}
+              >
+                <div
+                  className="grid gap-1.5"
+                  style={{ gridTemplateColumns: azGridColumns }}
+                  data-testid="topology-az-column-headers"
+                >
+                  {azs.map(az => (
+                    <div
+                      key={`az-header-${az}`}
+                      className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center truncate"
+                      style={{ color: PAL.slate }}
+                      title={az}
+                    >
+                      {az}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/*
+              Fullscreen: Web/App/Data + IAM share one bounded column.
+              IAM inside the stack prevents it from overlapping tier rows.
+            */}
+            <div
+              data-testid="topology-tier-stack"
+              className={presentationMode ? "gap-1 min-h-0" : "contents"}
+              style={
+                presentationMode
+                  ? {
+                      // Fullscreen grows to content — the zoom viewport fits
+                      // it to screen. Was capped at calc(100vh-220px) + 1fr
+                      // rows, which clipped dense cells and left the flow
+                      // overlay anchoring to scrolled-out rects (P0-A/B fix).
+                      minHeight: "320px",
+                      display: "grid",
+                      gridTemplateRows: "repeat(3, minmax(88px, auto)) minmax(0, auto)",
+                    }
+                  : undefined
+              }
+            >
+              {TIERS.map(tier => (
+                <div
+                  key={tier}
+                  className="flex gap-0 min-h-0"
+                  style={presentationMode ? { minHeight: 0 } : undefined}
+                >
+                  <div
+                    className="rounded-l-md flex items-center justify-center shrink-0"
+                    style={{
+                      background: PAL.ink,
+                      color: "white",
+                      width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+                      writingMode: "vertical-rl",
+                      transform: "rotate(180deg)",
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      letterSpacing: "0.18em",
+                    }}
+                  >
+                    {TIER_SIDEBAR_LABEL[tier]}
+                  </div>
+                  <div
+                    className={presentationMode ? "rounded-r-md p-1.5 flex-1" : "rounded-r-md p-2.5 flex-1"}
+                    style={{
+                      background: TIER_BG[tier],
+                      ...(presentationMode ? { minHeight: 0 } : {}),
+                    }}
+                  >
+                    <div
+                      className={presentationMode ? "grid gap-1.5" : "grid gap-1.5"}
+                      style={{ gridTemplateColumns: azGridColumns }}
+                    >
+                      {azs.map(az => {
+                        const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
+                        const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
+                        return (
+                          <SubnetCell
+                            key={`${az}-${tier}`}
+                            tier={tier}
+                            az={az}
+                            subnetsHere={subnetsHere}
+                            workloadsHere={workloadsHere}
+                            sgIndex={sgIndex}
+                            selectedNodeId={selectedNodeId}
+                            onSelect={onSelect}
+                            compact={presentationMode}
+                            roleForWorkload={roleForWorkload}
+                            densityCollapsed={densityCollapsed}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {presentationMode && showIamControlPlane && iamRoles.length > 0 ? (
+                <div className="flex gap-0 min-h-0 overflow-hidden">
+                  <div
+                    className="rounded-l-md flex items-center justify-center shrink-0"
+                    style={{
+                      background: "#DD344C",
+                      color: "white",
+                      width: TIER_SIDEBAR_WIDTH.compact,
+                      writingMode: "vertical-rl",
+                      transform: "rotate(180deg)",
+                      fontSize: "9px",
+                      fontWeight: 700,
+                      letterSpacing: "0.14em",
+                    }}
+                  >
+                    IAM CP
+                  </div>
+                  <IamControlPlane
+                    roles={iamRoles}
+                    allWorkloads={allWorkloads}
+                    highlightedRoleName={highlightedRoleName}
+                    embeddedInVpc
+                    compact
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {!presentationMode && showIamControlPlane && iamRoles.length > 0 ? (
+              <div className="flex gap-0">
+                <div
+                  className="rounded-l-md flex items-center justify-center shrink-0"
+                  style={{
+                    background: "#DD344C",
+                    color: "white",
+                    width: TIER_SIDEBAR_WIDTH.normal,
+                    writingMode: "vertical-rl",
+                    transform: "rotate(180deg)",
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    letterSpacing: "0.14em",
+                  }}
+                >
+                  IAM CP
+                </div>
+                <IamControlPlane
+                  roles={iamRoles}
+                  allWorkloads={allWorkloads}
+                  highlightedRoleName={highlightedRoleName}
+                  embeddedInVpc
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 export function AwsFrame({
   vpcTopology,
   nodes,
@@ -2073,7 +2594,6 @@ export function AwsFrame({
   densityCollapsed = false,
 }: Props) {
   const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
-  const canvasVpcId = mergedVpcView ? null : topo.vpc_id
   // SG lookup for the SubnetCell groupings.
   const sgIndex = useMemo(() => {
     const m = new Map<string, SecurityGroupMeta>()
@@ -2117,131 +2637,23 @@ export function AwsFrame({
       return visible.has(e.target_id)
     })
   }, [overlayEdgeList, nodes, regionalTierNodes, serverlessTierNodes, vpceIds])
-  // Index subnets and workloads by (az, tier).
-  const primaryRegion = useMemo(
-    () => primaryRegionFromSubnets(topo.subnets, canvasVpcId),
-    [topo.subnets, canvasVpcId],
+  // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
+  // payload (primary first); scoped mode renders just the selected VPC. Each
+  // frame receives ONLY its own VPC's workloads so a second VPC's compute is
+  // never force-fit into the primary's tiles (FE #299/#301 follow-up). Logic
+  // lives in the pure, unit-tested buildVpcFrames().
+  const { frames, staleNodes } = useMemo(
+    () =>
+      buildVpcFrames(
+        topo.subnets,
+        nodes,
+        topo.vpc_id,
+        topo.edges.nat_gws,
+        hiddenAzs,
+        mergedVpcView,
+      ),
+    [topo.subnets, topo.vpc_id, topo.edges.nat_gws, nodes, hiddenAzs, mergedVpcView],
   )
-  const { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs, albNodes } = useMemo(() => {
-    const scopedSubnets = topo.subnets.filter(s =>
-      subnetInCanvasScope(s, canvasVpcId, primaryRegion),
-    )
-    const subnetById = createMap(scopedSubnets.map(s => [s.id, s]))
-    const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
-    const serverlessNodes: TopologyNode[] = []
-    const unplacedNodes: TopologyNode[] = []
-    const staleNodes: TopologyNode[] = []
-    const albNodes: TopologyNode[] = []
-
-    const pickSyntheticAz = (tier: SubnetTier): string | null => {
-      const tierSubnet = scopedSubnets.find(s => s.tier === tier && s.az)
-      if (tierSubnet?.az) return tierSubnet.az
-      const any = scopedSubnets.find(s => s.az)
-      if (any?.az) return any.az
-      return [...byAzAndTier.keys()][0] ?? null
-    }
-
-    const placeInTier = (n: TopologyNode, az: string, tier: SubnetTier) => {
-      const azMap = byAzAndTier.get(az) ?? new Map<SubnetTier, TopologyNode[]>()
-      const cell = azMap.get(tier) ?? []
-      cell.push(n)
-      azMap.set(tier, cell)
-      byAzAndTier.set(az, azMap)
-    }
-
-    const tryPlaceInGrid = (n: TopologyNode): boolean => {
-      if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
-      if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
-      const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
-      const overrideTier =
-        n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
-          ? n.placement_tier
-          : null
-      if (overrideTier) {
-        const az = sub?.az ?? pickSyntheticAz(overrideTier)
-        if (az) {
-          placeInTier(n, az, overrideTier)
-          return true
-        }
-      }
-      if (sub?.az) {
-        placeInTier(n, sub.az, sub.tier)
-        return true
-      }
-      if (n.type && SERVERLESS_TYPES.has(n.type)) {
-        serverlessNodes.push(n)
-        return true
-      }
-      const syntheticTier = n.type ? SYNTHETIC_TIER_TYPES[n.type] : undefined
-      if (syntheticTier) {
-        const az = pickSyntheticAz(syntheticTier)
-        if (az) {
-          placeInTier(n, az, syntheticTier)
-          return true
-        }
-      }
-      return false
-    }
-
-    for (const n of dedupeLambdaServiceTwins(nodes)) {
-      // ALBs fan out across every AZ — they never belong to a single AZ's
-      // tier grid cell. Route them to the spanning header band instead of
-      // through the normal per-AZ/per-tier placement (previously this fell
-      // through SYNTHETIC_TIER_TYPES.LoadBalancer into a single AZ's web
-      // tier, which is architecturally wrong: an ALB isn't "in" an AZ the
-      // way an EC2 instance is).
-      if (n.type && ALB_HEADER_TYPES.has(n.type)) {
-        albNodes.push(n)
-        continue
-      }
-      if (n.stale) {
-        // BE-12 interim: stale-but-placed workloads stay on the canvas (greyed +
-        // STALE badge). Only unplaced stale nodes are diagnostics-only.
-        if (tryPlaceInGrid(n)) continue
-        staleNodes.push(n)
-        continue
-      }
-      if (tryPlaceInGrid(n)) continue
-      unplacedNodes.push(n)
-    }
-
-    for (const azMap of byAzAndTier.values()) {
-      for (const list of azMap.values()) {
-        list.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
-      }
-    }
-    serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
-    unplacedNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
-    albNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
-
-    const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
-    const populatedAzs = new Set<string>([...byAzAndTier.keys(), ...scaffoldAzs])
-    return { byAzAndTier, serverlessNodes, unplacedNodes, staleNodes, populatedAzs, albNodes }
-  }, [topo.subnets, canvasVpcId, primaryRegion, nodes])
-
-  // Group subnets by (az, tier) for cell metadata.
-  const subnetsByCell = useMemo(() => {
-    const m = new Map<string, SubnetMeta[]>()
-    for (const s of topo.subnets) {
-      if (!subnetInCanvasScope(s, canvasVpcId, primaryRegion)) continue
-      if (!populatedAzs.has(s.az!)) continue
-      const k = `${s.az}::${s.tier}`
-      const list = m.get(k) ?? []
-      list.push(s)
-      m.set(k, list)
-    }
-    return m
-  }, [topo.subnets, canvasVpcId, primaryRegion, populatedAzs])
-
-  const allAzs = useMemo(() => [...populatedAzs].sort(), [populatedAzs])
-  const azs = useMemo(
-    () => visibleTopologyAzs(allAzs, hiddenAzs),
-    [allAzs, hiddenAzs],
-  )
-  const tiers: ("web" | "app" | "data")[] = ["web", "app", "data"]
-  const azGridColumns = azs.map(() => `minmax(${AZ_COLUMN_MIN_PX}px, 1fr)`).join(" ")
-  const vpcGridMinWidth =
-    azs.length > 0 ? Math.max(240, azs.length * (AZ_COLUMN_MIN_PX + 6) + 40) : 240
   const hasIgw = topo.edges.igws.length > 0
   // igws[0] is frame-aligned (BE #305). Name tags are free-form and may not
   // match the frame system's naming, so the tooltip carries the id + owning
@@ -2261,7 +2673,6 @@ export function AwsFrame({
         .filter(Boolean)
         .join(" · ")
     : undefined
-  const hasNats = topo.edges.nat_gws.length > 0
   const hasVpces = topo.edges.vpces.length > 0
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
@@ -2394,244 +2805,27 @@ export function AwsFrame({
                 : "flex flex-nowrap items-stretch mt-3 min-w-0 overflow-x-auto pb-1"
             }
           >
-            {/* VPC frame */}
-            <div
-              className={presentationMode ? "rounded-md p-2.5 relative shrink-0" : "rounded-md p-3 relative shrink-0"}
-              style={{
-                background: PAL.cardBg,
-                border: `2px solid #00C2A8`,
-                minWidth: `${vpcGridMinWidth}px`,
-                flex: "1 1 auto",
-              }}
-            >
-              <div
-                className="absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
-                style={{ background: PAL.cardBg, color: "#0E8B7A" }}
-              >
-                {mergedVpcView ? "All VPCs (merged)" : `VPC · ${topo.vpc_id ?? "unknown"}`}
-              </div>
-
-              {/* NAT GW perimeter band */}
-              {hasNats && (
-                <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
-                  <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
-                    NAT gateways ({topo.edges.nat_gws.length})
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {topo.edges.nat_gws.map(n => (
-                      <span
-                        key={n.id}
-                        className="text-[10px] px-2 py-0.5 rounded-md"
-                        style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
-                      >
-                        NAT GW · {n.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Load balancers — rendered ABOVE the AZ grid, spanning its full
-                  width, never inside a single AZ's tier cell. An ALB fans out
-                  across every AZ behind it; it doesn't live "in" one the way
-                  an EC2 instance does. The dashed bottom border deliberately
-                  spans the same width as the AZ grid below to read as "this
-                  connects down into every AZ", mirroring the standard AWS
-                  reference-architecture layout (ALB centered above AZ 1 / AZ 2). */}
-              {albNodes.length > 0 && (
-                <div
-                  className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
-                  style={{ borderColor: "#C2CDD6" }}
-                >
-                  <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
-                    <AlbGlyph size={14} />
-                    <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
-                      {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {albNodes.map(n => (
-                      <WorkloadChip
-                        key={n.id}
-                        node={n}
-                        selected={n.id === selectedNodeId}
-                        onClick={() => onSelect(n.id)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* AZ headers + tier rows with sidebar labels */}
-              {azs.length === 0 ? (
-                <div className="text-[12px] italic py-6 text-center" style={{ color: PAL.slate }}>
-                  No tagged subnets in this VPC.
-                </div>
-              ) : (
-                <div className={presentationMode ? "mt-1" : "mt-2"}>
-                  <div className={presentationMode ? "space-y-1.5" : "space-y-2"}>
-                    <div className="flex gap-0">
-                      <div
-                        className="rounded-l-md shrink-0"
-                        style={{ width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal }}
-                        aria-hidden
-                      />
-                      <div
-                        className={presentationMode ? "rounded-r-md px-2 pt-1 pb-0.5 flex-1" : "rounded-r-md px-2.5 pt-1.5 pb-1 flex-1"}
-                        style={{ background: "#EEF2F6" }}
-                      >
-                        <div
-                          className="grid gap-1.5"
-                          style={{ gridTemplateColumns: azGridColumns }}
-                          data-testid="topology-az-column-headers"
-                        >
-                          {azs.map(az => (
-                            <div
-                              key={`az-header-${az}`}
-                              className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center truncate"
-                              style={{ color: PAL.slate }}
-                              title={az}
-                            >
-                              {az}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    {/*
-                      Fullscreen: Web/App/Data + IAM share one bounded column.
-                      IAM inside the stack prevents it from overlapping tier rows.
-                    */}
-                    <div
-                      data-testid="topology-tier-stack"
-                      className={presentationMode ? "gap-1 min-h-0" : "contents"}
-                      style={
-                        presentationMode
-                          ? {
-                              // Fullscreen grows to content — the zoom viewport fits
-                              // it to screen. Was capped at calc(100vh-220px) + 1fr
-                              // rows, which clipped dense cells and left the flow
-                              // overlay anchoring to scrolled-out rects (P0-A/B fix).
-                              minHeight: "320px",
-                              display: "grid",
-                              gridTemplateRows: "repeat(3, minmax(88px, auto)) minmax(0, auto)",
-                            }
-                          : undefined
-                      }
-                    >
-                      {tiers.map(tier => (
-                        <div
-                          key={tier}
-                          className="flex gap-0 min-h-0"
-                          style={presentationMode ? { minHeight: 0 } : undefined}
-                        >
-                          <div
-                            className="rounded-l-md flex items-center justify-center shrink-0"
-                            style={{
-                              background: PAL.ink,
-                              color: "white",
-                              width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
-                              writingMode: "vertical-rl",
-                              transform: "rotate(180deg)",
-                              fontSize: "10px",
-                              fontWeight: 700,
-                              letterSpacing: "0.18em",
-                            }}
-                          >
-                            {TIER_SIDEBAR_LABEL[tier]}
-                          </div>
-                          <div
-                            className={presentationMode ? "rounded-r-md p-1.5 flex-1" : "rounded-r-md p-2.5 flex-1"}
-                            style={{
-                              background: TIER_BG[tier],
-                              ...(presentationMode ? { minHeight: 0 } : {}),
-                            }}
-                          >
-                            <div
-                              className={presentationMode ? "grid gap-1.5" : "grid gap-1.5"}
-                              style={{ gridTemplateColumns: azGridColumns }}
-                            >
-                              {azs.map(az => {
-                                const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
-                                const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
-                                return (
-                                  <SubnetCell
-                                    key={`${az}-${tier}`}
-                                    tier={tier}
-                                    az={az}
-                                    subnetsHere={subnetsHere}
-                                    workloadsHere={workloadsHere}
-                                    sgIndex={sgIndex}
-                                    selectedNodeId={selectedNodeId}
-                                    onSelect={onSelect}
-                                    compact={presentationMode}
-                                    roleForWorkload={roleForWorkload}
-                                    densityCollapsed={densityCollapsed}
-                                  />
-                                )
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {presentationMode && iamRoles.length > 0 ? (
-                        <div className="flex gap-0 min-h-0 overflow-hidden">
-                          <div
-                            className="rounded-l-md flex items-center justify-center shrink-0"
-                            style={{
-                              background: "#DD344C",
-                              color: "white",
-                              width: TIER_SIDEBAR_WIDTH.compact,
-                              writingMode: "vertical-rl",
-                              transform: "rotate(180deg)",
-                              fontSize: "9px",
-                              fontWeight: 700,
-                              letterSpacing: "0.14em",
-                            }}
-                          >
-                            IAM CP
-                          </div>
-                          <IamControlPlane
-                            roles={iamRoles}
-                            allWorkloads={nodes}
-                            highlightedRoleName={highlightedRoleName}
-                            embeddedInVpc
-                            compact
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {!presentationMode && iamRoles.length > 0 ? (
-                      <div className="flex gap-0">
-                        <div
-                          className="rounded-l-md flex items-center justify-center shrink-0"
-                          style={{
-                            background: "#DD344C",
-                            color: "white",
-                            width: TIER_SIDEBAR_WIDTH.normal,
-                            writingMode: "vertical-rl",
-                            transform: "rotate(180deg)",
-                            fontSize: "9px",
-                            fontWeight: 700,
-                            letterSpacing: "0.14em",
-                          }}
-                        >
-                          IAM CP
-                        </div>
-                        <IamControlPlane
-                          roles={iamRoles}
-                          allWorkloads={nodes}
-                          highlightedRoleName={highlightedRoleName}
-                          embeddedInVpc
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* One frame per VPC — real per-VPC subnet skeletons (no cross-VPC cramming) */}
+            {frames.map(f => (
+              <VpcCanvasFrame
+                key={f.vid ?? "unknown"}
+                vpcId={f.vid}
+                grid={f.grid}
+                natGws={f.natGws}
+                isForeign={f.isForeign}
+                ownerSystem={f.ownerSystem}
+                showIamControlPlane={f.showIamControlPlane}
+                iamRoles={iamRoles}
+                allWorkloads={nodes}
+                sgIndex={sgIndex}
+                roleForWorkload={roleForWorkload}
+                selectedNodeId={selectedNodeId}
+                highlightedRoleName={highlightedRoleName}
+                onSelect={onSelect}
+                presentationMode={presentationMode}
+                densityCollapsed={densityCollapsed}
+              />
+            ))}
 
             {/* VPCE boundary — offset right of VPC; flow corridor before edge rail */}
             {hasVpces && (
