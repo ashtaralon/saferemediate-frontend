@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target } from "lucide-react"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -116,6 +116,12 @@ export function LeftSidebarNav({
     // operators on any customer reach a working state without us
     // pre-selecting a demo system that doesn't exist on their tenant.
     { id: "attack-paths-v2", label: "Attack Paths v2", icon: Route, href: "/attack-paths-v2" },
+    // Business System Blast Radius — the system-scoped rollup of attack paths:
+    // "what can an attacker reach across this system's VPCs/identities/shared
+    // data, and what are the safest cuts." Dedicated route (see
+    // DEDICATED_ROUTE_IDS below); resolves the system itself when ?systemName
+    // is absent, so no pinned demo tenant.
+    { id: "business-systems", label: "Blast Radius", icon: Target, href: "/business-systems" },
     // Attacker Map is reachable from inside system detail: Risk → Attack Paths → Attacker Map (2026-07 merge).
     // The top-level sidebar entry was removed because the page routing in
     // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
@@ -310,7 +316,7 @@ export function LeftSidebarNav({
           // shared-roles + shared-sgs removed 2026-06-02 — their sidebar
           // entries were cut and the legacy URLs redirect to
           // /shared-resources via next.config.js.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "dependency-map", "shared-resources", "network-lp"])
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "business-systems", "dependency-map", "shared-resources", "network-lp"])
           if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button
