@@ -1840,7 +1840,12 @@ function FlowOverlay({
           routedViaVpce = true
         } else {
           pts = orthoLeg(j.src, j.dst, laneX, spread)
-          badge = longestSegmentMid(pts)
+          // Anchor the egress label to its source chip (in-tier) instead of the
+          // longest-segment midpoint, which lands up in the IGW / subnet-header
+          // band where every egress line converges and the tags pile up.
+          badge = j.cls === "egress"
+            ? { x: j.src.cx, y: j.src.t - 12 }
+            : longestSegmentMid(pts)
         }
         const d = orthoPath(pts)
         if (!d) continue
@@ -1885,12 +1890,41 @@ function FlowOverlay({
         })
       }
 
-      // Pass 4 — de-overlap badges: stacked labels shift down in 15px steps
-      // so every chip stays readable (prod had three ROUTES_TO chips fused).
+      // Pass 4 — de-overlap badges against BOTH other badges AND chip boxes, so
+      // a flow label never paints over a workload chip or its name (prod: VPCE
+      // tags landed on EC2 names; egress tags stacked on the subnet header).
+      const chipObstacles: NatRect[] = []
+      const seenObstacle = new Set<string>()
+      for (const j of jobs) {
+        for (const r of [j.src, j.dst]) {
+          const k = `${Math.round(r.l)}:${Math.round(r.t)}`
+          if (seenObstacle.has(k)) continue
+          seenObstacle.add(k)
+          chipObstacles.push(r)
+        }
+      }
+      const onChip = (x: number, y: number) =>
+        chipObstacles.some(o => x > o.l - 30 && x < o.r + 30 && y > o.t - 8 && y < o.b + 8)
+      const collides = (x: number, y: number, placed: Pt[]) =>
+        placed.some(q => Math.abs(q.x - x) < 70 && Math.abs(q.y - y) < 13) || onChip(x, y)
       const placedBadges: Pt[] = []
       for (const p of next) {
         let y = p.badgeY
-        while (placedBadges.some(q => Math.abs(q.x - p.badgeX) < 70 && Math.abs(q.y - y) < 13)) y += 15
+        let tries = 0
+        while (collides(p.badgeX, y, placedBadges) && tries < 10) {
+          y += 15
+          tries++
+        }
+        if (collides(p.badgeX, y, placedBadges)) {
+          // downward didn't clear — try upward from the anchor instead
+          let up = p.badgeY
+          let t2 = 0
+          while (collides(p.badgeX, up, placedBadges) && t2 < 10) {
+            up -= 15
+            t2++
+          }
+          if (!collides(p.badgeX, up, placedBadges)) y = up
+        }
         p.badgeY = y
         placedBadges.push({ x: p.badgeX, y })
       }
@@ -2722,57 +2756,58 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — single compact row in presentation mode. */}
+      {/* Internet + IGW perimeter — single compact row in presentation mode;
+          a prominent, readable ingress band on the inline page. */}
       <div
         className={
           presentationMode
             ? "flex items-center justify-center gap-2 py-0"
-            : "flex items-center justify-center gap-4 py-1 pb-2"
+            : "flex items-center justify-center gap-6 py-2 pb-4"
         }
       >
-        <div className="flex items-center gap-1 shrink-0" style={{ color: PAL.slate }}>
-          <span className={presentationMode ? "text-sm leading-none" : "text-xl"}>👥</span>
+        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
+          <span className={presentationMode ? "text-sm leading-none" : "text-4xl leading-none"}>👥</span>
           <span
             className={
               presentationMode
                 ? "text-[8px] uppercase tracking-wider font-semibold"
-                : "text-[10px] uppercase tracking-wider font-semibold"
+                : "text-[13px] uppercase tracking-wider font-semibold"
             }
           >
             Users
           </span>
         </div>
         <div
-          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[120px] border-t border-dashed"}
+          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[180px] border-t-2 border-dashed"}
           style={{ borderColor: "#94A3B8" }}
         />
-        <div className="flex items-center gap-1 shrink-0" style={{ color: PAL.slate }}>
-          <span className={presentationMode ? "text-sm leading-none" : "text-xl"}>☁</span>
+        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
+          <span className={presentationMode ? "text-sm leading-none" : "text-4xl leading-none"}>☁</span>
           <span
             className={
               presentationMode
                 ? "text-[8px] uppercase tracking-wider font-semibold"
-                : "text-[10px] uppercase tracking-wider font-semibold"
+                : "text-[13px] uppercase tracking-wider font-semibold"
             }
           >
             Internet
           </span>
         </div>
         <div
-          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[120px] border-t border-dashed"}
+          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[180px] border-t-2 border-dashed"}
           style={{ borderColor: "#94A3B8" }}
         />
         <div
-          className="flex items-center gap-1 shrink-0 min-w-0"
+          className="flex items-center gap-2 shrink-0 min-w-0"
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <span className={presentationMode ? "text-sm leading-none" : "text-xl"}>🌐</span>
+          <span className={presentationMode ? "text-sm leading-none" : "text-4xl leading-none"}>🌐</span>
           <span
             className={
               presentationMode
                 ? "text-[8px] uppercase tracking-wider font-semibold truncate max-w-[140px]"
-                : "text-[10px] uppercase tracking-wider font-semibold"
+                : "text-[13px] uppercase tracking-wider font-semibold"
             }
             title={igwStripTitle}
           >
@@ -2805,13 +2840,15 @@ export function AwsFrame({
             Region · {topo.region ?? "unknown"}
           </div>
 
-          {/* VPC · VPCE · edge rail — regional/serverless on the right (AWS canonical layout) */}
+          {/* VPC · VPCE · edge rail — regional/serverless on the right (AWS canonical layout).
+              Merged mode uses items-start so each VPC frame sizes to its OWN
+              content — a lopsided default-VPC frame (all-web, empty app/data)
+              no longer inherits the taller sibling's height as dead vertical
+              gap. Scoped mode keeps items-stretch (single frame reads clean). */}
           <div
-            className={
-              presentationMode
-                ? "flex flex-nowrap items-stretch mt-2 min-w-0 overflow-x-auto pb-1"
-                : "flex flex-nowrap items-stretch mt-3 min-w-0 overflow-x-auto pb-1"
-            }
+            className={`flex flex-nowrap ${mergedVpcView ? "items-start" : "items-stretch"} ${
+              presentationMode ? "mt-2" : "mt-3"
+            } min-w-0 overflow-x-auto pb-1`}
           >
             {/* One frame per VPC — real per-VPC subnet skeletons (no cross-VPC cramming) */}
             {frames.map(f => (
