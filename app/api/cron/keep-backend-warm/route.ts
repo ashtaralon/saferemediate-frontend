@@ -46,17 +46,24 @@ const IAP_PREWARM_MAX_PATHS_PER_JEWEL = 8
 // Under maxDuration=60 with headroom; an aborted fetch still completes
 // and snapshots server-side.
 const IAP_PREWARM_FETCH_TIMEOUT_MS = 50_000
-// Blast Radius compose is ~10s each and there's ONE Render worker — warm these
-// serially inside a wall-clock budget so we never pile heavy composes on the
-// worker at once (doing so starves user requests and times out all but the
-// first). Per-call abort is short: warm is ~10s; a slower one aborts but still
-// completes + caches server-side.
+// Topology-risk snapshot backs the estate map (and the Business System Blast
+// Radius map). Its snapshot has a 10-min freshness window (matching this cron),
+// and the blast-radius prewarm below CANNOT be relied on to refresh it: once
+// blast-radius's own 900s response cache is warm it returns cached and never
+// re-calls get_topology_risk. So warm topology explicitly, serially + first
+// (heaviest, and it keeps the worker genuinely busy rather than just pinged).
+// A cold recompute (45-91s) finishes server-side + snapshots even after we give
+// up at the abort, so the next request lands on a warm snapshot.
+const TOPOLOGY_PREWARM_FETCH_TIMEOUT_MS = 30_000
+const TOPOLOGY_PREWARM_BUDGET_MS = 35_000
+// Blast Radius compose is ~10s cold but mostly cache-fast (900s) — small budget,
+// runs after topology so its get_topology_risk call lands warm.
 const BLAST_PREWARM_FETCH_TIMEOUT_MS = 22_000
-const BLAST_PREWARM_BUDGET_MS = 40_000
+const BLAST_PREWARM_BUDGET_MS = 15_000
 
 type SweepResult = {
   system: string
-  kind: "iap" | "blast_radius"
+  kind: "iap" | "blast_radius" | "topology_risk"
   status: number | "timeout" | "error"
   elapsed_ms: number
   from_snapshot?: boolean
@@ -148,6 +155,51 @@ async function prewarmBlastRadius(system: string): Promise<SweepResult> {
   }
 }
 
+/**
+ * Prewarm the estate-map topology snapshot (GET /api/topology-risk/{system},
+ * unscoped = the all-VPCs key the map fetches). This is the fetch that was
+ * cold-502ing the map on first load: the topology recompute (~22 queries)
+ * overflows the FE proxy's 55s abort on a cold snapshot. The backend keeps a
+ * 7-day DynamoDB snapshot with a 10-min freshness window and stale-serves once
+ * ANY snapshot exists — so this sweep's job is to make sure the snapshot always
+ * exists and stays inside the freshness window. Hitting the real topology
+ * endpoint (not the cheap /api/systems ping) also keeps the worker warm with
+ * genuine work. Aborted recomputes still finish + put_snapshot server-side.
+ */
+async function prewarmTopologyRisk(system: string): Promise<SweepResult> {
+  const t0 = Date.now()
+  const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(system)}`
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(TOPOLOGY_PREWARM_FETCH_TIMEOUT_MS),
+      headers: { "User-Agent": "cyntro-keep-warm/1.0" },
+    })
+    let fromSnapshot: boolean | undefined
+    try {
+      const body = await res.json()
+      fromSnapshot = body?.from_snapshot === true
+    } catch {
+      // body unused beyond telemetry — a parse failure is not a sweep failure
+    }
+    return {
+      system,
+      kind: "topology_risk",
+      status: res.status,
+      elapsed_ms: Date.now() - t0,
+      from_snapshot: fromSnapshot,
+    }
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "TimeoutError"
+    return {
+      system,
+      kind: "topology_risk",
+      status: isTimeout ? "timeout" : "error",
+      elapsed_ms: Date.now() - t0,
+    }
+  }
+}
+
 export async function GET() {
   const start = Date.now()
   let pingStatus = 0
@@ -184,17 +236,23 @@ export async function GET() {
 
     // IAP snapshots are cheap (DynamoDB reads, ~1s) — warm all concurrently.
     const iapSweep = await Promise.all(systems.map(prewarmIdentityAttackPaths))
-    // Blast Radius compose is ~10s each on ONE worker — warm SERIALLY within a
-    // wall-clock budget so heavy composes never pile up. Systems past the budget
-    // stay on-demand: ~10s on the now-warm worker, under the proxy's 55s cap.
-    // (Front-of-list systems get a warm cache; order comes from the ping.)
+    // Topology-risk backs the estate map — warm it FIRST (heaviest, must refresh
+    // each cycle to stay inside the 10-min freshness window), serially within a
+    // wall-clock budget so composes never pile up on the one worker.
+    const topoSweep: SweepResult[] = []
+    const topoDeadline = Date.now() + TOPOLOGY_PREWARM_BUDGET_MS
+    for (const system of systems) {
+      if (Date.now() >= topoDeadline) break
+      topoSweep.push(await prewarmTopologyRisk(system))
+    }
+    // Blast Radius — mostly cache-fast (900s); small budget, runs after topology.
     const blastSweep: SweepResult[] = []
     const blastDeadline = Date.now() + BLAST_PREWARM_BUDGET_MS
     for (const system of systems) {
       if (Date.now() >= blastDeadline) break
       blastSweep.push(await prewarmBlastRadius(system))
     }
-    const sweep = [...iapSweep, ...blastSweep]
+    const sweep = [...iapSweep, ...topoSweep, ...blastSweep]
     const failures = sweep.filter(
       (r) => r.status !== 200 && r.status !== 503, // 503 = compute_in_progress: single-flight working, not a failure
     )
@@ -204,7 +262,7 @@ export async function GET() {
       )
     } else if (sweep.length > 0) {
       console.log(
-        `[keep-warm] prewarm sweep ok — ${sweep.length} probes (${systems.length} systems × iap+blast_radius) in ${Date.now() - start}ms`,
+        `[keep-warm] prewarm sweep ok — ${sweep.length} probes (${systems.length} systems × iap+topology+blast) in ${Date.now() - start}ms`,
       )
     }
 
