@@ -54,12 +54,18 @@ const IAP_PREWARM_FETCH_TIMEOUT_MS = 50_000
 // (heaviest, and it keeps the worker genuinely busy rather than just pinged).
 // A cold recompute (45-91s) finishes server-side + snapshots even after we give
 // up at the abort, so the next request lands on a warm snapshot.
-const TOPOLOGY_PREWARM_FETCH_TIMEOUT_MS = 30_000
-const TOPOLOGY_PREWARM_BUDGET_MS = 35_000
-// Blast Radius compose is ~10s cold but mostly cache-fast (900s) — small budget,
-// runs after topology so its get_topology_risk call lands warm.
-const BLAST_PREWARM_FETCH_TIMEOUT_MS = 22_000
-const BLAST_PREWARM_BUDGET_MS = 15_000
+// Budgets are tight so the whole run (cold ping + iap + topology + blast) stays
+// under the 60s Lambda cap. Each budget ≤ its per-call timeout so at most ONE
+// slow (cold) call runs per kind — a warm call serves from snapshot in ~5s, a
+// cold one aborts and finishes + snapshots server-side, and either way the next
+// cron converges. Worst case ≈ ping(25) + iap(2) + topology(14) + blast(10) ≈ 51s.
+const TOPOLOGY_PREWARM_FETCH_TIMEOUT_MS = 14_000
+const BLAST_PREWARM_FETCH_TIMEOUT_MS = 10_000
+// One global wall-clock deadline for the whole sweep (topology then blast) so
+// the function stays well under the 60s Lambda cap. A call starts only if its
+// full timeout fits before this — warm calls (~5s from snapshot) let many
+// systems through, a cold one (aborts + snapshots server-side) is bounded.
+const SWEEP_DEADLINE_MS = 50_000
 
 type SweepResult = {
   system: string
@@ -207,7 +213,11 @@ export async function GET() {
   try {
     const res = await fetch(`${BACKEND_URL}/api/systems`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(55_000),
+      // Short wake-ping: on a cold worker this aborts (still wakes it
+      // server-side) and we skip the sweep this cycle — the next cron lands on
+      // a warm worker. A long ping would eat the whole 60s Lambda budget and
+      // FUNCTION_INVOCATION_TIMEOUT before any sweep runs.
+      signal: AbortSignal.timeout(25_000),
       headers: {
         "User-Agent": "cyntro-keep-warm/1.0",
       },
@@ -236,20 +246,21 @@ export async function GET() {
 
     // IAP snapshots are cheap (DynamoDB reads, ~1s) — warm all concurrently.
     const iapSweep = await Promise.all(systems.map(prewarmIdentityAttackPaths))
+    const sweepDeadline = start + SWEEP_DEADLINE_MS
     // Topology-risk backs the estate map — warm it FIRST (heaviest, must refresh
-    // each cycle to stay inside the 10-min freshness window), serially within a
-    // wall-clock budget so composes never pile up on the one worker.
+    // each cycle to stay inside the 10-min freshness window), serially so
+    // composes never pile up on the one worker. Start a call only if its timeout
+    // fits before the global deadline.
     const topoSweep: SweepResult[] = []
-    const topoDeadline = Date.now() + TOPOLOGY_PREWARM_BUDGET_MS
     for (const system of systems) {
-      if (Date.now() >= topoDeadline) break
+      if (Date.now() + TOPOLOGY_PREWARM_FETCH_TIMEOUT_MS > sweepDeadline) break
       topoSweep.push(await prewarmTopologyRisk(system))
     }
-    // Blast Radius — mostly cache-fast (900s); small budget, runs after topology.
+    // Blast Radius — mostly cache-fast (900s); runs after topology so its
+    // get_topology_risk call lands warm.
     const blastSweep: SweepResult[] = []
-    const blastDeadline = Date.now() + BLAST_PREWARM_BUDGET_MS
     for (const system of systems) {
-      if (Date.now() >= blastDeadline) break
+      if (Date.now() + BLAST_PREWARM_FETCH_TIMEOUT_MS > sweepDeadline) break
       blastSweep.push(await prewarmBlastRadius(system))
     }
     const sweep = [...iapSweep, ...topoSweep, ...blastSweep]
