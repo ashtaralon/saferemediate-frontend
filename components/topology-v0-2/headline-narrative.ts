@@ -65,10 +65,30 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
         ? "observed public inbound in 365 days"
         : "inbound exposure unverified"
   const egressDest = inet.distinct_destinations ?? inet.egress_destinations
-  const egressPart =
-    typeof egressDest === "number" && egressDest > 0
-      ? ` while egressing to ${egressDest.toLocaleString()} destinations`
-      : ""
+  const hasEgress = typeof egressDest === "number" && egressDest > 0
+  const egressClause = hasEgress
+    ? `Observed egress to ${egressDest.toLocaleString()} external destinations (365d).`
+    : ""
+
+  // LATENT_EXPOSURE = inbound path open but unused. Do not glue that to
+  // egress counts with "while …" — they are orthogonal signals and the
+  // combined sentence reads like a contradiction on the estate map.
+  if (exposure === "LATENT_EXPOSURE") {
+    const title = hasEgress
+      ? `${node.name} is LATENT_EXPOSURE — inbound path open, unused (${inboundSummary}). ${egressClause}`
+      : `${node.name} is LATENT_EXPOSURE — inbound path open, unused (${inboundSummary})`
+    return {
+      title,
+      reason: `LATENT_EXPOSURE · ${inboundSummary}`,
+      meta: node.score
+        ? `score ${node.score.value} · ${node.score.tier}`
+        : "unscored workload",
+    }
+  }
+
+  const egressPart = hasEgress
+    ? ` while egressing to ${egressDest.toLocaleString()} external destinations (365d)`
+    : ""
   return {
     title: `${node.name} is ${exposure}${egressPart} — ${inboundSummary}`,
     reason: `${exposure} · ${inboundSummary}`,

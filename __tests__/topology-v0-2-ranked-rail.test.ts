@@ -62,13 +62,25 @@ describe("buildHeadlineNarrative", () => {
             tier: "WORST",
             rank: 1,
             confidence: { value: 1, tier: "FULL", reasons: [] },
-            contributors: [{
-              signal: "network_exposure",
-              weight: 0.5,
-              value: 1,
-              evidence: { exposure_state: "LATENT_EXPOSURE", observed_inbound_from_public_365d: false },
-              freshness: { source: "posture", as_of: null, is_fresh: true },
-            }],
+            contributors: [
+              {
+                signal: "network_exposure",
+                weight: 0.5,
+                value: 1,
+                evidence: {
+                  exposure_state: "LATENT_EXPOSURE",
+                  observed_inbound_from_public_365d: false,
+                },
+                freshness: { source: "posture", as_of: null, is_fresh: true },
+              },
+              {
+                signal: "internet_dependency",
+                weight: 0.25,
+                value: 0.95,
+                evidence: { distinct_destinations: 566 },
+                freshness: { source: "posture", as_of: null, is_fresh: true },
+              },
+            ],
           },
         }),
       ],
@@ -76,6 +88,10 @@ describe("buildHeadlineNarrative", () => {
     }
     const h = buildHeadlineNarrative(data)
     expect(h.title).toContain("frontend-1")
+    expect(h.title).toContain("LATENT_EXPOSURE")
+    expect(h.title).toContain("inbound path open, unused")
+    expect(h.title).toContain("566")
+    expect(h.title).not.toMatch(/while egressing/)
     expect(h.spotlightNodeId).toBe("a")
   })
 
