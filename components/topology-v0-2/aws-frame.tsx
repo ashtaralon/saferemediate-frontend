@@ -104,6 +104,8 @@ interface Props {
    * cards return at 100%. Driven by the host from the live zoom (P0-B).
    */
   densityCollapsed?: boolean
+  /** Business system name — used in All VPCs · Compare architecture strip. */
+  systemLabel?: string
 }
 
 const REGIONAL_EDGE_SERVICE_TYPES = new Set([
@@ -2331,12 +2333,13 @@ export function buildVpcFrames(
 
 const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
 
-/** Locked min-heights for All VPCs · Compare (Layout B). Tiers own vertical
- *  space — Web density must never steal App/Data height. */
+/** Locked heights for All VPCs · Compare (Layout B). Tiers own vertical
+ *  space — Web density must never steal App/Data height. Values are both
+ *  min and max for the band so overflow scrolls inside the cell. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 120,
-  app: 96,
-  data: 96,
+  web: 132,
+  app: 112,
+  data: 112,
   iam: 72,
 }
 
@@ -2344,54 +2347,133 @@ export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number>
  *  primary VPC detail + peer strip (Layout C). */
 export const COMPARE_BANDS_MAX_VPCS = 3
 
+function shortVpcId(vid: string | null): string {
+  if (!vid) return "unknown"
+  return vid.length > 14 ? `${vid.slice(0, 10)}…` : vid
+}
+
+function countTierWorkloads(frame: VpcFrameSpec, tier: "web" | "app" | "data"): number {
+  let n = 0
+  for (const azMap of frame.grid.byAzAndTier.values()) {
+    n += azMap.get(tier)?.length ?? 0
+  }
+  return n
+}
+
+function frameHasTier(frame: VpcFrameSpec, tier: "web" | "app" | "data"): boolean {
+  for (const az of frame.grid.azs) {
+    const sn = frame.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
+    const wl = frame.grid.byAzAndTier.get(az)?.get(tier) ?? []
+    if (sn.length > 0 || wl.length > 0) return true
+  }
+  return false
+}
+
+/** One-glance architecture story for the Compare view. */
+export function buildCompareArchitectureStory(
+  frames: VpcFrameSpec[],
+  systemLabel?: string,
+): string {
+  const tiersPresent = TIERS.filter(t => frames.some(f => frameHasTier(f, t)))
+  const tierPath =
+    tiersPresent.length === 3
+      ? "Internet → Web → App → Data"
+      : tiersPresent.length === 0
+        ? "No tiered subnets observed"
+        : `Internet → ${tiersPresent.map(t => t[0]!.toUpperCase() + t.slice(1)).join(" → ")}`
+  const shared = frames.filter(f => f.isForeign)
+  const own = frames.length - shared.length
+  const vpcBit =
+    shared.length > 0
+      ? `${own} own VPC${own === 1 ? "" : "s"} · ${shared.length} shared (${shared.map(s => s.ownerSystem ?? shortVpcId(s.vid)).join(", ")})`
+      : `${frames.length} VPC${frames.length === 1 ? "" : "s"}`
+  const prefix = systemLabel ? `${systemLabel} · ` : ""
+  return `${prefix}${tierPath} · ${vpcBit}`
+}
+
 function VpcColumnChrome({
   frame,
   compact,
+  isPrimary,
 }: {
   frame: VpcFrameSpec
   compact?: boolean
+  isPrimary?: boolean
 }) {
   const cidrs = [
     ...new Set(
-      (frame.grid.subnetsByCell
-        ? [...frame.grid.subnetsByCell.values()].flat().map(s => s.cidr).filter(Boolean)
-        : []) as string[],
+      [...frame.grid.subnetsByCell.values()].flat().map(s => s.cidr).filter(Boolean) as string[],
     ),
   ].slice(0, 2)
-  // Prefer a short CIDR summary from any subnet in this VPC's grid.
-  const cidrHint =
-    cidrs.length > 0
-      ? cidrs.join(" · ")
-      : null
+  const cidrHint = cidrs.length > 0 ? cidrs.join(" · ") : null
+  const webN = countTierWorkloads(frame, "web")
+  const appN = countTierWorkloads(frame, "app")
+  const dataN = countTierWorkloads(frame, "data")
+  const azLabels = frame.grid.azs.map(az => az.replace(/^.*-/, ""))
   return (
     <div
-      className={compact ? "px-1.5 py-1 mb-1.5" : "px-2 py-1.5 mb-2"}
+      className={compact ? "px-1.5 py-1" : "px-2 py-1.5"}
       style={{
         background: "#F0FDFA",
         borderBottom: "1.5px solid #00C2A8",
       }}
       data-testid="topology-vpc-column-chrome"
     >
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
         <span
           className="text-[10px] font-mono font-bold uppercase tracking-[0.08em] truncate"
           style={{ color: "#0E8B7A" }}
           title={frame.vid ?? "unknown"}
         >
-          VPC · {frame.vid ?? "unknown"}
+          VPC · {shortVpcId(frame.vid)}
         </span>
+        {isPrimary && !frame.isForeign ? (
+          <span
+            className="px-1 rounded-sm text-[8px] font-semibold shrink-0"
+            style={{ background: "#CCFBF1", color: "#0F766E", border: "1px solid #14B8A6" }}
+          >
+            primary
+          </span>
+        ) : null}
         {frame.isForeign && frame.ownerSystem ? (
           <span
             className="px-1 rounded-sm text-[8px] font-semibold shrink-0"
             style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+            title={`Shared VPC — subnets tagged for "${frame.ownerSystem}". This system's workloads run here.`}
           >
             shared · {frame.ownerSystem}
           </span>
         ) : null}
       </div>
-      {cidrHint ? (
-        <div className="text-[9px] font-mono mt-0.5 truncate" style={{ color: "#5A6B7A" }}>
-          {cidrHint}
+      <div className="flex items-center gap-2 mt-0.5 min-w-0 flex-wrap">
+        {cidrHint ? (
+          <span className="text-[9px] font-mono truncate" style={{ color: "#5A6B7A" }}>
+            {cidrHint}
+          </span>
+        ) : null}
+        <span className="text-[9px] font-semibold tabular-nums" style={{ color: "#0E8B7A" }}>
+          W{webN} · A{appN} · D{dataN}
+        </span>
+      </div>
+      {azLabels.length > 0 ? (
+        <div
+          className="grid gap-1 mt-1.5 pt-1"
+          style={{
+            gridTemplateColumns: `repeat(${azLabels.length}, minmax(0, 1fr))`,
+            borderTop: "1px dashed #99F6E4",
+          }}
+          data-testid="topology-vpc-az-headers"
+        >
+          {frame.grid.azs.map(az => (
+            <div
+              key={az}
+              className="text-[9px] font-mono font-bold uppercase tracking-[0.08em] text-center truncate"
+              style={{ color: "#5A6B7A" }}
+              title={az}
+            >
+              {az}
+            </div>
+          ))}
         </div>
       ) : null}
     </div>
@@ -2403,6 +2485,7 @@ function VpcColumnChrome({
  * Rows = locked Web / App / Data bands (tiers own height).
  * Columns = VPCs (equal width, strong chrome).
  * Subcolumns = AZs. Overflow stays inside the tier cell.
+ * Goal: a teammate reads Internet → Web → App → Data across VPCs in one glance.
  */
 function MultiVpcCompareBands({
   frames,
@@ -2410,38 +2493,60 @@ function MultiVpcCompareBands({
   roleForWorkload,
   selectedNodeId,
   onSelect,
-  densityCollapsed,
   compact,
   iamRoles,
   allWorkloads,
   highlightedRoleName,
+  systemLabel,
 }: {
   frames: VpcFrameSpec[]
   sgIndex: Map<string, SecurityGroupMeta>
   roleForWorkload: (id: string) => IamRoleRollup | undefined
   selectedNodeId: string | null
   onSelect: (id: string) => void
-  densityCollapsed: boolean
   compact: boolean
   iamRoles: IamRoleRollup[]
   allWorkloads: TopologyNode[]
   highlightedRoleName: string | null
+  systemLabel?: string
 }) {
   const colTemplate = `repeat(${frames.length}, minmax(0, 1fr))`
+  const story = buildCompareArchitectureStory(frames, systemLabel)
+  // Compare always collapses density — Web stacks must never grow the band.
+  const densityCollapsed = true
 
   return (
     <div className="flex flex-col gap-2 w-full min-w-0" data-testid="topology-vpc-compare-bands">
+      <div
+        className="rounded-md px-2.5 py-1.5 flex items-center gap-2 min-w-0"
+        style={{
+          background: "linear-gradient(90deg, #F0FDFA 0%, #FFFFFF 55%)",
+          border: "1px solid #99F6E4",
+        }}
+        data-testid="topology-compare-architecture-story"
+      >
+        <span
+          className="text-[9px] font-bold uppercase tracking-[0.14em] shrink-0"
+          style={{ color: "#0E8B7A" }}
+        >
+          System path
+        </span>
+        <span className="text-[11px] font-semibold truncate" style={{ color: PAL.ink }} title={story}>
+          {story}
+        </span>
+      </div>
+
       {/* VPC column headers — strong boundaries before the tier bands */}
       <div className="grid gap-2" style={{ gridTemplateColumns: colTemplate }}>
-        {frames.map(f => (
+        {frames.map((f, idx) => (
           <div
             key={`hdr-${f.vid}`}
-            className="rounded-md overflow-hidden"
+            className="rounded-md overflow-hidden flex flex-col"
             style={{ border: "2px solid #00C2A8", background: PAL.cardBg }}
           >
-            <VpcColumnChrome frame={f} compact={compact} />
+            <VpcColumnChrome frame={f} compact={compact} isPrimary={idx === 0} />
             {f.grid.albNodes.length > 0 ? (
-              <div className="px-1.5 pb-1.5 flex flex-wrap gap-1 justify-center">
+              <div className="px-1.5 py-1 flex flex-wrap gap-1 justify-center border-t" style={{ borderColor: "#CCFBF1" }}>
                 {f.grid.albNodes.map(n => (
                   <WorkloadChip
                     key={n.id}
@@ -2473,8 +2578,12 @@ function MultiVpcCompareBands({
         <div
           key={tier}
           data-testid={tierIdx === 0 ? "topology-tier-stack" : `topology-tier-band-${tier}`}
-          className="flex gap-0 min-h-0 w-full"
-          style={{ minHeight: COMPARE_TIER_MIN_PX[tier] }}
+          className="flex gap-0 w-full shrink-0"
+          style={{
+            height: COMPARE_TIER_MIN_PX[tier],
+            minHeight: COMPARE_TIER_MIN_PX[tier],
+            maxHeight: COMPARE_TIER_MIN_PX[tier],
+          }}
         >
           <div
             className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
@@ -2492,21 +2601,19 @@ function MultiVpcCompareBands({
             {TIER_SIDEBAR_LABEL[tier]}
           </div>
           <div
-            className="rounded-r-md p-1.5 flex-1 grid gap-2 min-h-0"
+            className="rounded-r-md p-1.5 flex-1 grid gap-2 min-h-0 h-full overflow-hidden"
             style={{
               background: TIER_BG[tier],
               gridTemplateColumns: colTemplate,
-              minHeight: COMPARE_TIER_MIN_PX[tier] - 4,
             }}
           >
             {frames.map(f => {
               const azs = f.grid.azs
-              const azCols = azs.map(() => `minmax(${AZ_COLUMN_MIN_PX}px, 1fr)`).join(" ")
-              const hasTierContent = azs.some(az => {
-                const sn = f.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
-                const wl = f.grid.byAzAndTier.get(az)?.get(tier) ?? []
-                return sn.length > 0 || wl.length > 0
-              })
+              const azCols =
+                azs.length > 0
+                  ? azs.map(() => "minmax(0, 1fr)").join(" ")
+                  : "1fr"
+              const hasTierContent = frameHasTier(f, tier)
               const emptyTierCopy =
                 tier === "data"
                   ? "No data subnet observed · no RDS / DB workload in this VPC"
@@ -2517,17 +2624,10 @@ function MultiVpcCompareBands({
                   className="rounded-md p-1 min-h-0 h-full flex flex-col overflow-hidden"
                   style={{
                     border: "1.5px solid #00C2A8",
-                    background: "rgba(255,255,255,0.55)",
-                    minHeight: COMPARE_TIER_MIN_PX[tier] - 16,
+                    background: "rgba(255,255,255,0.65)",
                   }}
                   data-testid={`topology-compare-cell-${f.vid}-${tier}`}
                 >
-                  <div
-                    className="text-[9px] font-mono font-semibold truncate mb-1 px-0.5"
-                    style={{ color: "#0E8B7A" }}
-                  >
-                    {f.vid}
-                  </div>
                   {!hasTierContent ? (
                     <div
                       className="text-[10px] italic flex-1 flex items-center justify-center text-center px-1"
@@ -2539,11 +2639,7 @@ function MultiVpcCompareBands({
                   ) : (
                     <div
                       className="grid gap-1 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
-                      style={{
-                        gridTemplateColumns: azCols,
-                        // Density stays inside the tier — never grow the band.
-                        maxHeight: COMPARE_TIER_MIN_PX[tier] * 2.5,
-                      }}
+                      style={{ gridTemplateColumns: azCols }}
                     >
                       {azs.map(az => {
                         const subnetsHere = f.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
@@ -2558,7 +2654,7 @@ function MultiVpcCompareBands({
                             sgIndex={sgIndex}
                             selectedNodeId={selectedNodeId}
                             onSelect={onSelect}
-                            compact={compact}
+                            compact
                             roleForWorkload={roleForWorkload}
                             densityCollapsed={densityCollapsed}
                           />
@@ -2573,11 +2669,15 @@ function MultiVpcCompareBands({
         </div>
       ))}
 
-      {/* IAM band — locked min height; primary frame's roles */}
+      {/* IAM band — locked height; account-wide roles under the tier story */}
       {iamRoles.length > 0 ? (
         <div
-          className="flex gap-0 min-h-0 w-full overflow-hidden"
-          style={{ minHeight: COMPARE_TIER_MIN_PX.iam }}
+          className="flex gap-0 w-full overflow-hidden shrink-0"
+          style={{
+            height: COMPARE_TIER_MIN_PX.iam,
+            minHeight: COMPARE_TIER_MIN_PX.iam,
+            maxHeight: COMPARE_TIER_MIN_PX.iam,
+          }}
           data-testid="topology-tier-band-iam"
         >
           <div
@@ -2600,7 +2700,7 @@ function MultiVpcCompareBands({
             allWorkloads={allWorkloads}
             highlightedRoleName={highlightedRoleName}
             embeddedInVpc
-            compact={compact}
+            compact
           />
         </div>
       ) : null}
@@ -2666,12 +2766,15 @@ function PrimaryPlusPeerStrip({
                 className="rounded-md px-3 py-2 min-w-[160px]"
                 style={{ border: "1.5px solid #00C2A8", background: PAL.cardBg }}
               >
-                <div className="text-[10px] font-mono font-bold" style={{ color: "#0E8B7A" }}>
-                  VPC · {p.vid}
+                <div className="text-[10px] font-mono font-bold" style={{ color: "#0E8B7A" }} title={p.vid ?? undefined}>
+                  VPC · {p.vid && p.vid.length > 14 ? `${p.vid.slice(0, 10)}…` : p.vid}
                 </div>
                 <div className="text-[10px] mt-1" style={{ color: PAL.slate }}>
                   {wl} workloads · {p.grid.azs.length} AZs
                   {p.isForeign && p.ownerSystem ? ` · shared (${p.ownerSystem})` : ""}
+                </div>
+                <div className="text-[9px] font-semibold mt-0.5" style={{ color: "#0E8B7A" }}>
+                  W{countTierWorkloads(p, "web")} · A{countTierWorkloads(p, "app")} · D{countTierWorkloads(p, "data")}
                 </div>
                 <div className="text-[9px] italic mt-1" style={{ color: PAL.slate }}>
                   Select this VPC in scope for full 3-tier detail
@@ -3058,6 +3161,7 @@ export function AwsFrame({
   presentationMode = false,
   scale = 1,
   densityCollapsed = false,
+  systemLabel,
 }: Props) {
   const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
   // SG lookup for the SubnetCell groupings.
@@ -3306,11 +3410,11 @@ export function AwsFrame({
                   roleForWorkload={roleForWorkload}
                   selectedNodeId={selectedNodeId}
                   onSelect={onSelect}
-                  densityCollapsed={densityCollapsed || presentationMode}
                   compact={presentationMode}
                   iamRoles={iamRoles}
                   allWorkloads={nodes}
                   highlightedRoleName={highlightedRoleName}
+                  systemLabel={systemLabel}
                 />
               )
             ) : presentationMode ? (
