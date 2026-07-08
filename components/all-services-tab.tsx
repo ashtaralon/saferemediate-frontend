@@ -29,6 +29,7 @@ import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 
 interface ServiceNode {
   id: string
@@ -1505,164 +1506,16 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               ) : activeTab === 'policies' ? (
                 /* Policies Tab */
                 <div className="space-y-6">
-                  {policiesLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                      <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-                      <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading policies...</span>
-                    </div>
-                  ) : policiesError ? (
-                    <div className="bg-[#ef444410] border border-[#ef444440] rounded-xl p-6 text-center">
-                      <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                      <p className="text-[#ef4444]">{policiesError}</p>
-                    </div>
-                  ) : servicePolicies && servicePolicies.policies && servicePolicies.policies.length > 0 ? (
-                    <div className="space-y-4">
-                      <div className="bg-[#3b82f610] border border-[#3b82f640] rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="font-semibold text-[var(--foreground,#111827)]">Service Policies</h3>
-                            <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
-                              {servicePolicies.policyCount} policy{servicePolicies.policyCount !== 1 ? 'ies' : ''} found
-                            </p>
-                          </div>
-                          <span className={`text-xs px-2 py-1 rounded ${
-                            SERVICE_COLORS[servicePolicies.serviceType] || SERVICE_COLORS.default
-                          }`}>
-                            {servicePolicies.serviceType || selectedService.type}
-                          </span>
-                        </div>
-                      </div>
-
-                      {servicePolicies.policies.map((policy: any, idx: number) => {
-                        const policyName = policy.name || policy.type || `Policy ${idx + 1}`
-                        const isExpanded = expandedPolicies.has(policyName)
-                        const policyDoc = policy.document || policy.policy || {}
-                        
-                        return (
-                          <div key={idx} className="border rounded-lg overflow-hidden">
-                            <button
-                              onClick={() => togglePolicy(policyName)}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-                            >
-                              {isExpanded ? (
-                                <ChevronDown className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
-                              ) : (
-                                <ChevronRight className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
-                              )}
-                              <FileText className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
-                              <div className="flex-1">
-                                <span className="font-medium">{policyName}</span>
-                                <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
-                                  policy.type === 'InlinePolicy' || policy.isInline
-                                    ? 'bg-[#3b82f620] text-[#3b82f6]'
-                                    : policy.type === 'ManagedPolicy' || policy.isManaged
-                                    ? 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
-                                    : policy.type === 'BucketPolicy'
-                                    ? 'bg-[#22c55e20] text-[#22c55e]'
-                                    : policy.type === 'IngressRules' || policy.type === 'EgressRules'
-                                    ? 'bg-[#8b5cf615] text-[#7c3aed]'
-                                    : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
-                                }`}>
-                                  {policy.type || 'Policy'}
-                                </span>
-                                {policy.ruleCount !== undefined && (
-                                  <span className="ml-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-                                    {policy.ruleCount} rule{policy.ruleCount !== 1 ? 's' : ''}
-                                  </span>
-                                )}
-                              </div>
-                              {policy.arn && (
-                                <span className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[200px]" title={policy.arn}>
-                                  {policy.arn.split('/').pop()}
-                                </span>
-                              )}
-                            </button>
-                            
-                            {isExpanded && (
-                              <div className="border-t px-4 py-4 bg-gray-50 space-y-3">
-                                {policy.arn && (
-                                  <div className="text-xs">
-                                    <span className="text-[var(--muted-foreground,#6b7280)]">ARN: </span>
-                                    <span className="font-mono text-[var(--foreground,#374151)] break-all">{policy.arn}</span>
-                                  </div>
-                                )}
-                                
-                                {/* Security Group Rules */}
-                                {(policy.type === 'IngressRules' || policy.type === 'EgressRules') && Array.isArray(policyDoc) && (
-                                  <div>
-                                    <div className="text-xs font-medium text-[var(--foreground,#374151)] mb-2">
-                                      {policy.type === 'IngressRules' ? 'Inbound' : 'Outbound'} Rules ({policyDoc.length})
-                                    </div>
-                                    <div className="space-y-2">
-                                      {policyDoc.map((rule: any, ruleIdx: number) => (
-                                        <div key={ruleIdx} className="bg-white p-3 rounded border text-xs">
-                                          <div className="grid grid-cols-2 gap-2 mb-2">
-                                            <div>
-                                              <span className="text-[var(--muted-foreground,#6b7280)]">Protocol: </span>
-                                              <span className="font-mono">{rule.IpProtocol || 'All'}</span>
-                                            </div>
-                                            <div>
-                                              <span className="text-[var(--muted-foreground,#6b7280)]">Port: </span>
-                                              <span className="font-mono">
-                                                {rule.FromPort === rule.ToPort 
-                                                  ? rule.FromPort || 'All'
-                                                  : `${rule.FromPort || 'All'}-${rule.ToPort || 'All'}`}
-                                              </span>
-                                            </div>
-                                          </div>
-                                          <div>
-                                            <span className="text-[var(--muted-foreground,#6b7280)]">Source/Destination: </span>
-                                            <div className="mt-1 space-y-1">
-                                              {rule.IpRanges?.map((range: any, i: number) => (
-                                                <div key={i} className="font-mono text-[var(--foreground,#374151)]">
-                                                  {range.CidrIp || range.CidrIpv6} {range.Description ? `(${range.Description})` : ''}
-                                                </div>
-                                              ))}
-                                              {rule.UserIdGroupPairs?.map((sg: any, i: number) => (
-                                                <div key={i} className="font-mono text-[var(--foreground,#374151)]">
-                                                  {sg.GroupId || sg.GroupName} {sg.Description ? `(${sg.Description})` : ''}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {/* IAM Policy Document */}
-                                {policyDoc && typeof policyDoc === 'object' && !Array.isArray(policyDoc) && Object.keys(policyDoc).length > 0 && (
-                                  <div>
-                                    <div className="text-xs font-medium text-[var(--foreground,#374151)] mb-2">Policy Document</div>
-                                    <pre className="text-xs bg-white p-3 rounded border overflow-x-auto max-h-96">
-                                      {JSON.stringify(policyDoc, null, 2)}
-                                    </pre>
-                                  </div>
-                                )}
-                                
-                                {(!policyDoc || (typeof policyDoc === 'object' && Object.keys(policyDoc).length === 0)) && (
-                                  <div className="text-sm text-[var(--muted-foreground,#6b7280)] text-center py-4">
-                                    No policy document available
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-xl p-6 text-center">
-                      <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-[var(--muted-foreground,#4b5563)] font-medium">No Policies Found</p>
-                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">
-                        This service does not have any policies or rules configured.
-                      </p>
-                      <p className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1 font-mono">
-                        Service: {selectedService.name} ({selectedService.type})
-                      </p>
-                    </div>
+                  {/* Policies & Rules — graph-first inspector: SG ingress/egress rules,
+                      S3 bucket policy + PAB, IAM/EC2/RDS config. Resolves bare names
+                      via the graph, so the old dead /api/services/{id}/policies path
+                      (which always returned empty → "No Policies Found") is gone. */}
+                  {selectedService && (
+                    <ResourceConfigTab
+                      resourceId={selectedService.id || selectedService.name}
+                      resourceType={selectedService.type}
+                      systemName={systemName}
+                    />
                   )}
                 </div>
               ) : null}
