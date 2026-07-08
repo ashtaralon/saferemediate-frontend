@@ -134,6 +134,30 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     expect(screen.queryByTestId("topology-merged-vpc-grid")).not.toBeInTheDocument()
   })
 
+  it("places ALB in the Compare ingress row (Internet → Web path), not VPC chrome", () => {
+    const withAlb = [
+      ...twoVpcNodes,
+      nd({
+        id: "alb-1",
+        type: "LoadBalancer",
+        name: "alon-prod-3tier-alb",
+        vpc_id: SHARED,
+      }),
+    ]
+    render(
+      <AwsFrame
+        vpcTopology={twoVpcTopology}
+        nodes={withAlb}
+        mergedVpcView
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+    expect(screen.getByTestId("topology-compare-ingress-row")).toBeInTheDocument()
+    expect(screen.getByText(/Application Load Balancer/)).toBeInTheDocument()
+    expect(screen.getByText(/alon-prod-3tier-alb/)).toBeInTheDocument()
+  })
+
   it("buildCompareArchitectureStory names the Internet → tier path", () => {
     const { frames } = buildVpcFrames(
       twoVpcTopology.subnets,
