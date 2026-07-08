@@ -369,9 +369,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // localStorage by ANY path (a race in the default-region effect above, a
   // stray click, an upstream data glitch) — stays wrong FOREVER: the map
   // silently scopes to nothing, shows no error, and there is no way out
-  // short of clearing browser storage by hand (observed live 2026-07-08:
-  // alon-prod pinned to us-east-1 while its real infrastructure is
-  // eu-west-1 — the map just sat on "Loading topology risk…").
+  // short of clearing browser storage by hand (observed live on a real
+  // multi-region system whose infrastructure is entirely in one region —
+  // the map just sat on "Loading topology risk…" indefinitely).
   const healedRegionSystemRef = useRef<string | null>(null)
   useEffect(() => {
     if (!data || loading) return
