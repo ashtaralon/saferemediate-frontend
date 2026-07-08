@@ -492,25 +492,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const nw = Math.max(content.offsetWidth, content.scrollWidth)
     const nh = Math.max(content.offsetHeight, content.scrollHeight)
     if (nw === 0 || nh === 0) return
-    // The fit targets the tier stacks — the 3 subnet tiers + IAM per VPC
-    // (data-testid topology-tier-stack), measured from the content top — so the
-    // tall side rails (VPCE/serverless/regional, which stretch the row and used
-    // to shrink everything) do NOT drive the fit. Rails that run taller overflow
-    // below and pan. Ratio-based so the current scale cancels out; falls back to
-    // full content height if no anchor is in the DOM yet.
-    //
-    // The merged (all-VPCs) view renders ONE tier-stack per VPC frame, all at
-    // the same stretched height (frames render at equal heights, all-VPCs
-    // parallel-frame fix). querySelector (singular) only ever measured the
-    // FIRST frame — with 2+ VPCs that under-measured fitH, so "100%" fit only
-    // the first VPC's content and every other frame silently clipped below the
-    // fold (overflow:hidden, unreachable — no scrollbar, no pan affordance).
-    // querySelectorAll + max(bottom) covers every VPC frame; since all frames
-    // render at equal height this is also just each one's real bottom, not an
-    // over-estimate. Single-VPC (scoped) view still has exactly one match, so
-    // behavior there is unchanged.
-    let fitH = nh
+    // Fit to the full map (every VPC frame + rails). Prefer WIDTH fill so
+    // the estate map uses ~100% of the viewport instead of shrinking to a
+    // centered ~24% postage stamp when height was the binding constraint.
+    // Height still caps the scale so tiers stay reachable via pan.
     const stacks = content.querySelectorAll('[data-testid="topology-tier-stack"]')
+    let fitH = nh
     if (stacks.length > 0) {
       const cr = content.getBoundingClientRect()
       if (cr.height > 0) {
@@ -522,11 +509,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         if (frac > 0.1 && frac <= 1) fitH = nh * frac
       }
     }
-    const pad = 24
-    const fit = Math.max(
-      MIN_ZOOM,
-      Math.min(1, (vp.clientWidth - pad) / nw, (vp.clientHeight - pad) / fitH),
-    )
+    const pad = 16
+    const fitW = (vp.clientWidth - pad) / nw
+    const fitHScale = (vp.clientHeight - pad) / fitH
+    // Prefer filling width; only shrink further if height would clip the
+    // tier stacks below ~70% of the viewport (still pan-reachable).
+    let fit = Math.max(MIN_ZOOM, Math.min(1.15, fitW))
+    if (fit * fitH > vp.clientHeight * 0.92) {
+      fit = Math.max(MIN_ZOOM, Math.min(fit, fitHScale))
+    }
     // One-way LOD (see lock comment above). While still showing full cards, if
     // the whole map won't fit at a readable scale, drop to density tiles and
     // stay there — the ResizeObserver then re-fits the shorter tile content so
@@ -538,8 +529,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     setFitScale(fit)
     if (apply) {
       setZoom(fit)
-      const scaledW = nw * fit
-      setPan({ x: Math.max(0, (vp.clientWidth - scaledW) / 2), y: pad / 2 })
+      // Left-align with a small pad — no large centered gutters.
+      setPan({ x: pad / 2, y: pad / 2 })
     }
   }, [])
 
@@ -1507,7 +1498,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 willChange: "transform",
               }}
             >
-              <div ref={contentRef} className="inline-block">
+              <div ref={contentRef} className="block w-full min-w-full">
                 {renderMap(true, zoom, densityCollapsed)}
               </div>
             </div>

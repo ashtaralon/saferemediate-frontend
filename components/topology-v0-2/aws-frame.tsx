@@ -704,7 +704,7 @@ function SubnetCell({
       : (compact ? "72px" : "84px")
   return (
     <div
-      className={compact ? "rounded-md p-1.5" : "rounded-md p-2"}
+      className={compact ? "rounded-md p-1.5 h-full min-h-0 flex flex-col" : "rounded-md p-2"}
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
@@ -2373,24 +2373,154 @@ function VpcCanvasFrame({
 }: VpcCanvasFrameProps) {
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
   const hasNats = natGws.length > 0
+
+  const natBand = hasNats && (
+    <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
+      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
+        NAT gateways ({natGws.length})
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {natGws.map(n => (
+          <span
+            key={n.id}
+            className="text-[10px] px-2 py-0.5 rounded-md"
+            style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+          >
+            NAT GW · {n.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+
+  {/* Load balancers — rendered ABOVE the AZ grid, spanning its full width,
+      never inside a single AZ's tier cell. An ALB fans out across every AZ
+      behind it; it doesn't live "in" one the way an EC2 instance does. */}
+  const albBand = albNodes.length > 0 && (
+    <div
+      className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
+      style={{ borderColor: "#C2CDD6" }}
+    >
+      <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
+        <AlbGlyph size={14} />
+        <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
+          {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
+        </span>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {albNodes.map(n => (
+          <WorkloadChip
+            key={n.id}
+            node={n}
+            selected={n.id === selectedNodeId}
+            onClick={() => onSelect(n.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
+  const azHeaderRow = (
+    <div className="flex gap-0">
+      <div
+        className="rounded-l-md shrink-0"
+        style={{ width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal }}
+        aria-hidden
+      />
+      <div
+        className={presentationMode ? "rounded-r-md px-2 pt-1 pb-0.5 flex-1" : "rounded-r-md px-2.5 pt-1.5 pb-1 flex-1"}
+        style={{ background: "#EEF2F6" }}
+      >
+        <div
+          className="grid gap-1.5"
+          style={{ gridTemplateColumns: azGridColumns }}
+          data-testid="topology-az-column-headers"
+        >
+          {azs.map(az => (
+            <div
+              key={`az-header-${az}`}
+              className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center truncate"
+              style={{ color: PAL.slate }}
+              title={az}
+            >
+              {az}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
+  const iamCpBlock = (compact: boolean) => (
+    <>
+      <div
+        className="rounded-l-md flex items-center justify-center shrink-0"
+        style={{
+          background: "#DD344C",
+          color: "white",
+          width: compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+          writingMode: "vertical-rl",
+          transform: "rotate(180deg)",
+          fontSize: "9px",
+          fontWeight: 700,
+          letterSpacing: "0.14em",
+        }}
+      >
+        IAM CP
+      </div>
+      <IamControlPlane
+        roles={iamRoles}
+        allWorkloads={allWorkloads}
+        highlightedRoleName={highlightedRoleName}
+        embeddedInVpc
+        compact={compact}
+      />
+    </>
+  )
+
   return (
     <div
-      className={presentationMode ? "rounded-md p-2.5 relative shrink-0" : "rounded-md p-3 relative shrink-0"}
-      style={{
-        background: PAL.cardBg,
-        border: `2px solid #00C2A8`,
-        minWidth: `${vpcGridMinWidth}px`,
-        flex: "1 1 auto",
-      }}
+      className={presentationMode ? "rounded-md p-2.5 relative shrink-0 min-w-0" : "rounded-md p-3 relative shrink-0"}
+      data-testid="topology-vpc-frame"
+      style={
+        presentationMode
+          ? {
+              // Fullscreen: this frame is a subgrid item of the multi-VPC
+              // grid wrapper in AwsFrame — it inherits that grid's row
+              // tracks instead of sizing its own, so Web/App/Data line up
+              // across every VPC frame regardless of content density
+              // (Alon: "the merged VPCs need to be perfectly parallel").
+              background: PAL.cardBg,
+              border: `2px solid #00C2A8`,
+              minWidth: `${vpcGridMinWidth}px`,
+              width: "100%",
+              display: "grid",
+              gridTemplateRows: "subgrid",
+              gridRow: "1 / -1",
+              overflow: "visible",
+            }
+          : {
+              background: PAL.cardBg,
+              border: `2px solid #00C2A8`,
+              minWidth: `${vpcGridMinWidth}px`,
+              flex: "1 1 auto",
+              overflow: "visible",
+            }
+      }
     >
+      {/* In-flow header (not absolute -top) so VPC id / shared badge never
+          clip under the parent overflow-x-auto / border edge. */}
       <div
-        className="absolute -top-2.5 left-4 px-2 flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] font-semibold"
-        style={{ background: PAL.cardBg, color: "#0E8B7A" }}
+        className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
+        style={{ color: "#0E8B7A", gridRow: presentationMode ? 1 : undefined }}
+        data-testid="topology-vpc-frame-header"
       >
-        <span>VPC · {vpcId ?? "unknown"}</span>
+        <span className="truncate" title={vpcId ?? "unknown"}>
+          VPC · {vpcId ?? "unknown"}
+        </span>
         {isForeign && ownerSystem ? (
           <span
-            className="px-1 rounded-sm text-[8px] font-semibold normal-case tracking-normal"
+            className="px-1 rounded-sm text-[8px] font-semibold normal-case tracking-normal shrink-0"
             style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
             title={`Shared VPC — these subnets are tagged for "${ownerSystem}". This system's workloads run here, but ${ownerSystem} owns the subnets.`}
           >
@@ -2399,126 +2529,109 @@ function VpcCanvasFrame({
         ) : null}
       </div>
 
-      {/* NAT GW perimeter band */}
-      {hasNats && (
-        <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
-          <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
-            NAT gateways ({natGws.length})
+      {presentationMode ? (
+        azs.length === 0 ? (
+          <div
+            className="text-[12px] italic py-6 text-center"
+            style={{ color: PAL.slate, gridRow: "2 / -1" }}
+          >
+            No tagged subnets in this VPC.
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {natGws.map(n => (
-              <span
-                key={n.id}
-                className="text-[10px] px-2 py-0.5 rounded-md"
-                style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+        ) : (
+          <>
+            {/* Row 2 (subgrid): NAT + ALB + AZ headers — height = max across
+                VPCs so every Web tier starts on the same Y. */}
+            <div style={{ gridRow: 2, minHeight: 0 }} className="min-h-0">
+              {natBand}
+              {albBand}
+              <div className="mt-1">{azHeaderRow}</div>
+            </div>
+
+            {/* Rows 3-5 (subgrid): Web / App / Data — shared row tracks so
+                Public subnet (web) / App / Data are 1:1 parallel across VPCs. */}
+            {TIERS.map((tier, tierIdx) => (
+              <div
+                key={tier}
+                data-testid={tierIdx === 0 ? "topology-tier-stack" : undefined}
+                className="flex gap-0 min-h-0 h-full"
+                style={{ gridRow: tierIdx + 3, minHeight: 0 }}
               >
-                NAT GW · {n.name}
-              </span>
+                <div
+                  className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
+                  style={{
+                    background: PAL.ink,
+                    color: "white",
+                    width: TIER_SIDEBAR_WIDTH.compact,
+                    writingMode: "vertical-rl",
+                    transform: "rotate(180deg)",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    letterSpacing: "0.18em",
+                  }}
+                >
+                  {TIER_SIDEBAR_LABEL[tier]}
+                </div>
+                <div
+                  className="rounded-r-md p-1.5 flex-1 flex flex-col min-h-0 h-full"
+                  style={{ background: TIER_BG[tier] }}
+                >
+                  <div
+                    className="grid gap-1.5 flex-1 min-h-0 h-full"
+                    style={{ gridTemplateColumns: azGridColumns }}
+                  >
+                    {azs.map(az => {
+                      const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
+                      const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
+                      return (
+                        <SubnetCell
+                          key={`${az}-${tier}`}
+                          tier={tier}
+                          az={az}
+                          subnetsHere={subnetsHere}
+                          workloadsHere={workloadsHere}
+                          sgIndex={sgIndex}
+                          selectedNodeId={selectedNodeId}
+                          onSelect={onSelect}
+                          compact={presentationMode}
+                          roleForWorkload={roleForWorkload}
+                          densityCollapsed={densityCollapsed}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
             ))}
-          </div>
-        </div>
-      )}
 
-      {/* Load balancers — rendered ABOVE the AZ grid, spanning its full
-          width, never inside a single AZ's tier cell. An ALB fans out
-          across every AZ behind it; it doesn't live "in" one the way
-          an EC2 instance does. The dashed bottom border deliberately
-          spans the same width as the AZ grid below to read as "this
-          connects down into every AZ", mirroring the standard AWS
-          reference-architecture layout (ALB centered above AZ 1 / AZ 2). */}
-      {albNodes.length > 0 && (
-        <div
-          className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
-          style={{ borderColor: "#C2CDD6" }}
-        >
-          <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
-            <AlbGlyph size={14} />
-            <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
-              {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
-            </span>
-          </div>
-          <div className="flex flex-wrap justify-center gap-2">
-            {albNodes.map(n => (
-              <WorkloadChip
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onClick={() => onSelect(n.id)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* AZ headers + tier rows with sidebar labels */}
-      {azs.length === 0 ? (
+            {/* Row 6 (subgrid): IAM — ALWAYS emit a cell so every frame has
+                the same 6 subgrid children. Omitting this on non-primary
+                frames broke CSS subgrid alignment (tiers staggered). */}
+            <div className="flex gap-0 min-h-0 overflow-hidden" style={{ gridRow: 6 }}>
+              {showIamControlPlane && iamRoles.length > 0 ? iamCpBlock(true) : (
+                <div className="flex-1 min-h-[4px]" aria-hidden />
+              )}
+            </div>
+          </>
+        )
+      ) : azs.length === 0 ? (
         <div className="text-[12px] italic py-6 text-center" style={{ color: PAL.slate }}>
           No tagged subnets in this VPC.
         </div>
       ) : (
-        <div className={presentationMode ? "mt-1" : "mt-2"}>
-          <div className={presentationMode ? "space-y-1.5" : "space-y-2"}>
-            <div className="flex gap-0">
-              <div
-                className="rounded-l-md shrink-0"
-                style={{ width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal }}
-                aria-hidden
-              />
-              <div
-                className={presentationMode ? "rounded-r-md px-2 pt-1 pb-0.5 flex-1" : "rounded-r-md px-2.5 pt-1.5 pb-1 flex-1"}
-                style={{ background: "#EEF2F6" }}
-              >
-                <div
-                  className="grid gap-1.5"
-                  style={{ gridTemplateColumns: azGridColumns }}
-                  data-testid="topology-az-column-headers"
-                >
-                  {azs.map(az => (
-                    <div
-                      key={`az-header-${az}`}
-                      className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center truncate"
-                      style={{ color: PAL.slate }}
-                      title={az}
-                    >
-                      {az}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            {/*
-              Fullscreen: Web/App/Data + IAM share one bounded column.
-              IAM inside the stack prevents it from overlapping tier rows.
-            */}
-            <div
-              data-testid="topology-tier-stack"
-              className={presentationMode ? "gap-1 min-h-0" : "contents"}
-              style={
-                presentationMode
-                  ? {
-                      // Fullscreen grows to content — the zoom viewport fits
-                      // it to screen. Was capped at calc(100vh-220px) + 1fr
-                      // rows, which clipped dense cells and left the flow
-                      // overlay anchoring to scrolled-out rects (P0-A/B fix).
-                      minHeight: "320px",
-                      display: "grid",
-                      gridTemplateRows: "repeat(3, minmax(88px, auto)) minmax(0, auto)",
-                    }
-                  : undefined
-              }
-            >
+        <div className="mt-2">
+          <div className="space-y-2">
+            {natBand}
+            {albBand}
+            {azHeaderRow}
+            <div data-testid="topology-tier-stack" className="contents">
               {TIERS.map(tier => (
-                <div
-                  key={tier}
-                  className="flex gap-0 min-h-0"
-                  style={presentationMode ? { minHeight: 0 } : undefined}
-                >
+                <div key={tier} className="flex gap-0 min-h-0">
                   <div
                     className="rounded-l-md flex items-center justify-center shrink-0"
                     style={{
                       background: PAL.ink,
                       color: "white",
-                      width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+                      width: TIER_SIDEBAR_WIDTH.normal,
                       writingMode: "vertical-rl",
                       transform: "rotate(180deg)",
                       fontSize: "10px",
@@ -2528,17 +2641,8 @@ function VpcCanvasFrame({
                   >
                     {TIER_SIDEBAR_LABEL[tier]}
                   </div>
-                  <div
-                    className={presentationMode ? "rounded-r-md p-1.5 flex-1" : "rounded-r-md p-2.5 flex-1"}
-                    style={{
-                      background: TIER_BG[tier],
-                      ...(presentationMode ? { minHeight: 0 } : {}),
-                    }}
-                  >
-                    <div
-                      className={presentationMode ? "grid gap-1.5" : "grid gap-1.5"}
-                      style={{ gridTemplateColumns: azGridColumns }}
-                    >
+                  <div className="rounded-r-md p-2.5 flex-1" style={{ background: TIER_BG[tier] }}>
+                    <div className="grid gap-1.5" style={{ gridTemplateColumns: azGridColumns }}>
                       {azs.map(az => {
                         const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
                         const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
@@ -2562,59 +2666,10 @@ function VpcCanvasFrame({
                   </div>
                 </div>
               ))}
-
-              {presentationMode && showIamControlPlane && iamRoles.length > 0 ? (
-                <div className="flex gap-0 min-h-0 overflow-hidden">
-                  <div
-                    className="rounded-l-md flex items-center justify-center shrink-0"
-                    style={{
-                      background: "#DD344C",
-                      color: "white",
-                      width: TIER_SIDEBAR_WIDTH.compact,
-                      writingMode: "vertical-rl",
-                      transform: "rotate(180deg)",
-                      fontSize: "9px",
-                      fontWeight: 700,
-                      letterSpacing: "0.14em",
-                    }}
-                  >
-                    IAM CP
-                  </div>
-                  <IamControlPlane
-                    roles={iamRoles}
-                    allWorkloads={allWorkloads}
-                    highlightedRoleName={highlightedRoleName}
-                    embeddedInVpc
-                    compact
-                  />
-                </div>
-              ) : null}
             </div>
 
-            {!presentationMode && showIamControlPlane && iamRoles.length > 0 ? (
-              <div className="flex gap-0">
-                <div
-                  className="rounded-l-md flex items-center justify-center shrink-0"
-                  style={{
-                    background: "#DD344C",
-                    color: "white",
-                    width: TIER_SIDEBAR_WIDTH.normal,
-                    writingMode: "vertical-rl",
-                    transform: "rotate(180deg)",
-                    fontSize: "9px",
-                    fontWeight: 700,
-                    letterSpacing: "0.14em",
-                  }}
-                >
-                  IAM CP
-                </div>
-                <IamControlPlane
-                  roles={iamRoles}
-                  allWorkloads={allWorkloads}
-                  highlightedRoleName={highlightedRoleName}
-                  embeddedInVpc
-                />
-              </div>
+            {showIamControlPlane && iamRoles.length > 0 ? (
+              <div className="flex gap-0">{iamCpBlock(false)}</div>
             ) : null}
           </div>
         </div>
@@ -2734,7 +2789,7 @@ export function AwsFrame({
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-1.5 space-y-1 relative max-w-full min-w-0 overflow-x-auto"
+          ? "rounded-xl p-1.5 space-y-1 relative w-full min-w-0 overflow-x-auto overflow-y-visible"
           : "rounded-2xl p-3 space-y-3 relative max-w-full min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
@@ -2826,24 +2881,36 @@ export function AwsFrame({
 
       {/* AWS Cloud frame */}
       <div
-        className={presentationMode ? "rounded-lg p-2 relative" : "rounded-lg p-4 relative"}
+        className={presentationMode ? "rounded-lg p-2 relative overflow-visible" : "rounded-lg p-4 relative overflow-visible"}
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
         <div
-          className="absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
-          style={{ background: PAL.bg, color: PAL.awsFrame }}
+          className={
+            presentationMode
+              ? "text-[11px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
+              : "absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
+          }
+          style={{ background: presentationMode ? "transparent" : PAL.bg, color: PAL.awsFrame }}
         >
           ☁ AWS Cloud {accountSuffix}
         </div>
 
         {/* Region */}
         <div
-          className={presentationMode ? "rounded-md p-2 mt-1 relative" : "rounded-md p-4 mt-3 relative"}
+          className={
+            presentationMode
+              ? "rounded-md p-2 relative overflow-visible"
+              : "rounded-md p-4 mt-3 relative overflow-visible"
+          }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
         >
           <div
-            className="absolute -top-2.5 left-4 px-2 text-[10px] uppercase tracking-[0.14em] font-semibold"
-            style={{ background: PAL.cardBg, color: PAL.slate }}
+            className={
+              presentationMode
+                ? "text-[10px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
+                : "absolute -top-2.5 left-4 px-2 text-[10px] uppercase tracking-[0.14em] font-semibold"
+            }
+            style={{ background: presentationMode ? "transparent" : PAL.cardBg, color: PAL.slate }}
           >
             Region · {topo.region ?? "unknown"}
           </div>
@@ -2857,30 +2924,75 @@ export function AwsFrame({
               was already a no-op there.) */}
           <div
             className={`flex flex-nowrap items-stretch ${
-              presentationMode ? "mt-2" : "mt-3"
-            } min-w-0 overflow-x-auto pb-1`}
+              presentationMode ? "mt-1 w-full" : "mt-3"
+            } min-w-0 overflow-x-auto overflow-y-visible pb-1`}
           >
-            {/* One frame per VPC — real per-VPC subnet skeletons (no cross-VPC cramming) */}
-            {frames.map(f => (
-              <VpcCanvasFrame
-                key={f.vid ?? "unknown"}
-                vpcId={f.vid}
-                grid={f.grid}
-                natGws={f.natGws}
-                isForeign={f.isForeign}
-                ownerSystem={f.ownerSystem}
-                showIamControlPlane={f.showIamControlPlane}
-                iamRoles={iamRoles}
-                allWorkloads={nodes}
-                sgIndex={sgIndex}
-                roleForWorkload={roleForWorkload}
-                selectedNodeId={selectedNodeId}
-                highlightedRoleName={highlightedRoleName}
-                onSelect={onSelect}
-                presentationMode={presentationMode}
-                densityCollapsed={densityCollapsed}
-              />
-            ))}
+            {/* One frame per VPC — real per-VPC subnet skeletons (no cross-VPC
+                cramming). Fullscreen: the frames share ONE grid via CSS
+                subgrid (see VpcCanvasFrame) so Web/App/Data tier rows align
+                across VPCs; each VpcCanvasFrame subgrids into the 5 row
+                tracks defined here. Non-fullscreen keeps the plain flex row
+                (always exactly one frame there today). */}
+            {presentationMode ? (
+              <div
+                className="grid items-stretch w-full min-w-0"
+                data-testid="topology-merged-vpc-grid"
+                style={{
+                  // Equal columns so two VPCs sit 1:1 side-by-side and fill
+                  // the AWS Cloud frame (not shrink-wrapped to content).
+                  gridTemplateColumns: `repeat(${Math.max(frames.length, 1)}, minmax(0, 1fr))`,
+                  // 6 rows: header · NAT/ALB/AZ · web · app · data · IAM.
+                  // Every VpcCanvasFrame must emit all 6 subgrid children or
+                  // CSS subgrid alignment breaks (tiers stagger).
+                  gridTemplateRows:
+                    "auto auto minmax(96px, 1fr) minmax(96px, 1fr) minmax(96px, 1fr) auto",
+                  gap: "10px",
+                  width: "100%",
+                }}
+              >
+                {frames.map(f => (
+                  <VpcCanvasFrame
+                    key={f.vid ?? "unknown"}
+                    vpcId={f.vid}
+                    grid={f.grid}
+                    natGws={f.natGws}
+                    isForeign={f.isForeign}
+                    ownerSystem={f.ownerSystem}
+                    showIamControlPlane={f.showIamControlPlane}
+                    iamRoles={iamRoles}
+                    allWorkloads={nodes}
+                    sgIndex={sgIndex}
+                    roleForWorkload={roleForWorkload}
+                    selectedNodeId={selectedNodeId}
+                    highlightedRoleName={highlightedRoleName}
+                    onSelect={onSelect}
+                    presentationMode={presentationMode}
+                    densityCollapsed={densityCollapsed}
+                  />
+                ))}
+              </div>
+            ) : (
+              frames.map(f => (
+                <VpcCanvasFrame
+                  key={f.vid ?? "unknown"}
+                  vpcId={f.vid}
+                  grid={f.grid}
+                  natGws={f.natGws}
+                  isForeign={f.isForeign}
+                  ownerSystem={f.ownerSystem}
+                  showIamControlPlane={f.showIamControlPlane}
+                  iamRoles={iamRoles}
+                  allWorkloads={nodes}
+                  sgIndex={sgIndex}
+                  roleForWorkload={roleForWorkload}
+                  selectedNodeId={selectedNodeId}
+                  highlightedRoleName={highlightedRoleName}
+                  onSelect={onSelect}
+                  presentationMode={presentationMode}
+                  densityCollapsed={densityCollapsed}
+                />
+              ))
+            )}
 
             {/* VPCE boundary — offset right of VPC; flow corridor before edge rail */}
             {hasVpces && (
