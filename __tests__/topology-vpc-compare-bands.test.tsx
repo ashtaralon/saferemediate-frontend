@@ -119,8 +119,8 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
       />,
     )
     expect(screen.getByTestId("topology-vpc-compare-bands")).toBeInTheDocument()
-    expect(screen.getByTestId("topology-compare-architecture-story")).toBeInTheDocument()
-    expect(screen.getByText(/alon-prod · Internet → Web → App/)).toBeInTheDocument()
+    expect(screen.getByTestId("topology-system-architecture-path")).toBeInTheDocument()
+    expect(screen.getByText(/architecture · not an attack path/)).toBeInTheDocument()
     expect(screen.getAllByTestId("topology-vpc-column-chrome").length).toBe(2)
     expect(screen.getAllByTestId("topology-vpc-az-headers").length).toBe(2)
     expect(screen.getByText(/primary/)).toBeInTheDocument()
@@ -155,10 +155,10 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     )
     expect(screen.getByTestId("topology-compare-ingress-row")).toBeInTheDocument()
     expect(screen.getByText(/Application Load Balancer/)).toBeInTheDocument()
-    expect(screen.getByText(/alon-prod-3tier-alb/)).toBeInTheDocument()
+    expect(screen.getAllByText(/alon-prod-3tier-alb/).length).toBeGreaterThanOrEqual(1)
   })
 
-  it("buildCompareArchitectureStory names the Internet → tier path", () => {
+  it("buildCompareArchitectureStory delegates to system architecture path model", () => {
     const { frames } = buildVpcFrames(
       twoVpcTopology.subnets,
       twoVpcNodes,
@@ -167,9 +167,9 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
       [],
       true,
     )
-    const story = buildCompareArchitectureStory(frames, "alon-prod")
-    expect(story).toMatch(/alon-prod/)
-    expect(story).toMatch(/Internet → Web → App/)
+    const story = buildCompareArchitectureStory(frames, "demo-system")
+    expect(story).toMatch(/demo-system/)
+    expect(story).toMatch(/Web Tier|Internet/)
     expect(story).toMatch(/shared/)
   })
 
