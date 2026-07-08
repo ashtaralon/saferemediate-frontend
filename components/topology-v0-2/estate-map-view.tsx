@@ -358,6 +358,30 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     setSelectedRegionId(regionOptions[0] ?? null)
   }, [regionOptions, selectedRegionId])
 
+  // Self-heal a region scope that resolves to literally nothing (0 subnets,
+  // 0 nodes) — e.g. an incidental region entry ('global', or a region the
+  // system barely touches) that isn't where its real infrastructure lives.
+  // The backend ECHOES BACK whatever region was requested as `data.region`
+  // when a region filter is active, so that field can't be used to detect a
+  // wrong scope — emptiness is the only honest signal. Runs at most ONCE per
+  // system per mount so it never fights a later explicit user pick of a
+  // genuinely-empty region. Without this, a wrong region — once written to
+  // localStorage by ANY path (a race in the default-region effect above, a
+  // stray click, an upstream data glitch) — stays wrong FOREVER: the map
+  // silently scopes to nothing, shows no error, and there is no way out
+  // short of clearing browser storage by hand (observed live 2026-07-08:
+  // alon-prod pinned to us-east-1 while its real infrastructure is
+  // eu-west-1 — the map just sat on "Loading topology risk…").
+  const healedRegionSystemRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!data || loading) return
+    if (!selectedRegionId) return // already unscoped — nothing to heal
+    if (healedRegionSystemRef.current === systemName) return
+    healedRegionSystemRef.current = systemName
+    const hasContent = (data.vpc_topology?.subnets?.length ?? 0) > 0 || (data.nodes?.length ?? 0) > 0
+    if (!hasContent) setSelectedRegionId(null)
+  }, [data, loading, selectedRegionId, systemName])
+
   // First visit: default to primary VPC when the system spans multiple VPCs.
   // Runs at most ONCE per system per mount (defaultedVpcSystemRef) so it never
   // fights a later user switch. Without the guard this effect re-fires on every
