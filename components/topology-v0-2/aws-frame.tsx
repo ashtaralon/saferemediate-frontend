@@ -2333,14 +2333,15 @@ export function buildVpcFrames(
 
 const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
 
-/** Locked heights for All VPCs · Compare (Layout B). Tiers own vertical
- *  space — Web density must never steal App/Data height. Values are both
- *  min and max for the band so overflow scrolls inside the cell. */
+/** Locked min-heights for All VPCs · Compare (Layout B). Tiers own vertical
+ *  space — Web density must never steal App/Data height. Bands grow via
+ *  `1fr` above these floors so fullscreen fills like single-VPC (no 50%
+ *  empty viewport). Overflow scrolls inside the cell, not the band. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 132,
-  app: 112,
-  data: 112,
-  iam: 72,
+  web: 168,
+  app: 148,
+  data: 148,
+  iam: 96,
 }
 
 /** Above this count, Compare bands become too narrow — fall back to
@@ -2515,8 +2516,30 @@ function MultiVpcCompareBands({
   // Compare always collapses density — Web stacks must never grow the band.
   const densityCollapsed = true
 
+  const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
+  const hasAnyNat = frames.some(f => f.natGws.length > 0)
+
   return (
-    <div className="flex flex-col gap-2 w-full min-w-0" data-testid="topology-vpc-compare-bands">
+    <div
+      className="grid gap-2 w-full min-w-0"
+      data-testid="topology-vpc-compare-bands"
+      style={{
+        // Grow like single-VPC fullscreen — fill the viewport instead of a
+        // short postage stamp with 50% empty white below.
+        minHeight: "min(72vh, 820px)",
+        gridTemplateRows: [
+          "auto", // system path
+          "auto", // VPC chrome
+          hasAnyAlb || hasAnyNat ? "auto" : null, // ingress (ALB/NAT) — Web path
+          `minmax(${COMPARE_TIER_MIN_PX.web}px, 1.25fr)`,
+          `minmax(${COMPARE_TIER_MIN_PX.app}px, 1fr)`,
+          `minmax(${COMPARE_TIER_MIN_PX.data}px, 1fr)`,
+          iamRoles.length > 0 ? `minmax(${COMPARE_TIER_MIN_PX.iam}px, auto)` : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      }}
+    >
       <div
         className="rounded-md px-2.5 py-1.5 flex items-center gap-2 min-w-0"
         style={{
@@ -2536,7 +2559,7 @@ function MultiVpcCompareBands({
         </span>
       </div>
 
-      {/* VPC column headers — strong boundaries before the tier bands */}
+      {/* VPC column headers — identity only (ALB lives in the Web ingress row) */}
       <div className="grid gap-2" style={{ gridTemplateColumns: colTemplate }}>
         {frames.map((f, idx) => (
           <div
@@ -2545,45 +2568,76 @@ function MultiVpcCompareBands({
             style={{ border: "2px solid #00C2A8", background: PAL.cardBg }}
           >
             <VpcColumnChrome frame={f} compact={compact} isPrimary={idx === 0} />
-            {f.grid.albNodes.length > 0 ? (
-              <div className="px-1.5 py-1 flex flex-wrap gap-1 justify-center border-t" style={{ borderColor: "#CCFBF1" }}>
-                {f.grid.albNodes.map(n => (
-                  <WorkloadChip
-                    key={n.id}
-                    node={n}
-                    selected={n.id === selectedNodeId}
-                    onClick={() => onSelect(n.id)}
-                  />
-                ))}
-              </div>
-            ) : null}
-            {f.natGws.length > 0 ? (
-              <div className="px-1.5 pb-1 flex flex-wrap gap-1">
-                {f.natGws.map(n => (
-                  <span
-                    key={n.id}
-                    className="text-[9px] px-1.5 py-0.5 rounded"
-                    style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
-                  >
-                    NAT · {n.name}
-                  </span>
-                ))}
-              </div>
-            ) : null}
           </div>
         ))}
       </div>
+
+      {/* Ingress row — ALB/NAT sit on the Internet → Web path (not floating in VPC chrome) */}
+      {hasAnyAlb || hasAnyNat ? (
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: colTemplate }}
+          data-testid="topology-compare-ingress-row"
+        >
+          {frames.map(f => (
+            <div
+              key={`ingress-${f.vid}`}
+              className="rounded-md px-1.5 py-1.5 flex flex-col items-center gap-1 min-h-[44px]"
+              style={{
+                border: "1.5px dashed #A5B4C3",
+                background: f.grid.albNodes.length > 0 ? "#F5F3FF" : "rgba(255,255,255,0.4)",
+              }}
+            >
+              {f.grid.albNodes.length > 0 ? (
+                <>
+                  <div className="flex items-center gap-1" style={{ color: PAL.slate }}>
+                    <AlbGlyph size={12} />
+                    <span className="text-[9px] uppercase tracking-[0.12em] font-semibold">
+                      {f.grid.albNodes.length === 1
+                        ? "Application Load Balancer"
+                        : `Load Balancers (${f.grid.albNodes.length})`}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 justify-center">
+                    {f.grid.albNodes.map(n => (
+                      <WorkloadChip
+                        key={n.id}
+                        node={n}
+                        selected={n.id === selectedNodeId}
+                        onClick={() => onSelect(n.id)}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-[9px] italic py-1" style={{ color: PAL.slate }}>
+                  No ALB in this VPC
+                </div>
+              )}
+              {f.natGws.length > 0 ? (
+                <div className="flex flex-wrap gap-1 justify-center">
+                  {f.natGws.map(n => (
+                    <span
+                      key={n.id}
+                      className="text-[9px] px-1.5 py-0.5 rounded"
+                      style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+                    >
+                      NAT · {n.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {TIERS.map((tier, tierIdx) => (
         <div
           key={tier}
           data-testid={tierIdx === 0 ? "topology-tier-stack" : `topology-tier-band-${tier}`}
-          className="flex gap-0 w-full shrink-0"
-          style={{
-            height: COMPARE_TIER_MIN_PX[tier],
-            minHeight: COMPARE_TIER_MIN_PX[tier],
-            maxHeight: COMPARE_TIER_MIN_PX[tier],
-          }}
+          className="flex gap-0 w-full min-h-0 h-full"
+          style={{ minHeight: COMPARE_TIER_MIN_PX[tier] }}
         >
           <div
             className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
@@ -2669,15 +2723,11 @@ function MultiVpcCompareBands({
         </div>
       ))}
 
-      {/* IAM band — locked height; account-wide roles under the tier story */}
+      {/* IAM band — min height + horizontal scroll so roles are not cut off */}
       {iamRoles.length > 0 ? (
         <div
-          className="flex gap-0 w-full overflow-hidden shrink-0"
-          style={{
-            height: COMPARE_TIER_MIN_PX.iam,
-            minHeight: COMPARE_TIER_MIN_PX.iam,
-            maxHeight: COMPARE_TIER_MIN_PX.iam,
-          }}
+          className="flex gap-0 w-full min-h-0 overflow-x-auto overflow-y-hidden"
+          style={{ minHeight: COMPARE_TIER_MIN_PX.iam }}
           data-testid="topology-tier-band-iam"
         >
           <div
@@ -3284,45 +3334,27 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — single compact row in presentation mode;
-          a prominent, readable ingress band on the inline page. */}
-      <div
-        className={
-          presentationMode
-            ? "flex items-center justify-center gap-2 py-0"
-            : "flex items-center justify-center gap-6 py-2 pb-4"
-        }
-      >
+      {/* Internet + IGW perimeter — keep hero-size icons in fullscreen too
+          (presentationMode used to shrink them to text-sm / 8px labels). */}
+      <div className="flex items-center justify-center gap-6 py-2 pb-4">
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
-          <span className={presentationMode ? "text-sm leading-none" : "text-4xl leading-none"}>👥</span>
-          <span
-            className={
-              presentationMode
-                ? "text-[8px] uppercase tracking-wider font-semibold"
-                : "text-[13px] uppercase tracking-wider font-semibold"
-            }
-          >
+          <span className="text-4xl leading-none">👥</span>
+          <span className="text-[13px] uppercase tracking-wider font-semibold">
             Users
           </span>
         </div>
         <div
-          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[180px] border-t-2 border-dashed"}
+          className="flex-1 max-w-[180px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
-          <span className={presentationMode ? "text-sm leading-none" : "text-4xl leading-none"}>☁</span>
-          <span
-            className={
-              presentationMode
-                ? "text-[8px] uppercase tracking-wider font-semibold"
-                : "text-[13px] uppercase tracking-wider font-semibold"
-            }
-          >
+          <span className="text-4xl leading-none">☁</span>
+          <span className="text-[13px] uppercase tracking-wider font-semibold">
             Internet
           </span>
         </div>
         <div
-          className={presentationMode ? "w-8 border-t border-dashed shrink-0" : "flex-1 max-w-[180px] border-t-2 border-dashed"}
+          className="flex-1 max-w-[180px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
         <div
@@ -3330,13 +3362,9 @@ export function AwsFrame({
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <span className={presentationMode ? "text-sm leading-none" : "text-4xl leading-none"}>🌐</span>
+          <span className="text-4xl leading-none">🌐</span>
           <span
-            className={
-              presentationMode
-                ? "text-[8px] uppercase tracking-wider font-semibold truncate max-w-[140px]"
-                : "text-[13px] uppercase tracking-wider font-semibold"
-            }
+            className="text-[13px] uppercase tracking-wider font-semibold truncate max-w-[220px]"
             title={igwStripTitle}
           >
             {igwStripLabel}

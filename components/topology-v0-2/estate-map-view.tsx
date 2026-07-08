@@ -492,31 +492,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const nw = Math.max(content.offsetWidth, content.scrollWidth)
     const nh = Math.max(content.offsetHeight, content.scrollHeight)
     if (nw === 0 || nh === 0) return
-    // Fit to the full map (every VPC frame + rails). Prefer WIDTH fill so
-    // the estate map uses ~100% of the viewport instead of shrinking to a
-    // centered ~24% postage stamp when height was the binding constraint.
-    // Height still caps the scale so tiers stay reachable via pan.
-    const stacks = content.querySelectorAll('[data-testid="topology-tier-stack"]')
-    let fitH = nh
-    if (stacks.length > 0) {
-      const cr = content.getBoundingClientRect()
-      if (cr.height > 0) {
-        let maxBottom = 0
-        stacks.forEach(el => {
-          maxBottom = Math.max(maxBottom, el.getBoundingClientRect().bottom)
-        })
-        const frac = (maxBottom - cr.top) / cr.height // 0..1
-        if (frac > 0.1 && frac <= 1) fitH = nh * frac
-      }
-    }
     const pad = 16
     const fitW = (vp.clientWidth - pad) / nw
-    const fitHScale = (vp.clientHeight - pad) / fitH
-    // Prefer filling width; only shrink further if height would clip the
-    // tier stacks below ~70% of the viewport (still pan-reachable).
-    let fit = Math.max(MIN_ZOOM, Math.min(1.15, fitW))
-    if (fit * fitH > vp.clientHeight * 0.92) {
-      fit = Math.max(MIN_ZOOM, Math.min(fit, fitHScale))
+    const fitH = (vp.clientHeight - pad) / nh
+    // Prefer the larger scale that still keeps the WHOLE map in view —
+    // Compare used to width-fit a short band stack and leave ~50% empty
+    // white below. Cover both axes; never exceed 1.25 (readable, not huge).
+    let fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, fitH)))
+    // If height has headroom after a width-bound fit (short content), bump
+    // toward filling ~90% of viewport height so Compare matches single-VPC.
+    if (fit * nh < vp.clientHeight * 0.88 && fitW > fit) {
+      fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, (vp.clientHeight * 0.9) / nh)))
     }
     // One-way LOD (see lock comment above). While still showing full cards, if
     // the whole map won't fit at a readable scale, drop to density tiles and
