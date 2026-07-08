@@ -75,24 +75,12 @@ const COMPUTE_DATA_TYPES = [
   "NAT",
   "NATGateway",
   "InternetGateway",
-  "ENI",
-  "NetworkInterface",
-  "RouteTable",
-  "NetworkACL",
-  "NACL",
-  "SQS",
-  "SNS",
-  "APIGateway",
-  "HTTPApi",
-  "CloudWatchLogGroup",
-  "AthenaWorkgroup",
 ]
 
 const IDENTITY_SECURITY_TYPES = [
   "IAMRole",
   "IAMPolicy",
   "IAMUser",
-  "InstanceProfile",
   "SecurityGroup",
   "CloudTrail",
   "CloudWatch",
@@ -100,11 +88,6 @@ const IDENTITY_SECURITY_TYPES = [
   "Secret",
   "SecretsManager",
 ]
-
-function matchesTypeList(type: string, list: readonly string[]): boolean {
-  const typeUpper = type.toUpperCase()
-  return list.some((t) => typeUpper.includes(t.toUpperCase()))
-}
 
 const SERVICE_ICONS: Record<string, React.ElementType> = {
   EC2: Server,
@@ -152,10 +135,9 @@ const SERVICE_COLORS: Record<string, string> = {
 
 export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [services, setServices] = useState<ServiceNode[]>([])
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["all"]))
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["compute", "identity"]))
   const [gapData, setGapData] = useState<any>(null)
   const [selectedService, setSelectedService] = useState<ServiceNode | null>(null)
   const [iamData, setIamData] = useState<any>(null)
@@ -174,60 +156,57 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     fetchGapData()
   }, [systemName])  // Re-fetch when systemName changes
 
-  const mapNeo4jResources = (neo4jResources: any[]): ServiceNode[] => {
-    const TYPE_NORMALIZE: Record<string, string> = {
-      LambdaFunction: "Lambda",
-      S3Bucket: "S3",
-      RDSCluster: "RDS",
-      ECSService: "ECS",
-      ECSCluster: "ECS",
-      ECSTask: "ECS",
-      KMSKey: "KMS",
-      KMSAlias: "KMS",
-      CloudWatchLogs: "CloudWatch",
-      NetworkInterface: "ENI",
-    }
-
-    return neo4jResources.map((r: any) => {
-      const rawType = r.type || "Unknown"
-      const normalizedType = TYPE_NORMALIZE[rawType] || rawType
-      return {
-        id: r.id || r.name || Math.random().toString(),
-        name: r.name || "Unknown",
-        type: normalizedType,
-        systemName: r.systemName || systemName,
-        environment: r.environment || null,
-        region: r.region || null,
-        status: r.is_seed ? "Seed" : "Discovered",
-        lastSeen: r.last_seen || r.lastSeen || null,
-        properties: {},
-        attachedPolicies: normalizedType === "IAMRole" ? r.connections || 0 : 0,
-        permissionCount: r.connections || 0,
-        instanceState: "active",
-        tags: {},
-        isTagged: true,
-        vpcId: undefined,
-      }
-    })
-  }
-
   const fetchServices = async () => {
     setLoading(true)
-    setLoadError(null)
     try {
-      // System-attributed resources only (coalesce SystemName/systemName/system_name).
-      const neo4jResponse = await fetch(
-        `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
-      )
-
+      // FIRST: Try Neo4j endpoint (A7 Patent - system-only resources)
+      const neo4jResponse = await fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`)
+      
       if (neo4jResponse.ok) {
         const neo4jData = await neo4jResponse.json()
-        if (!neo4jData.error) {
-          const neo4jResources = neo4jData.resources || []
-          const mapped = mapNeo4jResources(neo4jResources)
-          console.log(
-            `[AllServices] Neo4j attributed resources: ${mapped.length} (${neo4jData.duplicates_removed || 0} deduped server-side)`,
-          )
+        const neo4jResources = neo4jData.resources || []
+        
+        if (neo4jResources.length > 0) {
+          // Use Neo4j data (A7 Patent: only system resources)
+          console.log(`[AllServices] Using Neo4j data: ${neo4jResources.length} resources`)
+          
+          // Normalize type names — backend may return LambdaFunction, S3Bucket, etc.
+          const TYPE_NORMALIZE: Record<string, string> = {
+            'LambdaFunction': 'Lambda',
+            'S3Bucket': 'S3',
+            'RDSCluster': 'RDS',
+            'ECSService': 'ECS',
+            'ECSCluster': 'ECS',
+            'ECSTask': 'ECS',
+            'KMSKey': 'KMS',
+            'KMSAlias': 'KMS',
+            'CloudWatchLogs': 'CloudWatch',
+            'NetworkInterface': 'ENI',
+          }
+
+          const mapped: ServiceNode[] = neo4jResources.map((r: any) => {
+            const rawType = r.type || "Unknown"
+            const normalizedType = TYPE_NORMALIZE[rawType] || rawType
+            return {
+              id: r.id || r.name || Math.random().toString(),
+              name: r.name || "Unknown",
+              type: normalizedType,
+              systemName: r.systemName || systemName,
+              environment: r.environment || null,
+              region: r.region || null,
+              status: r.is_seed ? "Seed" : "Discovered",
+              lastSeen: r.last_seen || r.lastSeen || null,
+              properties: {},
+              attachedPolicies: normalizedType === 'IAMRole' ? (r.connections || 0) : 0,
+              permissionCount: r.connections || 0,
+              instanceState: "active",
+              tags: {},
+              isTagged: true,  // All Neo4j resources are tagged
+              vpcId: undefined,
+            }
+          })
+
+          console.log(`[AllServices] Mapped ${mapped.length} resources (deduped by backend, ${neo4jData.duplicates_removed || 0} removed)`)
           setServices(mapped)
           return
         }
@@ -364,7 +343,6 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       setServices(uniqueServices)
     } catch (error) {
       console.error("Failed to fetch services:", error)
-      setLoadError(error instanceof Error ? error.message : "Failed to load services")
       setServices([])
     } finally {
       setLoading(false)
@@ -419,38 +397,58 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   })
 
   const computeServices = useMemo(() => {
-    return services.filter((s) => matchesTypeList(s.type, COMPUTE_DATA_TYPES))
+    return services.filter((s) => {
+      const typeUpper = s.type.toUpperCase()
+      return COMPUTE_DATA_TYPES.some((t) => typeUpper.includes(t.toUpperCase()))
+    })
   }, [services])
 
   const identityServices = useMemo(() => {
-    return services.filter((s) => matchesTypeList(s.type, IDENTITY_SECURITY_TYPES))
+    return services.filter((s) => {
+      const typeUpper = s.type.toUpperCase()
+      return IDENTITY_SECURITY_TYPES.some((t) => typeUpper.includes(t.toUpperCase()))
+    })
   }, [services])
 
-  const otherServices = useMemo(() => {
-    const categorized = new Set([...computeServices, ...identityServices])
-    return services.filter((s) => !categorized.has(s))
-  }, [services, computeServices, identityServices])
-
-  const filteredAllServices = useMemo(() => {
-    if (!searchQuery) return services
-    const q = searchQuery.toLowerCase()
-    return services.filter(
+  // Filter by search
+  const filteredCompute = useMemo(() => {
+    if (!searchQuery) return computeServices
+    return computeServices.filter(
       (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.type.toLowerCase().includes(q) ||
-        s.systemName.toLowerCase().includes(q),
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.type.toLowerCase().includes(searchQuery.toLowerCase()),
     )
-  }, [services, searchQuery])
+  }, [computeServices, searchQuery])
 
-  const allTypeCounts = useMemo(() => {
-    return services.reduce(
+  const filteredIdentity = useMemo(() => {
+    if (!searchQuery) return identityServices
+    return identityServices.filter(
+      (s) =>
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.type.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+  }, [identityServices, searchQuery])
+
+  // Count by type within each section
+  const computeTypeCounts = useMemo(() => {
+    return computeServices.reduce(
       (acc, s) => {
         acc[s.type] = (acc[s.type] || 0) + 1
         return acc
       },
       {} as Record<string, number>,
     )
-  }, [services])
+  }, [computeServices])
+
+  const identityTypeCounts = useMemo(() => {
+    return identityServices.reduce(
+      (acc, s) => {
+        acc[s.type] = (acc[s.type] || 0) + 1
+        return acc
+      },
+      {} as Record<string, number>,
+    )
+  }, [identityServices])
 
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections)
@@ -775,9 +773,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               Identity & Security
             </div>
             <div className="text-3xl font-bold text-[#ef4444]">{identityServices.length}</div>
-            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
-              {otherServices.length > 0 ? `${otherServices.length} other types` : "Permissions & monitoring"}
-            </div>
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">Permissions & monitoring</div>
           </CardContent>
         </Card>
 
@@ -811,12 +807,6 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           </CardContent>
         </Card>
       </div>
-
-      {loadError && (
-        <div className="rounded-md border border-[#ef444440] bg-[#ef444410] px-4 py-3 text-sm text-[#ef4444]">
-          Failed to load system-attributed services: {loadError}. Try Refresh — the backend can take up to 15s.
-        </div>
-      )}
 
       {/* Search */}
       <div className="flex items-center gap-4">
@@ -858,26 +848,23 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         )}
       </div>
 
-      {/* All system-attributed services — single flat list matching backend count */}
+      {/* SECTION 1: COMPUTE & DATA */}
       <Card>
-        <CardHeader className="cursor-pointer hover:bg-gray-50" onClick={() => toggleSection("all")}>
+        <CardHeader className="cursor-pointer hover:bg-gray-50" onClick={() => toggleSection("compute")}>
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {expandedSections.has("all") ? (
+              {expandedSections.has("compute") ? (
                 <ChevronDown className="w-5 h-5" />
               ) : (
                 <ChevronRight className="w-5 h-5" />
               )}
-              <Layers className="w-5 h-5 text-[#8b5cf6]" />
-              <span>ALL SERVICES (SystemName tagged)</span>
-              <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">
-                ({filteredAllServices.length} of {services.length})
-              </span>
+              <Server className="w-5 h-5 text-orange-500" />
+              <span>COMPUTE & DATA (Running Infrastructure)</span>
+              <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">({filteredCompute.length} services)</span>
             </div>
-            <div className="flex flex-wrap gap-2 justify-end max-w-[60%]">
-              {Object.entries(allTypeCounts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 8)
+            <div className="flex gap-2">
+              {Object.entries(computeTypeCounts)
+                .slice(0, 6)
                 .map(([type, count]) => (
                   <span
                     key={type}
@@ -889,7 +876,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             </div>
           </CardTitle>
         </CardHeader>
-        {expandedSections.has("all") && (
+        {expandedSections.has("compute") && (
           <CardContent className="p-0">
             <Table>
               <TableHeader>
@@ -904,18 +891,18 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAllServices.length === 0 ? (
+                {filteredCompute.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-[var(--muted-foreground,#6b7280)] py-8">
-                      No system-attributed services found for {systemName}
+                      No compute/data services found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAllServices.map((service) => {
+                  filteredCompute.map((service) => {
                     const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
                     return (
-                      <TableRow
-                        key={service.id}
+                      <TableRow 
+                        key={service.id} 
                         className="hover:bg-gray-50 cursor-pointer"
                         onClick={() => setSelectedService(service)}
                       >
@@ -936,20 +923,15 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            <span
-                              className={`text-xs px-2 py-1 rounded ${
-                                service.systemName !== "Untagged"
-                                  ? "bg-[#3b82f620] text-[#3b82f6]"
-                                  : "bg-[#f9731620] text-[#f97316]"
-                              }`}
-                            >
-                              {service.systemName === "Untagged" ? "Untagged" : service.systemName}
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              service.systemName !== 'Untagged' 
+                                ? 'bg-[#3b82f620] text-[#3b82f6]' 
+                                : 'bg-[#f9731620] text-[#f97316]'
+                            }`}>
+                              {service.systemName === 'Untagged' ? '⚠️ Untagged' : service.systemName}
                             </span>
                             {service.vpcId && (
-                              <span
-                                className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]"
-                                title={service.vpcId}
-                              >
+                              <span className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]" title={service.vpcId}>
                                 VPC: {service.vpcId.slice(0, 12)}...
                               </span>
                             )}
@@ -964,9 +946,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#4b5563)]">
-                          {service.region ?? "—"}
-                        </TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#4b5563)]">{service.region ?? "—"}</TableCell>
                         <TableCell>
                           <span
                             className={`text-xs px-2 py-1 rounded ${getStatusColor(service.instanceState || service.status)}`}
@@ -974,9 +954,137 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             {service.instanceState || service.status}
                           </span>
                         </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">
-                          {service.lastSeen ? formatDate(service.lastSeen) : "—"}
+                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{service.lastSeen ? formatDate(service.lastSeen) : "—"}</TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* SECTION 2: IDENTITY & SECURITY */}
+      <Card>
+        <CardHeader className="cursor-pointer hover:bg-gray-50" onClick={() => toggleSection("identity")}>
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {expandedSections.has("identity") ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+              <Shield className="w-5 h-5 text-[#ef4444]" />
+              <span>IDENTITY & SECURITY (Permissions & Monitoring)</span>
+              <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">({filteredIdentity.length} services)</span>
+            </div>
+            <div className="flex gap-2">
+              {Object.entries(identityTypeCounts)
+                .slice(0, 6)
+                .map(([type, count]) => (
+                  <span
+                    key={type}
+                    className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[type] || SERVICE_COLORS.default}`}
+                  >
+                    {type}: {count}
+                  </span>
+                ))}
+            </div>
+          </CardTitle>
+        </CardHeader>
+        {expandedSections.has("identity") && (
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Service Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>SystemName</TableHead>
+                  <TableHead>Environment</TableHead>
+                  <TableHead>Attached Policies</TableHead>
+                  <TableHead>Permissions</TableHead>
+                  <TableHead>Last Seen</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredIdentity.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-[var(--muted-foreground,#6b7280)] py-8">
+                      No identity/security services found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredIdentity.map((service) => {
+                    const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
+                    const isIAMRole = service.type.toLowerCase().includes("role")
+                    return (
+                      <TableRow 
+                        key={service.id} 
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => setSelectedService(service)}
+                      >
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <IconComponent className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+                            <span className="truncate max-w-[250px]" title={service.name}>
+                              {service.name}
+                            </span>
+                          </div>
                         </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[service.type] || SERVICE_COLORS.default}`}
+                          >
+                            {service.type}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              service.systemName !== 'Untagged' 
+                                ? 'bg-[#3b82f620] text-[#3b82f6]' 
+                                : 'bg-[#f9731620] text-[#f97316]'
+                            }`}>
+                              {service.systemName === 'Untagged' ? '⚠️ Untagged' : service.systemName}
+                            </span>
+                            {service.vpcId && (
+                              <span className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]" title={service.vpcId}>
+                                VPC: {service.vpcId.slice(0, 12)}...
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {service.environment ? (
+                            <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
+                              {service.environment}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isIAMRole ? (
+                            <span className="text-xs px-2 py-1 rounded bg-[#8b5cf615] text-[#7c3aed]">
+                              {service.attachedPolicies || 0} policies
+                            </span>
+                          ) : (
+                            <span className="text-[var(--muted-foreground,#9ca3af)]">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {service.permissionCount > 0 ? (
+                            <span
+                              className={`text-xs px-2 py-1 rounded ${service.permissionCount > 20 ? "bg-[#ef444420] text-[#ef4444]" : "bg-[#eab30820] text-[#eab308]"}`}
+                            >
+                              {service.permissionCount} permissions
+                            </span>
+                          ) : (
+                            <span className="text-[var(--muted-foreground,#9ca3af)]">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{service.lastSeen ? formatDate(service.lastSeen) : "—"}</TableCell>
                       </TableRow>
                     )
                   })

@@ -54,7 +54,7 @@ export function HeadlineStrip({
             className="text-[11px] tracking-[0.18em] uppercase font-semibold"
             style={{ color: "#00C2A8" }}
           >
-            Estate · Topology v0.2 · {systemName}
+            Estate Map · business-system architecture · {systemName}
           </div>
           <div
             className="text-[18px] md:text-[20px] mt-2 leading-snug font-medium"

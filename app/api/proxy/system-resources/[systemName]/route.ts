@@ -20,16 +20,12 @@ export async function GET(
     
     console.log(`[proxy] Fetching system resources from: ${url}`)
     
-    // Backend can take 10–15s on large graphs; avoid stale/empty proxy responses.
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 90_000)
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
       },
-      cache: 'no-store',
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout))
+      next: { revalidate: 30 }  // Cache for 30 seconds
+    })
     
     if (!response.ok) {
       console.error(`[proxy] Backend error: ${response.status}`)

@@ -8,7 +8,12 @@
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { EdgeVpce, TopologyNode, TrafficEdge, TrafficEdgeClass } from "./types"
 
-export type EstateFlowMode = "all_access" | "attack_paths"
+/**
+ * Estate Map flow overlay modes.
+ * Architecture-first (Platform / SRE / IT): default is `off`.
+ * Observed traffic → Traffic Map; attack paths → Risk → Attack Paths.
+ */
+export type EstateFlowMode = "off" | "system_path" | "all_access" | "attack_paths"
 
 export interface DepMapEdgeLike {
   source?: string | null
@@ -283,6 +288,8 @@ export function selectEstateFlowEdges(opts: {
   depMapEdges?: DepMapEdgeLike[] | null
   attackPaths?: IdentityAttackPath[]
   materializationAvailable?: boolean
+  /** Structural edges for `system_path` (from buildSystemArchitecturePath). */
+  systemPathEdges?: TrafficEdge[]
   visible: Set<string>
   index: Map<string, string>
   nodeTypeById: Map<string, string | null>
@@ -294,11 +301,22 @@ export function selectEstateFlowEdges(opts: {
     depMapEdges,
     attackPaths = [],
     materializationAvailable = false,
+    systemPathEdges = [],
     visible,
     index,
     nodeTypeById,
     vpces = [],
   } = opts
+
+  if (mode === "off") return []
+
+  if (mode === "system_path") {
+    return systemPathEdges.filter(
+      e =>
+        (e.source_id === "__igw__" || visible.has(e.source_id))
+        && (e.target_id === "__igw__" || visible.has(e.target_id)),
+    )
+  }
 
   if (mode === "attack_paths") {
     const attack = attackPathEdgesToTrafficEdges(
