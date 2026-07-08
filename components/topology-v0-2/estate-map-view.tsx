@@ -613,6 +613,33 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [mapEnlarged, computeFit])
 
+  // Explicit re-fit when the VPC scope changes while fullscreen is already
+  // open. In principle the ResizeObserver above should catch this (switching
+  // to "All VPCs" adds a whole second frame, a real content-size change) —
+  // but switching scope also re-fetches data, and empirically the observer's
+  // callback can land before the new frame has actually painted, leaving the
+  // fit computed against the OLD (single-VPC, shorter) content. The visible
+  // bug: "100%" showed far less than the whole map, and the second VPC's
+  // lower tiers were clipped below the fold with no scrollbar and no pan
+  // affordance to discover them (observed live 2026-07-08 — switching to "All
+  // VPCs (merged)" while already in fullscreen left the fit stuck at the
+  // pre-switch scale). This is a second, independent trigger on the one
+  // signal that actually changes frame COUNT, so it doesn't depend on the
+  // observer's timing at all — double-rAF lets the new frame's layout (and,
+  // if data was already cached, its content) settle first.
+  useEffect(() => {
+    if (!mapEnlarged) return
+    let r1 = 0
+    let r2 = 0
+    r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => computeFit(!userAdjustedRef.current))
+    })
+    return () => {
+      cancelAnimationFrame(r1)
+      cancelAnimationFrame(r2)
+    }
+  }, [mapEnlarged, selectedVpcId, computeFit])
+
   const zoomTo = useCallback((next: number, originClientX?: number, originClientY?: number) => {
     const vp = viewportRef.current
     userAdjustedRef.current = true // manual zoom — stop auto-refit stealing the view
