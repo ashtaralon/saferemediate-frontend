@@ -8,7 +8,13 @@
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { EdgeVpce, TopologyNode, TrafficEdge, TrafficEdgeClass } from "./types"
 
-export type EstateFlowMode = "all_access" | "attack_paths"
+/**
+ * Estate Map flow overlay modes.
+ * Base canvas = architecture layout (no synthetic lines).
+ * Default `off` = placement only. `all_access` = observed graph evidence.
+ * `attack_paths` kept for Blast Radius / Risk handoff — not the Estate default.
+ */
+export type EstateFlowMode = "off" | "all_access" | "attack_paths"
 
 export interface DepMapEdgeLike {
   source?: string | null
@@ -299,6 +305,8 @@ export function selectEstateFlowEdges(opts: {
     nodeTypeById,
     vpces = [],
   } = opts
+
+  if (mode === "off") return []
 
   if (mode === "attack_paths") {
     const attack = attackPathEdgesToTrafficEdges(
