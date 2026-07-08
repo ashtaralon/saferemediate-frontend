@@ -613,20 +613,24 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [mapEnlarged, computeFit])
 
-  // Explicit re-fit when the VPC scope changes while fullscreen is already
-  // open. In principle the ResizeObserver above should catch this (switching
-  // to "All VPCs" adds a whole second frame, a real content-size change) —
-  // but switching scope also re-fetches data, and empirically the observer's
-  // callback can land before the new frame has actually painted, leaving the
-  // fit computed against the OLD (single-VPC, shorter) content. The visible
-  // bug: "100%" showed far less than the whole map, and the second VPC's
-  // lower tiers were clipped below the fold with no scrollbar and no pan
-  // affordance to discover them (observed live 2026-07-08 — switching to "All
-  // VPCs (merged)" while already in fullscreen left the fit stuck at the
-  // pre-switch scale). This is a second, independent trigger on the one
-  // signal that actually changes frame COUNT, so it doesn't depend on the
-  // observer's timing at all — double-rAF lets the new frame's layout (and,
-  // if data was already cached, its content) settle first.
+  // Explicit re-fit when the merged payload actually arrives, while
+  // fullscreen is open. Depends on `data` (the fetched topology-risk
+  // payload), NOT `selectedVpcId` — selectedVpcId changes the INSTANT the
+  // operator picks "All VPCs" from the dropdown, well BEFORE the merged
+  // fetch has even started, let alone before the second VPC frame exists in
+  // the DOM; a fit computed off that early signal still only sees the first,
+  // single-VPC frame and yields the same (wrong) scale=1 the ResizeObserver
+  // was already producing. `data` only changes once the new payload lands —
+  // causally adjacent to the second frame actually rendering, and (unlike a
+  // DOM ResizeObserver) it's a React value we can safely depend on rather
+  // than a browser API whose callback timing relative to paint isn't
+  // guaranteed. Confirmed via direct measurement against the real payload:
+  // the underlying computeFit math is correct (hand-replicated: fit=0.743
+  // with both VPC tier-stacks inside the viewport) — this closes the gap
+  // where nothing was actually invoking it at the right moment (observed
+  // live 2026-07-08: switching to "All VPCs (merged)" left "100%" stuck
+  // showing only the first VPC, the second VPC's lower tiers clipped below
+  // the fold with no scrollbar and no pan affordance to discover them).
   useEffect(() => {
     if (!mapEnlarged) return
     let r1 = 0
@@ -638,7 +642,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       cancelAnimationFrame(r1)
       cancelAnimationFrame(r2)
     }
-  }, [mapEnlarged, selectedVpcId, computeFit])
+  }, [mapEnlarged, data, computeFit])
 
   const zoomTo = useCallback((next: number, originClientX?: number, originClientY?: number) => {
     const vp = viewportRef.current
