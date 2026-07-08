@@ -239,6 +239,48 @@ function S3Policies({ data }: { data: InspectorPayload }) {
   )
 }
 
+function IamPolicyDocument({ data }: { data: InspectorPayload }) {
+  const current: any = data.current ?? {}
+  const permissions: string[] = Array.isArray(current.permissions) ? current.permissions : []
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionTitle>Policy</SectionTitle>
+        <div className="flex flex-wrap gap-2 text-xs">
+          {current.policy_type && (
+            <span className="px-2 py-1 rounded-md border bg-slate-50 text-slate-600 border-slate-200">
+              {current.policy_type}
+            </span>
+          )}
+          {current.permission_count != null && (
+            <span className="px-2 py-1 rounded-md border bg-slate-50 text-slate-600 border-slate-200">
+              {current.permission_count} permission{current.permission_count === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <SectionTitle>Statements</SectionTitle>
+        <PolicyStatements policy={current.policy_document} emptyLabel="No policy document available." />
+      </div>
+
+      {permissions.length > 0 && (
+        <div>
+          <SectionTitle>Permissions</SectionTitle>
+          <div className="flex flex-wrap gap-1.5">
+            {permissions.map((a, i) => (
+              <span key={i} className="font-mono text-[11px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
+                {a}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SubnetProperties({ data }: { data: InspectorPayload }) {
   const current = data.current ?? {}
   const observed = data.observed ?? {}
@@ -648,6 +690,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   const kind = data.resource_type ?? resourceType
   if (kind === "SecurityGroup") return <SecurityGroupRules data={data} />
   if (kind === "S3") return <S3Policies data={data} />
+  if (kind === "IAMPolicy") return <IamPolicyDocument data={data} />
   if (kind === "Subnet") return <SubnetProperties data={data} />
   if (kind === "KMSKey") return <KmsKeySections data={data} />
   if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
