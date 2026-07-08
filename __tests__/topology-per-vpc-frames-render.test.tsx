@@ -57,8 +57,8 @@ const nodes = [
   nd({ id: "i-086", type: "EC2", vpc_id: SHARED, subnet_id: "sn-086-a" }),
 ]
 
-describe("AwsFrame merged view renders one frame per VPC", () => {
-  it("draws both VPC headers and the foreign badge", () => {
+describe("AwsFrame All VPCs · Compare renders both VPCs", () => {
+  it("draws both VPC column headers and the foreign badge", () => {
     render(
       <AwsFrame
         vpcTopology={vpcTopology}
@@ -68,9 +68,10 @@ describe("AwsFrame merged view renders one frame per VPC", () => {
         onSelect={() => {}}
       />,
     )
-    // Two real VPC frame headers — no "All VPCs (merged)" single-frame masquerade.
-    expect(screen.getByText(new RegExp(OWN))).toBeInTheDocument()
-    expect(screen.getByText(new RegExp(SHARED))).toBeInTheDocument()
+    // Layout B compare bands — not a single merged masquerade frame.
+    expect(screen.getByTestId("topology-vpc-compare-bands")).toBeInTheDocument()
+    expect(screen.getAllByText(new RegExp(OWN)).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(new RegExp(SHARED)).length).toBeGreaterThanOrEqual(1)
     // The co-tenant VPC is badged, never silently reattributed.
     expect(screen.getByText(/shared · payment-production/)).toBeInTheDocument()
   })
