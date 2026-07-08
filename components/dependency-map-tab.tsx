@@ -813,13 +813,6 @@ export default function DependencyMapTab({
               systemName={systemName}
               embedded
               onOpenTrafficMap={() => setActiveView("graph")}
-              onOpenAttackPaths={() => {
-                // Handoff to Risk → Attack Paths (system dashboard tab).
-                if (typeof window === "undefined") return
-                const url = new URL(window.location.href)
-                url.searchParams.set("tab", "attack-paths")
-                window.location.assign(url.toString())
-              }}
             />
           </ErrorBoundary>
         ) : (

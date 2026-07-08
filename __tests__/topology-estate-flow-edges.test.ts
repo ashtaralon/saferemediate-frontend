@@ -13,23 +13,6 @@ function node(id: string, type: string | null = "Lambda"): TopologyNode {
 }
 
 describe("estate-flow-edges", () => {
-  it("off mode returns no edges (architecture-first Estate Map default)", () => {
-    const visible = new Set(["lambda-a", "bucket-b"])
-    const index = new Map([["lambda-a", "lambda-a"], ["bucket-b", "bucket-b"]])
-    const types = new Map([["lambda-a", "Lambda"], ["bucket-b", "S3"]])
-    const out = selectEstateFlowEdges({
-      mode: "off",
-      depMapEdges: [
-        { source: "lambda-a", target: "bucket-b", type: "ACTUAL_S3_ACCESS" },
-      ],
-      topologyTrafficEdges: [],
-      visible,
-      index,
-      nodeTypeById: types,
-    })
-    expect(out).toEqual([])
-  })
-
   it("maps dependency-map access edges to drawable traffic edges", () => {
     const visible = new Set(["lambda-a", "bucket-b"])
     const index = new Map([["lambda-a", "lambda-a"], ["bucket-b", "bucket-b"]])

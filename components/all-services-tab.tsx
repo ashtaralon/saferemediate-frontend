@@ -215,153 +215,46 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     setLoading(true)
     setLoadError(null)
     try {
-      // System-attributed resources only (coalesce SystemName/systemName/system_name).
       const neo4jResponse = await fetch(
         `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
+        { cache: "no-store" },
       )
 
-      if (neo4jResponse.ok) {
-        const neo4jData = await neo4jResponse.json()
-        if (!neo4jData.error) {
-          const neo4jResources = neo4jData.resources || []
-          const mapped = mapNeo4jResources(neo4jResources)
-          console.log(
-            `[AllServices] Neo4j attributed resources: ${mapped.length} (${neo4jData.duplicates_removed || 0} deduped server-side)`,
-          )
-          setServices(mapped)
-          return
-        }
-      }
-      
-      // FALLBACK: Use AWS APIs if Neo4j is empty
-      console.log('[AllServices] Neo4j empty, falling back to AWS APIs')
-      
-      // Fetch from least-privilege issues endpoint (has all resources)
-      const lpResponse = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
-      
-      if (!lpResponse.ok) throw new Error("Failed to fetch services")
-      
-      const lpData = await lpResponse.json()
-      const resources = lpData.resources || []
-      
-      // Also try to fetch extended resources from BOTH regions
-      let extendedResources: any[] = []
+      let neo4jData: any = null
       try {
-        // Fetch from both eu-west-1 and us-east-1
-        const regions = ['eu-west-1', 'us-east-1']
-        for (const region of regions) {
-          const extResponse = await fetch(`/api/proxy/resources/all?regions=${region}`)
-          if (extResponse.ok) {
-            const extData = await extResponse.json()
-            // Flatten ALL resource types (not just 5)
-            const resourceTypes = [
-              'lambda_functions', 
-              'rds_instances', 
-              'dynamodb_tables', 
-              'ecs_clusters', 
-              'ecs_services',
-              'kms_keys',
-              'secrets',
-              'internet_gateways',
-              'nat_gateways',
-              'vpc_endpoints',
-              'log_groups',
-              'hosted_zones',
-              'cloudfront_distributions',
-              'acm_certificates'
-            ]
-            resourceTypes.forEach(type => {
-              if (extData.resources?.[type]) {
-                // Add region and type info to each resource
-                const resourcesWithMeta = extData.resources[type].map((r: any) => ({
-                  ...r,
-                  _sourceType: type,
-                  _region: region
-                }))
-                extendedResources = [...extendedResources, ...resourcesWithMeta]
-              }
-            })
-          }
-        }
-      } catch (e) {
-        console.warn('Extended resources fetch failed:', e)
+        neo4jData = await neo4jResponse.json()
+      } catch {
+        neo4jData = null
       }
 
-      // Map LP resources
-      const lpMapped: ServiceNode[] = resources.map((r: any) => {
-        const tags = r.tags || r.evidence?.tags || {}
-        const actualSystemName = r.systemName || tags.SystemName || tags.systemName
-        const isTagged = !!actualSystemName
-        
-        return {
-          id: r.resourceArn || r.resourceName || Math.random().toString(),
-          name: r.resourceName || "Unknown",
-          type: r.resourceType || "Unknown",
-          systemName: actualSystemName || systemName || "Ungrouped",
-          environment: r.environment || tags.Environment || null,
-          region: r.evidence?.coverage?.regions?.[0] || null,
-          status: "Active",
-          lastSeen: r.lastSeen || r.last_seen || null,
-          properties: r.evidence || {},
-          attachedPolicies: r.resourceType === 'IAMRole' ? (r.allowedCount || 0) : 0,
-          permissionCount: r.allowedCount || 0,
-          instanceState: "running",
-          tags: tags,
-          isTagged: isTagged,
-          vpcId: r.vpcId || r.evidence?.vpc_id,
-        }
-      })
-      
-      // Map extended resources with proper type detection
-      const extMapped: ServiceNode[] = extendedResources.map((r: any) => {
-        // Detect type based on source type or resource properties
-        let detectedType = r.type || 'Unknown'
-        if (r._sourceType === 'lambda_functions' || r.runtime) detectedType = 'Lambda'
-        else if (r._sourceType === 'rds_instances' || r.engine) detectedType = 'RDS'
-        else if (r._sourceType === 'dynamodb_tables' || r.billing_mode) detectedType = 'DynamoDB'
-        else if (r._sourceType === 'kms_keys' || r.key_state) detectedType = 'KMS'
-        else if (r._sourceType === 'secrets') detectedType = 'Secret'
-        else if (r._sourceType === 'internet_gateways') detectedType = 'InternetGateway'
-        else if (r._sourceType === 'nat_gateways') detectedType = 'NATGateway'
-        else if (r._sourceType === 'vpc_endpoints') detectedType = 'VPCEndpoint'
-        else if (r._sourceType === 'log_groups') detectedType = 'LogGroup'
-        else if (r._sourceType === 'ecs_clusters') detectedType = 'ECSCluster'
-        else if (r._sourceType === 'ecs_services') detectedType = 'ECSService'
-        else if (r._sourceType === 'hosted_zones') detectedType = 'Route53'
-        else if (r._sourceType === 'cloudfront_distributions') detectedType = 'CloudFront'
-        else if (r._sourceType === 'acm_certificates') detectedType = 'ACM'
-        
-        // Get actual SystemName tag from AWS
-        const tags = r.tags || {}
-        const actualSystemName = r.systemName || tags.SystemName || tags.systemName || tags.System
-        const isTagged = !!actualSystemName
-        
-        return {
-          id: r.arn || r.id || r.name || Math.random().toString(),
-          name: r.name || r.id || "Unknown",
-          type: detectedType,
-          systemName: actualSystemName || "Untagged",
-          environment: tags.Environment || tags.environment || null,
-          region: r._region || r.region || null,
-          status: r.status || r.state || r.key_state || "Active",
-          lastSeen: r.last_modified || r.creation_date || null,
-          properties: r,
-          attachedPolicies: 0,
-          permissionCount: 0,
-          instanceState: r.status || r.state || "running",
-          tags: tags,
-          isTagged: isTagged,
-          vpcId: r.vpc_id || r.vpcId || r.properties?.vpc_id,
-        }
-      })
-      
-      // Combine and dedupe by id
-      const allServices = [...lpMapped, ...extMapped]
-      const uniqueServices = allServices.filter((service, index, self) =>
-        index === self.findIndex(s => s.id === service.id)
-      )
+      if (neo4jResponse.ok && neo4jData && !neo4jData.error) {
+        const mapped = mapNeo4jResources(neo4jData.resources || [])
+        console.log(
+          `[AllServices] Neo4j attributed resources: ${mapped.length} (${neo4jData.duplicates_removed || 0} deduped server-side)`,
+        )
+        setServices(mapped)
+        return
+      }
 
-      setServices(uniqueServices)
+      const proxyError =
+        neo4jData?.error ||
+        (neo4jResponse.status === 504
+          ? "Backend timed out — Render worker may be cold. Wait 30s and refresh."
+          : neo4jResponse.status >= 500
+            ? `Backend unavailable (HTTP ${neo4jResponse.status})`
+            : null)
+
+      if (proxyError) {
+        throw new Error(proxyError)
+      }
+
+      // Empty graph attribution — honest zero, not a fetch failure.
+      if (neo4jResponse.ok) {
+        setServices([])
+        return
+      }
+
+      throw new Error("Failed to load system-attributed services")
     } catch (error) {
       console.error("Failed to fetch services:", error)
       setLoadError(error instanceof Error ? error.message : "Failed to load services")

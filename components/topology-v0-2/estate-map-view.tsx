@@ -100,10 +100,9 @@ export interface EstateMapViewProps {
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
-  /** Switch to Risk → Attack Paths for this business system. */
-  onOpenAttackPaths?: () => void
-  /** Initial flow overlay. Estate Map defaults to `off` (architecture first).
-   *  Blast Radius may still open in `attack_paths`. */
+  /** Initial flow overlay. The Business System Blast Radius view opens in
+   *  "attack_paths" so the estate map lands showing reachability, not all
+   *  access. Users can still toggle back to all-access. */
   defaultFlowMode?: EstateFlowMode
   /** Collapse AZ columns that hold no workloads by default (the Business
    *  System view — keeps the map from wasting canvas on empty AZs). Applied
@@ -138,7 +137,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, onOpenAttackPaths, defaultFlowMode = "off", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
     return window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
@@ -928,8 +927,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         setSelectedNodeId(id === selectedNodeId ? null : id)
         setHighlightedRoleName(null)
       }}
-      onOpenTrafficMap={onOpenTrafficMap}
-      onOpenAttackPaths={onOpenAttackPaths}
       presentationMode={presentationMode}
       scale={scale}
       densityCollapsed={densityCollapsed}
@@ -1373,12 +1370,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       </footer>
 
       {!mapEnlarged ? (
-        <DetailPanel
-          node={selectedNode}
-          onClose={() => setSelectedNodeId(null)}
-          onOpenTrafficMap={onOpenTrafficMap}
-          onOpenAttackPaths={onOpenAttackPaths}
-        />
+        <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
       ) : null}
 
       {mapEnlarged ? (
@@ -1509,12 +1501,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
               <div className="pointer-events-auto">
-                <DetailPanel
-          node={selectedNode}
-          onClose={() => setSelectedNodeId(null)}
-          onOpenTrafficMap={onOpenTrafficMap}
-          onOpenAttackPaths={onOpenAttackPaths}
-        />
+                <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
               </div>
             </div>
           ) : null}

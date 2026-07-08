@@ -46,12 +46,6 @@ import {
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
-import {
-  buildSystemArchitecturePath,
-  architecturePathToTrafficEdges,
-  formatArchitecturePathStrip,
-  type SystemArchitecturePath,
-} from "./system-architecture-path"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -78,10 +72,6 @@ interface Props {
   selectedNodeId: string | null
   highlightedRoleName?: string | null
   onSelect: (id: string) => void
-  /** Handoff to Traffic Map (observed flows live there). */
-  onOpenTrafficMap?: () => void
-  /** Handoff to Risk → Attack Paths for the business system. */
-  onOpenAttackPaths?: () => void
   /**
    * Presentation mode (fullscreen map): hide diagnostic sections below the
    * AWS frame (Outside-VPC Lambdas, Stale workloads, IAM control-plane
@@ -1605,60 +1595,43 @@ function FlowModeToggle({
   mode,
   onChange,
   attackPathCount,
-  onOpenTrafficMap,
 }: {
   mode: EstateFlowMode
   onChange: (mode: EstateFlowMode) => void
   attackPathCount: number
-  onOpenTrafficMap?: () => void
 }) {
-  const opts: { id: EstateFlowMode; label: string; activeColor?: string }[] = [
-    { id: "off", label: "Off" },
-    { id: "system_path", label: "System path" },
-    { id: "all_access", label: "Observed" },
-    {
-      id: "attack_paths",
-      label: attackPathCount > 0 ? `Attack paths (${attackPathCount})` : "Attack paths",
-      activeColor: "#B91C1C",
-    },
-  ]
   return (
-    <div className="flex items-center gap-1.5 flex-wrap justify-end" data-testid="topology-flow-mode-toggle">
-      <div
-        className="flex items-center gap-0.5 rounded-md p-0.5"
-        style={{ background: "#EEF2F6", border: "1px solid #CBD5E1" }}
+    <div
+      className="flex items-center gap-1 rounded-md p-0.5"
+      style={{ background: "#EEF2F6", border: "1px solid #CBD5E1" }}
+      data-testid="topology-flow-mode-toggle"
+    >
+      <button
+        type="button"
+        aria-pressed={mode === "all_access"}
+        onClick={() => onChange("all_access")}
+        className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
+        style={{
+          background: mode === "all_access" ? "#FFFFFF" : "transparent",
+          color: mode === "all_access" ? "#1A2330" : "#5A6B7A",
+          boxShadow: mode === "all_access" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
+        }}
       >
-        {opts.map(o => {
-          const active = mode === o.id
-          return (
-            <button
-              key={o.id}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onChange(o.id)}
-              className="px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
-              style={{
-                background: active ? "#FFFFFF" : "transparent",
-                color: active ? (o.activeColor ?? "#1A2330") : "#5A6B7A",
-                boxShadow: active ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
-              }}
-            >
-              {o.label}
-            </button>
-          )
-        })}
-      </div>
-      {onOpenTrafficMap ? (
-        <button
-          type="button"
-          onClick={onOpenTrafficMap}
-          className="px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wide"
-          style={{ border: "1px solid #CBD5E1", background: "#FFFFFF", color: "#0E8B7A" }}
-          data-testid="topology-open-traffic-map"
-        >
-          Open Traffic Map
-        </button>
-      ) : null}
+        All access
+      </button>
+      <button
+        type="button"
+        aria-pressed={mode === "attack_paths"}
+        onClick={() => onChange("attack_paths")}
+        className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
+        style={{
+          background: mode === "attack_paths" ? "#FFFFFF" : "transparent",
+          color: mode === "attack_paths" ? "#B91C1C" : "#5A6B7A",
+          boxShadow: mode === "attack_paths" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
+        }}
+      >
+        Attack paths only{attackPathCount > 0 ? ` (${attackPathCount})` : ""}
+      </button>
     </div>
   )
 }
@@ -2397,76 +2370,26 @@ function frameHasTier(frame: VpcFrameSpec, tier: "web" | "app" | "data"): boolea
   return false
 }
 
-/** @deprecated Prefer buildSystemArchitecturePath — kept for Compare chrome. */
+/** One-glance architecture story for the Compare view. */
 export function buildCompareArchitectureStory(
   frames: VpcFrameSpec[],
   systemLabel?: string,
 ): string {
-  const path = buildSystemArchitecturePath({
-    systemName: systemLabel ?? "system",
-    frames,
-  })
-  return path.summary
-}
-
-function SystemArchitecturePathStrip({
-  path,
-  compact,
-}: {
-  path: SystemArchitecturePath
-  compact?: boolean
-}) {
-  return (
-    <div
-      className={compact ? "rounded-md px-2 py-1.5 mb-2" : "rounded-md px-3 py-2 mb-3"}
-      style={{
-        background: "linear-gradient(90deg, #F0FDFA 0%, #FFFFFF 60%)",
-        border: "1px solid #99F6E4",
-      }}
-      data-testid="topology-system-architecture-path"
-    >
-      <div className="flex items-center gap-2 min-w-0 flex-wrap">
-        <span
-          className="text-[9px] font-bold uppercase tracking-[0.14em] shrink-0"
-          style={{ color: "#0E8B7A" }}
-        >
-          System path
-        </span>
-        <span className="text-[9px] shrink-0" style={{ color: "#94A3B8" }}>
-          architecture · not an attack path
-        </span>
-      </div>
-      <div
-        className="mt-1 flex items-center gap-1.5 flex-wrap min-w-0"
-        title={path.summary}
-      >
-        {path.hops.map((hop, i) => (
-          <span key={`${hop.kind}-${i}`} className="inline-flex items-center gap-1.5 min-w-0">
-            {i > 0 ? (
-              <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>→</span>
-            ) : null}
-            <span className="inline-flex flex-col min-w-0">
-              <span
-                className="text-[12px] font-semibold truncate"
-                style={{ color: PAL.ink }}
-              >
-                {hop.label}
-              </span>
-              {hop.detail && !compact ? (
-                <span className="text-[9px] truncate max-w-[160px]" style={{ color: "#5A6B7A" }}>
-                  {hop.detail}
-                </span>
-              ) : null}
-            </span>
-          </span>
-        ))}
-      </div>
-      <div className="mt-1 text-[10px]" style={{ color: "#5A6B7A" }}>
-        {path.systemName} · {path.vpcSummary}
-        {compact ? ` · ${formatArchitecturePathStrip(path)}` : null}
-      </div>
-    </div>
-  )
+  const tiersPresent = TIERS.filter(t => frames.some(f => frameHasTier(f, t)))
+  const tierPath =
+    tiersPresent.length === 3
+      ? "Internet → Web → App → Data"
+      : tiersPresent.length === 0
+        ? "No tiered subnets observed"
+        : `Internet → ${tiersPresent.map(t => t[0]!.toUpperCase() + t.slice(1)).join(" → ")}`
+  const shared = frames.filter(f => f.isForeign)
+  const own = frames.length - shared.length
+  const vpcBit =
+    shared.length > 0
+      ? `${own} own VPC${own === 1 ? "" : "s"} · ${shared.length} shared (${shared.map(s => s.ownerSystem ?? shortVpcId(s.vid)).join(", ")})`
+      : `${frames.length} VPC${frames.length === 1 ? "" : "s"}`
+  const prefix = systemLabel ? `${systemLabel} · ` : ""
+  return `${prefix}${tierPath} · ${vpcBit}`
 }
 
 function VpcColumnChrome({
@@ -2575,6 +2498,7 @@ function MultiVpcCompareBands({
   iamRoles,
   allWorkloads,
   highlightedRoleName,
+  systemLabel,
 }: {
   frames: VpcFrameSpec[]
   sgIndex: Map<string, SecurityGroupMeta>
@@ -2585,8 +2509,10 @@ function MultiVpcCompareBands({
   iamRoles: IamRoleRollup[]
   allWorkloads: TopologyNode[]
   highlightedRoleName: string | null
+  systemLabel?: string
 }) {
   const colTemplate = `repeat(${frames.length}, minmax(0, 1fr))`
+  const story = buildCompareArchitectureStory(frames, systemLabel)
   // Compare always collapses density — Web stacks must never grow the band.
   const densityCollapsed = true
 
@@ -2602,6 +2528,7 @@ function MultiVpcCompareBands({
         // short postage stamp with 50% empty white below.
         minHeight: "min(72vh, 820px)",
         gridTemplateRows: [
+          "auto", // system path
           "auto", // VPC chrome
           hasAnyAlb || hasAnyNat ? "auto" : null, // ingress (ALB/NAT) — Web path
           `minmax(${COMPARE_TIER_MIN_PX.web}px, 1.25fr)`,
@@ -2613,6 +2540,25 @@ function MultiVpcCompareBands({
           .join(" "),
       }}
     >
+      <div
+        className="rounded-md px-2.5 py-1.5 flex items-center gap-2 min-w-0"
+        style={{
+          background: "linear-gradient(90deg, #F0FDFA 0%, #FFFFFF 55%)",
+          border: "1px solid #99F6E4",
+        }}
+        data-testid="topology-compare-architecture-story"
+      >
+        <span
+          className="text-[9px] font-bold uppercase tracking-[0.14em] shrink-0"
+          style={{ color: "#0E8B7A" }}
+        >
+          System path
+        </span>
+        <span className="text-[11px] font-semibold truncate" style={{ color: PAL.ink }} title={story}>
+          {story}
+        </span>
+      </div>
+
       {/* VPC column headers — identity only (ALB lives in the Web ingress row) */}
       <div className="grid gap-2" style={{ gridTemplateColumns: colTemplate }}>
         {frames.map((f, idx) => (
@@ -3255,15 +3201,13 @@ export function AwsFrame({
   serverlessSourceNodes,
   regionalDataSourceNodes,
   overlayEdges,
-  flowMode = "off",
+  flowMode = "all_access",
   onFlowModeChange,
   attackPathFlowCount = 0,
   trafficEdges,
   selectedNodeId,
   highlightedRoleName = null,
   onSelect,
-  onOpenTrafficMap,
-  onOpenAttackPaths,
   presentationMode = false,
   scale = 1,
   densityCollapsed = false,
@@ -3289,18 +3233,30 @@ export function AwsFrame({
     return (nodeId: string) => m.get(nodeId)
   }, [iamRoles])
   const trafficEdgesList = trafficEdges ?? []
+  const overlayEdgeList = overlayEdges ?? trafficEdgesList
   const vpceIds = useMemo(
     () => new Set((topo.edges.vpces ?? []).map(v => v.id)),
     [topo.edges.vpces],
   )
-  const regionalTiersNodes = useMemo(
+  const regionalTierNodes = useMemo(
     () => extractRegionalDataServices(regionalDataSourceNodes ?? nodes),
     [regionalDataSourceNodes, nodes],
   )
-  const serverlessTiersNodes = useMemo(
+  const serverlessTierNodes = useMemo(
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
     [serverlessSourceNodes, nodes, topo.subnets],
   )
+  const visibleEdges = useMemo(() => {
+    const visible = new Set(nodes.map(n => n.id))
+    for (const n of regionalTierNodes) visible.add(n.id)
+    for (const n of serverlessTierNodes) visible.add(n.id)
+    return overlayEdgeList.filter(e => {
+      if (!visible.has(e.source_id)) return false
+      if (e.target_id === "__igw__") return true
+      if (vpceIds.has(e.target_id)) return true
+      return visible.has(e.target_id)
+    })
+  }, [overlayEdgeList, nodes, regionalTierNodes, serverlessTierNodes, vpceIds])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
   // frame receives ONLY its own VPC's workloads so a second VPC's compute is
@@ -3318,48 +3274,6 @@ export function AwsFrame({
       ),
     [topo.subnets, topo.vpc_id, topo.edges.nat_gws, nodes, hiddenAzs, mergedVpcView],
   )
-  const architecturePath = useMemo(
-    () =>
-      buildSystemArchitecturePath({
-        systemName: systemLabel ?? "system",
-        frames,
-        vpcTopology: topo,
-        regionalNodes: regionalTiersNodes,
-        serverlessNodes: serverlessTiersNodes,
-      }),
-    [systemLabel, frames, topo, regionalTiersNodes, serverlessTiersNodes],
-  )
-  const overlayEdgeList = useMemo(() => {
-    if (flowMode === "off") return []
-    if (flowMode === "system_path") {
-      // Structural path from placement — not observed traffic / not attack paths.
-      const visible = new Set(nodes.map(n => n.id))
-      for (const n of regionalTiersNodes) visible.add(n.id)
-      for (const n of serverlessTiersNodes) visible.add(n.id)
-      visible.add("__igw__")
-      return architecturePathToTrafficEdges(architecturePath, visible)
-    }
-    return overlayEdges ?? trafficEdgesList
-  }, [
-    flowMode,
-    overlayEdges,
-    trafficEdgesList,
-    nodes,
-    regionalTiersNodes,
-    serverlessTiersNodes,
-    architecturePath,
-  ])
-  const visibleEdges = useMemo(() => {
-    const visible = new Set(nodes.map(n => n.id))
-    for (const n of regionalTiersNodes) visible.add(n.id)
-    for (const n of serverlessTiersNodes) visible.add(n.id)
-    return overlayEdgeList.filter(e => {
-      if (e.source_id !== "__igw__" && !visible.has(e.source_id)) return false
-      if (e.target_id === "__igw__") return true
-      if (vpceIds.has(e.target_id)) return true
-      return visible.has(e.target_id)
-    })
-  }, [overlayEdgeList, nodes, regionalTiersNodes, serverlessTiersNodes, vpceIds])
   const hasIgw = topo.edges.igws.length > 0
   // igws[0] is frame-aligned (BE #305). Name tags are free-form and may not
   // match the frame system's naming, so the tooltip carries the id + owning
@@ -3411,30 +3325,13 @@ export function AwsFrame({
             }
             style={{ color: PAL.slate }}
           >
-            Show flows
+            Flow overlay
           </span>
           <FlowModeToggle
             mode={flowMode}
             onChange={onFlowModeChange}
             attackPathCount={attackPathEdgeCount}
-            onOpenTrafficMap={onOpenTrafficMap}
           />
-        </div>
-      ) : null}
-
-      <SystemArchitecturePathStrip path={architecturePath} compact={presentationMode} />
-
-      {onOpenAttackPaths ? (
-        <div className="flex justify-end -mt-1 mb-1">
-          <button
-            type="button"
-            onClick={onOpenAttackPaths}
-            className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded"
-            style={{ color: "#B91C1C", border: "1px solid #FECACA", background: "#FEF2F2" }}
-            data-testid="topology-open-attack-paths"
-          >
-            View attack paths →
-          </button>
         </div>
       ) : null}
       {/* Internet + IGW perimeter — keep hero-size icons in fullscreen too
@@ -3545,6 +3442,7 @@ export function AwsFrame({
                   iamRoles={iamRoles}
                   allWorkloads={nodes}
                   highlightedRoleName={highlightedRoleName}
+                  systemLabel={systemLabel}
                 />
               )
             ) : presentationMode ? (
@@ -3667,7 +3565,7 @@ export function AwsFrame({
               </div>
             )}
 
-            {(serverlessTiersNodes.length > 0 || regionalTiersNodes.length > 0) ? (
+            {(serverlessTierNodes.length > 0 || regionalTierNodes.length > 0) ? (
               <>
                 <div
                   className="shrink-0 self-stretch min-h-[80px] mx-3"
@@ -3689,7 +3587,7 @@ export function AwsFrame({
                   data-testid="topology-edge-services-rail"
                 >
                   <ServerlessComputeTier
-                    nodes={serverlessTiersNodes}
+                    nodes={serverlessTierNodes}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     roleForWorkload={roleForWorkload}
@@ -3697,7 +3595,7 @@ export function AwsFrame({
                     densityCollapsed={densityCollapsed}
                   />
                   <RegionalDataServicesTier
-                    nodes={regionalTiersNodes}
+                    nodes={regionalTierNodes}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     compact={presentationMode}
@@ -3715,20 +3613,20 @@ export function AwsFrame({
           Inline page keeps everything.  */}
       {!presentationMode && (
         <DiagnosticsAccordion
-          serverlessCount={serverlessTiersNodes.length}
+          serverlessCount={serverlessTierNodes.length}
           staleCount={staleNodes.length}
           trafficCount={visibleEdges.length}
         >
-          {serverlessTiersNodes.length > 0 ? (
+          {serverlessTierNodes.length > 0 ? (
             <div
               className="rounded-md p-3"
               style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}
             >
               <div className="text-[10px] uppercase tracking-[0.14em] font-semibold mb-2" style={{ color: PAL.ink }}>
-                Serverless compute ({serverlessTiersNodes.length})
+                Serverless compute ({serverlessTierNodes.length})
               </div>
               <div className="flex flex-wrap gap-2">
-                {serverlessTiersNodes.map(n => (
+                {serverlessTierNodes.map(n => (
                   <WorkloadChip
                     key={n.id}
                     node={n}
