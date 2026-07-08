@@ -492,21 +492,33 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const nw = Math.max(content.offsetWidth, content.scrollWidth)
     const nh = Math.max(content.offsetHeight, content.scrollHeight)
     if (nw === 0 || nh === 0) return
-    // The fit targets the PRIMARY column — the 3 subnet tiers + IAM
+    // The fit targets the tier stacks — the 3 subnet tiers + IAM per VPC
     // (data-testid topology-tier-stack), measured from the content top — so the
     // tall side rails (VPCE/serverless/regional, which stretch the row and used
     // to shrink everything) do NOT drive the fit. Rails that run taller overflow
     // below and pan. Ratio-based so the current scale cancels out; falls back to
-    // full content height if the anchor isn't in the DOM yet.
+    // full content height if no anchor is in the DOM yet.
+    //
+    // The merged (all-VPCs) view renders ONE tier-stack per VPC frame, all at
+    // the same stretched height (frames render at equal heights, all-VPCs
+    // parallel-frame fix). querySelector (singular) only ever measured the
+    // FIRST frame — with 2+ VPCs that under-measured fitH, so "100%" fit only
+    // the first VPC's content and every other frame silently clipped below the
+    // fold (overflow:hidden, unreachable — no scrollbar, no pan affordance).
+    // querySelectorAll + max(bottom) covers every VPC frame; since all frames
+    // render at equal height this is also just each one's real bottom, not an
+    // over-estimate. Single-VPC (scoped) view still has exactly one match, so
+    // behavior there is unchanged.
     let fitH = nh
-    const stack = content.querySelector(
-      '[data-testid="topology-tier-stack"]',
-    ) as HTMLElement | null
-    if (stack) {
+    const stacks = content.querySelectorAll('[data-testid="topology-tier-stack"]')
+    if (stacks.length > 0) {
       const cr = content.getBoundingClientRect()
-      const sr = stack.getBoundingClientRect()
       if (cr.height > 0) {
-        const frac = (sr.bottom - cr.top) / cr.height // 0..1
+        let maxBottom = 0
+        stacks.forEach(el => {
+          maxBottom = Math.max(maxBottom, el.getBoundingClientRect().bottom)
+        })
+        const frac = (maxBottom - cr.top) / cr.height // 0..1
         if (frac > 0.1 && frac <= 1) fitH = nh * frac
       }
     }
