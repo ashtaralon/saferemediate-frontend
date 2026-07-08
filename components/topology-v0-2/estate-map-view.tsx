@@ -944,6 +944,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       presentationMode={presentationMode}
       scale={scale}
       densityCollapsed={densityCollapsed}
+      systemLabel={systemName}
     />
   ) : (
     <CanvasPane
@@ -1075,7 +1076,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {!compact ? (
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
               {selectedVpcId === "all"
-                ? "Compare view — shared Web/App/Data bands across VPCs; Lambda/S3/DDB on the right edge rail."
+                ? "Compare view — Internet → Web → App → Data across VPCs; Lambda/S3/DDB on the right edge rail."
                 : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
           ) : null}

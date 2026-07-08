@@ -11,6 +11,8 @@ import {
   AwsFrame,
   COMPARE_BANDS_MAX_VPCS,
   COMPARE_TIER_MIN_PX,
+  buildCompareArchitectureStory,
+  buildVpcFrames,
 } from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
@@ -111,12 +113,17 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
         vpcTopology={twoVpcTopology}
         nodes={twoVpcNodes}
         mergedVpcView
+        systemLabel="alon-prod"
         selectedNodeId={null}
         onSelect={() => {}}
       />,
     )
     expect(screen.getByTestId("topology-vpc-compare-bands")).toBeInTheDocument()
+    expect(screen.getByTestId("topology-compare-architecture-story")).toBeInTheDocument()
+    expect(screen.getByText(/alon-prod · Internet → Web → App/)).toBeInTheDocument()
     expect(screen.getAllByTestId("topology-vpc-column-chrome").length).toBe(2)
+    expect(screen.getAllByTestId("topology-vpc-az-headers").length).toBe(2)
+    expect(screen.getByText(/primary/)).toBeInTheDocument()
     expect(screen.getByTestId("topology-tier-stack")).toBeInTheDocument()
     expect(screen.getByTestId("topology-tier-band-app")).toBeInTheDocument()
     expect(screen.getByTestId("topology-tier-band-data")).toBeInTheDocument()
@@ -125,6 +132,21 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     expect(screen.getByText(/shared · payment-production/)).toBeInTheDocument()
     // Old side-by-side merged grid must not appear
     expect(screen.queryByTestId("topology-merged-vpc-grid")).not.toBeInTheDocument()
+  })
+
+  it("buildCompareArchitectureStory names the Internet → tier path", () => {
+    const { frames } = buildVpcFrames(
+      twoVpcTopology.subnets,
+      twoVpcNodes,
+      OWN,
+      [],
+      [],
+      true,
+    )
+    const story = buildCompareArchitectureStory(frames, "alon-prod")
+    expect(story).toMatch(/alon-prod/)
+    expect(story).toMatch(/Internet → Web → App/)
+    expect(story).toMatch(/shared/)
   })
 
   it("falls back to primary + peer strip when VPC count > 3", () => {

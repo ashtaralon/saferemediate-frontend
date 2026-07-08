@@ -70,8 +70,9 @@ describe("AwsFrame All VPCs · Compare renders both VPCs", () => {
     )
     // Layout B compare bands — not a single merged masquerade frame.
     expect(screen.getByTestId("topology-vpc-compare-bands")).toBeInTheDocument()
-    expect(screen.getAllByText(new RegExp(OWN)).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(new RegExp(SHARED)).length).toBeGreaterThanOrEqual(1)
+    // Full VPC ids live in title; visible label is truncated for density.
+    expect(document.querySelector(`[title="${OWN}"]`)).toBeTruthy()
+    expect(document.querySelector(`[title="${SHARED}"]`)).toBeTruthy()
     // The co-tenant VPC is badged, never silently reattributed.
     expect(screen.getByText(/shared · payment-production/)).toBeInTheDocument()
   })
