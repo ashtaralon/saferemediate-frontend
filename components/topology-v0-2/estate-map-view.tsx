@@ -1065,7 +1065,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             style={{ borderColor: "#CBD5E1", color: "#1A2330", background: "#F8FAFC" }}
             data-testid="topology-vpc-select"
           >
-            <option value="all">All VPCs (merged)</option>
+            <option value="all">All VPCs · Compare</option>
             {(data.available_vpcs ?? []).map(v => (
               <option key={v.vpc_id} value={v.vpc_id}>
                 {v.name} · {v.vpc_id} ({v.workload_count} workloads)
@@ -1075,7 +1075,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {!compact ? (
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
               {selectedVpcId === "all"
-                ? "Merged view — full system node list; Lambda/S3/DDB on the right edge rail."
+                ? "Compare view — shared Web/App/Data bands across VPCs; Lambda/S3/DDB on the right edge rail."
                 : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
           ) : null}

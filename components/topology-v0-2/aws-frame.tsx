@@ -82,7 +82,7 @@ interface Props {
    * parent collapses their coordinate system (see reverted PR #227).
    */
   /**
-   * When true (All VPCs merged picker), subnet grid uses the full unscoped
+   * When true (All VPCs · Compare picker), subnet grid uses the full unscoped
    * node list and does not hide subnets from non-primary VPCs in the frame.
    */
   mergedVpcView?: boolean
@@ -2331,6 +2331,360 @@ export function buildVpcFrames(
 
 const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
 
+/** Locked min-heights for All VPCs · Compare (Layout B). Tiers own vertical
+ *  space — Web density must never steal App/Data height. */
+export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
+  web: 120,
+  app: 96,
+  data: 96,
+  iam: 72,
+}
+
+/** Above this count, Compare bands become too narrow — fall back to
+ *  primary VPC detail + peer strip (Layout C). */
+export const COMPARE_BANDS_MAX_VPCS = 3
+
+function VpcColumnChrome({
+  frame,
+  compact,
+}: {
+  frame: VpcFrameSpec
+  compact?: boolean
+}) {
+  const cidrs = [
+    ...new Set(
+      (frame.grid.subnetsByCell
+        ? [...frame.grid.subnetsByCell.values()].flat().map(s => s.cidr).filter(Boolean)
+        : []) as string[],
+    ),
+  ].slice(0, 2)
+  // Prefer a short CIDR summary from any subnet in this VPC's grid.
+  const cidrHint =
+    cidrs.length > 0
+      ? cidrs.join(" · ")
+      : null
+  return (
+    <div
+      className={compact ? "px-1.5 py-1 mb-1.5" : "px-2 py-1.5 mb-2"}
+      style={{
+        background: "#F0FDFA",
+        borderBottom: "1.5px solid #00C2A8",
+      }}
+      data-testid="topology-vpc-column-chrome"
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span
+          className="text-[10px] font-mono font-bold uppercase tracking-[0.08em] truncate"
+          style={{ color: "#0E8B7A" }}
+          title={frame.vid ?? "unknown"}
+        >
+          VPC · {frame.vid ?? "unknown"}
+        </span>
+        {frame.isForeign && frame.ownerSystem ? (
+          <span
+            className="px-1 rounded-sm text-[8px] font-semibold shrink-0"
+            style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+          >
+            shared · {frame.ownerSystem}
+          </span>
+        ) : null}
+      </div>
+      {cidrHint ? (
+        <div className="text-[9px] font-mono mt-0.5 truncate" style={{ color: "#5A6B7A" }}>
+          {cidrHint}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Layout B — All VPCs · Compare.
+ * Rows = locked Web / App / Data bands (tiers own height).
+ * Columns = VPCs (equal width, strong chrome).
+ * Subcolumns = AZs. Overflow stays inside the tier cell.
+ */
+function MultiVpcCompareBands({
+  frames,
+  sgIndex,
+  roleForWorkload,
+  selectedNodeId,
+  onSelect,
+  densityCollapsed,
+  compact,
+  iamRoles,
+  allWorkloads,
+  highlightedRoleName,
+}: {
+  frames: VpcFrameSpec[]
+  sgIndex: Map<string, SecurityGroupMeta>
+  roleForWorkload: (id: string) => IamRoleRollup | undefined
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  densityCollapsed: boolean
+  compact: boolean
+  iamRoles: IamRoleRollup[]
+  allWorkloads: TopologyNode[]
+  highlightedRoleName: string | null
+}) {
+  const colTemplate = `repeat(${frames.length}, minmax(0, 1fr))`
+
+  return (
+    <div className="flex flex-col gap-2 w-full min-w-0" data-testid="topology-vpc-compare-bands">
+      {/* VPC column headers — strong boundaries before the tier bands */}
+      <div className="grid gap-2" style={{ gridTemplateColumns: colTemplate }}>
+        {frames.map(f => (
+          <div
+            key={`hdr-${f.vid}`}
+            className="rounded-md overflow-hidden"
+            style={{ border: "2px solid #00C2A8", background: PAL.cardBg }}
+          >
+            <VpcColumnChrome frame={f} compact={compact} />
+            {f.grid.albNodes.length > 0 ? (
+              <div className="px-1.5 pb-1.5 flex flex-wrap gap-1 justify-center">
+                {f.grid.albNodes.map(n => (
+                  <WorkloadChip
+                    key={n.id}
+                    node={n}
+                    selected={n.id === selectedNodeId}
+                    onClick={() => onSelect(n.id)}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {f.natGws.length > 0 ? (
+              <div className="px-1.5 pb-1 flex flex-wrap gap-1">
+                {f.natGws.map(n => (
+                  <span
+                    key={n.id}
+                    className="text-[9px] px-1.5 py-0.5 rounded"
+                    style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+                  >
+                    NAT · {n.name}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      {TIERS.map((tier, tierIdx) => (
+        <div
+          key={tier}
+          data-testid={tierIdx === 0 ? "topology-tier-stack" : `topology-tier-band-${tier}`}
+          className="flex gap-0 min-h-0 w-full"
+          style={{ minHeight: COMPARE_TIER_MIN_PX[tier] }}
+        >
+          <div
+            className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
+            style={{
+              background: PAL.ink,
+              color: "white",
+              width: compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+              writingMode: "vertical-rl",
+              transform: "rotate(180deg)",
+              fontSize: "10px",
+              fontWeight: 700,
+              letterSpacing: "0.18em",
+            }}
+          >
+            {TIER_SIDEBAR_LABEL[tier]}
+          </div>
+          <div
+            className="rounded-r-md p-1.5 flex-1 grid gap-2 min-h-0"
+            style={{
+              background: TIER_BG[tier],
+              gridTemplateColumns: colTemplate,
+              minHeight: COMPARE_TIER_MIN_PX[tier] - 4,
+            }}
+          >
+            {frames.map(f => {
+              const azs = f.grid.azs
+              const azCols = azs.map(() => `minmax(${AZ_COLUMN_MIN_PX}px, 1fr)`).join(" ")
+              const hasTierContent = azs.some(az => {
+                const sn = f.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
+                const wl = f.grid.byAzAndTier.get(az)?.get(tier) ?? []
+                return sn.length > 0 || wl.length > 0
+              })
+              const emptyTierCopy =
+                tier === "data"
+                  ? "No data subnet observed · no RDS / DB workload in this VPC"
+                  : `No ${tier} subnet observed in this VPC`
+              return (
+                <div
+                  key={`${f.vid}-${tier}`}
+                  className="rounded-md p-1 min-h-0 h-full flex flex-col overflow-hidden"
+                  style={{
+                    border: "1.5px solid #00C2A8",
+                    background: "rgba(255,255,255,0.55)",
+                    minHeight: COMPARE_TIER_MIN_PX[tier] - 16,
+                  }}
+                  data-testid={`topology-compare-cell-${f.vid}-${tier}`}
+                >
+                  <div
+                    className="text-[9px] font-mono font-semibold truncate mb-1 px-0.5"
+                    style={{ color: "#0E8B7A" }}
+                  >
+                    {f.vid}
+                  </div>
+                  {!hasTierContent ? (
+                    <div
+                      className="text-[10px] italic flex-1 flex items-center justify-center text-center px-1"
+                      style={{ color: PAL.slate }}
+                      data-testid={tier === "data" ? "topology-data-tier-empty" : undefined}
+                    >
+                      {emptyTierCopy}
+                    </div>
+                  ) : (
+                    <div
+                      className="grid gap-1 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
+                      style={{
+                        gridTemplateColumns: azCols,
+                        // Density stays inside the tier — never grow the band.
+                        maxHeight: COMPARE_TIER_MIN_PX[tier] * 2.5,
+                      }}
+                    >
+                      {azs.map(az => {
+                        const subnetsHere = f.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
+                        const workloadsHere = f.grid.byAzAndTier.get(az)?.get(tier) ?? []
+                        return (
+                          <SubnetCell
+                            key={`${f.vid}-${az}-${tier}`}
+                            tier={tier}
+                            az={az}
+                            subnetsHere={subnetsHere}
+                            workloadsHere={workloadsHere}
+                            sgIndex={sgIndex}
+                            selectedNodeId={selectedNodeId}
+                            onSelect={onSelect}
+                            compact={compact}
+                            roleForWorkload={roleForWorkload}
+                            densityCollapsed={densityCollapsed}
+                          />
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* IAM band — locked min height; primary frame's roles */}
+      {iamRoles.length > 0 ? (
+        <div
+          className="flex gap-0 min-h-0 w-full overflow-hidden"
+          style={{ minHeight: COMPARE_TIER_MIN_PX.iam }}
+          data-testid="topology-tier-band-iam"
+        >
+          <div
+            className="rounded-l-md flex items-center justify-center shrink-0"
+            style={{
+              background: "#DD344C",
+              color: "white",
+              width: compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+              writingMode: "vertical-rl",
+              transform: "rotate(180deg)",
+              fontSize: "9px",
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+            }}
+          >
+            IAM CP
+          </div>
+          <IamControlPlane
+            roles={iamRoles}
+            allWorkloads={allWorkloads}
+            highlightedRoleName={highlightedRoleName}
+            embeddedInVpc
+            compact={compact}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Layout C fallback — primary VPC full detail + peer VPC summary cards. */
+function PrimaryPlusPeerStrip({
+  frames,
+  sgIndex,
+  roleForWorkload,
+  selectedNodeId,
+  highlightedRoleName,
+  onSelect,
+  presentationMode,
+  densityCollapsed,
+  iamRoles,
+  allWorkloads,
+}: {
+  frames: VpcFrameSpec[]
+  sgIndex: Map<string, SecurityGroupMeta>
+  roleForWorkload: (id: string) => IamRoleRollup | undefined
+  selectedNodeId: string | null
+  highlightedRoleName: string | null
+  onSelect: (id: string) => void
+  presentationMode: boolean
+  densityCollapsed: boolean
+  iamRoles: IamRoleRollup[]
+  allWorkloads: TopologyNode[]
+}) {
+  const [primary, ...peers] = frames
+  if (!primary) return null
+  return (
+    <div className="flex flex-col gap-3 w-full min-w-0" data-testid="topology-primary-peer-strip">
+      <VpcCanvasFrame
+        vpcId={primary.vid}
+        grid={primary.grid}
+        natGws={primary.natGws}
+        isForeign={primary.isForeign}
+        ownerSystem={primary.ownerSystem}
+        showIamControlPlane
+        iamRoles={iamRoles}
+        allWorkloads={allWorkloads}
+        sgIndex={sgIndex}
+        roleForWorkload={roleForWorkload}
+        selectedNodeId={selectedNodeId}
+        highlightedRoleName={highlightedRoleName}
+        onSelect={onSelect}
+        presentationMode={presentationMode}
+        densityCollapsed={densityCollapsed}
+      />
+      {peers.length > 0 ? (
+        <div className="flex flex-wrap gap-2" data-testid="topology-peer-vpc-cards">
+          {peers.map(p => {
+            const wl = [...p.grid.byAzAndTier.values()].reduce(
+              (n, az) => n + [...az.values()].reduce((m, cell) => m + cell.length, 0),
+              0,
+            ) + p.grid.albNodes.length
+            return (
+              <div
+                key={p.vid}
+                className="rounded-md px-3 py-2 min-w-[160px]"
+                style={{ border: "1.5px solid #00C2A8", background: PAL.cardBg }}
+              >
+                <div className="text-[10px] font-mono font-bold" style={{ color: "#0E8B7A" }}>
+                  VPC · {p.vid}
+                </div>
+                <div className="text-[10px] mt-1" style={{ color: PAL.slate }}>
+                  {wl} workloads · {p.grid.azs.length} AZs
+                  {p.isForeign && p.ownerSystem ? ` · shared (${p.ownerSystem})` : ""}
+                </div>
+                <div className="text-[9px] italic mt-1" style={{ color: PAL.slate }}>
+                  Select this VPC in scope for full 3-tier detail
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 interface VpcCanvasFrameProps {
   vpcId: string | null
   grid: CanvasGrid
@@ -2554,7 +2908,7 @@ function VpcCanvasFrame({
                 key={tier}
                 data-testid={tierIdx === 0 ? "topology-tier-stack" : undefined}
                 className="flex gap-0 min-h-0 h-full"
-                style={{ gridRow: tierIdx + 3, minHeight: 0 }}
+                style={{ gridRow: tierIdx + 3, minHeight: COMPARE_TIER_MIN_PX[tier] }}
               >
                 <div
                   className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
@@ -2606,7 +2960,10 @@ function VpcCanvasFrame({
             {/* Row 6 (subgrid): IAM — ALWAYS emit a cell so every frame has
                 the same 6 subgrid children. Omitting this on non-primary
                 frames broke CSS subgrid alignment (tiers staggered). */}
-            <div className="flex gap-0 min-h-0 overflow-hidden" style={{ gridRow: 6 }}>
+            <div
+              className="flex gap-0 min-h-0 overflow-hidden"
+              style={{ gridRow: 6, minHeight: COMPARE_TIER_MIN_PX.iam }}
+            >
               {showIamControlPlane && iamRoles.length > 0 ? iamCpBlock(true) : (
                 <div className="flex-1 min-h-[4px]" aria-hidden />
               )}
@@ -2625,7 +2982,11 @@ function VpcCanvasFrame({
             {azHeaderRow}
             <div data-testid="topology-tier-stack" className="contents">
               {TIERS.map(tier => (
-                <div key={tier} className="flex gap-0 min-h-0">
+                <div
+                  key={tier}
+                  className="flex gap-0 min-h-0"
+                  style={{ minHeight: COMPARE_TIER_MIN_PX[tier] }}
+                >
                   <div
                     className="rounded-l-md flex items-center justify-center shrink-0"
                     style={{
@@ -2916,36 +3277,50 @@ export function AwsFrame({
           </div>
 
           {/* VPC · VPCE · edge rail — regional/serverless on the right (AWS canonical layout).
-              Always items-stretch: VPC frames are peer network-boundary
-              containers in the same account, so their boxes read as parallel
-              regardless of how much each VPC's content fills — a sparser VPC
-              just carries empty space inside its border rather than a
-              shorter box. (Scoped mode always had exactly one frame, so this
-              was already a no-op there.) */}
+              Multi-VPC (All VPCs · Compare): shared Web/App/Data bands with
+              VPC columns (Layout B, ≤3 VPCs) or primary + peer strip (Layout C).
+              Scoped / single-VPC: one VpcCanvasFrame with locked tier mins. */}
           <div
             className={`flex flex-nowrap items-stretch ${
               presentationMode ? "mt-1 w-full" : "mt-3"
             } min-w-0 overflow-x-auto overflow-y-visible pb-1`}
           >
-            {/* One frame per VPC — real per-VPC subnet skeletons (no cross-VPC
-                cramming). Fullscreen: the frames share ONE grid via CSS
-                subgrid (see VpcCanvasFrame) so Web/App/Data tier rows align
-                across VPCs; each VpcCanvasFrame subgrids into the 5 row
-                tracks defined here. Non-fullscreen keeps the plain flex row
-                (always exactly one frame there today). */}
-            {presentationMode ? (
+            {mergedVpcView && frames.length > 1 ? (
+              frames.length > COMPARE_BANDS_MAX_VPCS ? (
+                <PrimaryPlusPeerStrip
+                  frames={frames}
+                  sgIndex={sgIndex}
+                  roleForWorkload={roleForWorkload}
+                  selectedNodeId={selectedNodeId}
+                  highlightedRoleName={highlightedRoleName}
+                  onSelect={onSelect}
+                  presentationMode={presentationMode}
+                  densityCollapsed={densityCollapsed}
+                  iamRoles={iamRoles}
+                  allWorkloads={nodes}
+                />
+              ) : (
+                <MultiVpcCompareBands
+                  frames={frames}
+                  sgIndex={sgIndex}
+                  roleForWorkload={roleForWorkload}
+                  selectedNodeId={selectedNodeId}
+                  onSelect={onSelect}
+                  densityCollapsed={densityCollapsed || presentationMode}
+                  compact={presentationMode}
+                  iamRoles={iamRoles}
+                  allWorkloads={nodes}
+                  highlightedRoleName={highlightedRoleName}
+                />
+              )
+            ) : presentationMode ? (
               <div
                 className="grid items-stretch w-full min-w-0"
-                data-testid="topology-merged-vpc-grid"
+                data-testid="topology-single-vpc-grid"
                 style={{
-                  // Equal columns so two VPCs sit 1:1 side-by-side and fill
-                  // the AWS Cloud frame (not shrink-wrapped to content).
-                  gridTemplateColumns: `repeat(${Math.max(frames.length, 1)}, minmax(0, 1fr))`,
-                  // 6 rows: header · NAT/ALB/AZ · web · app · data · IAM.
-                  // Every VpcCanvasFrame must emit all 6 subgrid children or
-                  // CSS subgrid alignment breaks (tiers stagger).
-                  gridTemplateRows:
-                    "auto auto minmax(96px, 1fr) minmax(96px, 1fr) minmax(96px, 1fr) auto",
+                  gridTemplateColumns: "minmax(0, 1fr)",
+                  // Locked tier mins — Web density must not crush App/Data.
+                  gridTemplateRows: `auto auto minmax(${COMPARE_TIER_MIN_PX.web}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.app}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.data}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.iam}px, auto)`,
                   gap: "10px",
                   width: "100%",
                 }}
