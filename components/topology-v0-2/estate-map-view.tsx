@@ -613,24 +613,25 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [mapEnlarged, computeFit])
 
-  // Explicit re-fit when the merged payload actually arrives, while
-  // fullscreen is open. Depends on `data` (the fetched topology-risk
-  // payload), NOT `selectedVpcId` — selectedVpcId changes the INSTANT the
-  // operator picks "All VPCs" from the dropdown, well BEFORE the merged
-  // fetch has even started, let alone before the second VPC frame exists in
-  // the DOM; a fit computed off that early signal still only sees the first,
-  // single-VPC frame and yields the same (wrong) scale=1 the ResizeObserver
-  // was already producing. `data` only changes once the new payload lands —
-  // causally adjacent to the second frame actually rendering, and (unlike a
-  // DOM ResizeObserver) it's a React value we can safely depend on rather
-  // than a browser API whose callback timing relative to paint isn't
-  // guaranteed. Confirmed via direct measurement against the real payload:
-  // the underlying computeFit math is correct (hand-replicated: fit=0.743
-  // with both VPC tier-stacks inside the viewport) — this closes the gap
-  // where nothing was actually invoking it at the right moment (observed
-  // live 2026-07-08: switching to "All VPCs (merged)" left "100%" stuck
-  // showing only the first VPC, the second VPC's lower tiers clipped below
-  // the fold with no scrollbar and no pan affordance to discover them).
+  // Explicit re-fit when the node data that actually drives the grid's
+  // content arrives, while fullscreen is open. MUST depend on
+  // `gridSourceNodes`, not `data` — merged ("All VPCs") mode's real content
+  // comes from the SEPARATE `fullSystemNodes` fetch (data?.nodes is only the
+  // scoped/primary-VPC payload; see the gridSourceNodes useMemo above), so a
+  // trigger on `data` alone can fire — and computeFit can run, measure, and
+  // apply a fit — BEFORE fullSystemNodes has landed and the second VPC frame
+  // exists. That is exactly what happened: this effect previously depended
+  // on `data` (then, before that, on `selectedVpcId`, which fires even
+  // earlier) and STILL left the fit stuck at scale 1 / "100%" showing only
+  // the first VPC, confirmed live via the on-screen zoom readout (100%,
+  // meaning fitScale itself — not just the applied zoom — never moved off
+  // its initial value). `gridSourceNodes` is the exact value AwsFrame's
+  // `nodes` prop is built from, so it changes precisely when the rendered
+  // frame content is about to change, in both scoped and merged modes.
+  // (The underlying computeFit math itself is proven correct — hand-
+  // replicated against the live DOM gives fit=0.743 with both VPC
+  // tier-stacks inside the viewport; the whole issue has only ever been
+  // about invoking it at the right moment.)
   useEffect(() => {
     if (!mapEnlarged) return
     let r1 = 0
@@ -642,7 +643,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       cancelAnimationFrame(r1)
       cancelAnimationFrame(r2)
     }
-  }, [mapEnlarged, data, computeFit])
+  }, [mapEnlarged, gridSourceNodes, computeFit])
 
   const zoomTo = useCallback((next: number, originClientX?: number, originClientY?: number) => {
     const vp = viewportRef.current
