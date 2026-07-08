@@ -2849,12 +2849,14 @@ export function AwsFrame({
           </div>
 
           {/* VPC · VPCE · edge rail — regional/serverless on the right (AWS canonical layout).
-              Merged mode uses items-start so each VPC frame sizes to its OWN
-              content — a lopsided default-VPC frame (all-web, empty app/data)
-              no longer inherits the taller sibling's height as dead vertical
-              gap. Scoped mode keeps items-stretch (single frame reads clean). */}
+              Always items-stretch: VPC frames are peer network-boundary
+              containers in the same account, so their boxes read as parallel
+              regardless of how much each VPC's content fills — a sparser VPC
+              just carries empty space inside its border rather than a
+              shorter box. (Scoped mode always had exactly one frame, so this
+              was already a no-op there.) */}
           <div
-            className={`flex flex-nowrap ${mergedVpcView ? "items-start" : "items-stretch"} ${
+            className={`flex flex-nowrap items-stretch ${
               presentationMode ? "mt-2" : "mt-3"
             } min-w-0 overflow-x-auto pb-1`}
           >
