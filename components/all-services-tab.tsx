@@ -211,9 +211,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     })
   }
 
-  const fetchServices = async () => {
+  const fetchServices = async (attempt = 1) => {
     setLoading(true)
-    setLoadError(null)
+    if (attempt === 1) setLoadError(null)
     try {
       const neo4jResponse = await fetch(
         `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
@@ -243,6 +243,19 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           : neo4jResponse.status >= 500
             ? `Backend unavailable (HTTP ${neo4jResponse.status})`
             : null)
+
+      const shouldRetry =
+        attempt < 3 &&
+        (neo4jResponse.status === 504 ||
+          neo4jResponse.status === 502 ||
+          neo4jResponse.status === 503 ||
+          (neo4jResponse.status === 500 && proxyError))
+
+      if (shouldRetry) {
+        console.warn(`[AllServices] Retry ${attempt}/3 after proxy failure`)
+        await new Promise((resolve) => setTimeout(resolve, 2_000 * attempt))
+        return fetchServices(attempt + 1)
+      }
 
       if (proxyError) {
         throw new Error(proxyError)
