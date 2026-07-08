@@ -23,6 +23,10 @@ import {
 interface Props {
   node: TopologyNode | null
   onClose: () => void
+  /** Handoff to Traffic Map (observed flows). */
+  onOpenTrafficMap?: () => void
+  /** Handoff to Risk → Attack Paths. */
+  onOpenAttackPaths?: () => void
 }
 
 function ConfidenceBadge({ tier }: { tier: NodeScore["confidence"]["tier"] }) {
@@ -106,7 +110,7 @@ function ContributorRow({ c }: { c: Contributor }) {
   )
 }
 
-export function DetailPanel({ node, onClose }: Props) {
+export function DetailPanel({ node, onClose, onOpenTrafficMap, onOpenAttackPaths }: Props) {
   if (!node) return null
 
   const isStale = !!node.stale
@@ -141,6 +145,32 @@ export function DetailPanel({ node, onClose }: Props) {
           ×
         </button>
       </div>
+
+      {(onOpenTrafficMap || onOpenAttackPaths) ? (
+        <div
+          className="px-4 py-2.5 flex flex-wrap gap-2 border-b border-slate-700"
+          data-testid="topology-detail-handoffs"
+        >
+          {onOpenTrafficMap ? (
+            <button
+              type="button"
+              onClick={onOpenTrafficMap}
+              className="text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded border border-teal-700/50 text-teal-300 hover:bg-teal-900/30"
+            >
+              Open in Traffic Map
+            </button>
+          ) : null}
+          {onOpenAttackPaths ? (
+            <button
+              type="button"
+              onClick={onOpenAttackPaths}
+              className="text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded border border-rose-700/50 text-rose-300 hover:bg-rose-900/30"
+            >
+              {node.is_jewel ? "View attack paths to this jewel" : "View attack paths"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="p-4 space-y-5">
         {isStale && (
