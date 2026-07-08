@@ -13,8 +13,9 @@ export async function GET(
   // Get query parameters
   const window = searchParams.get("window") || "30d"
   const systemName = searchParams.get("system_name") || ""
+  const resourceType = searchParams.get("resource_type") || ""
 
-  const backendUrl = `${BACKEND_URL}/api/inspector/${encodeURIComponent(resourceId)}?window=${window}${systemName ? `&system_name=${systemName}` : ''}`
+  const backendUrl = `${BACKEND_URL}/api/inspector/${encodeURIComponent(resourceId)}?window=${window}${systemName ? `&system_name=${systemName}` : ""}${resourceType ? `&resource_type=${encodeURIComponent(resourceType)}` : ""}`
 
   console.log(`[Resource Inspector Proxy] Fetching: ${backendUrl}`)
 

@@ -18,7 +18,14 @@
  */
 
 import { useEffect, useState } from "react"
-import { AlertTriangle, RefreshCw, ShieldAlert } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw, ShieldAlert } from "lucide-react"
+import { InsightCards } from "@/components/inventory/insight-cards"
+import {
+  humanizeInspectorError,
+  insightsFromInspectorPayload,
+  insightsFromPolicyStatements,
+  summarizePolicyStatement,
+} from "@/lib/inspector-insights"
 
 interface Props {
   resourceId: string
@@ -242,8 +249,17 @@ function S3Policies({ data }: { data: InspectorPayload }) {
 function IamPolicyDocument({ data }: { data: InspectorPayload }) {
   const current: any = data.current ?? {}
   const permissions: string[] = Array.isArray(current.permissions) ? current.permissions : []
+  const statements = current.policy_document?.statements ?? []
+  const policyInsights = insightsFromPolicyStatements(statements)
   return (
     <div className="space-y-5">
+      {policyInsights.length > 0 && (
+        <div>
+          <SectionTitle>What this policy allows</SectionTitle>
+          <InsightCards insights={policyInsights} />
+        </div>
+      )}
+
       <div>
         <SectionTitle>Policy</SectionTitle>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -363,12 +379,12 @@ function PolicyStatements({ policy, emptyLabel }: { policy: any; emptyLabel: str
     <div className="space-y-2">
       {statements.map((st: any, i: number) => (
         <details key={i} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-          <summary className="cursor-pointer text-sm text-slate-800">
-            <span className={`font-semibold ${st.Effect === "Deny" ? "text-red-700" : "text-slate-900"}`}>{st.Effect}</span>
-            <span className="font-mono text-xs text-slate-600 ml-2">
-              {Array.isArray(st.Action) ? st.Action.join(", ") : String(st.Action ?? "—")}
+          <summary className="cursor-pointer text-sm text-slate-800 list-none">
+            <span className={`font-semibold ${st.Effect === "Deny" ? "text-red-700" : "text-slate-900"}`}>
+              {st.Effect}
             </span>
-            {st.Sid ? <span className="text-xs text-slate-400 ml-2">({st.Sid})</span> : null}
+            <span className="text-slate-700 ml-2">{summarizePolicyStatement(st)}</span>
+            <span className="text-[10px] text-slate-400 ml-2">(raw JSON)</span>
           </summary>
           <pre className="mt-2 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap">
             {JSON.stringify(st, null, 2)}
@@ -602,24 +618,53 @@ function DynamoDbSections({ data }: { data: InspectorPayload }) {
   )
 }
 
-function UnifiedSections({ data }: { data: InspectorPayload }) {
-  const sections = [data.current, data.observed, data.remove].filter(Boolean)
-  if (sections.length === 0) {
+function InsightSections({ data }: { data: InspectorPayload }) {
+  const topInsights = insightsFromInspectorPayload(data)
+  const sections = [data.current, data.observed, data.remove].filter(
+    (s) => s && typeof s === "object",
+  ) as Record<string, unknown>[]
+
+  if (sections.length === 0 && topInsights.length === 0) {
     return <EmptyNote>No configuration sections returned for this resource.</EmptyNote>
   }
+
   return (
     <div className="space-y-5">
-      {sections.map((sec: any, i) => (
+      {topInsights.length > 0 && (
+        <div>
+          <SectionTitle>Key insights</SectionTitle>
+          <InsightCards insights={topInsights} />
+        </div>
+      )}
+
+      {sections.map((sec, i) => (
         <div key={i}>
-          <SectionTitle>{sec.title ?? `Section ${i + 1}`}</SectionTitle>
+          <SectionTitle>{String(sec.title ?? `Section ${i + 1}`)}</SectionTitle>
           {sec.message ? (
-            <EmptyNote>{sec.message}</EmptyNote>
+            <EmptyNote>{String(sec.message)}</EmptyNote>
+          ) : sec.title === "Current Configuration" || sec.security_groups || sec.network ? (
+            <InsightCards insights={insightsFromInspectorPayload({ current: sec })} />
+          ) : sec.title === "Observed Activity" || sec.used_actions ? (
+            <InsightCards insights={insightsFromInspectorPayload({ observed: sec })} />
+          ) : sec.items ? (
+            <InsightCards
+              insights={(sec.items as Record<string, unknown>[]).map((rec) => ({
+                severity:
+                  rec.severity === "high" || rec.severity === "critical"
+                    ? ("critical" as const)
+                    : rec.severity === "warning"
+                      ? ("warning" as const)
+                      : ("info" as const),
+                title: String(rec.message ?? rec.type ?? "Review"),
+                tags: rec.type ? [String(rec.type).replace(/_/g, " ")] : undefined,
+              }))}
+            />
           ) : (
-            <pre className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 overflow-x-auto max-h-72 whitespace-pre-wrap">
-              {JSON.stringify(sec, null, 2)}
-            </pre>
+            <KeyValueGrid obj={sec as Record<string, any>} />
           )}
-          {sec.source && <p className="text-[11px] text-slate-400 mt-1">Source: {sec.source}</p>}
+          {sec.source && (
+            <p className="text-[11px] text-slate-400 mt-1">Source: {String(sec.source)}</p>
+          )}
         </div>
       ))}
     </div>
@@ -638,8 +683,11 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
       setError(null)
       setData(null)
       try {
-        const qs = systemName ? `?system_name=${encodeURIComponent(systemName)}` : ""
-        const res = await fetch(`/api/proxy/inspector/${encodeURIComponent(resourceId)}${qs}`)
+        const qs = new URLSearchParams()
+        if (systemName) qs.set("system_name", systemName)
+        if (resourceType) qs.set("resource_type", resourceType)
+        const query = qs.toString() ? `?${qs.toString()}` : ""
+        const res = await fetch(`/api/proxy/inspector/${encodeURIComponent(resourceId)}${query}`)
         const body = await res.json().catch(() => null)
         if (!res.ok) {
           throw new Error(body?.detail || body?.error || `Inspector returned ${res.status}`)
@@ -655,7 +703,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
     return () => {
       cancelled = true
     }
-  }, [resourceId, systemName])
+  }, [resourceId, systemName, resourceType])
 
   if (loading) {
     return (
@@ -667,10 +715,10 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   }
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-        <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-        <p className="text-red-700 text-sm">{error}</p>
-        <p className="text-xs text-red-500 mt-1 font-mono">{resourceId}</p>
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6 space-y-3">
+        <AlertTriangle className="w-10 h-10 text-red-400 mx-auto" />
+        <InsightCards insights={humanizeInspectorError(error, resourceType)} />
+        <p className="text-xs text-red-500 text-center font-mono">{resourceId}</p>
       </div>
     )
   }
@@ -695,5 +743,5 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   if (kind === "KMSKey") return <KmsKeySections data={data} />
   if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
   if (kind === "DynamoDB" || kind === "DynamoDBTable") return <DynamoDbSections data={data} />
-  return <UnifiedSections data={data} />
+  return <InsightSections data={data} />
 }
