@@ -1070,7 +1070,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {!compact ? (
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
               {selectedVpcId === "all"
-                ? "Compare view — Internet → Web → App → Data across VPCs; Lambda/S3/DDB on the right edge rail."
+                ? "Compare — each VPC is its own column (own vs shared); tiers stay aligned. Lambda/S3/DDB on the right rail."
                 : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
           ) : null}

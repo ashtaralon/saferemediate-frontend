@@ -129,6 +129,16 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     expect(screen.getByTestId("topology-vpc-compare-bands")).toBeInTheDocument()
     expect(screen.getByTestId("topology-compare-architecture-story")).toBeInTheDocument()
     expect(screen.getByText(/alon-prod · Internet → Web → App/)).toBeInTheDocument()
+    // Distinct full-height VPC columns (AWS multi-VPC separation)
+    expect(screen.getByTestId("topology-compare-vpc-columns")).toBeInTheDocument()
+    expect(screen.getByTestId(`topology-compare-vpc-column-${OWN}`)).toHaveAttribute(
+      "data-vpc-role",
+      "primary",
+    )
+    expect(screen.getByTestId(`topology-compare-vpc-column-${SHARED}`)).toHaveAttribute(
+      "data-vpc-role",
+      "shared",
+    )
     expect(screen.getAllByTestId("topology-vpc-column-chrome").length).toBe(2)
     expect(screen.getAllByTestId("topology-vpc-az-headers").length).toBe(2)
     expect(screen.getByText(/primary/)).toBeInTheDocument()
