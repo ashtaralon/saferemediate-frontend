@@ -45,6 +45,8 @@ import {
   selectEstateFlowEdges,
   type EstateFlowMode,
 } from "@/components/topology-v0-2/estate-flow-edges"
+import { applySystemEstateScope } from "@/components/topology-v0-2/estate-system-scope"
+import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 const ACCOUNT_STORAGE_PREFIX = "topology-account:"
@@ -173,12 +175,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     fetchInit: { cache: "no-store" },
   })
 
-  // Full unscoped node list — always fetched so serverless/regional tiers and
+  // Full unscoped topology — always fetched so serverless/regional tiers and
   // merged ("All VPCs") grid use the same superset. Scoped VPC picker still
   // uses scoped primary fetch for the subnet grid frame.
-  const [fullSystemNodes, setFullSystemNodes] = useState<
-    TopologyRiskResponse["nodes"] | null
-  >(null)
+  const [fullSystemPayload, setFullSystemPayload] = useState<TopologyRiskResponse | null>(
+    null,
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -189,7 +191,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     fetch(mergedUrl, { cache: "no-store" })
       .then(res => (res.ok ? res.json() : null))
       .then((body: TopologyRiskResponse | null) => {
-        if (!cancelled && body?.nodes) setFullSystemNodes(body.nodes)
+        if (!cancelled && body) setFullSystemPayload(body)
       })
       .catch(() => {})
     return () => {
@@ -197,27 +199,77 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [systemName, selectedAccountId, selectedRegionId])
 
-  const serverlessSourceNodes = useMemo(() => {
-    const raw = fullSystemNodes ?? data?.nodes ?? []
-    return dedupeLambdaServiceTwins(raw)
-  }, [fullSystemNodes, data?.nodes])
+  /**
+   * Own + used-shared scope. Backend already system-tags nodes; this drops
+   * unused foreign subnets / peer VPC scaffold so Compare never shows a
+   * co-tenant's unused inventory.
+   *
+   * Always prefer the unscoped (account/region) payload for scaffold + rails
+   * so All VPCs · Compare sees every VPC this system uses. When a single VPC
+   * is selected, nodes are filtered to that VPC after scope.
+   */
+  const scopedEstate = useMemo(() => {
+    const source = fullSystemPayload ?? data
+    if (!source?.nodes) return null
+    const scoped = applySystemEstateScope({
+      systemName,
+      nodes: dedupeLambdaServiceTwins(source.nodes),
+      vpcTopology: normalizeVpcTopology(source.vpc_topology),
+      trafficEdges: source.traffic_edges ?? [],
+      availableVpcs: source.available_vpcs ?? data?.available_vpcs ?? [],
+    })
+    if (!scopedVpc) return scoped
+    return {
+      ...scoped,
+      nodes: scoped.nodes.filter(n => {
+        if (n.vpc_id === scopedVpc) return true
+        // Regional / serverless stay visible on rails in single-VPC view.
+        if (!n.vpc_id) return true
+        return false
+      }),
+      vpcTopology: {
+        ...scoped.vpcTopology,
+        subnets: (scoped.vpcTopology.subnets ?? []).filter(s => s.vpc_id === scopedVpc),
+        edges: {
+          igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
+            i => !i.vpc_id || i.vpc_id === scopedVpc,
+          ),
+          nat_gws: (scoped.vpcTopology.edges?.nat_gws ?? []).filter(
+            i => !i.vpc_id || i.vpc_id === scopedVpc,
+          ),
+          vpces: (scoped.vpcTopology.edges?.vpces ?? []).filter(
+            i => !i.vpc_id || i.vpc_id === scopedVpc,
+          ),
+        },
+      },
+    }
+  }, [data, fullSystemPayload, systemName, scopedVpc])
+
+  const serverlessSourceNodes = useMemo(
+    () => scopedEstate?.nodes ?? dedupeLambdaServiceTwins(data?.nodes ?? []),
+    [scopedEstate, data?.nodes],
+  )
   const regionalDataSourceNodes = serverlessSourceNodes
 
-  const gridSourceNodes = useMemo(() => {
-    if (scopedVpc) return data?.nodes ?? []
-    return fullSystemNodes ?? data?.nodes ?? []
-  }, [scopedVpc, data?.nodes, fullSystemNodes])
+  const gridSourceNodes = useMemo(
+    () => scopedEstate?.nodes ?? data?.nodes ?? [],
+    [scopedEstate, data?.nodes],
+  )
+
+  const scopedVpcTopology = scopedEstate?.vpcTopology ?? null
+  const scopedTrafficEdges = scopedEstate?.trafficEdges ?? data?.traffic_edges ?? []
+  const scopedAvailableVpcs = scopedEstate?.availableVpcs ?? data?.available_vpcs ?? []
 
   const availableAzs = useMemo(() => {
-    const subnets = data?.vpc_topology?.subnets ?? []
+    const subnets = scopedVpcTopology?.subnets ?? data?.vpc_topology?.subnets ?? []
     if (subnets.length === 0) return []
     return listTopologyAzs(subnets, scopedVpc)
-  }, [data?.vpc_topology?.subnets, scopedVpc])
+  }, [scopedVpcTopology?.subnets, data?.vpc_topology?.subnets, scopedVpc])
 
   // AZs that have subnets but zero workloads landing in the grid (mirrors
   // topologyGridWouldBeEmpty's per-node rule — stale + non-edge nodes count).
   const emptyAzs = useMemo(() => {
-    const subnets = data?.vpc_topology?.subnets ?? []
+    const subnets = scopedVpcTopology?.subnets ?? data?.vpc_topology?.subnets ?? []
     if (subnets.length === 0 || availableAzs.length === 0) return []
     const subnetById = createMap(subnets.map((s) => [s.id, s]))
     const populated = new Set<string>()
@@ -232,7 +284,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       populated.add(sub.az)
     }
     return availableAzs.filter((az) => !populated.has(az))
-  }, [data?.vpc_topology?.subnets, gridSourceNodes, availableAzs])
+  }, [scopedVpcTopology?.subnets, data?.vpc_topology?.subnets, gridSourceNodes, availableAzs])
 
   // Track, per scope, whether the user already had a saved AZ preference when we
   // first loaded it (so auto-collapse never overrides an explicit choice) and
@@ -391,7 +443,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // explicit "All VPCs" choice stick for the session.
   const defaultedVpcSystemRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!data?.available_vpcs?.length) return
+    if (!scopedAvailableVpcs.length) return
     if (defaultedVpcSystemRef.current === systemName) return
     defaultedVpcSystemRef.current = systemName
     // Business System Blast Radius shows the whole system — stay on the merged
@@ -408,9 +460,21 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const persisted =
       typeof window !== "undefined" ? window.localStorage.getItem(key) : null
     if (persisted != null && persisted !== "all") return
-    const primary = data.vpc_id ?? data.available_vpcs[0]?.vpc_id
-    if (primary) setSelectedVpcId(primary)
-  }, [data?.available_vpcs, data?.vpc_id, systemName])
+    const inScope =
+      data?.vpc_id && scopedAvailableVpcs.some(v => v.vpc_id === data.vpc_id)
+        ? data.vpc_id
+        : scopedAvailableVpcs[0]?.vpc_id
+    if (inScope) setSelectedVpcId(inScope)
+  }, [scopedAvailableVpcs, data?.vpc_id, systemName, defaultToAllVpcs])
+
+  // If the user (or localStorage) points at a VPC this system does not use,
+  // snap back to All VPCs · Compare so the picker never shows a ghost selection.
+  useEffect(() => {
+    if (!scopedAvailableVpcs.length) return
+    if (selectedVpcId === "all") return
+    if (scopedAvailableVpcs.some(v => v.vpc_id === selectedVpcId)) return
+    setSelectedVpcId("all")
+  }, [scopedAvailableVpcs, selectedVpcId])
   useEffect(() => {
     if (!data || loading || poisonRetryRef.current) return
     if (!topologyGridWouldBeEmpty(data)) return
@@ -598,22 +662,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // Explicit re-fit when the node data that actually drives the grid's
   // content arrives, while fullscreen is open. MUST depend on
   // `gridSourceNodes`, not `data` — merged ("All VPCs") mode's real content
-  // comes from the SEPARATE `fullSystemNodes` fetch (data?.nodes is only the
-  // scoped/primary-VPC payload; see the gridSourceNodes useMemo above), so a
-  // trigger on `data` alone can fire — and computeFit can run, measure, and
-  // apply a fit — BEFORE fullSystemNodes has landed and the second VPC frame
-  // exists. That is exactly what happened: this effect previously depended
-  // on `data` (then, before that, on `selectedVpcId`, which fires even
-  // earlier) and STILL left the fit stuck at scale 1 / "100%" showing only
-  // the first VPC, confirmed live via the on-screen zoom readout (100%,
-  // meaning fitScale itself — not just the applied zoom — never moved off
-  // its initial value). `gridSourceNodes` is the exact value AwsFrame's
-  // `nodes` prop is built from, so it changes precisely when the rendered
-  // frame content is about to change, in both scoped and merged modes.
-  // (The underlying computeFit math itself is proven correct — hand-
-  // replicated against the live DOM gives fit=0.743 with both VPC
-  // tier-stacks inside the viewport; the whole issue has only ever been
-  // about invoking it at the right moment.)
+  // comes from the SEPARATE full-system fetch + system-scope filter
+  // (data?.nodes is only the scoped/primary-VPC payload), so a trigger on
+  // `data` alone can fire before the second VPC frame exists.
+  // `gridSourceNodes` changes precisely when the rendered frame content is
+  // about to change, in both scoped and merged modes.
   useEffect(() => {
     if (!mapEnlarged) return
     let r1 = 0
@@ -717,7 +770,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     console.log("[estate-map counts]", {
       mode: scopedVpc ? `scoped:${scopedVpc}` : "all-merged",
       dataNodes: data?.nodes?.length ?? 0,
-      fullSystemNodes: fullSystemNodes?.length ?? 0,
+      scopedNodes: scopedEstate?.nodes?.length ?? 0,
+      usedVpcs: scopedEstate?.usedVpcIds ?? [],
       gridSourceNodes: gridSourceNodes.length,
       filteredNodes: filteredNodes.length,
       serverlessSource: serverlessSourceNodes.length,
@@ -725,7 +779,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [
     scopedVpc,
     data?.nodes,
-    fullSystemNodes,
+    scopedEstate,
     gridSourceNodes.length,
     filteredNodes.length,
     serverlessSourceNodes.length,
@@ -757,20 +811,27 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   )
 
   const flowOverlayContext = useMemo(() => {
-    const vpces = data?.vpc_topology?.edges?.vpces ?? []
+    const vpces =
+      scopedVpcTopology?.edges?.vpces ?? data?.vpc_topology?.edges?.vpces ?? []
     const nodeTypeById = createMap(
       unscopedNodes.map(n => [n.id, n.type] as const),
     )
     const index = buildTopologyNodeIdIndex(unscopedNodes, depMapData?.nodes ?? [])
     const visible = buildVisibleCanvasIds(filteredNodes, unscopedNodes, vpces)
     return { vpces, nodeTypeById, index, visible }
-  }, [data?.vpc_topology?.edges?.vpces, unscopedNodes, depMapData?.nodes, filteredNodes])
+  }, [
+    scopedVpcTopology?.edges?.vpces,
+    data?.vpc_topology?.edges?.vpces,
+    unscopedNodes,
+    depMapData?.nodes,
+    filteredNodes,
+  ])
 
   const overlayEdges = useMemo(
     () =>
       selectEstateFlowEdges({
         mode: flowMode,
-        topologyTrafficEdges: data?.traffic_edges ?? [],
+        topologyTrafficEdges: scopedTrafficEdges,
         depMapEdges: depMapData?.edges ?? null,
         attackPaths,
         materializationAvailable: iapBody?.materialization_available === true,
@@ -781,7 +842,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       }),
     [
       flowMode,
-      data?.traffic_edges,
+      scopedTrafficEdges,
       depMapData?.edges,
       attackPaths,
       iapBody?.materialization_available,
@@ -802,10 +863,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [attackPaths, flowOverlayContext, iapBody?.materialization_available],
   )
 
-  const selectedNode = useMemo(
-    () => (selectedNodeId ? data?.nodes.find(n => n.id === selectedNodeId) ?? null : null),
-    [selectedNodeId, data?.nodes],
-  )
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null
+    return (
+      scopedEstate?.nodes.find(n => n.id === selectedNodeId) ??
+      data?.nodes.find(n => n.id === selectedNodeId) ??
+      null
+    )
+  }, [selectedNodeId, scopedEstate?.nodes, data?.nodes])
 
   const narrative = useMemo(
     () => (data ? buildHeadlineNarrative(data) : null),
@@ -815,10 +880,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const rankedEntries = useMemo(
     () =>
       buildRankedEntries(
-        data?.nodes ?? [],
-        data?.vpc_topology?.iam_roles ?? [],
+        scopedEstate?.nodes ?? data?.nodes ?? [],
+        scopedVpcTopology?.iam_roles ?? data?.vpc_topology?.iam_roles ?? [],
       ),
-    [data?.nodes, data?.vpc_topology?.iam_roles],
+    [scopedEstate?.nodes, data?.nodes, scopedVpcTopology?.iam_roles, data?.vpc_topology?.iam_roles],
   )
 
   const findingsUrl = `/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`
@@ -915,15 +980,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     ? `iam:${highlightedRoleName}`
     : selectedNodeId
 
-  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (data.vpc_topology ? (
+  const mapVpcTopology = scopedVpcTopology ?? data.vpc_topology
+
+  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (mapVpcTopology ? (
     <AwsFrame
-      vpcTopology={data.vpc_topology}
+      vpcTopology={mapVpcTopology}
       nodes={filteredNodes}
       mergedVpcView={!scopedVpc}
       hiddenAzs={hiddenAzs}
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
-      trafficEdges={data.traffic_edges}
+      trafficEdges={scopedTrafficEdges}
       overlayEdges={overlayEdges}
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
@@ -1032,7 +1099,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         </div>
       ) : null}
 
-      {(data.available_vpcs?.length ?? 0) > 0 ? (
+      {scopedAvailableVpcs.length > 0 ? (
         <div
           className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
@@ -1061,7 +1128,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             data-testid="topology-vpc-select"
           >
             <option value="all">All VPCs · Compare</option>
-            {(data.available_vpcs ?? []).map(v => (
+            {scopedAvailableVpcs.map(v => (
               <option key={v.vpc_id} value={v.vpc_id}>
                 {v.name} · {v.vpc_id} ({v.workload_count} workloads)
               </option>

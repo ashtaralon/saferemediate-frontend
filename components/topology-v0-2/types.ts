@@ -232,6 +232,8 @@ export interface AvailableVpc {
   vpc_id: string
   name: string
   workload_count: number
+  /** Own-tagged subnet count when BE provides it (optional). */
+  tagged_subnet_count?: number
 }
 
 export interface AvailableAccount {
