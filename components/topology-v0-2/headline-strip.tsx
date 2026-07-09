@@ -45,7 +45,7 @@ export function HeadlineStrip({
 
   return (
     <header
-      className="px-6 pt-5 pb-4 border-b-2"
+      className="px-6 pt-3 pb-2 border-b-2"
       style={{ background: "#F4F6F8", borderColor: "#00C2A8" }}
     >
       <div className="flex items-start justify-between gap-4 mb-3">
