@@ -2370,6 +2370,19 @@ function frameHasTier(frame: VpcFrameSpec, tier: "web" | "app" | "data"): boolea
   return false
 }
 
+/**
+ * Compare VPC column widths — weight by AZ count so a 2-AZ VPC isn't crushed
+ * to the same width as a 1-AZ peer (equal 1fr made each AZ cell ~half as wide).
+ */
+export function compareVpcColumnTemplate(frames: Pick<VpcFrameSpec, "grid">[]): string {
+  return frames
+    .map(f => {
+      const azN = Math.max(1, f.grid.azs.length)
+      return `minmax(0, ${azN}fr)`
+    })
+    .join(" ")
+}
+
 /** One-glance architecture story for the Compare view. */
 export function buildCompareArchitectureStory(
   frames: VpcFrameSpec[],
@@ -2511,7 +2524,9 @@ function MultiVpcCompareBands({
   highlightedRoleName: string | null
   systemLabel?: string
 }) {
-  const colTemplate = `repeat(${frames.length}, minmax(0, 1fr))`
+  // Weight VPC columns by AZ count so a 2-AZ shared VPC isn't crushed to the
+  // same width as a 1-AZ primary (equal 1fr made each AZ cell ~half as wide).
+  const colTemplate = compareVpcColumnTemplate(frames)
   const story = buildCompareArchitectureStory(frames, systemLabel)
   // Compare always collapses density — Web stacks must never grow the band.
   const densityCollapsed = true
@@ -2521,7 +2536,7 @@ function MultiVpcCompareBands({
 
   return (
     <div
-      className="grid gap-2 w-full min-w-0"
+      className="grid gap-2 w-full min-w-0 flex-1"
       data-testid="topology-vpc-compare-bands"
       style={{
         // Grow like single-VPC fullscreen — fill the viewport instead of a
@@ -2785,7 +2800,7 @@ function PrimaryPlusPeerStrip({
   const [primary, ...peers] = frames
   if (!primary) return null
   return (
-    <div className="flex flex-col gap-3 w-full min-w-0" data-testid="topology-primary-peer-strip">
+    <div className="flex flex-col gap-3 w-full min-w-0 flex-1" data-testid="topology-primary-peer-strip">
       <VpcCanvasFrame
         vpcId={primary.vid}
         grid={primary.grid}
@@ -2987,7 +3002,11 @@ function VpcCanvasFrame({
 
   return (
     <div
-      className={presentationMode ? "rounded-md p-2.5 relative shrink-0 min-w-0" : "rounded-md p-3 relative shrink-0"}
+      className={
+        presentationMode
+          ? "rounded-md p-2.5 relative min-w-0 flex-1"
+          : "rounded-md p-3 relative shrink-0"
+      }
       data-testid="topology-vpc-frame"
       style={
         presentationMode
@@ -2997,10 +3016,13 @@ function VpcCanvasFrame({
               // tracks instead of sizing its own, so Web/App/Data line up
               // across every VPC frame regardless of content density
               // (Alon: "the merged VPCs need to be perfectly parallel").
+              // flex-1 + width 100%: grow into the stretched viewport so
+              // "100%" is page-width, not the intrinsic ~half-width stamp.
               background: PAL.cardBg,
               border: `2px solid #00C2A8`,
               minWidth: `${vpcGridMinWidth}px`,
               width: "100%",
+              flex: "1 1 0%",
               display: "grid",
               gridTemplateRows: "subgrid",
               gridRow: "1 / -1",
@@ -3304,7 +3326,7 @@ export function AwsFrame({
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-1.5 space-y-1 relative w-full min-w-0 overflow-x-auto overflow-y-visible"
+          ? "rounded-xl p-1.5 space-y-1 relative w-full min-w-0 overflow-x-hidden overflow-y-visible"
           : "rounded-2xl p-3 space-y-3 relative max-w-full min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
@@ -3334,9 +3356,9 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — keep hero-size icons in fullscreen too
-          (presentationMode used to shrink them to text-sm / 8px labels). */}
-      <div className="flex items-center justify-center gap-6 py-2 pb-4">
+      {/* Internet + IGW perimeter — full-bleed left→right so wide viewports
+          don't leave ~25% empty gutters from a centered cluster + capped connectors. */}
+      <div className="flex items-center gap-4 py-2 pb-4 w-full min-w-0">
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
           <span className="text-4xl leading-none">👥</span>
           <span className="text-[13px] uppercase tracking-wider font-semibold">
@@ -3344,7 +3366,7 @@ export function AwsFrame({
           </span>
         </div>
         <div
-          className="flex-1 max-w-[180px] border-t-2 border-dashed"
+          className="flex-1 min-w-[48px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
@@ -3354,7 +3376,7 @@ export function AwsFrame({
           </span>
         </div>
         <div
-          className="flex-1 max-w-[180px] border-t-2 border-dashed"
+          className="flex-1 min-w-[48px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
         <div
@@ -3415,7 +3437,7 @@ export function AwsFrame({
           <div
             className={`flex flex-nowrap items-stretch ${
               presentationMode ? "mt-1 w-full" : "mt-3"
-            } min-w-0 overflow-x-auto overflow-y-visible pb-1`}
+            } min-w-0 ${presentationMode ? "overflow-x-hidden" : "overflow-x-auto"} overflow-y-visible pb-1`}
           >
             {mergedVpcView && frames.length > 1 ? (
               frames.length > COMPARE_BANDS_MAX_VPCS ? (
@@ -3447,7 +3469,7 @@ export function AwsFrame({
               )
             ) : presentationMode ? (
               <div
-                className="grid items-stretch w-full min-w-0"
+                className="grid items-stretch w-full min-w-0 flex-1"
                 data-testid="topology-single-vpc-grid"
                 style={{
                   gridTemplateColumns: "minmax(0, 1fr)",
@@ -3455,6 +3477,7 @@ export function AwsFrame({
                   gridTemplateRows: `auto auto minmax(${COMPARE_TIER_MIN_PX.web}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.app}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.data}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.iam}px, auto)`,
                   gap: "10px",
                   width: "100%",
+                  flex: "1 1 0%",
                 }}
               >
                 {frames.map(f => (
