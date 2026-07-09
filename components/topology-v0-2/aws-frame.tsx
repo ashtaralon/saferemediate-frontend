@@ -2710,14 +2710,16 @@ const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
  *  `1fr` above these floors so fullscreen fills like single-VPC (no 50%
  *  empty viewport). Overflow scrolls inside the cell, not the band. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 168,
-  app: 148,
-  data: 148,
-  iam: 96,
+  web: 188,
+  app: 168,
+  data: 168,
+  iam: 72,
 }
 
 /** Fullscreen / presentation floors — lower so Web+App+Data+IAM fit in one
- *  viewport at width-fill 100% without clipping the private Data tier. */
+ *  viewport at width-fill 100% without clipping the private Data tier.
+ *  Single-VPC only — Compare uses COMPARE_TIER_MIN_PX even in fullscreen so
+ *  VPC titles + subnet cells stay readable when columns split the width. */
 export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
   web: 100,
   app: 92,
@@ -2725,13 +2727,23 @@ export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", nu
   iam: 56,
 }
 
+/** Compare VPC chrome must not collapse when fr-tier rows compete for height. */
+export const COMPARE_VPC_CHROME_MIN_PX = 64
+
 /** Above this count, Compare bands become too narrow — fall back to
  *  primary VPC detail + peer strip (Layout C). */
 export const COMPARE_BANDS_MAX_VPCS = 3
 
 function shortVpcId(vid: string | null): string {
   if (!vid) return "unknown"
-  return vid.length > 14 ? `${vid.slice(0, 10)}…` : vid
+  return vid.length > 18 ? `${vid.slice(0, 14)}…` : vid
+}
+
+/** Human label for a Compare VPC column — owner system beats truncated id. */
+function compareVpcTitle(frame: VpcFrameSpec, isPrimary?: boolean): string {
+  if (frame.isForeign && frame.ownerSystem) return frame.ownerSystem
+  if (isPrimary) return "Own VPC · primary"
+  return "Own VPC"
 }
 
 function countTierWorkloads(frame: VpcFrameSpec, tier: "web" | "app" | "data"): number {
@@ -2807,54 +2819,70 @@ function VpcColumnChrome({
   const isShared = Boolean(frame.isForeign)
   const accent = isShared ? "#B45309" : "#0E8B7A"
   const border = isShared ? "#F59E0B" : "#00C2A8"
+  const title = compareVpcTitle(frame, isPrimary)
   return (
     <div
-      className={compact ? "px-1.5 py-1" : "px-2 py-1.5"}
+      className={compact ? "px-2 py-1.5" : "px-2.5 py-2"}
       style={{
         background: isShared ? "#FFFBEB" : "#F0FDFA",
-        borderBottom: `1.5px solid ${border}`,
+        borderBottom: `2px solid ${border}`,
+        minHeight: COMPARE_VPC_CHROME_MIN_PX,
       }}
       data-testid="topology-vpc-column-chrome"
     >
-      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+      <div className="flex items-start justify-between gap-2 min-w-0">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            {isShared ? (
+              <span
+                className="px-1.5 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-[0.1em] shrink-0"
+                style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+                title={`Shared VPC — subnets tagged for "${frame.ownerSystem ?? "peer"}". This system's workloads run here.`}
+              >
+                shared
+              </span>
+            ) : (
+              <span
+                className="px-1.5 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-[0.1em] shrink-0"
+                style={{ background: "#CCFBF1", color: "#0F766E", border: "1px solid #14B8A6" }}
+              >
+                {isPrimary ? "primary" : "own"}
+              </span>
+            )}
+            <span
+              className="text-[13px] font-bold truncate leading-tight"
+              style={{ color: accent }}
+              title={title}
+              data-testid="topology-compare-vpc-title"
+            >
+              {title}
+            </span>
+          </div>
+          <div
+            className="text-[11px] font-mono font-semibold mt-0.5 truncate"
+            style={{ color: PAL.ink }}
+            title={frame.vid ?? "unknown"}
+            data-testid="topology-compare-vpc-id"
+          >
+            {frame.vid ?? "unknown"}
+          </div>
+        </div>
         <span
-          className="text-[10px] font-mono font-bold uppercase tracking-[0.08em] truncate"
+          className="text-[10px] font-bold tabular-nums shrink-0 pt-0.5"
           style={{ color: accent }}
-          title={frame.vid ?? "unknown"}
+          title="Workloads in Web · App · Data"
         >
-          VPC · {shortVpcId(frame.vid)}
-        </span>
-        {isPrimary && !frame.isForeign ? (
-          <span
-            className="px-1 rounded-sm text-[8px] font-semibold shrink-0"
-            style={{ background: "#CCFBF1", color: "#0F766E", border: "1px solid #14B8A6" }}
-          >
-            primary
-          </span>
-        ) : null}
-        {frame.isForeign && frame.ownerSystem ? (
-          <span
-            className="px-1 rounded-sm text-[8px] font-semibold shrink-0"
-            style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
-            title={`Shared VPC — subnets tagged for "${frame.ownerSystem}". This system's workloads run here.`}
-          >
-            shared · {frame.ownerSystem}
-          </span>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-2 mt-0.5 min-w-0 flex-wrap">
-        {cidrHint ? (
-          <span className="text-[9px] font-mono truncate" style={{ color: "#5A6B7A" }}>
-            {cidrHint}
-          </span>
-        ) : null}
-        <span className="text-[9px] font-semibold tabular-nums" style={{ color: accent }}>
           W{webN} · A{appN} · D{dataN}
         </span>
       </div>
+      {cidrHint ? (
+        <div className="text-[10px] font-mono mt-1 truncate" style={{ color: "#5A6B7A" }}>
+          {cidrHint}
+        </div>
+      ) : null}
       {frame.grid.azs.length > 0 ? (
         <div
-          className="grid gap-1 mt-1.5 pt-1"
+          className="grid gap-1.5 mt-1.5 pt-1.5"
           style={{
             gridTemplateColumns: `repeat(${frame.grid.azs.length}, minmax(0, 1fr))`,
             borderTop: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
@@ -2864,8 +2892,8 @@ function VpcColumnChrome({
           {frame.grid.azs.map(az => (
             <div
               key={az}
-              className="text-[9px] font-mono font-bold uppercase tracking-[0.08em] text-center truncate"
-              style={{ color: "#5A6B7A" }}
+              className="text-[10px] font-mono font-bold uppercase tracking-[0.08em] text-center truncate"
+              style={{ color: "#334155" }}
               title={az}
             >
               {az}
@@ -2922,17 +2950,19 @@ function MultiVpcCompareBands({
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
   const hasAnyNat = frames.some(f => f.natGws.length > 0)
   const hasIngress = hasAnyAlb || hasAnyNat
-  const tierMins = compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX
+  // Compare always uses Compare floors — presentation mins crush subnet cells
+  // when width is split across VPC columns (Alon, 2026-07-09).
+  const tierMins = COMPARE_TIER_MIN_PX
   const sidebarW = compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal
 
   // Parent rows: chrome → optional ingress → web → app → data.
   // VPC columns use subgrid so tier heights stay locked across VPCs.
   const bodyRowTemplate = [
-    "auto",
+    `minmax(${COMPARE_VPC_CHROME_MIN_PX}px, auto)`,
     hasIngress ? "auto" : null,
-    `minmax(${tierMins.web}px, 1.1fr)`,
-    `minmax(${tierMins.app}px, 1fr)`,
-    `minmax(${tierMins.data}px, 1fr)`,
+    `minmax(${tierMins.web}px, 1.15fr)`,
+    `minmax(${tierMins.app}px, 1.1fr)`,
+    `minmax(${tierMins.data}px, 1.1fr)`,
   ]
     .filter(Boolean)
     .join(" ")
@@ -2945,12 +2975,13 @@ function MultiVpcCompareBands({
       data-testid="topology-vpc-compare-bands"
       style={{
         ...(compact
-          ? { height: "100%", minHeight: 0 }
-          : { minHeight: "min(72vh, 820px)" }),
+          ? { height: "100%", minHeight: 0, overflowY: "auto" }
+          : { minHeight: "min(78vh, 900px)" }),
         gridTemplateRows: [
           "auto", // system path
           "minmax(0, 1fr)", // VPC columns body
-          iamRoles.length > 0 ? `minmax(${tierMins.iam}px, 0.55fr)` : null,
+          // IAM stays a thin strip — don't steal height from subnet tiers
+          iamRoles.length > 0 ? `minmax(${tierMins.iam}px, auto)` : null,
         ]
           .filter(Boolean)
           .join(" "),
@@ -2978,7 +3009,7 @@ function MultiVpcCompareBands({
       <div
         className="grid min-h-0 min-w-0 w-full"
         style={{
-          gridTemplateColumns: `${sidebarW}px ${colTemplate}`,
+          gridTemplateColumns: `${sidebarW} ${colTemplate}`,
           gridTemplateRows: bodyRowTemplate,
           // Wide gutter = clear VPC boundary (AWS multi-VPC diagram grammar)
           columnGap: 14,
@@ -3073,7 +3104,9 @@ function MultiVpcCompareBands({
 
               {hasIngress ? (
                 <div
-                  className="px-1.5 py-1.5 flex flex-col items-center gap-1 min-h-[44px]"
+                  className={`px-2 flex flex-col items-center gap-1 ${
+                    f.grid.albNodes.length > 0 || f.natGws.length > 0 ? "py-2" : "py-1"
+                  }`}
                   style={{
                     borderBottom: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
                     background:
@@ -3082,13 +3115,14 @@ function MultiVpcCompareBands({
                           ? "#FFF7ED"
                           : "#F5F3FF"
                         : "transparent",
+                    minHeight: f.grid.albNodes.length > 0 || f.natGws.length > 0 ? 52 : 28,
                   }}
                 >
                   {f.grid.albNodes.length > 0 ? (
                     <>
                       <div className="flex items-center gap-1" style={{ color: PAL.slate }}>
                         <AlbGlyph size={12} />
-                        <span className="text-[9px] uppercase tracking-[0.12em] font-semibold">
+                        <span className="text-[10px] uppercase tracking-[0.12em] font-semibold">
                           {f.grid.albNodes.length === 1
                             ? "Application Load Balancer"
                             : `Load Balancers (${f.grid.albNodes.length})`}
@@ -3107,8 +3141,8 @@ function MultiVpcCompareBands({
                       </div>
                     </>
                   ) : (
-                    <div className="text-[9px] italic py-1" style={{ color: PAL.slate }}>
-                      No ALB in this VPC
+                    <div className="text-[10px] italic" style={{ color: PAL.slate }}>
+                      No ALB
                     </div>
                   )}
                   {f.natGws.length > 0 ? (
@@ -3151,7 +3185,7 @@ function MultiVpcCompareBands({
                 return (
                   <div
                     key={`${f.vid}-${tier}`}
-                    className="p-1.5 min-h-0 h-full flex flex-col overflow-hidden"
+                    className="p-2 min-h-0 h-full flex flex-col overflow-hidden"
                     style={{
                       background: TIER_BG[tier],
                       borderTop:
@@ -3164,7 +3198,7 @@ function MultiVpcCompareBands({
                   >
                     {!hasTierContent ? (
                       <div
-                        className="text-[10px] italic flex-1 flex items-center justify-center text-center px-1 rounded-md"
+                        className="text-[11px] italic flex-1 flex items-center justify-center text-center px-2 rounded-md"
                         style={{
                           color: PAL.slate,
                           background: "rgba(255,255,255,0.55)",
@@ -3176,7 +3210,7 @@ function MultiVpcCompareBands({
                       </div>
                     ) : (
                       <div
-                        className="grid gap-1.5 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
+                        className="grid gap-2 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
                         style={{ gridTemplateColumns: azCols }}
                       >
                         {azs.map(az => {
@@ -3192,7 +3226,7 @@ function MultiVpcCompareBands({
                               sgIndex={sgIndex}
                               selectedNodeId={selectedNodeId}
                               onSelect={onSelect}
-                              compact
+                              compact={false}
                               roleForWorkload={roleForWorkload}
                               densityCollapsed={densityCollapsed}
                               viewDensity={viewDensity}
