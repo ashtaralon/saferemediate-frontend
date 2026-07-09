@@ -11,6 +11,7 @@ import {
   AwsFrame,
   COMPARE_BANDS_MAX_VPCS,
   COMPARE_TIER_MIN_PX,
+  PRESENTATION_TIER_MIN_PX,
   buildCompareArchitectureStory,
   buildVpcFrames,
   compareVpcColumnTemplate,
@@ -104,6 +105,12 @@ describe("COMPARE_TIER_MIN_PX lock contract", () => {
 
   it("caps Compare bands at 3 VPCs before Layout C fallback", () => {
     expect(COMPARE_BANDS_MAX_VPCS).toBe(3)
+  })
+
+  it("presentation tier mins are lower so Data fits with Web/App in one viewport", () => {
+    expect(PRESENTATION_TIER_MIN_PX.data).toBeGreaterThanOrEqual(72)
+    expect(PRESENTATION_TIER_MIN_PX.web).toBeLessThan(COMPARE_TIER_MIN_PX.web)
+    expect(PRESENTATION_TIER_MIN_PX.data).toBeLessThan(COMPARE_TIER_MIN_PX.data)
   })
 })
 
