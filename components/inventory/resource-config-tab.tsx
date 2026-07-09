@@ -354,6 +354,7 @@ function VpcConfig({ data }: { data: InspectorPayload }) {
   )
 }
 
+function RouteTableRoutes({ data }: { data: InspectorPayload }) {
   const current = data.current ?? {}
   const routes: any[] = Array.isArray(current.routes) ? current.routes : []
   const associations: any[] = Array.isArray(current.associations) ? current.associations : []
