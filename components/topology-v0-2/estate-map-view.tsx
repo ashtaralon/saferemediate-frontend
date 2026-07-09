@@ -45,7 +45,10 @@ import {
   selectEstateFlowEdges,
   type EstateFlowMode,
 } from "@/components/topology-v0-2/estate-flow-edges"
-import { applySystemEstateScope } from "@/components/topology-v0-2/estate-system-scope"
+import {
+  applySystemEstateScope,
+  narrowSystemEstateToVpc,
+} from "@/components/topology-v0-2/estate-system-scope"
 import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
@@ -219,30 +222,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       availableVpcs: source.available_vpcs ?? data?.available_vpcs ?? [],
     })
     if (!scopedVpc) return scoped
-    return {
-      ...scoped,
-      nodes: scoped.nodes.filter(n => {
-        if (n.vpc_id === scopedVpc) return true
-        // Regional / serverless stay visible on rails in single-VPC view.
-        if (!n.vpc_id) return true
-        return false
-      }),
-      vpcTopology: {
-        ...scoped.vpcTopology,
-        subnets: (scoped.vpcTopology.subnets ?? []).filter(s => s.vpc_id === scopedVpc),
-        edges: {
-          igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
-            i => !i.vpc_id || i.vpc_id === scopedVpc,
-          ),
-          nat_gws: (scoped.vpcTopology.edges?.nat_gws ?? []).filter(
-            i => !i.vpc_id || i.vpc_id === scopedVpc,
-          ),
-          vpces: (scoped.vpcTopology.edges?.vpces ?? []).filter(
-            i => !i.vpc_id || i.vpc_id === scopedVpc,
-          ),
-        },
-      },
-    }
+    return narrowSystemEstateToVpc(scoped, scopedVpc)
   }, [data, fullSystemPayload, systemName, scopedVpc])
 
   const serverlessSourceNodes = useMemo(
