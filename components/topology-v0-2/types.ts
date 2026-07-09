@@ -115,6 +115,24 @@ export interface TopologyNode {
       edge_count: number
     }>
   }
+  /** Foreign systems with observed/declared edges into this shared resource. */
+  foreign_consumer_system_count?: number
+  foreign_consumer_systems?: string[]
+  foreign_shared_access_count?: number
+}
+
+/** Cross-system consumption of this system's shared S3/RDS/DDB (not co-location). */
+export interface ForeignSharedAccessEdge {
+  foreign_system: string
+  consumer_id: string
+  consumer_name: string
+  consumer_kind: string
+  shared_resource_id: string
+  shared_resource_name: string
+  resource_kind: "S3" | "RDS" | "DDB" | string
+  rel_type: string
+  evidence_tier: "observed" | "declared"
+  last_seen: string | null
 }
 
 export type SubnetTier = "web" | "app" | "data" | "unknown"
@@ -266,6 +284,8 @@ export interface TopologyRiskResponse {
   vpc_topology?: VpcTopology | null
   // Phase B addition — present on responses from BE >= phase-b deploy.
   traffic_edges?: TrafficEdge[]
+  /** External systems consuming this system's shared data (observed/declared). */
+  foreign_shared_access?: ForeignSharedAccessEdge[]
   error?: string
   fromStaleCache?: boolean
 }
