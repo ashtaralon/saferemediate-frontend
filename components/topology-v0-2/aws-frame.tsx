@@ -2804,20 +2804,22 @@ function VpcColumnChrome({
   const webN = countTierWorkloads(frame, "web")
   const appN = countTierWorkloads(frame, "app")
   const dataN = countTierWorkloads(frame, "data")
-  const azLabels = frame.grid.azs.map(az => az.replace(/^.*-/, ""))
+  const isShared = Boolean(frame.isForeign)
+  const accent = isShared ? "#B45309" : "#0E8B7A"
+  const border = isShared ? "#F59E0B" : "#00C2A8"
   return (
     <div
       className={compact ? "px-1.5 py-1" : "px-2 py-1.5"}
       style={{
-        background: "#F0FDFA",
-        borderBottom: "1.5px solid #00C2A8",
+        background: isShared ? "#FFFBEB" : "#F0FDFA",
+        borderBottom: `1.5px solid ${border}`,
       }}
       data-testid="topology-vpc-column-chrome"
     >
       <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
         <span
           className="text-[10px] font-mono font-bold uppercase tracking-[0.08em] truncate"
-          style={{ color: "#0E8B7A" }}
+          style={{ color: accent }}
           title={frame.vid ?? "unknown"}
         >
           VPC · {shortVpcId(frame.vid)}
@@ -2846,16 +2848,16 @@ function VpcColumnChrome({
             {cidrHint}
           </span>
         ) : null}
-        <span className="text-[9px] font-semibold tabular-nums" style={{ color: "#0E8B7A" }}>
+        <span className="text-[9px] font-semibold tabular-nums" style={{ color: accent }}>
           W{webN} · A{appN} · D{dataN}
         </span>
       </div>
-      {azLabels.length > 0 ? (
+      {frame.grid.azs.length > 0 ? (
         <div
           className="grid gap-1 mt-1.5 pt-1"
           style={{
-            gridTemplateColumns: `repeat(${azLabels.length}, minmax(0, 1fr))`,
-            borderTop: "1px dashed #99F6E4",
+            gridTemplateColumns: `repeat(${frame.grid.azs.length}, minmax(0, 1fr))`,
+            borderTop: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
           }}
           data-testid="topology-vpc-az-headers"
         >
@@ -2876,11 +2878,14 @@ function VpcColumnChrome({
 }
 
 /**
- * Layout B — All VPCs · Compare.
- * Rows = locked Web / App / Data bands (tiers own height).
- * Columns = VPCs (equal width, strong chrome).
+ * Layout B — All VPCs · Compare (AWS multi-VPC grammar).
+ *
+ * Each VPC is a full-height bordered column (own = teal, shared = amber) so
+ * multi-VPC estates read as distinct boxes — same idea as AWS multi-account /
+ * multi-VPC architecture diagrams — while CSS subgrid keeps Web / App / Data
+ * tier rows aligned across columns.
+ *
  * Subcolumns = AZs. Overflow stays inside the tier cell.
- * Goal: a teammate reads Internet → Web → App → Data across VPCs in one glance.
  */
 function MultiVpcCompareBands({
   frames,
@@ -2916,27 +2921,36 @@ function MultiVpcCompareBands({
 
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
   const hasAnyNat = frames.some(f => f.natGws.length > 0)
+  const hasIngress = hasAnyAlb || hasAnyNat
+  const tierMins = compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX
+  const sidebarW = compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal
+
+  // Parent rows: chrome → optional ingress → web → app → data.
+  // VPC columns use subgrid so tier heights stay locked across VPCs.
+  const bodyRowTemplate = [
+    "auto",
+    hasIngress ? "auto" : null,
+    `minmax(${tierMins.web}px, 1.1fr)`,
+    `minmax(${tierMins.app}px, 1fr)`,
+    `minmax(${tierMins.data}px, 1fr)`,
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  const tierRowStart = hasIngress ? 3 : 2
 
   return (
     <div
       className={`grid gap-2 w-full min-w-0 ${compact ? "h-full min-h-0" : ""}`}
       data-testid="topology-vpc-compare-bands"
       style={{
-        // Fullscreen (compact): fill parent viewport height so Data stays
-        // visible at width-fill 100%. Inline: grow like single-VPC.
         ...(compact
           ? { height: "100%", minHeight: 0 }
           : { minHeight: "min(72vh, 820px)" }),
         gridTemplateRows: [
           "auto", // system path
-          "auto", // VPC chrome
-          hasAnyAlb || hasAnyNat ? "auto" : null, // ingress (ALB/NAT) — Web path
-          `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).web}px, 1.1fr)`,
-          `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).app}px, 1fr)`,
-          `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).data}px, 1fr)`,
-          iamRoles.length > 0
-            ? `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).iam}px, 0.55fr)`
-            : null,
+          "minmax(0, 1fr)", // VPC columns body
+          iamRoles.length > 0 ? `minmax(${tierMins.iam}px, 0.55fr)` : null,
         ]
           .filter(Boolean)
           .join(" "),
@@ -2961,193 +2975,245 @@ function MultiVpcCompareBands({
         </span>
       </div>
 
-      {/* VPC column headers — identity only (ALB lives in the Web ingress row) */}
-      <div className="grid gap-2" style={{ gridTemplateColumns: colTemplate }}>
-        {frames.map((f, idx) => (
-          <div
-            key={`hdr-${f.vid}`}
-            className="rounded-md overflow-hidden flex flex-col"
-            style={{ border: "2px solid #00C2A8", background: PAL.cardBg }}
-          >
-            <VpcColumnChrome frame={f} compact={compact} isPrimary={idx === 0} />
-          </div>
-        ))}
-      </div>
+      <div
+        className="grid min-h-0 min-w-0 w-full"
+        style={{
+          gridTemplateColumns: `${sidebarW}px ${colTemplate}`,
+          gridTemplateRows: bodyRowTemplate,
+          // Wide gutter = clear VPC boundary (AWS multi-VPC diagram grammar)
+          columnGap: 14,
+          rowGap: 0,
+        }}
+        data-testid="topology-compare-vpc-columns"
+      >
+        {/* Corner above tier labels */}
+        <div style={{ gridColumn: 1, gridRow: 1 }} aria-hidden />
 
-      {/* Ingress row — ALB/NAT sit on the Internet → Web path (not floating in VPC chrome) */}
-      {hasAnyAlb || hasAnyNat ? (
-        <div
-          className="grid gap-2"
-          style={{ gridTemplateColumns: colTemplate }}
-          data-testid="topology-compare-ingress-row"
-        >
-          {frames.map(f => (
-            <div
-              key={`ingress-${f.vid}`}
-              className="rounded-md px-1.5 py-1.5 flex flex-col items-center gap-1 min-h-[44px]"
-              style={{
-                border: "1.5px dashed #A5B4C3",
-                background: f.grid.albNodes.length > 0 ? "#F5F3FF" : "rgba(255,255,255,0.4)",
-              }}
-            >
-              {f.grid.albNodes.length > 0 ? (
-                <>
-                  <div className="flex items-center gap-1" style={{ color: PAL.slate }}>
-                    <AlbGlyph size={12} />
-                    <span className="text-[9px] uppercase tracking-[0.12em] font-semibold">
-                      {f.grid.albNodes.length === 1
-                        ? "Application Load Balancer"
-                        : `Load Balancers (${f.grid.albNodes.length})`}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 justify-center">
-                    {f.grid.albNodes.map(n => (
-                      <WorkloadChip
-                        key={n.id}
-                        node={n}
-                        size="gateway"
-                        selected={n.id === selectedNodeId}
-                        onClick={() => onSelect(n.id)}
-                      />
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="text-[9px] italic py-1" style={{ color: PAL.slate }}>
-                  No ALB in this VPC
-                </div>
-              )}
-              {f.natGws.length > 0 ? (
-                <div className="flex flex-wrap gap-1 justify-center">
-                  {f.natGws.map(n => (
-                    <span
-                      key={n.id}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-                      style={{
-                        background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
-                        border: "2px solid #FF9900",
-                        color: "#7B3F00",
-                      }}
-                      data-testid="topology-nat-gateway-chip"
-                      title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
-                    >
-                      <span
-                        className="inline-flex items-center justify-center rounded text-[9px] font-bold w-7 h-7 shrink-0"
-                        style={{ background: PAL.awsFrame, color: PAL.awsOrange }}
-                      >
-                        NAT
-                      </span>
-                      {n.name}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {TIERS.map((tier, tierIdx) => (
-        <div
-          key={tier}
-          data-testid={tierIdx === 0 ? "topology-tier-stack" : `topology-tier-band-${tier}`}
-          className="flex gap-0 w-full min-h-0 h-full"
-          style={{
-            minHeight: (compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX)[tier],
-          }}
-        >
+        {hasIngress ? (
           <div
-            className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
+            className="flex items-center justify-center self-stretch"
             style={{
+              gridColumn: 1,
+              gridRow: 2,
               background: PAL.ink,
               color: "white",
-              width: compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+              writingMode: "vertical-rl",
+              transform: "rotate(180deg)",
+              fontSize: "9px",
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              borderRadius: "6px 0 0 6px",
+            }}
+            data-testid="topology-compare-ingress-row"
+          >
+            INGRESS
+          </div>
+        ) : null}
+
+        {TIERS.map((tier, tierIdx) => (
+          <div
+            key={`side-${tier}`}
+            data-testid={tierIdx === 0 ? "topology-tier-stack" : `topology-tier-band-${tier}`}
+            className="flex items-center justify-center self-stretch"
+            style={{
+              gridColumn: 1,
+              gridRow: tierRowStart + tierIdx,
+              background: PAL.ink,
+              color: "white",
               writingMode: "vertical-rl",
               transform: "rotate(180deg)",
               fontSize: "10px",
               fontWeight: 700,
               letterSpacing: "0.18em",
+              borderRadius:
+                tierIdx === TIERS.length - 1 && !hasIngress
+                  ? "6px 0 0 6px"
+                  : tierIdx === 0 && !hasIngress
+                    ? "6px 0 0 0"
+                    : 0,
+              minHeight: tierMins[tier],
             }}
           >
             {TIER_SIDEBAR_LABEL[tier]}
           </div>
-          <div
-            className="rounded-r-md p-1.5 flex-1 grid gap-2 min-h-0 h-full overflow-hidden"
-            style={{
-              background: TIER_BG[tier],
-              gridTemplateColumns: colTemplate,
-            }}
-          >
-            {frames.map(f => {
-              const azs = f.grid.azs
-              const azCols =
-                azs.length > 0
-                  ? azs.map(() => "minmax(0, 1fr)").join(" ")
-                  : "1fr"
-              const hasTierContent = frameHasTier(f, tier)
-              const emptyTierCopy =
-                tier === "data"
-                  ? "No data subnet observed · no RDS / DB workload in this VPC"
-                  : `No ${tier} subnet observed in this VPC`
-              return (
+        ))}
+
+        {frames.map((f, idx) => {
+          const isShared = Boolean(f.isForeign)
+          const borderColor = isShared ? "#F59E0B" : "#00C2A8"
+          const columnBg = isShared ? "rgba(255, 251, 235, 0.72)" : "rgba(240, 253, 250, 0.55)"
+          return (
+            <div
+              key={`col-${f.vid}`}
+              className="min-w-0 min-h-0 overflow-hidden"
+              style={{
+                gridColumn: idx + 2,
+                gridRow: "1 / -1",
+                display: "grid",
+                gridTemplateRows: "subgrid",
+                border: `2.5px solid ${borderColor}`,
+                borderRadius: 8,
+                background: columnBg,
+                boxShadow: isShared
+                  ? "inset 0 0 0 1px rgba(245, 158, 11, 0.25)"
+                  : "inset 0 0 0 1px rgba(0, 194, 168, 0.2)",
+              }}
+              data-testid={`topology-compare-vpc-column-${f.vid}`}
+              data-vpc-role={isShared ? "shared" : idx === 0 ? "primary" : "own"}
+            >
+              <div
+                className="overflow-hidden"
+                style={{
+                  borderBottom: `1.5px solid ${borderColor}`,
+                  background: isShared ? "#FFFBEB" : "#F0FDFA",
+                }}
+              >
+                <VpcColumnChrome frame={f} compact={compact} isPrimary={idx === 0} />
+              </div>
+
+              {hasIngress ? (
                 <div
-                  key={`${f.vid}-${tier}`}
-                  className="rounded-md p-1 min-h-0 h-full flex flex-col overflow-hidden"
+                  className="px-1.5 py-1.5 flex flex-col items-center gap-1 min-h-[44px]"
                   style={{
-                    border: "1.5px solid #00C2A8",
-                    background: "rgba(255,255,255,0.65)",
+                    borderBottom: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
+                    background:
+                      f.grid.albNodes.length > 0
+                        ? isShared
+                          ? "#FFF7ED"
+                          : "#F5F3FF"
+                        : "transparent",
                   }}
-                  data-testid={`topology-compare-cell-${f.vid}-${tier}`}
                 >
-                  {!hasTierContent ? (
-                    <div
-                      className="text-[10px] italic flex-1 flex items-center justify-center text-center px-1"
-                      style={{ color: PAL.slate }}
-                      data-testid={tier === "data" ? "topology-data-tier-empty" : undefined}
-                    >
-                      {emptyTierCopy}
-                    </div>
-                  ) : (
-                    <div
-                      className="grid gap-1 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
-                      style={{ gridTemplateColumns: azCols }}
-                    >
-                      {azs.map(az => {
-                        const subnetsHere = f.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
-                        const workloadsHere = f.grid.byAzAndTier.get(az)?.get(tier) ?? []
-                        return (
-                          <SubnetCell
-                            key={`${f.vid}-${az}-${tier}`}
-                            tier={tier}
-                            az={az}
-                            subnetsHere={subnetsHere}
-                            workloadsHere={workloadsHere}
-                            sgIndex={sgIndex}
-                            selectedNodeId={selectedNodeId}
-                            onSelect={onSelect}
-                            compact
-                            roleForWorkload={roleForWorkload}
-                            densityCollapsed={densityCollapsed}
-                            viewDensity={viewDensity}
+                  {f.grid.albNodes.length > 0 ? (
+                    <>
+                      <div className="flex items-center gap-1" style={{ color: PAL.slate }}>
+                        <AlbGlyph size={12} />
+                        <span className="text-[9px] uppercase tracking-[0.12em] font-semibold">
+                          {f.grid.albNodes.length === 1
+                            ? "Application Load Balancer"
+                            : `Load Balancers (${f.grid.albNodes.length})`}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 justify-center">
+                        {f.grid.albNodes.map(n => (
+                          <WorkloadChip
+                            key={n.id}
+                            node={n}
+                            size="gateway"
+                            selected={n.id === selectedNodeId}
+                            onClick={() => onSelect(n.id)}
                           />
-                        )
-                      })}
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[9px] italic py-1" style={{ color: PAL.slate }}>
+                      No ALB in this VPC
                     </div>
                   )}
+                  {f.natGws.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 justify-center">
+                      {f.natGws.map(n => (
+                        <span
+                          key={n.id}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+                          style={{
+                            background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
+                            border: "2px solid #FF9900",
+                            color: "#7B3F00",
+                          }}
+                          data-testid="topology-nat-gateway-chip"
+                          title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
+                        >
+                          <span
+                            className="inline-flex items-center justify-center rounded text-[9px] font-bold w-7 h-7 shrink-0"
+                            style={{ background: PAL.awsFrame, color: PAL.awsOrange }}
+                          >
+                            NAT
+                          </span>
+                          {n.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              )
-            })}
-          </div>
-        </div>
-      ))}
+              ) : null}
 
-      {/* IAM band — min height + horizontal scroll so roles are not cut off */}
+              {TIERS.map((tier, tierIdx) => {
+                const azs = f.grid.azs
+                const azCols =
+                  azs.length > 0 ? azs.map(() => "minmax(0, 1fr)").join(" ") : "1fr"
+                const hasTierContent = frameHasTier(f, tier)
+                const emptyTierCopy =
+                  tier === "data"
+                    ? "No data subnet observed · no RDS / DB workload in this VPC"
+                    : `No ${tier} subnet observed in this VPC`
+                return (
+                  <div
+                    key={`${f.vid}-${tier}`}
+                    className="p-1.5 min-h-0 h-full flex flex-col overflow-hidden"
+                    style={{
+                      background: TIER_BG[tier],
+                      borderTop:
+                        tierIdx === 0 && !hasIngress
+                          ? undefined
+                          : `1px solid ${isShared ? "rgba(245, 158, 11, 0.35)" : "rgba(0, 194, 168, 0.28)"}`,
+                      minHeight: tierMins[tier],
+                    }}
+                    data-testid={`topology-compare-cell-${f.vid}-${tier}`}
+                  >
+                    {!hasTierContent ? (
+                      <div
+                        className="text-[10px] italic flex-1 flex items-center justify-center text-center px-1 rounded-md"
+                        style={{
+                          color: PAL.slate,
+                          background: "rgba(255,255,255,0.55)",
+                          border: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
+                        }}
+                        data-testid={tier === "data" ? "topology-data-tier-empty" : undefined}
+                      >
+                        {emptyTierCopy}
+                      </div>
+                    ) : (
+                      <div
+                        className="grid gap-1.5 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
+                        style={{ gridTemplateColumns: azCols }}
+                      >
+                        {azs.map(az => {
+                          const subnetsHere = f.grid.subnetsByCell.get(`${az}::${tier}`) ?? []
+                          const workloadsHere = f.grid.byAzAndTier.get(az)?.get(tier) ?? []
+                          return (
+                            <SubnetCell
+                              key={`${f.vid}-${az}-${tier}`}
+                              tier={tier}
+                              az={az}
+                              subnetsHere={subnetsHere}
+                              workloadsHere={workloadsHere}
+                              sgIndex={sgIndex}
+                              selectedNodeId={selectedNodeId}
+                              onSelect={onSelect}
+                              compact
+                              roleForWorkload={roleForWorkload}
+                              densityCollapsed={densityCollapsed}
+                              viewDensity={viewDensity}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* IAM band — system-scoped, spans below VPC columns */}
       {iamRoles.length > 0 ? (
         <div
           className="flex gap-0 w-full min-h-0 overflow-x-auto overflow-y-hidden"
-          style={{
-            minHeight: (compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).iam,
-          }}
+          style={{ minHeight: tierMins.iam }}
           data-testid="topology-tier-band-iam"
         >
           <div
@@ -3155,7 +3221,7 @@ function MultiVpcCompareBands({
             style={{
               background: "#DD344C",
               color: "white",
-              width: compact ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal,
+              width: sidebarW,
               writingMode: "vertical-rl",
               transform: "rotate(180deg)",
               fontSize: "9px",
