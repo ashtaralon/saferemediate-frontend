@@ -357,6 +357,7 @@ function RouteTableRoutes({ data }: { data: InspectorPayload }) {
   )
 }
 
+function SubnetProperties({ data }: { data: InspectorPayload }) {
   const current = data.current ?? {}
   const observed = data.observed ?? {}
   const routes: any[] = Array.isArray(current.routes) ? current.routes : []
