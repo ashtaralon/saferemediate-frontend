@@ -343,6 +343,7 @@ function GraphResourceConfig({ data }: { data: InspectorPayload }) {
   )
 }
 
+function LambdaConfig({ data }: { data: InspectorPayload }) {
   const current = data.current ?? {}
   const props = current.properties ?? {}
   const envKeys: string[] = Array.isArray(current.environment_keys) ? current.environment_keys : []
