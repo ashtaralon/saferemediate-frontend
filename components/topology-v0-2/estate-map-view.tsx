@@ -490,29 +490,27 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // frame's intrinsic width (~half the page) becomes the fit target and
     // "100%" leaves a huge empty gutter on the right (Alon, 2026-07-09).
     const targetW = Math.max(320, vp.clientWidth - pad)
+    const targetH = Math.max(280, vp.clientHeight - pad)
     content.style.width = `${targetW}px`
     content.style.minWidth = `${targetW}px`
     content.style.maxWidth = `${targetW}px`
+    // Cap height to the viewport so Web/App/Data share one screen at width
+    // fill — private Data tier stays visible without shrinking width (Alon,
+    // 2026-07-09). AwsFrame presentation layout uses fr rows inside this box.
+    content.style.height = `${targetH}px`
+    content.style.maxHeight = `${targetH}px`
+    content.style.overflow = "hidden"
     // Width is owned by the viewport stretch above — do NOT use scrollWidth
     // for nw (overflowing rails would shrink fit and re-open the right gutter).
-    // Height still uses scrollHeight so tall tiers aren't clipped in the fit %.
     const nw = targetW
-    const nh = Math.max(content.offsetHeight, content.scrollHeight)
+    const nh = targetH
     if (nw === 0 || nh === 0) return
     const fitW = (vp.clientWidth - pad) / nw
     const fitH = (vp.clientHeight - pad) / nh
-    // 100% = fill page WIDTH. min(fitW, fitH) re-opened a large right gutter
-    // when height bound the scale (Alon blue-scribble screenshot, 2026-07-09).
-    // Data / IAM stay reachable via vertical scroll + pan (viewport is
-    // overflow-y-auto). Short maps may still bump toward ~90% viewport height
-    // without exceeding width.
-    let fit = Math.max(MIN_ZOOM, Math.min(1.25, fitW))
-    if (fit * nh < vp.clientHeight * 0.88 && fitH > fit) {
-      fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, (vp.clientHeight * 0.9) / nh)))
-    }
-    // One-way LOD: use height-fit as the unreadability signal (width-fit is
-    // ~1.0 after stretch). Collapse to density tiles when the map would be
-    // unreadably small if forced into the viewport height.
+    // 100% = fill page WIDTH. Content height is already viewport-capped so
+    // Data is in-frame; do not height-shrink (that reopens the right gutter).
+    const fit = Math.max(MIN_ZOOM, Math.min(1.25, fitW))
+    // One-way LOD: density tiles when the viewport is short for full cards.
     if (!densityLockRef.current && fitH < LOD_THRESHOLD) {
       densityLockRef.current = true
       setDensityCollapsed(true)
@@ -1422,7 +1420,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 onClick={fitView}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
                 style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#1A2330" }}
-                title="Fill page width — scroll or pan for Data / IAM"
+                title="Fill page width with Web / App / Data visible"
               >
                 <Scan className="h-3.5 w-3.5" />
                 100%
@@ -1495,7 +1493,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             >
               <div
                 ref={contentRef}
-                className="block w-full min-w-full box-border"
+                className="flex flex-col w-full min-w-full box-border"
                 data-testid="topology-estate-map-fit-content"
               >
                 {renderMap(true, zoom, densityCollapsed)}

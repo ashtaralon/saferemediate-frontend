@@ -2344,6 +2344,15 @@ export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number>
   iam: 96,
 }
 
+/** Fullscreen / presentation floors — lower so Web+App+Data+IAM fit in one
+ *  viewport at width-fill 100% without clipping the private Data tier. */
+export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
+  web: 100,
+  app: 92,
+  data: 92,
+  iam: 56,
+}
+
 /** Above this count, Compare bands become too narrow — fall back to
  *  primary VPC detail + peer strip (Layout C). */
 export const COMPARE_BANDS_MAX_VPCS = 3
@@ -2536,20 +2545,24 @@ function MultiVpcCompareBands({
 
   return (
     <div
-      className="grid gap-2 w-full min-w-0"
+      className={`grid gap-2 w-full min-w-0 ${compact ? "h-full min-h-0" : ""}`}
       data-testid="topology-vpc-compare-bands"
       style={{
-        // Grow like single-VPC fullscreen — fill the viewport instead of a
-        // short postage stamp with 50% empty white below.
-        minHeight: "min(72vh, 820px)",
+        // Fullscreen (compact): fill parent viewport height so Data stays
+        // visible at width-fill 100%. Inline: grow like single-VPC.
+        ...(compact
+          ? { height: "100%", minHeight: 0 }
+          : { minHeight: "min(72vh, 820px)" }),
         gridTemplateRows: [
           "auto", // system path
           "auto", // VPC chrome
           hasAnyAlb || hasAnyNat ? "auto" : null, // ingress (ALB/NAT) — Web path
-          `minmax(${COMPARE_TIER_MIN_PX.web}px, 1.25fr)`,
-          `minmax(${COMPARE_TIER_MIN_PX.app}px, 1fr)`,
-          `minmax(${COMPARE_TIER_MIN_PX.data}px, 1fr)`,
-          iamRoles.length > 0 ? `minmax(${COMPARE_TIER_MIN_PX.iam}px, auto)` : null,
+          `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).web}px, 1.1fr)`,
+          `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).app}px, 1fr)`,
+          `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).data}px, 1fr)`,
+          iamRoles.length > 0
+            ? `minmax(${(compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).iam}px, 0.55fr)`
+            : null,
         ]
           .filter(Boolean)
           .join(" "),
@@ -2652,7 +2665,9 @@ function MultiVpcCompareBands({
           key={tier}
           data-testid={tierIdx === 0 ? "topology-tier-stack" : `topology-tier-band-${tier}`}
           className="flex gap-0 w-full min-h-0 h-full"
-          style={{ minHeight: COMPARE_TIER_MIN_PX[tier] }}
+          style={{
+            minHeight: (compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX)[tier],
+          }}
         >
           <div
             className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
@@ -2742,7 +2757,9 @@ function MultiVpcCompareBands({
       {iamRoles.length > 0 ? (
         <div
           className="flex gap-0 w-full min-h-0 overflow-x-auto overflow-y-hidden"
-          style={{ minHeight: COMPARE_TIER_MIN_PX.iam }}
+          style={{
+            minHeight: (compact ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX).iam,
+          }}
           data-testid="topology-tier-band-iam"
         >
           <div
@@ -3004,7 +3021,7 @@ function VpcCanvasFrame({
     <div
       className={
         presentationMode
-          ? "rounded-md p-2.5 relative min-w-0 w-full"
+          ? "rounded-md p-2.5 relative min-w-0 w-full h-full min-h-0"
           : "rounded-md p-3 relative shrink-0"
       }
       data-testid="topology-vpc-frame"
@@ -3022,10 +3039,11 @@ function VpcCanvasFrame({
               border: `2px solid #00C2A8`,
               minWidth: 0,
               width: "100%",
+              height: "100%",
               display: "grid",
               gridTemplateRows: "subgrid",
               gridRow: "1 / -1",
-              overflow: "visible",
+              overflow: "hidden",
             }
           : {
               background: PAL.cardBg,
@@ -3082,7 +3100,12 @@ function VpcCanvasFrame({
                 key={tier}
                 data-testid={tierIdx === 0 ? "topology-tier-stack" : undefined}
                 className="flex gap-0 min-h-0 h-full"
-                style={{ gridRow: tierIdx + 3, minHeight: COMPARE_TIER_MIN_PX[tier] }}
+                style={{
+                  gridRow: tierIdx + 3,
+                  minHeight: presentationMode
+                    ? PRESENTATION_TIER_MIN_PX[tier]
+                    : COMPARE_TIER_MIN_PX[tier],
+                }}
               >
                 <div
                   className="rounded-l-md flex items-center justify-center shrink-0 self-stretch"
@@ -3100,11 +3123,11 @@ function VpcCanvasFrame({
                   {TIER_SIDEBAR_LABEL[tier]}
                 </div>
                 <div
-                  className="rounded-r-md p-1.5 flex-1 flex flex-col min-h-0 h-full"
+                  className="rounded-r-md p-1.5 flex-1 flex flex-col min-h-0 h-full overflow-hidden"
                   style={{ background: TIER_BG[tier] }}
                 >
                   <div
-                    className="grid gap-1.5 flex-1 min-h-0 h-full"
+                    className="grid gap-1.5 flex-1 min-h-0 h-full overflow-hidden"
                     style={{ gridTemplateColumns: azGridColumns }}
                   >
                     {azs.map(az => {
@@ -3136,7 +3159,12 @@ function VpcCanvasFrame({
                 frames broke CSS subgrid alignment (tiers staggered). */}
             <div
               className="flex gap-0 min-h-0 overflow-hidden"
-              style={{ gridRow: 6, minHeight: COMPARE_TIER_MIN_PX.iam }}
+              style={{
+                gridRow: 6,
+                minHeight: presentationMode
+                  ? PRESENTATION_TIER_MIN_PX.iam
+                  : COMPARE_TIER_MIN_PX.iam,
+              }}
             >
               {showIamControlPlane && iamRoles.length > 0 ? iamCpBlock(true) : (
                 <div className="flex-1 min-h-[4px]" aria-hidden />
@@ -3320,12 +3348,14 @@ export function AwsFrame({
 
   const attackPathEdgeCount = attackPathFlowCount
 
+  const tierMin = presentationMode ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX
+
   return (
     <div
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-1.5 space-y-1 relative w-full min-w-0 overflow-x-hidden overflow-y-visible"
+          ? "rounded-xl p-1.5 space-y-1 relative w-full h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
           : "rounded-2xl p-3 space-y-3 relative max-w-full min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
@@ -3397,7 +3427,7 @@ export function AwsFrame({
       <div
         className={
           presentationMode
-            ? "rounded-lg p-2 relative overflow-visible w-full min-w-0"
+            ? "rounded-lg p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
             : "rounded-lg p-4 relative overflow-visible"
         }
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
@@ -3417,7 +3447,7 @@ export function AwsFrame({
         <div
           className={
             presentationMode
-              ? "rounded-md p-2 relative overflow-visible w-full min-w-0"
+              ? "rounded-md p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
               : "rounded-md p-4 mt-3 relative overflow-visible"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
@@ -3440,7 +3470,7 @@ export function AwsFrame({
           <div
             className={`${
               presentationMode
-                ? "mt-1 w-full grid items-stretch gap-x-3 min-w-0 overflow-x-hidden overflow-y-visible pb-1"
+                ? "mt-1 w-full flex-1 min-h-0 grid items-stretch gap-x-3 min-w-0 overflow-hidden"
                 : "mt-3 flex flex-nowrap items-stretch min-w-0 overflow-x-auto overflow-y-visible pb-1"
             }`}
             style={
@@ -3458,6 +3488,7 @@ export function AwsFrame({
                     ]
                       .filter(Boolean)
                       .join(" "),
+                    gridTemplateRows: "minmax(0, 1fr)",
                   }
                 : undefined
             }
@@ -3493,15 +3524,18 @@ export function AwsFrame({
               )
             ) : presentationMode ? (
               <div
-                className="grid items-stretch w-full min-w-0"
+                className="grid items-stretch w-full h-full min-h-0 min-w-0"
                 data-testid="topology-single-vpc-grid"
                 style={{
                   gridTemplateColumns: "minmax(0, 1fr)",
-                  // Locked tier mins — Web density must not crush App/Data.
-                  gridTemplateRows: `auto auto minmax(${COMPARE_TIER_MIN_PX.web}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.app}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.data}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.iam}px, auto)`,
-                  gap: "10px",
+                  // Presentation floors + equal fr — Data stays on screen at
+                  // width-fill 100% (COMPARE mins were too tall for one viewport).
+                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.1fr) minmax(${tierMin.app}px, 1fr) minmax(${tierMin.data}px, 1fr) minmax(${tierMin.iam}px, 0.55fr)`,
+                  gap: "8px",
                   width: "100%",
+                  height: "100%",
                   minWidth: 0,
+                  minHeight: 0,
                 }}
               >
                 {frames.map(f => (
