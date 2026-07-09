@@ -1107,15 +1107,24 @@ function SubnetCell({
   const labelFg = SUBNET_LABEL_FG[tier]
   const glance = viewDensity === "glance"
   const hasWorkloads = workloadsHere.length > 0
-  // Icon cells (Glance + Inventory) need room for ServiceIconShell under the
-  // subnet header — shorter floors clipped EC2 bottoms (Alon, 2026-07-09).
-  const cellMinHeight = hasWorkloads
-    ? compact
-      ? "118px"
-      : "132px"
-    : compact
-      ? "72px"
-      : "88px"
+  // Icon cells need room for ServiceIconShell under the subnet header.
+  // Data tier stays shorter — private DB cells are usually 1–2 services.
+  const cellMinHeight =
+    tier === "data"
+      ? hasWorkloads
+        ? compact
+          ? "96px"
+          : "108px"
+        : compact
+          ? "56px"
+          : "64px"
+      : hasWorkloads
+        ? compact
+          ? "118px"
+          : "132px"
+        : compact
+          ? "72px"
+          : "88px"
   const renderWorkloads = () =>
     glance ? (
       <GlanceCellWorkloads
@@ -2634,24 +2643,25 @@ export function buildVpcFrames(
 const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
 
 /** Locked min-heights for All VPCs · Compare (Layout B). Tiers own vertical
- *  space — Web density must never steal App/Data height. Bands grow via
- *  `1fr` above these floors so fullscreen fills like single-VPC (no 50%
- *  empty viewport). Overflow scrolls inside the cell, not the band. */
+ *  space — Web density must never steal App height. Data stays shorter
+ *  (usually 1–2 services). Bands grow via `fr` above these floors so
+ *  fullscreen fills like single-VPC. Overflow scrolls inside the cell. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
   web: 210,
   app: 180,
-  data: 180,
+  data: 128,
   iam: 72,
 }
 
 /** Fullscreen / presentation floors — lower so Web+App+Data+IAM fit in one
  *  viewport at width-fill 100% without clipping the private Data tier.
+ *  Data is intentionally shorter than Web/App (sparse private tier).
  *  Single-VPC only — Compare uses COMPARE_TIER_MIN_PX even in fullscreen so
  *  VPC titles + subnet cells stay readable when columns split the width. */
 export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 100,
-  app: 92,
-  data: 92,
+  web: 108,
+  app: 100,
+  data: 72,
   iam: 56,
 }
 
@@ -2888,9 +2898,9 @@ function MultiVpcCompareBands({
   const bodyRowTemplate = [
     `minmax(${COMPARE_VPC_CHROME_MIN_PX}px, auto)`,
     hasIngress ? "auto" : null,
-    `minmax(${tierMins.web}px, 1.15fr)`,
-    `minmax(${tierMins.app}px, 1.1fr)`,
-    `minmax(${tierMins.data}px, 1.1fr)`,
+    `minmax(${tierMins.web}px, 1.2fr)`,
+    `minmax(${tierMins.app}px, 1.15fr)`,
+    `minmax(${tierMins.data}px, 0.75fr)`,
   ]
     .filter(Boolean)
     .join(" ")
@@ -3634,7 +3644,9 @@ function VpcCanvasFrame({
                 gridTemplateColumns: azGridColumns,
                 // Shared tracks: AZ title + Public + App + Data — empty DB
                 // cells match occupied siblings across AZs.
-                gridTemplateRows: "auto minmax(88px, 1fr) minmax(88px, 1fr) minmax(88px, 1fr)",
+                // Web/App grow; Data stays shorter (sparse private tier).
+                gridTemplateRows:
+                  "auto minmax(96px, 1.25fr) minmax(96px, 1.15fr) minmax(64px, 0.7fr)",
                 alignItems: "stretch",
               }}
               data-testid="topology-tier-stack"
@@ -3869,7 +3881,7 @@ export function AwsFrame({
       className={
         presentationMode
           ? "rounded-xl p-1.5 space-y-1 relative w-full h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
-          : "rounded-2xl p-3 space-y-3 relative w-full max-w-none min-w-0 overflow-x-auto"
+          : "rounded-2xl p-2 space-y-2 relative w-full max-w-none min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8`, width: "100%" }}
     >
@@ -3900,10 +3912,16 @@ export function AwsFrame({
       ) : null}
       {/* Internet + IGW perimeter — full-bleed left→right so wide viewports
           don't leave ~25% empty gutters from a centered cluster + capped connectors. */}
-      <div className="flex items-center gap-4 py-2 pb-4 w-full min-w-0">
+      <div
+        className={
+          presentationMode
+            ? "flex items-center gap-3 py-1 pb-1.5 w-full min-w-0"
+            : "flex items-center gap-3 py-1 pb-2 w-full min-w-0"
+        }
+      >
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
-          <span className="text-4xl leading-none">👥</span>
-          <span className="text-[13px] uppercase tracking-wider font-semibold">
+          <span className="text-3xl leading-none">👥</span>
+          <span className="text-[12px] uppercase tracking-wider font-semibold">
             Users
           </span>
         </div>
@@ -3912,8 +3930,8 @@ export function AwsFrame({
           style={{ borderColor: "#94A3B8" }}
         />
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
-          <span className="text-4xl leading-none">☁</span>
-          <span className="text-[13px] uppercase tracking-wider font-semibold">
+          <span className="text-3xl leading-none">☁</span>
+          <span className="text-[12px] uppercase tracking-wider font-semibold">
             Internet
           </span>
         </div>
@@ -3926,9 +3944,9 @@ export function AwsFrame({
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <span className="text-4xl leading-none">🌐</span>
+          <span className="text-3xl leading-none">🌐</span>
           <span
-            className="text-[13px] uppercase tracking-wider font-semibold truncate max-w-[220px]"
+            className="text-[12px] uppercase tracking-wider font-semibold truncate max-w-[220px]"
             title={igwStripTitle}
           >
             {igwStripLabel}
@@ -3941,14 +3959,14 @@ export function AwsFrame({
         className={
           presentationMode
             ? "rounded-lg p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
-            : "rounded-lg p-4 relative overflow-visible w-full min-w-0"
+            : "rounded-lg p-3 relative overflow-visible w-full min-w-0"
         }
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
         <div
           className={
             presentationMode
-              ? "text-[11px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
+              ? "text-[11px] uppercase tracking-[0.14em] font-semibold mb-1.5 px-0.5"
               : "absolute -top-2.5 left-4 px-2 text-[11px] uppercase tracking-[0.14em] font-semibold"
           }
           style={{ background: presentationMode ? "transparent" : PAL.bg, color: PAL.awsFrame }}
@@ -3961,7 +3979,7 @@ export function AwsFrame({
           className={
             presentationMode
               ? "rounded-md p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
-              : "rounded-md p-4 mt-3 relative overflow-visible w-full min-w-0"
+              : "rounded-md p-3 mt-2 relative overflow-visible w-full min-w-0"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
         >
@@ -3984,7 +4002,7 @@ export function AwsFrame({
             className={
               presentationMode
                 ? "mt-1 w-full flex-1 min-h-0 grid items-stretch gap-x-3 min-w-0 overflow-hidden"
-                : "mt-3 w-full min-w-0 grid items-stretch gap-x-3 overflow-x-auto overflow-y-visible pb-1"
+                : "mt-2 w-full min-w-0 grid items-stretch gap-x-3 overflow-x-auto overflow-y-visible pb-0.5"
             }
             style={{
               width: "100%",
@@ -4053,7 +4071,7 @@ export function AwsFrame({
                   gridTemplateColumns: "minmax(0, 1fr)",
                   // Presentation floors + equal fr — Data stays on screen at
                   // width-fill 100% (COMPARE mins were too tall for one viewport).
-                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.1fr) minmax(${tierMin.app}px, 1fr) minmax(${tierMin.data}px, 1fr) minmax(${tierMin.iam}px, 0.55fr)`,
+                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.25fr) minmax(${tierMin.app}px, 1.15fr) minmax(${tierMin.data}px, 0.7fr) minmax(${tierMin.iam}px, 0.5fr)`,
                   gap: "8px",
                   width: "100%",
                   height: "100%",

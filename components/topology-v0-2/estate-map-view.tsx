@@ -1334,9 +1334,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
       {renderScopeControls()}
 
-      <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-3`}>
+      <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-2`}>
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
-          <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center justify-between gap-3 mb-1.5">
             <div className="flex items-center gap-1.5" role="tablist" aria-label="Estate view">
               {([
                 ["map", "Map"],
@@ -1416,7 +1416,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           <div className="relative flex-1 min-h-0">
             <div
               className="h-full overflow-auto rounded-2xl"
-              style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
+              style={{ maxHeight: embedded ? "min(78vh, 960px)" : "calc(100vh - 150px)" }}
             >
               {view === "map" ? (
                 !mapEnlarged ? renderMap(false) : null
@@ -1441,7 +1441,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
         <aside
           className="hidden xl:flex flex-col min-h-0 w-[212px] shrink-0 sticky top-4 self-start"
-          style={{ maxHeight: embedded ? "min(72vh, 900px)" : "calc(100vh - 200px)" }}
+          style={{ maxHeight: embedded ? "min(78vh, 960px)" : "calc(100vh - 150px)" }}
         >
           <RankedRail
             entries={rankedEntries}

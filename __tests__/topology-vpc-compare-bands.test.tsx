@@ -100,7 +100,9 @@ describe("COMPARE_TIER_MIN_PX lock contract", () => {
   it("reserves Web / App / Data / IAM minimum heights", () => {
     expect(COMPARE_TIER_MIN_PX.web).toBeGreaterThanOrEqual(188)
     expect(COMPARE_TIER_MIN_PX.app).toBeGreaterThanOrEqual(168)
-    expect(COMPARE_TIER_MIN_PX.data).toBeGreaterThanOrEqual(168)
+    // Data is intentionally shorter — private tier is usually 1–2 services.
+    expect(COMPARE_TIER_MIN_PX.data).toBeGreaterThanOrEqual(112)
+    expect(COMPARE_TIER_MIN_PX.data).toBeLessThan(COMPARE_TIER_MIN_PX.app)
     expect(COMPARE_TIER_MIN_PX.iam).toBeGreaterThanOrEqual(48)
     expect(COMPARE_VPC_CHROME_MIN_PX).toBeGreaterThanOrEqual(56)
   })
@@ -110,7 +112,8 @@ describe("COMPARE_TIER_MIN_PX lock contract", () => {
   })
 
   it("presentation tier mins are lower so Data fits with Web/App in one viewport", () => {
-    expect(PRESENTATION_TIER_MIN_PX.data).toBeGreaterThanOrEqual(72)
+    expect(PRESENTATION_TIER_MIN_PX.data).toBeGreaterThanOrEqual(64)
+    expect(PRESENTATION_TIER_MIN_PX.data).toBeLessThan(PRESENTATION_TIER_MIN_PX.app)
     expect(PRESENTATION_TIER_MIN_PX.web).toBeLessThan(COMPARE_TIER_MIN_PX.web)
     expect(PRESENTATION_TIER_MIN_PX.data).toBeLessThan(COMPARE_TIER_MIN_PX.data)
   })
