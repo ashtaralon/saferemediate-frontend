@@ -46,6 +46,17 @@ import {
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
+import {
+  chipRole,
+  chipSizeForRole,
+  planGlanceCell,
+  shouldGlanceStackRail,
+  shouldShowStackDepth,
+  type ChipSize,
+  type ServiceStack,
+  type ViewDensity,
+} from "./estate-glance"
+import { awsIconUrl, awsServiceLabel } from "./aws-architecture-icons"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -102,8 +113,16 @@ interface Props {
    * more than DENSITY_STACK_THRESHOLD same-type workloads collapse into an
    * icon + count stack tile, and the right rails group by service type. Full
    * cards return at 100%. Driven by the host from the live zoom (P0-B).
+   * Ignored when viewDensity is "glance" (Glance always uses role hierarchy).
    */
   densityCollapsed?: boolean
+  /**
+   * Architecture density mode (generic — any system).
+   * - glance (default): role-sized chips, cell collapse, grouped rails —
+   *   only real nodes from the topology payload.
+   * - inventory: full SG-grouped cards for every real node.
+   */
+  viewDensity?: ViewDensity
   /** Business system name — used in All VPCs · Compare architecture strip. */
   systemLabel?: string
 }
@@ -187,9 +206,7 @@ const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
  * above). */
 const ALB_HEADER_TYPES = new Set(["LoadBalancer", "ALB", "ApplicationLoadBalancer"])
 
-/** Dedicated ALB glyph — a distribution/fan-out icon distinct from the
- * plain text-in-box treatment other chip types use, so an Application
- * Load Balancer reads at a glance rather than as "purple square, ALB". */
+/** Dedicated ALB glyph — AWS Architecture Icon–style fan-out. */
 function AlbGlyph({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -205,6 +222,70 @@ function AlbGlyph({ size = 18 }: { size?: number }) {
       />
     </svg>
   )
+}
+
+/** Compact AWS-style service glyphs (icon language, not emoji). */
+function AwsServiceGlyph({
+  kind,
+  size = 18,
+}: {
+  kind: "ec2" | "lambda" | "rds" | "s3" | "ddb" | "igw" | "nat"
+  size?: number
+}) {
+  const common = { width: size, height: size, viewBox: "0 0 48 48", fill: "none" as const, "aria-hidden": true as const }
+  switch (kind) {
+    case "ec2":
+      return (
+        <svg {...common}>
+          <rect x="10" y="12" width="28" height="24" rx="2" fill="currentColor" fillOpacity={0.95} />
+          <rect x="14" y="16" width="8" height="6" fill="#232F3E" />
+          <rect x="26" y="16" width="8" height="6" fill="#232F3E" />
+          <rect x="14" y="26" width="20" height="3" fill="#232F3E" />
+        </svg>
+      )
+    case "lambda":
+      return (
+        <svg {...common}>
+          <path d="M14 36L22 12h6l8 24h-6.2l-1.4-4.2H21.6L20.2 36H14zm8.8-9.2h6.4L26 16.8 22.8 26.8z" fill="currentColor" />
+        </svg>
+      )
+    case "rds":
+      return (
+        <svg {...common}>
+          <ellipse cx="24" cy="14" rx="12" ry="5" fill="currentColor" />
+          <path d="M12 14v8c0 2.8 5.4 5 12 5s12-2.2 12-5v-8" stroke="currentColor" strokeWidth="2.5" />
+          <path d="M12 22v8c0 2.8 5.4 5 12 5s12-2.2 12-5v-8" stroke="currentColor" strokeWidth="2.5" />
+        </svg>
+      )
+    case "s3":
+      return (
+        <svg {...common}>
+          <path d="M10 18l14-6 14 6-14 6-14-6z" fill="currentColor" />
+          <path d="M10 18v12l14 6V24L10 18zM38 18v12l-14 6V24l14-6z" fill="currentColor" fillOpacity={0.85} />
+        </svg>
+      )
+    case "ddb":
+      return (
+        <svg {...common}>
+          <rect x="12" y="10" width="24" height="28" rx="3" fill="currentColor" />
+          <path d="M18 18h12M18 24h12M18 30h8" stroke="#2E73B8" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+      )
+    case "igw":
+      return (
+        <svg {...common}>
+          <circle cx="24" cy="24" r="10" stroke="currentColor" strokeWidth="2.5" />
+          <path d="M14 24h20M24 14c4 3.5 4 16.5 0 20M24 14c-4 3.5-4 16.5 0 20" stroke="currentColor" strokeWidth="2" />
+        </svg>
+      )
+    case "nat":
+      return (
+        <svg {...common}>
+          <rect x="11" y="14" width="26" height="20" rx="3" fill="currentColor" />
+          <path d="M18 24h12M27 20l4 4-4 4" stroke="#8C4FFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+  }
 }
 
 function regionPrefix(az: string | null | undefined): string | null {
@@ -489,29 +570,55 @@ function severityRing(node: TopologyNode): { ring: string; halo: string } {
   }
 }
 
-function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: string } {
+/**
+ * Prefer official AWS Architecture Icons (thesvg.org / CC BY-ND).
+ * Fallback glyphs only when slug is unknown — never invents a resource.
+ */
+function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: string; official?: boolean } {
+  const url = awsIconUrl(type)
+  if (url) {
+    return {
+      symbol: (
+        // eslint-disable-next-line @next/next/no-img-element -- external architecture icon CDN
+        <img
+          src={url}
+          alt=""
+          width={28}
+          height={28}
+          className="w-7 h-7 object-contain"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      ),
+      bg: "transparent",
+      fg: "inherit",
+      official: true,
+    }
+  }
   switch (type) {
-    case "EC2":         return { symbol: "EC2", bg: "#FF9900", fg: "#1A1A1A" }
+    case "EC2":
+      return { symbol: <AwsServiceGlyph kind="ec2" />, bg: "#FF9900", fg: "white" }
     case "Lambda":
     case "LambdaFunction":
-      return { symbol: "λ", bg: "#FF9900", fg: "#1A1A1A" }
+      return { symbol: <AwsServiceGlyph kind="lambda" />, bg: "#FF9900", fg: "white" }
     case "RDS":
     case "RDSInstance":
-      return { symbol: "RDS", bg: "#2E73B8", fg: "white" }
+      return { symbol: <AwsServiceGlyph kind="rds" />, bg: "#2E73B8", fg: "white" }
     case "DynamoDB":
     case "DynamoDBTable":
-      return { symbol: "DDB", bg: "#2E73B8", fg: "white" }
+      return { symbol: <AwsServiceGlyph kind="ddb" />, bg: "#2E73B8", fg: "white" }
     case "S3":
     case "S3Bucket":
-      return { symbol: "S3", bg: "#1E8E3E", fg: "white" }
-    case "KMSKey":      return { symbol: "KMS", bg: "#DD344C", fg: "white" }
+      return { symbol: <AwsServiceGlyph kind="s3" />, bg: "#1E8E3E", fg: "white" }
+    case "KMSKey":
+      return { symbol: "KMS", bg: "#DD344C", fg: "white" }
     case "Secret":
     case "SecretsManagerSecret":
-      return { symbol: "🔐", bg: "#DD344C", fg: "white" }
+      return { symbol: "SEC", bg: "#DD344C", fg: "white" }
     case "LoadBalancer":
     case "ALB":
     case "ApplicationLoadBalancer":
-      return { symbol: <AlbGlyph />, bg: "#7E57C2", fg: "white" }
+      return { symbol: <AlbGlyph />, bg: "#8C4FFF", fg: "white" }
     default:
       return { symbol: "?", bg: "#5A6B7A", fg: "white" }
   }
@@ -524,17 +631,60 @@ function formatIamChipSummary(role: IamRoleRollup): string {
   return `${role.unused_actions}/${role.allowed_actions} unused`
 }
 
+function chipLayout(size: ChipSize): {
+  className: string
+  iconW: number
+  iconH: number
+  iconFs: number
+  borderW: number
+  borderColor?: string
+} {
+  if (size === "gateway") {
+    return {
+      className:
+        "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-left transition-shadow min-w-0 max-w-[260px] hover:shadow-md",
+      iconW: 40,
+      iconH: 36,
+      iconFs: 11,
+      borderW: 2,
+      borderColor: PAL.awsOrange,
+    }
+  }
+  if (size === "compact") {
+    return {
+      className:
+        "relative flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-shadow min-w-0 max-w-[160px] hover:shadow-md",
+      iconW: 24,
+      iconH: 20,
+      iconFs: 8,
+      borderW: 1.5,
+    }
+  }
+  return {
+    className:
+      "relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-shadow min-w-0 max-w-[200px] hover:shadow-md",
+    iconW: 32,
+    iconH: 26,
+    iconFs: 10,
+    borderW: 1.5,
+  }
+}
+
 function WorkloadChip({
-  node, selected, onClick, iamSummary,
+  node, selected, onClick, iamSummary, size,
 }: {
   node: TopologyNode
   selected: boolean
   onClick: () => void
   iamSummary?: string | null
+  /** Visual hierarchy — gateway landmarks vs named anchors vs compact. */
+  size?: ChipSize
 }) {
   const stale = !!node.stale
   const { ring, halo } = severityRing(node)
   const ic = nodeIcon(node.type)
+  const resolvedSize = size ?? chipSizeForRole(chipRole(node))
+  const layout = chipLayout(resolvedSize)
   const placementUnknown =
     node.type != null && RDS_TYPES.has(node.type) && !node.subnet_id
   // Edge-service observed-usage line — surfaces "in use vs idle" without
@@ -599,16 +749,23 @@ function WorkloadChip({
       usageTitle = `\nObserved access in graph: ${usageEdges} edges from ${usageSources} distinct sources.\nIncludes hidden sources (Lambdas, IAM roles, STS sessions) that aren't drawable workload chips.`
     }
   }
+  const borderColor =
+    resolvedSize === "gateway"
+      ? (layout.borderColor ?? ring)
+      : node.is_jewel
+        ? "#C9A227"
+        : ring
   return (
     <button
       type="button"
       onClick={onClick}
       title={`${node.name}${usageTitle}`}
       data-flow-id={node.id}
-      className="relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-shadow min-w-0 max-w-[200px] hover:shadow-md"
+      data-chip-size={resolvedSize}
+      className={layout.className}
       style={{
-        background: PAL.cardBg,
-        border: `1.5px solid ${ring}`,
+        background: node.is_jewel ? "#FFFBEB" : PAL.cardBg,
+        border: `${layout.borderW}px solid ${borderColor}`,
         boxShadow: selected
           ? `0 0 0 3px ${PAL.teal}, ${halo}`
           : halo === "none" ? undefined : halo,
@@ -618,11 +775,15 @@ function WorkloadChip({
       <span
         className="flex items-center justify-center rounded-md shrink-0"
         style={{
-          background: ic.bg,
-          color: ic.fg,
-          width: "32px",
-          height: "26px",
-          fontSize: "10px",
+          background: ic.official
+            ? "transparent"
+            : resolvedSize === "gateway"
+              ? PAL.awsFrame
+              : ic.bg,
+          color: resolvedSize === "gateway" && !ic.official ? PAL.awsOrange : ic.fg,
+          width: `${layout.iconW}px`,
+          height: `${layout.iconH}px`,
+          fontSize: `${layout.iconFs}px`,
           fontWeight: 700,
           letterSpacing: "0.04em",
         }}
@@ -682,9 +843,125 @@ function WorkloadChip({
   )
 }
 
+function selectWorstInGroup(nodes: TopologyNode[]): TopologyNode | undefined {
+  return (
+    nodes.find(n => n.score?.tier === "WORST") ??
+    nodes.find(n => n.score?.tier === "HIGH") ??
+    nodes[0]
+  )
+}
+
+/**
+ * AWS diagram convention: one service icon with siblings stacked behind
+ * (Lambda × N, EC2 × N, ASG × N) — not every mutual instance drawn.
+ */
+function ServiceStackChip({
+  stack,
+  selectedNodeId,
+  onSelect,
+}: {
+  stack: ServiceStack
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+}) {
+  const depth = shouldShowStackDepth(stack)
+  const ic = nodeIcon(stack.type)
+  const selected = stack.nodes.some(n => n.id === selectedNodeId)
+  const title = depth
+    ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
+    : `${stack.representative.name} · ${stack.label}`
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(stack.representative.id)}
+      title={title}
+      data-testid="topology-service-stack"
+      data-stack-type={stack.type}
+      data-stack-count={stack.nodes.length}
+      data-flow-ids={stack.nodes.map(n => n.id).join("|")}
+      className="relative flex flex-col items-center gap-1 min-w-[72px] max-w-[110px] px-1 py-1 rounded-md hover:bg-white/60 transition-colors"
+      style={{
+        boxShadow: selected ? `0 0 0 2px ${PAL.teal}` : undefined,
+      }}
+    >
+      <span className="relative inline-flex" style={{ width: 44, height: 44 }}>
+        {depth ? (
+          <>
+            <span
+              className="absolute rounded-md border bg-white"
+              style={{ inset: "6px -4px -4px 6px", borderColor: "#CBD5E1", zIndex: 0 }}
+              aria-hidden
+            />
+            <span
+              className="absolute rounded-md border bg-white"
+              style={{ inset: "3px -2px -2px 3px", borderColor: "#E2E8F0", zIndex: 1 }}
+              aria-hidden
+            />
+          </>
+        ) : null}
+        <span
+          className="relative z-[2] flex items-center justify-center rounded-md w-11 h-11"
+          style={{
+            background: ic.official ? "#FFFFFF" : ic.bg,
+            border: "1px solid #E2E8F0",
+            color: ic.fg,
+          }}
+        >
+          {ic.symbol}
+        </span>
+        {depth ? (
+          <span
+            className="absolute -top-1 -right-2 z-[3] text-[10px] font-bold font-mono rounded-full px-1.5 py-0.5"
+            style={{ background: PAL.awsFrame, color: "#fff", border: "1px solid #fff" }}
+          >
+            ×{stack.nodes.length}
+          </span>
+        ) : null}
+      </span>
+      <span className="text-[10px] font-semibold text-center leading-tight truncate w-full" style={{ color: PAL.ink }}>
+        {depth ? stack.label : stack.representative.name}
+      </span>
+      <span className="text-[9px] font-mono text-center truncate w-full" style={{ color: PAL.slate }}>
+        {depth ? `${stack.nodes.length} in cell` : stack.label}
+      </span>
+    </button>
+  )
+}
+
+function GlanceCellWorkloads({
+  workloadsHere,
+  selectedNodeId,
+  onSelect,
+  compact,
+}: {
+  workloadsHere: TopologyNode[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
+  compact?: boolean
+}) {
+  const plan = planGlanceCell(workloadsHere)
+  return (
+    <div
+      className={compact ? "flex flex-wrap gap-2 justify-center" : "flex flex-wrap gap-3 justify-center"}
+      data-testid="topology-cell-glance"
+    >
+      {plan.stacks.map(stack => (
+        <ServiceStackChip
+          key={stack.type}
+          stack={stack}
+          selectedNodeId={selectedNodeId}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  )
+}
+
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
+  viewDensity = "glance",
 }: {
   tier: SubnetTier
   az: string
@@ -696,21 +973,34 @@ function SubnetCell({
   compact?: boolean
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   densityCollapsed?: boolean
+  viewDensity?: ViewDensity
 }) {
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
-  const cellMinHeight = empty
-    ? (compact ? "44px" : "56px")
-    : workloadsHere.length === 0
-      ? (compact ? "48px" : "60px")
-      : (compact ? "72px" : "84px")
+  const glance = viewDensity === "glance"
+  // Glance AZ columns use CSS subgrid for equal tier heights — don't shrink
+  // empty DB cells below occupied siblings (Alon, 2026-07-09).
+  const cellMinHeight = glance
+    ? (compact ? "88px" : "100px")
+    : empty
+      ? (compact ? "44px" : "56px")
+      : workloadsHere.length === 0
+        ? (compact ? "48px" : "60px")
+        : (compact ? "72px" : "84px")
   return (
     <div
-      className={compact ? "rounded-md p-1.5 h-full min-h-0 flex flex-col" : "rounded-md p-2"}
+      className={
+        glance
+          ? "rounded-md p-1.5 h-full min-h-0 flex flex-col"
+          : compact
+            ? "rounded-md p-1.5 h-full min-h-0 flex flex-col"
+            : "rounded-md p-2"
+      }
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
         minHeight: cellMinHeight,
+        height: glance ? "100%" : undefined,
         opacity: empty ? 0.55 : 1,
       }}
     >
@@ -732,16 +1022,26 @@ function SubnetCell({
             <div className="text-[10px] italic" style={{ color: PAL.slate }}>
               subnet not resolved · placed by type
             </div>
-            <div className="flex flex-wrap gap-2">
-              {workloadsHere.map(n => (
-                <WorkloadChip
-                  key={n.id}
-                  node={n}
-                  selected={n.id === selectedNodeId}
-                  onClick={() => onSelect(n.id)}
-                />
-              ))}
-            </div>
+            {glance ? (
+              <GlanceCellWorkloads
+                workloadsHere={workloadsHere}
+                selectedNodeId={selectedNodeId}
+                onSelect={onSelect}
+                roleForWorkload={roleForWorkload}
+                compact={compact}
+              />
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {workloadsHere.map(n => (
+                  <WorkloadChip
+                    key={n.id}
+                    node={n}
+                    selected={n.id === selectedNodeId}
+                    onClick={() => onSelect(n.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ) : (
         <div className="text-[11px] italic" style={{ color: PAL.slate }}>
@@ -765,6 +1065,14 @@ function SubnetCell({
             <div className="text-[11px] italic" style={{ color: PAL.slate }}>
               no workloads here
             </div>
+          ) : glance ? (
+            <GlanceCellWorkloads
+              workloadsHere={workloadsHere}
+              selectedNodeId={selectedNodeId}
+              onSelect={onSelect}
+              roleForWorkload={roleForWorkload}
+              compact={compact}
+            />
           ) : densityCollapsed && workloadsHere.length > DENSITY_STACK_THRESHOLD ? (
             // P0-B — at Fit zoom a cell of N same-type workloads is confetti;
             // collapse to icon+count stack tiles. Click a tile → jump to the
@@ -775,10 +1083,7 @@ function SubnetCell({
                   key={g.key}
                   group={g}
                   onExpand={() => {
-                    const worst =
-                      g.nodes.find(n => n.score?.tier === "WORST") ??
-                      g.nodes.find(n => n.score?.tier === "HIGH") ??
-                      g.nodes[0]
+                    const worst = selectWorstInGroup(g.nodes)
                     if (worst) onSelect(worst.id)
                   }}
                 />
@@ -1189,35 +1494,66 @@ function shortTypeLabel(type: string): string {
   return type.replace(/Function|Instance|Table|Bucket|Key|Manager/g, "") || type
 }
 
-function StackTile({ group, onExpand }: { group: NodeTypeGroup; onExpand: () => void }) {
+function StackTile({
+  group,
+  onExpand,
+  glanceLabel = false,
+}: {
+  group: NodeTypeGroup
+  onExpand: () => void
+  /** Glance: AWS stack-behind — one icon, siblings implied by ×N. */
+  glanceLabel?: boolean
+}) {
   const icon = nodeIcon(group.nodes[0]?.type ?? null)
   const worst = group.criticalCount > 0
+  const label = awsServiceLabel(group.key)
+  const count = group.nodes.length
   return (
     <button
       type="button"
       onClick={onExpand}
-      title={`${group.nodes.length} × ${group.key}${group.criticalCount ? ` · ${group.criticalCount} critical` : ""} — click to expand`}
-      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 transition hover:brightness-95"
+      title={`${count} × ${group.key}${group.criticalCount ? ` · ${group.criticalCount} critical` : ""} — click to inspect`}
+      className="inline-flex items-center gap-2 rounded-md border px-2 py-1.5 transition hover:brightness-95"
       style={{
         background: "#FFFFFF",
         borderColor: worst ? PAL.carmine : "#CBD5E1",
         boxShadow: worst ? "0 0 0 2px rgba(224,69,69,0.12)" : undefined,
       }}
       data-testid="topology-density-stack-tile"
+      data-glance-stack={glanceLabel ? "true" : undefined}
+      data-stack-count={count}
       // Flow-edge anchor fallback: when density collapse removes the member
       // chips from the DOM, FlowOverlay re-anchors their edges to this tile
       // (matched via the member ids below) instead of dropping the whole
       // flow story at overview zoom.
       data-flow-ids={group.nodes.map(n => n.id).join("|")}
     >
-      <span
-        className="inline-flex items-center justify-center rounded text-[9px] font-bold w-6 h-6 shrink-0"
-        style={{ background: icon.bg, color: icon.fg }}
-      >
-        {icon.symbol}
+      <span className="relative inline-flex" style={{ width: 28, height: 28 }}>
+        {count >= 2 ? (
+          <span
+            className="absolute rounded border bg-white"
+            style={{ inset: "3px -3px -3px 3px", borderColor: "#CBD5E1", zIndex: 0 }}
+            aria-hidden
+          />
+        ) : null}
+        <span
+          className="relative z-[1] inline-flex items-center justify-center rounded w-7 h-7 shrink-0"
+          style={{
+            background: icon.official ? "#FFFFFF" : icon.bg,
+            color: icon.fg,
+            border: "1px solid #E2E8F0",
+          }}
+        >
+          {icon.symbol}
+        </span>
       </span>
       <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: "#1A2330" }}>
-        {shortTypeLabel(group.key)} × {group.nodes.length}
+        {label}
+        {count >= 2 ? (
+          <span className="ml-1 font-mono text-[10px]" style={{ color: PAL.slate }}>
+            ×{count}
+          </span>
+        ) : null}
       </span>
       {group.criticalCount > 0 ? (
         <span className="text-[9px] font-bold rounded px-1 py-0.5" style={{ background: PAL.carmine, color: "white" }}>
@@ -1250,6 +1586,7 @@ function ServerlessComputeTier({
   roleForWorkload,
   compact = false,
   densityCollapsed = false,
+  viewDensity = "glance",
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -1257,10 +1594,15 @@ function ServerlessComputeTier({
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   compact?: boolean
   densityCollapsed?: boolean
+  viewDensity?: ViewDensity
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (nodes.length === 0) return null
-  const groups = densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD ? groupNodesByType(nodes) : null
+  const glance = viewDensity === "glance"
+  const useStacks =
+    (glance && shouldGlanceStackRail(nodes)) ||
+    (!glance && densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD)
+  const groups = useStacks ? groupNodesByType(nodes) : null
   return (
     <div
       className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
@@ -1303,7 +1645,19 @@ function ServerlessComputeTier({
                 })}
               </div>
             ) : (
-              <StackTile key={g.key} group={g} onExpand={() => setExpanded(s => new Set(s).add(g.key))} />
+              <StackTile
+                key={g.key}
+                group={g}
+                glanceLabel={glance}
+                onExpand={() => {
+                  if (glance) {
+                    const worst = selectWorstInGroup(g.nodes)
+                    if (worst) onSelect(worst.id)
+                    return
+                  }
+                  setExpanded(s => new Set(s).add(g.key))
+                }}
+              />
             ),
           )
         ) : (
@@ -1331,16 +1685,22 @@ function RegionalDataServicesTier({
   onSelect,
   compact = false,
   densityCollapsed = false,
+  viewDensity = "glance",
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
   densityCollapsed?: boolean
+  viewDensity?: ViewDensity
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (nodes.length === 0) return null
-  const groups = densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD ? groupNodesByType(nodes) : null
+  const glance = viewDensity === "glance"
+  const useStacks =
+    (glance && shouldGlanceStackRail(nodes)) ||
+    (!glance && densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD)
+  const groups = useStacks ? groupNodesByType(nodes) : null
   return (
     <div
       className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
@@ -1373,7 +1733,19 @@ function RegionalDataServicesTier({
                 ))}
               </div>
             ) : (
-              <StackTile key={g.key} group={g} onExpand={() => setExpanded(s => new Set(s).add(g.key))} />
+              <StackTile
+                key={g.key}
+                group={g}
+                glanceLabel={glance}
+                onExpand={() => {
+                  if (glance) {
+                    const worst = selectWorstInGroup(g.nodes)
+                    if (worst) onSelect(worst.id)
+                    return
+                  }
+                  setExpanded(s => new Set(s).add(g.key))
+                }}
+              />
             ),
           )
         ) : (
@@ -2538,7 +2910,9 @@ function MultiVpcCompareBands({
   const colTemplate = compareVpcColumnTemplate(frames)
   const story = buildCompareArchitectureStory(frames, systemLabel)
   // Compare always collapses density — Web stacks must never grow the band.
+  // Glance is the default architecture density (role hierarchy + cell collapse).
   const densityCollapsed = true
+  const viewDensity: ViewDensity = "glance"
 
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
   const hasAnyNat = frames.some(f => f.natGws.length > 0)
@@ -2631,6 +3005,7 @@ function MultiVpcCompareBands({
                       <WorkloadChip
                         key={n.id}
                         node={n}
+                        size="gateway"
                         selected={n.id === selectedNodeId}
                         onClick={() => onSelect(n.id)}
                       />
@@ -2647,10 +3022,22 @@ function MultiVpcCompareBands({
                   {f.natGws.map(n => (
                     <span
                       key={n.id}
-                      className="text-[9px] px-1.5 py-0.5 rounded"
-                      style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+                      style={{
+                        background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
+                        border: "2px solid #FF9900",
+                        color: "#7B3F00",
+                      }}
+                      data-testid="topology-nat-gateway-chip"
+                      title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
                     >
-                      NAT · {n.name}
+                      <span
+                        className="inline-flex items-center justify-center rounded text-[9px] font-bold w-7 h-7 shrink-0"
+                        style={{ background: PAL.awsFrame, color: PAL.awsOrange }}
+                      >
+                        NAT
+                      </span>
+                      {n.name}
                     </span>
                   ))}
                 </div>
@@ -2741,6 +3128,7 @@ function MultiVpcCompareBands({
                             compact
                             roleForWorkload={roleForWorkload}
                             densityCollapsed={densityCollapsed}
+                            viewDensity={viewDensity}
                           />
                         )
                       })}
@@ -2800,6 +3188,7 @@ function PrimaryPlusPeerStrip({
   onSelect,
   presentationMode,
   densityCollapsed,
+  viewDensity,
   iamRoles,
   allWorkloads,
 }: {
@@ -2811,6 +3200,7 @@ function PrimaryPlusPeerStrip({
   onSelect: (id: string) => void
   presentationMode: boolean
   densityCollapsed: boolean
+  viewDensity: ViewDensity
   iamRoles: IamRoleRollup[]
   allWorkloads: TopologyNode[]
 }) {
@@ -2834,6 +3224,7 @@ function PrimaryPlusPeerStrip({
         onSelect={onSelect}
         presentationMode={presentationMode}
         densityCollapsed={densityCollapsed}
+        viewDensity={viewDensity}
       />
       {peers.length > 0 ? (
         <div className="flex flex-wrap gap-2" data-testid="topology-peer-vpc-cards">
@@ -2886,6 +3277,7 @@ interface VpcCanvasFrameProps {
   onSelect: (id: string) => void
   presentationMode: boolean
   densityCollapsed: boolean
+  viewDensity: ViewDensity
 }
 
 /** One AWS VPC frame — its own AZ x tier grid, subnets, workloads, NAT band,
@@ -2909,6 +3301,7 @@ function VpcCanvasFrame({
   onSelect,
   presentationMode,
   densityCollapsed,
+  viewDensity,
 }: VpcCanvasFrameProps) {
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
   const hasNats = natGws.length > 0
@@ -2922,9 +3315,21 @@ function VpcCanvasFrame({
         {natGws.map(n => (
           <span
             key={n.id}
-            className="text-[10px] px-2 py-0.5 rounded-md"
-            style={{ background: "#FFF3E0", border: "1px solid #FF9900", color: "#7B3F00" }}
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-md"
+            style={{
+              background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
+              border: "2px solid #FF9900",
+              color: "#7B3F00",
+            }}
+            data-testid="topology-nat-gateway-chip"
+            title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
           >
+            <span
+              className="inline-flex items-center justify-center rounded w-8 h-8 shrink-0"
+              style={{ background: "#8C4FFF", color: "white" }}
+            >
+              <AwsServiceGlyph kind="nat" size={20} />
+            </span>
             NAT GW · {n.name}
           </span>
         ))}
@@ -2939,9 +3344,10 @@ function VpcCanvasFrame({
     <div
       className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
       style={{ borderColor: "#C2CDD6" }}
+      data-testid="topology-alb-band"
     >
       <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
-        <AlbGlyph size={14} />
+        <AlbGlyph size={18} />
         <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
           {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
         </span>
@@ -2951,6 +3357,7 @@ function VpcCanvasFrame({
           <WorkloadChip
             key={n.id}
             node={n}
+            size="gateway"
             selected={n.id === selectedNodeId}
             onClick={() => onSelect(n.id)}
           />
@@ -3146,6 +3553,7 @@ function VpcCanvasFrame({
                           compact={presentationMode}
                           roleForWorkload={roleForWorkload}
                           densityCollapsed={densityCollapsed}
+                          viewDensity={viewDensity}
                         />
                       )
                     })}
@@ -3175,6 +3583,73 @@ function VpcCanvasFrame({
       ) : azs.length === 0 ? (
         <div className="text-[12px] italic py-6 text-center" style={{ color: PAL.slate }}>
           No tagged subnets in this VPC.
+        </div>
+      ) : viewDensity === "glance" ? (
+        /* AWS Architecture grammar: AZ columns, Public/App/Data stacked inside.
+           Multi-VPC Compare keeps shared tier bands; single-VPC Glance matches
+           the canonical AWS reference (AZ as failure-domain columns). */
+        <div className="mt-2" data-testid="topology-aws-az-columns">
+          <div className="space-y-2">
+            {natBand}
+            {albBand}
+            <div
+              className="grid gap-2.5"
+              style={{
+                gridTemplateColumns: azGridColumns,
+                // Shared tracks: AZ title + Public + App + Data — empty DB
+                // cells match occupied siblings across AZs.
+                gridTemplateRows: "auto minmax(88px, 1fr) minmax(88px, 1fr) minmax(88px, 1fr)",
+                alignItems: "stretch",
+              }}
+              data-testid="topology-tier-stack"
+            >
+              {azs.map(az => (
+                <div
+                  key={az}
+                  className="rounded-md p-2 min-w-0 min-h-0 gap-2"
+                  style={{
+                    border: "2px dashed #3B48CC",
+                    background: "rgba(59,72,204,0.03)",
+                    display: "grid",
+                    gridTemplateRows: "subgrid",
+                    gridRow: "1 / -1",
+                  }}
+                  data-testid={`topology-az-column-${az}`}
+                >
+                  <div
+                    className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center pb-1"
+                    style={{ color: "#3B48CC", borderBottom: "1px solid rgba(59,72,204,0.2)" }}
+                    title={az}
+                  >
+                    Availability Zone · {az}
+                  </div>
+                  {TIERS.map(tier => {
+                    const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
+                    const workloadsHere = byAzAndTier.get(az)?.get(tier) ?? []
+                    return (
+                      <SubnetCell
+                        key={`${az}-${tier}`}
+                        tier={tier}
+                        az={az}
+                        subnetsHere={subnetsHere}
+                        workloadsHere={workloadsHere}
+                        sgIndex={sgIndex}
+                        selectedNodeId={selectedNodeId}
+                        onSelect={onSelect}
+                        compact
+                        roleForWorkload={roleForWorkload}
+                        densityCollapsed={densityCollapsed}
+                        viewDensity={viewDensity}
+                      />
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+            {showIamControlPlane && iamRoles.length > 0 ? (
+              <div className="flex gap-0">{iamCpBlock(false)}</div>
+            ) : null}
+          </div>
         </div>
       ) : (
         <div className="mt-2">
@@ -3222,6 +3697,7 @@ function VpcCanvasFrame({
                             compact={presentationMode}
                             roleForWorkload={roleForWorkload}
                             densityCollapsed={densityCollapsed}
+                            viewDensity={viewDensity}
                           />
                         )
                       })}
@@ -3260,6 +3736,7 @@ export function AwsFrame({
   presentationMode = false,
   scale = 1,
   densityCollapsed = false,
+  viewDensity = "glance",
   systemLabel,
 }: Props) {
   const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
@@ -3505,6 +3982,7 @@ export function AwsFrame({
                   onSelect={onSelect}
                   presentationMode={presentationMode}
                   densityCollapsed={densityCollapsed}
+                  viewDensity={viewDensity}
                   iamRoles={iamRoles}
                   allWorkloads={nodes}
                 />
@@ -3556,6 +4034,7 @@ export function AwsFrame({
                     onSelect={onSelect}
                     presentationMode={presentationMode}
                     densityCollapsed={densityCollapsed}
+                    viewDensity={viewDensity}
                   />
                 ))}
               </div>
@@ -3578,6 +4057,7 @@ export function AwsFrame({
                   onSelect={onSelect}
                   presentationMode={presentationMode}
                   densityCollapsed={densityCollapsed}
+                  viewDensity={viewDensity}
                 />
               ))
             )}
@@ -3678,6 +4158,7 @@ export function AwsFrame({
                     roleForWorkload={roleForWorkload}
                     compact={presentationMode}
                     densityCollapsed={densityCollapsed}
+                    viewDensity={viewDensity}
                   />
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
@@ -3685,6 +4166,7 @@ export function AwsFrame({
                     onSelect={onSelect}
                     compact={presentationMode}
                     densityCollapsed={densityCollapsed}
+                    viewDensity={viewDensity}
                   />
                 </div>
               </>

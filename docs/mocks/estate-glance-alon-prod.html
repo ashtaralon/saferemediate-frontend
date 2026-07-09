@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Estate Map · Glance — alon-prod (mock)</title>
+  <style>
+    :root {
+      --navy: #0D1B2A;
+      --ink: #1A2330;
+      --slate: #5A6B7A;
+      --muted: #8A97A5;
+      --teal: #00C2A8;
+      --aws: #232F3E;
+      --aws-orange: #FF9900;
+      --bg: #EEF1F4;
+      --card: #FFFFFF;
+      --web: #E8F5E9;
+      --web-cell: #DCEFDC;
+      --app: #E3F2FD;
+      --app-cell: #D6E9F8;
+      --data: #F3EDE6;
+      --data-cell: #E8DFD4;
+      --foreign: #FFF4E5;
+      --foreign-border: #E8A23A;
+      --line: #CBD5E1;
+      --danger: #C23B3B;
+      --font: "IBM Plex Sans", "Source Sans 3", "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 16px;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 20px 24px 40px;
+    }
+
+    header.top {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand-block h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--navy);
+    }
+    .brand-block .sub {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--slate);
+    }
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: #fff;
+      border: 1px solid var(--line);
+      color: var(--slate);
+    }
+    .badge.teal { border-color: var(--teal); color: #0A7A6A; background: #E8FAF6; }
+    .badge.warn { border-color: var(--foreign-border); color: #9A5B00; background: var(--foreign); }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .seg {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .seg button {
+      border: 0;
+      background: transparent;
+      padding: 7px 12px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--slate);
+      cursor: pointer;
+    }
+    .seg button.active {
+      background: var(--navy);
+      color: #fff;
+    }
+    .seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .hint {
+      font-size: 11px;
+      color: var(--muted);
+      max-width: 320px;
+      text-align: right;
+      line-height: 1.35;
+    }
+
+    .story {
+      grid-column: 1 / -1;
+      font-size: 13px;
+      color: var(--slate);
+      margin: 0;
+    }
+    .story strong { color: var(--ink); font-weight: 650; }
+
+    /* —— Map —— */
+    .map {
+      background: var(--card);
+      border: 2px solid var(--aws);
+      border-radius: 10px;
+      padding: 14px 14px 16px;
+      position: relative;
+      min-width: 0;
+    }
+    .frame-label {
+      position: absolute;
+      top: -9px;
+      left: 14px;
+      background: var(--bg);
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--aws);
+    }
+
+    .north {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      padding: 6px 0 14px;
+    }
+    .north .actor {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--slate);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .north .actor .ico { font-size: 28px; line-height: 1; }
+    .north .dash {
+      flex: 1;
+      max-width: 140px;
+      border-top: 2px dashed #94A3B8;
+    }
+
+    .region {
+      border: 1.5px solid #3D4F63;
+      border-radius: 8px;
+      padding: 12px 10px 10px;
+      background: linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 100%);
+      position: relative;
+    }
+    .region-label {
+      position: absolute;
+      top: -8px;
+      left: 12px;
+      background: #F1F5F9;
+      padding: 0 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #3D4F63;
+    }
+
+    /* VPC chrome */
+    .vpc-chrome {
+      display: grid;
+      grid-template-columns: 92px 1.35fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+      align-items: stretch;
+    }
+    .vpc-chrome .spacer { visibility: hidden; }
+    .vpc-head {
+      border-radius: 6px;
+      padding: 8px 10px;
+      border: 1.5px solid var(--teal);
+      background: rgba(255,255,255,0.85);
+    }
+    .vpc-head.foreign {
+      border-color: var(--foreign-border);
+      background: var(--foreign);
+    }
+    .vpc-head .name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--navy);
+    }
+    .vpc-head .meta {
+      font-size: 10px;
+      color: var(--slate);
+      margin-top: 2px;
+      font-family: var(--mono);
+    }
+    .vpc-head .tag {
+      display: inline-block;
+      margin-top: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 2px 5px;
+      border-radius: 3px;
+      background: #E8FAF6;
+      color: #0A7A6A;
+    }
+    .vpc-head.foreign .tag {
+      background: #FFE8C2;
+      color: #9A5B00;
+    }
+
+    /* Tier bands */
+    .band {
+      display: grid;
+      grid-template-columns: 92px 1.35fr 1fr;
+      gap: 8px;
+      margin-bottom: 6px;
+      min-height: 0;
+    }
+    .band-label {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 8px 6px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--navy);
+      border: 1px solid transparent;
+    }
+    .band-label .arrow {
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 4px;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+    .band.web .band-label { background: var(--web); border-color: #A5D6A7; }
+    .band.app .band-label { background: var(--app); border-color: #90CAF9; }
+    .band.data .band-label { background: var(--data); border-color: #D4C4B0; }
+    .band.ingress .band-label {
+      background: #FFF8E7;
+      border-color: #F0D78C;
+    }
+
+    .vpc-col {
+      border-radius: 6px;
+      border: 1.5px solid var(--teal);
+      background: rgba(255,255,255,0.55);
+      padding: 6px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .vpc-col.foreign { border-color: var(--foreign-border); background: rgba(255,244,229,0.45); }
+
+    .az-row {
+      display: grid;
+      gap: 6px;
+      flex: 1;
+    }
+    .az-row.cols-2 { grid-template-columns: 1fr 1fr; }
+    .az-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .az-row.cols-1 { grid-template-columns: 1fr; }
+
+    .cell {
+      border-radius: 5px;
+      padding: 6px;
+      min-height: 72px;
+      border: 1px dashed rgba(0,0,0,0.08);
+      cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .band.web .cell { background: var(--web-cell); }
+    .band.app .cell { background: var(--app-cell); }
+    .band.data .cell { background: var(--data-cell); }
+    .band.ingress .cell {
+      background: #FFFDF5;
+      border-style: solid;
+      border-color: #F0D78C;
+      min-height: 64px;
+    }
+    .cell:hover { box-shadow: 0 0 0 2px rgba(0,194,168,0.35); }
+    .cell.selected { box-shadow: 0 0 0 2px var(--teal); border-style: solid; border-color: var(--teal); }
+    .cell.empty {
+      opacity: 0.55;
+      justify-content: center;
+      align-items: center;
+      font-size: 10px;
+      color: var(--muted);
+      font-style: italic;
+      cursor: default;
+    }
+    .cell.empty:hover { box-shadow: none; }
+
+    .az-tag {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--slate);
+      font-family: var(--mono);
+    }
+
+    /* Role-sized chips */
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid var(--line);
+      text-align: left;
+      width: 100%;
+      font: inherit;
+      cursor: pointer;
+      padding: 0;
+      transition: border-color 0.12s, transform 0.12s;
+    }
+    .chip:hover { border-color: var(--teal); }
+    .chip:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+
+    .chip.gateway {
+      padding: 8px 10px;
+      border-width: 2px;
+      border-color: var(--aws-orange);
+      background: linear-gradient(180deg, #FFF9F0 0%, #fff 100%);
+      min-height: 52px;
+    }
+    .chip.gateway .icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--aws);
+      color: var(--aws-orange);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      flex-shrink: 0;
+    }
+    .chip.gateway .title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.2;
+    }
+    .chip.gateway .sub {
+      font-size: 10px;
+      color: var(--slate);
+      margin-top: 1px;
+    }
+
+    .chip.anchor {
+      padding: 6px 8px;
+      min-height: 40px;
+    }
+    .chip.anchor .icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: #E8EEF4;
+      color: var(--navy);
+      display: grid;
+      place-items: center;
+      font-size: 9px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .chip.anchor .title {
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chip.anchor .sub {
+      font-size: 10px;
+      color: var(--muted);
+    }
+    .chip.anchor.jewel {
+      border-color: #C9A227;
+      background: #FFFBEB;
+    }
+    .chip.anchor.jewel .icon { background: #F5E6A8; }
+
+    .chip.group {
+      padding: 5px 8px;
+      min-height: 32px;
+      background: #F8FAFC;
+      border-style: dashed;
+    }
+    .chip.group .icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: #E2E8F0;
+      color: var(--slate);
+      display: grid;
+      place-items: center;
+      font-size: 8px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .chip.group .title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--slate);
+    }
+    .chip.group .count {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: var(--navy);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 1px 7px;
+    }
+
+    .more {
+      font-size: 10px;
+      font-weight: 700;
+      color: #0A7A6A;
+      background: transparent;
+      border: 0;
+      padding: 2px 0;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+    }
+    .more:hover { text-decoration: underline; }
+
+    /* Regional rail under VPC */
+    .regional {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 8px;
+    }
+    .regional-label {
+      border-radius: 6px;
+      padding: 8px 6px;
+      background: #ECEFF1;
+      border: 1px solid #CFD8DC;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--navy);
+      display: flex;
+      align-items: center;
+    }
+    .regional-body {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px dashed #B0BEC5;
+      background: rgba(255,255,255,0.7);
+    }
+    .regional-body .chip.group { width: auto; min-width: 140px; }
+
+    /* Inspector */
+    aside.rail {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      align-self: start;
+      position: sticky;
+      top: 16px;
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+    }
+    aside.rail h2 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--navy);
+    }
+    aside.rail .rail-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+    .inspect-empty {
+      font-size: 12px;
+      color: var(--slate);
+      line-height: 1.45;
+      padding: 12px;
+      background: #F8FAFC;
+      border-radius: 6px;
+      border: 1px dashed var(--line);
+    }
+    .inspect-block { margin-bottom: 14px; }
+    .inspect-block h3 {
+      margin: 0 0 6px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .inspect-block .val {
+      font-size: 13px;
+      font-weight: 650;
+      color: var(--ink);
+      word-break: break-word;
+    }
+    .inspect-block .mono {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--slate);
+      margin-top: 2px;
+    }
+    .list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .list li {
+      font-size: 12px;
+      padding: 6px 8px;
+      background: #F8FAFC;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .list li span.type {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .cta-stack { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .cta {
+      display: block;
+      text-align: center;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 650;
+      text-decoration: none;
+      border: 1px solid var(--line);
+      color: var(--navy);
+      background: #fff;
+    }
+    .cta.primary {
+      background: var(--navy);
+      color: #fff;
+      border-color: var(--navy);
+    }
+    .cta.ghost { color: var(--slate); }
+    .cta.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .legend {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-size: 11px;
+      color: var(--slate);
+      padding-top: 4px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid var(--line);
+    }
+
+    @media (max-width: 1100px) {
+      .shell { grid-template-columns: 1fr; }
+      aside.rail { position: static; max-height: none; }
+      .vpc-chrome, .band, .regional { grid-template-columns: 72px 1fr; }
+      .vpc-chrome .vpc-head:last-child,
+      .band .vpc-col:last-child { display: none; }
+      .note-mobile {
+        display: block;
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+    }
+    .note-mobile { display: none; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div class="brand-block">
+        <h1>Estate Map · Glance</h1>
+        <p class="sub">alon-prod · eu-west-1 · architecture comprehension (mock — not live React)</p>
+        <div class="badge-row">
+          <span class="badge teal">Default: Glance</span>
+          <span class="badge">No traffic lines</span>
+          <span class="badge">No attack paths</span>
+          <span class="badge warn">1 own VPC · 1 shared (payment-production)</span>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="seg" role="tablist" aria-label="Zoom level">
+          <button type="button" class="active" data-zoom="glance">Glance</button>
+          <button type="button" data-zoom="inspect" id="btn-inspect-mode">Inspect</button>
+          <button type="button" disabled title="v2 — select node → neighborhood + handoff">Incident</button>
+        </div>
+        <p class="hint">Click a cell or chip → Inspect rail. Traffic / Attack Paths are handoffs, not overlays.</p>
+      </div>
+    </header>
+
+    <p class="story">
+      <strong>Internet → ALB (shared VPC) → Web → App → Data.</strong>
+      Own VPC <span class="mono">…d24f</span> holds frontends + jewel RDS.
+      Shared VPC <span class="mono">…2c96</span> holds entry ALB + web fleet + second RDS.
+      Regional: <strong>14 Lambda · 10 S3 · 8 DynamoDB</strong> outside VPC (grouped).
+    </p>
+
+    <main class="map" id="map">
+      <div class="frame-label">☁ AWS Cloud · 745783559495</div>
+      <p class="note-mobile">Narrow viewport: showing own VPC only. Widen for Compare.</p>
+
+      <div class="north">
+        <div class="actor"><span class="ico" aria-hidden="true">◎</span> Users</div>
+        <div class="dash"></div>
+        <div class="actor"><span class="ico" aria-hidden="true">☁</span> Internet</div>
+        <div class="dash"></div>
+        <div class="actor"><span class="ico" aria-hidden="true">⬡</span> IGW</div>
+      </div>
+
+      <div class="region">
+        <div class="region-label">Region eu-west-1</div>
+
+        <div class="vpc-chrome">
+          <div class="spacer"></div>
+          <div class="vpc-head">
+            <div class="name">alon-prod-vpc</div>
+            <div class="meta">vpc-0329…d24f · 2 AZ · own</div>
+            <span class="tag">SystemName = alon-prod</span>
+          </div>
+          <div class="vpc-head foreign">
+            <div class="name">shared · payment-production</div>
+            <div class="meta">vpc-086…2c96 · 3 AZ · foreign</div>
+            <span class="tag">Co-tenant workloads</span>
+          </div>
+        </div>
+
+        <!-- INGRESS -->
+        <div class="band ingress">
+          <div class="band-label">
+            Entry
+            <span class="arrow">↓</span>
+          </div>
+          <div class="vpc-col">
+            <div class="cell empty" data-empty="1">No ALB / NAT in this VPC</div>
+          </div>
+          <div class="vpc-col foreign">
+            <div class="az-row cols-1">
+              <div class="cell" data-cell="shared-entry" tabindex="0">
+                <div class="az-tag">Regional ALB · spans AZs</div>
+                <button type="button" class="chip gateway" data-res="alb">
+                  <span class="icon">ALB</span>
+                  <span>
+                    <span class="title">alon-prod-3tier-alb</span>
+                    <span class="sub">Public entry · web tier landmark</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- WEB -->
+        <div class="band web">
+          <div class="band-label">
+            Web
+            <span class="arrow">↓</span>
+          </div>
+          <div class="vpc-col">
+            <div class="az-row cols-2">
+              <div class="cell" data-cell="own-web-1a" tabindex="0">
+                <div class="az-tag">1a · public</div>
+                <button type="button" class="chip anchor" data-res="fe1">
+                  <span class="icon">EC2</span>
+                  <span>
+                    <span class="title">Test-Frontend-1</span>
+                    <span class="sub">Web · named anchor</span>
+                  </span>
+                </button>
+              </div>
+              <div class="cell" data-cell="own-web-1b" tabindex="0">
+                <div class="az-tag">1b · public</div>
+                <button type="button" class="chip anchor" data-res="fe2">
+                  <span class="icon">EC2</span>
+                  <span>
+                    <span class="title">Test-Frontend-2</span>
+                    <span class="sub">Web · named anchor</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="vpc-col foreign">
+            <div class="az-row cols-2">
+              <div class="cell" data-cell="shared-web-1a" tabindex="0">
+                <div class="az-tag">1a · public</div>
+                <button type="button" class="chip anchor" data-res="web-a">
+                  <span class="icon">EC2</span>
+                  <span>
+                    <span class="title">alon-prod-3tier-web</span>
+                    <span class="sub">Behind ALB</span>
+                  </span>
+                </button>
+              </div>
+              <div class="cell" data-cell="shared-web-1b" tabindex="0">
+                <div class="az-tag">1b · public</div>
+                <button type="button" class="chip anchor" data-res="web-b">
+                  <span class="icon">EC2</span>
+                  <span>
+                    <span class="title">alon-prod-3tier-web</span>
+                    <span class="sub">Replica AZ</span>
+                  </span>
+                </button>
+                <button type="button" class="chip group" data-res="web-more" data-cell-focus="shared-web-1b">
+                  <span class="icon">+N</span>
+                  <span class="title">More web / demo EC2</span>
+                  <span class="count">+4</span>
+                </button>
+                <button type="button" class="more" data-cell-focus="shared-web-1b">+4 more in cell → Inspect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- APP -->
+        <div class="band app">
+          <div class="band-label">
+            App
+            <span class="arrow">↓</span>
+          </div>
+          <div class="vpc-col">
+            <div class="az-row cols-2">
+              <div class="cell" data-cell="own-app-1a" tabindex="0">
+                <div class="az-tag">1a · private</div>
+                <button type="button" class="chip anchor" data-res="pay-api">
+                  <span class="icon">λ</span>
+                  <span>
+                    <span class="title">PaymentProductionAPI</span>
+                    <span class="sub">In-VPC Lambda · app</span>
+                  </span>
+                </button>
+              </div>
+              <div class="cell" data-cell="own-app-1b" tabindex="0">
+                <div class="az-tag">1b · private</div>
+                <button type="button" class="chip anchor" data-res="app2">
+                  <span class="icon">EC2</span>
+                  <span>
+                    <span class="title">Test-App-2</span>
+                    <span class="sub">App tier</span>
+                  </span>
+                </button>
+                <button type="button" class="chip group" data-res="vpc-lambda">
+                  <span class="icon">λ</span>
+                  <span class="title">VPCTrafficGenerator</span>
+                  <span class="count">1</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="vpc-col foreign">
+            <div class="cell empty">No app-tier subnets tagged for this system</div>
+          </div>
+        </div>
+
+        <!-- DATA -->
+        <div class="band data">
+          <div class="band-label">Data</div>
+          <div class="vpc-col">
+            <div class="az-row cols-2">
+              <div class="cell" data-cell="own-data-1a" tabindex="0">
+                <div class="az-tag">1a · private</div>
+                <button type="button" class="chip anchor jewel" data-res="rds-own">
+                  <span class="icon">RDS</span>
+                  <span>
+                    <span class="title">saferemediate-test-db</span>
+                    <span class="sub">Crown jewel · data anchor</span>
+                  </span>
+                </button>
+              </div>
+              <div class="cell empty">1b · no workloads</div>
+            </div>
+          </div>
+          <div class="vpc-col foreign">
+            <div class="az-row cols-1">
+              <div class="cell" data-cell="shared-data-1c" tabindex="0">
+                <div class="az-tag">1c · data</div>
+                <button type="button" class="chip anchor" data-res="rds-shared">
+                  <span class="icon">RDS</span>
+                  <span>
+                    <span class="title">alon-prod-db</span>
+                    <span class="sub">Shared VPC data store</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- REGIONAL -->
+        <div class="regional">
+          <div class="regional-label">Outside VPC</div>
+          <div class="regional-body">
+            <button type="button" class="chip group" data-res="reg-lambda">
+              <span class="icon">λ</span>
+              <span class="title">Lambda (regional)</span>
+              <span class="count">14</span>
+            </button>
+            <button type="button" class="chip group" data-res="reg-s3">
+              <span class="icon">S3</span>
+              <span class="title">S3 buckets</span>
+              <span class="count">10</span>
+            </button>
+            <button type="button" class="chip group" data-res="reg-ddb">
+              <span class="icon">DDB</span>
+              <span class="title">DynamoDB tables</span>
+              <span class="count">8</span>
+            </button>
+            <button type="button" class="chip group" data-res="reg-kms" disabled title="Not in topology-risk nodes for this snapshot">
+              <span class="icon">KMS</span>
+              <span class="title">KMS keys</span>
+              <span class="count">—</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="rail" id="rail" aria-live="polite">
+      <h2>Inspect</h2>
+      <p class="rail-sub">Glance shows bones. Full inventory lives here — one click away.</p>
+      <div id="rail-body">
+        <div class="inspect-empty">
+          Click <strong>ALB</strong>, a named EC2/RDS, a <strong>+N group</strong>, or a tier cell.
+          You’ll get the full list for that cell without dumping inventory on the map.
+        </div>
+      </div>
+    </aside>
+
+    <div class="legend">
+      <span><i class="swatch" style="background:#FFF9F0;border-color:#FF9900"></i> Gateway / edge (largest)</span>
+      <span><i class="swatch" style="background:#fff"></i> Named anchor (EC2 / RDS / in-VPC λ)</span>
+      <span><i class="swatch" style="background:#F8FAFC;border-style:dashed"></i> Grouped high-volume</span>
+      <span><i class="swatch" style="background:#FFFBEB;border-color:#C9A227"></i> Data jewel</span>
+      <span><i class="swatch" style="background:#FFF4E5;border-color:#E8A23A"></i> Shared / foreign VPC</span>
+    </div>
+  </div>
+
+  <script>
+    const CELLS = {
+      "shared-entry": {
+        title: "Entry · shared VPC",
+        meta: "vpc-086…2c96 · ALB landmark",
+        items: [
+          { type: "ALB", name: "alon-prod-3tier-alb", note: "Public entry" },
+        ],
+      },
+      "own-web-1a": {
+        title: "Web · own · 1a",
+        meta: "subnet SafeRemediate-Test-Public-1",
+        items: [
+          { type: "EC2", name: "SafeRemediate-Test-Frontend-1" },
+        ],
+      },
+      "own-web-1b": {
+        title: "Web · own · 1b",
+        meta: "subnet SafeRemediate-Test-Public-2",
+        items: [
+          { type: "EC2", name: "SafeRemediate-Test-Frontend-2" },
+        ],
+      },
+      "shared-web-1a": {
+        title: "Web · shared · 1a",
+        meta: "Behind alon-prod-3tier-alb",
+        items: [
+          { type: "EC2", name: "alon-prod-3tier-web" },
+        ],
+      },
+      "shared-web-1b": {
+        title: "Web · shared · 1b",
+        meta: "Cell collapse demo — 5 EC2, show 1 + group",
+        items: [
+          { type: "EC2", name: "alon-prod-3tier-web" },
+          { type: "EC2", name: "alon-demo-app2" },
+          { type: "EC2", name: "alon-prod-app-1" },
+          { type: "EC2", name: "cyntro-demo-cmk-traffic" },
+          { type: "EC2", name: "cyntro-web-server" },
+        ],
+      },
+      "own-app-1a": {
+        title: "App · own · 1a",
+        meta: "Private app subnet",
+        items: [
+          { type: "Lambda", name: "PaymentProductionAPI" },
+        ],
+      },
+      "own-app-1b": {
+        title: "App · own · 1b",
+        meta: "Private app subnet",
+        items: [
+          { type: "EC2", name: "SafeRemediate-Test-App-2" },
+          { type: "Lambda", name: "VPCTrafficGenerator" },
+        ],
+      },
+      "own-data-1a": {
+        title: "Data · own · 1a",
+        meta: "Jewel RDS",
+        items: [
+          { type: "RDS", name: "saferemediate-test-db", note: "is_jewel" },
+        ],
+      },
+      "shared-data-1c": {
+        title: "Data · shared · 1c",
+        meta: "Foreign VPC data",
+        items: [
+          { type: "RDS", name: "alon-prod-db" },
+        ],
+      },
+    };
+
+    const RES = {
+      alb: {
+        title: "alon-prod-3tier-alb",
+        type: "Application Load Balancer",
+        where: "vpc-086…2c96 · web · entry landmark",
+        note: "Largest visual role: answers “where does traffic enter?”",
+        handoffs: true,
+      },
+      fe1: { title: "SafeRemediate-Test-Frontend-1", type: "EC2", where: "own VPC · web · 1a", handoffs: true },
+      fe2: { title: "SafeRemediate-Test-Frontend-2", type: "EC2", where: "own VPC · web · 1b", handoffs: true },
+      "web-a": { title: "alon-prod-3tier-web", type: "EC2", where: "shared VPC · web · 1a", handoffs: true },
+      "web-b": { title: "alon-prod-3tier-web", type: "EC2", where: "shared VPC · web · 1b", handoffs: true },
+      "web-more": { cell: "shared-web-1b" },
+      "pay-api": { title: "PaymentProductionAPI", type: "Lambda (VPC)", where: "own VPC · app · 1a", handoffs: true },
+      app2: { title: "SafeRemediate-Test-App-2", type: "EC2", where: "own VPC · app · 1b", handoffs: true },
+      "vpc-lambda": { title: "VPCTrafficGenerator", type: "Lambda (VPC)", where: "own VPC · app · 1b", handoffs: true },
+      "rds-own": { title: "saferemediate-test-db", type: "RDS · jewel", where: "own VPC · data · 1a", handoffs: true },
+      "rds-shared": { title: "alon-prod-db", type: "RDS", where: "shared VPC · data · 1c", handoffs: true },
+      "reg-lambda": {
+        title: "Lambda · regional",
+        type: "Grouped · outside VPC",
+        where: "14 functions (not placed in subnet grid)",
+        items: [
+          "AlonIAMTest-traffic-generator",
+          "PaymentTrafficGenerator",
+          "SafeRemediate-BehaviorAnalyzer",
+          "SafeRemediate-ConfidenceScorer",
+          "SafeRemediate-CreateCheckpoint",
+          "SafeRemediate-PrismaWebhook",
+          "SafeRemediate-RemediationExecutor",
+          "SafeRemediate-RollbackExecutor",
+          "… +6 more",
+        ],
+      },
+      "reg-s3": {
+        title: "S3 · regional",
+        type: "Grouped · outside VPC",
+        where: "10 buckets",
+        items: [
+          "saferemediate-logs-745783559495",
+          "saferemediate-access-logs-745783559495",
+          "cyntro-demo-prod-data-745783559495",
+          "alon-demo-data-bucket-745783559495",
+          "… +6 more",
+        ],
+      },
+      "reg-ddb": {
+        title: "DynamoDB · regional",
+        type: "Grouped · outside VPC",
+        where: "8 tables",
+        items: [
+          "SafeRemediate-Findings",
+          "SafeRemediate-Executions",
+          "SafeRemediate-Simulations",
+          "impaciq-findings",
+          "… +4 more",
+        ],
+      },
+    };
+
+    const railBody = document.getElementById("rail-body");
+    const btnInspect = document.getElementById("btn-inspect-mode");
+
+    function clearSelected() {
+      document.querySelectorAll(".cell.selected").forEach((el) => el.classList.remove("selected"));
+    }
+
+    function renderCell(cellId) {
+      const cell = CELLS[cellId];
+      if (!cell) return;
+      clearSelected();
+      const el = document.querySelector(`[data-cell="${cellId}"]`);
+      if (el) el.classList.add("selected");
+      btnInspect.classList.add("active");
+      document.querySelector('[data-zoom="glance"]').classList.remove("active");
+
+      const items = cell.items
+        .map(
+          (it) =>
+            `<li><span>${it.name}${it.note ? ` · <em>${it.note}</em>` : ""}</span><span class="type">${it.type}</span></li>`
+        )
+        .join("");
+
+      railBody.innerHTML = `
+        <div class="inspect-block">
+          <h3>Cell</h3>
+          <div class="val">${cell.title}</div>
+          <div class="mono">${cell.meta}</div>
+        </div>
+        <div class="inspect-block">
+          <h3>Full inventory (${cell.items.length})</h3>
+          <ul class="list">${items}</ul>
+        </div>
+        <div class="inspect-block">
+          <h3>Next</h3>
+          <div class="cta-stack">
+            <a class="cta primary disabled" href="#">Open resource inspector</a>
+            <a class="cta" href="#">Open in Traffic Map</a>
+            <a class="cta ghost" href="#">View Attack Paths</a>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRes(id) {
+      const r = RES[id];
+      if (!r) return;
+      if (r.cell) return renderCell(r.cell);
+
+      btnInspect.classList.add("active");
+      document.querySelector('[data-zoom="glance"]').classList.remove("active");
+
+      let list = "";
+      if (r.items) {
+        list = `
+          <div class="inspect-block">
+            <h3>Members</h3>
+            <ul class="list">${r.items.map((n) => `<li><span>${n}</span></li>`).join("")}</ul>
+          </div>`;
+      }
+
+      railBody.innerHTML = `
+        <div class="inspect-block">
+          <h3>Resource</h3>
+          <div class="val">${r.title}</div>
+          <div class="mono">${r.type}</div>
+        </div>
+        <div class="inspect-block">
+          <h3>Placement</h3>
+          <div class="val" style="font-weight:500;font-size:12px">${r.where}</div>
+          ${r.note ? `<div class="mono" style="margin-top:6px">${r.note}</div>` : ""}
+        </div>
+        ${list}
+        <div class="inspect-block">
+          <h3>Handoffs (not Estate overlays)</h3>
+          <div class="cta-stack">
+            <a class="cta" href="#">Open in Traffic Map</a>
+            <a class="cta ghost" href="#">View Attack Paths</a>
+          </div>
+        </div>
+      `;
+    }
+
+    document.querySelectorAll("[data-cell]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        if (e.target.closest(".chip") || e.target.closest(".more")) return;
+        if (el.dataset.empty) return;
+        renderCell(el.dataset.cell);
+      });
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (!el.dataset.empty) renderCell(el.dataset.cell);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-res]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        renderRes(el.dataset.res);
+      });
+    });
+
+    document.querySelectorAll("[data-cell-focus]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        renderCell(el.dataset.cellFocus);
+      });
+    });
+
+    document.querySelectorAll("[data-zoom]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.disabled) return;
+        document.querySelectorAll("[data-zoom]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        if (btn.dataset.zoom === "glance") {
+          clearSelected();
+          railBody.innerHTML = `
+            <div class="inspect-empty">
+              Back to Glance. Map shows architecture bones only.
+              Click a cell or chip when you need inventory.
+            </div>`;
+        }
+      });
+    });
+  </script>
+</body>
+</html>
