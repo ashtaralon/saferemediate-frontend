@@ -480,6 +480,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const LOD_THRESHOLD = 0.55
   const densityLockRef = useRef(false)
   const [densityCollapsed, setDensityCollapsed] = useState(false)
+  /** Glance = architecture bones (default). Inventory = full real-node cards. */
+  const [viewDensity, setViewDensity] = useState<"glance" | "inventory">("glance")
 
   const computeFit = useCallback((apply: boolean) => {
     const vp = viewportRef.current
@@ -913,7 +915,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     ? `iam:${highlightedRoleName}`
     : selectedNodeId
 
-  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsed = false) => (data.vpc_topology ? (
+  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (data.vpc_topology ? (
     <AwsFrame
       vpcTopology={data.vpc_topology}
       nodes={filteredNodes}
@@ -934,7 +936,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       }}
       presentationMode={presentationMode}
       scale={scale}
-      densityCollapsed={densityCollapsed}
+      densityCollapsed={densityCollapsedArg}
+      viewDensity={viewDensity}
       systemLabel={systemName}
     />
   ) : (
@@ -1294,17 +1297,53 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               })}
             </div>
             {view === "map" ? (
-              <button
-                type="button"
-                onClick={() => setMapEnlarged(true)}
-                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-[#F8FAFC] transition-colors shrink-0"
-                style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
-                aria-label="Open map fullscreen"
-                data-testid="topology-estate-map-enlarge"
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-                Map fullscreen
-              </button>
+              <>
+                <div
+                  className="inline-flex rounded-md border overflow-hidden shrink-0"
+                  style={{ borderColor: "#CBD5E1", background: "#FFFFFF" }}
+                  role="group"
+                  aria-label="Map density"
+                  data-testid="topology-estate-view-density"
+                >
+                  {([
+                    ["glance", "Glance"],
+                    ["inventory", "Inventory"],
+                  ] as const).map(([id, label]) => {
+                    const active = viewDensity === id
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setViewDensity(id)}
+                        className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
+                        style={{
+                          background: active ? "#0D1B2A" : "transparent",
+                          color: active ? "#FFFFFF" : "#5A6B7A",
+                        }}
+                        data-testid={`topology-estate-density-${id}`}
+                        title={
+                          id === "glance"
+                            ? "Architecture bones — role-sized chips, cell collapse, real Neo4j nodes only"
+                            : "Full inventory cards for every real node in scope"
+                        }
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMapEnlarged(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-[#F8FAFC] transition-colors shrink-0"
+                  style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
+                  aria-label="Open map fullscreen"
+                  data-testid="topology-estate-map-enlarge"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Map fullscreen
+                </button>
+              </>
             ) : null}
           </div>
           <div className="relative flex-1 min-h-0">
@@ -1371,7 +1410,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
       <footer className={`${ESTATE_SHELL_X} pb-6 text-[10px] leading-relaxed`} style={{ color: "#5A6B7A" }}>
         Live read from <span className="font-mono">/api/topology-risk/{data.system}</span>.
-        Empty cells are honest, not fabricated.
+        Glance groups real Neo4j nodes only — empty cells are honest, not fabricated.
       </footer>
 
       {!mapEnlarged ? (
@@ -1410,6 +1449,35 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               <SlidersHorizontal className="h-3 w-3" />
               Scope
             </button>
+
+            <div
+              className="inline-flex rounded-md border overflow-hidden shrink-0"
+              style={{ borderColor: "#CBD5E1", background: "#FFFFFF" }}
+              role="group"
+              aria-label="Map density"
+            >
+              {([
+                ["glance", "Glance"],
+                ["inventory", "Inventory"],
+              ] as const).map(([id, label]) => {
+                const active = viewDensity === id
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setViewDensity(id)}
+                    className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors"
+                    style={{
+                      background: active ? "#0D1B2A" : "transparent",
+                      color: active ? "#FFFFFF" : "#5A6B7A",
+                    }}
+                    data-testid={`topology-estate-density-fs-${id}`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
 
             <div className="flex-1" />
 
@@ -1499,7 +1567,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 {renderMap(true, zoom, densityCollapsed)}
               </div>
             </div>
-            {densityCollapsed ? (
+            {viewDensity === "glance" ? (
+              <div
+                className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
+                style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
+              >
+                Glance — real nodes only · click +N or Inventory for full cards
+              </div>
+            ) : densityCollapsed ? (
               <div
                 className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
                 style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}

@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Estate Map · AWS Glance — live topology data</title>
+  <style>
+    :root {
+      --ink: #16191f;
+      --slate: #545b64;
+      --muted: #879596;
+      --line: #d5dbdb;
+      --bg: #f2f3f3;
+      --card: #ffffff;
+      --aws: #232f3e;
+      --aws-green: #1B861F;
+      --aws-blue: #2E73B8;
+      --az-dash: #3B48CC;
+      --public: #E8F5E9;
+      --public-border: #1B861F;
+      --app: #E3F2FD;
+      --app-border: #2E73B8;
+      --data: #E8F0FE;
+      --data-border: #527FFF;
+      --orange: #FF9900;
+      --purple: #8C4FFF;
+      --teal: #00C2A8;
+      --font: "Amazon Ember", "Helvetica Neue", Arial, sans-serif;
+      --mono: "Amazon Ember Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--ink);
+    }
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px 24px 48px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--aws);
+    }
+    .sub { margin: 4px 0 0; font-size: 12px; color: var(--slate); }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .badge {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 3px 7px; border-radius: 3px;
+      border: 1px solid var(--line); background: #fff; color: var(--slate);
+    }
+    .badge.ok { border-color: var(--teal); color: #0A7A6A; background: #E8FAF6; }
+    .controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .seg {
+      display: inline-flex; border: 1px solid var(--line); border-radius: 4px;
+      overflow: hidden; background: #fff;
+    }
+    .seg button {
+      border: 0; background: transparent; padding: 6px 10px;
+      font: inherit; font-size: 11px; font-weight: 700; color: var(--slate); cursor: pointer;
+    }
+    .seg button.active { background: var(--aws); color: #fff; }
+    .status {
+      font-size: 11px; color: var(--muted); font-family: var(--mono);
+    }
+    .status.err { color: #b71c1c; }
+
+    /* AWS nesting */
+    .aws-cloud {
+      border: 2px solid var(--aws);
+      border-radius: 4px;
+      background: #fff;
+      padding: 28px 18px 18px;
+      position: relative;
+    }
+    .aws-cloud > .flabel {
+      position: absolute; top: -9px; left: 12px; background: var(--bg);
+      padding: 0 8px; font-size: 11px; font-weight: 700; color: var(--aws);
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .aws-region {
+      border: 1.5px dashed var(--aws);
+      border-radius: 4px;
+      padding: 22px 14px 14px;
+      position: relative;
+      background: #fafbfc;
+    }
+    .aws-region > .flabel {
+      position: absolute; top: -8px; left: 10px; background: #fafbfc;
+      padding: 0 6px; font-size: 10px; font-weight: 700; color: var(--aws);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 200px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .vpc {
+      border: 2px solid var(--aws-green);
+      border-radius: 4px;
+      padding: 26px 12px 12px;
+      position: relative;
+      background: #fff;
+      min-width: 0;
+    }
+    .vpc > .flabel {
+      position: absolute; top: -9px; left: 10px; background: #fff;
+      padding: 0 8px; font-size: 11px; font-weight: 700; color: var(--aws-green);
+    }
+    .vpc.foreign { border-color: #E8A23A; }
+    .vpc.foreign > .flabel { color: #9A5B00; }
+
+    .perimeter {
+      display: flex; align-items: center; justify-content: center;
+      gap: 14px; margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px dashed var(--line);
+    }
+    .actor {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700; color: var(--slate); text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .dash { width: 48px; border-top: 2px dashed #97A4B0; }
+
+    /* ALB spans AZs */
+    .alb-span {
+      display: flex; justify-content: center; margin-bottom: 12px;
+      min-height: 8px;
+    }
+    .alb-span:empty { display: none; }
+
+    /* AZ columns — AWS grammar.
+       Parent owns 4 shared row tracks (title + web + app + data) so every
+       AZ's Private DB band is the same height even when empty. */
+    .az-grid {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      /* columns set in JS; rows: AZ title + 3 equal tier bands */
+      grid-template-rows: auto minmax(100px, 1fr) minmax(100px, 1fr) minmax(100px, 1fr);
+      align-items: stretch;
+    }
+    .az-col {
+      border: 2px dashed var(--az-dash);
+      border-radius: 4px;
+      padding: 8px;
+      background: rgba(59, 72, 204, 0.03);
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: subgrid;
+      grid-row: 1 / -1;
+      gap: 8px;
+    }
+    .az-title {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--az-dash);
+      letter-spacing: 0.04em;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(59, 72, 204, 0.2);
+      align-self: stretch;
+    }
+
+    .subnet {
+      border-radius: 3px;
+      padding: 8px 8px 10px;
+      border: 1.5px solid;
+      min-height: 0;
+      height: 100%;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .subnet.web { background: var(--public); border-color: var(--public-border); }
+    .subnet.app { background: var(--app); border-color: var(--app-border); }
+    .subnet.data { background: var(--data); border-color: var(--data-border); }
+    .subnet.empty {
+      opacity: 0.55;
+      border-style: dashed;
+      justify-content: center;
+      align-items: center;
+      font-size: 10px; color: var(--muted); font-style: italic;
+      /* same track height as occupied sibling — do NOT shrink */
+      min-height: 0;
+    }
+    .subnet .slabel {
+      font-size: 10px; font-weight: 700; color: inherit; margin-bottom: 2px;
+    }
+    .subnet.web .slabel { color: var(--public-border); }
+    .subnet.app .slabel, .subnet.data .slabel { color: var(--app-border); }
+    .subnet .scidr {
+      font-size: 9px; font-family: var(--mono); color: var(--muted); margin-bottom: 8px;
+    }
+    .nodes {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+      align-items: flex-start;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* AWS-style service nodes */
+    .node {
+      display: flex; flex-direction: column; align-items: center;
+      width: 92px; cursor: pointer; background: transparent; border: 0;
+      padding: 0; font: inherit; color: inherit;
+    }
+    .node:hover .glyph { transform: translateY(-2px); }
+    .node.gateway { width: 110px; }
+    .node.jewel .glyph { box-shadow: 0 0 0 2px #C9A227; }
+    .glyph {
+      width: 40px; height: 40px; border-radius: 6px;
+      display: grid; place-items: center;
+      transition: transform 0.12s;
+      color: #fff;
+    }
+    .node.gateway .glyph { width: 48px; height: 48px; border-radius: 8px; }
+    .glyph svg { width: 70%; height: 70%; display: block; }
+    .glyph.ec2 { background: var(--orange); }
+    .glyph.lambda { background: var(--orange); }
+    .glyph.rds { background: var(--aws-blue); }
+    .glyph.alb { background: var(--purple); }
+    .glyph.nat { background: var(--purple); }
+    .glyph.igw { background: var(--purple); }
+    .glyph.s3 { background: var(--aws-green); }
+    .glyph.ddb { background: var(--aws-blue); }
+    .glyph.vpce { background: var(--aws-blue); }
+    .stack-wrap { position: relative; width: 48px; height: 48px; }
+    .stack-wrap .back {
+      position: absolute; inset: 6px -4px -4px 6px; border-radius: 6px;
+      background: #fff; border: 1px solid #CBD5E1; z-index: 0;
+    }
+    .stack-wrap .mid {
+      position: absolute; inset: 3px -2px -2px 3px; border-radius: 6px;
+      background: #fff; border: 1px solid #E2E8F0; z-index: 1;
+    }
+    .stack-wrap .front {
+      position: relative; z-index: 2; width: 48px; height: 48px;
+      border-radius: 6px; background: #fff; border: 1px solid #E2E8F0;
+      display: grid; place-items: center;
+    }
+    .stack-wrap .count {
+      position: absolute; top: -4px; right: -8px; z-index: 3;
+      background: #232f3e; color: #fff; font-size: 10px; font-weight: 800;
+      font-family: var(--mono); border-radius: 999px; padding: 1px 6px;
+      border: 1px solid #fff;
+    }
+    .glyph.group {
+      background: #fff; border: 1.5px dashed var(--line); color: var(--ink);
+      width: auto; min-width: 40px; height: 40px; padding: 0 8px;
+      font-size: 11px; font-weight: 800; font-family: var(--mono);
+    }
+    .nname {
+      margin-top: 5px; font-size: 10px; font-weight: 700; text-align: center;
+      line-height: 1.2; max-width: 100%; word-break: break-word;
+    }
+    .nsub {
+      font-size: 9px; color: var(--muted); font-weight: 500; text-align: center;
+      font-family: var(--mono);
+    }
+
+    .regional {
+      border: 1.5px solid var(--line);
+      border-radius: 4px;
+      background: #fff;
+      padding: 12px 10px;
+      position: sticky;
+      top: 12px;
+    }
+    .regional h2 {
+      margin: 0 0 10px;
+      font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--slate);
+    }
+    .regional .stack {
+      display: flex; flex-direction: column; gap: 12px; align-items: center;
+    }
+    .inspect {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #fff;
+      padding: 12px;
+      font-size: 12px;
+      color: var(--slate);
+      min-height: 72px;
+    }
+    .inspect h3 {
+      margin: 0 0 6px; font-size: 10px; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .inspect .val { font-weight: 700; color: var(--ink); word-break: break-word; }
+    .inspect ul { margin: 6px 0 0; padding-left: 16px; }
+    .legend {
+      margin-top: 12px; display: flex; flex-wrap: wrap; gap: 12px;
+      font-size: 11px; color: var(--slate);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .sw { width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--line); }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .regional { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>Estate Map · AWS Glance</h1>
+        <p class="sub">AZ columns · public / app / data · AWS icon language · real topology-risk nodes only</p>
+        <div class="badges">
+          <span class="badge ok">No fabricated resources</span>
+          <span class="badge">No traffic lines</span>
+          <span class="badge">No attack paths</span>
+          <span class="badge" id="badge-source">Loading…</span>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="seg" id="vpc-seg" role="group" aria-label="VPC"></div>
+        <div class="status" id="status">Loading topology…</div>
+      </div>
+    </header>
+
+    <div class="aws-cloud">
+      <div class="flabel" id="cloud-label">AWS Cloud</div>
+      <div class="aws-region">
+        <div class="flabel" id="region-label">Region</div>
+        <div class="layout">
+          <div class="vpc" id="vpc-frame">
+            <div class="flabel" id="vpc-label">VPC</div>
+            <div class="perimeter" id="perimeter"></div>
+            <div class="alb-span" id="alb-span"></div>
+            <div class="az-grid" id="az-grid"></div>
+          </div>
+          <aside class="regional">
+            <h2>Outside VPC · Regional</h2>
+            <div class="stack" id="regional"></div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <div class="inspect" id="inspect">
+      Click a service icon. Inventory for that cell / group opens here — map stays Glance.
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:#E8F5E9;border-color:#1B861F"></i> Public (web)</span>
+      <span><i class="sw" style="background:#E3F2FD;border-color:#2E73B8"></i> Private (app / data)</span>
+      <span><i class="sw" style="border-style:dashed;border-color:#3B48CC"></i> Availability Zone</span>
+      <span><i class="sw" style="background:#8C4FFF"></i> Gateway (ALB / IGW / NAT)</span>
+      <span><i class="sw" style="background:#FF9900"></i> Compute</span>
+      <span><i class="sw" style="background:#2E73B8"></i> Data</span>
+    </div>
+  </div>
+
+  <script>
+    const NAMED_CAP = 2
+    const GATEWAY = new Set(["LoadBalancer", "ALB", "ApplicationLoadBalancer", "NLB", "NetworkLoadBalancer"])
+    const ANCHOR = new Set(["EC2", "RDS", "RDSInstance", "ECS", "ECSService", "EKS", "AutoScalingGroup", "ASG"])
+
+    const ICON_SLUG = {
+      EC2: "aws-amazon-ec2",
+      Lambda: "aws-aws-lambda",
+      LambdaFunction: "aws-aws-lambda",
+      RDS: "aws-amazon-rds",
+      RDSInstance: "aws-amazon-rds",
+      DynamoDB: "aws-amazon-dynamodb",
+      DynamoDBTable: "aws-amazon-dynamodb",
+      S3: "aws-amazon-simple-storage-service",
+      S3Bucket: "aws-amazon-simple-storage-service",
+      LoadBalancer: "aws-res-elastic-load-balancing-application-load-balancer",
+      ALB: "aws-res-elastic-load-balancing-application-load-balancer",
+      ApplicationLoadBalancer: "aws-res-elastic-load-balancing-application-load-balancer",
+      AutoScalingGroup: "aws-amazon-ec2-auto-scaling",
+      ASG: "aws-amazon-ec2-auto-scaling",
+      IGW: "aws-res-amazon-vpc-internet-gateway",
+      NAT: "aws-res-amazon-vpc-nat-gateway",
+      VPCE: "aws-res-amazon-vpc-endpoints",
+    }
+    function iconUrl(type) {
+      const slug = ICON_SLUG[type]
+      return slug ? `https://thesvg.org/icons/${slug}/default.svg` : null
+    }
+    function iconImg(type, size = 40) {
+      const url = iconUrl(type)
+      if (url) return `<img src="${url}" width="${size}" height="${size}" alt="" style="width:${size}px;height:${size}px;object-fit:contain" loading="lazy" referrerpolicy="no-referrer" />`
+      return `<span style="font-size:11px;font-weight:800">${type || "?"}</span>`
+    }
+
+    function glyphClass(type) {
+      if (GATEWAY.has(type) || type === "ALB") return "alb"
+      if (type === "EC2") return "ec2"
+      if (type === "Lambda" || type === "LambdaFunction") return "lambda"
+      if (type === "RDS" || type === "RDSInstance") return "rds"
+      if (type === "S3" || type === "S3Bucket") return "s3"
+      if (type === "DynamoDB" || type === "DynamoDBTable") return "ddb"
+      return "ec2"
+    }
+
+    function roleOf(n) {
+      const t = n.type || ""
+      if (GATEWAY.has(t)) return "gateway"
+      if (ANCHOR.has(t)) return "anchor"
+      return "volume"
+    }
+
+    function sortGlance(nodes) {
+      const rr = r => (r === "gateway" ? 0 : r === "anchor" ? 1 : 2)
+      return [...nodes].sort((a, b) => {
+        if (!!b.is_jewel !== !!a.is_jewel) return a.is_jewel ? -1 : 1
+        const d = rr(roleOf(a)) - rr(roleOf(b))
+        if (d) return d
+        return (a.name || a.id).localeCompare(b.name || b.id)
+      })
+    }
+
+    function planCell(nodes) {
+      // Always one stack per type — mutual Lambdas/EC2s/etc. sit behind one icon.
+      return { named: [], overflow: nodes }
+    }
+
+    function groupByType(nodes) {
+      const m = new Map()
+      for (const n of nodes) {
+        const k = n.type || "Other"
+        if (!m.has(k)) m.set(k, [])
+        m.get(k).push(n)
+      }
+      return [...m.entries()]
+    }
+
+    function shortName(name) {
+      if (!name) return "?"
+      return name.length > 28 ? name.slice(0, 26) + "…" : name
+    }
+
+    function nodeButton(n, opts = {}) {
+      const t = n.type || "?"
+      const gateway = roleOf(n) === "gateway" || opts.gateway
+      const cls = ["node", gateway ? "gateway" : "", n.is_jewel ? "jewel" : ""].filter(Boolean).join(" ")
+      return `<button type="button" class="${cls}" data-id="${encodeURIComponent(n.id)}" title="${n.name} · ${t}">
+        <span class="stack-wrap"><span class="front">${iconImg(gateway && t.includes("Load") ? "ALB" : t, gateway ? 44 : 40)}</span></span>
+        <span class="nname">${shortName(n.name)}</span>
+        <span class="nsub">${gateway ? "gateway" : (n.is_jewel ? "jewel" : t)}</span>
+      </button>`
+    }
+
+    function groupButton(type, nodes) {
+      const n = nodes.length
+      const depth = n >= 2
+      return `<button type="button" class="node" data-group="${encodeURIComponent(type)}" data-ids="${nodes.map(x => encodeURIComponent(x.id)).join(",")}" title="${n} × ${type} (real nodes)">
+        <span class="stack-wrap">
+          ${depth ? '<span class="back"></span><span class="mid"></span>' : ''}
+          <span class="front">${iconImg(type, 40)}</span>
+          ${depth ? `<span class="count">×${n}</span>` : ''}
+        </span>
+        <span class="nname">${type === "Lambda" || type === "LambdaFunction" ? "Lambda" : type}</span>
+        <span class="nsub">${depth ? n + " in group" : type}</span>
+      </button>`
+    }
+
+    let DATA = null
+    let selectedVpc = null
+
+    function subnetsForVpc(vpcId) {
+      return (DATA.vpc_topology.subnets || []).filter(s => s.vpc_id === vpcId)
+    }
+
+    function nodesInVpc(vpcId) {
+      return (DATA.nodes || []).filter(n => n.vpc_id === vpcId)
+    }
+
+    function regionalNodes() {
+      return (DATA.nodes || []).filter(n => !n.vpc_id)
+    }
+
+    function azsFor(subs) {
+      const azs = [...new Set(subs.map(s => s.az).filter(Boolean))]
+      return azs.sort()
+    }
+
+    function cellWorkloads(vpcId, az, tier, sidIndex) {
+      return nodesInVpc(vpcId).filter(n => {
+        if (GATEWAY.has(n.type || "") && tier === "web") {
+          // ALB rendered in span band, not inside AZ cell
+          return false
+        }
+        const sn = sidIndex.get(n.subnet_id)
+        if (!sn) return false
+        const t = n.placement_tier || sn.tier
+        return sn.az === az && t === tier
+      })
+    }
+
+    function albNodes(vpcId) {
+      return nodesInVpc(vpcId).filter(n => GATEWAY.has(n.type || ""))
+    }
+
+    function igwsFor(vpcId) {
+      return (DATA.vpc_topology.edges?.igws || []).filter(g => !g.vpc_id || g.vpc_id === vpcId)
+    }
+
+    function natsFor(vpcId) {
+      // NAT edges may not carry vpc_id — show only when subnet maps into this VPC
+      const sidIndex = new Map((DATA.vpc_topology.subnets || []).map(s => [s.id, s]))
+      return (DATA.vpc_topology.edges?.nat_gws || []).filter(n => {
+        if (!n.subnet_id) return false
+        const sn = sidIndex.get(n.subnet_id)
+        return sn && sn.vpc_id === vpcId
+      })
+    }
+
+    function render() {
+      if (!DATA) return
+      const vt = DATA.vpc_topology
+      const vpcId = selectedVpc
+      const avail = (DATA.available_vpcs || []).find(v => v.vpc_id === vpcId)
+      const foreign = (vt.subnets || []).some(s => s.vpc_id === vpcId && s.is_foreign)
+      const owner = (vt.subnets || []).find(s => s.vpc_id === vpcId)?.owner_system_name
+
+      document.getElementById("cloud-label").textContent =
+        `AWS Cloud · acct ${vt.account_id || "—"}`
+      document.getElementById("region-label").textContent =
+        `Region · ${vt.region || "—"}`
+
+      const vpcEl = document.getElementById("vpc-frame")
+      vpcEl.classList.toggle("foreign", !!foreign)
+      document.getElementById("vpc-label").textContent =
+        `VPC · ${avail?.name || vpcId}${foreign && owner ? ` · shared (${owner})` : ""}`
+
+      const igws = igwsFor(vpcId)
+      const nats = natsFor(vpcId)
+      document.getElementById("perimeter").innerHTML = `
+        <div class="actor">
+          <span class="stack-wrap"><span class="front">${iconImg("IGW", 36)}</span></span>
+          Users
+        </div>
+        <div class="dash"></div>
+        <div class="actor">
+          <span class="stack-wrap"><span class="front">${iconImg("IGW", 40)}</span></span>
+          ${igws.length ? shortName(igws[0].name) : "No IGW observed"}
+          <span class="nsub" style="text-transform:none;letter-spacing:0">${igws.length ? igws[0].id.slice(0, 18) + "…" : "honest empty"}</span>
+        </div>
+        ${nats.length ? `<div class="dash"></div><div class="actor"><span class="stack-wrap"><span class="front">${iconImg("NAT", 36)}</span></span>${nats.length} NAT</div>` : ""}
+      `
+
+      const albs = albNodes(vpcId)
+      document.getElementById("alb-span").innerHTML = albs.length
+        ? albs.map(n => nodeButton(n, { gateway: true })).join("")
+        : ""
+
+      const subs = subnetsForVpc(vpcId)
+      const sidIndex = new Map(subs.map(s => [s.id, s]))
+      const azs = azsFor(subs)
+      const grid = document.getElementById("az-grid")
+      grid.style.gridTemplateColumns = `repeat(${Math.max(azs.length, 1)}, minmax(0, 1fr))`
+
+      if (!azs.length) {
+        grid.innerHTML = `<div class="subnet empty" style="grid-column:1/-1">No tagged subnets observed in this VPC</div>`
+      } else {
+        grid.innerHTML = azs.map(az => {
+          const tiers = ["web", "app", "data"]
+          const tierHtml = tiers.map(tier => {
+            const cellSubs = subs.filter(s => s.az === az && s.tier === tier)
+            const wls = cellWorkloads(vpcId, az, tier, sidIndex)
+            // NAT chips only in public/web when present for that AZ's subnet
+            const azNats = nats.filter(n => {
+              const sn = sidIndex.get(n.subnet_id)
+              return sn && sn.az === az && tier === "web"
+            })
+            if (!cellSubs.length && !wls.length && !azNats.length) {
+              return `<div class="subnet ${tier} empty">No ${tier} subnet in ${az.replace("eu-west-", "")}</div>`
+            }
+            const nodesHtml = [
+              ...azNats.map(n => `<button type="button" class="node gateway" data-nat="${encodeURIComponent(n.id)}" title="NAT · ${n.name}"><span class="stack-wrap"><span class="front">${iconImg("NAT", 40)}</span></span><span class="nname">${shortName(n.name)}</span><span class="nsub">NAT</span></button>`),
+              ...groupByType(wls).map(([t, ns]) =>
+                ns.length === 1 && (t === "RDS" || t === "RDSInstance" || GATEWAY.has(t))
+                  ? nodeButton(ns[0])
+                  : groupButton(t, ns)
+              ),
+            ].join("")
+            const label = tier === "web" ? "Public subnet" : tier === "app" ? "Private subnet (App)" : "Private subnet (DB)"
+            const sn = cellSubs[0]
+            return `<div class="subnet ${tier}" data-cell="${az}::${tier}">
+              <div class="slabel">🔒 ${label}</div>
+              <div class="scidr">${sn ? `${sn.name || sn.id} · ${sn.cidr || ""}` : "—"}</div>
+              <div class="nodes">${nodesHtml || `<span class="nsub">no workloads here</span>`}</div>
+            </div>`
+          }).join("")
+          return `<div class="az-col">
+            <div class="az-title">Availability Zone · ${az}</div>
+            ${tierHtml}
+          </div>`
+        }).join("")
+      }
+
+      // Regional — real counts only
+      const reg = regionalNodes()
+      const byType = groupByType(reg)
+      document.getElementById("regional").innerHTML = byType.length
+        ? byType.map(([t, ns]) => groupButton(t, ns)).join("")
+        : `<div class="nsub">No regional nodes outside VPC</div>`
+
+      // VPC endpoints (real edges)
+      const vpces = (vt.edges?.vpces || [])
+      if (vpces.length) {
+        document.getElementById("regional").insertAdjacentHTML(
+          "beforeend",
+          `<button type="button" class="node" data-vpces="1" title="${vpces.length} VPC endpoints from edges">
+            <span class="stack-wrap"><span class="front">${iconImg("VPCE", 40)}</span></span>
+            <span class="nname">VPC endpoints</span>
+            <span class="nsub">${vpces.length} observed</span>
+          </button>`,
+        )
+      }
+
+      bindClicks()
+    }
+
+    function bindClicks() {
+      document.querySelectorAll("[data-id]").forEach(el => {
+        el.onclick = () => {
+          const id = decodeURIComponent(el.dataset.id)
+          const n = DATA.nodes.find(x => x.id === id)
+          if (!n) return
+          document.getElementById("inspect").innerHTML = `
+            <h3>Resource (real node)</h3>
+            <div class="val">${n.name}</div>
+            <div class="nsub" style="margin-top:4px">${n.type} · ${n.id}</div>
+            <div class="nsub">vpc=${n.vpc_id || "—"} · subnet=${n.subnet_id || "—"} · jewel=${!!n.is_jewel}</div>
+          `
+        }
+      })
+      document.querySelectorAll("[data-group]").forEach(el => {
+        el.onclick = () => {
+          const type = decodeURIComponent(el.dataset.group)
+          const ids = el.dataset.ids.split(",").map(decodeURIComponent)
+          const nodes = ids.map(id => DATA.nodes.find(n => n.id === id)).filter(Boolean)
+          document.getElementById("inspect").innerHTML = `
+            <h3>Grouped · ${type} (${nodes.length} real)</h3>
+            <ul>${nodes.map(n => `<li>${n.name}</li>`).join("")}</ul>
+          `
+        }
+      })
+      document.querySelectorAll("[data-vpces]").forEach(el => {
+        el.onclick = () => {
+          const vpces = DATA.vpc_topology.edges?.vpces || []
+          document.getElementById("inspect").innerHTML = `
+            <h3>VPC endpoints (${vpces.length} from edges)</h3>
+            <ul>${vpces.map(v => `<li>${v.service_name || v.id}</li>`).join("")}</ul>
+          `
+        }
+      })
+    }
+
+    function buildVpcSeg() {
+      const vpcs = DATA.available_vpcs || []
+      const seg = document.getElementById("vpc-seg")
+      // Prefer own VPC (tagged subnets) first
+      const ordered = [...vpcs].sort((a, b) => (b.tagged_subnet_count || 0) - (a.tagged_subnet_count || 0))
+      if (!selectedVpc && ordered[0]) selectedVpc = ordered[0].vpc_id
+      seg.innerHTML = ordered.map(v => {
+        const foreign = (DATA.vpc_topology.subnets || []).some(s => s.vpc_id === v.vpc_id && s.is_foreign)
+        const label = foreign ? `Shared · …${v.vpc_id.slice(-4)}` : `Own · ${v.name || v.vpc_id.slice(-8)}`
+        return `<button type="button" data-vpc="${v.vpc_id}" class="${v.vpc_id === selectedVpc ? "active" : ""}">${label}</button>`
+      }).join("")
+      seg.querySelectorAll("button").forEach(btn => {
+        btn.onclick = () => {
+          selectedVpc = btn.dataset.vpc
+          buildVpcSeg()
+          render()
+        }
+      })
+    }
+
+    async function load() {
+      const status = document.getElementById("status")
+      const badge = document.getElementById("badge-source")
+      // Prefer live API; fall back to checked-in snapshot of real Neo4j payload
+      try {
+        const ctrl = new AbortController()
+        const t = setTimeout(() => ctrl.abort(), 8000)
+        const res = await fetch("https://saferemediate-backend-f.onrender.com/api/topology-risk/alon-prod", { signal: ctrl.signal })
+        clearTimeout(t)
+        if (!res.ok) throw new Error("http " + res.status)
+        DATA = await res.json()
+        badge.textContent = "Live API · Neo4j"
+        badge.classList.add("ok")
+        status.textContent = `${DATA.nodes?.length || 0} nodes · ${DATA.system}`
+      } catch (e) {
+        const res = await fetch("./topology-snapshot-alon-prod.json")
+        DATA = await res.json()
+        badge.textContent = "Snapshot · real Neo4j export"
+        status.textContent = `API slow/unavailable — using snapshot (${DATA.nodes?.length || 0} nodes). No fabricated resources.`
+        status.classList.add("err")
+      }
+      buildVpcSeg()
+      render()
+    }
+
+    load()
+  </script>
+</body>
+</html>
