@@ -26,6 +26,8 @@ import {
   insightsFromPolicyStatements,
   summarizePolicyStatement,
 } from "@/lib/inspector-insights"
+import { ReadinessBadges } from "@/components/inventory/readiness-badges"
+import { toNeo4jLabel, type ReadinessPayload } from "@/lib/readiness-labels"
 
 interface Props {
   resourceId: string
@@ -838,6 +840,9 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   const [data, setData] = useState<InspectorPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [readiness, setReadiness] = useState<ReadinessPayload | null>(null)
+  const [readinessLoading, setReadinessLoading] = useState(true)
+  const [readinessError, setReadinessError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -868,36 +873,97 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
     }
   }, [resourceId, systemName, resourceType])
 
+  useEffect(() => {
+    let cancelled = false
+    const label = toNeo4jLabel(resourceType)
+    if (!label) {
+      setReadinessLoading(false)
+      setReadiness(null)
+      return () => {
+        cancelled = true
+      }
+    }
+    const run = async () => {
+      setReadinessLoading(true)
+      setReadinessError(null)
+      setReadiness(null)
+      try {
+        const res = await fetch(
+          `/api/proxy/decision-coverage/resource/${encodeURIComponent(label)}/${encodeURIComponent(resourceId)}`,
+          { cache: "no-store" },
+        )
+        const body = await res.json().catch(() => null)
+        if (!res.ok) {
+          throw new Error(body?.error || body?.detail || `Readiness returned ${res.status}`)
+        }
+        if (!cancelled) setReadiness(body as ReadinessPayload)
+      } catch (e: any) {
+        if (!cancelled) setReadinessError(e?.message || "Unable to load readiness")
+      } finally {
+        if (!cancelled) setReadinessLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [resourceId, resourceType])
+
+  const readinessBanner = (
+    <ReadinessBadges
+      readiness={readiness}
+      loading={readinessLoading}
+      error={readinessError}
+    />
+  )
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-slate-600">
-        <RefreshCw className="w-6 h-6 animate-spin text-violet-500" />
-        <span className="ml-3">Loading configuration…</span>
+      <div className="space-y-4">
+        {readinessBanner}
+        <div className="flex items-center justify-center py-12 text-slate-600">
+          <RefreshCw className="w-6 h-6 animate-spin text-violet-500" />
+          <span className="ml-3">Loading configuration…</span>
+        </div>
       </div>
     )
   }
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6 space-y-3">
+      <div className="space-y-4">
+        {readinessBanner}
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 space-y-3">
         <AlertTriangle className="w-10 h-10 text-red-400 mx-auto" />
         <InsightCards insights={humanizeInspectorError(error, resourceType)} />
         <p className="text-xs text-red-500 text-center font-mono">{resourceId}</p>
+        </div>
       </div>
     )
   }
-  if (!data) return <EmptyNote>No data returned.</EmptyNote>
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        {readinessBanner}
+        <EmptyNote>No data returned.</EmptyNote>
+      </div>
+    )
+  }
 
   if (data.supported === false) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-4">
+        {readinessBanner}
+        <div className="space-y-2">
         <EmptyNote>{data.message ?? `Inspector not yet available for ${resourceType}.`}</EmptyNote>
         {Array.isArray(data.evidence) && data.evidence.length > 0 && (
           <p className="text-[11px] text-slate-400">Evidence sources: {data.evidence.join(", ")}</p>
         )}
+        </div>
       </div>
     )
   }
 
+  const configBody = (() => {
   const kind = data.resource_type ?? resourceType
   if (kind === "SecurityGroup") return <SecurityGroupRules data={data} />
   if (kind === "S3") return <S3Policies data={data} />
@@ -923,4 +989,12 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
   if (kind === "DynamoDB" || kind === "DynamoDBTable") return <DynamoDbSections data={data} />
   return <InsightSections data={data} />
+  })()
+
+  return (
+    <div className="space-y-4">
+      {readinessBanner}
+      {configBody}
+    </div>
+  )
 }
