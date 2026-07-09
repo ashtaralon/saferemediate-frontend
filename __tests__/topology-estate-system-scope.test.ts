@@ -5,8 +5,10 @@ import {
   applySystemEstateScope,
   filterAvailableVpcsForSystemUse,
   filterSubnetsForSystemUse,
+  narrowSystemEstateToVpc,
   usedVpcIdsForSystem,
 } from "@/components/topology-v0-2/estate-system-scope"
+import { buildVpcFrames } from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
 const OWN = "vpc-0329e985173bed24f"
@@ -257,5 +259,66 @@ describe("applySystemEstateScope", () => {
     )
     expect(result.trafficEdges).toHaveLength(1)
     expect(result.trafficEdges[0]!.source_id).toBe("i-own")
+  })
+})
+
+describe("narrowSystemEstateToVpc", () => {
+  it("sets vpcTopology.vpc_id to the selected VPC so AwsFrame does not render an empty primary frame", () => {
+    // Reproduces Alon screenshot 2026-07-10: picker = vpc-086 (8 workloads),
+    // canvas labeled vpc-0329 with "No tagged subnets" because topo.vpc_id
+    // stayed on the primary while subnets were filtered to the sibling.
+    const nodes = [
+      nd({ id: "i-own", vpc_id: OWN, subnet_id: "sn-own" }),
+      nd({ id: "i-shared", vpc_id: SHARED, subnet_id: "sn-shared" }),
+      nd({ id: "lambda-1", type: "Lambda", vpc_id: null }),
+    ]
+    const vpcTopology: VpcTopology = {
+      vpc_id: OWN,
+      account_id: "745783559495",
+      region: "eu-west-1",
+      azs: ["eu-west-1a", "eu-west-1b", "eu-west-1c"],
+      subnets: [
+        sn({ id: "sn-own", vpc_id: OWN, az: "eu-west-1a" }),
+        sn({
+          id: "sn-shared",
+          vpc_id: SHARED,
+          az: "eu-west-1b",
+          is_foreign: true,
+          owner_system_name: "payment-production",
+        }),
+      ],
+      edges: { igws: [], nat_gws: [], vpces: [] },
+      unknown_subnet_count: 0,
+      security_groups: [],
+      iam_roles: [],
+    }
+    const scoped = applySystemEstateScope({
+      systemName: "alon-prod",
+      nodes,
+      vpcTopology,
+      trafficEdges: [],
+      availableVpcs: [
+        { vpc_id: OWN, name: "alon-prod-vpc", workload_count: 1, tagged_subnet_count: 1 },
+        { vpc_id: SHARED, name: SHARED, workload_count: 1, tagged_subnet_count: 0 },
+      ],
+    })
+    expect(scoped.vpcTopology.vpc_id).toBe(OWN)
+
+    const narrowed = narrowSystemEstateToVpc(scoped, SHARED)
+    expect(narrowed.vpcTopology.vpc_id).toBe(SHARED)
+    expect(narrowed.vpcTopology.subnets.map(s => s.id)).toEqual(["sn-shared"])
+    expect(narrowed.nodes.map(n => n.id).sort()).toEqual(["i-shared", "lambda-1"].sort())
+
+    const { frames } = buildVpcFrames(
+      narrowed.vpcTopology.subnets,
+      narrowed.nodes.filter(n => n.vpc_id === SHARED),
+      narrowed.vpcTopology.vpc_id,
+      [],
+      [],
+      false,
+    )
+    expect(frames).toHaveLength(1)
+    expect(frames[0]!.vid).toBe(SHARED)
+    expect(frames[0]!.grid.azs.length).toBeGreaterThan(0)
   })
 })

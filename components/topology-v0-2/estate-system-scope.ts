@@ -189,3 +189,43 @@ export function applySystemEstateScope(input: SystemScopeInput): SystemScopeResu
     },
   }
 }
+
+/**
+ * Narrow an already system-scoped estate to a single VPC picker selection.
+ *
+ * MUST set ``vpcTopology.vpc_id`` to ``vpcId``. AwsFrame / buildVpcFrames use
+ * that field as the canvas frame id. Filtering subnets/nodes to a sibling VPC
+ * while leaving the primary id (e.g. vpc-0329) produces an empty
+ * "No tagged subnets in this VPC" frame — picker/counts say vpc-086, canvas
+ * label stays vpc-0329 (Alon screenshot, 2026-07-10).
+ */
+export function narrowSystemEstateToVpc(
+  scoped: SystemScopeResult,
+  vpcId: string,
+): SystemScopeResult {
+  return {
+    ...scoped,
+    nodes: scoped.nodes.filter(n => {
+      if (n.vpc_id === vpcId) return true
+      // Regional / serverless stay visible on rails in single-VPC view.
+      if (!n.vpc_id) return true
+      return false
+    }),
+    vpcTopology: {
+      ...scoped.vpcTopology,
+      vpc_id: vpcId,
+      subnets: (scoped.vpcTopology.subnets ?? []).filter(s => s.vpc_id === vpcId),
+      edges: {
+        igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
+          i => !i.vpc_id || i.vpc_id === vpcId,
+        ),
+        nat_gws: (scoped.vpcTopology.edges?.nat_gws ?? []).filter(
+          i => !i.vpc_id || i.vpc_id === vpcId,
+        ),
+        vpces: (scoped.vpcTopology.edges?.vpces ?? []).filter(
+          i => !i.vpc_id || i.vpc_id === vpcId,
+        ),
+      },
+    },
+  }
+}
