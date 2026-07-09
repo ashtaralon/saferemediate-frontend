@@ -297,7 +297,66 @@ function IamPolicyDocument({ data }: { data: InspectorPayload }) {
   )
 }
 
-function SubnetProperties({ data }: { data: InspectorPayload }) {
+function RouteTableRoutes({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const routes: any[] = Array.isArray(current.routes) ? current.routes : []
+  const associations: any[] = Array.isArray(current.associations) ? current.associations : []
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionTitle>Properties</SectionTitle>
+        <KeyValueGrid obj={current.properties ?? {}} />
+      </div>
+
+      <div>
+        <SectionTitle>Routes</SectionTitle>
+        {routes.length === 0 ? (
+          <EmptyNote>No routes configured on this table.</EmptyNote>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Destination</th>
+                  <th className="px-3 py-2 font-medium">Target</th>
+                  <th className="px-3 py-2 font-medium">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {routes.map((r, i) => (
+                  <tr key={i} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-mono text-xs">{r.destination}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.target}</td>
+                    <td className="px-3 py-2 text-xs">{r.state}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {associations.length > 0 && (
+        <div>
+          <SectionTitle>Subnet associations</SectionTitle>
+          <ul className="space-y-1 text-sm">
+            {associations.map((a, i) => (
+              <li key={i} className="font-mono text-xs text-slate-700">
+                {a.main ? "main table" : a.subnet_id ?? a.gateway_id ?? "—"}
+                {a.state ? ` (${a.state})` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {data.observed?.message && (
+        <p className="text-[11px] text-slate-400">{data.observed.message}</p>
+      )}
+    </div>
+  )
+}
+
   const current = data.current ?? {}
   const observed = data.observed ?? {}
   const routes: any[] = Array.isArray(current.routes) ? current.routes : []
@@ -739,6 +798,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   if (kind === "SecurityGroup") return <SecurityGroupRules data={data} />
   if (kind === "S3") return <S3Policies data={data} />
   if (kind === "IAMPolicy") return <IamPolicyDocument data={data} />
+  if (kind === "RouteTable") return <RouteTableRoutes data={data} />
   if (kind === "Subnet") return <SubnetProperties data={data} />
   if (kind === "KMSKey") return <KmsKeySections data={data} />
   if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
