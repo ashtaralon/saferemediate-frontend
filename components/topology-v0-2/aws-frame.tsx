@@ -508,6 +508,14 @@ const TIER_LABEL: Record<SubnetTier, string> = {
   unknown: "Unclassified subnet",
 }
 
+/** Short cell chrome — tier type already lives on the WEB/APP/DATA sidebar. */
+const TIER_CELL_SHORT: Record<SubnetTier, string> = {
+  web: "Public",
+  app: "Private",
+  data: "Data",
+  unknown: "Subnet",
+}
+
 const TIER_SIDEBAR_LABEL: Record<Exclude<SubnetTier, "unknown">, string> = {
   web: "WEB TIER",
   app: "APPLICATION TIER",
@@ -867,6 +875,7 @@ function ServiceIconShell({
   testId,
   flowId,
   extraAttrs,
+  dense = false,
 }: {
   type: string | null | undefined
   selected: boolean
@@ -879,9 +888,13 @@ function ServiceIconShell({
   testId: string
   flowId?: string
   extraAttrs?: Record<string, string | number | undefined>
+  /** Cell density — smaller glyph, drop sublabel so 1 service fits without scroll. */
+  dense?: boolean
 }) {
   const ic = nodeIcon(type)
   const showDepth = Boolean(depth && countBadge && countBadge > 1)
+  const glyph = dense ? 28 : 36
+  const stackBox = dense ? (showDepth ? 36 : 30) : showDepth ? 48 : 40
   return (
     <button
       type="button"
@@ -890,24 +903,28 @@ function ServiceIconShell({
       data-testid={testId}
       data-flow-id={flowId}
       {...extraAttrs}
-      className="relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[120px] px-1.5 pt-1.5 pb-1 rounded-md hover:bg-white/60 transition-colors shrink-0"
+      className={
+        dense
+          ? "relative flex flex-col items-center gap-0 min-w-[52px] max-w-[96px] px-0.5 pt-0.5 pb-0.5 rounded-md hover:bg-white/60 transition-colors shrink-0"
+          : "relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[120px] px-1.5 pt-1.5 pb-1 rounded-md hover:bg-white/60 transition-colors shrink-0"
+      }
       style={{
         boxShadow: selected ? `0 0 0 2px ${PAL.teal}` : undefined,
       }}
     >
       <span
         className="relative inline-flex items-center justify-center"
-        style={{ width: 48, height: showDepth ? 48 : 40 }}
+        style={{ width: dense ? 40 : 48, height: stackBox }}
       >
         {showDepth ? (
           <>
             <span
               className="absolute rounded-md border bg-white"
               style={{
-                width: 36,
-                height: 36,
-                left: 2,
-                top: 8,
+                width: glyph,
+                height: glyph,
+                left: dense ? 1 : 2,
+                top: dense ? 6 : 8,
                 borderColor: "#CBD5E1",
                 zIndex: 0,
               }}
@@ -916,10 +933,10 @@ function ServiceIconShell({
             <span
               className="absolute rounded-md border bg-white"
               style={{
-                width: 36,
-                height: 36,
-                left: 5,
-                top: 5,
+                width: glyph,
+                height: glyph,
+                left: dense ? 3 : 5,
+                top: dense ? 3 : 5,
                 borderColor: "#E2E8F0",
                 zIndex: 1,
               }}
@@ -930,31 +947,40 @@ function ServiceIconShell({
         <span
           className="relative z-[2] flex items-center justify-center rounded-md"
           style={{
-            width: 36,
-            height: 36,
+            width: glyph,
+            height: glyph,
             background: ic.official ? "#FFFFFF" : ic.bg,
             border: "1px solid #E2E8F0",
             color: ic.fg,
-            marginLeft: showDepth ? 8 : 0,
+            marginLeft: showDepth ? (dense ? 6 : 8) : 0,
           }}
         >
           {ic.symbol}
         </span>
         {showDepth ? (
           <span
-            className="absolute top-0 right-0 z-[3] text-[10px] font-bold font-mono rounded-full px-1.5 py-0.5"
+            className="absolute top-0 right-0 z-[3] text-[9px] font-bold font-mono rounded-full px-1 py-0.5"
             style={{ background: PAL.awsFrame, color: "#fff", border: "1px solid #fff" }}
           >
             ×{countBadge}
           </span>
         ) : null}
       </span>
-      <span className="text-[10px] font-semibold text-center leading-tight truncate w-full" style={{ color: PAL.ink }}>
+      <span
+        className={
+          dense
+            ? "text-[9px] font-semibold text-center leading-tight truncate w-full"
+            : "text-[10px] font-semibold text-center leading-tight truncate w-full"
+        }
+        style={{ color: PAL.ink }}
+      >
         {label}
       </span>
-      <span className="text-[9px] font-mono text-center truncate w-full" style={{ color: PAL.slate }}>
-        {sublabel}
-      </span>
+      {!dense && sublabel ? (
+        <span className="text-[9px] font-mono text-center truncate w-full" style={{ color: PAL.slate }}>
+          {sublabel}
+        </span>
+      ) : null}
     </button>
   )
 }
@@ -963,10 +989,12 @@ function ServiceStackChip({
   stack,
   selectedNodeId,
   onSelect,
+  dense = false,
 }: {
   stack: ServiceStack
   selectedNodeId: string | null
   onSelect: (id: string) => void
+  dense?: boolean
 }) {
   const depth = shouldShowStackDepth(stack)
   const selected = stack.nodes.some(n => n.id === selectedNodeId)
@@ -985,6 +1013,7 @@ function ServiceStackChip({
       onClick={() => onSelect(stack.representative.id)}
       testId="topology-service-stack"
       flowId={stack.representative.id}
+      dense={dense}
       extraAttrs={{
         "data-stack-type": stack.type,
         "data-stack-count": stack.nodes.length,
@@ -999,10 +1028,12 @@ function ServiceNodeIcon({
   node,
   selected,
   onSelect,
+  dense = false,
 }: {
   node: TopologyNode
   selected: boolean
   onSelect: (id: string) => void
+  dense?: boolean
 }) {
   const typeLabel = node.type ?? "?"
   return (
@@ -1015,6 +1046,7 @@ function ServiceNodeIcon({
       onClick={() => onSelect(node.id)}
       testId="topology-service-node-icon"
       flowId={node.id}
+      dense={dense}
       extraAttrs={{ "data-node-id": node.id }}
     />
   )
@@ -1037,8 +1069,8 @@ function GlanceCellWorkloads({
     <div
       className={
         compact
-          ? "flex flex-wrap gap-2 justify-center content-start flex-1 min-h-0 pt-0.5 pb-1"
-          : "flex flex-wrap gap-3 justify-center content-start flex-1 min-h-0 pt-1 pb-1.5"
+          ? "flex flex-wrap gap-1.5 justify-center content-center flex-1 min-h-0"
+          : "flex flex-wrap gap-2 justify-center content-center flex-1 min-h-0"
       }
       data-testid="topology-cell-glance"
     >
@@ -1048,6 +1080,7 @@ function GlanceCellWorkloads({
           stack={stack}
           selectedNodeId={selectedNodeId}
           onSelect={onSelect}
+          dense
         />
       ))}
     </div>
@@ -1069,8 +1102,8 @@ function InventoryCellWorkloads({
     <div
       className={
         compact
-          ? "flex flex-wrap gap-2 justify-center content-start flex-1 min-h-0 pt-0.5 pb-1"
-          : "flex flex-wrap gap-2.5 justify-center content-start flex-1 min-h-0 pt-1 pb-1.5"
+          ? "flex flex-wrap gap-1.5 justify-center content-center flex-1 min-h-0"
+          : "flex flex-wrap gap-2 justify-center content-center flex-1 min-h-0"
       }
       data-testid="topology-cell-inventory"
     >
@@ -1080,6 +1113,7 @@ function InventoryCellWorkloads({
           node={n}
           selected={n.id === selectedNodeId}
           onSelect={onSelect}
+          dense
         />
       ))}
     </div>
@@ -1103,28 +1137,44 @@ function SubnetCell({
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
 }) {
+  void sgIndex
+  void densityCollapsed
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
   const glance = viewDensity === "glance"
   const hasWorkloads = workloadsHere.length > 0
-  // Icon cells need room for ServiceIconShell under the subnet header.
-  // Data tier stays shorter — private DB cells are usually 1–2 services.
+  // Icons lead; chrome is a one-line strip. Floors sized for 1–2 dense icons
+  // without forcing an inner scrollbar (Alon, 2026-07-10).
   const cellMinHeight =
     tier === "data"
       ? hasWorkloads
         ? compact
-          ? "96px"
-          : "108px"
+          ? "72px"
+          : "80px"
         : compact
-          ? "56px"
-          : "64px"
+          ? "40px"
+          : "44px"
       : hasWorkloads
         ? compact
-          ? "118px"
-          : "132px"
+          ? "88px"
+          : "96px"
         : compact
-          ? "72px"
-          : "88px"
+          ? "48px"
+          : "56px"
+  const subnetTitle =
+    subnetsHere.length === 0
+      ? null
+      : subnetsHere
+          .map(s => s.name || s.cidr || s.id)
+          .filter(Boolean)
+          .join(" · ")
+  const cidrHint =
+    subnetsHere.length === 1 && subnetsHere[0]?.cidr
+      ? subnetsHere[0].cidr
+      : subnetsHere.length > 1
+        ? `${subnetsHere.length} subnets`
+        : null
+  const chromeTitle = [TIER_CELL_SHORT[tier], subnetTitle].filter(Boolean).join(" · ")
   const renderWorkloads = () =>
     glance ? (
       <GlanceCellWorkloads
@@ -1144,7 +1194,7 @@ function SubnetCell({
     )
   return (
     <div
-      className="rounded-md p-2 h-full min-h-0 flex flex-col overflow-visible"
+      className="rounded-md px-1.5 py-1 h-full min-h-0 flex flex-col overflow-hidden"
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
@@ -1153,53 +1203,47 @@ function SubnetCell({
         opacity: empty ? 0.55 : 1,
       }}
       data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
+      title={[TIER_LABEL[tier], subnetTitle, cidrHint].filter(Boolean).join(" · ")}
     >
-      <div className={compact ? "flex items-baseline justify-between mb-1" : "flex items-baseline justify-between mb-1.5"}>
+      {/* One-line chrome — full "Private subnet (data tier)" lives on the
+          tier sidebar; keep cell chrome thin so icons are visible. */}
+      <div className="flex items-center justify-between gap-1 shrink-0 min-h-0 leading-none mb-0.5">
         <div
-          className="text-[11px] uppercase tracking-[0.12em] font-bold"
+          className="text-[9px] uppercase tracking-[0.08em] font-bold truncate min-w-0"
           style={{ color: labelFg }}
+          data-testid="topology-subnet-cell-chrome"
         >
-          {TIER_LABEL[tier]}
+          {chromeTitle || TIER_CELL_SHORT[tier]}
         </div>
-        <div className="text-[10px] font-mono font-semibold" style={{ color: labelFg, opacity: 0.85 }}>
-          {subnetsHere.length === 0 ? "—" : subnetsHere.map(s => s.cidr ?? s.name).join(" · ")}
-        </div>
+        {cidrHint ? (
+          <div
+            className="text-[9px] font-mono font-semibold shrink-0 tabular-nums"
+            style={{ color: labelFg, opacity: 0.8 }}
+          >
+            {cidrHint}
+          </div>
+        ) : null}
       </div>
 
       {empty ? (
         workloadsHere.length > 0 ? (
-          <div className="space-y-2 flex-1 min-h-0 flex flex-col">
-            <div className="text-[10px] italic" style={{ color: PAL.slate }}>
-              subnet not resolved · placed by type
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="text-[9px] italic shrink-0 mb-0.5" style={{ color: PAL.slate }}>
+              subnet not resolved
             </div>
             {renderWorkloads()}
           </div>
         ) : (
-        <div className="text-[11px] italic" style={{ color: PAL.slate }}>
-          no {tier} subnet observed in {az}
-        </div>
-        )
-      ) : (
-        <>
-          <div className={compact ? "space-y-0.5 mb-1" : "space-y-0.5 mb-2"}>
-            {subnetsHere.map(s => (
-              <div
-                key={s.id}
-                className="text-[10px] font-mono font-semibold truncate"
-                style={{ color: labelFg, opacity: 0.85 }}
-              >
-                {s.name}
-              </div>
-            ))}
+          <div className="text-[10px] italic flex-1 flex items-center" style={{ color: PAL.slate }}>
+            no {tier} subnet in {az}
           </div>
-          {workloadsHere.length === 0 ? (
-            <div className="text-[11px] italic" style={{ color: PAL.slate }}>
-              no workloads here
-            </div>
-          ) : (
-            renderWorkloads()
-          )}
-        </>
+        )
+      ) : workloadsHere.length === 0 ? (
+        <div className="text-[10px] italic flex-1 flex items-center" style={{ color: PAL.slate }}>
+          no workloads here
+        </div>
+      ) : (
+        renderWorkloads()
       )}
     </div>
   )
@@ -2647,10 +2691,10 @@ const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
  *  (usually 1–2 services). Bands grow via `fr` above these floors so
  *  fullscreen fills like single-VPC. Overflow scrolls inside the cell. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 210,
-  app: 180,
-  data: 128,
-  iam: 72,
+  web: 168,
+  app: 148,
+  data: 96,
+  iam: 64,
 }
 
 /** Fullscreen / presentation floors — lower so Web+App+Data+IAM fit in one
@@ -2659,10 +2703,10 @@ export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number>
  *  Single-VPC only — Compare uses COMPARE_TIER_MIN_PX even in fullscreen so
  *  VPC titles + subnet cells stay readable when columns split the width. */
 export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 108,
-  app: 100,
-  data: 72,
-  iam: 56,
+  web: 96,
+  app: 88,
+  data: 64,
+  iam: 48,
 }
 
 /** Compare VPC chrome must not collapse when fr-tier rows compete for height. */
@@ -3156,7 +3200,7 @@ function MultiVpcCompareBands({
                       </div>
                     ) : (
                       <div
-                        className="grid gap-2.5 flex-1 min-h-0 overflow-x-auto overflow-y-auto content-start"
+                        className="grid gap-1.5 flex-1 min-h-0 overflow-hidden content-stretch"
                         style={{ gridTemplateColumns: azCols }}
                       >
                         {azs.map(az => {
@@ -3172,7 +3216,7 @@ function MultiVpcCompareBands({
                               sgIndex={sgIndex}
                               selectedNodeId={selectedNodeId}
                               onSelect={onSelect}
-                              compact={false}
+                              compact
                               roleForWorkload={roleForWorkload}
                               densityCollapsed={densityCollapsed}
                               viewDensity={viewDensity}
@@ -3353,8 +3397,8 @@ function VpcCanvasFrame({
   const hasNats = natGws.length > 0
 
   const natBand = hasNats && (
-    <div className="mb-3 pb-2 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
-      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: PAL.slate }}>
+    <div className="mb-1.5 pb-1 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
+      <div className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1" style={{ color: PAL.slate }}>
         NAT gateways ({natGws.length})
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -3388,13 +3432,13 @@ function VpcCanvasFrame({
       behind it; it doesn't live "in" one the way an EC2 instance does. */}
   const albBand = albNodes.length > 0 && (
     <div
-      className="mb-3 pb-3 flex flex-col items-center border-b border-dashed"
+      className="mb-1.5 pb-1.5 flex flex-col items-center border-b border-dashed"
       style={{ borderColor: "#C2CDD6" }}
       data-testid="topology-alb-band"
     >
-      <div className="flex items-center gap-1.5 mb-2" style={{ color: PAL.slate }}>
-        <AlbGlyph size={18} />
-        <span className="text-[10px] uppercase tracking-[0.14em] font-semibold">
+      <div className="flex items-center gap-1.5 mb-1" style={{ color: PAL.slate }}>
+        <AlbGlyph size={16} />
+        <span className="text-[9px] uppercase tracking-[0.14em] font-semibold">
           {albNodes.length === 1 ? "Application Load Balancer" : `Load Balancers (${albNodes.length})`}
         </span>
       </div>
@@ -3474,8 +3518,8 @@ function VpcCanvasFrame({
     <div
       className={
         presentationMode
-          ? "rounded-md p-2.5 relative min-w-0 w-full h-full min-h-0"
-          : "rounded-md p-3 relative shrink-0"
+          ? "rounded-md p-1.5 relative min-w-0 w-full h-full min-h-0"
+          : "rounded-md p-2 relative shrink-0"
       }
       data-testid="topology-vpc-frame"
       style={
@@ -3510,7 +3554,7 @@ function VpcCanvasFrame({
       {/* In-flow header (not absolute -top) so VPC id / shared badge never
           clip under the parent overflow-x-auto / border edge. */}
       <div
-        className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-semibold mb-1 px-0.5"
         style={{ color: "#0E8B7A", gridRow: presentationMode ? 1 : undefined }}
         data-testid="topology-vpc-frame-header"
       >
@@ -3576,11 +3620,11 @@ function VpcCanvasFrame({
                   {TIER_SIDEBAR_LABEL[tier]}
                 </div>
                 <div
-                  className="rounded-r-md p-2 flex-1 flex flex-col min-h-0 h-full overflow-hidden"
+                  className="rounded-r-md p-1.5 flex-1 flex flex-col min-h-0 h-full overflow-hidden"
                   style={{ background: TIER_BG[tier] }}
                 >
                   <div
-                    className="grid gap-2 flex-1 min-h-0 h-full overflow-x-auto overflow-y-auto content-start"
+                    className="grid gap-1.5 flex-1 min-h-0 h-full overflow-hidden content-stretch"
                     style={{ gridTemplateColumns: azGridColumns }}
                   >
                     {azs.map(az => {
@@ -3596,7 +3640,7 @@ function VpcCanvasFrame({
                           sgIndex={sgIndex}
                           selectedNodeId={selectedNodeId}
                           onSelect={onSelect}
-                          compact={false}
+                          compact
                           roleForWorkload={roleForWorkload}
                           densityCollapsed={densityCollapsed}
                           viewDensity={viewDensity}
@@ -3644,9 +3688,9 @@ function VpcCanvasFrame({
                 gridTemplateColumns: azGridColumns,
                 // Shared tracks: AZ title + Public + App + Data — empty DB
                 // cells match occupied siblings across AZs.
-                // Web/App grow; Data stays shorter (sparse private tier).
+                // Web/App grow; Data stays shorter. Floors match dense icon cells.
                 gridTemplateRows:
-                  "auto minmax(96px, 1.25fr) minmax(96px, 1.15fr) minmax(64px, 0.7fr)",
+                  "auto minmax(80px, 1.25fr) minmax(80px, 1.15fr) minmax(56px, 0.65fr)",
                 alignItems: "stretch",
               }}
               data-testid="topology-tier-stack"
@@ -3727,7 +3771,7 @@ function VpcCanvasFrame({
                   >
                     {TIER_SIDEBAR_LABEL[tier]}
                   </div>
-                  <div className="rounded-r-md p-2.5 flex-1" style={{ background: TIER_BG[tier] }}>
+                  <div className="rounded-r-md p-1.5 flex-1" style={{ background: TIER_BG[tier] }}>
                     <div className="grid gap-1.5" style={{ gridTemplateColumns: azGridColumns }}>
                       {azs.map(az => {
                         const subnetsHere = subnetsByCell.get(`${az}::${tier}`) ?? []
@@ -3910,18 +3954,17 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — full-bleed left→right so wide viewports
-          don't leave ~25% empty gutters from a centered cluster + capped connectors. */}
+      {/* Internet + IGW perimeter — keep thin so VPC tiers own the viewport. */}
       <div
         className={
           presentationMode
-            ? "flex items-center gap-3 py-1 pb-1.5 w-full min-w-0"
-            : "flex items-center gap-3 py-1 pb-2 w-full min-w-0"
+            ? "flex items-center gap-2 py-0.5 w-full min-w-0 shrink-0"
+            : "flex items-center gap-3 py-1 pb-1.5 w-full min-w-0"
         }
       >
-        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
-          <span className="text-3xl leading-none">👥</span>
-          <span className="text-[12px] uppercase tracking-wider font-semibold">
+        <div className="flex items-center gap-1.5 shrink-0" style={{ color: PAL.slate }}>
+          <span className={presentationMode ? "text-xl leading-none" : "text-2xl leading-none"}>👥</span>
+          <span className="text-[10px] uppercase tracking-wider font-semibold">
             Users
           </span>
         </div>
@@ -3929,9 +3972,9 @@ export function AwsFrame({
           className="flex-1 min-w-[48px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
-        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
-          <span className="text-3xl leading-none">☁</span>
-          <span className="text-[12px] uppercase tracking-wider font-semibold">
+        <div className="flex items-center gap-1.5 shrink-0" style={{ color: PAL.slate }}>
+          <span className={presentationMode ? "text-xl leading-none" : "text-2xl leading-none"}>☁</span>
+          <span className="text-[10px] uppercase tracking-wider font-semibold">
             Internet
           </span>
         </div>
@@ -3940,13 +3983,13 @@ export function AwsFrame({
           style={{ borderColor: "#94A3B8" }}
         />
         <div
-          className="flex items-center gap-2 shrink-0 min-w-0"
+          className="flex items-center gap-1.5 shrink-0 min-w-0"
           style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
           data-flow-id="__igw__"
         >
-          <span className="text-3xl leading-none">🌐</span>
+          <span className={presentationMode ? "text-xl leading-none" : "text-2xl leading-none"}>🌐</span>
           <span
-            className="text-[12px] uppercase tracking-wider font-semibold truncate max-w-[220px]"
+            className="text-[10px] uppercase tracking-wider font-semibold truncate max-w-[220px]"
             title={igwStripTitle}
           >
             {igwStripLabel}
