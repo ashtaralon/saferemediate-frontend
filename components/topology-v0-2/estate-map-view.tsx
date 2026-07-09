@@ -485,29 +485,22 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const vp = viewportRef.current
     const content = contentRef.current
     if (!vp || !content) return
-    const pad = 16
-    // Stretch the map to the viewport width BEFORE measuring. Otherwise the
-    // frame's intrinsic width (~half the page) becomes the fit target and
-    // "100%" leaves a huge empty gutter on the right (Alon, 2026-07-09).
-    const targetW = Math.max(320, vp.clientWidth - pad)
-    content.style.width = `${targetW}px`
-    content.style.minWidth = `${targetW}px`
-    content.style.maxWidth = `${targetW}px`
-    // Width is owned by the viewport stretch above — do NOT use scrollWidth
-    // for nw (overflowing rails would shrink fit and re-open the right gutter).
-    // Height still uses scrollHeight so tall tiers aren't clipped in the fit %.
-    const nw = targetW
+    // Natural (pre-transform) size — offset* ignores CSS transform; scroll*
+    // additionally includes children that overflow the content box (the
+    // regional/serverless rails). offsetHeight alone under-measured a tall
+    // map so "fit" cut the DATA TIER off below the fold (2026-07-04).
+    const nw = Math.max(content.offsetWidth, content.scrollWidth)
     const nh = Math.max(content.offsetHeight, content.scrollHeight)
     if (nw === 0 || nh === 0) return
+    const pad = 16
     const fitW = (vp.clientWidth - pad) / nw
     const fitH = (vp.clientHeight - pad) / nh
-    // Stretch first (above), then fit BOTH axes. Width-only fit clipped the
-    // Data tier off the bottom (Alon, 2026-07-09). After stretch, fitW≈1 so
-    // height-bound scale still keeps most of the page width — unlike the old
-    // half-width stamp where min(fitW,fitH) looked like ~50% empty.
+    // Prefer the larger scale that still keeps the WHOLE map in view —
+    // Compare used to width-fit a short band stack and leave ~50% empty
+    // white below. Cover both axes; never exceed 1.25 (readable, not huge).
     let fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, fitH)))
-    // Short maps: if height has headroom after a width-bound fit, bump toward
-    // filling ~90% of viewport height without exceeding width.
+    // If height has headroom after a width-bound fit (short content), bump
+    // toward filling ~90% of viewport height so Compare matches single-VPC.
     if (fit * nh < vp.clientHeight * 0.88 && fitW > fit) {
       fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, (vp.clientHeight * 0.9) / nh)))
     }
@@ -655,9 +648,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [computeFit])
   const zoomInStep = useCallback(() => zoomTo(zoom * 1.25), [zoom, zoomTo])
   const zoomOutStep = useCallback(() => zoomTo(zoom / 1.25), [zoom, zoomTo])
-  // Zoom is DISPLAYED relative to the fit scale: "100%" = whole estate on
-  // screen (width-stretched, height-aware). Fit ⇒ 100%; zooming in reads
-  // 125%, 185%, …; the raw CSS scale stays internal.
+  // Zoom is DISPLAYED relative to the fit scale: "100%" = 100% OF THE MAP on
+  // screen (Alon, 2026-07-04 — a CSS-pixel 100% that clips the map is a
+  // meaningless number to an operator). Fit ⇒ 100%; zooming in reads 125%,
+  // 185%, …; the raw CSS scale stays internal.
   const relZoomPct = Math.round((zoom / (fitScale || 1)) * 100)
 
   const onViewportWheel = useCallback((e: React.WheelEvent) => {
@@ -1421,7 +1415,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 onClick={fitView}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
                 style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#1A2330" }}
-                title="Fit whole estate on screen (width-stretched, Data tier visible)"
+                title="Show 100% of the map (fit to screen)"
               >
                 <Scan className="h-3.5 w-3.5" />
                 100%
@@ -1438,7 +1432,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               <span
                 className="w-10 text-center text-[10px] font-mono tabular-nums"
                 style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#5A6B7A" }}
-                title="Zoom relative to fit — 100% = whole estate on screen"
+                title="Zoom relative to the whole map — 100% = entire estate on screen"
               >
                 {relZoomPct}%
               </span>
@@ -1472,12 +1466,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             </div>
           ) : null}
 
-          {/* P0-A — zoom/pan viewport. Prefer fit-to-screen; allow vertical
-              overflow scroll as a safety net so Data/IAM are never unreachable
-              if content is still taller than the fitted scale. */}
+          {/* P0-A — zoom/pan viewport. overflow-hidden (was overflow-auto): the map
+              fits via transform, it does not scroll. */}
           <div
             ref={viewportRef}
-            className="flex-1 min-h-0 relative overflow-x-hidden overflow-y-auto"
+            className="flex-1 min-h-0 relative overflow-hidden"
             style={{ cursor: panning ? "grabbing" : "grab", touchAction: "none" }}
             onWheel={onViewportWheel}
             onPointerDown={onPanDown}
@@ -1492,11 +1485,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 willChange: "transform",
               }}
             >
-              <div
-                ref={contentRef}
-                className="block w-full min-w-full box-border"
-                data-testid="topology-estate-map-fit-content"
-              >
+              <div ref={contentRef} className="block w-full min-w-full">
                 {renderMap(true, zoom, densityCollapsed)}
               </div>
             </div>

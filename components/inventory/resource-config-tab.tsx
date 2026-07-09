@@ -297,7 +297,52 @@ function IamPolicyDocument({ data }: { data: InspectorPayload }) {
   )
 }
 
-function LambdaConfig({ data }: { data: InspectorPayload }) {
+function GraphResourceConfig({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const props = current.properties ?? {}
+  const listFields: { key: string; label: string }[] = [
+    { key: "listeners", label: "Listeners" },
+    { key: "security_group_ids", label: "Security groups" },
+    { key: "subnet_ids", label: "Subnets" },
+    { key: "public_ips", label: "Public IPs" },
+    { key: "private_ips", label: "Private IPs" },
+  ]
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionTitle>{String(current.title ?? "Configuration")}</SectionTitle>
+        {current.source && (
+          <p className="text-[11px] text-slate-400 mb-2">Source: {String(current.source)}</p>
+        )}
+        <KeyValueGrid obj={props} />
+      </div>
+      {listFields.map(({ key, label }) => {
+        const items = current[key]
+        if (!Array.isArray(items) || items.length === 0) return null
+        return (
+          <div key={key}>
+            <SectionTitle>{label}</SectionTitle>
+            {typeof items[0] === "object" ? (
+              <pre className="text-xs bg-slate-50 border rounded-lg p-3 overflow-x-auto">
+                {JSON.stringify(items, null, 2)}
+              </pre>
+            ) : (
+              <ul className="text-sm space-y-1 font-mono text-xs">
+                {items.map((item, i) => (
+                  <li key={i}>{String(item)}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )
+      })}
+      {data.observed?.message && (
+        <p className="text-[11px] text-slate-400">{data.observed.message}</p>
+      )}
+    </div>
+  )
+}
+
   const current = data.current ?? {}
   const props = current.properties ?? {}
   const envKeys: string[] = Array.isArray(current.environment_keys) ? current.environment_keys : []
@@ -859,6 +904,19 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   if (kind === "RouteTable") return <RouteTableRoutes data={data} />
   if (kind === "VPC") return <VpcConfig data={data} />
   if (kind === "Lambda" || kind === "LambdaFunction") return <LambdaConfig data={data} />
+  if (
+    kind === "ENI" ||
+    kind === "NetworkInterface" ||
+    kind === "InternetGateway" ||
+    kind === "LoadBalancer" ||
+    kind === "ALB" ||
+    kind === "NLB" ||
+    kind === "SQS" ||
+    kind === "SQSQueue" ||
+    kind === "CloudTrail"
+  ) {
+    return <GraphResourceConfig data={data} />
+  }
   if (kind === "Subnet") return <SubnetProperties data={data} />
   if (kind === "KMSKey" || kind === "KMS") return <KmsKeySections data={data} />
   if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
