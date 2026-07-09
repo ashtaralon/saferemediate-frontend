@@ -297,7 +297,63 @@ function IamPolicyDocument({ data }: { data: InspectorPayload }) {
   )
 }
 
-function RouteTableRoutes({ data }: { data: InspectorPayload }) {
+function LambdaConfig({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const props = current.properties ?? {}
+  const envKeys: string[] = Array.isArray(current.environment_keys) ? current.environment_keys : []
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionTitle>Function</SectionTitle>
+        <KeyValueGrid obj={props} />
+        {current.description && (
+          <p className="text-sm text-slate-600 mt-2">{String(current.description)}</p>
+        )}
+      </div>
+      {envKeys.length > 0 && (
+        <div>
+          <SectionTitle>Environment variables</SectionTitle>
+          <div className="flex flex-wrap gap-1.5">
+            {envKeys.map((k) => (
+              <span key={k} className="font-mono text-[11px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
+                {k}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {data.observed?.message && (
+        <p className="text-[11px] text-slate-400">{data.observed.message}</p>
+      )}
+    </div>
+  )
+}
+
+function VpcConfig({ data }: { data: InspectorPayload }) {
+  const current = data.current ?? {}
+  const cidrBlocks: any[] = Array.isArray(current.cidr_blocks) ? current.cidr_blocks : []
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionTitle>VPC</SectionTitle>
+        <KeyValueGrid obj={current.properties ?? {}} />
+      </div>
+      {cidrBlocks.length > 0 && (
+        <div>
+          <SectionTitle>CIDR blocks</SectionTitle>
+          <ul className="text-sm space-y-1">
+            {cidrBlocks.map((b, i) => (
+              <li key={i} className="font-mono text-xs text-slate-700">
+                {b.cidr} {b.state ? `(${b.state})` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
   const current = data.current ?? {}
   const routes: any[] = Array.isArray(current.routes) ? current.routes : []
   const associations: any[] = Array.isArray(current.associations) ? current.associations : []
@@ -800,8 +856,10 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   if (kind === "S3") return <S3Policies data={data} />
   if (kind === "IAMPolicy") return <IamPolicyDocument data={data} />
   if (kind === "RouteTable") return <RouteTableRoutes data={data} />
+  if (kind === "VPC") return <VpcConfig data={data} />
+  if (kind === "Lambda" || kind === "LambdaFunction") return <LambdaConfig data={data} />
   if (kind === "Subnet") return <SubnetProperties data={data} />
-  if (kind === "KMSKey") return <KmsKeySections data={data} />
+  if (kind === "KMSKey" || kind === "KMS") return <KmsKeySections data={data} />
   if (kind === "Secret" || kind === "SecretsManagerSecret") return <SecretSections data={data} />
   if (kind === "DynamoDB" || kind === "DynamoDBTable") return <DynamoDbSections data={data} />
   return <InsightSections data={data} />

@@ -13,7 +13,6 @@ import {
   COMPARE_TIER_MIN_PX,
   buildCompareArchitectureStory,
   buildVpcFrames,
-  compareVpcColumnTemplate,
 } from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
@@ -172,23 +171,6 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     expect(story).toMatch(/alon-prod/)
     expect(story).toMatch(/Internet → Web → App/)
     expect(story).toMatch(/shared/)
-  })
-
-  it("weights Compare VPC columns by AZ count (2-AZ VPC gets more width than 1-AZ)", () => {
-    const { frames } = buildVpcFrames(
-      twoVpcTopology.subnets,
-      twoVpcNodes,
-      OWN,
-      [],
-      [],
-      true,
-    )
-    // Fixture: OWN (vpc-0329) = 1 AZ, SHARED (vpc-086) = 2 AZs
-    const own = frames.find(f => f.vid === OWN)!
-    const shared = frames.find(f => f.vid === SHARED)!
-    expect(own.grid.azs.length).toBe(1)
-    expect(shared.grid.azs.length).toBe(2)
-    expect(compareVpcColumnTemplate(frames)).toBe("minmax(0, 1fr) minmax(0, 2fr)")
   })
 
   it("falls back to primary + peer strip when VPC count > 3", () => {

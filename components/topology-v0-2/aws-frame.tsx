@@ -2370,19 +2370,6 @@ function frameHasTier(frame: VpcFrameSpec, tier: "web" | "app" | "data"): boolea
   return false
 }
 
-/**
- * Compare VPC column widths — weight by AZ count so a 2-AZ VPC isn't crushed
- * to the same width as a 1-AZ peer (equal 1fr made each AZ cell ~half as wide).
- */
-export function compareVpcColumnTemplate(frames: Pick<VpcFrameSpec, "grid">[]): string {
-  return frames
-    .map(f => {
-      const azN = Math.max(1, f.grid.azs.length)
-      return `minmax(0, ${azN}fr)`
-    })
-    .join(" ")
-}
-
 /** One-glance architecture story for the Compare view. */
 export function buildCompareArchitectureStory(
   frames: VpcFrameSpec[],
@@ -2524,9 +2511,7 @@ function MultiVpcCompareBands({
   highlightedRoleName: string | null
   systemLabel?: string
 }) {
-  // Weight VPC columns by AZ count so a 2-AZ shared VPC isn't crushed to the
-  // same width as a 1-AZ primary (equal 1fr made each AZ cell ~half as wide).
-  const colTemplate = compareVpcColumnTemplate(frames)
+  const colTemplate = `repeat(${frames.length}, minmax(0, 1fr))`
   const story = buildCompareArchitectureStory(frames, systemLabel)
   // Compare always collapses density — Web stacks must never grow the band.
   const densityCollapsed = true
@@ -2800,7 +2785,7 @@ function PrimaryPlusPeerStrip({
   const [primary, ...peers] = frames
   if (!primary) return null
   return (
-    <div className="flex flex-col gap-3 w-full min-w-0 flex-1" data-testid="topology-primary-peer-strip">
+    <div className="flex flex-col gap-3 w-full min-w-0" data-testid="topology-primary-peer-strip">
       <VpcCanvasFrame
         vpcId={primary.vid}
         grid={primary.grid}
@@ -3002,11 +2987,7 @@ function VpcCanvasFrame({
 
   return (
     <div
-      className={
-        presentationMode
-          ? "rounded-md p-2.5 relative min-w-0 w-full"
-          : "rounded-md p-3 relative shrink-0"
-      }
+      className={presentationMode ? "rounded-md p-2.5 relative shrink-0 min-w-0" : "rounded-md p-3 relative shrink-0"}
       data-testid="topology-vpc-frame"
       style={
         presentationMode
@@ -3016,11 +2997,9 @@ function VpcCanvasFrame({
               // tracks instead of sizing its own, so Web/App/Data line up
               // across every VPC frame regardless of content density
               // (Alon: "the merged VPCs need to be perfectly parallel").
-              // width 100% of the region grid's 1fr column — fills leftover
-              // space beside fixed VPCE / edge rails.
               background: PAL.cardBg,
               border: `2px solid #00C2A8`,
-              minWidth: 0,
+              minWidth: `${vpcGridMinWidth}px`,
               width: "100%",
               display: "grid",
               gridTemplateRows: "subgrid",
@@ -3325,7 +3304,7 @@ export function AwsFrame({
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-1.5 space-y-1 relative w-full min-w-0 overflow-x-hidden overflow-y-visible"
+          ? "rounded-xl p-1.5 space-y-1 relative w-full min-w-0 overflow-x-auto overflow-y-visible"
           : "rounded-2xl p-3 space-y-3 relative max-w-full min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
@@ -3355,9 +3334,9 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — full-bleed left→right so wide viewports
-          don't leave ~25% empty gutters from a centered cluster + capped connectors. */}
-      <div className="flex items-center gap-4 py-2 pb-4 w-full min-w-0">
+      {/* Internet + IGW perimeter — keep hero-size icons in fullscreen too
+          (presentationMode used to shrink them to text-sm / 8px labels). */}
+      <div className="flex items-center justify-center gap-6 py-2 pb-4">
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
           <span className="text-4xl leading-none">👥</span>
           <span className="text-[13px] uppercase tracking-wider font-semibold">
@@ -3365,7 +3344,7 @@ export function AwsFrame({
           </span>
         </div>
         <div
-          className="flex-1 min-w-[48px] border-t-2 border-dashed"
+          className="flex-1 max-w-[180px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
         <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.slate }}>
@@ -3375,7 +3354,7 @@ export function AwsFrame({
           </span>
         </div>
         <div
-          className="flex-1 min-w-[48px] border-t-2 border-dashed"
+          className="flex-1 max-w-[180px] border-t-2 border-dashed"
           style={{ borderColor: "#94A3B8" }}
         />
         <div
@@ -3395,11 +3374,7 @@ export function AwsFrame({
 
       {/* AWS Cloud frame */}
       <div
-        className={
-          presentationMode
-            ? "rounded-lg p-2 relative overflow-visible w-full min-w-0"
-            : "rounded-lg p-4 relative overflow-visible"
-        }
+        className={presentationMode ? "rounded-lg p-2 relative overflow-visible" : "rounded-lg p-4 relative overflow-visible"}
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
         <div
@@ -3417,7 +3392,7 @@ export function AwsFrame({
         <div
           className={
             presentationMode
-              ? "rounded-md p-2 relative overflow-visible w-full min-w-0"
+              ? "rounded-md p-2 relative overflow-visible"
               : "rounded-md p-4 mt-3 relative overflow-visible"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
@@ -3434,34 +3409,13 @@ export function AwsFrame({
           </div>
 
           {/* VPC · VPCE · edge rail — regional/serverless on the right (AWS canonical layout).
-              Fullscreen uses CSS grid: VPC column = 1fr (fills leftover width),
-              rails stay fixed. Flex alone left the VPC at intrinsic ~half width
-              even after the fit content was stretched (Alon, 2026-07-09). */}
+              Multi-VPC (All VPCs · Compare): shared Web/App/Data bands with
+              VPC columns (Layout B, ≤3 VPCs) or primary + peer strip (Layout C).
+              Scoped / single-VPC: one VpcCanvasFrame with locked tier mins. */}
           <div
-            className={`${
-              presentationMode
-                ? "mt-1 w-full grid items-stretch gap-x-3 min-w-0 overflow-x-hidden overflow-y-visible pb-1"
-                : "mt-3 flex flex-nowrap items-stretch min-w-0 overflow-x-auto overflow-y-visible pb-1"
-            }`}
-            style={
-              presentationMode
-                ? {
-                    gridTemplateColumns: [
-                      "minmax(0, 1fr)",
-                      hasVpces ? "108px" : null,
-                      serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                        ? "72px"
-                        : null,
-                      serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                        ? "188px"
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" "),
-                  }
-                : undefined
-            }
-            data-testid={presentationMode ? "topology-region-fill-grid" : undefined}
+            className={`flex flex-nowrap items-stretch ${
+              presentationMode ? "mt-1 w-full" : "mt-3"
+            } min-w-0 overflow-x-auto overflow-y-visible pb-1`}
           >
             {mergedVpcView && frames.length > 1 ? (
               frames.length > COMPARE_BANDS_MAX_VPCS ? (
@@ -3501,7 +3455,6 @@ export function AwsFrame({
                   gridTemplateRows: `auto auto minmax(${COMPARE_TIER_MIN_PX.web}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.app}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.data}px, 1fr) minmax(${COMPARE_TIER_MIN_PX.iam}px, auto)`,
                   gap: "10px",
                   width: "100%",
-                  minWidth: 0,
                 }}
               >
                 {frames.map(f => (
@@ -3551,9 +3504,7 @@ export function AwsFrame({
             {/* VPCE boundary — offset right of VPC; flow corridor before edge rail */}
             {hasVpces && (
               <div
-                className={`flex flex-col gap-1.5 self-stretch justify-start pt-2 z-10 ${
-                  presentationMode ? "" : "ml-4 shrink-0"
-                }`}
+                className="flex flex-col gap-1.5 ml-4 shrink-0 self-stretch justify-start pt-2 z-10"
                 style={{ width: "108px" }}
               >
                 {topo.edges.vpces.map(v => {
@@ -3617,7 +3568,7 @@ export function AwsFrame({
             {(serverlessTierNodes.length > 0 || regionalTierNodes.length > 0) ? (
               <>
                 <div
-                  className={`self-stretch min-h-[80px] ${presentationMode ? "" : "shrink-0 mx-3"}`}
+                  className="shrink-0 self-stretch min-h-[80px] mx-3"
                   style={{
                     width: "72px",
                     borderLeft: "1px dashed #CBD5E1",
@@ -3628,9 +3579,7 @@ export function AwsFrame({
                   aria-hidden
                 />
                 <div
-                  className={`flex flex-col gap-2 w-[188px] max-w-[188px] min-h-0 ${
-                    presentationMode ? "" : "shrink-0 ml-1"
-                  }`}
+                  className="flex flex-col gap-2 shrink-0 w-[188px] max-w-[188px] ml-1 min-h-0"
                   // In fullscreen the zoom viewport owns scrolling + fits the map;
                   // the old internal rail scroll clipped chips and broke flow
                   // anchoring under scale. Let the rail grow; density tiles keep
