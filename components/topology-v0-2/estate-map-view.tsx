@@ -501,21 +501,19 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (nw === 0 || nh === 0) return
     const fitW = (vp.clientWidth - pad) / nw
     const fitH = (vp.clientHeight - pad) / nh
-    // Stretch first (above), then fit BOTH axes. Width-only fit clipped the
-    // Data tier off the bottom (Alon, 2026-07-09). After stretch, fitW≈1 so
-    // height-bound scale still keeps most of the page width — unlike the old
-    // half-width stamp where min(fitW,fitH) looked like ~50% empty.
-    let fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, fitH)))
-    // Short maps: if height has headroom after a width-bound fit, bump toward
-    // filling ~90% of viewport height without exceeding width.
-    if (fit * nh < vp.clientHeight * 0.88 && fitW > fit) {
+    // 100% = fill page WIDTH. min(fitW, fitH) re-opened a large right gutter
+    // when height bound the scale (Alon blue-scribble screenshot, 2026-07-09).
+    // Data / IAM stay reachable via vertical scroll + pan (viewport is
+    // overflow-y-auto). Short maps may still bump toward ~90% viewport height
+    // without exceeding width.
+    let fit = Math.max(MIN_ZOOM, Math.min(1.25, fitW))
+    if (fit * nh < vp.clientHeight * 0.88 && fitH > fit) {
       fit = Math.max(MIN_ZOOM, Math.min(1.25, Math.min(fitW, (vp.clientHeight * 0.9) / nh)))
     }
-    // One-way LOD (see lock comment above). While still showing full cards, if
-    // the whole map won't fit at a readable scale, drop to density tiles and
-    // stay there — the ResizeObserver then re-fits the shorter tile content so
-    // the three subnet tiers fill the viewport. Never re-expands, so no bounce.
-    if (!densityLockRef.current && fit < LOD_THRESHOLD) {
+    // One-way LOD: use height-fit as the unreadability signal (width-fit is
+    // ~1.0 after stretch). Collapse to density tiles when the map would be
+    // unreadably small if forced into the viewport height.
+    if (!densityLockRef.current && fitH < LOD_THRESHOLD) {
       densityLockRef.current = true
       setDensityCollapsed(true)
     }
@@ -655,12 +653,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [computeFit])
   const zoomInStep = useCallback(() => zoomTo(zoom * 1.25), [zoom, zoomTo])
   const zoomOutStep = useCallback(() => zoomTo(zoom / 1.25), [zoom, zoomTo])
-  // Zoom is DISPLAYED relative to the fit scale: "100%" = whole estate on
-  // screen (width-stretched, height-aware). Fit ⇒ 100%; zooming in reads
-  // 125%, 185%, …; the raw CSS scale stays internal.
+  // Zoom is DISPLAYED relative to the fit scale: "100%" = map fills page
+  // width. Fit ⇒ 100%; zooming in reads 125%, 185%, …; raw CSS scale stays
+  // internal. Tall content scrolls/pans vertically.
   const relZoomPct = Math.round((zoom / (fitScale || 1)) * 100)
 
   const onViewportWheel = useCallback((e: React.WheelEvent) => {
+    // Pinch / ctrl+wheel → zoom. Plain wheel → native vertical scroll so
+    // width-filled 100% can reach Data / IAM without shrinking the map.
+    if (!(e.ctrlKey || e.metaKey)) return
     e.preventDefault()
     zoomTo(zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY)
   }, [zoom, zoomTo])
@@ -1421,7 +1422,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 onClick={fitView}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors"
                 style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#1A2330" }}
-                title="Fit whole estate on screen (width-stretched, Data tier visible)"
+                title="Fill page width — scroll or pan for Data / IAM"
               >
                 <Scan className="h-3.5 w-3.5" />
                 100%
@@ -1438,7 +1439,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               <span
                 className="w-10 text-center text-[10px] font-mono tabular-nums"
                 style={{ color: relZoomPct === 100 ? "#0E8B7A" : "#5A6B7A" }}
-                title="Zoom relative to fit — 100% = whole estate on screen"
+                title="Zoom relative to fit — 100% = map fills page width"
               >
                 {relZoomPct}%
               </span>
