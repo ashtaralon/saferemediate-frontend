@@ -2974,8 +2974,6 @@ function MultiVpcCompareBands({
         gridTemplateRows: [
           "auto", // system path
           "minmax(0, 1fr)", // VPC columns body — fills leftover width/height
-          // IAM stays a thin strip — don't steal height from subnet tiers
-          iamRoles.length > 0 ? `minmax(${tierMins.iam}px, auto)` : null,
         ]
           .filter(Boolean)
           .join(" "),
@@ -3244,37 +3242,7 @@ function MultiVpcCompareBands({
         })}
       </div>
 
-      {/* IAM band — system-scoped, spans below VPC columns */}
-      {iamRoles.length > 0 ? (
-        <div
-          className="flex gap-0 w-full min-h-0 overflow-x-auto overflow-y-hidden"
-          style={{ minHeight: tierMins.iam }}
-          data-testid="topology-tier-band-iam"
-        >
-          <div
-            className="rounded-l-md flex items-center justify-center shrink-0"
-            style={{
-              background: "#DD344C",
-              color: "white",
-              width: sidebarW,
-              writingMode: "vertical-rl",
-              transform: "rotate(180deg)",
-              fontSize: "9px",
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-            }}
-          >
-            IAM CP
-          </div>
-          <IamControlPlane
-            roles={iamRoles}
-            allWorkloads={allWorkloads}
-            highlightedRoleName={highlightedRoleName}
-            embeddedInVpc
-            compact
-          />
-        </div>
-      ) : null}
+      {/* IAM omitted on Compare Glance — Inventory / DetailPanel own roles. */}
     </div>
   )
 }
@@ -3530,6 +3498,14 @@ function VpcCanvasFrame({
     </>
   )
 
+  // Glance / fullscreen = network map. IAM roles belong in Inventory (and
+  // DetailPanel), not as a permanent bottom band that steals VPC height.
+  const showIamOnMap =
+    !presentationMode &&
+    viewDensity === "inventory" &&
+    showIamControlPlane &&
+    iamRoles.length > 0
+
   return (
     <div
       className={
@@ -3606,8 +3582,8 @@ function VpcCanvasFrame({
               <div className="mt-1">{azHeaderRow}</div>
             </div>
 
-            {/* Rows 3-5 (subgrid): Web / App / Data — shared row tracks so
-                Public subnet (web) / App / Data are 1:1 parallel across VPCs. */}
+            {/* Rows 3-5 (subgrid): Web / App / Data — no IAM row on Glance/
+                fullscreen; Inventory keeps IAM below the tier stack. */}
             {TIERS.map((tier, tierIdx) => (
               <div
                 key={tier}
@@ -3667,23 +3643,6 @@ function VpcCanvasFrame({
                 </div>
               </div>
             ))}
-
-            {/* Row 6 (subgrid): IAM — ALWAYS emit a cell so every frame has
-                the same 6 subgrid children. Omitting this on non-primary
-                frames broke CSS subgrid alignment (tiers staggered). */}
-            <div
-              className="flex gap-0 min-h-0 overflow-hidden"
-              style={{
-                gridRow: 6,
-                minHeight: presentationMode
-                  ? PRESENTATION_TIER_MIN_PX.iam
-                  : COMPARE_TIER_MIN_PX.iam,
-              }}
-            >
-              {showIamControlPlane && iamRoles.length > 0 ? iamCpBlock(true) : (
-                <div className="flex-1 min-h-[4px]" aria-hidden />
-              )}
-            </div>
           </>
         )
       ) : azs.length === 0 ? (
@@ -3754,7 +3713,7 @@ function VpcCanvasFrame({
                 </div>
               ))}
             </div>
-            {showIamControlPlane && iamRoles.length > 0 ? (
+            {showIamOnMap ? (
               <div className="flex gap-0">{iamCpBlock(false)}</div>
             ) : null}
           </div>
@@ -3815,7 +3774,7 @@ function VpcCanvasFrame({
               ))}
             </div>
 
-            {showIamControlPlane && iamRoles.length > 0 ? (
+            {showIamOnMap ? (
               <div className="flex gap-0">{iamCpBlock(false)}</div>
             ) : null}
           </div>
@@ -3962,13 +3921,13 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Users → Internet story strip — large labels, thin chrome so the
-          VPC map keeps the height. IGW chip lives on the VPCE rail. */}
+      {/* Users → Internet — clustered toward center (not pinned to corners).
+          IGW chip lives on the VPCE rail. */}
       <div
         className={
           presentationMode
-            ? "flex items-center gap-3 py-0.5 w-full min-w-0 shrink-0"
-            : "flex items-center gap-4 py-1 w-full min-w-0"
+            ? "flex items-center justify-center gap-6 py-0.5 w-full min-w-0 shrink-0"
+            : "flex items-center justify-center gap-8 py-1 w-full min-w-0"
         }
         data-testid="topology-users-internet-strip"
       >
@@ -4003,7 +3962,7 @@ export function AwsFrame({
           </div>
         </div>
         <div
-          className="flex-1 min-w-[48px] border-t-[3px] border-dashed"
+          className="w-[min(28vw,220px)] shrink border-t-[3px] border-dashed"
           style={{ borderColor: "#94A3B8" }}
           aria-hidden
         />
@@ -4158,7 +4117,7 @@ export function AwsFrame({
                   gridTemplateColumns: "minmax(0, 1fr)",
                   // Presentation floors + equal fr — Data stays on screen at
                   // width-fill 100% (COMPARE mins were too tall for one viewport).
-                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.35fr) minmax(${tierMin.app}px, 1.2fr) minmax(${tierMin.data}px, 0.65fr) minmax(${tierMin.iam}px, 0.45fr)`,
+                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.35fr) minmax(${tierMin.app}px, 1.2fr) minmax(${tierMin.data}px, 0.65fr)`,
                   gap: "6px",
                   width: "100%",
                   height: "100%",
