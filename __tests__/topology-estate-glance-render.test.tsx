@@ -111,8 +111,9 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByText("entry-alb")).toBeTruthy()
     // NAT from real edge metadata
     expect(screen.getByTestId("topology-nat-gateway-chip")).toBeTruthy()
-    // IGW lives on the VPC edge (with NAT), not in the Users→Internet strip
-    expect(screen.getByTestId("topology-igw-band")).toBeTruthy()
+    // IGW + VPCEs share the network rail right of the VPC
+    expect(screen.getByTestId("topology-network-rail")).toBeTruthy()
+    expect(screen.getByTestId("topology-igw-rail-chip")).toBeTruthy()
     expect(screen.getByTestId("topology-users-internet-strip")).toBeTruthy()
     expect(screen.getByText("Users")).toBeTruthy()
     expect(screen.getByText("Internet")).toBeTruthy()
