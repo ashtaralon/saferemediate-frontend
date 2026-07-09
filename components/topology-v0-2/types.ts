@@ -172,6 +172,8 @@ export interface EdgeVpce {
   id: string
   service_name: string | null
   endpoint_type: string | null
+  /** Owning VPC — required for scoped Estate Map frames (Alon, 2026-07-10). */
+  vpc_id?: string | null
 }
 
 export interface SecurityGroupMeta {

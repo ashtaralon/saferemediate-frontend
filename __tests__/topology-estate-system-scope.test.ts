@@ -321,4 +321,84 @@ describe("narrowSystemEstateToVpc", () => {
     expect(frames[0]!.vid).toBe(SHARED)
     expect(frames[0]!.grid.azs.length).toBeGreaterThan(0)
   })
+
+  it("drops sibling-VPC endpoints so vpc-086 does not show vpc-0329 SSM/EC2-Messages", () => {
+    const nodes = [
+      nd({ id: "i-own", vpc_id: OWN, subnet_id: "sn-own" }),
+      nd({ id: "i-shared", vpc_id: SHARED, subnet_id: "sn-shared" }),
+    ]
+    const vpcTopology: VpcTopology = {
+      vpc_id: OWN,
+      account_id: "745783559495",
+      region: "eu-west-1",
+      azs: ["eu-west-1a"],
+      subnets: [
+        sn({ id: "sn-own", vpc_id: OWN, az: "eu-west-1a" }),
+        sn({
+          id: "sn-shared",
+          vpc_id: SHARED,
+          az: "eu-west-1a",
+          is_foreign: true,
+          owner_system_name: "payment-production",
+        }),
+      ],
+      edges: {
+        igws: [
+          { id: "igw-0329", name: "igw-0329", vpc_id: OWN },
+          { id: "igw-086", name: "igw-086", vpc_id: SHARED },
+        ],
+        nat_gws: [],
+        vpces: [
+          {
+            id: "vpce-s3-086",
+            service_name: "com.amazonaws.eu-west-1.s3",
+            endpoint_type: "Gateway",
+            vpc_id: SHARED,
+          },
+          {
+            id: "vpce-ssm-0329",
+            service_name: "com.amazonaws.eu-west-1.ssm",
+            endpoint_type: "Interface",
+            vpc_id: OWN,
+          },
+          {
+            id: "vpce-ssmmessages-0329",
+            service_name: "com.amazonaws.eu-west-1.ssmmessages",
+            endpoint_type: "Interface",
+            vpc_id: OWN,
+          },
+          {
+            id: "vpce-ec2messages-0329",
+            service_name: "com.amazonaws.eu-west-1.ec2messages",
+            endpoint_type: "Interface",
+            vpc_id: OWN,
+          },
+        ],
+      },
+      unknown_subnet_count: 0,
+      security_groups: [],
+      iam_roles: [],
+    }
+    const scoped = applySystemEstateScope({
+      systemName: "alon-prod",
+      nodes,
+      vpcTopology,
+      trafficEdges: [],
+      availableVpcs: [
+        { vpc_id: OWN, name: "alon-prod-vpc", workload_count: 1, tagged_subnet_count: 1 },
+        { vpc_id: SHARED, name: SHARED, workload_count: 1, tagged_subnet_count: 0 },
+      ],
+    })
+    expect(scoped.vpcTopology.edges.vpces.map(v => v.id).sort()).toEqual(
+      [
+        "vpce-ec2messages-0329",
+        "vpce-s3-086",
+        "vpce-ssm-0329",
+        "vpce-ssmmessages-0329",
+      ].sort(),
+    )
+    const narrowed = narrowSystemEstateToVpc(scoped, SHARED)
+    expect(narrowed.vpcTopology.edges.vpces.map(v => v.id)).toEqual(["vpce-s3-086"])
+    expect(narrowed.vpcTopology.edges.igws.map(i => i.id)).toEqual(["igw-086"])
+  })
 })

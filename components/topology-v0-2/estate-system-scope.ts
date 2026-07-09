@@ -223,6 +223,10 @@ export function narrowSystemEstateToVpc(
           i => !i.vpc_id || i.vpc_id === vpcId,
         ),
         vpces: (scoped.vpcTopology.edges?.vpces ?? []).filter(
+          // Require vpc_id match when present. Missing vpc_id is kept only
+          // during BE deploy lag (pre-vpc_id payloads); once BE stamps
+          // vpc_id, sibling-VPC endpoints (e.g. vpc-0329 SSM on a vpc-086
+          // frame) are dropped.
           i => !i.vpc_id || i.vpc_id === vpcId,
         ),
       },
