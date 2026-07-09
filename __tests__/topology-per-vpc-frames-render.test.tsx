@@ -90,4 +90,19 @@ describe("AwsFrame All VPCs · Compare renders both VPCs", () => {
     expect(screen.getByText(new RegExp(OWN))).toBeInTheDocument()
     expect(screen.queryByText(new RegExp(SHARED))).not.toBeInTheDocument()
   })
+
+  it("fullscreen presentation uses region fill grid so VPC takes leftover width", () => {
+    render(
+      <AwsFrame
+        vpcTopology={vpcTopology}
+        nodes={nodes}
+        mergedVpcView={false}
+        presentationMode
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+    expect(screen.getByTestId("topology-region-fill-grid")).toBeInTheDocument()
+    expect(screen.getByTestId("topology-single-vpc-grid")).toBeInTheDocument()
+  })
 })
