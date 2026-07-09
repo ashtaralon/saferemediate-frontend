@@ -136,7 +136,7 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByTestId("topology-az-column-eu-west-1a")).toBeTruthy()
   })
 
-  it("inventory mode does not use glance cell collapse", () => {
+  it("inventory mode shows one small icon per real node (no ×N collapse)", () => {
     const nodes: TopologyNode[] = [
       nd({ id: "ec2-1", name: "web-1" }),
       nd({ id: "ec2-2", name: "web-2" }),
@@ -152,8 +152,13 @@ describe("AwsFrame Glance density (generic)", () => {
       />,
     )
     expect(screen.queryByTestId("topology-cell-glance")).toBeNull()
+    expect(screen.getByTestId("topology-cell-inventory")).toBeTruthy()
+    const icons = screen.getAllByTestId("topology-service-node-icon")
+    expect(icons.length).toBe(3)
     expect(screen.getByText("web-1")).toBeTruthy()
     expect(screen.getByText("web-2")).toBeTruthy()
     expect(screen.getByText("web-3")).toBeTruthy()
+    // No Glance stack collapse in Inventory
+    expect(screen.queryByTestId("topology-service-stack")).toBeNull()
   })
 })
