@@ -143,6 +143,20 @@ describe("buildVpcFrames — duplicate node hardening", () => {
   })
 })
 
+describe("buildVpcFrames — IGW on VPC edge", () => {
+  it("attaches IGWs to their owning VPC frame", () => {
+    const igws = [
+      { id: "igw-own", name: "alon-prod-igw", vpc_id: OWN },
+      { id: "igw-shared", name: "shared-igw", vpc_id: SHARED },
+    ]
+    const { frames } = buildVpcFrames(SUBNETS, NODES, OWN, [], [], true, igws)
+    expect(frames.find(f => f.vid === OWN)!.igws.map(i => i.id)).toEqual(["igw-own"])
+    expect(frames.find(f => f.vid === SHARED)!.igws.map(i => i.id)).toEqual([
+      "igw-shared",
+    ])
+  })
+})
+
 describe("computeCanvasGrid — VPC isolation", () => {
   it("excludes a workload whose VPC differs from the canvas VPC", () => {
     // Defense in depth: even handed a mixed node list, a frame drops foreign VPC nodes.

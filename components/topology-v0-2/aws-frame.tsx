@@ -2599,6 +2599,8 @@ export interface VpcFrameSpec {
   vid: string | null
   grid: CanvasGrid
   natGws: VpcTopology["edges"]["nat_gws"]
+  /** Internet gateways attached to this VPC (BE edges.igws). */
+  igws: VpcTopology["edges"]["igws"]
   isForeign: boolean
   ownerSystem: string | null
   showIamControlPlane: boolean
@@ -2617,6 +2619,7 @@ export function buildVpcFrames(
   natGws: VpcTopology["edges"]["nat_gws"],
   hiddenAzs: string[],
   mergedVpcView: boolean,
+  igws: VpcTopology["edges"]["igws"] = [],
 ): { frames: VpcFrameSpec[]; staleNodes: TopologyNode[] } {
   const subnetVpc = createMap(subnets.map(s => [s.id, s.vpc_id ?? null]))
   const resolveVpc = (n: TopologyNode): string | null =>
@@ -2653,6 +2656,16 @@ export function buildVpcFrames(
     list.push(nat)
     natByVpc.set(target, list)
   }
+  // IGWs grouped by owning vpc_id (BE >= #305); unresolved -> primary frame.
+  const igwByVpc = new Map<string, VpcTopology["edges"]["igws"]>()
+  for (const igw of igws) {
+    const v0 = igw.vpc_id ?? null
+    const target = v0 && frameIdSet.has(v0) ? v0 : ids[0] ?? null
+    if (!target) continue
+    const list = igwByVpc.get(target) ?? []
+    list.push(igw)
+    igwByVpc.set(target, list)
+  }
   const frames: VpcFrameSpec[] = ids.map((vid, idx) => {
     const vidSubnets = subnets.filter(s => s.vpc_id === vid)
     // A frame is "foreign" when THIS system owns none of its subnets — it only
@@ -2665,6 +2678,7 @@ export function buildVpcFrames(
       vid,
       grid: computeCanvasGrid(vid, subnets, nodesByFrame.get(vid) ?? [], hiddenAzs),
       natGws: natByVpc.get(vid) ?? [],
+      igws: igwByVpc.get(vid) ?? [],
       isForeign,
       ownerSystem,
       showIamControlPlane: idx === 0,
@@ -2931,7 +2945,8 @@ function MultiVpcCompareBands({
 
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
   const hasAnyNat = frames.some(f => f.natGws.length > 0)
-  const hasIngress = hasAnyAlb || hasAnyNat
+  const hasAnyIgw = frames.some(f => f.igws.length > 0)
+  const hasIngress = hasAnyAlb || hasAnyNat || hasAnyIgw
   // Compare always uses Compare floors — presentation mins crush subnet cells
   // when width is split across VPC columns (Alon, 2026-07-09).
   const tierMins = COMPARE_TIER_MIN_PX
@@ -3092,7 +3107,9 @@ function MultiVpcCompareBands({
               {hasIngress ? (
                 <div
                   className={`px-2 flex flex-col items-center gap-1 ${
-                    f.grid.albNodes.length > 0 || f.natGws.length > 0 ? "py-2" : "py-1"
+                    f.grid.albNodes.length > 0 || f.natGws.length > 0 || f.igws.length > 0
+                      ? "py-2"
+                      : "py-1"
                   }`}
                   style={{
                     borderBottom: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
@@ -3102,9 +3119,39 @@ function MultiVpcCompareBands({
                           ? "#FFF7ED"
                           : "#F5F3FF"
                         : "transparent",
-                    minHeight: f.grid.albNodes.length > 0 || f.natGws.length > 0 ? 52 : 28,
+                    minHeight:
+                      f.grid.albNodes.length > 0 || f.natGws.length > 0 || f.igws.length > 0
+                        ? 52
+                        : 28,
                   }}
                 >
+                  {f.igws.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 justify-center">
+                      {f.igws.map((igw, idx) => (
+                        <span
+                          key={igw.id}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+                          style={{
+                            background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
+                            border: "2px solid #3B82F6",
+                            color: "#1E40AF",
+                          }}
+                          data-testid="topology-igw-chip"
+                          data-flow-id={idx === 0 ? "__igw__" : igw.id}
+                          data-igw-id={igw.id}
+                          title={`Internet Gateway · ${igw.name} (${igw.id})`}
+                        >
+                          <span
+                            className="inline-flex items-center justify-center rounded w-7 h-7 shrink-0"
+                            style={{ background: "#8C4FFF", color: "white" }}
+                          >
+                            <AwsServiceGlyph kind="igw" size={16} />
+                          </span>
+                          IGW · {igw.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   {f.grid.albNodes.length > 0 ? (
                     <>
                       <div className="flex items-center gap-1" style={{ color: PAL.slate }}>
@@ -3302,6 +3349,7 @@ function PrimaryPlusPeerStrip({
         vpcId={primary.vid}
         grid={primary.grid}
         natGws={primary.natGws}
+        igws={primary.igws}
         isForeign={primary.isForeign}
         ownerSystem={primary.ownerSystem}
         showIamControlPlane
@@ -3355,6 +3403,7 @@ interface VpcCanvasFrameProps {
   vpcId: string | null
   grid: CanvasGrid
   natGws: VpcTopology["edges"]["nat_gws"]
+  igws?: VpcTopology["edges"]["igws"]
   isForeign: boolean
   ownerSystem: string | null
   showIamControlPlane: boolean
@@ -3370,15 +3419,16 @@ interface VpcCanvasFrameProps {
   viewDensity: ViewDensity
 }
 
-/** One AWS VPC frame — its own AZ x tier grid, subnets, workloads, NAT band,
- *  and (primary frame only) IAM control plane. Presentational: all placement
- *  is precomputed in `grid`. Rendered once per VPC so the merged Estate Map
- *  shows each VPC's REAL subnet skeleton instead of cramming every VPC's
- *  workloads into the primary VPC's tiles (FE #299/#301 follow-up). */
+/** One AWS VPC frame — its own AZ x tier grid, subnets, workloads, IGW/NAT
+ *  edge, and (primary frame only) IAM control plane. Presentational: all
+ *  placement is precomputed in `grid`. Rendered once per VPC so the merged
+ *  Estate Map shows each VPC's REAL subnet skeleton instead of cramming
+ *  every VPC's workloads into the primary VPC's tiles (FE #299/#301). */
 function VpcCanvasFrame({
   vpcId,
   grid,
   natGws,
+  igws = [],
   isForeign,
   ownerSystem,
   showIamControlPlane,
@@ -3395,6 +3445,50 @@ function VpcCanvasFrame({
 }: VpcCanvasFrameProps) {
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
   const hasNats = natGws.length > 0
+  const hasIgws = igws.length > 0
+
+  // IGW sits on the VPC edge (AWS grammar) — same visual family as NAT/VPCE,
+  // not in the Users→Internet story strip above the cloud frame.
+  const igwBand = hasIgws && (
+    <div
+      className="mb-1.5 pb-1.5 flex flex-wrap items-center justify-center gap-2 border-b border-dashed"
+      style={{ borderColor: "#93C5FD" }}
+      data-testid="topology-igw-band"
+    >
+      {igws.map((igw, idx) => (
+        <div
+          key={igw.id}
+          className="inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 shadow-sm"
+          style={{
+            background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
+            border: "2px solid #3B82F6",
+            color: "#1E40AF",
+          }}
+          // Egress flow overlay terminates at __igw__; also expose real id.
+          data-flow-id={idx === 0 ? "__igw__" : igw.id}
+          data-igw-id={igw.id}
+          title={[
+            `${igw.name} (${igw.id})`,
+            igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
+            "Internet Gateway · VPC attachment",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          <span
+            className="inline-flex items-center justify-center rounded shrink-0"
+            style={{ width: 36, height: 36, background: "#8C4FFF", color: "white" }}
+          >
+            <AwsServiceGlyph kind="igw" size={22} />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <div className="text-[9px] font-bold uppercase tracking-[0.12em]">IGW</div>
+            <div className="text-[12px] font-semibold truncate max-w-[200px]">{igw.name}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 
   const natBand = hasNats && (
     <div className="mb-1.5 pb-1 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
@@ -3585,6 +3679,7 @@ function VpcCanvasFrame({
             {/* Row 2 (subgrid): NAT + ALB + AZ headers — height = max across
                 VPCs so every Web tier starts on the same Y. */}
             <div style={{ gridRow: 2, minHeight: 0 }} className="min-h-0">
+              {igwBand}
               {natBand}
               {albBand}
               <div className="mt-1">{azHeaderRow}</div>
@@ -3680,6 +3775,7 @@ function VpcCanvasFrame({
            the canonical AWS reference (AZ as failure-domain columns). */
         <div className="mt-2" data-testid="topology-aws-az-columns">
           <div className="space-y-2">
+            {igwBand}
             {natBand}
             {albBand}
             <div
@@ -3746,6 +3842,7 @@ function VpcCanvasFrame({
       ) : (
         <div className="mt-2">
           <div className="space-y-2">
+            {igwBand}
             {natBand}
             {albBand}
             {azHeaderRow}
@@ -3889,28 +3986,14 @@ export function AwsFrame({
         topo.edges.nat_gws,
         hiddenAzs,
         mergedVpcView,
+        topo.edges.igws,
       ),
-    [topo.subnets, topo.vpc_id, topo.edges.nat_gws, nodes, hiddenAzs, mergedVpcView],
+    [topo.subnets, topo.vpc_id, topo.edges.nat_gws, topo.edges.igws, nodes, hiddenAzs, mergedVpcView],
   )
   const hasIgw = topo.edges.igws.length > 0
-  // igws[0] is frame-aligned (BE #305). Name tags are free-form and may not
-  // match the frame system's naming, so the tooltip carries the id + owning
-  // VPC as provenance; "+N" flags sibling-VPC IGWs also in the payload.
+  // Story-strip caption only — the clickable / flow-anchor IGW chip lives
+  // on the VPC edge (with NAT), not in the Users→Internet row.
   const primaryIgw = topo.edges.igws[0]
-  const extraIgwCount = topo.edges.igws.length - 1
-  const igwStripLabel = primaryIgw
-    ? `IGW · ${primaryIgw.name}${extraIgwCount > 0 ? ` +${extraIgwCount}` : ""}`
-    : "no IGW"
-  const igwStripTitle = primaryIgw
-    ? [
-        `${primaryIgw.name} (${[primaryIgw.id, primaryIgw.vpc_id].filter(Boolean).join(" · ")})`,
-        extraIgwCount > 0
-          ? `+${extraIgwCount} more IGW${extraIgwCount > 1 ? "s" : ""} not shown`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : undefined
   const hasVpces = topo.edges.vpces.length > 0
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
@@ -3954,46 +4037,82 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Internet + IGW perimeter — keep thin so VPC tiers own the viewport. */}
+      {/* Users → Internet story strip. IGW lives on the VPC edge (with NAT /
+          VPCE), not here — AWS grammar: IGW is a VPC attachment. */}
       <div
         className={
           presentationMode
-            ? "flex items-center gap-2 py-0.5 w-full min-w-0 shrink-0"
-            : "flex items-center gap-3 py-1 pb-1.5 w-full min-w-0"
+            ? "flex items-center gap-3 py-1.5 w-full min-w-0 shrink-0"
+            : "flex items-center gap-4 py-2 pb-2 w-full min-w-0"
         }
+        data-testid="topology-users-internet-strip"
       >
-        <div className="flex items-center gap-1.5 shrink-0" style={{ color: PAL.slate }}>
-          <span className={presentationMode ? "text-xl leading-none" : "text-2xl leading-none"}>👥</span>
-          <span className="text-[10px] uppercase tracking-wider font-semibold">
-            Users
-          </span>
-        </div>
-        <div
-          className="flex-1 min-w-[48px] border-t-2 border-dashed"
-          style={{ borderColor: "#94A3B8" }}
-        />
-        <div className="flex items-center gap-1.5 shrink-0" style={{ color: PAL.slate }}>
-          <span className={presentationMode ? "text-xl leading-none" : "text-2xl leading-none"}>☁</span>
-          <span className="text-[10px] uppercase tracking-wider font-semibold">
-            Internet
-          </span>
-        </div>
-        <div
-          className="flex-1 min-w-[48px] border-t-2 border-dashed"
-          style={{ borderColor: "#94A3B8" }}
-        />
-        <div
-          className="flex items-center gap-1.5 shrink-0 min-w-0"
-          style={{ color: hasIgw ? PAL.awsBlue : "#94A3B8" }}
-          data-flow-id="__igw__"
-        >
-          <span className={presentationMode ? "text-xl leading-none" : "text-2xl leading-none"}>🌐</span>
+        <div className="flex items-center gap-2.5 shrink-0" style={{ color: PAL.ink }}>
           <span
-            className="text-[10px] uppercase tracking-wider font-semibold truncate max-w-[220px]"
-            title={igwStripTitle}
+            className="inline-flex items-center justify-center rounded-lg"
+            style={{
+              width: presentationMode ? 44 : 52,
+              height: presentationMode ? 44 : 52,
+              background: "#EEF2FF",
+              border: "1.5px solid #6366F1",
+              fontSize: presentationMode ? 22 : 26,
+            }}
+            aria-hidden
           >
-            {igwStripLabel}
+            👥
           </span>
+          <div className="flex flex-col leading-tight">
+            <span
+              className={
+                presentationMode
+                  ? "text-[13px] uppercase tracking-[0.14em] font-bold"
+                  : "text-[15px] uppercase tracking-[0.14em] font-bold"
+              }
+              style={{ color: PAL.ink }}
+            >
+              Users
+            </span>
+            <span className="text-[10px] font-medium" style={{ color: PAL.slate }}>
+              Clients & operators
+            </span>
+          </div>
+        </div>
+        <div
+          className="flex-1 min-w-[48px] border-t-[3px] border-dashed"
+          style={{ borderColor: "#94A3B8" }}
+          aria-hidden
+        />
+        <div className="flex items-center gap-2.5 shrink-0" style={{ color: PAL.ink }}>
+          <span
+            className="inline-flex items-center justify-center rounded-lg"
+            style={{
+              width: presentationMode ? 44 : 52,
+              height: presentationMode ? 44 : 52,
+              background: "#EFF6FF",
+              border: "1.5px solid #3B82F6",
+              fontSize: presentationMode ? 22 : 26,
+            }}
+            aria-hidden
+          >
+            ☁
+          </span>
+          <div className="flex flex-col leading-tight">
+            <span
+              className={
+                presentationMode
+                  ? "text-[13px] uppercase tracking-[0.14em] font-bold"
+                  : "text-[15px] uppercase tracking-[0.14em] font-bold"
+              }
+              style={{ color: PAL.ink }}
+            >
+              Internet
+            </span>
+            <span className="text-[10px] font-medium" style={{ color: PAL.slate }}>
+              {hasIgw
+                ? `Public path via IGW${primaryIgw ? ` · ${primaryIgw.name}` : ""}`
+                : "No IGW attached"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -4128,6 +4247,7 @@ export function AwsFrame({
                     vpcId={f.vid}
                     grid={f.grid}
                     natGws={f.natGws}
+                    igws={f.igws}
                     isForeign={f.isForeign}
                     ownerSystem={f.ownerSystem}
                     showIamControlPlane={f.showIamControlPlane}
@@ -4151,6 +4271,7 @@ export function AwsFrame({
                   vpcId={f.vid}
                   grid={f.grid}
                   natGws={f.natGws}
+                  igws={f.igws}
                   isForeign={f.isForeign}
                   ownerSystem={f.ownerSystem}
                   showIamControlPlane={f.showIamControlPlane}
