@@ -1416,7 +1416,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           <div className="relative flex-1 min-h-0">
             <div
               className="h-full overflow-auto rounded-2xl"
-              style={{ maxHeight: embedded ? "min(78vh, 960px)" : "calc(100vh - 150px)" }}
+              style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
             >
               {view === "map" ? (
                 !mapEnlarged ? renderMap(false) : null
@@ -1441,7 +1441,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
         <aside
           className="hidden xl:flex flex-col min-h-0 w-[212px] shrink-0 sticky top-4 self-start"
-          style={{ maxHeight: embedded ? "min(78vh, 960px)" : "calc(100vh - 150px)" }}
+          style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
         >
           <RankedRail
             entries={rankedEntries}

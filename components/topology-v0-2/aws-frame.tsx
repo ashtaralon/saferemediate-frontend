@@ -2705,21 +2705,18 @@ const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
  *  (usually 1–2 services). Bands grow via `fr` above these floors so
  *  fullscreen fills like single-VPC. Overflow scrolls inside the cell. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 168,
-  app: 148,
-  data: 96,
+  web: 200,
+  app: 176,
+  data: 110,
   iam: 64,
 }
 
-/** Fullscreen / presentation floors — lower so Web+App+Data+IAM fit in one
- *  viewport at width-fill 100% without clipping the private Data tier.
- *  Data is intentionally shorter than Web/App (sparse private tier).
- *  Single-VPC only — Compare uses COMPARE_TIER_MIN_PX even in fullscreen so
- *  VPC titles + subnet cells stay readable when columns split the width. */
+/** Fullscreen floors — Web/App own the viewport; Data stays shorter.
+ *  Raised so the map reads larger after reclaiming Users/Internet chrome. */
 export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 96,
-  app: 88,
-  data: 64,
+  web: 120,
+  app: 108,
+  data: 72,
   iam: 48,
 }
 
@@ -2945,8 +2942,7 @@ function MultiVpcCompareBands({
 
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
   const hasAnyNat = frames.some(f => f.natGws.length > 0)
-  const hasAnyIgw = frames.some(f => f.igws.length > 0)
-  const hasIngress = hasAnyAlb || hasAnyNat || hasAnyIgw
+  const hasIngress = hasAnyAlb || hasAnyNat
   // Compare always uses Compare floors — presentation mins crush subnet cells
   // when width is split across VPC columns (Alon, 2026-07-09).
   const tierMins = COMPARE_TIER_MIN_PX
@@ -3107,9 +3103,7 @@ function MultiVpcCompareBands({
               {hasIngress ? (
                 <div
                   className={`px-2 flex flex-col items-center gap-1 ${
-                    f.grid.albNodes.length > 0 || f.natGws.length > 0 || f.igws.length > 0
-                      ? "py-2"
-                      : "py-1"
+                    f.grid.albNodes.length > 0 || f.natGws.length > 0 ? "py-2" : "py-1"
                   }`}
                   style={{
                     borderBottom: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
@@ -3119,39 +3113,9 @@ function MultiVpcCompareBands({
                           ? "#FFF7ED"
                           : "#F5F3FF"
                         : "transparent",
-                    minHeight:
-                      f.grid.albNodes.length > 0 || f.natGws.length > 0 || f.igws.length > 0
-                        ? 52
-                        : 28,
+                    minHeight: f.grid.albNodes.length > 0 || f.natGws.length > 0 ? 52 : 28,
                   }}
                 >
-                  {f.igws.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 justify-center">
-                      {f.igws.map((igw, idx) => (
-                        <span
-                          key={igw.id}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-                          style={{
-                            background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
-                            border: "2px solid #3B82F6",
-                            color: "#1E40AF",
-                          }}
-                          data-testid="topology-igw-chip"
-                          data-flow-id={idx === 0 ? "__igw__" : igw.id}
-                          data-igw-id={igw.id}
-                          title={`Internet Gateway · ${igw.name} (${igw.id})`}
-                        >
-                          <span
-                            className="inline-flex items-center justify-center rounded w-7 h-7 shrink-0"
-                            style={{ background: "#8C4FFF", color: "white" }}
-                          >
-                            <AwsServiceGlyph kind="igw" size={16} />
-                          </span>
-                          IGW · {igw.name}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
                   {f.grid.albNodes.length > 0 ? (
                     <>
                       <div className="flex items-center gap-1" style={{ color: PAL.slate }}>
@@ -3443,52 +3407,10 @@ function VpcCanvasFrame({
   densityCollapsed,
   viewDensity,
 }: VpcCanvasFrameProps) {
+  void igws // IGWs render on the region network rail (with VPCEs), not in-frame.
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
   const hasNats = natGws.length > 0
-  const hasIgws = igws.length > 0
-
-  // IGW sits on the VPC edge (AWS grammar) — same visual family as NAT/VPCE,
-  // not in the Users→Internet story strip above the cloud frame.
-  const igwBand = hasIgws && (
-    <div
-      className="mb-1.5 pb-1.5 flex flex-wrap items-center justify-center gap-2 border-b border-dashed"
-      style={{ borderColor: "#93C5FD" }}
-      data-testid="topology-igw-band"
-    >
-      {igws.map((igw, idx) => (
-        <div
-          key={igw.id}
-          className="inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 shadow-sm"
-          style={{
-            background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
-            border: "2px solid #3B82F6",
-            color: "#1E40AF",
-          }}
-          // Egress flow overlay terminates at __igw__; also expose real id.
-          data-flow-id={idx === 0 ? "__igw__" : igw.id}
-          data-igw-id={igw.id}
-          title={[
-            `${igw.name} (${igw.id})`,
-            igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
-            "Internet Gateway · VPC attachment",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        >
-          <span
-            className="inline-flex items-center justify-center rounded shrink-0"
-            style={{ width: 36, height: 36, background: "#8C4FFF", color: "white" }}
-          >
-            <AwsServiceGlyph kind="igw" size={22} />
-          </span>
-          <div className="min-w-0 leading-tight">
-            <div className="text-[9px] font-bold uppercase tracking-[0.12em]">IGW</div>
-            <div className="text-[12px] font-semibold truncate max-w-[200px]">{igw.name}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
+  // IGWs render on the region VPCE rail (right of VPC), not above Web.
 
   const natBand = hasNats && (
     <div className="mb-1.5 pb-1 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
@@ -3679,7 +3601,6 @@ function VpcCanvasFrame({
             {/* Row 2 (subgrid): NAT + ALB + AZ headers — height = max across
                 VPCs so every Web tier starts on the same Y. */}
             <div style={{ gridRow: 2, minHeight: 0 }} className="min-h-0">
-              {igwBand}
               {natBand}
               {albBand}
               <div className="mt-1">{azHeaderRow}</div>
@@ -3775,7 +3696,6 @@ function VpcCanvasFrame({
            the canonical AWS reference (AZ as failure-domain columns). */
         <div className="mt-2" data-testid="topology-aws-az-columns">
           <div className="space-y-2">
-            {igwBand}
             {natBand}
             {albBand}
             <div
@@ -3786,7 +3706,7 @@ function VpcCanvasFrame({
                 // cells match occupied siblings across AZs.
                 // Web/App grow; Data stays shorter. Floors match dense icon cells.
                 gridTemplateRows:
-                  "auto minmax(80px, 1.25fr) minmax(80px, 1.15fr) minmax(56px, 0.65fr)",
+                  "auto minmax(100px, 1.35fr) minmax(96px, 1.2fr) minmax(64px, 0.6fr)",
                 alignItems: "stretch",
               }}
               data-testid="topology-tier-stack"
@@ -3842,7 +3762,6 @@ function VpcCanvasFrame({
       ) : (
         <div className="mt-2">
           <div className="space-y-2">
-            {igwBand}
             {natBand}
             {albBand}
             {azHeaderRow}
@@ -3992,9 +3911,15 @@ export function AwsFrame({
   )
   const hasIgw = topo.edges.igws.length > 0
   // Story-strip caption only — the clickable / flow-anchor IGW chip lives
-  // on the VPC edge (with NAT), not in the Users→Internet row.
+  // on the VPCE rail (right of VPC), same column as VPC endpoints.
   const primaryIgw = topo.edges.igws[0]
   const hasVpces = topo.edges.vpces.length > 0
+  const showNetworkRail = hasIgw || hasVpces
+  // Prefer IGWs from the primary/scoped frame; fall back to topo list.
+  const railIgws =
+    frames.flatMap(f => f.igws).length > 0
+      ? frames.flatMap(f => f.igws)
+      : topo.edges.igws
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
 
@@ -4007,8 +3932,8 @@ export function AwsFrame({
       ref={flowContainerRef}
       className={
         presentationMode
-          ? "rounded-xl p-1.5 space-y-1 relative w-full h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
-          : "rounded-2xl p-2 space-y-2 relative w-full max-w-none min-w-0 overflow-x-auto"
+          ? "rounded-xl p-1 space-y-0.5 relative w-full h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
+          : "rounded-2xl p-2 space-y-1.5 relative w-full max-w-none min-w-0 overflow-x-auto"
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8`, width: "100%" }}
     >
@@ -4037,25 +3962,25 @@ export function AwsFrame({
           />
         </div>
       ) : null}
-      {/* Users → Internet story strip. IGW lives on the VPC edge (with NAT /
-          VPCE), not here — AWS grammar: IGW is a VPC attachment. */}
+      {/* Users → Internet story strip — large labels, thin chrome so the
+          VPC map keeps the height. IGW chip lives on the VPCE rail. */}
       <div
         className={
           presentationMode
-            ? "flex items-center gap-3 py-1.5 w-full min-w-0 shrink-0"
-            : "flex items-center gap-4 py-2 pb-2 w-full min-w-0"
+            ? "flex items-center gap-3 py-0.5 w-full min-w-0 shrink-0"
+            : "flex items-center gap-4 py-1 w-full min-w-0"
         }
         data-testid="topology-users-internet-strip"
       >
-        <div className="flex items-center gap-2.5 shrink-0" style={{ color: PAL.ink }}>
+        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.ink }}>
           <span
             className="inline-flex items-center justify-center rounded-lg"
             style={{
-              width: presentationMode ? 44 : 52,
-              height: presentationMode ? 44 : 52,
+              width: presentationMode ? 40 : 48,
+              height: presentationMode ? 40 : 48,
               background: "#EEF2FF",
               border: "1.5px solid #6366F1",
-              fontSize: presentationMode ? 22 : 26,
+              fontSize: presentationMode ? 20 : 24,
             }}
             aria-hidden
           >
@@ -4065,8 +3990,8 @@ export function AwsFrame({
             <span
               className={
                 presentationMode
-                  ? "text-[13px] uppercase tracking-[0.14em] font-bold"
-                  : "text-[15px] uppercase tracking-[0.14em] font-bold"
+                  ? "text-[14px] uppercase tracking-[0.12em] font-bold"
+                  : "text-[16px] uppercase tracking-[0.12em] font-bold"
               }
               style={{ color: PAL.ink }}
             >
@@ -4082,15 +4007,15 @@ export function AwsFrame({
           style={{ borderColor: "#94A3B8" }}
           aria-hidden
         />
-        <div className="flex items-center gap-2.5 shrink-0" style={{ color: PAL.ink }}>
+        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.ink }}>
           <span
             className="inline-flex items-center justify-center rounded-lg"
             style={{
-              width: presentationMode ? 44 : 52,
-              height: presentationMode ? 44 : 52,
+              width: presentationMode ? 40 : 48,
+              height: presentationMode ? 40 : 48,
               background: "#EFF6FF",
               border: "1.5px solid #3B82F6",
-              fontSize: presentationMode ? 22 : 26,
+              fontSize: presentationMode ? 20 : 24,
             }}
             aria-hidden
           >
@@ -4100,8 +4025,8 @@ export function AwsFrame({
             <span
               className={
                 presentationMode
-                  ? "text-[13px] uppercase tracking-[0.14em] font-bold"
-                  : "text-[15px] uppercase tracking-[0.14em] font-bold"
+                  ? "text-[14px] uppercase tracking-[0.12em] font-bold"
+                  : "text-[16px] uppercase tracking-[0.12em] font-bold"
               }
               style={{ color: PAL.ink }}
             >
@@ -4120,8 +4045,8 @@ export function AwsFrame({
       <div
         className={
           presentationMode
-            ? "rounded-lg p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
-            : "rounded-lg p-3 relative overflow-visible w-full min-w-0"
+            ? "rounded-lg p-1.5 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
+            : "rounded-lg p-2.5 relative overflow-visible w-full min-w-0"
         }
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
@@ -4140,8 +4065,8 @@ export function AwsFrame({
         <div
           className={
             presentationMode
-              ? "rounded-md p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
-              : "rounded-md p-3 mt-2 relative overflow-visible w-full min-w-0"
+              ? "rounded-md p-1.5 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
+              : "rounded-md p-2.5 mt-1.5 relative overflow-visible w-full min-w-0"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
         >
@@ -4170,7 +4095,7 @@ export function AwsFrame({
               width: "100%",
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
-                hasVpces ? "108px" : null,
+                showNetworkRail ? "118px" : null,
                 serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
                   ? "72px"
                   : null,
@@ -4233,8 +4158,8 @@ export function AwsFrame({
                   gridTemplateColumns: "minmax(0, 1fr)",
                   // Presentation floors + equal fr — Data stays on screen at
                   // width-fill 100% (COMPARE mins were too tall for one viewport).
-                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.25fr) minmax(${tierMin.app}px, 1.15fr) minmax(${tierMin.data}px, 0.7fr) minmax(${tierMin.iam}px, 0.5fr)`,
-                  gap: "8px",
+                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.35fr) minmax(${tierMin.app}px, 1.2fr) minmax(${tierMin.data}px, 0.65fr) minmax(${tierMin.iam}px, 0.45fr)`,
+                  gap: "6px",
                   width: "100%",
                   height: "100%",
                   minWidth: 0,
@@ -4289,14 +4214,51 @@ export function AwsFrame({
               ))
             )}
 
-            {/* VPCE boundary — offset right of VPC; flow corridor before edge rail */}
-            {hasVpces && (
+            {/* Network rail — IGW + VPCEs, right of VPC (same column). */}
+            {showNetworkRail && (
               <div
-                className={`flex flex-col gap-1.5 self-stretch justify-start pt-2 z-10 ${
+                className={`flex flex-col gap-1.5 self-stretch justify-start pt-1 z-10 ${
                   presentationMode ? "" : "ml-4 shrink-0"
                 }`}
-                style={{ width: "108px" }}
+                style={{ width: "118px" }}
+                data-testid="topology-network-rail"
               >
+                {railIgws.map((igw, idx) => (
+                  <div
+                    key={igw.id}
+                    data-flow-id={idx === 0 ? "__igw__" : igw.id}
+                    data-igw-id={igw.id}
+                    data-testid="topology-igw-rail-chip"
+                    title={[
+                      `${igw.name} (${igw.id})`,
+                      igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
+                      "Internet Gateway · VPC attachment",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    className="rounded-md shadow-sm overflow-hidden flex items-stretch"
+                    style={{
+                      background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
+                      border: "2px solid #3B82F6",
+                      color: "#1E40AF",
+                    }}
+                  >
+                    <div
+                      className="flex items-center justify-center shrink-0 px-1.5"
+                      style={{ background: "#8C4FFF", color: "white" }}
+                    >
+                      <AwsServiceGlyph kind="igw" size={22} />
+                    </div>
+                    <div className="flex-1 min-w-0 px-1.5 py-1">
+                      <div className="text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
+                        IGW
+                      </div>
+                      <div className="text-[10px] font-semibold leading-tight truncate mt-0.5">
+                        {igw.name}
+                      </div>
+                    </div>
+                  </div>
+                ))}
                 {topo.edges.vpces.map(v => {
                   const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
                   const tooltip = [
@@ -4317,12 +4279,6 @@ export function AwsFrame({
                         color: "#1E40AF",
                       }}
                     >
-                      {/* AWS PrivateLink VPCE icon — solid purple plate
-                          with a white shield+arrow glyph (mirrors the
-                          official AWS architecture-icon for VPC
-                          Endpoint). One icon for every VPCE keeps the
-                          boundary strip readable; service identity
-                          lives in the chip text. */}
                       <div
                         className="flex items-center justify-center shrink-0 px-1.5"
                         style={{ background: "white" }}
