@@ -11,6 +11,7 @@ import {
   AwsFrame,
   COMPARE_BANDS_MAX_VPCS,
   COMPARE_TIER_MIN_PX,
+  COMPARE_VPC_CHROME_MIN_PX,
   PRESENTATION_TIER_MIN_PX,
   buildCompareArchitectureStory,
   buildVpcFrames,
@@ -97,10 +98,11 @@ const twoVpcNodes = [
 
 describe("COMPARE_TIER_MIN_PX lock contract", () => {
   it("reserves Web / App / Data / IAM minimum heights", () => {
-    expect(COMPARE_TIER_MIN_PX.web).toBeGreaterThanOrEqual(96)
-    expect(COMPARE_TIER_MIN_PX.app).toBeGreaterThanOrEqual(80)
-    expect(COMPARE_TIER_MIN_PX.data).toBeGreaterThanOrEqual(80)
+    expect(COMPARE_TIER_MIN_PX.web).toBeGreaterThanOrEqual(168)
+    expect(COMPARE_TIER_MIN_PX.app).toBeGreaterThanOrEqual(148)
+    expect(COMPARE_TIER_MIN_PX.data).toBeGreaterThanOrEqual(148)
     expect(COMPARE_TIER_MIN_PX.iam).toBeGreaterThanOrEqual(48)
+    expect(COMPARE_VPC_CHROME_MIN_PX).toBeGreaterThanOrEqual(56)
   })
 
   it("caps Compare bands at 3 VPCs before Layout C fallback", () => {
@@ -141,13 +143,20 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     )
     expect(screen.getAllByTestId("topology-vpc-column-chrome").length).toBe(2)
     expect(screen.getAllByTestId("topology-vpc-az-headers").length).toBe(2)
-    expect(screen.getByText(/primary/)).toBeInTheDocument()
+    // Readable VPC identity — title + full id (not buried under ingress)
+    const titles = screen.getAllByTestId("topology-compare-vpc-title").map(el => el.textContent)
+    expect(titles).toContain("Own VPC · primary")
+    expect(titles).toContain("payment-production")
+    expect(screen.getByText(/^primary$/i)).toBeInTheDocument()
+    expect(screen.getByText(/^shared$/i)).toBeInTheDocument()
+    expect(screen.getAllByTestId("topology-compare-vpc-id").length).toBe(2)
+    expect(screen.getByText(OWN)).toBeInTheDocument()
+    expect(screen.getByText(SHARED)).toBeInTheDocument()
     expect(screen.getByTestId("topology-tier-stack")).toBeInTheDocument()
     expect(screen.getByTestId("topology-tier-band-app")).toBeInTheDocument()
     expect(screen.getByTestId("topology-tier-band-data")).toBeInTheDocument()
     // Data empty state for VPCs without a data subnet
     expect(screen.getAllByTestId("topology-data-tier-empty").length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/shared · payment-production/)).toBeInTheDocument()
     // Old side-by-side merged grid must not appear
     expect(screen.queryByTestId("topology-merged-vpc-grid")).not.toBeInTheDocument()
   })
