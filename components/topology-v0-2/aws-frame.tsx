@@ -870,6 +870,8 @@ function ServiceStackChip({
   const title = depth
     ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
     : `${stack.representative.name} · ${stack.label}`
+  // Stack-behind layers stay INSIDE the box (no negative insets) so parent
+  // overflow-hidden subnet cells never clip EC2 / Lambda icons (Alon 2026-07-09).
   return (
     <button
       type="button"
@@ -879,39 +881,60 @@ function ServiceStackChip({
       data-stack-type={stack.type}
       data-stack-count={stack.nodes.length}
       data-flow-ids={stack.nodes.map(n => n.id).join("|")}
-      className="relative flex flex-col items-center gap-1 min-w-[72px] max-w-[110px] px-1 py-1 rounded-md hover:bg-white/60 transition-colors"
+      className="relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[120px] px-1.5 pt-1.5 pb-1 rounded-md hover:bg-white/60 transition-colors shrink-0"
       style={{
         boxShadow: selected ? `0 0 0 2px ${PAL.teal}` : undefined,
       }}
     >
-      <span className="relative inline-flex" style={{ width: 44, height: 44 }}>
+      <span
+        className="relative inline-flex items-center justify-center"
+        style={{ width: 48, height: depth ? 48 : 40 }}
+      >
         {depth ? (
           <>
             <span
               className="absolute rounded-md border bg-white"
-              style={{ inset: "6px -4px -4px 6px", borderColor: "#CBD5E1", zIndex: 0 }}
+              style={{
+                width: 36,
+                height: 36,
+                left: 2,
+                top: 8,
+                borderColor: "#CBD5E1",
+                zIndex: 0,
+              }}
               aria-hidden
             />
             <span
               className="absolute rounded-md border bg-white"
-              style={{ inset: "3px -2px -2px 3px", borderColor: "#E2E8F0", zIndex: 1 }}
+              style={{
+                width: 36,
+                height: 36,
+                left: 5,
+                top: 5,
+                borderColor: "#E2E8F0",
+                zIndex: 1,
+              }}
               aria-hidden
             />
           </>
         ) : null}
         <span
-          className="relative z-[2] flex items-center justify-center rounded-md w-11 h-11"
+          className="relative z-[2] flex items-center justify-center rounded-md"
           style={{
+            width: 36,
+            height: 36,
             background: ic.official ? "#FFFFFF" : ic.bg,
             border: "1px solid #E2E8F0",
             color: ic.fg,
+            marginLeft: depth ? 8 : 0,
+            marginTop: depth ? 0 : 0,
           }}
         >
           {ic.symbol}
         </span>
         {depth ? (
           <span
-            className="absolute -top-1 -right-2 z-[3] text-[10px] font-bold font-mono rounded-full px-1.5 py-0.5"
+            className="absolute top-0 right-0 z-[3] text-[10px] font-bold font-mono rounded-full px-1.5 py-0.5"
             style={{ background: PAL.awsFrame, color: "#fff", border: "1px solid #fff" }}
           >
             ×{stack.nodes.length}
@@ -943,7 +966,11 @@ function GlanceCellWorkloads({
   const plan = planGlanceCell(workloadsHere)
   return (
     <div
-      className={compact ? "flex flex-wrap gap-2 justify-center" : "flex flex-wrap gap-3 justify-center"}
+      className={
+        compact
+          ? "flex flex-wrap gap-2 justify-center content-start flex-1 min-h-0 pt-0.5 pb-1"
+          : "flex flex-wrap gap-3 justify-center content-start flex-1 min-h-0 pt-1 pb-1.5"
+      }
       data-testid="topology-cell-glance"
     >
       {plan.stacks.map(stack => (
@@ -978,20 +1005,30 @@ function SubnetCell({
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
   const glance = viewDensity === "glance"
-  // Glance AZ columns use CSS subgrid for equal tier heights — don't shrink
-  // empty DB cells below occupied siblings (Alon, 2026-07-09).
+  const hasWorkloads = workloadsHere.length > 0
+  // Glance cells must fit ServiceStackChip (icon + labels ≈ 72px) under the
+  // subnet header — shorter floors clipped EC2 bottoms (Alon, 2026-07-09).
   const cellMinHeight = glance
-    ? (compact ? "88px" : "100px")
+    ? hasWorkloads
+      ? compact
+        ? "118px"
+        : "132px"
+      : compact
+        ? "72px"
+        : "88px"
     : empty
       ? (compact ? "44px" : "56px")
-      : workloadsHere.length === 0
+      : !hasWorkloads
         ? (compact ? "48px" : "60px")
-        : (compact ? "72px" : "84px")
+        : // Inventory cards need room for icon + name + type line
+          compact
+          ? "96px"
+          : "112px"
   return (
     <div
       className={
         glance
-          ? "rounded-md p-1.5 h-full min-h-0 flex flex-col"
+          ? "rounded-md p-2 h-full min-h-0 flex flex-col overflow-visible"
           : compact
             ? "rounded-md p-1.5 h-full min-h-0 flex flex-col"
             : "rounded-md p-2"
@@ -1003,6 +1040,7 @@ function SubnetCell({
         height: glance ? "100%" : undefined,
         opacity: empty ? 0.55 : 1,
       }}
+      data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
     >
       <div className={compact ? "flex items-baseline justify-between mb-1" : "flex items-baseline justify-between mb-1.5"}>
         <div
@@ -2710,9 +2748,9 @@ const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
  *  `1fr` above these floors so fullscreen fills like single-VPC (no 50%
  *  empty viewport). Overflow scrolls inside the cell, not the band. */
 export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 188,
-  app: 168,
-  data: 168,
+  web: 210,
+  app: 180,
+  data: 180,
   iam: 72,
 }
 
@@ -2971,15 +3009,16 @@ function MultiVpcCompareBands({
 
   return (
     <div
-      className={`grid gap-2 w-full min-w-0 ${compact ? "h-full min-h-0" : ""}`}
+      className="grid gap-2 w-full h-full min-h-0 min-w-0"
       data-testid="topology-vpc-compare-bands"
       style={{
+        width: "100%",
         ...(compact
           ? { height: "100%", minHeight: 0, overflowY: "auto" }
           : { minHeight: "min(78vh, 900px)" }),
         gridTemplateRows: [
           "auto", // system path
-          "minmax(0, 1fr)", // VPC columns body
+          "minmax(0, 1fr)", // VPC columns body — fills leftover width/height
           // IAM stays a thin strip — don't steal height from subnet tiers
           iamRoles.length > 0 ? `minmax(${tierMins.iam}px, auto)` : null,
         ]
@@ -3007,12 +3046,14 @@ function MultiVpcCompareBands({
       </div>
 
       <div
-        className="grid min-h-0 min-w-0 w-full"
+        className="grid min-h-0 min-w-0 w-full h-full"
         style={{
+          width: "100%",
+          height: "100%",
           gridTemplateColumns: `${sidebarW} ${colTemplate}`,
           gridTemplateRows: bodyRowTemplate,
           // Wide gutter = clear VPC boundary (AWS multi-VPC diagram grammar)
-          columnGap: 14,
+          columnGap: 20,
           rowGap: 0,
         }}
         data-testid="topology-compare-vpc-columns"
@@ -3076,7 +3117,7 @@ function MultiVpcCompareBands({
           return (
             <div
               key={`col-${f.vid}`}
-              className="min-w-0 min-h-0 overflow-hidden"
+              className="min-w-0 min-h-0"
               style={{
                 gridColumn: idx + 2,
                 gridRow: "1 / -1",
@@ -3088,6 +3129,8 @@ function MultiVpcCompareBands({
                 boxShadow: isShared
                   ? "inset 0 0 0 1px rgba(245, 158, 11, 0.25)"
                   : "inset 0 0 0 1px rgba(0, 194, 168, 0.2)",
+                // Allow stack chips to paint; tier cells own scroll if needed
+                overflow: "hidden",
               }}
               data-testid={`topology-compare-vpc-column-${f.vid}`}
               data-vpc-role={isShared ? "shared" : idx === 0 ? "primary" : "own"}
@@ -3185,7 +3228,7 @@ function MultiVpcCompareBands({
                 return (
                   <div
                     key={`${f.vid}-${tier}`}
-                    className="p-2 min-h-0 h-full flex flex-col overflow-hidden"
+                    className="p-2.5 min-h-0 h-full flex flex-col"
                     style={{
                       background: TIER_BG[tier],
                       borderTop:
@@ -3193,6 +3236,9 @@ function MultiVpcCompareBands({
                           ? undefined
                           : `1px solid ${isShared ? "rgba(245, 158, 11, 0.35)" : "rgba(0, 194, 168, 0.28)"}`,
                       minHeight: tierMins[tier],
+                      // Visible overflow so Glance stack chips aren't clipped;
+                      // AZ grid scrolls if content still exceeds the band.
+                      overflow: "visible",
                     }}
                     data-testid={`topology-compare-cell-${f.vid}-${tier}`}
                   >
@@ -3210,7 +3256,7 @@ function MultiVpcCompareBands({
                       </div>
                     ) : (
                       <div
-                        className="grid gap-2 flex-1 min-h-0 overflow-x-auto overflow-y-auto"
+                        className="grid gap-2.5 flex-1 min-h-0 overflow-x-auto overflow-y-auto content-start"
                         style={{ gridTemplateColumns: azCols }}
                       >
                         {azs.map(az => {
@@ -3630,11 +3676,11 @@ function VpcCanvasFrame({
                   {TIER_SIDEBAR_LABEL[tier]}
                 </div>
                 <div
-                  className="rounded-r-md p-1.5 flex-1 flex flex-col min-h-0 h-full overflow-hidden"
+                  className="rounded-r-md p-2 flex-1 flex flex-col min-h-0 h-full overflow-hidden"
                   style={{ background: TIER_BG[tier] }}
                 >
                   <div
-                    className="grid gap-1.5 flex-1 min-h-0 h-full overflow-hidden"
+                    className="grid gap-2 flex-1 min-h-0 h-full overflow-x-auto overflow-y-auto content-start"
                     style={{ gridTemplateColumns: azGridColumns }}
                   >
                     {azs.map(az => {
@@ -3650,7 +3696,7 @@ function VpcCanvasFrame({
                           sgIndex={sgIndex}
                           selectedNodeId={selectedNodeId}
                           onSelect={onSelect}
-                          compact={presentationMode}
+                          compact={false}
                           roleForWorkload={roleForWorkload}
                           densityCollapsed={densityCollapsed}
                           viewDensity={viewDensity}
@@ -3933,9 +3979,9 @@ export function AwsFrame({
       className={
         presentationMode
           ? "rounded-xl p-1.5 space-y-1 relative w-full h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
-          : "rounded-2xl p-3 space-y-3 relative max-w-full min-w-0 overflow-x-auto"
+          : "rounded-2xl p-3 space-y-3 relative w-full max-w-none min-w-0 overflow-x-auto"
       }
-      style={{ background: PAL.bg, border: `1px solid #DDE3E8` }}
+      style={{ background: PAL.bg, border: `1px solid #DDE3E8`, width: "100%" }}
     >
       {onFlowModeChange ? (
         <div
@@ -4005,7 +4051,7 @@ export function AwsFrame({
         className={
           presentationMode
             ? "rounded-lg p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
-            : "rounded-lg p-4 relative overflow-visible"
+            : "rounded-lg p-4 relative overflow-visible w-full min-w-0"
         }
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
       >
@@ -4025,7 +4071,7 @@ export function AwsFrame({
           className={
             presentationMode
               ? "rounded-md p-2 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
-              : "rounded-md p-4 mt-3 relative overflow-visible"
+              : "rounded-md p-4 mt-3 relative overflow-visible w-full min-w-0"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
         >
@@ -4045,61 +4091,70 @@ export function AwsFrame({
               rails stay fixed. Flex alone left the VPC at intrinsic ~half width
               even after the fit content was stretched (Alon, 2026-07-09). */}
           <div
-            className={`${
+            className={
               presentationMode
                 ? "mt-1 w-full flex-1 min-h-0 grid items-stretch gap-x-3 min-w-0 overflow-hidden"
-                : "mt-3 flex flex-nowrap items-stretch min-w-0 overflow-x-auto overflow-y-visible pb-1"
-            }`}
-            style={
-              presentationMode
-                ? {
-                    gridTemplateColumns: [
-                      "minmax(0, 1fr)",
-                      hasVpces ? "108px" : null,
-                      serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                        ? "72px"
-                        : null,
-                      serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                        ? "188px"
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" "),
-                    gridTemplateRows: "minmax(0, 1fr)",
-                  }
-                : undefined
+                : "mt-3 w-full min-w-0 grid items-stretch gap-x-3 overflow-x-auto overflow-y-visible pb-1"
             }
-            data-testid={presentationMode ? "topology-region-fill-grid" : undefined}
+            style={{
+              width: "100%",
+              gridTemplateColumns: [
+                "minmax(0, 1fr)",
+                hasVpces ? "108px" : null,
+                serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
+                  ? "72px"
+                  : null,
+                serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
+                  ? "188px"
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" "),
+              ...(presentationMode
+                ? { gridTemplateRows: "minmax(0, 1fr)" }
+                : { gridTemplateRows: "auto" }),
+            }}
+            data-testid="topology-region-fill-grid"
           >
             {mergedVpcView && frames.length > 1 ? (
-              frames.length > COMPARE_BANDS_MAX_VPCS ? (
-                <PrimaryPlusPeerStrip
-                  frames={frames}
-                  sgIndex={sgIndex}
-                  roleForWorkload={roleForWorkload}
-                  selectedNodeId={selectedNodeId}
-                  highlightedRoleName={highlightedRoleName}
-                  onSelect={onSelect}
-                  presentationMode={presentationMode}
-                  densityCollapsed={densityCollapsed}
-                  viewDensity={viewDensity}
-                  iamRoles={iamRoles}
-                  allWorkloads={nodes}
-                />
-              ) : (
-                <MultiVpcCompareBands
-                  frames={frames}
-                  sgIndex={sgIndex}
-                  roleForWorkload={roleForWorkload}
-                  selectedNodeId={selectedNodeId}
-                  onSelect={onSelect}
-                  compact={presentationMode}
-                  iamRoles={iamRoles}
-                  allWorkloads={nodes}
-                  highlightedRoleName={highlightedRoleName}
-                  systemLabel={systemLabel}
-                />
-              )
+              <div
+                className={
+                  presentationMode
+                    ? "min-w-0 w-full h-full flex flex-col"
+                    : "flex-1 min-w-0 w-full self-stretch"
+                }
+                data-testid="topology-compare-fill"
+                style={presentationMode ? { minWidth: 0, width: "100%", height: "100%" } : { minWidth: 0 }}
+              >
+                {frames.length > COMPARE_BANDS_MAX_VPCS ? (
+                  <PrimaryPlusPeerStrip
+                    frames={frames}
+                    sgIndex={sgIndex}
+                    roleForWorkload={roleForWorkload}
+                    selectedNodeId={selectedNodeId}
+                    highlightedRoleName={highlightedRoleName}
+                    onSelect={onSelect}
+                    presentationMode={presentationMode}
+                    densityCollapsed={densityCollapsed}
+                    viewDensity={viewDensity}
+                    iamRoles={iamRoles}
+                    allWorkloads={nodes}
+                  />
+                ) : (
+                  <MultiVpcCompareBands
+                    frames={frames}
+                    sgIndex={sgIndex}
+                    roleForWorkload={roleForWorkload}
+                    selectedNodeId={selectedNodeId}
+                    onSelect={onSelect}
+                    compact={presentationMode}
+                    iamRoles={iamRoles}
+                    allWorkloads={nodes}
+                    highlightedRoleName={highlightedRoleName}
+                    systemLabel={systemLabel}
+                  />
+                )}
+              </div>
             ) : presentationMode ? (
               <div
                 className="grid items-stretch w-full h-full min-h-0 min-w-0"

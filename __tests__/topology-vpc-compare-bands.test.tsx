@@ -98,9 +98,9 @@ const twoVpcNodes = [
 
 describe("COMPARE_TIER_MIN_PX lock contract", () => {
   it("reserves Web / App / Data / IAM minimum heights", () => {
-    expect(COMPARE_TIER_MIN_PX.web).toBeGreaterThanOrEqual(168)
-    expect(COMPARE_TIER_MIN_PX.app).toBeGreaterThanOrEqual(148)
-    expect(COMPARE_TIER_MIN_PX.data).toBeGreaterThanOrEqual(148)
+    expect(COMPARE_TIER_MIN_PX.web).toBeGreaterThanOrEqual(188)
+    expect(COMPARE_TIER_MIN_PX.app).toBeGreaterThanOrEqual(168)
+    expect(COMPARE_TIER_MIN_PX.data).toBeGreaterThanOrEqual(168)
     expect(COMPARE_TIER_MIN_PX.iam).toBeGreaterThanOrEqual(48)
     expect(COMPARE_VPC_CHROME_MIN_PX).toBeGreaterThanOrEqual(56)
   })
@@ -132,6 +132,8 @@ describe("AwsFrame All VPCs · Compare (Layout B)", () => {
     expect(screen.getByTestId("topology-compare-architecture-story")).toBeInTheDocument()
     expect(screen.getByText(/alon-prod · Internet → Web → App/)).toBeInTheDocument()
     // Distinct full-height VPC columns (AWS multi-VPC separation)
+    expect(screen.getByTestId("topology-compare-fill")).toBeInTheDocument()
+    expect(screen.getByTestId("topology-region-fill-grid")).toBeInTheDocument()
     expect(screen.getByTestId("topology-compare-vpc-columns")).toBeInTheDocument()
     expect(screen.getByTestId(`topology-compare-vpc-column-${OWN}`)).toHaveAttribute(
       "data-vpc-role",
