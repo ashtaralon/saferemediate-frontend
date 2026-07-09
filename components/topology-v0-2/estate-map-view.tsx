@@ -480,7 +480,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const LOD_THRESHOLD = 0.55
   const densityLockRef = useRef(false)
   const [densityCollapsed, setDensityCollapsed] = useState(false)
-  /** Glance = architecture bones (default). Inventory = full real-node cards. */
+  /** Glance = stacked ×N icons. Inventory = one small icon per real node. Click → detail. */
   const [viewDensity, setViewDensity] = useState<"glance" | "inventory">("glance")
 
   const computeFit = useCallback((apply: boolean) => {
@@ -1323,8 +1323,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                         data-testid={`topology-estate-density-${id}`}
                         title={
                           id === "glance"
-                            ? "Architecture bones — role-sized chips, cell collapse, real Neo4j nodes only"
-                            : "Full inventory cards for every real node in scope"
+                            ? "Stacked icons (×N) for mutual services — click for details"
+                            : "One small icon per real node — click for details"
                         }
                       >
                         {label}
@@ -1572,16 +1572,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
                 style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
               >
-                Glance — real nodes only · click +N or Inventory for full cards
+                Glance — stacked icons · click any icon for details · Inventory shows every node
               </div>
-            ) : densityCollapsed ? (
+            ) : (
               <div
                 className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
                 style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
               >
-                Overview density — zoom in (or click a stack tile) for full cards
+                Inventory — one icon per real node · click for details
               </div>
-            ) : null}
+            )}
           </div>
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">

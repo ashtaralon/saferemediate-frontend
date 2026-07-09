@@ -118,9 +118,8 @@ interface Props {
   densityCollapsed?: boolean
   /**
    * Architecture density mode (generic — any system).
-   * - glance (default): role-sized chips, cell collapse, grouped rails —
-   *   only real nodes from the topology payload.
-   * - inventory: full SG-grouped cards for every real node.
+   * - glance (default): mutual services → one icon + ×N; click opens detail.
+   * - inventory: same small-icon language, one icon per real node; click opens detail.
    */
   viewDensity?: ViewDensity
   /** Business system name — used in All VPCs · Compare architecture strip. */
@@ -855,32 +854,42 @@ function selectWorstInGroup(nodes: TopologyNode[]): TopologyNode | undefined {
  * AWS diagram convention: one service icon with siblings stacked behind
  * (Lambda × N, EC2 × N, ASG × N) — not every mutual instance drawn.
  */
-function ServiceStackChip({
-  stack,
-  selectedNodeId,
-  onSelect,
+/** Shared icon shell for Glance stacks + Inventory per-node icons. */
+function ServiceIconShell({
+  type,
+  selected,
+  depth,
+  countBadge,
+  label,
+  sublabel,
+  title,
+  onClick,
+  testId,
+  flowId,
+  extraAttrs,
 }: {
-  stack: ServiceStack
-  selectedNodeId: string | null
-  onSelect: (id: string) => void
+  type: string | null | undefined
+  selected: boolean
+  depth?: boolean
+  countBadge?: number
+  label: string
+  sublabel: string
+  title: string
+  onClick: () => void
+  testId: string
+  flowId?: string
+  extraAttrs?: Record<string, string | number | undefined>
 }) {
-  const depth = shouldShowStackDepth(stack)
-  const ic = nodeIcon(stack.type)
-  const selected = stack.nodes.some(n => n.id === selectedNodeId)
-  const title = depth
-    ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
-    : `${stack.representative.name} · ${stack.label}`
-  // Stack-behind layers stay INSIDE the box (no negative insets) so parent
-  // overflow-hidden subnet cells never clip EC2 / Lambda icons (Alon 2026-07-09).
+  const ic = nodeIcon(type)
+  const showDepth = Boolean(depth && countBadge && countBadge > 1)
   return (
     <button
       type="button"
-      onClick={() => onSelect(stack.representative.id)}
+      onClick={onClick}
       title={title}
-      data-testid="topology-service-stack"
-      data-stack-type={stack.type}
-      data-stack-count={stack.nodes.length}
-      data-flow-ids={stack.nodes.map(n => n.id).join("|")}
+      data-testid={testId}
+      data-flow-id={flowId}
+      {...extraAttrs}
       className="relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[120px] px-1.5 pt-1.5 pb-1 rounded-md hover:bg-white/60 transition-colors shrink-0"
       style={{
         boxShadow: selected ? `0 0 0 2px ${PAL.teal}` : undefined,
@@ -888,9 +897,9 @@ function ServiceStackChip({
     >
       <span
         className="relative inline-flex items-center justify-center"
-        style={{ width: 48, height: depth ? 48 : 40 }}
+        style={{ width: 48, height: showDepth ? 48 : 40 }}
       >
-        {depth ? (
+        {showDepth ? (
           <>
             <span
               className="absolute rounded-md border bg-white"
@@ -926,28 +935,88 @@ function ServiceStackChip({
             background: ic.official ? "#FFFFFF" : ic.bg,
             border: "1px solid #E2E8F0",
             color: ic.fg,
-            marginLeft: depth ? 8 : 0,
-            marginTop: depth ? 0 : 0,
+            marginLeft: showDepth ? 8 : 0,
           }}
         >
           {ic.symbol}
         </span>
-        {depth ? (
+        {showDepth ? (
           <span
             className="absolute top-0 right-0 z-[3] text-[10px] font-bold font-mono rounded-full px-1.5 py-0.5"
             style={{ background: PAL.awsFrame, color: "#fff", border: "1px solid #fff" }}
           >
-            ×{stack.nodes.length}
+            ×{countBadge}
           </span>
         ) : null}
       </span>
       <span className="text-[10px] font-semibold text-center leading-tight truncate w-full" style={{ color: PAL.ink }}>
-        {depth ? stack.label : stack.representative.name}
+        {label}
       </span>
       <span className="text-[9px] font-mono text-center truncate w-full" style={{ color: PAL.slate }}>
-        {depth ? `${stack.nodes.length} in cell` : stack.label}
+        {sublabel}
       </span>
     </button>
+  )
+}
+
+function ServiceStackChip({
+  stack,
+  selectedNodeId,
+  onSelect,
+}: {
+  stack: ServiceStack
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+}) {
+  const depth = shouldShowStackDepth(stack)
+  const selected = stack.nodes.some(n => n.id === selectedNodeId)
+  const title = depth
+    ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
+    : `${stack.representative.name} · ${stack.label}`
+  return (
+    <ServiceIconShell
+      type={stack.type}
+      selected={selected}
+      depth={depth}
+      countBadge={stack.nodes.length}
+      label={depth ? stack.label : stack.representative.name}
+      sublabel={depth ? `${stack.nodes.length} in cell` : stack.label}
+      title={title}
+      onClick={() => onSelect(stack.representative.id)}
+      testId="topology-service-stack"
+      flowId={stack.representative.id}
+      extraAttrs={{
+        "data-stack-type": stack.type,
+        "data-stack-count": stack.nodes.length,
+        "data-flow-ids": stack.nodes.map(n => n.id).join("|"),
+      }}
+    />
+  )
+}
+
+/** Inventory — one small icon per real node; click opens DetailPanel. */
+function ServiceNodeIcon({
+  node,
+  selected,
+  onSelect,
+}: {
+  node: TopologyNode
+  selected: boolean
+  onSelect: (id: string) => void
+}) {
+  const typeLabel = node.type ?? "?"
+  return (
+    <ServiceIconShell
+      type={node.type}
+      selected={selected}
+      label={node.name}
+      sublabel={typeLabel}
+      title={`${node.name} · ${typeLabel} — click for details`}
+      onClick={() => onSelect(node.id)}
+      testId="topology-service-node-icon"
+      flowId={node.id}
+      extraAttrs={{ "data-node-id": node.id }}
+    />
   )
 }
 
@@ -985,6 +1054,38 @@ function GlanceCellWorkloads({
   )
 }
 
+function InventoryCellWorkloads({
+  workloadsHere,
+  selectedNodeId,
+  onSelect,
+  compact,
+}: {
+  workloadsHere: TopologyNode[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact?: boolean
+}) {
+  return (
+    <div
+      className={
+        compact
+          ? "flex flex-wrap gap-2 justify-center content-start flex-1 min-h-0 pt-0.5 pb-1"
+          : "flex flex-wrap gap-2.5 justify-center content-start flex-1 min-h-0 pt-1 pb-1.5"
+      }
+      data-testid="topology-cell-inventory"
+    >
+      {workloadsHere.map(n => (
+        <ServiceNodeIcon
+          key={n.id}
+          node={n}
+          selected={n.id === selectedNodeId}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  )
+}
+
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
@@ -1006,38 +1107,40 @@ function SubnetCell({
   const labelFg = SUBNET_LABEL_FG[tier]
   const glance = viewDensity === "glance"
   const hasWorkloads = workloadsHere.length > 0
-  // Glance cells must fit ServiceStackChip (icon + labels ≈ 72px) under the
+  // Icon cells (Glance + Inventory) need room for ServiceIconShell under the
   // subnet header — shorter floors clipped EC2 bottoms (Alon, 2026-07-09).
-  const cellMinHeight = glance
-    ? hasWorkloads
-      ? compact
-        ? "118px"
-        : "132px"
-      : compact
-        ? "72px"
-        : "88px"
-    : empty
-      ? (compact ? "44px" : "56px")
-      : !hasWorkloads
-        ? (compact ? "48px" : "60px")
-        : // Inventory cards need room for icon + name + type line
-          compact
-          ? "96px"
-          : "112px"
+  const cellMinHeight = hasWorkloads
+    ? compact
+      ? "118px"
+      : "132px"
+    : compact
+      ? "72px"
+      : "88px"
+  const renderWorkloads = () =>
+    glance ? (
+      <GlanceCellWorkloads
+        workloadsHere={workloadsHere}
+        selectedNodeId={selectedNodeId}
+        onSelect={onSelect}
+        roleForWorkload={roleForWorkload}
+        compact={compact}
+      />
+    ) : (
+      <InventoryCellWorkloads
+        workloadsHere={workloadsHere}
+        selectedNodeId={selectedNodeId}
+        onSelect={onSelect}
+        compact={compact}
+      />
+    )
   return (
     <div
-      className={
-        glance
-          ? "rounded-md p-2 h-full min-h-0 flex flex-col overflow-visible"
-          : compact
-            ? "rounded-md p-1.5 h-full min-h-0 flex flex-col"
-            : "rounded-md p-2"
-      }
+      className="rounded-md p-2 h-full min-h-0 flex flex-col overflow-visible"
       style={{
         background: empty ? "transparent" : SUBNET_BG[tier],
         border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
         minHeight: cellMinHeight,
-        height: glance ? "100%" : undefined,
+        height: "100%",
         opacity: empty ? 0.55 : 1,
       }}
       data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
@@ -1056,30 +1159,11 @@ function SubnetCell({
 
       {empty ? (
         workloadsHere.length > 0 ? (
-          <div className="space-y-2">
+          <div className="space-y-2 flex-1 min-h-0 flex flex-col">
             <div className="text-[10px] italic" style={{ color: PAL.slate }}>
               subnet not resolved · placed by type
             </div>
-            {glance ? (
-              <GlanceCellWorkloads
-                workloadsHere={workloadsHere}
-                selectedNodeId={selectedNodeId}
-                onSelect={onSelect}
-                roleForWorkload={roleForWorkload}
-                compact={compact}
-              />
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {workloadsHere.map(n => (
-                  <WorkloadChip
-                    key={n.id}
-                    node={n}
-                    selected={n.id === selectedNodeId}
-                    onClick={() => onSelect(n.id)}
-                  />
-                ))}
-              </div>
-            )}
+            {renderWorkloads()}
           </div>
         ) : (
         <div className="text-[11px] italic" style={{ color: PAL.slate }}>
@@ -1103,124 +1187,8 @@ function SubnetCell({
             <div className="text-[11px] italic" style={{ color: PAL.slate }}>
               no workloads here
             </div>
-          ) : glance ? (
-            <GlanceCellWorkloads
-              workloadsHere={workloadsHere}
-              selectedNodeId={selectedNodeId}
-              onSelect={onSelect}
-              roleForWorkload={roleForWorkload}
-              compact={compact}
-            />
-          ) : densityCollapsed && workloadsHere.length > DENSITY_STACK_THRESHOLD ? (
-            // P0-B — at Fit zoom a cell of N same-type workloads is confetti;
-            // collapse to icon+count stack tiles. Click a tile → jump to the
-            // riskiest workload of that type (full cards return on zoom-in).
-            <div className="flex flex-wrap gap-1.5" data-testid="topology-cell-density">
-              {groupNodesByType(workloadsHere).map(g => (
-                <StackTile
-                  key={g.key}
-                  group={g}
-                  onExpand={() => {
-                    const worst = selectWorstInGroup(g.nodes)
-                    if (worst) onSelect(worst.id)
-                  }}
-                />
-              ))}
-            </div>
           ) : (
-            // Group workloads by their security_group_ids. Workloads in
-            // the same SG render inside a single orange-dashed container
-            // labeled with the SG name. Workloads with no SG attached
-            // get their own "no SG attached" group (honest empty).
-            (() => {
-              const groups = new Map<string, TopologyNode[]>()
-              for (const n of workloadsHere) {
-                const sgs = n.security_group_ids ?? []
-                if (sgs.length === 0) {
-                  const list = groups.get("__no_sg__") ?? []
-                  list.push(n)
-                  groups.set("__no_sg__", list)
-                  continue
-                }
-                for (const sgId of sgs) {
-                  const list = groups.get(sgId) ?? []
-                  list.push(n)
-                  groups.set(sgId, list)
-                }
-              }
-              const entries = [...groups.entries()]
-              return (
-                <div className={compact ? "space-y-1" : "space-y-2"}>
-                  {entries.map(([sgId, group]) => {
-                    if (sgId === "__no_sg__") {
-                      return (
-                        <div
-                          key={sgId}
-                          className={compact ? "rounded p-1.5" : "rounded p-2"}
-                          style={{
-                            background: "transparent",
-                            border: `1px dashed ${PAL.slate}80`,
-                          }}
-                        >
-                          <div className={compact ? "text-[9px] uppercase tracking-[0.10em] italic mb-1" : "text-[9px] uppercase tracking-[0.10em] italic mb-1.5"} style={{ color: PAL.slate }}>
-                            no SG attached
-                          </div>
-                          <div className={compact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
-                            {group.map(n => {
-                              const role = roleForWorkload?.(n.id)
-                              return (
-                              <WorkloadChip
-                                key={n.id}
-                                node={n}
-                                selected={n.id === selectedNodeId}
-                                onClick={() => onSelect(n.id)}
-                                iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
-                              />
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    }
-                    const sg = sgIndex.get(sgId)
-                    const sgName = sg?.name ?? sgId
-                    const isPublic = sg?.has_public_ingress
-                    return (
-                      <div
-                        key={sgId}
-                        className={compact ? "rounded p-1.5" : "rounded p-2"}
-                        style={{
-                          background: "transparent",
-                          border: `1.5px dashed ${isPublic ? PAL.carmine : "#FF9900"}`,
-                        }}
-                      >
-                        <div
-                          className={compact ? "text-[10px] uppercase tracking-[0.10em] font-bold mb-1" : "text-[10px] uppercase tracking-[0.10em] font-bold mb-1.5"}
-                          style={{ color: isPublic ? PAL.carmine : "#C77400" }}
-                          title={sg?.description ?? sgName}
-                        >
-                          🛡 {sgName}{isPublic ? " · public ingress" : ""}
-                        </div>
-                        <div className={compact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
-                          {group.map(n => {
-                            const role = roleForWorkload?.(n.id)
-                            return (
-                            <WorkloadChip
-                              key={n.id}
-                              node={n}
-                              selected={n.id === selectedNodeId}
-                              onClick={() => onSelect(n.id)}
-                              iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
-                            />
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()
+            renderWorkloads()
           )}
         </>
       )}
@@ -1602,28 +1570,11 @@ function StackTile({
   )
 }
 
-/** Collapse header shown above an expanded group so it can be re-collapsed. */
-function ExpandedGroupHeader({ group, onCollapse }: { group: NodeTypeGroup; onCollapse: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onCollapse}
-      className="inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-[#F4F6F8] transition-colors self-start"
-      style={{ borderColor: "#CBD5E1", color: "#5A6B7A" }}
-      title="Collapse"
-    >
-      {shortTypeLabel(group.key)} × {group.nodes.length} ▴
-    </button>
-  )
-}
-
 function ServerlessComputeTier({
   nodes,
   selectedNodeId,
   onSelect,
-  roleForWorkload,
   compact = false,
-  densityCollapsed = false,
   viewDensity = "glance",
 }: {
   nodes: TopologyNode[]
@@ -1634,12 +1585,9 @@ function ServerlessComputeTier({
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
-  const useStacks =
-    (glance && shouldGlanceStackRail(nodes)) ||
-    (!glance && densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD)
+  const useStacks = glance && shouldGlanceStackRail(nodes)
   const groups = useStacks ? groupNodesByType(nodes) : null
   return (
     <div
@@ -1657,61 +1605,30 @@ function ServerlessComputeTier({
       <div
         className={
           compact
-            ? "flex flex-wrap gap-1 max-w-full max-h-[140px] overflow-y-auto [&_button]:max-w-full"
-            : "flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full"
+            ? "flex flex-wrap gap-1 max-w-full max-h-[160px] overflow-y-auto justify-center"
+            : "flex flex-wrap gap-1.5 max-w-full justify-center"
         }
       >
-        {groups ? (
-          groups.map(g =>
-            expanded.has(g.key) ? (
-              <div key={g.key} className="flex flex-wrap items-center gap-1.5 w-full">
-                <ExpandedGroupHeader
-                  group={g}
-                  onCollapse={() => setExpanded(s => { const n = new Set(s); n.delete(g.key); return n })}
-                />
-                {g.nodes.map(n => {
-                  const role = roleForWorkload?.(n.id)
-                  return (
-                    <WorkloadChip
-                      key={n.id}
-                      node={n}
-                      selected={n.id === selectedNodeId}
-                      onClick={() => onSelect(n.id)}
-                      iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
-                    />
-                  )
-                })}
-              </div>
-            ) : (
+        {groups
+          ? groups.map(g => (
               <StackTile
                 key={g.key}
                 group={g}
-                glanceLabel={glance}
+                glanceLabel
                 onExpand={() => {
-                  if (glance) {
-                    const worst = selectWorstInGroup(g.nodes)
-                    if (worst) onSelect(worst.id)
-                    return
-                  }
-                  setExpanded(s => new Set(s).add(g.key))
+                  const worst = selectWorstInGroup(g.nodes)
+                  if (worst) onSelect(worst.id)
                 }}
               />
-            ),
-          )
-        ) : (
-          nodes.map(n => {
-            const role = roleForWorkload?.(n.id)
-            return (
-              <WorkloadChip
+            ))
+          : nodes.map(n => (
+              <ServiceNodeIcon
                 key={n.id}
                 node={n}
                 selected={n.id === selectedNodeId}
-                onClick={() => onSelect(n.id)}
-                iamSummary={role ? `${role.name.slice(0, 22)} · ${formatIamChipSummary(role)}` : null}
+                onSelect={onSelect}
               />
-            )
-          })
-        )}
+            ))}
       </div>
     </div>
   )
@@ -1722,7 +1639,6 @@ function RegionalDataServicesTier({
   selectedNodeId,
   onSelect,
   compact = false,
-  densityCollapsed = false,
   viewDensity = "glance",
 }: {
   nodes: TopologyNode[]
@@ -1732,12 +1648,9 @@ function RegionalDataServicesTier({
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
-  const useStacks =
-    (glance && shouldGlanceStackRail(nodes)) ||
-    (!glance && densityCollapsed && nodes.length > DENSITY_STACK_THRESHOLD)
+  const useStacks = glance && shouldGlanceStackRail(nodes)
   const groups = useStacks ? groupNodesByType(nodes) : null
   return (
     <div
@@ -1752,50 +1665,27 @@ function RegionalDataServicesTier({
       <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
-      <div className="flex flex-wrap gap-1.5 max-w-full [&_button]:max-w-full">
-        {groups ? (
-          groups.map(g =>
-            expanded.has(g.key) ? (
-              <div key={g.key} className="flex flex-wrap items-center gap-1.5 w-full">
-                <ExpandedGroupHeader
-                  group={g}
-                  onCollapse={() => setExpanded(s => { const n = new Set(s); n.delete(g.key); return n })}
-                />
-                {g.nodes.map(n => (
-                  <WorkloadChip
-                    key={n.id}
-                    node={n}
-                    selected={n.id === selectedNodeId}
-                    onClick={() => onSelect(n.id)}
-                  />
-                ))}
-              </div>
-            ) : (
+      <div className="flex flex-wrap gap-1.5 max-w-full justify-center">
+        {groups
+          ? groups.map(g => (
               <StackTile
                 key={g.key}
                 group={g}
-                glanceLabel={glance}
+                glanceLabel
                 onExpand={() => {
-                  if (glance) {
-                    const worst = selectWorstInGroup(g.nodes)
-                    if (worst) onSelect(worst.id)
-                    return
-                  }
-                  setExpanded(s => new Set(s).add(g.key))
+                  const worst = selectWorstInGroup(g.nodes)
+                  if (worst) onSelect(worst.id)
                 }}
               />
-            ),
-          )
-        ) : (
-          nodes.map(n => (
-            <WorkloadChip
-              key={n.id}
-              node={n}
-              selected={n.id === selectedNodeId}
-              onClick={() => onSelect(n.id)}
-            />
-          ))
-        )}
+            ))
+          : nodes.map(n => (
+              <ServiceNodeIcon
+                key={n.id}
+                node={n}
+                selected={n.id === selectedNodeId}
+                onSelect={onSelect}
+              />
+            ))}
       </div>
     </div>
   )
