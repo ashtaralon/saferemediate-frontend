@@ -1521,11 +1521,15 @@ function TrafficFlowBand({
                 ? {
                     bg: "#FEE2E2",
                     fg: "#991B1B",
-                    txt: e.external_sources
-                      ? `${e.external_sources} external sources on :${e.port ?? "?"}`
-                      : e.port
-                        ? `exposed · RDS :${e.port}`
-                        : "exposed · RDS",
+                    // Count only when we have a real engine port — never ":?".
+                    // QUERIES_DB edges may be is_exposed via publicly_accessible
+                    // with port=null; those get "exposed · RDS" (Alon, 2026-07-10).
+                    txt:
+                      e.external_sources && e.port != null
+                        ? `${e.external_sources} external sources on :${e.port}`
+                        : e.port
+                          ? `exposed · RDS :${e.port}`
+                          : "exposed · RDS",
                   }
                 : { bg: "#D2E5F8", fg: "#1565C0", txt: e.port ? `RDS · ${e.port}` : "RDS" }
               : { bg: "#E0F2FE", fg: "#075985", txt: e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP") }
@@ -2269,11 +2273,14 @@ function FlowOverlay({
           badgeLabel = "VPCE"
         } else if (cls === "database") {
           if (e.is_exposed) {
-            badgeLabel = e.external_sources
-              ? `${e.external_sources} external sources on :${e.port ?? "?"}`
-              : e.port
-                ? `exposed · RDS :${e.port}`
-                : "exposed · RDS"
+            // Count badge only with a real port. QUERIES_DB / config-only
+            // exposure uses "exposed · RDS" — never invent ":?".
+            badgeLabel =
+              e.external_sources && e.port != null
+                ? `${e.external_sources} external sources on :${e.port}`
+                : e.port
+                  ? `exposed · RDS :${e.port}`
+                  : "exposed · RDS"
           } else {
             badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
           }
