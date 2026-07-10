@@ -122,7 +122,10 @@ export interface EstateMapViewProps {
   defaultToAllVpcs?: boolean
 }
 
-const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"])
+const EDGE_SERVICE_TYPES = new Set([
+  "S3", "DynamoDB", "RDS", "KMSKey", "Secret", "SecretsManagerSecret",
+  "SQS", "StepFunction", "APIGateway",
+])
 
 /** Mirrors aws-frame populatedAzs — true when subnets exist but no workload lands in the grid. */
 function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {

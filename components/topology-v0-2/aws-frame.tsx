@@ -131,6 +131,10 @@ const REGIONAL_EDGE_SERVICE_TYPES = new Set([
   "KMSKey",
   "DynamoDB", "DynamoDBTable",
   "Secret", "SecretsManagerSecret",
+  "SQS", "SQSQueue",
+  "StepFunction", "StateMachine",
+  "EventBridge", "EventBridgeRule",
+  "APIGateway", "ApiGateway",
 ])
 /** @deprecated use REGIONAL_EDGE_SERVICE_TYPES — kept for WorkloadChip usage badges */
 const EDGE_SERVICE_TYPES = REGIONAL_EDGE_SERVICE_TYPES
@@ -196,6 +200,12 @@ const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
   EC2: "app",
   RDS: "data",
   RDSInstance: "data",
+  AutoScalingGroup: "web",
+  ASG: "web",
+  TargetGroup: "web",
+  ECS: "app",
+  ECSCluster: "app",
+  ECSService: "app",
 }
 
 /** LoadBalancer types are never placed into the per-AZ tier grid — an ALB
@@ -622,6 +632,27 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "Secret":
     case "SecretsManagerSecret":
       return { symbol: "SEC", bg: "#DD344C", fg: "white" }
+    case "AutoScalingGroup":
+    case "ASG":
+      return { symbol: "ASG", bg: "#FF9900", fg: "white" }
+    case "TargetGroup":
+      return { symbol: "TG", bg: "#8C4FFF", fg: "white" }
+    case "EventBridge":
+    case "EventBridgeRule":
+      return { symbol: "EB", bg: "#E7157B", fg: "white" }
+    case "SQS":
+    case "SQSQueue":
+      return { symbol: "SQS", bg: "#FF4F8B", fg: "white" }
+    case "StepFunction":
+    case "StateMachine":
+      return { symbol: "SFN", bg: "#E7157B", fg: "white" }
+    case "ECS":
+    case "ECSCluster":
+    case "ECSService":
+      return { symbol: "ECS", bg: "#FF9900", fg: "white" }
+    case "APIGateway":
+    case "ApiGateway":
+      return { symbol: "APIGW", bg: "#FF4F8B", fg: "white" }
     case "LoadBalancer":
     case "ALB":
     case "ApplicationLoadBalancer":
@@ -2287,6 +2318,22 @@ function FlowOverlay({
           } else {
             badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
           }
+        } else if (
+          e.protocol === "LAUNCHES" ||
+          e.protocol === "TARGETS" ||
+          e.protocol === "HAS_TARGET_GROUP" ||
+          e.protocol === "TRIGGERS" ||
+          e.protocol === "ENCRYPTED_BY" ||
+          e.protocol === "ACCESSES_RESOURCE"
+        ) {
+          badgeLabel =
+            e.protocol === "HAS_TARGET_GROUP"
+              ? "TG"
+              : e.protocol === "ACCESSES_RESOURCE"
+                ? "secret"
+                : e.protocol === "ENCRYPTED_BY"
+                  ? "KMS"
+                  : e.protocol
         } else {
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }

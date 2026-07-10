@@ -31,6 +31,7 @@ const STACK_ALWAYS_TYPES = new Set([
   "EC2",
   "ECS",
   "ECSService",
+  "ECSCluster",
   "EKS",
   "EKSCluster",
   "S3",
@@ -40,6 +41,12 @@ const STACK_ALWAYS_TYPES = new Set([
   "KMSKey",
   "Secret",
   "SecretsManagerSecret",
+  "EventBridge",
+  "EventBridgeRule",
+  "SQS",
+  "SQSQueue",
+  "StepFunction",
+  "TargetGroup",
 ])
 
 /** Max distinct *named* gateway/jewel chips before everything else stacks by type. */
@@ -63,10 +70,13 @@ const ANCHOR_TYPES = new Set([
   "RDSInstance",
   "ECS",
   "ECSService",
+  "ECSCluster",
   "EKS",
   "EKSCluster",
   "AutoScalingGroup",
   "ASG",
+  "TargetGroup",
+  "APIGateway",
 ])
 
 /** Classify a real node for Glance visual hierarchy. Unknown types → volume. */

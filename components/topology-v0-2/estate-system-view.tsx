@@ -44,12 +44,17 @@ import type {
   TopologyRiskResponse,
 } from "@/components/topology-v0-2/types"
 
-const WORKLOAD_TYPES = new Set(["Lambda", "EC2", "ECS", "ECSTask", "Fargate"])
+const WORKLOAD_TYPES = new Set([
+  "Lambda", "EC2", "ECS", "ECSTask", "ECSCluster", "Fargate", "AutoScalingGroup",
+])
 // Backend's _label_to_type() normalizes ALB/NLB -> "LoadBalancer" before this
 // ever reaches the FE (api/topology_risk.py). Matching the literal "ALB"/"NLB"
 // strings here was dead code — they never appear in node.type. See BE-?? (ALB
 // type-mismatch, found auditing the Risk Inventory lane 2026-06-30).
-const MANAGED_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret", "SecretsManagerSecret", "LoadBalancer"])
+const MANAGED_TYPES = new Set([
+  "S3", "DynamoDB", "RDS", "KMSKey", "Secret", "SecretsManagerSecret",
+  "LoadBalancer", "SQS", "StepFunction", "APIGateway", "EventBridge",
+])
 
 const TIER: Record<ScoreTier, { fg: string; bg: string; label: string }> = {
   WORST: { fg: "#B91C1C", bg: "#FBE9E9", label: "Worst" },
