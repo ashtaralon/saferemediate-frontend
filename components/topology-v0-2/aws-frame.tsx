@@ -2257,7 +2257,7 @@ function FlowOverlay({
             ? `egress · ${e.external_destinations} dest`
             : "egress"
         } else if (cls === "edge_service") {
-          if (routedViaVpce) {
+          if (routedViaVpce || e.egress_path === "vpce") {
             // Short-form service tag from the VPCE service_name suffix.
             const svc = e.via_vpce_service_name ?? ""
             const tag = svc.endsWith(".s3")
@@ -2266,6 +2266,9 @@ function FlowOverlay({
                 ? "DDB"
                 : "VPCE"
             badgeLabel = `${tag} access · via VPCE`
+          } else if (e.egress_path === "public") {
+            // Prefer VPCE — public/NAT path is an exfil-shaped finding.
+            badgeLabel = `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
           } else {
             badgeLabel = e.protocol ?? "edge"
           }
