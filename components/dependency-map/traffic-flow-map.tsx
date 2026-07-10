@@ -4576,6 +4576,19 @@ export function UnifiedArchitectureDiagram({
         return ' hidden';
       }
       if (!pathFilterActive) return '';
+      // Path focus = one target CJ. Off-target jewels stay hidden until blast ON
+      // (even when infra fan-out put them in the on-path set).
+      if (
+        isPathFocusOffTargetCrownJewelHidden({
+          pathFilterActive,
+          showAllConnections,
+          isCrownJewel,
+          nodeId,
+          targetJewelId: pathBlastRadius?.targetJewelId,
+        })
+      ) {
+        return ' hidden';
+      }
       if (isOnSelectedPath(nodeId)) {
         return ' rounded-xl ring-2 ring-[color:var(--canvas-danger)]/50 shadow-md';
       }
@@ -4585,7 +4598,13 @@ export function UnifiedArchitectureDiagram({
       }
       return ' hidden';
     },
-    [pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds, showAllConnections],
+    [
+      pathFilterActive,
+      isOnSelectedPath,
+      spotlightActiveNodeIds,
+      showAllConnections,
+      pathBlastRadius?.targetJewelId,
+    ],
   );
 
   // 2026-06-24: when a spotlight/path is active, column headers should
@@ -4694,14 +4713,26 @@ export function UnifiedArchitectureDiagram({
     pathFilterActive && !identityDetailOpen && !!firstOnPathRoleId;
 
   const resourceLaneGroups = useMemo(() => {
+    const targetId = pathBlastRadius?.targetJewelId ?? null;
     const blastExpanded =
-      pathFilterActive &&
-      showAllConnections &&
-      !!pathBlastRadius?.targetJewelId;
+      pathFilterActive && showAllConnections && !!targetId;
+
+    // Path focus (default): only the selected target CJ + any non-CJ on-path
+    // resources. Other jewels wait behind the blast-radius toggle.
+    if (pathFilterActive && !blastExpanded && targetId) {
+      return [
+        {
+          label: null as string | null,
+          nodes: architecture.resources.filter(
+            (r) => !r.isCrownJewel || r.id === targetId,
+          ),
+        },
+      ];
+    }
+
     if (!blastExpanded) {
       return [{ label: null as string | null, nodes: architecture.resources }];
     }
-    const targetId = pathBlastRadius!.targetJewelId!;
     const target = architecture.resources.filter(
       (r) => r.isCrownJewel && r.id === targetId,
     );
@@ -6508,6 +6539,23 @@ export interface TrafficFlowMapPathFilter {
   crownJewelIds?: string[];
   jewelName?: string;
   pathLabel?: string;
+}
+
+/**
+ * Path-focus Resources lane: only the selected target crown jewel is visible
+ * until blast radius is toggled on. Off-target CJs (KMS peers, lateral jewels)
+ * stay hidden even if they landed in the on-path set via infra fan-out.
+ */
+export function isPathFocusOffTargetCrownJewelHidden(opts: {
+  pathFilterActive: boolean
+  showAllConnections: boolean
+  isCrownJewel: boolean
+  nodeId: string
+  targetJewelId: string | null | undefined
+}): boolean {
+  if (!opts.pathFilterActive || !opts.isCrownJewel || opts.showAllConnections) return false
+  if (!opts.targetJewelId) return false
+  return opts.nodeId !== opts.targetJewelId
 }
 
 function bucketForType(rawType: string): 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'principal' | 'network' | 'unknown' {
