@@ -483,6 +483,31 @@ export function AttackPathsV2({
     // re-pick when it shouldn't).
   }, [viewMode, exfilData, selectedExfilPathId])
 
+  // Auto-select the first crown jewel when Risk → Attack Paths opens
+  // with no ?jewel= (or a stale id). Without this the center column
+  // stays on "Select a crown jewel" while the right rail shows the
+  // aggregate AllCrownJewelsView — operators expect the first CJ in
+  // the left rail to already be selected, same as clicking it
+  // (Alon, 2026-07-11).
+  useEffect(() => {
+    if (jewels.length === 0) return
+    if (selectedJewelId) {
+      const stillThere = jewels.some(
+        (j) =>
+          j.id === selectedJewelId ||
+          (j.canonical_id != null && j.canonical_id === selectedJewelId),
+      )
+      if (stillThere) return
+    }
+    const first = jewels[0]
+    if (first?.id) {
+      setUrl({ jewel: first.id, path: null, exfilPath: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setUrl
+    // identity changes every URL write; only re-run on jewel list /
+    // selection changes.
+  }, [jewels, selectedJewelId])
+
   // The selected path object, if any. We tolerate selectedPathId
   // pointing at a path that doesn't exist (e.g. operator deep-linked
   // an old path id that's since been removed) — UI shows "path not
