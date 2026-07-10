@@ -47,6 +47,13 @@ import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
 import {
+  ALB_HEADER_TYPES,
+  RDS_TYPES,
+  REGIONAL_EDGE_SERVICE_TYPES,
+  SERVERLESS_TYPES,
+  SYNTHETIC_TIER_TYPES,
+} from "./estate-placement"
+import {
   chipRole,
   chipSizeForRole,
   planGlanceCell,
@@ -126,20 +133,8 @@ interface Props {
   systemLabel?: string
 }
 
-const REGIONAL_EDGE_SERVICE_TYPES = new Set([
-  "S3", "S3Bucket",
-  "KMSKey",
-  "DynamoDB", "DynamoDBTable",
-  "Secret", "SecretsManagerSecret",
-  "SQS", "SQSQueue",
-  "StepFunction", "StateMachine",
-  "EventBridge", "EventBridgeRule",
-  "APIGateway", "ApiGateway",
-])
-/** @deprecated use REGIONAL_EDGE_SERVICE_TYPES — kept for WorkloadChip usage badges */
+/** @deprecated use REGIONAL_EDGE_SERVICE_TYPES from estate-placement */
 const EDGE_SERVICE_TYPES = REGIONAL_EDGE_SERVICE_TYPES
-const RDS_TYPES = new Set(["RDS", "RDSInstance"])
-const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
 const LAMBDA_ARN_PREFIX = "arn:aws:lambda:"
 
 /** One chip per function — twins share display name even when ids/ARNs differ. */
@@ -195,25 +190,6 @@ export function dedupeLambdaServiceTwins(source: TopologyNode[]): TopologyNode[]
 const TIER_SIDEBAR_WIDTH = { compact: "28px", normal: "32px" } as const
 /** Minimum AZ column width — keep readable but leave room for VPCE + flow corridor + edge rail. */
 const AZ_COLUMN_MIN_PX = 118
-
-const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
-  EC2: "app",
-  RDS: "data",
-  RDSInstance: "data",
-  AutoScalingGroup: "web",
-  ASG: "web",
-  TargetGroup: "web",
-  ECS: "app",
-  ECSCluster: "app",
-  ECSService: "app",
-}
-
-/** LoadBalancer types are never placed into the per-AZ tier grid — an ALB
- * fans out across every AZ, it doesn't live inside one. Rendered instead
- * in the spanning header band above the AZ grid (see ALB_HEADER_TYPES
- * usage in the AwsFrame render + the removal from SYNTHETIC_TIER_TYPES
- * above). */
-const ALB_HEADER_TYPES = new Set(["LoadBalancer", "ALB", "ApplicationLoadBalancer"])
 
 /** Dedicated ALB glyph — AWS Architecture Icon–style fan-out. */
 function AlbGlyph({ size = 18 }: { size?: number }) {
