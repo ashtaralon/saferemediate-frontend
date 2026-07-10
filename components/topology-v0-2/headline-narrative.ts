@@ -66,16 +66,25 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
         : "inbound exposure unverified"
   const egressDest = inet.distinct_destinations ?? inet.egress_destinations
   const hasEgress = typeof egressDest === "number" && egressDest > 0
-  const egressClause = hasEgress
-    ? `Observed egress to ${egressDest.toLocaleString()} external destinations (365d).`
-    : ""
+  const unusedEgress = inet.unused_internet_egress === true
+  const recommendVpce = Array.isArray(inet.recommend_vpce) ? inet.recommend_vpce : []
+  const egressClause = unusedEgress
+    ? "Has internet egress capability but no observed external traffic in the window — recommend remove/tighten to shrink exfil surface."
+    : hasEgress
+      ? `Observed egress to ${Number(egressDest).toLocaleString()} external destinations (365d).`
+      : ""
+  const vpceClause =
+    recommendVpce.length > 0
+      ? ` AWS via public path (${recommendVpce.slice(0, 4).join(", ")}${recommendVpce.length > 4 ? "…" : ""}) — prefer VPCE.`
+      : ""
+  const pathSuffix = `${egressClause}${vpceClause}`.trim()
 
   // LATENT_EXPOSURE = inbound path open but unused. Do not glue that to
   // egress counts with "while …" — they are orthogonal signals and the
   // combined sentence reads like a contradiction on the estate map.
   if (exposure === "LATENT_EXPOSURE") {
-    const title = hasEgress
-      ? `${node.name} is LATENT_EXPOSURE — inbound path open, unused (${inboundSummary}). ${egressClause}`
+    const title = pathSuffix
+      ? `${node.name} is LATENT_EXPOSURE — inbound path open, unused (${inboundSummary}). ${pathSuffix}`
       : `${node.name} is LATENT_EXPOSURE — inbound path open, unused (${inboundSummary})`
     return {
       title,
@@ -87,10 +96,16 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
   }
 
   const egressPart = hasEgress
-    ? ` while egressing to ${egressDest.toLocaleString()} external destinations (365d)`
-    : ""
+    ? ` while egressing to ${Number(egressDest).toLocaleString()} external destinations (365d)`
+    : unusedEgress
+      ? " with unused internet egress capability"
+      : ""
+  const vpcePart =
+    recommendVpce.length > 0
+      ? ` — AWS via public path (${recommendVpce.slice(0, 4).join(", ")}${recommendVpce.length > 4 ? "…" : ""}); prefer VPCE`
+      : ""
   return {
-    title: `${node.name} is ${exposure}${egressPart} — ${inboundSummary}`,
+    title: `${node.name} is ${exposure}${egressPart}${vpcePart} — ${inboundSummary}`,
     reason: `${exposure} · ${inboundSummary}`,
     meta: node.score
       ? `score ${node.score.value} · ${node.score.tier}`
