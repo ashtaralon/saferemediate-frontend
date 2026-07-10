@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest"
-import { isPathFocusOffTargetCrownJewelHidden } from "@/components/dependency-map/traffic-flow-map"
+import {
+  isPathFocusOffTargetCrownJewelHidden,
+  resolvePathFocusTargetJewelId,
+} from "@/components/dependency-map/traffic-flow-map"
 
 describe("isPathFocusOffTargetCrownJewelHidden", () => {
   const target = "arn:aws:s3:::saferemediate-logs"
@@ -63,5 +66,34 @@ describe("isPathFocusOffTargetCrownJewelHidden", () => {
         targetJewelId: target,
       }),
     ).toBe(false)
+  })
+})
+
+describe("resolvePathFocusTargetJewelId", () => {
+  const S3 = "arn:aws:s3:::saferemediate-logs-745783559495"
+  const KMS = "arn:aws:kms:eu-west-1:1:key/c3e064e4-af2d-447c"
+
+  it("prefers crownJewelIds[0] over a later KMS crown_jewel hop", () => {
+    expect(
+      resolvePathFocusTargetJewelId({
+        crownJewelIds: [S3],
+        pathNodes: [
+          { id: "role-1", tier: "identity" },
+          { id: S3, tier: "crown_jewel" },
+          { id: KMS, tier: "crown_jewel" },
+        ],
+      }),
+    ).toBe(S3)
+  })
+
+  it("falls back to last crown_jewel hop when crownJewelIds is empty", () => {
+    expect(
+      resolvePathFocusTargetJewelId({
+        pathNodes: [
+          { id: S3, tier: "crown_jewel" },
+          { id: KMS, tier: "identity" },
+        ],
+      }),
+    ).toBe(S3)
   })
 })

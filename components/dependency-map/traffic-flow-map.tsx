@@ -6542,6 +6542,25 @@ export interface TrafficFlowMapPathFilter {
 }
 
 /**
+ * Authoritative path-focus target: the selected jewel (`crownJewelIds[0]`),
+ * NOT the last `crown_jewel` hop on the spine. Backend paths often append
+ * encrypting KMS keys as crown_jewel hops after the S3 target — reverse-find
+ * would crown the KMS and hide the real jewel.
+ */
+export function resolvePathFocusTargetJewelId(pathFilter: {
+  crownJewelIds?: string[]
+  pathNodes?: Array<{ id: string; tier?: string }>
+}): string | null {
+  if (pathFilter.crownJewelIds?.[0]) return pathFilter.crownJewelIds[0]
+  const fromTier = [...(pathFilter.pathNodes ?? [])]
+    .reverse()
+    .find((n) => n.tier === "crown_jewel")
+  if (fromTier?.id) return fromTier.id
+  const nodes = pathFilter.pathNodes ?? []
+  return nodes[nodes.length - 1]?.id ?? null
+}
+
+/**
  * Path-focus Resources lane: only the selected target crown jewel is visible
  * until blast radius is toggled on. Off-target CJs (KMS peers, lateral jewels)
  * stay hidden even if they landed in the on-path set via infra fan-out.
@@ -7367,15 +7386,9 @@ export default function TrafficFlowMap({
       }) ??
       pathNodes.find((n) => n.tier !== "crown_jewel") ??
       pathNodes[0];
-    const targetNode =
-      [...pathNodes]
-        .reverse()
-        .find(
-          (n) =>
-            n.tier === "crown_jewel" ||
-            pathFilter.crownJewelIds?.includes(n.id),
-        ) ?? pathNodes[pathNodes.length - 1];
-    const targetId = targetNode?.id ?? pathFilter.crownJewelIds?.[0] ?? null;
+    // Prefer crownJewelIds[0] (selected jewel) over last crown_jewel hop —
+    // KMS encryptors often trail the S3 target on the spine.
+    const targetId = resolvePathFocusTargetJewelId(pathFilter);
     const otherCount = architecture.resources.filter(
       (r) => r.isCrownJewel && r.id !== targetId,
     ).length;
