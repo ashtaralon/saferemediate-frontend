@@ -371,6 +371,50 @@ export function extractRegionalDataServices(source: TopologyNode[]): TopologyNod
   return out
 }
 
+/** Sentinel chip when BE emits public-path S3 with no named bucket target. */
+export const AWS_S3_PUBLIC_SENTINEL_ID = "__aws_s3__"
+
+export function ensureAwsS3PublicSentinel(
+  regional: TopologyNode[],
+  edges: TrafficEdge[],
+): TopologyNode[] {
+  const needs = edges.some(e => e.target_id === AWS_S3_PUBLIC_SENTINEL_ID)
+  if (!needs) return regional
+  if (regional.some(n => n.id === AWS_S3_PUBLIC_SENTINEL_ID)) return regional
+  const sentinel: TopologyNode = {
+    id: AWS_S3_PUBLIC_SENTINEL_ID,
+    name: "S3 (public endpoints)",
+    type: "S3Bucket",
+    subnet_id: null,
+    score: null,
+    stale: null,
+    is_jewel: false,
+  }
+  return [...regional, sentinel]
+}
+
+export function formatEgressBreakdownBadge(
+  total: number | null | undefined,
+  breakdown: TrafficEdge["egress_breakdown"],
+): string {
+  if (!breakdown || breakdown.length === 0) {
+    return total ? `egress · ${total} dest` : "egress"
+  }
+  const parts = breakdown
+    .filter(b => b.count > 0)
+    .slice(0, 3)
+    .map(b => {
+      const label =
+        b.kind === "s3" ? "S3"
+        : b.kind === "ntp" ? "NTP"
+        : b.kind === "other_aws" ? "AWS"
+        : "ext"
+      return `${label} ${b.count}`
+    })
+  const head = total ? `egress · ${total}` : "egress"
+  return parts.length ? `${head} (${parts.join(" · ")})` : head
+}
+
 // Friendly metadata for the VPCE boundary chips. The AWS service-name
 // suffix (e.g. "com.amazonaws.eu-west-1.s3" → "s3") maps to a label,
 // the canonical endpoint type, and a one-line operator-facing purpose
@@ -1515,12 +1559,31 @@ function TrafficFlowBand({
             const src = nodeById.get(e.source_id)
             const dst = e.target_id === "__igw__"
               ? { name: "Internet (via IGW)" }
-              : nodeById.get(e.target_id) ?? { name: e.target_id }
+              : e.target_id === AWS_S3_PUBLIC_SENTINEL_ID
+                ? { name: "S3 (public endpoints)" }
+                : nodeById.get(e.target_id) ?? { name: e.target_id }
             const cls = e.edge_class ?? "internal"
             const classChip = cls === "egress"
-              ? { bg: "#FEF3C7", fg: "#7B3F00", txt: e.external_destinations ? `egress · ${e.external_destinations} dest` : "egress" }
+              ? {
+                  bg: "#FEF3C7",
+                  fg: "#7B3F00",
+                  txt: formatEgressBreakdownBadge(
+                    e.external_destinations,
+                    e.egress_breakdown,
+                  ),
+                }
               : cls === "edge_service"
-              ? { bg: "#EDE7F6", fg: "#4527A0", txt: e.protocol ?? "edge" }
+              ? {
+                  bg: "#EDE7F6",
+                  fg: "#4527A0",
+                  txt:
+                    e.via_igw || e.egress_path === "public"
+                      ? (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID ||
+                          (e.egress_breakdown ?? []).some(b => b.kind === "s3")
+                          ? "S3 · via IGW"
+                          : `${e.protocol ?? "AWS"} · via IGW`)
+                      : e.protocol ?? "edge",
+                }
               : cls === "vpce"
               ? { bg: "#DBEAFE", fg: "#1E40AF", txt: "VPCE" }
               : cls === "database"
@@ -2145,6 +2208,7 @@ function FlowOverlay({
         srcKey: number
         count: number
         highlight: "attack_path" | null
+        viaKind: "vpce" | "igw" | null
       }
       const elKeys = new Map<HTMLElement, number>()
       const keyOf = (el: HTMLElement) => {
@@ -2172,13 +2236,27 @@ function FlowOverlay({
         }
         // via_vpce routing — for S3/DDB Gateway VPCE paths the BE attaches
         // the VPCE id so the flow physically renders THROUGH that chip.
+        // Public-path AWS (egress_path=public / via_igw) routes THROUGH the
+        // IGW chip: workload → IGW → S3 (full A→B).
         // Falls back to a direct route if the chip isn't in the DOM.
         let inter: NatRect | null = null
+        let viaKind: "vpce" | "igw" | null = null
         if (e.via_vpce_id) {
           const interEl = container.querySelector<HTMLElement>(
             `[data-flow-id="${CSS.escape(e.via_vpce_id)}"]`,
           )
-          if (interEl) inter = toNat(visibleRect(interEl, interEl.getBoundingClientRect()))
+          if (interEl) {
+            inter = toNat(visibleRect(interEl, interEl.getBoundingClientRect()))
+            viaKind = "vpce"
+          }
+        } else if (e.via_igw || e.egress_path === "public") {
+          const igwEl =
+            container.querySelector<HTMLElement>(`[data-flow-id="__igw__"]`) ??
+            container.querySelector<HTMLElement>(`[data-flow-id^="igw-"]`)
+          if (igwEl) {
+            inter = toNat(visibleRect(igwEl, igwEl.getBoundingClientRect()))
+            viaKind = "igw"
+          }
         }
         const job: RouteJob = {
           e,
@@ -2189,6 +2267,7 @@ function FlowOverlay({
           srcKey: keyOf(src.el),
           count: 1,
           highlight: e.flow_highlight ?? null,
+          viaKind,
         }
         if (grouped) bundles.set(bk, job)
         jobs.push(job)
@@ -2239,12 +2318,14 @@ function FlowOverlay({
         let pts: Pt[]
         let badge: Pt
         let routedViaVpce = false
+        let routedViaIgw = false
         if (j.inter) {
           const leg1 = orthoLeg(j.src, j.inter, laneX, spread)
           const leg2 = orthoLeg(j.inter, j.dst, null, 0)
           pts = [...leg1, ...leg2]
           badge = { x: j.inter.cx, y: j.inter.cy + 18 }
-          routedViaVpce = true
+          routedViaVpce = j.viaKind === "vpce"
+          routedViaIgw = j.viaKind === "igw"
         } else {
           pts = orthoLeg(j.src, j.dst, laneX, spread)
           // Anchor the egress label to its source chip (in-tier) instead of the
@@ -2260,9 +2341,10 @@ function FlowOverlay({
         const cls = j.cls
         let badgeLabel = ""
         if (cls === "egress") {
-          badgeLabel = e.external_destinations
-            ? `egress · ${e.external_destinations} dest`
-            : "egress"
+          badgeLabel = formatEgressBreakdownBadge(
+            e.external_destinations,
+            e.egress_breakdown,
+          )
         } else if (cls === "edge_service") {
           if (routedViaVpce || e.egress_path === "vpce") {
             // Short-form service tag from the VPCE service_name suffix.
@@ -2271,11 +2353,19 @@ function FlowOverlay({
               ? "S3"
               : svc.endsWith(".dynamodb")
                 ? "DDB"
-                : "VPCE"
+                : e.target_id === AWS_S3_PUBLIC_SENTINEL_ID
+                  ? "S3"
+                  : "VPCE"
             badgeLabel = `${tag} access · via VPCE`
-          } else if (e.egress_path === "public") {
-            // Prefer VPCE — public/NAT path is an exfil-shaped finding.
-            badgeLabel = `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
+          } else if (routedViaIgw || e.egress_path === "public" || e.via_igw) {
+            const isS3 =
+              e.target_id === AWS_S3_PUBLIC_SENTINEL_ID ||
+              (e.egress_breakdown ?? []).some(b => b.kind === "s3") ||
+              (e.protocol ?? "").includes("S3")
+            const n = e.external_destinations
+            badgeLabel = isS3
+              ? (n ? `S3 · ${n} endpoints · via IGW (prefer VPCE)` : "S3 · via IGW (prefer VPCE)")
+              : `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
           } else {
             badgeLabel = e.protocol ?? "edge"
           }
@@ -3918,10 +4008,10 @@ export function AwsFrame({
     () => new Set((topo.edges.vpces ?? []).map(v => v.id)),
     [topo.edges.vpces],
   )
-  const regionalTierNodes = useMemo(
-    () => extractRegionalDataServices(regionalDataSourceNodes ?? nodes),
-    [regionalDataSourceNodes, nodes],
-  )
+  const regionalTierNodes = useMemo(() => {
+    const base = extractRegionalDataServices(regionalDataSourceNodes ?? nodes)
+    return ensureAwsS3PublicSentinel(base, overlayEdgeList)
+  }, [regionalDataSourceNodes, nodes, overlayEdgeList])
   const serverlessTierNodes = useMemo(
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
     [serverlessSourceNodes, nodes, topo.subnets],
@@ -3933,6 +4023,7 @@ export function AwsFrame({
     return overlayEdgeList.filter(e => {
       if (!visible.has(e.source_id)) return false
       if (e.target_id === "__igw__") return true
+      if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
       if (vpceIds.has(e.target_id)) return true
       return visible.has(e.target_id)
     })

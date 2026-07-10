@@ -206,10 +206,19 @@ export interface IamRoleRollup {
 
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
 
+/** Destination kind rollup on egress / public-path S3 edges (Phase 1 full-path). */
+export interface EgressBreakdownBucket {
+  kind: "s3" | "ntp" | "other_aws" | "external" | string
+  count: number
+  sample_hosts?: string[]
+}
+
 export interface TrafficEdge {
   source_id: string
   // For egress edges this is the sentinel "__igw__" — the FE terminates
   // the arrow at the IGW perimeter icon rather than at a chip.
+  // "__aws_s3__" is a regional-rail sentinel for public-path S3 with no
+  // named bucket in the topology payload.
   target_id: string
   port: number | null
   // For edge_service edges, protocol carries the Cypher relationship type
@@ -237,6 +246,13 @@ export interface TrafficEdge {
   via_vpce_service_name?: string | null
   /** Gateway S3/DDB path: vpce | public (prefer VPCE even if missing). */
   egress_path?: "vpce" | "public" | null
+  /**
+   * When true (or egress_path=public), FE routes the edge through the IGW
+   * chip: workload → IGW → destination (full A→B for public-path AWS).
+   */
+  via_igw?: boolean | null
+  /** Kind rollup for IGW / public-path edges (s3, ntp, …). */
+  egress_breakdown?: EgressBreakdownBucket[] | null
   /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
   flow_highlight?: "attack_path" | null
 }
