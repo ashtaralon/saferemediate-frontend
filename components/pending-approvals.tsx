@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { BoundaryEvidenceDrawer } from "@/components/business-system/boundary-evidence-drawer"
 import {
   AlertTriangle,
   CheckCircle,
@@ -86,6 +87,7 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
   const [pending, setPending] = useState<PendingTag[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [evidencePending, setEvidencePending] = useState<PendingTag | null>(null)
   const [expanded, setExpanded] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -401,6 +403,14 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
                         {/* Actions */}
                         <div className="flex gap-1.5 shrink-0">
                           <button
+                            onClick={() => setEvidencePending(p)}
+                            title="Why? — boundary evidence"
+                            className="px-1.5 py-1 rounded-md text-[10px] text-slate-300 hover:bg-slate-700/50 transition-colors"
+                            data-testid="pending-why"
+                          >
+                            Why?
+                          </button>
+                          <button
                             onClick={() => handleApprove(p.resource_name, p.system_name)}
                             disabled={isActioning}
                             title="Approve"
@@ -430,6 +440,13 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
           </div>
         </div>
       )}
+      <BoundaryEvidenceDrawer
+        open={!!evidencePending}
+        onOpenChange={(open) => {
+          if (!open) setEvidencePending(null)
+        }}
+        pendingTag={evidencePending}
+      />
     </div>
   )
 }

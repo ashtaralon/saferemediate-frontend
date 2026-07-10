@@ -14,7 +14,7 @@
  * fetch independently, so a cold verdict never blanks the map and vice-versa.
  */
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AlertTriangle, Clock, RefreshCw, Scissors, ShieldAlert } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { StatusChip } from "@/components/dashboard/v2/status-chip"
@@ -24,6 +24,13 @@ import {
   type BlastRecommendedCut,
   CUT_CONFIDENCE_META,
 } from "@/components/business-system/types"
+import {
+  BoundarySummaryCard,
+  BrssDeltaPanel,
+  TopRemediationActions,
+  type DetailEnhancements,
+} from "@/components/business-system/detail-enhancement-panels"
+import { BoundaryEvidenceDrawer } from "@/components/business-system/boundary-evidence-drawer"
 
 const fmt = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString())
 
@@ -43,6 +50,29 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
     fetchInit: { cache: "no-store" },
   })
 
+  const [pack, setPack] = useState<DetailEnhancements | null>(null)
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/proxy/business-system/${encodeURIComponent(systemName)}/detail-enhancements`,
+          { cache: "no-store", signal: AbortSignal.timeout(120000) },
+        )
+        if (!res.ok) return
+        const json = (await res.json()) as DetailEnhancements
+        if (!cancelled) setPack(json)
+      } catch {
+        /* non-blocking — verdict/map still render */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [systemName])
+
   const d = data && data.verdict ? (data as BlastRadiusResponse) : null
   const verdictError = (!!error || !!data?.error) && !d
 
@@ -58,6 +88,18 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
             error={verdictError ? data?.error || error || undefined : undefined}
             onRetry={retry}
           />
+        )}
+
+        {pack && (
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <BrssDeltaPanel pack={pack} />
+            <BoundarySummaryCard pack={pack} onOpenEvidence={() => setEvidenceOpen(true)} />
+          </div>
+        )}
+        {pack && (
+          <div className="mt-3">
+            <TopRemediationActions pack={pack} />
+          </div>
         )}
 
         {/* The estate map IS the canvas — reused verbatim, opened in
@@ -81,6 +123,12 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
         {d && d.recommended_cuts.length > 0 && <CutsStrip cuts={d.recommended_cuts} />}
         {d && d.warnings.length > 0 && <WarningsLine warnings={d.warnings} />}
       </div>
+
+      <BoundaryEvidenceDrawer
+        open={evidenceOpen}
+        onOpenChange={setEvidenceOpen}
+        systemName={systemName}
+      />
     </div>
   )
 }
