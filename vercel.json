@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/keep-backend-warm",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {
