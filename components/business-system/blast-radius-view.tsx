@@ -31,6 +31,7 @@ import {
   type DetailEnhancements,
 } from "@/components/business-system/detail-enhancement-panels"
 import { BoundaryEvidenceDrawer } from "@/components/business-system/boundary-evidence-drawer"
+import { SystemBusinessContextForm } from "@/components/business-system/system-business-context-form"
 
 const fmt = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString())
 
@@ -101,6 +102,25 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
             <TopRemediationActions pack={pack} />
           </div>
         )}
+
+        <div className="mt-3">
+          <SystemBusinessContextForm
+            systemName={systemName}
+            initial={pack?.business_context || null}
+            onSaved={() => {
+              // Refresh detail pack so ranking-related fields stay coherent
+              void fetch(
+                `/api/proxy/business-system/${encodeURIComponent(systemName)}/detail-enhancements`,
+                { cache: "no-store" },
+              )
+                .then((r) => (r.ok ? r.json() : null))
+                .then((json) => {
+                  if (json) setPack(json)
+                })
+                .catch(() => {})
+            }}
+          />
+        </div>
 
         {/* The estate map IS the canvas — reused verbatim, opened in
             attack-paths-only so it lands showing reachability. It manages its

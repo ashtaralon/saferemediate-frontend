@@ -29,6 +29,10 @@ interface RankedSystem {
   name: string
   kind: string
   brss_score: number
+  system_rank_score?: number
+  business_tier?: string | null
+  owner?: string | null
+  tier_multiplier?: number
   coverage_ratio?: number
   coverage_ceiling?: number
   member_count?: number
@@ -41,7 +45,15 @@ interface RankedSystem {
 interface RankedResponse {
   systems: RankedSystem[]
   count: number
+  positioning?: string
   positioning_copy?: string
+  context_coverage?: {
+    coverage_ratio?: number
+    with_business_tier?: number
+    total_rankable?: number
+    phase4_copy_unlocked?: boolean
+    gate?: number
+  }
   note?: string
   error?: string
   computed_at?: string
@@ -121,7 +133,9 @@ export function BusinessSystemsRanking() {
         <div className="flex items-center gap-2 text-slate-800">
           <Shield className="w-5 h-5" />
           <h1 className="text-xl font-semibold tracking-tight">
-            System blast-radius ranking
+            {data?.positioning === "business_impact"
+              ? "Business-impact ranking"
+              : "System blast-radius ranking"}
           </h1>
         </div>
         <p className="text-sm text-slate-600 max-w-2xl">
@@ -130,6 +144,14 @@ export function BusinessSystemsRanking() {
         </p>
         <div className="flex items-center gap-3 text-xs text-slate-500">
           <span>{data?.count ?? 0} rankable systems</span>
+          {data?.context_coverage && (
+            <span>
+              context {Math.round((data.context_coverage.coverage_ratio || 0) * 100)}%
+              {data.context_coverage.phase4_copy_unlocked
+                ? ' · business-impact ranking'
+                : ' · blast-radius ranking'}
+            </span>
+          )}
           {data?.computed_at && <span>as of {data.computed_at}</span>}
           <button
             type="button"
@@ -179,6 +201,18 @@ export function BusinessSystemsRanking() {
                     <span className={scoreTone(sys.brss_score)}>
                       BRSS {sys.brss_score.toFixed(1)}
                     </span>
+                    {sys.system_rank_score != null &&
+                      sys.system_rank_score !== sys.brss_score && (
+                      <span title="BRSS / tier multiplier">
+                        Rank {sys.system_rank_score.toFixed(1)}
+                      </span>
+                    )}
+                    {sys.business_tier && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700">
+                        {sys.business_tier.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                    {sys.owner && <span>Owner {sys.owner}</span>}
                     <span
                       className="inline-flex items-center rounded-full border border-slate-200 px-2 py-0.5"
                       title="Scanner coverage — thin evidence cannot look safe"

@@ -5,6 +5,13 @@ import { ExternalLink, Scissors, TrendingUp } from 'lucide-react'
 
 export type DetailEnhancements = {
   system_name: string
+  business_context?: {
+    business_tier?: string | null
+    tier?: string | null
+    owner?: string | null
+    regulatory?: string[]
+    context_source?: string | null
+  }
   brss?: {
     score?: number | null
     coverage_ratio?: number
