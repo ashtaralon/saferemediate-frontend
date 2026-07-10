@@ -165,6 +165,17 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
   }
 
   const handleApproveAll = async () => {
+    // BSM Sprint 1: never bulk-approve conflict / shared_infrastructure —
+    // those assign arbitrary ownership to multi-system or scaffold resources.
+    const blocked = pending.filter(
+      (p) => p.reason === "conflict" || p.reason === "shared_infrastructure"
+    )
+    if (blocked.length > 0) {
+      console.warn(
+        `Approve All blocked: ${blocked.length} conflict/shared_infrastructure item(s)`
+      )
+      return
+    }
     setActionLoading("approve-all")
     try {
       const body = systemName ? { system_name: systemName } : {}
@@ -284,14 +295,27 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
                 <RefreshCw className={`w-3 h-3 inline mr-1 ${loading ? "animate-spin" : ""}`} />
                 Refresh
               </button>
-              <button
-                onClick={handleApproveAll}
-                disabled={actionLoading === "approve-all"}
-                className="px-3 py-1 text-xs rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 transition-colors disabled:opacity-50"
-              >
-                <CheckCheck className="w-3 h-3 inline mr-1" />
-                {actionLoading === "approve-all" ? "Approving..." : "Approve All"}
-              </button>
+              {(() => {
+                const approveAllBlocked = pending.some(
+                  (p) =>
+                    p.reason === "conflict" || p.reason === "shared_infrastructure"
+                )
+                return (
+                  <button
+                    onClick={handleApproveAll}
+                    disabled={actionLoading === "approve-all" || approveAllBlocked}
+                    title={
+                      approveAllBlocked
+                        ? "Approve All disabled while conflict or shared-infrastructure items are in the queue — review those individually"
+                        : "Approve all pending tags"
+                    }
+                    className="px-3 py-1 text-xs rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <CheckCheck className="w-3 h-3 inline mr-1" />
+                    {actionLoading === "approve-all" ? "Approving..." : "Approve All"}
+                  </button>
+                )
+              })()}
             </div>
           </div>
 
