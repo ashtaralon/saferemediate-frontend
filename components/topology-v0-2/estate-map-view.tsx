@@ -39,6 +39,10 @@ import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
+  REGIONAL_EDGE_SERVICE_TYPES,
+  SERVERLESS_TYPES,
+} from "@/components/topology-v0-2/estate-placement"
+import {
   buildTopologyNodeIdIndex,
   buildVisibleCanvasIds,
   attackPathEdgesToTrafficEdges,
@@ -64,13 +68,10 @@ const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
 // (EC2/RDS/LoadBalancer) are counted for the current scope (per-VPC when a VPC
 // is picked). Splitting the two keeps the chips 1:1 with the map and the
 // per-VPC header — mixing them read as the map lying about a VPC's workloads.
-// (Type sets mirror aws-frame's SERVERLESS_TYPES + REGIONAL_EDGE_SERVICE_TYPES.)
+// Type sets from estate-placement — only Neo4j-backed types render.
 const RAIL_SERVICE_TYPES = new Set<string>([
-  "Lambda", "LambdaFunction",
-  "S3", "S3Bucket",
-  "KMSKey",
-  "DynamoDB", "DynamoDBTable",
-  "Secret", "SecretsManagerSecret",
+  ...SERVERLESS_TYPES,
+  ...REGIONAL_EDGE_SERVICE_TYPES,
 ])
 const isRailServiceType = (t?: string | null): boolean => !!t && RAIL_SERVICE_TYPES.has(t)
 
@@ -122,7 +123,10 @@ export interface EstateMapViewProps {
   defaultToAllVpcs?: boolean
 }
 
-const EDGE_SERVICE_TYPES = new Set(["S3", "DynamoDB", "RDS", "KMSKey", "Secret"])
+const EDGE_SERVICE_TYPES = new Set([
+  "S3", "DynamoDB", "RDS", "KMSKey", "Secret", "SecretsManagerSecret",
+  "SQS", "StepFunction", "APIGateway",
+])
 
 /** Mirrors aws-frame populatedAzs — true when subnets exist but no workload lands in the grid. */
 function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {

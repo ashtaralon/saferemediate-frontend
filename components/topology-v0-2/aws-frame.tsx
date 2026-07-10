@@ -47,6 +47,13 @@ import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
 import {
+  ALB_HEADER_TYPES,
+  RDS_TYPES,
+  REGIONAL_EDGE_SERVICE_TYPES,
+  SERVERLESS_TYPES,
+  SYNTHETIC_TIER_TYPES,
+} from "./estate-placement"
+import {
   chipRole,
   chipSizeForRole,
   planGlanceCell,
@@ -126,16 +133,8 @@ interface Props {
   systemLabel?: string
 }
 
-const REGIONAL_EDGE_SERVICE_TYPES = new Set([
-  "S3", "S3Bucket",
-  "KMSKey",
-  "DynamoDB", "DynamoDBTable",
-  "Secret", "SecretsManagerSecret",
-])
-/** @deprecated use REGIONAL_EDGE_SERVICE_TYPES — kept for WorkloadChip usage badges */
+/** @deprecated use REGIONAL_EDGE_SERVICE_TYPES from estate-placement */
 const EDGE_SERVICE_TYPES = REGIONAL_EDGE_SERVICE_TYPES
-const RDS_TYPES = new Set(["RDS", "RDSInstance"])
-const SERVERLESS_TYPES = new Set(["Lambda", "LambdaFunction"])
 const LAMBDA_ARN_PREFIX = "arn:aws:lambda:"
 
 /** One chip per function — twins share display name even when ids/ARNs differ. */
@@ -191,19 +190,6 @@ export function dedupeLambdaServiceTwins(source: TopologyNode[]): TopologyNode[]
 const TIER_SIDEBAR_WIDTH = { compact: "28px", normal: "32px" } as const
 /** Minimum AZ column width — keep readable but leave room for VPCE + flow corridor + edge rail. */
 const AZ_COLUMN_MIN_PX = 118
-
-const SYNTHETIC_TIER_TYPES: Record<string, SubnetTier> = {
-  EC2: "app",
-  RDS: "data",
-  RDSInstance: "data",
-}
-
-/** LoadBalancer types are never placed into the per-AZ tier grid — an ALB
- * fans out across every AZ, it doesn't live inside one. Rendered instead
- * in the spanning header band above the AZ grid (see ALB_HEADER_TYPES
- * usage in the AwsFrame render + the removal from SYNTHETIC_TIER_TYPES
- * above). */
-const ALB_HEADER_TYPES = new Set(["LoadBalancer", "ALB", "ApplicationLoadBalancer"])
 
 /** Dedicated ALB glyph — AWS Architecture Icon–style fan-out. */
 function AlbGlyph({ size = 18 }: { size?: number }) {
@@ -622,6 +608,27 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "Secret":
     case "SecretsManagerSecret":
       return { symbol: "SEC", bg: "#DD344C", fg: "white" }
+    case "AutoScalingGroup":
+    case "ASG":
+      return { symbol: "ASG", bg: "#FF9900", fg: "white" }
+    case "TargetGroup":
+      return { symbol: "TG", bg: "#8C4FFF", fg: "white" }
+    case "EventBridge":
+    case "EventBridgeRule":
+      return { symbol: "EB", bg: "#E7157B", fg: "white" }
+    case "SQS":
+    case "SQSQueue":
+      return { symbol: "SQS", bg: "#FF4F8B", fg: "white" }
+    case "StepFunction":
+    case "StateMachine":
+      return { symbol: "SFN", bg: "#E7157B", fg: "white" }
+    case "ECS":
+    case "ECSCluster":
+    case "ECSService":
+      return { symbol: "ECS", bg: "#FF9900", fg: "white" }
+    case "APIGateway":
+    case "ApiGateway":
+      return { symbol: "APIGW", bg: "#FF4F8B", fg: "white" }
     case "LoadBalancer":
     case "ALB":
     case "ApplicationLoadBalancer":
@@ -2287,6 +2294,22 @@ function FlowOverlay({
           } else {
             badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
           }
+        } else if (
+          e.protocol === "LAUNCHES" ||
+          e.protocol === "TARGETS" ||
+          e.protocol === "HAS_TARGET_GROUP" ||
+          e.protocol === "TRIGGERS" ||
+          e.protocol === "ENCRYPTED_BY" ||
+          e.protocol === "ACCESSES_RESOURCE"
+        ) {
+          badgeLabel =
+            e.protocol === "HAS_TARGET_GROUP"
+              ? "TG"
+              : e.protocol === "ACCESSES_RESOURCE"
+                ? "secret"
+                : e.protocol === "ENCRYPTED_BY"
+                  ? "KMS"
+                  : e.protocol
         } else {
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }

@@ -12,6 +12,11 @@
 
 import type { TopologyNode } from "./types"
 import { awsServiceLabel } from "./aws-architecture-icons"
+import {
+  ANCHOR_TYPES,
+  GATEWAY_TYPES,
+  STACK_ALWAYS_TYPES,
+} from "./estate-placement"
 
 export type ViewDensity = "glance" | "inventory"
 
@@ -19,55 +24,11 @@ export type ChipRole = "gateway" | "anchor" | "volume"
 
 export type ChipSize = "gateway" | "medium" | "compact"
 
-/**
- * Types that always collapse to a single stack icon when count ≥ 2
- * (AWS diagram convention: one Lambda / ASG / EC2 group with siblings behind).
- */
-const STACK_ALWAYS_TYPES = new Set([
-  "Lambda",
-  "LambdaFunction",
-  "AutoScalingGroup",
-  "ASG",
-  "EC2",
-  "ECS",
-  "ECSService",
-  "EKS",
-  "EKSCluster",
-  "S3",
-  "S3Bucket",
-  "DynamoDB",
-  "DynamoDBTable",
-  "KMSKey",
-  "Secret",
-  "SecretsManagerSecret",
-])
-
 /** Max distinct *named* gateway/jewel chips before everything else stacks by type. */
 export const GLANCE_NAMED_CAP = 2
 
 /** Rails (serverless / regional) always group in Glance when count exceeds this. */
 export const GLANCE_RAIL_STACK_THRESHOLD = 1
-
-const GATEWAY_TYPES = new Set([
-  "LoadBalancer",
-  "ALB",
-  "ApplicationLoadBalancer",
-  "NLB",
-  "NetworkLoadBalancer",
-  "GatewayLoadBalancer",
-])
-
-const ANCHOR_TYPES = new Set([
-  "EC2",
-  "RDS",
-  "RDSInstance",
-  "ECS",
-  "ECSService",
-  "EKS",
-  "EKSCluster",
-  "AutoScalingGroup",
-  "ASG",
-])
 
 /** Classify a real node for Glance visual hierarchy. Unknown types → volume. */
 export function chipRole(node: TopologyNode): ChipRole {
