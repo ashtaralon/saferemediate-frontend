@@ -1517,9 +1517,19 @@ function TrafficFlowBand({
               : cls === "vpce"
               ? { bg: "#DBEAFE", fg: "#1E40AF", txt: "VPCE" }
               : cls === "database"
-              ? { bg: "#D2E5F8", fg: "#1565C0", txt: e.port ? `RDS · ${e.port}` : "RDS" }
+              ? e.is_exposed
+                ? {
+                    bg: "#FEE2E2",
+                    fg: "#991B1B",
+                    txt: e.external_sources
+                      ? `${e.external_sources} external sources on :${e.port ?? "?"}`
+                      : e.port
+                        ? `exposed · RDS :${e.port}`
+                        : "exposed · RDS",
+                  }
+                : { bg: "#D2E5F8", fg: "#1565C0", txt: e.port ? `RDS · ${e.port}` : "RDS" }
               : { bg: "#E0F2FE", fg: "#075985", txt: e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP") }
-            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : cls === "vpce" ? "#3B82F6" : cls === "database" ? "#2E73B8" : PAL.teal
+            const arrowColor = cls === "egress" ? "#FF9900" : cls === "edge_service" ? "#7E57C2" : cls === "vpce" ? "#3B82F6" : cls === "database" ? (e.is_exposed ? "#DC2626" : "#2E73B8") : PAL.teal
             return (
               <div
                 key={`${e.source_id}-${e.target_id}-${e.port}-${i}`}
@@ -1870,6 +1880,8 @@ interface FlowPath {
   badgeX: number
   badgeY: number
   badgeLabel: string
+  /** DB exposure honesty — red stroke + badge when true. */
+  isExposed?: boolean
   highlight?: "attack_path" | null
 }
 
@@ -2256,11 +2268,19 @@ function FlowOverlay({
         } else if (cls === "vpce") {
           badgeLabel = "VPCE"
         } else if (cls === "database") {
-          badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
+          if (e.is_exposed) {
+            badgeLabel = e.external_sources
+              ? `${e.external_sources} external sources on :${e.port ?? "?"}`
+              : e.port
+                ? `exposed · RDS :${e.port}`
+                : "exposed · RDS"
+          } else {
+            badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
+          }
         } else {
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }
-        if (j.count > 1) badgeLabel = `${j.count} flows`
+        if (j.count > 1 && !e.is_exposed) badgeLabel = `${j.count} flows`
         next.push({
           d,
           cls,
@@ -2270,6 +2290,7 @@ function FlowOverlay({
           badgeX: badge.x,
           badgeY: badge.y - 6,
           badgeLabel,
+          isExposed: Boolean(e.is_exposed),
           highlight: j.highlight,
         })
       }
@@ -2418,7 +2439,11 @@ function FlowOverlay({
         ))}
       </defs>
       {paths.map((p, i) => {
-        const stroke = p.highlight === "attack_path" ? "#DC2626" : colorByCls[p.cls]
+        const stroke =
+          p.highlight === "attack_path" || p.isExposed
+            ? "#DC2626"
+            : colorByCls[p.cls]
+        const markerCls = p.isExposed ? "database" : p.cls
         return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
@@ -2434,11 +2459,11 @@ function FlowOverlay({
             d={p.d}
             fill="none"
             stroke={stroke}
-            strokeWidth="1.5"
+            strokeWidth={p.isExposed ? 2 : 1.5}
             strokeOpacity="0.85"
-            strokeDasharray={p.highlight === "attack_path" ? "6 4" : "5 4"}
+            strokeDasharray={p.highlight === "attack_path" || p.isExposed ? "6 4" : "5 4"}
             strokeLinecap="round"
-            markerEnd={`url(#flow-arrow-${p.cls})`}
+            markerEnd={`url(#flow-arrow-${markerCls})`}
           >
             <animate
               attributeName="stroke-dashoffset"

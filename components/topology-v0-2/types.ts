@@ -220,6 +220,14 @@ export interface TrafficEdge {
   // Phase B-2 additions — older BE deploys may omit these.
   edge_class?: TrafficEdgeClass
   external_destinations?: number | null
+  /** DB flow-edge contract (Alon, 2026-07-10) — older BE may omit. */
+  engine?: string | null
+  internal_hits?: number | null
+  external_sources?: number | null
+  external_hits?: number | null
+  publicly_accessible?: boolean | null
+  is_exposed?: boolean | null
+  port_anomaly?: { ports: number[]; hits: number } | null
   // S3 / DDB edge_service edges get these populated when a Gateway VPCE
   // exists in the source workload's VPC. The FE renders the arrow as a
   // two-segment path through that VPCE chip so the visual matches the
