@@ -121,7 +121,7 @@ export function LeftSidebarNav({
     // data, and what are the safest cuts." Dedicated route (see
     // DEDICATED_ROUTE_IDS below); resolves the system itself when ?systemName
     // is absent, so no pinned demo tenant.
-    { id: "business-systems", label: "Blast Radius", icon: Target, href: "/business-systems" },
+    { id: "business-systems", label: "System Ranking", icon: Target, href: "/business-systems" },
     // Attacker Map is reachable from inside system detail: Risk → Attack Paths → Attacker Map (2026-07 merge).
     // The top-level sidebar entry was removed because the page routing in
     // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
