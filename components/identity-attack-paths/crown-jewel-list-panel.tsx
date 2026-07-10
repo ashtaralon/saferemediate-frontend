@@ -68,7 +68,11 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
 
       <div className="p-2 space-y-1">
         {(jewels ?? []).map((jewel) => {
-          const isSelected = jewel.id === selectedJewelId
+          const isSelected =
+            jewel.id === selectedJewelId ||
+            (selectedJewelId != null &&
+              jewel.canonical_id != null &&
+              jewel.canonical_id === selectedJewelId)
           // Accuracy-audit F1 (2026-06-11): a jewel with ZERO materialized
           // :AttackPath nodes must not render a severity score or a path
           // count — that data would be synthesized, and the deep layer
