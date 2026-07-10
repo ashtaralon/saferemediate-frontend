@@ -115,4 +115,68 @@ describe("buildTrafficFlowPathFilter", () => {
     // The InstanceProfile itself (a real forward gate) still passes through.
     expect(f.nodeIds).toContain("arn:aws:iam::1:instance-profile/p")
   })
+
+  // Path focus = one target CJ. KMS keys in infra_context are supporting
+  // crypto for the path, not peer crown jewels in RESOURCES GLOBAL.
+  it("does not promote infra_context kms_keys onto the path spine or crownJewelIds", () => {
+    const TARGET = "arn:aws:s3:::saferemediate-logs"
+    const KMS_A = "arn:aws:kms:eu-west-1:1:key/aaa"
+    const KMS_B = "arn:aws:kms:eu-west-1:1:key/bbb"
+    const path = {
+      id: "path-s3-with-kms",
+      nodes: [
+        {
+          id: "i-abc",
+          name: "alon-demo-app2",
+          type: "EC2Instance",
+          tier: "entry",
+          infra_context: {
+            security_groups: [{ id: "sg-1", name: "app-sg", type: "SecurityGroup" }],
+            kms_keys: [
+              { id: KMS_A, name: "logs-key", type: "KMSKey" },
+              { id: KMS_B, name: "app-key", type: "KMSKey" },
+            ],
+          },
+        },
+        { id: "role-1", name: "alon-demo-ec2-role", type: "IAMRole", tier: "identity" },
+        {
+          id: TARGET,
+          name: "saferemediate-logs",
+          type: "S3Bucket",
+          tier: "crown_jewel",
+          infra_context: {
+            kms_keys: [{ id: KMS_A, name: "logs-key", type: "KMSKey" }],
+          },
+        },
+      ],
+      edges: [
+        { source: "i-abc", target: "role-1", type: "HAS_INSTANCE_PROFILE" },
+        { source: "role-1", target: TARGET, type: "ACCESSES_RESOURCE" },
+      ],
+    } as unknown as IdentityAttackPath
+
+    const f = buildTrafficFlowPathFilter(path, jewelStub(TARGET, "saferemediate-logs"))
+
+    expect(f.nodeIds).toContain(TARGET)
+    expect(f.nodeIds).toContain("sg-1")
+    expect(f.nodeIds).not.toContain(KMS_A)
+    expect(f.nodeIds).not.toContain(KMS_B)
+    expect(f.crownJewelIds).toEqual([TARGET])
+    expect((f.pathNodes ?? []).filter((n) => /kms/i.test(n.type ?? "")).length).toBe(0)
+  })
+
+  it("keeps only the authoritative target in crownJewelIds when jewel is set", () => {
+    const TARGET = "arn:aws:s3:::saferemediate-logs"
+    const path = {
+      id: "p-target",
+      nodes: [
+        { id: "role-1", name: "role", type: "IAMRole", tier: "identity" },
+        { id: TARGET, name: "saferemediate-logs", type: "S3Bucket", tier: "crown_jewel" },
+      ],
+      edges: [],
+    } as unknown as IdentityAttackPath
+
+    const f = buildTrafficFlowPathFilter(path, jewelStub(TARGET, "saferemediate-logs"))
+    expect(f.crownJewelIds).toEqual([TARGET])
+  })
 })
