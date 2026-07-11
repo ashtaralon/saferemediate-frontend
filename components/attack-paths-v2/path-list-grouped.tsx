@@ -37,7 +37,11 @@ import type {
   InitialAccessCategoryLite,
 } from "./attack-path-report-types"
 import { compilePathListRow } from "./compile-path-list-row"
-import { ImpactSummary } from "./impact-summary"
+import {
+  compareReachableDamagePriority,
+  layerChipLabel,
+  type LayerEvidence,
+} from "./reachable-damage-priority"
 
 interface PathListGroupedProps {
   // ActivePathList enforces at compile time that the caller passed
@@ -184,39 +188,7 @@ function classifyInitialAccess(path: IdentityAttackPath): InitialAccessCategory 
   return "UNKNOWN"
 }
 
-// Observed-E2E classification moved into compile-path-list-row.ts so the
-// list/comparison renderers stop re-computing per render (#34 PR 2).
-
-// Observed-E2E chip presentation — labels + Tailwind tones + tooltip
-// copy. Display-only concern, so it stays in the renderer module (the
-// IR only carries the enum, not the styling).
-const OBSERVED_E2E_CHIP: Record<
-  "live_exfil" | "recon" | "capability",
-  { label: string; tone: string; title: string }
-> = {
-  live_exfil: {
-    label: "Live exfil",
-    tone: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-    title:
-      "Data-plane edge observed on this path (ACTUAL_S3_ACCESS / READS_FROM / WRITES_TO / ACCESSES_RESOURCE with hits). Note: ACCESSES_RESOURCE doesn't yet split GetBucket* (control plane) from GetObject (data plane) — Phase B refines.",
-  },
-  recon: {
-    label: "Recon",
-    tone: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    title:
-      "Observed API calls or role-assumes on this path, but no observed data-plane edge. The role moved but didn't (yet) touch the jewel's data.",
-  },
-  capability: {
-    label: "Capability",
-    tone: "border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300",
-    title:
-      "No observed activity on this path's edges. Pure policy: the attacker COULD reach the jewel but no CloudTrail/flow-log evidence shows them having tried.",
-  },
-}
-
-// Severity → tone for the per-path chip. Theme-aware (light + dark)
-// and aligned with FindingCard's severity palette. Phase 2 will hoist
-// this into a shared *_CONFIG export in lib/types.ts.
+// Severity → tone for the secondary severity label on Zoom 0 rows.
 function severityTone(level?: string | null) {
   const l = (level || "").toLowerCase()
   if (l === "critical") return "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
@@ -224,6 +196,22 @@ function severityTone(level?: string | null) {
   if (l === "medium") return "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
   if (l === "low") return "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
   return "bg-muted border-border text-muted-foreground"
+}
+
+function layerChipTone(evidence: LayerEvidence): string {
+  if (evidence === "observed") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+  }
+  if (evidence === "config-open") {
+    return "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+  }
+  if (evidence === "na-standing") {
+    return "border-border bg-muted/60 text-muted-foreground"
+  }
+  if (evidence === "closed") {
+    return "border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300"
+  }
+  return "border-border bg-muted text-muted-foreground"
 }
 
 export function PathListGrouped({
@@ -247,9 +235,8 @@ export function PathListGrouped({
     )
   }, [paths, jewel])
 
-  // Group rows by ATT&CK Initial Access category. Each bucket holds its
-  // rows sorted descending by observed_hits, then severity_score, then
-  // hop_count.
+  // Group rows by ATT&CK Initial Access category. Within each bucket sort by
+  // Reachable Damage Priority (PRD FR5) — not a blended risk score.
   const grouped = useMemo(() => {
     const buckets = new Map<InitialAccessCategoryLite, PathListRow[]>()
     for (const row of rows) {
@@ -258,20 +245,13 @@ export function PathListGrouped({
       buckets.get(bucket)!.push(row)
     }
     for (const list of buckets.values()) {
-      list.sort((a, b) => {
-        if (b.observed_hits !== a.observed_hits) return b.observed_hits - a.observed_hits
-        const sa = a.severity_score ?? 0
-        const sb = b.severity_score ?? 0
-        if (sb !== sa) return sb - sa
-        return a.hop_count - b.hop_count
-      })
+      list.sort(compareReachableDamagePriority)
     }
-    // Order buckets by highest-hit-path in each (so the bucket containing
-    // the busiest path appears first, regardless of bucket population).
+    // Order buckets by best (lowest) reachable_damage_rank in each.
     return Array.from(buckets.entries()).sort((a, b) => {
-      const maxA = Math.max(...a[1].map((r) => r.observed_hits), 0)
-      const maxB = Math.max(...b[1].map((r) => r.observed_hits), 0)
-      if (maxB !== maxA) return maxB - maxA
+      const minA = Math.min(...a[1].map((r) => r.reachable_damage_rank), 99)
+      const minB = Math.min(...b[1].map((r) => r.reachable_damage_rank), 99)
+      if (minA !== minB) return minA - minB
       return b[1].length - a[1].length
     })
   }, [rows])
@@ -332,7 +312,7 @@ export function PathListGrouped({
         </div>
         <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
-            {rows.length} path{rows.length === 1 ? "" : "s"} ·{" "}
+            {rows.length} path{rows.length === 1 ? "" : "s"} · sorted by Reachable Damage Priority ·{" "}
             {grouped.length} initial-access categor{grouped.length === 1 ? "y" : "ies"}
           </span>
           <MaterializedScopeBadge
@@ -380,88 +360,89 @@ export function PathListGrouped({
                 <div className="pl-2 pb-2">
                   {bucketRows.map((row, idxInBucket) => {
                     const isSelected = row.id === selectedPathId
-                    // Top-of-bucket marker — flag the row with the most
-                    // observed traffic so operators don't need to squint
-                    // at every hit-count chip.
-                    const isTopOfBucket = idxInBucket === 0 && row.observed_hits > 0
-                    const e2eCfg = OBSERVED_E2E_CHIP[row.observed_e2e_class]
+                    // Top-of-bucket = highest Reachable Damage Priority (rank 1 first).
+                    const isTopOfBucket = idxInBucket === 0
                     return (
                       <button
                         key={row.id}
                         onClick={() => onSelectPath(row.id)}
-                        className={`w-full text-left rounded-lg px-3 py-2 mx-2 mb-1 transition-colors border ${
+                        data-testid="zoom0-path-row"
+                        className={`w-full text-left rounded-lg px-3 py-2.5 mx-2 mb-1 transition-colors border ${
                           isSelected
                             ? "bg-primary/10 border-primary/40"
                             : "bg-transparent border-transparent hover:bg-accent/50 hover:border-border"
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityTone(row.severity_label)}`}>
-                            {row.severity_label ?? "—"}
-                            {row.severity_score !== null && (
-                              <span className="ml-1 opacity-80">{row.severity_score}</span>
-                            )}
-                          </span>
-                          {/* Observed-hit chip — surfaces the real
-                              CloudTrail/flow-log volume per path. The
-                              alon-demo-ec2-role path (11 hits) now shows
-                              the same as cyntro-demo-ec2-s3-role (2
-                              hits) at a glance. */}
-                          {row.observed_hits > 0 && (
-                            <span
-                              className="inline-flex items-center text-[9px] font-semibold rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5"
-                              title={`${row.observed_hits} CloudTrail/flow-log events observed across this path`}
-                            >
-                              {row.observed_hits.toLocaleString()} hits
-                            </span>
-                          )}
+                        {/* Headline first (PRD FR4) — not a badge pile. */}
+                        <div className="flex items-start gap-2 mb-1.5">
+                          <p className="text-[12px] font-semibold text-foreground leading-snug flex-1 min-w-0">
+                            {row.attacker_headline}
+                          </p>
                           {isTopOfBucket && (
                             <span
-                              className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5"
-                              title="Highest observed traffic in this source bucket — most likely the real attack route"
+                              className="shrink-0 inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5"
+                              title="Highest Reachable Damage Priority in this initial-access group"
                             >
                               top
                             </span>
                           )}
-                          <span className="text-[10px] text-muted-foreground">
-                            {row.hop_count} hop{row.hop_count === 1 ? "" : "s"}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span
+                            className={`inline-flex items-center text-[9px] font-semibold rounded border px-1.5 py-0.5 ${layerChipTone(row.layer_permissions)}`}
+                            title="Permissions / identity gate"
+                          >
+                            {layerChipLabel("P", row.layer_permissions)}
                           </span>
-                          {row.evidence_type === "observed" && row.observed_hits === 0 && (
-                            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                              observed (no hit count)
+                          <span
+                            className={`inline-flex items-center text-[9px] font-semibold rounded border px-1.5 py-0.5 ${layerChipTone(row.layer_network)}`}
+                            title="Network / route gate — N/A when IAM-only standing access"
+                          >
+                            {layerChipLabel("N", row.layer_network)}
+                          </span>
+                          <span
+                            className={`inline-flex items-center text-[9px] font-semibold rounded border px-1.5 py-0.5 ${layerChipTone(row.layer_data)}`}
+                            title="Data-plane gate"
+                          >
+                            {layerChipLabel("D", row.layer_data)}
+                          </span>
+                          {row.damage_verbs.length > 0 && (
+                            <span className="inline-flex items-center text-[9px] font-semibold rounded border border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300 px-1.5 py-0.5">
+                              Damage: {row.damage_verbs.join(", ")}
                             </span>
                           )}
-                          {/* Observed-E2E class chip — #58 Phase A. */}
-                          <span
-                            className={`inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border px-1.5 py-0.5 ${e2eCfg.tone}`}
-                            title={e2eCfg.title}
-                          >
-                            {e2eCfg.label}
+                          <span className="inline-flex items-center text-[9px] font-semibold rounded border border-border bg-muted/50 text-muted-foreground px-1.5 py-0.5">
+                            Lateral: +{row.lateral_count}
                           </span>
-                          {row.is_materialized_stale && (
+                        </div>
+                        <div className="text-[10px] text-muted-foreground font-mono truncate">
+                          {row.start_label ?? "—"}{" "}
+                          <span className="opacity-60">→</span>{" "}
+                          {row.target_label ?? "jewel"}
+                          <span className="mx-1.5 opacity-40">·</span>
+                          {row.hop_count} hop{row.hop_count === 1 ? "" : "s"}
+                          {row.severity_label && (
+                            <>
+                              <span className="mx-1.5 opacity-40">·</span>
+                              <span
+                                className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider rounded border px-1.5 py-0.5 ${severityTone(row.severity_label)}`}
+                                title="IAP severity label — secondary to observed/config chips above"
+                              >
+                                {row.severity_label}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        {row.is_materialized_stale && (
+                          <div className="mt-1">
                             <span
                               className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider rounded border border-slate-400/40 bg-slate-500/10 text-slate-600 dark:text-slate-300 px-1.5 py-0.5"
                               title={row.stale_reason ?? "Workload inactive — graph path retained for audit"}
                             >
                               inactive workload
                             </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-foreground font-mono truncate">
-                          {row.start_label ?? "—"}{" "}
-                          <span className="text-muted-foreground">→</span>{" "}
-                          <span className="text-muted-foreground">{row.target_label ?? "jewel"}</span>
-                        </div>
-                        <div className="mt-1.5">
-                          <ImpactSummary row={row} />
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
-                          {row.top_fix_label !== "—" && (
-                            <span className="text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]" title={row.top_fix_label}>
-                              → {row.top_fix_label}
-                            </span>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </button>
                     )
                   })}

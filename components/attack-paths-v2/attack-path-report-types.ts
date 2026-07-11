@@ -31,6 +31,11 @@
 // Absent signal → the claim is absent AND listed in `missing_evidence`
 // (silent dropping hides collection gaps; surfacing them is the feature).
 
+import type {
+  LayerEvidence,
+  ReachableDamageBucket,
+} from "./reachable-damage-priority"
+
 export type EvidenceGrade =
   | "OBSERVED" // proven in telemetry (CloudTrail / VPC Flow / data events)
   | "CONFIGURED" // config allows it; no behavior observed
@@ -431,6 +436,29 @@ export interface PathListRow {
    *  the headline derivation predicate has access to verb-level service
    *  info (e.g. TAKEOVER vs SECRET LEAK nuance — §3.1). */
   impact_reasons: ImpactReason[]
+
+  // ---- Zoom 0 attacker-lens contract (PRD-attacker-lens-three-zoom) --------
+
+  /** Headline sentence first on the row (never a badge pile). */
+  attacker_headline: string
+
+  /** P / N / D evidence chips — observed ≠ config; N may be na-standing. */
+  layer_permissions: LayerEvidence
+  layer_network: LayerEvidence
+  layer_data: LayerEvidence
+
+  /** Damage verbs for the row chip (DELETE, EXFIL, …). */
+  damage_verbs: string[]
+
+  /** Lateral reach count from identity (0 when unknown). */
+  lateral_count: number
+
+  /** Reachable Damage Priority bucket + numeric rank (1 = highest). */
+  reachable_damage_bucket: ReachableDamageBucket
+  reachable_damage_rank: number
+
+  /** Weak fix-readiness signal for triage tie-break. */
+  fix_ready: boolean
 }
 
 /** Lightweight alias — we don't import the full

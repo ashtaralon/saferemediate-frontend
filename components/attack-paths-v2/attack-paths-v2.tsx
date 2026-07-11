@@ -61,6 +61,7 @@ import { AllCrownJewelsView } from "./all-crown-jewels-view"
 // already pulls TrafficFlowMap into this bundle.
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
+import { Zoom0FanInPanel } from "./zoom0-fan-in-panel"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
@@ -522,16 +523,13 @@ export function AttackPathsV2({
   }, [selectedPathId, jewelPaths])
 
   // Auto-select the highest-observed-traffic path when a jewel is
-  // selected and no path id is in the URL.
-  //
-  // 2026-05-22 audit fix: previously the operator had to click into
-  // the center column to pick a path. With paths sorted by synthetic
-  // severity score, they often landed on a low-hit path (Chain C, 2
-  // hits) while the highest-traffic chain (Chain A, 11 hits) sat
-  // un-selected lower in the list. Auto-selecting the most-observed
-  // path means operators see the real attack first.
+  // Auto-select the highest-traffic path when a jewel is selected and no
+  // path id is in the URL — EXCEPT on Attack Path mode, where Zoom 0
+  // (jewel fan-in) is the default until the operator picks a path
+  // (PRD-attacker-lens-three-zoom S1).
   useEffect(() => {
     if (viewMode === "convergence") return
+    if (viewMode === "attack-path") return
     if (!selectedJewelId) return
     if (selectedPathId) return
     if (jewelPaths.length === 0) return
@@ -1063,17 +1061,25 @@ export function AttackPathsV2({
                 />
               </div>
             ) : !selectedJewelId || (!selectedPath && !selectedPathId) ? (
-              <EmptyState
-                title="Select a path"
-                subtitle={
-                  jewelPaths.length === 0 && !selectedPathId
-                    ? "No attack paths to this jewel today. Switch to Exposure view to see standing access."
-                    : jewelPaths.length === 0 && selectedPathId
-                      ? "Loading path from deep link…"
+              // Zoom 0 — jewel selected, no path: fan-in + triage list on the left.
+              selectedJewel && systemName ? (
+                <Zoom0FanInPanel
+                  systemName={systemName}
+                  jewel={selectedJewel}
+                  paths={[...jewelPaths]}
+                  selectedPathId={selectedPathId}
+                />
+              ) : (
+                <EmptyState
+                  title="Select a path"
+                  subtitle={
+                    jewelPaths.length === 0 && !selectedPathId
+                      ? "No attack paths to this jewel today. Switch to Exposure view to see standing access."
                       : `Pick one of the ${jewelPaths.length} paths on the left to drill in.`
-                }
-                large
-              />
+                  }
+                  large
+                />
+              )
             ) : (
               // Merged "Attack Path" view (2026-05-31). One facade fetch
               // (/api/proxy/attack-path/<sys>/<jewel>?path_id=<id>),
