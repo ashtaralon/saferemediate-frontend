@@ -200,11 +200,17 @@ export function AttackPathCardLightView({
   path,
   systemName,
   architecture,
+  /** Zoom 1 S3: Fix lives in the cut-card block below — hide abstract micro-* tiles here. */
+  omitFixSection = false,
+  /** Zoom 1 S3: ThreeLayerStrip owns P/N/D — hide duplicate gate cards. */
+  omitGatesSection = false,
 }: {
   report: AttackPathReport
   path: IdentityAttackPath
   systemName?: string | null
   architecture?: SystemArchitecture | null
+  omitFixSection?: boolean
+  omitGatesSection?: boolean
 }) {
   const cs = report.current_state
   const diff = report.remediation_diff
@@ -397,7 +403,7 @@ export function AttackPathCardLightView({
           "Unknown — unverified" network card there misreads as a gap, so we drop
           it and say plainly that IAM is the only gate. We only collapse when the
           network gate carries no real signal; a real OPEN/CLOSED keeps the card. */}
-      {(() => {
+      {!omitGatesSection && (() => {
         const networkIsNA = isNetworkGateNA(effectiveShape, gates.network)
         if (!(gates.identity || gates.network || gates.data_plane)) return null
         return (
@@ -423,7 +429,8 @@ export function AttackPathCardLightView({
       })()}
 
       {/* ── THE FIX YOU APPROVE ─────────────────────────────────────────── */}
-      {(report.micro_enforcement?.length || diff) && (
+      {/* Zoom 1 S3: omit when ClosureOutcome cut card owns Fix (PRD FR8). */}
+      {!omitFixSection && (report.micro_enforcement?.length || diff) && (
         <Section
           title="The fix you approve"
           hint="remove unused · keep what's used · add a scope limit"

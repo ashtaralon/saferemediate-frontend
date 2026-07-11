@@ -32,6 +32,8 @@ import { DamageAwarePathCard } from "./damage-aware-path-card"
 import { useDamageScope } from "./use-damage-scope"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { LateralMovesSummaryCard } from "./lateral-moves-summary-card"
+import { ThreeLayerStrip } from "./three-layer-strip"
+import { ClosureOutcomePanel } from "./closure-outcome-panel"
 import { SharedRoleCallout, type SharedRoleCalloutData } from "./shared-role-callout"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 
@@ -440,27 +442,25 @@ export function PathAnalysisPanel({
         </div>
       </div>
 
-      {/* HERO — light prod attack-path card (cyntro_attack-path-card_design.html).
-          Pure renderer of the real backend AttackPathReport: header + risk +
-          "how real" gates + the fix you approve. The flow map, the dark
-          damage-aware card, and per-plane detail all move into "Supporting
-          evidence" below so the clean light card is the default view. */}
+      {/* ── Zoom 1 block order (PRD S3): spine → 3-layer → lateral → topology → cut card ── */}
+
+      {/* 1. Spine + damage sentence */}
       <div className="px-6 py-5 border-b border-border" style={{ background: "#eef1f5" }}>
         {reportLoading && !report ? (
           <p className="text-[12px] text-muted-foreground">Loading attack path report…</p>
         ) : report ? (
           <>
-            {/* CISO 5-second surface — hidden when Cyntro map owns the narrative */}
-            {!attackMapCyntro && (
-              <div className="mb-4">
-                <AttackSpineStrip report={report} path={path} />
-              </div>
-            )}
+            <div className="mb-4" data-testid="zoom1-spine">
+              <AttackSpineStrip report={report} path={path} />
+            </div>
+            {/* Risk / damage sentence — Fix (micro-*) omitted; cut card owns Fix below */}
             <AttackPathCardLightView
               report={report}
               path={path}
               systemName={systemName}
               architecture={architecture}
+              omitFixSection
+              omitGatesSection
             />
           </>
         ) : (
@@ -475,72 +475,27 @@ export function PathAnalysisPanel({
         )}
       </div>
 
-      {/* Attack map — primary visual; lives on Attacker Map tab only when
-          showEmbeddedAttackMap is false on the Attack Paths tab. */}
-      {embeddedAttackMap}
+      {/* 2. Three-layer strip (P/N/D simultaneous) */}
+      <ThreeLayerStrip report={report} path={path} />
 
-      {/* Attacker next moves — compact lateral fan-out, full detail in the
-          Lateral Movement tab. docs/specs/attack_path_lateral_movement_v1.md */}
+      {/* 3. Lateral overlay — Focus {jewel} never auto-switches */}
       <LateralMovesSummaryCard path={path} jewel={jewel} systemName={systemName} />
 
-      {/* Supporting evidence — damage card + plane breakdown (map is above when Cyntro) */}
-      <div className="border-b border-border bg-muted/30">
-        <div className="px-6 pt-3 pb-1">
-          <button
-            type="button"
-            onClick={() => setEvidenceOpen((o) => !o)}
-            className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
-          >
-            <ChevronRight
-              className={`h-3 w-3 transition-transform ${evidenceOpen ? "rotate-90" : ""}`}
-            />
-            Supporting evidence
-          </button>
-          {evidenceOpen && (
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Damage matrix, plane signals, and technical detail
-            </p>
-          )}
-        </div>
-        {evidenceOpen && (
-        <>
-        {/* Dark damage-aware card — demoted from hero into supporting
-            evidence (the light card above now owns the damage/fix story).
-            Kept here so its damage-scope drawer + per-cell detail stay
-            available for the operator drilling in. */}
-        {report && (
-          <div className="px-6 pt-4">
-            <DamageAwarePathCard
-              report={report}
-              path={path}
-              jewel={jewel}
-              systemName={systemName}
-              scope={damageScopeData}
-              scopeLoading={damageScopeLoading}
-              scopeError={damageScopeError}
-            />
-          </div>
-        )}
-        {/* Kill-chain strip (2026-06-11) — replaces the canvasV2-gated
-            "ENTRY → via N hops → REACHES" caption. Always on when the
-            path has nodes: a LINEAR phase-by-phase read of the spine
-            whose numbers match the map's step badges, since the lane
-            layout makes the numbered spine zigzag on the canvas. */}
-        {!attackMapCyntro && (path.nodes?.length ?? 0) > 0 && (
-          <KillChainStrip nodes={path.nodes} />
-        )}
-        {!attackMapCyntro && (
-        <div className="px-6 pt-3 pb-4">
+      {/* 4. Path topology (embedded per-path map) */}
+      {embeddedAttackMap}
+      {!attackMapCyntro && (
+        <div className="border-b border-border bg-background px-6 pt-3 pb-4">
           <div className="px-1 pb-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Cloud Graph
+              Path topology
               <span className="font-normal normal-case ml-2 text-[11px]">
                 Legacy Cloud Graph · ?map=legacy
               </span>
             </p>
           </div>
+          {(path.nodes?.length ?? 0) > 0 && <KillChainStrip nodes={path.nodes} />}
           <div
-            className="relative overflow-auto rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px]"
+            className="relative overflow-auto rounded-[14px] border border-border bg-card px-1 py-1 max-h-[760px] mt-3"
             style={{ boxShadow: "0 1px 2px rgba(20,35,55,.04), 0 6px 18px rgba(20,35,55,.07)" }}
             data-testid="attack-path-flow-map-slot"
           >
@@ -565,14 +520,62 @@ export function PathAnalysisPanel({
               </p>
             )}
           </div>
-          <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
         </div>
-        )}
-        {attackMapCyntro && (
-          <div className="px-6 pt-2 pb-4">
-            <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
+      )}
+
+      {/* 5. Fix = cut card (closure-preview) — not abstract micro-* tiles */}
+      <div className="border-b border-border bg-background px-6 py-5" data-testid="zoom1-cut-card">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground mb-1">
+          Fix · cut card
+        </p>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Recommended cut with keep / remove from live closure-preview. Simulate before apply.
+        </p>
+        <ClosureOutcomePanel
+          closure={closure}
+          path={path}
+          jewel={jewel}
+          damageHint={path.damage_types?.[0] ?? null}
+        />
+      </div>
+
+      {/* Supporting evidence — damage card + atlas (demoted) */}
+      <div className="border-b border-border bg-muted/30">
+        <div className="px-6 pt-3 pb-1">
+          <button
+            type="button"
+            onClick={() => setEvidenceOpen((o) => !o)}
+            className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight
+              className={`h-3 w-3 transition-transform ${evidenceOpen ? "rotate-90" : ""}`}
+            />
+            Supporting evidence
+          </button>
+          {evidenceOpen && (
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Damage matrix and atlas detail
+            </p>
+          )}
+        </div>
+        {evidenceOpen && (
+        <>
+        {report && (
+          <div className="px-6 pt-4">
+            <DamageAwarePathCard
+              report={report}
+              path={path}
+              jewel={jewel}
+              systemName={systemName}
+              scope={damageScopeData}
+              scopeLoading={damageScopeLoading}
+              scopeError={damageScopeError}
+            />
           </div>
         )}
+        <div className="px-6 pt-2 pb-4">
+          <AtlasInlineSection systemName={systemName} path={path} jewel={jewel} />
+        </div>
         </>
         )}
       </div>
