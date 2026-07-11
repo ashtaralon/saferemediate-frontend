@@ -46,6 +46,7 @@ import {
 import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { LightRouteIsland } from "./attack-paths-v2/light-route-island"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
 import { DecisionRoutingCard } from "./dashboard/v3/decision-routing-card"
@@ -986,7 +987,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         roleName,
       })
       setUnusedActionsList([])
-      setIssues([])
+      // Do NOT clear issues here — fetchIssuesSummary runs in parallel and
+      // this race was wiping the Critical Issues panel on every Overview load.
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       setGapAnalysis({
@@ -1130,11 +1132,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         return
       }
 
+      // Cap fan-out — sequential N SG calls were saturating Render on Overview.
+      const sgSample = sgIds.slice(0, 5)
+
       // Collect CVE counts and services
       let critical = 0, high = 0, medium = 0, low = 0
       const servicesSet = new Set<string>()
 
-      for (const sgId of sgIds) {
+      for (const sgId of sgSample) {
         try {
           const vulnRes = await fetch(`/api/proxy/vulnerability/sg/${sgId}/exposure`)
           if (!vulnRes.ok) continue
@@ -1244,19 +1249,28 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   const fetchAllData = async () => {
-    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory(), fetchPostureScore(), fetchPostureTrend()])
+    // Critical path first — CVE fan-out deferred so Overview paints without
+    // waiting on N sequential vulnerability calls.
+    await Promise.all([
+      fetchIssuesSummary(),
+      fetchGapAnalysis(),
+      fetchAutoTagStatus(),
+      fetchBrssHistory(),
+      fetchPostureScore(),
+      fetchPostureTrend(),
+    ])
+    void fetchCVESummary()
   }
 
   useEffect(() => {
     fetchSystemMeta()
   }, [systemName])
 
-  // Overview-only polling — keeps posture-score / gap-analysis / CVE fan-out
-  // from hammering Render while the operator is on Topology or other heavy tabs.
+  // Overview-only polling — 2 min (was 30s) to stop hammering Render.
   useEffect(() => {
     if (activeTab !== "overview") return
     fetchAllData()
-    const interval = setInterval(fetchAllData, 30000)
+    const interval = setInterval(fetchAllData, 120_000)
     return () => clearInterval(interval)
   }, [systemName, activeTab])
 
@@ -1883,6 +1897,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       </div>
 
       {activeTab === "overview" && (
+        <ErrorBoundary componentName="Overview">
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
             {/* All four hero cards stretch to a uniform height (default
@@ -2533,6 +2548,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
             </div>
           </div>
         </>
+        </ErrorBoundary>
       )}
 
       {/* Render the LeastPrivilegeTab component */}
@@ -2553,6 +2569,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       )}
 
       {activeTab === "attack-paths" && (
+        <ErrorBoundary componentName="Attack Paths">
         <LightRouteIsland>
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           {/* Attack Paths: map lives on the Attacker Map mode chip (next to
@@ -2566,6 +2583,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           />
         </div>
         </LightRouteIsland>
+        </ErrorBoundary>
       )}
 
       {activeTab === "egress" && (
@@ -2611,9 +2629,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       )}
 
       {activeTab === "dependency-map" && (
+        <ErrorBoundary componentName="Topology">
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab key={refreshKey} systemName={systemName} />
+          <DependencyMapTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
+        </ErrorBoundary>
       )}
 
       {activeTab === "behavioral" && (

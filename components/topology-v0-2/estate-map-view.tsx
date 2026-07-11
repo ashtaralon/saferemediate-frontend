@@ -182,14 +182,18 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     fetchInit: { cache: "no-store" },
   })
 
-  // Full unscoped topology — always fetched so serverless/regional tiers and
-  // merged ("All VPCs") grid use the same superset. Scoped VPC picker still
-  // uses scoped primary fetch for the subnet grid frame.
+  // Full unscoped topology — deferred until All VPCs is selected (or
+  // defaultToAllVpcs). The primary scoped fetch paints first; this second
+  // topology-risk call was doubling cold Neo4j load on every estate open.
   const [fullSystemPayload, setFullSystemPayload] = useState<TopologyRiskResponse | null>(
     null,
   )
 
+  const needsMergedTopology =
+    defaultToAllVpcs || selectedVpcId === "all" || selectedVpcId === ""
+
   useEffect(() => {
+    if (!needsMergedTopology) return
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
       accountId: selectedAccountId,
@@ -204,7 +208,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return () => {
       cancelled = true
     }
-  }, [systemName, selectedAccountId, selectedRegionId])
+  }, [systemName, selectedAccountId, selectedRegionId, needsMergedTopology])
 
   /**
    * Own + used-shared scope. Backend already system-tags nodes; this drops
@@ -327,12 +331,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
   const [flowMode, setFlowMode] = useState<EstateFlowMode>(defaultFlowMode)
 
-  const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=500`
+  // Cap at 300 — matches Traffic map; 500 routinely timed out the proxy.
+  const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=300`
   const { data: depMapData } = useCachedFetch<{
     edges?: Array<{ source: string; target: string; type: string; port?: string | null; protocol?: string | null; last_seen?: string | null }>
     nodes?: Array<{ id: string; name?: string; type?: string; properties?: Record<string, unknown> }>
   }>(depMapUrl, {
-    cacheKey: `estate-dep-map:${systemName}`,
+    cacheKey: `estate-dep-map:300:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
@@ -772,13 +777,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
   const unscopedNodes = serverlessSourceNodes
 
-  // IAP fetch + derived attackPaths/iapBody MUST be declared before the flow
-  // overlay memos below — overlayEdges/attackPathFlowCount reference them in
-  // their dependency arrays, and a dep array is evaluated synchronously where
-  // it's written (TDZ: "Cannot access 'attackPaths' before initialization").
-  const iapUrl = `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+  // IAP only when Attack-paths overlay is on — All Access does not need
+  // the 30–55s cold IAP compute. Cap 5×5 to stay under the proxy abort.
+  const iapUrl =
+    flowMode === "attack_paths"
+      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=5&max_paths_per_jewel=5`
+      : null
   const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
-    cacheKey: `estate-iap:${systemName}`,
+    cacheKey: `estate-iap:5x5:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
