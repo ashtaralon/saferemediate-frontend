@@ -246,7 +246,7 @@ export function AttackPathsV2({
     let aborted = false
     ;(async () => {
       try {
-        const r = await fetch("/api/proxy/systems/available", { cache: "no-store" })
+        const r = await fetch("/api/proxy/systems")
         if (!r.ok) {
           if (!aborted) setAutoRedirectDone(true)
           return
