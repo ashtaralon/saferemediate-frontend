@@ -46,6 +46,7 @@ import {
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
+import { subnetOwnershipTooltipLine } from "./estate-ownership"
 import {
   ALB_HEADER_TYPES,
   RDS_TYPES,
@@ -1315,6 +1316,9 @@ function SubnetCell({
       : subnetsHere.length > 1
         ? `${subnetsHere.length} subnets`
         : null
+  const ownerHint = subnetOwnershipTooltipLine(subnetsHere)
+  const isForeignCell =
+    subnetsHere.length > 0 && subnetsHere.every(s => s.is_foreign === true)
   const chromeTitle = [TIER_CELL_SHORT[tier], subnetTitle].filter(Boolean).join(" · ")
   const renderWorkloads = () =>
     glance ? (
@@ -1337,14 +1341,23 @@ function SubnetCell({
     <div
       className="rounded-md px-1.5 py-1 h-full min-h-0 flex flex-col overflow-hidden"
       style={{
-        background: empty ? "transparent" : SUBNET_BG[tier],
-        border: empty ? `1px dashed ${PAL.slate}80` : `1.5px solid ${SUBNET_BORDER[tier]}`,
+        background: empty
+          ? "transparent"
+          : isForeignCell
+            ? "#F1F5F9"
+            : SUBNET_BG[tier],
+        border: empty
+          ? `1px dashed ${PAL.slate}80`
+          : isForeignCell
+            ? `1.5px solid #94A3B8`
+            : `1.5px solid ${SUBNET_BORDER[tier]}`,
         minHeight: cellMinHeight,
         height: "100%",
-        opacity: empty ? 0.55 : 1,
+        opacity: empty ? 0.55 : isForeignCell ? 0.78 : 1,
       }}
       data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
-      title={[TIER_LABEL[tier], subnetTitle, cidrHint].filter(Boolean).join(" · ")}
+      data-is-foreign={isForeignCell ? "true" : undefined}
+      title={[TIER_LABEL[tier], subnetTitle, cidrHint, ownerHint].filter(Boolean).join(" · ")}
     >
       {/* One-line chrome — full "Private subnet (data tier)" lives on the
           tier sidebar; keep cell chrome thin so icons are visible. */}
@@ -1363,6 +1376,16 @@ function SubnetCell({
           >
             {cidrHint}
           </div>
+        ) : null}
+        {isForeignCell && ownerHint ? (
+          <span
+            className="shrink-0 rounded px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide truncate max-w-[7rem]"
+            style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+            data-testid="topology-subnet-owner-chip"
+            title={ownerHint}
+          >
+            {subnetsHere.find(s => s.owner_system_name)?.owner_system_name}
+          </span>
         ) : null}
       </div>
 
