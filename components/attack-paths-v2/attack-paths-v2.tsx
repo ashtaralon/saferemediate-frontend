@@ -978,8 +978,8 @@ export function AttackPathsV2({
           </>
         ) : !selectedJewelId ? (
           // Zoom −1 (S4): system blast-radius landing. Pick a jewel on
-          // the left → Zoom 0 fan-in. Attacker Map / Lateral chips are
-          // folded; deep-links still render when ?mode= is set.
+          // the left → Zoom 0 fan-in. Attack Map / Lateral / Exfil chips
+          // stay on the mode bar as alternate presentations.
           <>
             <ModeToggle
               mode={viewMode}
@@ -1167,6 +1167,7 @@ export function AttackPathsV2({
                   jewel={selectedJewel}
                   paths={[...jewelPaths]}
                   selectedPathId={selectedPathId}
+                  onRequestMode={handleSetMode}
                 />
               ) : (
                 <EmptyState
@@ -1232,8 +1233,8 @@ function ModeToggle({
   /** Gate for beta engineering canvases (?beta=1). */
   showBeta?: boolean
 }) {
-  // Attacker Map restored as a primary chip next to Attack Path.
-  // Lateral remains folded into Zoom 1 (deep-link ?mode=lateral).
+  // Attack Map + Lateral Movement restored as primary chips (operator
+  // asked for the previous presentation options after S4 folded them).
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (

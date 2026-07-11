@@ -1,9 +1,9 @@
 /**
  * Attack Paths mode-bar policy.
  *
- * Primary journey = Attack Path (−1/0/1). Attacker Map sits next to it as
- * the dedicated per-path topology canvas. Lateral stays folded into Zoom 1
- * (deep-link ?mode=lateral still works).
+ * Primary journey = Attack Path (−1/0/1). Attacker Map + Lateral sit next to
+ * it as dedicated presentation surfaces (operator-requested restore after S4
+ * folded them). Deep-link ?mode= still works for every tab.
  */
 
 export type AttackPathsMode =
@@ -17,10 +17,8 @@ export type AttackPathsMode =
   | "attacker_map"
   | "convergence"
 
-/** Modes folded into Zoom 1 — hidden from the primary mode bar. */
-export const FOLDED_MODE_KEYS: ReadonlySet<AttackPathsMode> = new Set([
-  "lateral",
-])
+/** No modes folded from the primary bar (S4 fold reverted for Map + Lateral). */
+export const FOLDED_MODE_KEYS: ReadonlySet<AttackPathsMode> = new Set([])
 
 export type ModeTabDef = {
   key: AttackPathsMode
@@ -40,6 +38,12 @@ const PRIMARY_TABS: ModeTabDef[] = [
     label: "Attack Map",
     title:
       "Per-path Attack Map — VPC topology canvas for the selected jewel/path. Pick a crown jewel and path on the left.",
+  },
+  {
+    key: "lateral",
+    label: "Lateral Movement",
+    title:
+      "Where this path's identity can pivot next — sibling resources each on-path role can also reach.",
   },
   {
     key: "convergence",
@@ -81,14 +85,14 @@ const BETA_TABS: ModeTabDef[] = [
   },
 ]
 
-/** Primary (+ optional beta) chips — Lateral stays folded. */
+/** Primary (+ optional beta) chips — includes Attack Map + Lateral Movement. */
 export function buildModeBarTabs(showBeta = false): ModeTabDef[] {
   return showBeta ? [...PRIMARY_TABS, ...BETA_TABS] : [...PRIMARY_TABS]
 }
 
 /**
- * Folded deep-links highlight Attack Path so the bar stays honest
- * (Lateral chip is gone; Attacker Map is primary again).
+ * Highlight the active chip. Empty FOLDED set → identity (kept for deep-link
+ * compatibility if something is folded again later).
  */
 export function modeBarHighlight(mode: AttackPathsMode): AttackPathsMode {
   return FOLDED_MODE_KEYS.has(mode) ? "attack-path" : mode
