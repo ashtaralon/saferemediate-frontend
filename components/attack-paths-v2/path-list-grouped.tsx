@@ -299,20 +299,18 @@ export function PathListGrouped({
 
   return (
     <div>
-      {/* Jewel header — context for what the path list is about */}
+      {/* Path list chrome — jewel is already selected on the left; don't
+          repeat the full bucket name as a second hero (UI skill: reduce clutter). */}
       <div className="px-4 py-3 border-b border-border sticky top-0 bg-background/95 backdrop-blur">
         <div className="flex items-center gap-2">
-          <Crown className="h-3.5 w-3.5 text-amber-500" />
+          <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            PATHS TO
+            Paths
           </div>
         </div>
-        <div className="text-sm font-mono font-semibold text-foreground truncate mt-0.5" title={jewel?.name}>
-          {jewel?.name ?? "—"}
-        </div>
-        <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
-            {rows.length} path{rows.length === 1 ? "" : "s"} · sorted by Reachable Damage Priority ·{" "}
+            {rows.length} path{rows.length === 1 ? "" : "s"} · Reachable Damage Priority ·{" "}
             {grouped.length} initial-access categor{grouped.length === 1 ? "y" : "ies"}
           </span>
           <MaterializedScopeBadge
