@@ -472,6 +472,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     clearCachedFetch(cacheKey)
     clearCachedFetch(`topology-risk:${systemName}:v2`)
     clearCachedFetch(`topology-risk:${systemName}:v6`)
+    clearCachedFetch(`topology-risk:${systemName}:v7`)
     clearCachedFetch(`topology-risk:${systemName}`)
     retry()
   }, [data, loading, isStale, cachedAt, retry, cacheKey, systemName])
@@ -536,6 +537,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [densityCollapsed, setDensityCollapsed] = useState(false)
   /** Glance = stacked ×N icons. Inventory = one small icon per real node. Click → detail. */
   const [viewDensity, setViewDensity] = useState<"glance" | "inventory">("glance")
+  /** Shared-VPC neighbors (is_foreign) — default ON, greyed; toggle for pure "just mine". */
+  const [showSharedNeighbors, setShowSharedNeighbors] = useState(true)
 
   const computeFit = useCallback((apply: boolean) => {
     const vp = viewportRef.current
@@ -740,20 +743,23 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [filters, data?.system_kpis, chipCountNodes],
   )
 
-  const filteredNodes = useMemo(
-    () => (gridSourceNodes.length ? applyFilters(gridSourceNodes, effectiveFilters) : []),
-    [gridSourceNodes, effectiveFilters],
-  )
+  const filteredNodes = useMemo(() => {
+    const base = gridSourceNodes.length ? applyFilters(gridSourceNodes, effectiveFilters) : []
+    if (showSharedNeighbors) return base
+    return base.filter(n => n.is_foreign !== true)
+  }, [gridSourceNodes, effectiveFilters, showSharedNeighbors])
 
-  const filteredServerlessSource = useMemo(
-    () => applyTypeFilter(serverlessSourceNodes, effectiveFilters),
-    [serverlessSourceNodes, effectiveFilters],
-  )
+  const filteredServerlessSource = useMemo(() => {
+    const base = applyTypeFilter(serverlessSourceNodes, effectiveFilters)
+    if (showSharedNeighbors) return base
+    return base.filter(n => n.is_foreign !== true)
+  }, [serverlessSourceNodes, effectiveFilters, showSharedNeighbors])
 
-  const filteredRegionalSource = useMemo(
-    () => applyTypeFilter(regionalDataSourceNodes, effectiveFilters),
-    [regionalDataSourceNodes, effectiveFilters],
-  )
+  const filteredRegionalSource = useMemo(() => {
+    const base = applyTypeFilter(regionalDataSourceNodes, effectiveFilters)
+    if (showSharedNeighbors) return base
+    return base.filter(n => n.is_foreign !== true)
+  }, [regionalDataSourceNodes, effectiveFilters, showSharedNeighbors])
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return
@@ -1390,6 +1396,25 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                     )
                   })}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSharedNeighbors(v => !v)}
+                  className="inline-flex items-center rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors shrink-0"
+                  style={{
+                    borderColor: showSharedNeighbors ? "#F59E0B" : "#CBD5E1",
+                    background: showSharedNeighbors ? "#FFFBEB" : "#FFFFFF",
+                    color: showSharedNeighbors ? "#92400E" : "#5A6B7A",
+                  }}
+                  aria-pressed={showSharedNeighbors}
+                  data-testid="topology-estate-shared-neighbors"
+                  title={
+                    showSharedNeighbors
+                      ? "Shared-VPC neighbors shown greyed with owner chip — click to hide"
+                      : "Show shared-VPC neighbors (other systems) greyed"
+                  }
+                >
+                  {showSharedNeighbors ? "Shared neighbors" : "Just mine"}
+                </button>
                 <button
                   type="button"
                   onClick={() => setMapEnlarged(true)}
