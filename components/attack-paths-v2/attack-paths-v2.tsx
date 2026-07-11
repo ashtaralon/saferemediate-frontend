@@ -73,6 +73,8 @@ import {
   iapPathsToConvergence,
   matchConvergencePathId,
 } from "@/lib/attack-paths/iap-to-convergence"
+import { convergencePathsToIdentityAttackPaths } from "@/lib/attack-paths/convergence-to-iap"
+import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -400,7 +402,8 @@ export function AttackPathsV2({
   )
 
   // Paths still loading for a selected jewel — center column spinner.
-  const pathsPending = Boolean(selectedJewelId) && isLoading && !data
+  // Prefer by-crown-jewel summary (fast, materialized) over waiting on the
+  // full IAP fan-out that routinely 502s on alon-prod cold compute.
   const showingStale =
     fromProxyStale || iapIsStale || jewelsIsStale
 
@@ -419,7 +422,7 @@ export function AttackPathsV2({
     [jewels, selectedJewelId],
   )
 
-  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
+  const iapJewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
     if (!selectedJewelId) return filterActivePaths([])
     return narrowActivePaths(allPaths, (p) => {
       if (p.crown_jewel_id === selectedJewelId) return true
@@ -429,6 +432,48 @@ export function AttackPathsV2({
       return false
     })
   }, [selectedJewelId, selectedJewel, allPaths])
+
+  // Always load materialized paths for the selected jewel — this is what
+  // keeps the middle rail usable when full IAP returns HTTP 502.
+  const {
+    data: jewelSummaryConvergence,
+    loading: jewelSummaryLoading,
+    error: jewelSummaryError,
+    retry: retryJewelSummary,
+  } = useCrownJewelConvergence(
+    selectedJewel ? systemName : null,
+    selectedJewel,
+    selectedPathId,
+    [...allPaths],
+  )
+
+  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
+    if (iapJewelPaths.length > 0) return iapJewelPaths
+    if (selectedJewel && jewelSummaryConvergence?.paths?.length) {
+      return filterActivePaths(
+        convergencePathsToIdentityAttackPaths(
+          selectedJewel,
+          jewelSummaryConvergence.paths,
+        ),
+      )
+    }
+    return filterActivePaths([])
+  }, [iapJewelPaths, selectedJewel, jewelSummaryConvergence])
+
+  const pathsPending =
+    Boolean(selectedJewelId) &&
+    jewelPaths.length === 0 &&
+    (isLoading || jewelSummaryLoading)
+
+  const pathsHardError =
+    Boolean(selectedJewelId) &&
+    jewelPaths.length === 0 &&
+    !pathsPending &&
+    Boolean(error || jewelSummaryError) &&
+    !data?.paths?.length
+
+  const pathsFromMaterializedFallback =
+    iapJewelPaths.length === 0 && jewelPaths.length > 0
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
   // Single source of truth for both the center-column rail
@@ -496,13 +541,15 @@ export function AttackPathsV2({
 
   const convergenceSource = useMemo((): "live" | "fallback" => {
     if (convergenceData?.paths?.length) return "live"
+    if (jewelSummaryConvergence?.paths?.length) return "live"
     return "fallback"
-  }, [convergenceData])
+  }, [convergenceData, jewelSummaryConvergence])
 
   const effectiveConvergenceData = useMemo((): CrownJewelConvergence | null => {
     if (convergenceData?.paths?.length) return convergenceData
+    if (jewelSummaryConvergence?.paths?.length) return jewelSummaryConvergence
     return iapConvergenceFallback
-  }, [convergenceData, iapConvergenceFallback])
+  }, [convergenceData, jewelSummaryConvergence, iapConvergenceFallback])
 
   const convergencePathId = useMemo(
     () =>
@@ -900,21 +947,34 @@ export function AttackPathsV2({
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading paths for this jewel…
           </div>
-        ) : error && !data ? (
+        ) : pathsHardError ? (
           <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
             <div className="flex items-center gap-2 text-destructive mb-2 text-sm font-semibold">
               <AlertTriangle className="h-4 w-4" />
               Could not load paths
             </div>
-            <div className="text-xs text-muted-foreground mb-3">{String(error)}</div>
+            <div className="text-xs text-muted-foreground mb-3">
+              {jewelSummaryError || String(error)}
+            </div>
             <button
-              onClick={retryFullIap}
+              onClick={() => {
+                retryFullIap()
+                retryJewelSummary()
+              }}
               className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/20 transition-colors"
             >
               <RefreshCw className="h-3 w-3" /> Retry paths
             </button>
           </div>
-        ) : viewMode === "exfil" ? (
+        ) : (
+          <>
+            {pathsFromMaterializedFallback && error ? (
+              <div className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
+                Full system path fan-out was slow ({String(error)}). Showing
+                materialized paths for this jewel — pick a path to continue.
+              </div>
+            ) : null}
+            {viewMode === "exfil" ? (
           // Exfil tab: channel-grouped exfil-path rail. Mirrors
           // PathListGrouped's role for the attack-path tab — same
           // mental model, same column slot. 2026-05-31.
@@ -939,6 +999,8 @@ export function AttackPathsV2({
             selectedPathId={selectedPathId}
             onSelectPath={handleSelectPath}
           />
+        )}
+          </>
         )}
       </section>
 
