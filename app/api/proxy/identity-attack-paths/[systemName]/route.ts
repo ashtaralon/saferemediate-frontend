@@ -26,21 +26,13 @@ export async function GET(
 ) {
   const { systemName } = await params
   const { searchParams } = new URL(req.url)
-  // 8 jewels × 8 paths/jewel = up to 64 paths surfaced. Previous 12 × 8
-  // = 96 paths routinely produced ~49s responses against the 55s
-  // AbortSignal limit — surfacing as 502 in the UI under any cold-cache
-  // spike. The cost driver is `max_jewels` (graph traversal per jewel),
-  // not `max_paths_per_jewel` (output size). Cutting jewels from 12 → 8
-  // keeps us under the 55s abort; keeping 8 paths/jewel preserves the
-  // operator drill-down depth (Path 1/8, 2/8, ... per jewel).
+  // 5 jewels × 5 paths/jewel — reduced from 8×8 (2026-07) because cold
+  // alon-prod compute routinely exceeded the 55s AbortSignal → HTTP 502.
+  // Cost driver is max_jewels (per-jewel BFS). Smaller budget keeps the
+  // operator usable; drill-down still loads per-path detail on demand.
   //
-  // Measured cold latency on alon-prod (2026-06): 12×8 = ~35s, 8×8 = ~41s
-  // — i.e. the headroom against the 55s AbortSignal is THIN, not comfortable.
-  // (An earlier comment here claimed 8×8 ≈ 20s; that number was stale —
-  // the graph has grown since.) A Render cold-start stacked on top can
-  // approach the limit, so the alon-prod demo MUST pre-warm this route
-  // (see cyntro_v5-cutover_verification-runbook.md). Warm hits are ~0.5s
-  // off the in-memory + edge cache.
+  // Measured cold latency on alon-prod (2026-06): 8×8 ≈ 41s — thin margin
+  // vs 55s. Graph has only grown since.
   const maxJewels =
     searchParams.get("max_jewels") || String(IAP_PROXY_DEFAULT_MAX_JEWELS)
   const maxPathsPerJewel =
@@ -156,7 +148,7 @@ export async function GET(
         signal: AbortSignal.timeout(55000),
       })
     }
-    const latencyMs = Date.now() - t0
+    let latencyMs = Date.now() - t0
     console.log(
       `[identity-attack-paths] systemName=${systemName} status=${res.status} latency_ms=${latencyMs}`
     )
@@ -167,6 +159,19 @@ export async function GET(
       if (res.status >= 500) {
         const staleRes = serveStale(`backend_${res.status}`)
         if (staleRes) return staleRes
+        // Only attempt lighter budget if we still have wall-clock left
+        // under Vercel maxDuration=60 (first hop failed fast).
+        if (latencyMs < 20_000) {
+          const liteRes = await fetchLighterBudget({
+            systemName,
+            envelope,
+            enriched,
+            includeStale,
+            includeDeleted,
+            cacheKey,
+          })
+          if (liteRes) return liteRes
+        }
       }
       return NextResponse.json(
         {
@@ -187,10 +192,6 @@ export async function GET(
     return NextResponse.json(data, {
       headers: {
         "X-Cache": "MISS",
-        // 5-min Vercel edge cache + 10-min stale-while-revalidate. After
-        // the first successful response, the next ~5 min of requests are
-        // served from the edge CDN regardless of which function instance
-        // they would have routed to. Matches the in-memory TTL_SLOW.
         "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
       },
     })
@@ -198,6 +199,8 @@ export async function GET(
     const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError"
     const staleRes = serveStale(isTimeout ? "timeout" : "fetch_failed")
     if (staleRes) return staleRes
+    // Do NOT start a second full fetch after timeout — Vercel maxDuration
+    // is 60s and we already spent ~55s. Lighter retry only runs on fast 5xx.
     console.error(
       `[identity-attack-paths] systemName=${systemName} error=${err?.name || "unknown"} message=${err?.message || ""}`
     )
@@ -216,5 +219,57 @@ export async function GET(
       },
       { status: 502 }
     )
+  }
+}
+
+/** Last-resort: smaller jewel budget so cold compute can finish under 55s. */
+async function fetchLighterBudget(opts: {
+  systemName: string
+  envelope: boolean
+  enriched: boolean
+  includeStale: boolean
+  includeDeleted: boolean
+  cacheKey: string
+}): Promise<NextResponse | null> {
+  const liteJewels = "3"
+  const litePaths = "4"
+  const query = buildIapIdentityAttackPathsQuery({
+    maxJewels: liteJewels,
+    maxPathsPerJewel: litePaths,
+    envelope: opts.envelope,
+    enriched: opts.enriched,
+    includeStale: opts.includeStale,
+    includeDeleted: opts.includeDeleted,
+  })
+  const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(opts.systemName)}${query}`
+  console.warn(
+    `[identity-attack-paths] lighter-budget retry systemName=${opts.systemName} max_jewels=${liteJewels}`,
+  )
+  try {
+    const res = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(55000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    // Cache under BOTH the lite key shape (via setCached on primary key)
+    // so the operator's next visit with default params hits stale/fresh.
+    setCached(opts.cacheKey, data, TTL_SLOW)
+    return NextResponse.json(
+      { ...data, fromLighterBudget: true, max_jewels: Number(liteJewels) },
+      {
+        headers: {
+          "X-Cache": "MISS-LITE",
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
+      },
+    )
+  } catch (err) {
+    console.warn(
+      `[identity-attack-paths] lighter-budget failed systemName=${opts.systemName}`,
+      err,
+    )
+    return null
   }
 }

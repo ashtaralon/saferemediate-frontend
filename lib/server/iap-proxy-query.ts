@@ -6,8 +6,8 @@
  * The attack-path facade must use the same shape or every path click is a
  * guaranteed cache miss (#89).
  */
-export const IAP_PROXY_DEFAULT_MAX_JEWELS = 8
-export const IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL = 8
+export const IAP_PROXY_DEFAULT_MAX_JEWELS = 5
+export const IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL = 5
 /** Attack-path facade graph-view lateral fan-out (backend caps at 100). */
 export const IAP_PROXY_DEFAULT_LATERAL_CAP = 50
 

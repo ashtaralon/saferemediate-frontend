@@ -1,9 +1,9 @@
 /**
- * Attack Paths mode-bar policy (PRD FR9 / S4).
+ * Attack Paths mode-bar policy.
  *
- * Primary journey = Attack Path (−1/0/1). Attacker Map + Lateral are folded
- * into Zoom 1 (topology + lateral overlay). Deep-link ?mode= still renders
- * those surfaces; they are not operator-facing chips.
+ * Primary journey = Attack Path (−1/0/1). Attacker Map sits next to it as
+ * the dedicated per-path topology canvas. Lateral stays folded into Zoom 1
+ * (deep-link ?mode=lateral still works).
  */
 
 export type AttackPathsMode =
@@ -19,7 +19,6 @@ export type AttackPathsMode =
 
 /** Modes folded into Zoom 1 — hidden from the primary mode bar. */
 export const FOLDED_MODE_KEYS: ReadonlySet<AttackPathsMode> = new Set([
-  "attacker_map",
   "lateral",
 ])
 
@@ -34,7 +33,13 @@ const PRIMARY_TABS: ModeTabDef[] = [
     key: "attack-path",
     label: "Attack Path",
     title:
-      "Attacker lens −1/0/1 — system blast radius, jewel fan-in, then path investigation with cut card. Topology and lateral live inside Zoom 1.",
+      "Attacker lens −1/0/1 — system blast radius, jewel fan-in, then path investigation with cut card.",
+  },
+  {
+    key: "attacker_map",
+    label: "Attack Map",
+    title:
+      "Per-path Attack Map — VPC topology canvas for the selected jewel/path. Pick a crown jewel and path on the left.",
   },
   {
     key: "convergence",
@@ -76,14 +81,14 @@ const BETA_TABS: ModeTabDef[] = [
   },
 ]
 
-/** Primary (+ optional beta) chips — never includes folded Attacker Map / Lateral. */
+/** Primary (+ optional beta) chips — Lateral stays folded. */
 export function buildModeBarTabs(showBeta = false): ModeTabDef[] {
   return showBeta ? [...PRIMARY_TABS, ...BETA_TABS] : [...PRIMARY_TABS]
 }
 
 /**
  * Folded deep-links highlight Attack Path so the bar stays honest
- * (chips for Attacker Map / Lateral are gone).
+ * (Lateral chip is gone; Attacker Map is primary again).
  */
 export function modeBarHighlight(mode: AttackPathsMode): AttackPathsMode {
   return FOLDED_MODE_KEYS.has(mode) ? "attack-path" : mode

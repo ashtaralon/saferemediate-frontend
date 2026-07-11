@@ -321,7 +321,7 @@ export function AttackPathsV2({
   })
 
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=5&max_paths_per_jewel=5`
     : null
   const {
     data: rawData,
@@ -330,13 +330,24 @@ export function AttackPathsV2({
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap-v2:${systemName}`,
+    cacheKey: `iap-v2:5x5:${systemName}`,
   })
 
   const retry = () => {
     retryJewels()
     retryFullIap()
   }
+
+  // Auto-retry once after a cold 502 — backend often finishes compute
+  // shortly after the proxy aborted; manual Retry is too easy to miss.
+  useEffect(() => {
+    if (!error || data || isLoading) return
+    if (!String(error).includes("502") && !String(error).includes("504")) return
+    const t = setTimeout(() => {
+      retryFullIap()
+    }, 8000)
+    return () => clearTimeout(t)
+  }, [error, data, isLoading, retryFullIap])
 
   const liteJewels: CrownJewelSummary[] = useMemo(() => {
     const cjs =
@@ -1221,8 +1232,8 @@ function ModeToggle({
   /** Gate for beta engineering canvases (?beta=1). */
   showBeta?: boolean
 }) {
-  // S4: Attacker Map + Lateral folded into Zoom 1 — not primary chips.
-  // Deep-link ?mode=attacker_map|lateral still renders; bar highlights Attack Path.
+  // Attacker Map restored as a primary chip next to Attack Path.
+  // Lateral remains folded into Zoom 1 (deep-link ?mode=lateral).
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (
