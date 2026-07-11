@@ -36,7 +36,7 @@ function SystemsPageInner() {
       : rawTab
   const initialAttackPathMode =
     rawTab === "attacker-map"
-      ? "attacker_map"
+      ? "attack-path"
       : mode || (hasAttackPathDeepLink ? "attack-path" : undefined)
 
   if (systemName) {

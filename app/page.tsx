@@ -982,7 +982,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attacker_map" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 
