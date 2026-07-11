@@ -126,7 +126,7 @@ export function filterTrafficEdgesForVisible(
     const src = e.source_id
     const tgt = e.target_id
     if (!src || !visibleIds.has(src)) return false
-    if (tgt === "__igw__" || tgt === "__aws_s3__") return true
+    if (tgt === "__igw__" || tgt === "__aws_s3__" || tgt === "__aws_api__") return true
     if (vpceIds.has(tgt)) return true
     return visibleIds.has(tgt)
   })

@@ -1,6 +1,8 @@
 import {
   AWS_S3_PUBLIC_SENTINEL_ID,
+  AWS_API_PUBLIC_SENTINEL_ID,
   ensureAwsS3PublicSentinel,
+  ensureAwsPublicServiceSentinels,
   formatEgressBreakdownBadge,
 } from "@/components/topology-v0-2/aws-frame"
 import type { TopologyNode, TrafficEdge } from "@/components/topology-v0-2/types"
@@ -86,5 +88,26 @@ describe("formatEgressBreakdownBadge", () => {
 
   it("falls back to dest count", () => {
     expect(formatEgressBreakdownBadge(532, null)).toBe("egress · 532 dest")
+  })
+})
+
+describe("ensureAwsPublicServiceSentinels", () => {
+  const base: TopologyNode[] = []
+
+  it("injects API sentinel for __aws_api__ edges", () => {
+    const edges: TrafficEdge[] = [
+      {
+        source_id: "i-abc",
+        target_id: AWS_API_PUBLIC_SENTINEL_ID,
+        port: null,
+        protocol: "ACTUAL_TRAFFIC",
+        last_seen: null,
+        edge_class: "edge_service",
+        egress_path: "public",
+        via_igw: true,
+      },
+    ]
+    const out = ensureAwsPublicServiceSentinels(base, edges)
+    expect(out.some(n => n.id === AWS_API_PUBLIC_SENTINEL_ID)).toBe(true)
   })
 })

@@ -373,24 +373,49 @@ export function extractRegionalDataServices(source: TopologyNode[]): TopologyNod
 
 /** Sentinel chip when BE emits public-path S3 with no named bucket target. */
 export const AWS_S3_PUBLIC_SENTINEL_ID = "__aws_s3__"
+/** Sentinel for other AWS APIs observed as NetworkEndpoint aws_service (≠ S3). */
+export const AWS_API_PUBLIC_SENTINEL_ID = "__aws_api__"
 
+const AWS_PUBLIC_SENTINELS: Array<{
+  id: string
+  name: string
+  type: TopologyNode["type"]
+}> = [
+  { id: AWS_S3_PUBLIC_SENTINEL_ID, name: "S3 (public endpoints)", type: "S3Bucket" },
+  { id: AWS_API_PUBLIC_SENTINEL_ID, name: "AWS APIs (public)", type: "S3Bucket" },
+]
+
+/** Ensure regional rail has chips for BE NetworkEndpoint service sentinels. */
+export function ensureAwsPublicServiceSentinels(
+  regional: TopologyNode[],
+  edges: TrafficEdge[],
+): TopologyNode[] {
+  let out = regional
+  for (const s of AWS_PUBLIC_SENTINELS) {
+    if (!edges.some(e => e.target_id === s.id)) continue
+    if (out.some(n => n.id === s.id)) continue
+    out = [
+      ...out,
+      {
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        subnet_id: null,
+        score: null,
+        stale: null,
+        is_jewel: false,
+      },
+    ]
+  }
+  return out
+}
+
+/** @deprecated prefer ensureAwsPublicServiceSentinels */
 export function ensureAwsS3PublicSentinel(
   regional: TopologyNode[],
   edges: TrafficEdge[],
 ): TopologyNode[] {
-  const needs = edges.some(e => e.target_id === AWS_S3_PUBLIC_SENTINEL_ID)
-  if (!needs) return regional
-  if (regional.some(n => n.id === AWS_S3_PUBLIC_SENTINEL_ID)) return regional
-  const sentinel: TopologyNode = {
-    id: AWS_S3_PUBLIC_SENTINEL_ID,
-    name: "S3 (public endpoints)",
-    type: "S3Bucket",
-    subnet_id: null,
-    score: null,
-    stale: null,
-    is_jewel: false,
-  }
-  return [...regional, sentinel]
+  return ensureAwsPublicServiceSentinels(regional, edges)
 }
 
 export function formatEgressBreakdownBadge(
@@ -4010,7 +4035,7 @@ export function AwsFrame({
   )
   const regionalTierNodes = useMemo(() => {
     const base = extractRegionalDataServices(regionalDataSourceNodes ?? nodes)
-    return ensureAwsS3PublicSentinel(base, overlayEdgeList)
+    return ensureAwsPublicServiceSentinels(base, overlayEdgeList)
   }, [regionalDataSourceNodes, nodes, overlayEdgeList])
   const serverlessTierNodes = useMemo(
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
@@ -4024,6 +4049,7 @@ export function AwsFrame({
       if (!visible.has(e.source_id)) return false
       if (e.target_id === "__igw__") return true
       if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
+      if (e.target_id === AWS_API_PUBLIC_SENTINEL_ID) return true
       if (vpceIds.has(e.target_id)) return true
       return visible.has(e.target_id)
     })
