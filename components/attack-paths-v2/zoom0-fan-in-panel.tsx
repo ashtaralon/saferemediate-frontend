@@ -7,12 +7,21 @@
  * spotlightPaths from by-crown-jewel convergence. Adaptations for Zoom 0:
  *   - choke tiles when paths > threshold (filter spotlightPaths, no hairball)
  *   - no path URL yet — left list owns Zoom 1 drill-in
- *   - fan-in chrome copy (not Convergence / TargetAttackMap)
+ *   - presentation lenses (Reachability / Lateral / Exfiltration) restored
+ *     from the previous TargetAttackMap chrome
+ *   - canvasV2 so the Laterals bright/dim toolbar control is visible
  */
 
 import dynamic from "next/dynamic"
 import { useMemo, useState } from "react"
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
+import {
+  AlertTriangle,
+  Loader2,
+  Network,
+  RefreshCw,
+  Sliders,
+  Zap,
+} from "lucide-react"
 import type {
   CrownJewelSummary,
   IdentityAttackPath,
@@ -37,6 +46,9 @@ const TrafficFlowMap = dynamic(
   { ssr: false },
 )
 
+/** Same lenses as TargetAttackMap — presentation filter, not a mode switch. */
+export type Zoom0MapLens = "reachability" | "lateral" | "exfiltration"
+
 /** Pure: which convergence paths feed TFM spotlight for Zoom 0. */
 export function zoom0SpotlightPaths(
   data: CrownJewelConvergence,
@@ -57,11 +69,14 @@ export function Zoom0FanInPanel({
   jewel,
   paths,
   selectedPathId,
+  onRequestMode,
 }: {
   systemName: string
   jewel: CrownJewelSummary
   paths: IdentityAttackPath[]
   selectedPathId: string | null
+  /** Optional: jump to full Lateral Movement / Exfiltration presentation. */
+  onRequestMode?: (mode: "lateral" | "exfil") => void
 }) {
   const cjArn =
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
@@ -88,6 +103,7 @@ export function Zoom0FanInPanel({
   }, [data, iapFallback])
 
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
+  const [mapLens, setMapLens] = useState<Zoom0MapLens>("reachability")
 
   const spotlightPaths = useMemo(() => {
     if (!effective.data) return []
@@ -104,22 +120,94 @@ export function Zoom0FanInPanel({
   const hideMapUntilTile =
     collapsed && (!tileFilterIds || tileFilterIds.length === 0)
 
+  const lensSubtitle =
+    mapLens === "lateral"
+      ? "Lateral — bright pivot edges + identity blast surface on the Attack Map"
+      : mapLens === "exfiltration"
+        ? "Exfiltration — data-egress doors from this jewel (full view via Exfiltration tab)"
+        : "Reachability — all initial-access paths to this crown jewel"
+
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="zoom0-fan-in">
       <div className="px-6 py-3 border-b border-border bg-background shrink-0">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-          Jewel fan-in
-        </p>
-        <p className="text-[12px] text-muted-foreground mt-0.5">
-          Every initial-access path to{" "}
-          <span className="font-mono text-foreground">{jewel.name}</span>
-          {" "}({paths.length || effective.data?.paths_total || 0}) on the Attack Map.
-          Sorted on the left by Reachable Damage Priority — pick a path to investigate.
-        </p>
-        {effective.source === "fallback" ? (
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
-            Offline preview — convergence API unavailable; map uses IAP paths.
-          </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+              Jewel fan-in
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              Every initial-access path to{" "}
+              <span className="font-mono text-foreground">{jewel.name}</span>
+              {" "}({paths.length || effective.data?.paths_total || 0}) on the Attack Map.
+              Sorted on the left by Reachable Damage Priority — pick a path to investigate.
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">{lensSubtitle}</p>
+            {effective.source === "fallback" ? (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
+                Offline preview — convergence API unavailable; map uses IAP paths.
+              </p>
+            ) : null}
+          </div>
+
+          {/* Presentation lenses — same labels as the previous TargetAttackMap */}
+          <div
+            className="flex shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1"
+            data-testid="zoom0-map-lenses"
+            role="tablist"
+            aria-label="Map presentation"
+          >
+            {(
+              [
+                { id: "reachability" as const, label: "Reachability", Icon: Zap },
+                { id: "lateral" as const, label: "Lateral", Icon: Sliders },
+                { id: "exfiltration" as const, label: "Exfiltration", Icon: Network },
+              ]
+            ).map(({ id, label, Icon }) => {
+              const on = mapLens === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setMapLens(id)}
+                  className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 font-mono text-xs transition-all ${
+                    on
+                      ? id === "reachability"
+                        ? "border border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-300"
+                        : id === "lateral"
+                          ? "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300"
+                          : "border border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {mapLens === "lateral" && onRequestMode ? (
+          <button
+            type="button"
+            onClick={() => onRequestMode("lateral")}
+            className="mt-2 text-[11px] font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+            data-testid="zoom0-open-lateral-movement"
+          >
+            Open full Lateral Movement view →
+          </button>
+        ) : null}
+        {mapLens === "exfiltration" && onRequestMode ? (
+          <button
+            type="button"
+            onClick={() => onRequestMode("exfil")}
+            className="mt-2 text-[11px] font-medium text-violet-700 underline-offset-2 hover:underline dark:text-violet-400"
+            data-testid="zoom0-open-exfiltration"
+          >
+            Open full Exfiltration view →
+          </button>
         ) : null}
       </div>
 
@@ -178,6 +266,7 @@ export function Zoom0FanInPanel({
             ) : (
               <div className="h-full min-h-[520px]">
                 <TrafficFlowMap
+                  key={`zoom0-tfm-${mapLens}`}
                   systemName={systemName}
                   spotlightPaths={spotlightPaths}
                   spotlightPathId={null}
@@ -187,9 +276,17 @@ export function Zoom0FanInPanel({
                   }}
                   titleOverride="Attack Map"
                   innerTitleOverride="Jewel fan-in"
-                  innerSubtitleOverride="All paths to this crown jewel · observed vs configured"
+                  innerSubtitleOverride={
+                    mapLens === "lateral"
+                      ? "Lateral pivots on fan-in · Laterals bright"
+                      : mapLens === "exfiltration"
+                        ? "Paths that can reach data egress from this jewel"
+                        : "All paths to this crown jewel · observed vs configured"
+                  }
                   pathBadgeOverride={`${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`}
                   observedMode
+                  canvasV2
+                  defaultShowLaterals={mapLens === "lateral"}
                 />
               </div>
             )}

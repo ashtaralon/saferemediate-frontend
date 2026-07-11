@@ -7169,6 +7169,7 @@ export default function TrafficFlowMap({
   innerSubtitleOverride,
   observedMode = false,
   defaultShowVPCBoundaries = false,
+  defaultShowLaterals,
   headerSlot,
   onRoleClick,
   jewelEmphasis = false,
@@ -7255,6 +7256,8 @@ export default function TrafficFlowMap({
   // without requiring an extra click — the VPC is genuinely part of
   // the chain (EC2 → SG → VPC → Subnet → Role), not a layered overlay.
   defaultShowVPCBoundaries?: boolean;
+  /** Initial Laterals bright/dim (canvasV2). When set, skips localStorage seed. */
+  defaultShowLaterals?: boolean;
   // Optional click hook on the IAM role chip. When provided, the EXFIL
   // view subscribes so clicking a role opens the RoleDetailPanel
   // (slides in from the right) instead of the existing generic
@@ -7448,6 +7451,7 @@ export default function TrafficFlowMap({
   // persists in localStorage scoped per-user (not per-chain) so the
   // operator's preference sticks across navigation.
   const [showLaterals, setShowLateralsState] = useState<boolean>(() => {
+    if (typeof defaultShowLaterals === "boolean") return defaultShowLaterals
     if (typeof window === "undefined") return false
     try {
       return window.localStorage.getItem("cyntro:canvasV2:showLaterals") === "true"
