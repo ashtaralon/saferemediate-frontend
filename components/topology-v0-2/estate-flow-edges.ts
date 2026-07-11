@@ -112,6 +112,46 @@ export function buildVisibleCanvasIds(
   return visible
 }
 
+const MERGED_VIEW_RAIL_TARGETS = new Set([
+  "__igw__",
+  "__aws_s3__",
+  "__aws_api__",
+])
+
+/**
+ * Compare / All-VPCs overlay: drop chip↔chip edges that jump between VPC
+ * columns. Keep intra-VPC edges and legs to IGW / AWS sentinels / VPCEs /
+ * regional·serverless rail (no vpc_id). Cross-column ACCESSES_RESOURCE and
+ * internal fans are what make merged ALL ACCESS unreadable.
+ */
+export function filterMergedVpcOverlayEdges(
+  edges: TrafficEdge[],
+  nodes: Array<Pick<TopologyNode, "id" | "vpc_id">>,
+  opts: {
+    railIds?: Set<string>
+    vpceIds?: Set<string>
+  } = {},
+): TrafficEdge[] {
+  const vpcById = new Map<string, string>()
+  for (const n of nodes) {
+    if (n.vpc_id) vpcById.set(n.id, n.vpc_id)
+  }
+  const railIds = opts.railIds ?? new Set<string>()
+  const vpceIds = opts.vpceIds ?? new Set<string>()
+
+  const isRailOrGateway = (id: string) =>
+    MERGED_VIEW_RAIL_TARGETS.has(id) || railIds.has(id) || vpceIds.has(id)
+
+  return edges.filter(e => {
+    if (isRailOrGateway(e.source_id) || isRailOrGateway(e.target_id)) return true
+    const srcVpc = vpcById.get(e.source_id)
+    const dstVpc = vpcById.get(e.target_id)
+    // Missing vpc = regional/serverless/unknown — keep (honest rail story).
+    if (!srcVpc || !dstVpc) return true
+    return srcVpc === dstVpc
+  })
+}
+
 function resolveCanvasId(
   raw: string | null | undefined,
   index: Map<string, string>,

@@ -46,6 +46,7 @@ import {
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
+import { filterMergedVpcOverlayEdges } from "./estate-flow-edges"
 import { subnetOwnershipTooltipLine } from "./estate-ownership"
 import { databasePublicIpExposureLabel } from "./estate-edge-labels"
 import {
@@ -4139,7 +4140,11 @@ export function AwsFrame({
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
     for (const n of serverlessTierNodes) visible.add(n.id)
-    return overlayEdgeList.filter(e => {
+    const railIds = new Set<string>([
+      ...regionalTierNodes.map(n => n.id),
+      ...serverlessTierNodes.map(n => n.id),
+    ])
+    let edges = overlayEdgeList.filter(e => {
       if (!visible.has(e.source_id)) return false
       if (e.target_id === "__igw__") return true
       if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
@@ -4147,7 +4152,20 @@ export function AwsFrame({
       if (vpceIds.has(e.target_id)) return true
       return visible.has(e.target_id)
     })
-  }, [overlayEdgeList, nodes, regionalTierNodes, serverlessTierNodes, vpceIds])
+    // All VPCs · Compare: one SVG over two columns — cross-VPC chip↔chip
+    // edges turn the gutter into spaghetti. Keep intra-VPC + rail/IGW/VPCE.
+    if (mergedVpcView) {
+      edges = filterMergedVpcOverlayEdges(edges, nodes, { railIds, vpceIds })
+    }
+    return edges
+  }, [
+    overlayEdgeList,
+    nodes,
+    regionalTierNodes,
+    serverlessTierNodes,
+    vpceIds,
+    mergedVpcView,
+  ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
   // frame receives ONLY its own VPC's workloads so a second VPC's compute is
