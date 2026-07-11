@@ -56,6 +56,16 @@ export interface ClosureAfterState {
   path_open_after: boolean             // true → "damage closed, not path closed"
 }
 
+/** Graph-derived cut impact (PRD S5). FE displays only — never estimates. */
+export interface ClosureCloses {
+  closes_paths: number
+  closes_path_ids: string[]
+  closes_lateral: number
+  closes_lateral_ids: string[]
+  closes_lateral_jewels: number
+  source: "neo4j_attack_path" | string
+}
+
 // The whole preview. `proof` is null in PROPOSE/preview mode (Phase 1) — the
 // after-state is *projected* until the pipeline VERIFY stage runs a canary.
 export interface ClosurePreview {
@@ -66,4 +76,6 @@ export interface ClosurePreview {
   verdict_reasons: string[]            // e.g. ["shared_role across 2 live workloads"]
   rollback_available: boolean
   mode: "PROPOSE" | "APPLY" | string
+  /** S5 closes-count — absent on older backends → honest omit in UI. */
+  closes?: ClosureCloses | null
 }

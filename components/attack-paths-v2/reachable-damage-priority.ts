@@ -66,8 +66,26 @@ function hasObservedDataPlane(path: IdentityAttackPath): boolean {
   return (path.edges ?? []).some(
     (e) =>
       e.is_observed === true &&
-      /ACTUAL_S3_ACCESS|READS_FROM|WRITES_TO|ACCESSES_RESOURCE/i.test(e.type),
+      /ACTUAL_S3_ACCESS|ACTUAL_.*_ACCESS|READS_FROM|WRITES_TO|ACCESSES_RESOURCE|DECRYPTS_WITH/i.test(
+        e.type,
+      ),
   )
+}
+
+/** Jewel service label for headlines — works for S3 / DynamoDB / KMS / secrets. */
+export function jewelServiceLabel(path: IdentityAttackPath, jewel?: CrownJewelSummary | null): string {
+  const raw =
+    path.damage_capability?.jewel_service ||
+    jewel?.type ||
+    (path.nodes ?? []).find((n) => n.tier === "crown_jewel")?.type ||
+    ""
+  const t = String(raw).toLowerCase()
+  if (/dynamo/.test(t)) return "DynamoDB table"
+  if (/kms|key/.test(t)) return "KMS key"
+  if (/secret/.test(t)) return "secret"
+  if (/rds/.test(t)) return "RDS instance"
+  if (/s3|bucket/.test(t)) return "S3 bucket"
+  return jewel?.name || path.target || "crown jewel"
 }
 
 function hasAnyObserved(path: IdentityAttackPath): boolean {

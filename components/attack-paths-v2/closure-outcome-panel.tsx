@@ -30,6 +30,7 @@ import {
 import type { IdentityAttackPath, CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { ClosurePreview, ClosureVerdict } from "./closure-outcome-types"
 import { useClosurePreview } from "./use-closure-preview"
+import { formatClosureClosesLine } from "./format-closure-closes"
 import { AttackerNarrative } from "./attacker-narrative"
 
 interface ClosureOutcomePanelProps {
@@ -152,7 +153,7 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
     )
   }
 
-  const { diff, after, proof, verdict, verdict_reasons, rollback_available, mode } = closure
+  const { diff, after, proof, verdict, verdict_reasons, rollback_available, mode, closes } = closure
   const vmeta = VERDICT_META[verdict] ?? VERDICT_META.approval_required
   const shownRemoved = diff.removed_actions.slice(0, 4)
   const moreRemoved = diff.removed_actions.length - shownRemoved.length
@@ -184,6 +185,24 @@ export function ClosureOutcomePanel({ closure, path, jewel, damageHint }: Closur
           <p className="text-[11px] text-muted-foreground">
             The exact permission diff you are approving — not the narrative.
           </p>
+          {/* S5: graph-derived closes — never FE-estimated */}
+          {(() => {
+            const line = formatClosureClosesLine(closes)
+            if (!line) return null
+            return (
+              <div
+                className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-[12px] text-foreground"
+                data-testid="closure-closes-count"
+              >
+                <span className="font-semibold text-emerald-800 dark:text-emerald-200">Closes</span>
+                <span className="mx-1.5 text-muted-foreground">·</span>
+                <span>{line}</span>
+                <span className="ml-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  graph
+                </span>
+              </div>
+            )
+          })()}
           {/* The standalone-HTML 3-column story: BEFORE → DIFF → AFTER */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <StoryColumn tone="before" title="Before · today">
