@@ -300,10 +300,10 @@ export function AttackPathsV2({
 
   // Progressive load (P0 perf):
   //   1. /jewels — fast materialized crown-jewel list → left rail + shell
-  //   2. full IAP — heavy path graph (30–55s cold) → background; paths
-  //      column waits, Zoom −1 blast-radius does NOT.
-  // Blocking the whole tab on (2) caused the "Loading attack paths…"
-  // spinner + 502 when cold compute exceeded the 55s proxy abort.
+  //   2. by-crown-jewel/summary per selected jewel → path rail (critical)
+  //   3. full IAP 5×5 — background only; never bricks the path rail on 502
+  // (Render wake happens via jewels fetch + keep-warm cron — don't fire the
+  // full keep-warm sweep from the browser on every tab open.)
   const jewelsUrl = systemName
     ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
     : null
@@ -322,18 +322,24 @@ export function AttackPathsV2({
     maxStaleMs: 10 * 60 * 1000,
   })
 
+  // Full IAP fan-out is OPTIONAL enrichment only — never gate the path rail.
+  // Cold alon-prod routinely exceeds the 55s proxy abort → HTTP 502 and used
+  // to brick the middle column. Paths come from by-crown-jewel/summary
+  // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
+  // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
     ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=5&max_paths_per_jewel=5`
     : null
   const {
     data: rawData,
     loading: isLoading,
-    error,
+    error: _iapBackgroundError,
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
     cacheKey: `iap-v2:5x5:${systemName}`,
   })
+  // Intentionally ignore _iapBackgroundError for the path rail UI.
 
   const retry = () => {
     retryJewels()
@@ -357,16 +363,19 @@ export function AttackPathsV2({
     return isTrustEnvelope(rawData) ? rawData.result : rawData
   }, [rawData])
 
-  // Auto-retry once after a cold 502 — backend often finishes compute
-  // shortly after the proxy aborted; manual Retry is too easy to miss.
+  // Soft auto-retry of background IAP only — never surfaces in the path rail.
   useEffect(() => {
-    if (!error || rawData || isLoading) return
-    if (!String(error).includes("502") && !String(error).includes("504")) return
+    if (!_iapBackgroundError || rawData || isLoading) return
+    if (
+      !String(_iapBackgroundError).includes("502") &&
+      !String(_iapBackgroundError).includes("504")
+    )
+      return
     const t = setTimeout(() => {
       retryFullIap()
     }, 8000)
     return () => clearTimeout(t)
-  }, [error, rawData, isLoading, retryFullIap])
+  }, [_iapBackgroundError, rawData, isLoading, retryFullIap])
 
   const fromProxyStale =
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
@@ -438,6 +447,8 @@ export function AttackPathsV2({
   const {
     data: jewelSummaryConvergence,
     loading: jewelSummaryLoading,
+    retrying: jewelSummaryRetrying,
+    attempts: jewelSummaryAttempts,
     error: jewelSummaryError,
     retry: retryJewelSummary,
   } = useCrownJewelConvergence(
@@ -463,17 +474,23 @@ export function AttackPathsV2({
   const pathsPending =
     Boolean(selectedJewelId) &&
     jewelPaths.length === 0 &&
-    (isLoading || jewelSummaryLoading)
+    (jewelSummaryLoading || jewelSummaryRetrying)
 
   const pathsHardError =
     Boolean(selectedJewelId) &&
     jewelPaths.length === 0 &&
     !pathsPending &&
-    Boolean(error || jewelSummaryError) &&
-    !data?.paths?.length
+    Boolean(jewelSummaryError) &&
+    jewelSummaryAttempts >= 3
 
   const pathsFromMaterializedFallback =
     iapJewelPaths.length === 0 && jewelPaths.length > 0
+
+  const pathsWarming =
+    Boolean(selectedJewelId) &&
+    jewelPaths.length === 0 &&
+    !pathsHardError &&
+    (jewelSummaryLoading || jewelSummaryRetrying || Boolean(jewelSummaryError))
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
   // Single source of truth for both the center-column rail
@@ -806,7 +823,7 @@ export function AttackPathsV2({
     !zoomMinus1Ready &&
     !hasUsableJewels &&
     !data &&
-    ((error && !isLoading) || (jewelsError && !jewelsLoading))
+    (( _iapBackgroundError && !isLoading) || (jewelsError && !jewelsLoading))
   ) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
@@ -816,7 +833,7 @@ export function AttackPathsV2({
             <span className="text-sm font-semibold">Could not load attack paths</span>
           </div>
           <div className="text-xs text-muted-foreground mb-3">
-            {String(error || jewelsError)}
+            {String(_iapBackgroundError || jewelsError)}
           </div>
           <button
             onClick={retry}
@@ -942,36 +959,51 @@ export function AttackPathsV2({
             title="Select a crown jewel"
             subtitle="Pick an asset on the left to see every path that reaches it."
           />
-        ) : pathsPending ? (
-          <div className="flex h-full min-h-[240px] items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading paths for this jewel…
+        ) : pathsPending || pathsWarming ? (
+          <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+            <div className="text-center">
+              <div className="font-medium text-foreground">
+                {jewelSummaryRetrying || jewelSummaryAttempts > 1
+                  ? "Backend warming up — loading paths…"
+                  : "Loading paths for this jewel…"}
+              </div>
+              <div className="text-[11px] mt-1">
+                {selectedJewel?.path_count
+                  ? `${selectedJewel.path_count} materialized path${selectedJewel.path_count === 1 ? "" : "s"} expected`
+                  : "Materialized attack paths for this crown jewel"}
+                {jewelSummaryAttempts > 1
+                  ? ` · attempt ${jewelSummaryAttempts}`
+                  : ""}
+              </div>
+            </div>
           </div>
         ) : pathsHardError ? (
-          <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-            <div className="flex items-center gap-2 text-destructive mb-2 text-sm font-semibold">
+          <div className="m-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 mb-2 text-sm font-semibold">
               <AlertTriangle className="h-4 w-4" />
-              Could not load paths
+              Paths still warming
             </div>
             <div className="text-xs text-muted-foreground mb-3">
-              {jewelSummaryError || String(error)}
+              {jewelSummaryError ||
+                "Backend was cold and didn’t answer in time. Retry — the next try is usually fast."}
             </div>
             <button
               onClick={() => {
-                retryFullIap()
                 retryJewelSummary()
+                retryFullIap()
               }}
-              className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/20 transition-colors"
+              className="inline-flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-200 hover:bg-amber-500/25 transition-colors"
             >
               <RefreshCw className="h-3 w-3" /> Retry paths
             </button>
           </div>
         ) : (
           <>
-            {pathsFromMaterializedFallback && error ? (
+            {pathsFromMaterializedFallback && _iapBackgroundError ? (
               <div className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
-                Full system path fan-out was slow ({String(error)}). Showing
-                materialized paths for this jewel — pick a path to continue.
+                Showing materialized paths for this jewel. Full system fan-out
+                is still catching up in the background.
               </div>
             ) : null}
             {viewMode === "exfil" ? (
