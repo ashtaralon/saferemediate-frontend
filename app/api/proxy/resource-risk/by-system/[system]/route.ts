@@ -23,7 +23,10 @@ export async function GET(
   const BACKEND_URL = getBackendBaseUrl()
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 30000)
+  // Cold Render + Neo4j flap regularly exceed 30s; abort then surfaced as
+  // "Couldn't load findings: Backend request timed out" on Resource Risk
+  // while the backend was still finishing. Match maxDuration (60s).
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const res = await fetch(
