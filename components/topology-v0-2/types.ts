@@ -242,6 +242,7 @@ export interface TrafficEdge {
   /** DB flow-edge contract (Alon, 2026-07-10) — older BE may omit. */
   engine?: string | null
   internal_hits?: number | null
+  /** Distinct public source IPs from Flow Logs on the engine port — not systems. */
   external_sources?: number | null
   external_hits?: number | null
   publicly_accessible?: boolean | null
