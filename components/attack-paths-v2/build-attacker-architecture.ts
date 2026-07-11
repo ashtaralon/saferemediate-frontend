@@ -257,9 +257,13 @@ function bucketForGraphType(
 // without copy-pasting. When attacker-view-panel.tsx is deleted
 // (M5 of the merge), move this function to its own module.
 export function buildAttackerArchitecture(
-  graph: GraphViewResponse,
+  graph: GraphViewResponse | null | undefined,
   path: IdentityAttackPath,
 ): SystemArchitecture {
+  // Null/partial canvas must not throw — Attack Map falls back to pathFilter
+  // seeding in TFM when this returns empty lanes.
+  const lateralsByNode = graph?.laterals_by_node ?? {}
+  const graphNodes = graph?.nodes ?? []
   const computeServices: ServiceNode[] = []
   const resources: ServiceNode[] = []
   const subnets: SubnetNode[] = []
@@ -372,7 +376,7 @@ export function buildAttackerArchitecture(
       //      key_properties + labels[]. path.nodes is sparser, so
       //      look up the same id in graph.nodes for the full
       //      payload.
-      const enriched = graph.nodes.find((g) => g.id === n.id)
+      const enriched = graphNodes.find((g) => g.id === n.id)
       if (enriched) {
         // 1b. ARN from key_properties.arn (e.g. when id is a short
         //     name but arn is set).
@@ -987,7 +991,7 @@ export function buildAttackerArchitecture(
   ])
   const onPathSgIds = new Set<string>()
   const onPathNaclIds = new Set<string>()
-  for (const [, edges] of Object.entries(graph.laterals_by_node)) {
+  for (const [, edges] of Object.entries(lateralsByNode)) {
     for (const e of edges) {
       const neighborId = e.neighbor_id
       if (!neighborId) continue
@@ -1005,7 +1009,7 @@ export function buildAttackerArchitecture(
   // totalCount / gapCount / rule arrays come from real graph data
   // (fix for the "0 rules" / "0 affected" / "permission_count missing"
   // class of credibility bugs).
-  for (const node of graph.nodes) {
+  for (const node of graphNodes) {
     const bucket = bucketForGraphType(node.type, node.id)
     const props = (node.key_properties as Record<string, any> | undefined) ?? null
     // Canonical display identity — resolved ONCE here so every lane card
@@ -1151,7 +1155,7 @@ export function buildAttackerArchitecture(
   // Skip every other ENI / NACL / IGW reference (those are siblings
   // discovered via SG fan-out etc).
   const pathNodeTypeByKey = new Map<string, string>()
-  for (const node of graph.nodes) {
+  for (const node of graphNodes) {
     pathNodeTypeByKey.set(node.id, bucketForGraphType(node.type, node.id))
   }
 
@@ -1175,7 +1179,7 @@ export function buildAttackerArchitecture(
   // or Per-Path view, not the Attacker chain.
   const ipsOnPathChain = new Set<string>()
   for (const role of iamRoles) {
-    const roleLaterals = graph.laterals_by_node[role.id] || []
+    const roleLaterals = lateralsByNode[role.id] || []
     for (const e of roleLaterals) {
       if (
         e.direction === "in" &&
@@ -1225,7 +1229,7 @@ export function buildAttackerArchitecture(
     edge: GraphViewEdge
   }> = []
 
-  for (const [pathNodeId, edges] of Object.entries(graph.laterals_by_node)) {
+  for (const [pathNodeId, edges] of Object.entries(lateralsByNode)) {
     const pathNodeBucket = pathNodeTypeByKey.get(pathNodeId)
     for (const e of edges) {
       // Inline IAM policies (and other inline-only nodes) arrive with an empty
@@ -1283,7 +1287,7 @@ export function buildAttackerArchitecture(
           // path puts VPCEndpoint properties on graph.nodes); the
           // lateral edge itself doesn't carry it, so we look up the
           // enriched node from graph.nodes and pull service_name there.
-          const enrichedNode = graph.nodes.find((n) => n.id === neighborId)
+          const enrichedNode = graphNodes.find((n) => n.id === neighborId)
           const svcName =
             (enrichedNode?.key_properties as Record<string, any> | undefined)
               ?.service_name ?? null
@@ -1545,7 +1549,7 @@ export function buildAttackerArchitecture(
         }
       }
     }
-    for (const e of graph.laterals_by_node[pn.id] ?? []) {
+    for (const e of lateralsByNode?.[pn.id] ?? []) {
       if ((e.type || "").toUpperCase() !== "IN_SUBNET") continue
       if (e.neighbor_id) linkComputeToSubnet(pn.id, e.neighbor_id)
     }
@@ -1559,7 +1563,7 @@ export function buildAttackerArchitecture(
   // Backfill VPC CIDR from graph nodes when addAsVPC ran without key_properties.
   for (const v of vpcsById.values()) {
     if (v.cidrBlock) continue
-    const vpcNode = graph.nodes.find((n) => n.id === v.vpcId)
+    const vpcNode = graphNodes.find((n) => n.id === v.vpcId)
     const cidr = vpcNode?.key_properties?.cidr_block
     if (typeof cidr === "string" && cidr) v.cidrBlock = cidr
   }
@@ -1620,7 +1624,7 @@ export function buildAttackerArchitecture(
 
   // Region — infer from the first ARN in the graph (service slot).
   let region: string | undefined
-  for (const n of graph.nodes ?? []) {
+  for (const n of graphNodes ?? []) {
     const id = n.id || ""
     const m = id.match(/arn:aws:[^:]+:([a-z0-9-]+-\d):/)
     if (m) {
@@ -1662,7 +1666,7 @@ export function buildAttackerArchitecture(
   // User audit caught the count regression and the fix is to keep the
   // count honest.
   for (const role of iamRoles) {
-    const roleNode = graph.nodes.find((n) => n.id === role.id)
+    const roleNode = graphNodes.find((n) => n.id === role.id)
     const twinId = (roleNode?.key_properties as Record<string, any> | undefined)?.binding_twin_id
     if (typeof twinId === "string" && twinId && seen.has(twinId)) {
       if (instanceProfiles.some((ip) => ip.id === twinId)) {
@@ -1684,7 +1688,7 @@ export function buildAttackerArchitecture(
   // CJ(s). Now the chip shows the chain-scoped number — 789,820 in this
   // case — matching what the operator expects from the chain context.
   for (const role of iamRoles as any[]) {
-    const roleLaterals = graph.laterals_by_node?.[role.id] ?? []
+    const roleLaterals = lateralsByNode?.[role.id] ?? []
     let cjHits = 0
     for (const e of roleLaterals) {
       if (e.type !== "ACCESSES_RESOURCE") continue
@@ -1971,7 +1975,7 @@ export function buildAttackerArchitecture(
 
   // (2) From laterals — both on_path observed edges AND lateral
   //     attachments to the cards we rendered (NACL, SG, IP, IGW, Role).
-  for (const [pathNodeId, neighbors] of Object.entries(graph.laterals_by_node)) {
+  for (const [pathNodeId, neighbors] of Object.entries(lateralsByNode)) {
     for (const e of neighbors) {
       // Same inline-node fallback as the node pass: inline IAM policies carry
       // their id in neighbor_arn (neighbor_id is empty), so without this the

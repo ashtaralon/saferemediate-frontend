@@ -6699,6 +6699,40 @@ function derivePathDominance(
   return { pathStepByNodeId, onPathNodeIds, pathEdgePairKeys };
 }
 
+function emptySystemArchitecture(): SystemArchitecture {
+  return {
+    computeServices: [],
+    principals: [],
+    entryPoints: [],
+    resources: [],
+    subnets: [],
+    securityGroups: [],
+    nacls: [],
+    iamRoles: [],
+    instanceProfiles: [],
+    iamPolicies: [],
+    vpcEndpoints: [],
+    egressGateways: [],
+    flows: [],
+    totalBytes: 0,
+    totalConnections: 0,
+    totalGaps: 0,
+  }
+}
+
+/** True when the architecture has at least one card TFM can paint. */
+function architectureHasRenderableContent(arch: SystemArchitecture): boolean {
+  return (
+    arch.computeServices.length > 0 ||
+    arch.resources.length > 0 ||
+    (arch.entryPoints?.length ?? 0) > 0 ||
+    arch.iamRoles.length > 0 ||
+    (arch.principals?.length ?? 0) > 0 ||
+    (arch.instanceProfiles?.length ?? 0) > 0 ||
+    arch.securityGroups.length > 0
+  )
+}
+
 function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFilter): SystemArchitecture {
   const ids = new Set(filter.nodeIds);
   const inPath = (id: string | undefined | null) => !!id && ids.has(id);
@@ -7316,37 +7350,54 @@ export default function TrafficFlowMap({
       };
     };
     if (architectureOverride) {
-      // 2026-06-11 bug fix: callers like the merged Attack Path tab
-      // (path-analysis-panel.tsx) pass BOTH architectureOverride AND
-      // pathFilter. The override used to short-circuit applyPathFilter
-      // entirely, so pathStepByNodeId / pathEdgePairKeys / onPathNodeIds
-      // were never populated — no dominant spine, no numbered step
-      // badges, no ring emphasis, no faded background edges. Derive the
-      // dominance payload here via the SAME shared helpers applyPathFilter
-      // uses (incl. principal-session → EC2 step mirroring) and attach it
-      // to a shallow copy — never mutate the caller's prop object.
-      if (
-        pathFilter &&
-        !(architectureOverride.pathStepByNodeId && architectureOverride.pathStepByNodeId.size > 0)
-      ) {
-        const dom = derivePathDominance(
-          pathFilter,
-          buildComputeByInstanceId(architectureOverride.computeServices),
-        );
-        if (dom.pathStepByNodeId.size > 0) {
-          return markCjs({
-            ...architectureOverride,
-            pathStepByNodeId: dom.pathStepByNodeId,
-            pathEdgePairKeys: dom.pathEdgePairKeys,
-            // Union with any caller-supplied on-path set (canvasV2
-            // lateral dimming) — both claim "this node is on the chain".
-            onPathNodeIds: architectureOverride.onPathNodeIds
-              ? new Set([...architectureOverride.onPathNodeIds, ...dom.onPathNodeIds])
-              : dom.onPathNodeIds,
-          });
+      // 2026-07-12: empty graph-view canvas used to short-circuit here with
+      // zero cards → "No Active Traffic" on Attack Map even when pathFilter
+      // carried a full spine. If the override has nothing to paint, fall
+      // through and seed from pathFilter (same as missing dep-map).
+      const overrideUsable = architectureHasRenderableContent(architectureOverride)
+      if (overrideUsable) {
+        // 2026-06-11 bug fix: callers like the merged Attack Path tab
+        // (path-analysis-panel.tsx) pass BOTH architectureOverride AND
+        // pathFilter. The override used to short-circuit applyPathFilter
+        // entirely, so pathStepByNodeId / pathEdgePairKeys / onPathNodeIds
+        // were never populated — no dominant spine, no numbered step
+        // badges, no ring emphasis, no faded background edges. Derive the
+        // dominance payload here via the SAME shared helpers applyPathFilter
+        // uses (incl. principal-session → EC2 step mirroring) and attach it
+        // to a shallow copy — never mutate the caller's prop object.
+        if (
+          pathFilter &&
+          !(architectureOverride.pathStepByNodeId && architectureOverride.pathStepByNodeId.size > 0)
+        ) {
+          const dom = derivePathDominance(
+            pathFilter,
+            buildComputeByInstanceId(architectureOverride.computeServices),
+          );
+          if (dom.pathStepByNodeId.size > 0) {
+            return markCjs({
+              ...architectureOverride,
+              pathStepByNodeId: dom.pathStepByNodeId,
+              pathEdgePairKeys: dom.pathEdgePairKeys,
+              // Union with any caller-supplied on-path set (canvasV2
+              // lateral dimming) — both claim "this node is on the chain".
+              onPathNodeIds: architectureOverride.onPathNodeIds
+                ? new Set([...architectureOverride.onPathNodeIds, ...dom.onPathNodeIds])
+                : dom.onPathNodeIds,
+            });
+          }
         }
+        return markCjs(architectureOverride);
       }
-      return markCjs(architectureOverride);
+    }
+    // No dep-map (or empty override) but we have an attack-path spine —
+    // seed cards from pathFilter so Attack Map never shows the System Map
+    // "No Active Traffic" empty state for a selected path.
+    if (
+      !rawArchitecture &&
+      pathFilter &&
+      ((pathFilter.pathNodes?.length ?? 0) > 0 || (pathFilter.nodeIds?.length ?? 0) > 0)
+    ) {
+      return markCjs(applyPathFilter(emptySystemArchitecture(), pathFilter));
     }
     if (!rawArchitecture) return null;
     return markCjs(pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture);
@@ -9947,10 +9998,25 @@ export default function TrafficFlowMap({
         ) : (
           <div className="text-center py-16">
             <div className="text-5xl mb-4">📡</div>
-            <p className="text-foreground text-lg font-semibold mb-2">No Active Traffic</p>
-            <p className="text-muted-foreground text-sm max-w-md mx-auto">
-              Generate traffic between services to see the live architecture diagram.
-            </p>
+            {pathFilter ? (
+              <>
+                <p className="text-foreground text-lg font-semibold mb-2">
+                  Path topology not placed yet
+                </p>
+                <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                  This attack path has no renderable hop placement on the map
+                  yet — not a missing traffic issue. Retry the path load or
+                  pick another path.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-foreground text-lg font-semibold mb-2">No Active Traffic</p>
+                <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                  Generate traffic between services to see the live architecture diagram.
+                </p>
+              </>
+            )}
             <button onClick={() => retryDepMap()} className="mt-6 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm">
               Refresh
             </button>
