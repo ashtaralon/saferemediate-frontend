@@ -39,6 +39,7 @@ import type {
   PathListRow,
   PathObservedE2EClass,
 } from "./attack-path-report-types"
+import { compileZoom0Projection } from "./reachable-damage-priority"
 
 // =============================================================================
 // Edge-type taxonomies — drive observed_e2e_class derivation.
@@ -340,6 +341,7 @@ export function compilePathListRow(
   const target = compileTargetNode(path, jewel)
   const fromBackend = narrowCategory(path.initial_access?.category)
   const fromFallback = narrowCategory(fallbackInitialAccessCategory)
+  const zoom0 = compileZoom0Projection(path, jewel)
   return {
     id: path.id,
     source_label: compileSourceLabel(path),
@@ -363,5 +365,14 @@ export function compilePathListRow(
     impact_headline: compileImpactHeadline(path),
     impact_confidence: compileImpactConfidence(path),
     impact_reasons: compileImpactReasons(path),
+    attacker_headline: zoom0.attacker_headline,
+    layer_permissions: zoom0.layers.permissions,
+    layer_network: zoom0.layers.network,
+    layer_data: zoom0.layers.data,
+    damage_verbs: zoom0.damage_verbs,
+    lateral_count: zoom0.lateral_count,
+    reachable_damage_bucket: zoom0.reachable_damage_bucket,
+    reachable_damage_rank: zoom0.reachable_damage_rank,
+    fix_ready: zoom0.fix_ready,
   }
 }
