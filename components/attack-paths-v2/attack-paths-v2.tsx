@@ -827,7 +827,7 @@ export function AttackPathsV2({
     <div className={`flex ${shellHeight} bg-background text-foreground overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
-        className={`${isPathExpanded ? "hidden" : "w-[260px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
+        className={`${isPathExpanded ? "hidden" : "w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
@@ -945,7 +945,7 @@ export function AttackPathsV2({
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main
         className={`flex-1 bg-background ${
-          isPathExpanded && viewMode === "attacker_map"
+          isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
             ? "flex flex-col min-h-0 overflow-hidden"
             : "overflow-y-auto"
         }`}
@@ -1168,6 +1168,7 @@ export function AttackPathsV2({
                   paths={[...jewelPaths]}
                   selectedPathId={selectedPathId}
                   onRequestMode={handleSetMode}
+                  isExpanded={isPathExpanded}
                 />
               ) : (
                 <EmptyState
@@ -1238,7 +1239,7 @@ function ModeToggle({
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0 shrink-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
