@@ -888,6 +888,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           } else {
             setBrss(null)
           }
+          // Same payload drives the gap card — avoid a second issues-summary hit.
+          applyGapAnalysisFromIssuesSummary(data)
         }
       }
 
@@ -955,11 +957,36 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   // =============================================================================
+  /** Derive gap-analysis card state from an issues-summary payload (no extra fetch). */
+  const applyGapAnalysisFromIssuesSummary = (data: any) => {
+    const permissions = data?.byCategory?.permissions || {}
+    const allowed = Number(permissions.allowed) || 0
+    const actual = Number(permissions.used) || 0
+    const gap = Number(permissions.unused) || Math.max(0, allowed - actual)
+    const gapPct = Number(permissions.gap_percentage) || 0
+    const confidence =
+      allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
+    const roleName = `${data?.resources?.iam_roles ?? 0} IAM roles (system aggregate)`
+
+    setGapAnalysis({
+      allowed,
+      actual,
+      gap,
+      gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
+      confidence: Math.round(confidence),
+      roleName,
+    })
+    setUnusedActionsList([])
+  }
+
   const fetchGapAnalysis = async () => {
     try {
       // System-scoped aggregate from issues-summary — the legacy
       // /api/proxy/gap-analysis?systemName= path treated systemName as an
       // IAM role name and 404'd for alon-prod (Defect 2, live QA 2026-07-04).
+      // Prefer reusing fetchIssuesSummary's payload when called from
+      // fetchAllData (see applyGapAnalysisFromIssuesSummary) — this path
+      // remains for isolated refresh / callers that only need gap.
       const response = await fetch(
         `/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`,
       )
@@ -969,24 +996,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       }
 
       const data = await response.json()
-      const permissions = data.byCategory?.permissions || {}
-      const allowed = Number(permissions.allowed) || 0
-      const actual = Number(permissions.used) || 0
-      const gap = Number(permissions.unused) || Math.max(0, allowed - actual)
-      const gapPct = Number(permissions.gap_percentage) || 0
-      const confidence =
-        allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
-      const roleName = `${data.resources?.iam_roles ?? 0} IAM roles (system aggregate)`
-
-      setGapAnalysis({
-        allowed,
-        actual,
-        gap,
-        gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
-        confidence: Math.round(confidence),
-        roleName,
-      })
-      setUnusedActionsList([])
+      applyGapAnalysisFromIssuesSummary(data)
       // Do NOT clear issues here — fetchIssuesSummary runs in parallel and
       // this race was wiping the Critical Issues panel on every Overview load.
     } catch (error) {
@@ -1183,7 +1193,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
   const fetchSystemMeta = async () => {
     try {
-      const res = await fetch("/api/proxy/systems/available")
+      // Use cached /api/proxy/systems (5m server cache + edge SWR), NOT
+      // /systems/available (no-store, 90s cold path). The available route
+      // was timing out under Render pressure and left the header stuck on
+      // "AWS region pending" even when systems data was warm elsewhere.
+      const res = await fetch("/api/proxy/systems")
       if (res.ok) {
         const data = await res.json()
         const match = (data.systems || []).find(
@@ -1251,9 +1265,10 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   const fetchAllData = async () => {
     // Critical path first — CVE fan-out deferred so Overview paints without
     // waiting on N sequential vulnerability calls.
+    // Gap card is filled inside fetchIssuesSummary (same issues-summary
+    // payload) — do not dual-fetch issues-summary here.
     await Promise.all([
       fetchIssuesSummary(),
-      fetchGapAnalysis(),
       fetchAutoTagStatus(),
       fetchBrssHistory(),
       fetchPostureScore(),
@@ -1266,11 +1281,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     fetchSystemMeta()
   }, [systemName])
 
-  // Overview-only polling — 2 min (was 30s) to stop hammering Render.
+  // Overview-only polling — 5 min (was 2 min / 30s). Heavy parallel fetches
+  // on a short interval contributed to Render 502 stampedes.
   useEffect(() => {
     if (activeTab !== "overview") return
     fetchAllData()
-    const interval = setInterval(fetchAllData, 120_000)
+    const interval = setInterval(fetchAllData, 300_000)
     return () => clearInterval(interval)
   }, [systemName, activeTab])
 
