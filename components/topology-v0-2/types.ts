@@ -119,6 +119,15 @@ export interface TopologyNode {
   foreign_consumer_system_count?: number
   foreign_consumer_systems?: string[]
   foreign_shared_access_count?: number
+  /**
+   * Co-location ownership (BE >= ownership-clarity deploy).
+   * `owner_system_name`: node's own SystemName tag.
+   * `is_foreign`: true when this system's map admits a node tagged for a
+   * different system (e.g. enriched TargetGroup in a shared VPC). Untagged
+   * nodes stay is_foreign=false — unknown, not a foreignness claim.
+   */
+  owner_system_name?: string | null
+  is_foreign?: boolean
 }
 
 /** Cross-system consumption of this system's shared S3/RDS/DDB (not co-location). */

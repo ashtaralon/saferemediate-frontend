@@ -799,6 +799,10 @@ function WorkloadChip({
     foreignSysCount > 0
       ? `${foreignSysCount} external system${foreignSysCount === 1 ? "" : "s"}`
       : null
+  const isForeignOwner = node.is_foreign === true
+  const ownerChip = isForeignOwner
+    ? (node.owner_system_name ?? "other system")
+    : null
   // Rich tooltip — when the BE attached a source_breakdown, show the
   // per-kind tally + top sources. Falls back to a short one-liner when
   // older BE deploys don't include the breakdown.
@@ -869,17 +873,24 @@ function WorkloadChip({
     <button
       type="button"
       onClick={onClick}
-      title={`${node.name}${usageTitle}`}
+      title={`${node.name}${ownerChip ? `\nShared neighbor · owned by ${ownerChip}` : ""}${usageTitle}`}
       data-flow-id={node.id}
       data-chip-size={resolvedSize}
+      data-is-foreign={isForeignOwner ? "true" : undefined}
+      data-owner-system={ownerChip ?? undefined}
+      data-testid={isForeignOwner ? "topology-foreign-node" : undefined}
       className={layout.className}
       style={{
-        background: node.is_jewel ? "#FFFBEB" : PAL.cardBg,
-        border: `${layout.borderW}px solid ${borderColor}`,
+        background: isForeignOwner
+          ? "#F1F5F9"
+          : node.is_jewel
+            ? "#FFFBEB"
+            : PAL.cardBg,
+        border: `${layout.borderW}px solid ${isForeignOwner ? "#94A3B8" : borderColor}`,
         boxShadow: selected
           ? `0 0 0 3px ${PAL.teal}, ${halo}`
           : halo === "none" ? undefined : halo,
-        opacity: stale ? 0.62 : 1,
+        opacity: stale ? 0.62 : isForeignOwner ? 0.72 : 1,
       }}
     >
       <span
@@ -910,6 +921,16 @@ function WorkloadChip({
           <span className="text-[12px] font-semibold truncate" style={{ color: PAL.ink }}>
             {node.name}
           </span>
+          {ownerChip ? (
+            <span
+              className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+              style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+              title={`Shared VPC neighbor — owned by ${ownerChip}`}
+              data-testid="topology-foreign-owner-chip"
+            >
+              {ownerChip}
+            </span>
+          ) : null}
         </div>
         <div
           className="text-[10px] font-mono mt-0.5 truncate"
@@ -1144,18 +1165,30 @@ function ServiceNodeIcon({
   dense?: boolean
 }) {
   const typeLabel = node.type ?? "?"
+  const isForeignOwner = node.is_foreign === true
+  const ownerChip = isForeignOwner
+    ? (node.owner_system_name ?? "other system")
+    : null
   return (
     <ServiceIconShell
       type={node.type}
       selected={selected}
       label={node.name}
-      sublabel={typeLabel}
-      title={`${node.name} · ${typeLabel} — click for details`}
+      sublabel={ownerChip ? `shared · ${ownerChip}` : typeLabel}
+      title={
+        ownerChip
+          ? `${node.name} · shared neighbor owned by ${ownerChip} — click for details`
+          : `${node.name} · ${typeLabel} — click for details`
+      }
       onClick={() => onSelect(node.id)}
-      testId="topology-service-node-icon"
+      testId={isForeignOwner ? "topology-foreign-node" : "topology-service-node-icon"}
       flowId={node.id}
       dense={dense}
-      extraAttrs={{ "data-node-id": node.id }}
+      extraAttrs={{
+        "data-node-id": node.id,
+        "data-is-foreign": isForeignOwner ? "true" : undefined,
+        "data-owner-system": ownerChip ?? undefined,
+      }}
     />
   )
 }
