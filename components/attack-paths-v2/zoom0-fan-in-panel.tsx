@@ -70,6 +70,7 @@ export function Zoom0FanInPanel({
   paths,
   selectedPathId,
   onRequestMode,
+  isExpanded = false,
 }: {
   systemName: string
   jewel: CrownJewelSummary
@@ -77,6 +78,8 @@ export function Zoom0FanInPanel({
   selectedPathId: string | null
   /** Optional: jump to full Lateral Movement / Exfiltration presentation. */
   onRequestMode?: (mode: "lateral" | "exfil") => void
+  /** When map expand hides left columns, keep fan-in chrome pinned. */
+  isExpanded?: boolean
 }) {
   const cjArn =
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
@@ -128,11 +131,20 @@ export function Zoom0FanInPanel({
         : "Reachability — all initial-access paths to this crown jewel"
 
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="zoom0-fan-in">
-      <div className="px-6 py-3 border-b border-border bg-background shrink-0">
+    <div
+      className={`flex flex-col min-h-0 ${isExpanded ? "flex-1 h-full overflow-hidden" : "h-full"}`}
+      data-testid="zoom0-fan-in"
+      data-expanded={isExpanded ? "true" : "false"}
+    >
+      <div
+        className={`px-6 py-3 border-b border-border bg-background shrink-0 z-10 ${
+          isExpanded ? "sticky top-0 shadow-sm" : ""
+        }`}
+        data-testid="zoom0-fan-in-bar"
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-800 dark:text-cyan-300">
               Jewel fan-in
             </p>
             <p className="text-[12px] text-muted-foreground mt-0.5">
@@ -264,7 +276,7 @@ export function Zoom0FanInPanel({
                 draw that subset on the Attack Map — avoids spaghetti.
               </div>
             ) : (
-              <div className="h-full min-h-[520px]">
+              <div className={`h-full ${isExpanded ? "min-h-0" : "min-h-[520px]"}`}>
                 <TrafficFlowMap
                   key={`zoom0-tfm-${mapLens}`}
                   systemName={systemName}
