@@ -381,8 +381,11 @@ const AWS_PUBLIC_SENTINELS: Array<{
   name: string
   type: TopologyNode["type"]
 }> = [
-  { id: AWS_S3_PUBLIC_SENTINEL_ID, name: "S3 (public endpoints)", type: "S3Bucket" },
-  { id: AWS_API_PUBLIC_SENTINEL_ID, name: "AWS APIs (public)", type: "S3Bucket" },
+  // Labels mirror Neo4j ACTUAL_TRAFFIC → NetworkEndpoint.aws_service — not
+  // invented bucket names. Always rendered as dedicated rail anchors so
+  // FlowOverlay can draw workload → IGW → destination (1:1 with graph).
+  { id: AWS_S3_PUBLIC_SENTINEL_ID, name: "S3 endpoints (observed)", type: "S3Bucket" },
+  { id: AWS_API_PUBLIC_SENTINEL_ID, name: "AWS API endpoints (observed)", type: "DynamoDBTable" },
 ]
 
 /** Ensure regional rail has chips for BE NetworkEndpoint service sentinels. */
@@ -1841,8 +1844,14 @@ function RegionalDataServicesTier({
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
-  const useStacks = glance && shouldGlanceStackRail(nodes)
-  const groups = useStacks ? groupNodesByType(nodes) : null
+  // Neo4j NetworkEndpoint projections (__aws_s3__ / __aws_api__) must stay
+  // as dedicated data-flow-id anchors — never only buried inside an S3×N
+  // glance stack, or FlowOverlay drops workload→IGW→AWS legs.
+  const sentinelIds = new Set(AWS_PUBLIC_SENTINELS.map(s => s.id))
+  const neo4jDestAnchors = nodes.filter(n => sentinelIds.has(n.id))
+  const inventory = nodes.filter(n => !sentinelIds.has(n.id))
+  const useStacks = glance && shouldGlanceStackRail(inventory)
+  const groups = useStacks ? groupNodesByType(inventory) : null
   return (
     <div
       className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
@@ -1856,6 +1865,21 @@ function RegionalDataServicesTier({
       <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
+      {neo4jDestAnchors.length > 0 ? (
+        <div
+          className="flex flex-wrap gap-1.5 max-w-full justify-center mb-1.5"
+          data-testid="topology-neo4j-dest-anchors"
+        >
+          {neo4jDestAnchors.map(n => (
+            <ServiceNodeIcon
+              key={n.id}
+              node={n}
+              selected={n.id === selectedNodeId}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-1.5 max-w-full justify-center">
         {groups
           ? groups.map(g => (
@@ -1869,7 +1893,7 @@ function RegionalDataServicesTier({
                 }}
               />
             ))
-          : nodes.map(n => (
+          : inventory.map(n => (
               <ServiceNodeIcon
                 key={n.id}
                 node={n}
@@ -2171,6 +2195,17 @@ function FlowOverlay({
       for (const t of tiles) {
         const ids = (t.getAttribute("data-flow-ids") ?? "").split("|")
         if (ids.includes(id)) return { el: t, grouped: true }
+      }
+      // Neo4j NetworkEndpoint sentinels: if the dedicated anchor chip is
+      // missing (stale cache / glance race), land on the regional rail so
+      // workload→IGW→AWS still paints instead of dying at the IGW.
+      if (id === AWS_S3_PUBLIC_SENTINEL_ID || id === AWS_API_PUBLIC_SENTINEL_ID) {
+        const rail = container.querySelector<HTMLElement>(
+          '[data-testid="topology-neo4j-dest-anchors"]',
+        ) ?? container.querySelector<HTMLElement>(
+          '[data-testid="topology-regional-data-tier"]',
+        )
+        if (rail) return { el: rail, grouped: true }
       }
       return null
     }
