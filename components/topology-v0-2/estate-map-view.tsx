@@ -1114,7 +1114,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             onChange={e => {
               setSelectedNodeId(null)
               setHighlightedRoleName(null)
-              setSelectedVpcId(e.target.value)
+              const next = e.target.value
+              setSelectedVpcId(next)
+              // Compare lands in Attack Paths — ALL ACCESS across both columns
+              // is unreadable (cross-VPC + dual regional fans). Toggle still available.
+              if (next === "all") setFlowMode("attack_paths")
             }}
             className={
               compact
@@ -1134,7 +1138,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {!compact ? (
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
               {selectedVpcId === "all"
-                ? "Compare — each VPC is its own column (own vs shared); tiers stay aligned. Lambda/S3/DDB on the right rail."
+                ? "Compare — own vs shared columns; overlay defaults to Attack Paths (cross-VPC chip edges hidden). Use a single VPC for full ALL ACCESS."
                 : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
           ) : null}

@@ -3,6 +3,7 @@ import type { IdentityAttackPath } from "@/components/identity-attack-paths/type
 import {
   attackPathEdgesToTrafficEdges,
   depMapEdgesToTrafficEdges,
+  filterMergedVpcOverlayEdges,
   mergeTrafficEdges,
   selectEstateFlowEdges,
 } from "@/components/topology-v0-2/estate-flow-edges"
@@ -204,5 +205,52 @@ describe("estate-flow-edges", () => {
       via_vpce_service_name: null,
     }
     expect(mergeTrafficEdges([a], [{ ...a }])).toHaveLength(1)
+  })
+})
+
+describe("filterMergedVpcOverlayEdges", () => {
+  const nodes = [
+    { id: "a", vpc_id: "vpc-0329" },
+    { id: "b", vpc_id: "vpc-0329" },
+    { id: "c", vpc_id: "vpc-086" },
+    { id: "s3", vpc_id: null },
+  ]
+
+  const edge = (
+    source_id: string,
+    target_id: string,
+    edge_class: "internal" | "edge_service" | "egress" = "internal",
+  ) => ({
+    source_id,
+    target_id,
+    port: null,
+    protocol: "ACTUAL_TRAFFIC",
+    last_seen: null,
+    edge_class,
+    external_destinations: null,
+    via_vpce_id: null,
+    via_vpce_service_name: null,
+  })
+
+  it("drops chip↔chip edges across VPC columns", () => {
+    const out = filterMergedVpcOverlayEdges(
+      [edge("a", "b"), edge("a", "c"), edge("c", "a")],
+      nodes,
+    )
+    expect(out.map(e => `${e.source_id}->${e.target_id}`)).toEqual(["a->b"])
+  })
+
+  it("keeps legs to IGW / AWS sentinels / rail / VPCE", () => {
+    const out = filterMergedVpcOverlayEdges(
+      [
+        edge("a", "__igw__", "egress"),
+        edge("c", "__aws_s3__", "edge_service"),
+        edge("a", "s3", "edge_service"),
+        edge("a", "vpce-1", "vpce"),
+      ],
+      nodes,
+      { railIds: new Set(["s3"]), vpceIds: new Set(["vpce-1"]) },
+    )
+    expect(out).toHaveLength(4)
   })
 })
