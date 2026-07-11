@@ -237,7 +237,7 @@ export function CrownJewelListPanel({
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="truncate text-xs font-semibold text-foreground">
+                    <span className="line-clamp-2 break-all text-xs font-semibold text-foreground" title={jewel.name ?? jewel.id}>
                       {jewel.name ?? jewel.id}
                     </span>
                     {!notComputed && <SeverityBadge severity={sev} size="sm" />}
