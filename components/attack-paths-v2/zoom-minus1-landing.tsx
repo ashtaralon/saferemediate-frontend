@@ -10,18 +10,18 @@ import { BlastRadiusMap } from "./blast-radius-map"
 
 export function ZoomMinus1Landing({ systemName }: { systemName: string }) {
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="zoom-minus1-landing">
-      <div className="px-6 py-4 border-b border-border bg-background/95">
+    <div className="flex flex-col h-full min-h-0 bg-background" data-testid="zoom-minus1-landing">
+      <div className="px-6 py-4 border-b border-border bg-background">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
           System blast radius
         </p>
-        <p className="text-[11px] text-muted-foreground mt-0.5 max-w-2xl">
+        <p className="text-[11px] text-muted-foreground mt-0.5 max-w-2xl leading-relaxed">
           Damage-first view of this business system. Select a crown jewel on the left
           to open jewel fan-in (Zoom 0), then a path for investigation and the cut card
           (Zoom 1).
         </p>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto bg-muted/20">
         <BlastRadiusMap systemName={systemName} />
       </div>
     </div>

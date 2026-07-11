@@ -1,15 +1,8 @@
 "use client"
 
 /**
- * BlastRadiusPlaneCuts — the Shared Dependency Plane rail + ranked Recommended
- * Cuts for the Attacker Map, rendered from the real
- * `/api/business-system/{system}/blast-radius` view-model (dependency_plane[] +
- * recommended_cuts[]). No mock: every count is graph-derived. Cuts are already
- * ranked by the backend's counterfactual (closes_paths) — we render, don't rank.
- *
- * Ships standalone (self-fetches) so it composes onto the attacker map without a
- * risky re-edit of the shared attack-paths-v2 shell; final placement lands with
- * the KPI strip in the layout follow-up.
+ * BlastRadiusPlaneCuts — Shared Dependency Plane + Recommended Cuts.
+ * Light theme — matches Attack Paths shell.
  */
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
@@ -48,9 +41,9 @@ const JEWEL_LABEL: Record<string, string> = {
 }
 
 const CONF_TONE: Record<string, string> = {
-  high: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
-  medium: "text-amber-300 border-amber-500/30 bg-amber-500/10",
-  low: "text-slate-400 border-slate-600 bg-slate-500/10",
+  high: "text-emerald-800 dark:text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
+  medium: "text-amber-800 dark:text-amber-300 border-amber-500/30 bg-amber-500/10",
+  low: "text-muted-foreground border-border bg-muted/50",
 }
 
 function Capability({ n, label, tone }: { n?: number | null; label: string; tone: string }) {
@@ -67,17 +60,27 @@ export function BlastRadiusPlaneCuts({ systemName }: { systemName: string }) {
     ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
     : null
   const { data, loading, error, retry } = useCachedFetch<PlaneCutsPayload>(url, {
-    cacheKey: `blast-radius:${systemName}`, // shared with the KPI strip → one fetch
+    cacheKey: `blast-radius:${systemName}`,
   })
 
   if (loading && !data) {
-    return <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-4 text-sm text-slate-400">Loading dependency plane…</div>
+    return (
+      <div className="rounded-xl border border-border bg-card px-5 py-4 text-sm text-muted-foreground">
+        Loading dependency plane…
+      </div>
+    )
   }
   if (error && !data) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-4 flex items-center justify-between">
-        <span className="text-sm text-slate-400">Couldn’t load the dependency plane.</span>
-        <button onClick={retry} className="text-sm text-teal-400 hover:text-teal-300 underline underline-offset-2">Retry</button>
+      <div className="rounded-xl border border-border bg-card px-5 py-4 flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">Couldn’t load the dependency plane.</span>
+        <button
+          type="button"
+          onClick={retry}
+          className="text-sm text-primary hover:underline underline-offset-2"
+        >
+          Retry
+        </button>
       </div>
     )
   }
@@ -88,27 +91,43 @@ export function BlastRadiusPlaneCuts({ systemName }: { systemName: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Shared Dependency Plane — identity-reachable, not inside a VPC */}
       {plane.length > 0 && (
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-          <header className="px-5 pt-4 pb-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-teal-400">Shared Dependency Plane</h3>
-            <p className="text-[11px] text-slate-500">reached via IAM roles — not inside a VPC</p>
+        <section className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+          <header className="px-5 pt-4 pb-2 border-b border-border/60">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">
+              Shared Dependency Plane
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              reached via IAM roles — not inside a VPC
+            </p>
           </header>
-          <ul className="divide-y divide-slate-800">
+          <ul className="divide-y divide-border">
             {plane.map((d) => (
-              <li key={d.jewel_type} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3">
-                <span className="text-sm font-medium text-slate-100 min-w-[6rem]">
+              <li
+                key={d.jewel_type}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3"
+              >
+                <span className="text-sm font-semibold text-foreground min-w-[6rem]">
                   {JEWEL_LABEL[d.jewel_type] ?? d.jewel_type}
                 </span>
                 {typeof d.reachable_observed === "number" ? (
-                  <span className="text-sm tabular-nums text-red-300">{d.reachable_observed} reachable</span>
+                  <span className="text-sm tabular-nums text-red-700 dark:text-red-400 font-medium">
+                    {d.reachable_observed} reachable
+                  </span>
                 ) : null}
                 <div className="flex flex-wrap gap-1.5">
-                  <Capability n={d.delete_capable_paths} label="delete-capable" tone="text-red-300 border border-red-500/25 bg-red-500/10" />
-                  <Capability n={d.write_capable_paths} label="write-capable" tone="text-amber-300 border border-amber-500/25 bg-amber-500/10" />
+                  <Capability
+                    n={d.delete_capable_paths}
+                    label="delete-capable"
+                    tone="text-red-800 dark:text-red-300 border border-red-500/25 bg-red-500/10"
+                  />
+                  <Capability
+                    n={d.write_capable_paths}
+                    label="write-capable"
+                    tone="text-amber-900 dark:text-amber-300 border border-amber-500/25 bg-amber-500/10"
+                  />
                   {d.protects_crown_jewels ? (
-                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/25 bg-violet-500/10">
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium text-violet-800 dark:text-violet-300 border border-violet-500/25 bg-violet-500/10">
                       protects {d.protects_crown_jewels} jewels
                     </span>
                   ) : null}
@@ -119,32 +138,50 @@ export function BlastRadiusPlaneCuts({ systemName }: { systemName: string }) {
         </section>
       )}
 
-      {/* Recommended cuts — backend-ranked by reachable-damage reduction */}
       {cuts.length > 0 && (
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-          <header className="px-5 pt-4 pb-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-teal-400">Recommended Cuts</h3>
-            <p className="text-[11px] text-slate-500">ranked by reachable-damage reduction</p>
+        <section className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+          <header className="px-5 pt-4 pb-2 border-b border-border/60">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">
+              Recommended Cuts
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              ranked by reachable-damage reduction
+            </p>
           </header>
-          <ul className="divide-y divide-slate-800">
+          <ul className="divide-y divide-border">
             {cuts.map((c) => (
               <li key={`${c.rank}-${c.role_name ?? c.workload_name}`} className="px-5 py-3">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[11px] tabular-nums text-slate-500">{c.rank}</span>
-                  <span className="text-sm font-medium text-slate-100">Restrict {c.role_name ?? c.workload_name}</span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{c.rank}</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    Restrict {c.role_name ?? c.workload_name}
+                  </span>
                   {c.is_aws_managed ? (
-                    <span className="text-[10px] uppercase tracking-wide text-slate-500 border border-slate-700 rounded px-1">AWS-managed</span>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 bg-muted/40">
+                      AWS-managed
+                    </span>
                   ) : null}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
                   {typeof c.closes_paths === "number" ? (
-                    <span className="text-emerald-400">closes <span className="tabular-nums font-medium">{c.closes_paths}</span> paths</span>
+                    <span className="text-emerald-700 dark:text-emerald-400">
+                      closes{" "}
+                      <span className="tabular-nums font-semibold">{c.closes_paths}</span> paths
+                    </span>
                   ) : null}
                   {c.remove_actions?.length ? (
-                    <span className="text-slate-400">removes <span className="tabular-nums">{c.remove_actions.length}</span> unused actions</span>
+                    <span className="text-muted-foreground">
+                      removes{" "}
+                      <span className="tabular-nums font-medium">{c.remove_actions.length}</span>{" "}
+                      unused actions
+                    </span>
                   ) : null}
                   {c.confidence ? (
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide border ${CONF_TONE[c.confidence.toLowerCase()] ?? CONF_TONE.low}`}>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide border ${
+                        CONF_TONE[c.confidence.toLowerCase()] ?? CONF_TONE.low
+                      }`}
+                    >
                       conf {c.confidence}
                     </span>
                   ) : null}
