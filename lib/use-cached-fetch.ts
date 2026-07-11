@@ -89,6 +89,32 @@ function looksLikePhantomId(value: unknown): boolean {
   return typeof value === "string" && NEO4J_ELEMENT_ID_RE.test(value)
 }
 
+// Render-boundary DB-edge engine gate — mirrors the backend engine gate in
+// topology_risk.py (#407). A cached pre-#407 payload can carry an impossible
+// edge like :3306 to a Postgres RDS (the old builder matched any DB port to
+// any data-tier RDS). The fresh payload no longer emits these, but SWR can
+// resurface the cached one — so drop it here too, independent of cache age.
+// Only filters when the engine is known AND a port is present AND it doesn't
+// match: unknown engines and port-less edges (e.g. QUERIES_DB) are kept.
+const DB_ENGINE_PORT: Record<string, number> = {
+  postgres: 5432, "aurora-postgresql": 5432,
+  mysql: 3306, mariadb: 3306, "aurora-mysql": 3306,
+  "sqlserver-ee": 1433, "sqlserver-se": 1433, "sqlserver-ex": 1433, "sqlserver-web": 1433,
+  "oracle-ee": 1521, "oracle-se2": 1521,
+}
+
+function impossibleDbEdge(obj: Record<string, unknown>): boolean {
+  if (obj.edge_class !== "database") return false
+  const engine = typeof obj.engine === "string" ? obj.engine.toLowerCase() : ""
+  const expected = DB_ENGINE_PORT[engine]
+  if (expected === undefined) return false // unknown engine → can't judge, keep
+  const raw = obj.port
+  const port =
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(raw, 10) : NaN
+  if (Number.isNaN(port)) return false // no port (QUERIES_DB) → keep
+  return port !== expected // e.g. 3306 to a Postgres target → impossible
+}
+
 /**
  * Walk an arbitrary API response and drop edges whose source/target
  * looks like a phantom (raw Neo4j elementId). Recognizes both the
@@ -99,7 +125,7 @@ function looksLikePhantomId(value: unknown): boolean {
  *
  * Returns the cleaned value and a count of edges dropped.
  */
-function sanitizePhantomEdges(value: unknown): { cleaned: unknown; dropped: number } {
+export function sanitizePhantomEdges(value: unknown): { cleaned: unknown; dropped: number } {
   let dropped = 0
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) {
@@ -116,7 +142,7 @@ function sanitizePhantomEdges(value: unknown): { cleaned: unknown; dropped: numb
           const canvasPhantom =
             "source_aws_id" in obj && "target_aws_id" in obj &&
             (looksLikePhantomId(obj.source_aws_id) || looksLikePhantomId(obj.target_aws_id))
-          if (flatPhantom || canvasPhantom) {
+          if (flatPhantom || canvasPhantom || impossibleDbEdge(obj)) {
             dropped += 1
             continue
           }

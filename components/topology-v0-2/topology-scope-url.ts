@@ -19,12 +19,21 @@ export function buildTopologyRiskProxyUrl(
   return qs ? `${base}?${qs}` : base
 }
 
-/** Client-side useCachedFetch key — v6 adds account + region dimensions. */
+/** Client-side useCachedFetch key.
+ *  v6 added account + region dimensions.
+ *  v7 (2026-07) one-shot-clears localStorage entries poisoned with the
+ *  pre-#407 phantom `RDS·3306` edge / missing exposure fields — bumping the
+ *  schema token means every browser abandons its stale v6 entry on this
+ *  deploy and re-fetches fresh. (Durable, per-render protection is the
+ *  engine/port sanitize in lib/use-cached-fetch.ts; this bump just flushes
+ *  the currently-poisoned caches.) A continuous data-freshness bust would
+ *  need a backend snapshot-generation id in the key — tracked follow-up,
+ *  since a backend-only fix like #407 never changes the FE build. */
 export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${systemName}:v6:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  return `topology-risk:${systemName}:v7:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
 }
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}. */

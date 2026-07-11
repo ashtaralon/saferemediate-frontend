@@ -21,14 +21,14 @@ describe("topology scope URLs", () => {
     )
   })
 
-  it("builds client cache key v6", () => {
+  it("builds client cache key v7 (bumped to flush pre-#407 phantom-3306 caches)", () => {
     expect(
       buildTopologyRiskCacheKey("alon-prod", {
         accountId: "745783559495",
         region: "eu-west-1",
         vpcId: "vpc-abc",
       }),
-    ).toBe("topology-risk:alon-prod:v6:745783559495:eu-west-1:vpc-abc")
+    ).toBe("topology-risk:alon-prod:v7:745783559495:eu-west-1:vpc-abc")
   })
 
   it("builds server cache key aligned with BE dimensions", () => {
