@@ -108,6 +108,7 @@ export function buildVisibleCanvasIds(
   for (const v of vpces) visible.add(v.id)
   visible.add("__igw__")
   visible.add("__aws_s3__")
+  visible.add("__aws_api__")
   return visible
 }
 
@@ -128,7 +129,7 @@ function classifyEdgeClass(
   nodeTypeById: Map<string, string | null>,
 ): TrafficEdgeClass {
   if (targetId === "__igw__") return "egress"
-  if (targetId === "__aws_s3__") return "edge_service"
+  if (targetId === "__aws_s3__" || targetId === "__aws_api__") return "edge_service"
   const targetType = nodeTypeById.get(targetId)
   if (targetType && REGIONAL_NODE_TYPES.has(targetType)) return "edge_service"
   const T = edgeType.toUpperCase()
@@ -181,7 +182,8 @@ function filterVisibleTrafficEdges(
       visible.has(e.source_id) &&
       (visible.has(e.target_id) ||
         e.target_id === "__igw__" ||
-        e.target_id === "__aws_s3__"),
+        e.target_id === "__aws_s3__" ||
+        e.target_id === "__aws_api__"),
   )
 }
 

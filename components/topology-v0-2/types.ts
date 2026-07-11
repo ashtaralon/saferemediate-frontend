@@ -217,8 +217,9 @@ export interface TrafficEdge {
   source_id: string
   // For egress edges this is the sentinel "__igw__" — the FE terminates
   // the arrow at the IGW perimeter icon rather than at a chip.
-  // "__aws_s3__" is a regional-rail sentinel for public-path S3 with no
-  // named bucket in the topology payload.
+  // "__aws_s3__" / "__aws_api__" are regional-rail sentinels for observed
+  // ACTUAL_TRAFFIC → NetworkEndpoint (aws_service) when no named bucket/API
+  // chip is in the topology payload — projected from Neo4j, not FE-invented.
   target_id: string
   port: number | null
   // For edge_service edges, protocol carries the Cypher relationship type
