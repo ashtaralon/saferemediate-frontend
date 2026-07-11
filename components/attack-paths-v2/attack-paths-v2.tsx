@@ -296,12 +296,30 @@ export function AttackPathsV2({
     }
   }, [systemName, searchParams, router, pathname])
 
-  // Same fetch pattern as the legacy page — reusing the proxy +
-  // useCachedFetch SWR layer so v2 inherits the cold-backend handling
-  // that took several iterations to get right.
-  // Enriched supplements run on the attack-path facade (map tab) only —
-  // not here. Page load is jewel list + path graph shape; enriched=true
-  // on this fetch doubled IAP cold time (~20–60s) before the map could start.
+  // Progressive load (P0 perf):
+  //   1. /jewels — fast materialized crown-jewel list → left rail + shell
+  //   2. full IAP — heavy path graph (30–55s cold) → background; paths
+  //      column waits, Zoom −1 blast-radius does NOT.
+  // Blocking the whole tab on (2) caused the "Loading attack paths…"
+  // spinner + 502 when cold compute exceeded the 55s proxy abort.
+  const jewelsUrl = systemName
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
+    : null
+  const {
+    data: jewelsRaw,
+    loading: jewelsLoading,
+    error: jewelsError,
+    isStale: jewelsIsStale,
+    retry: retryJewels,
+  } = useCachedFetch<{
+    result?: { crown_jewels?: CrownJewelSummary[] }
+    data?: { crown_jewels?: CrownJewelSummary[] }
+    crown_jewels?: CrownJewelSummary[]
+  }>(jewelsUrl, {
+    cacheKey: `iap-v2-jewels:${systemName}`,
+    maxStaleMs: 10 * 60 * 1000,
+  })
+
   const fetchUrl = systemName
     ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
     : null
@@ -309,19 +327,45 @@ export function AttackPathsV2({
     data: rawData,
     loading: isLoading,
     error,
-    retry,
+    isStale: iapIsStale,
+    retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
     cacheKey: `iap-v2:${systemName}`,
   })
 
+  const retry = () => {
+    retryJewels()
+    retryFullIap()
+  }
+
+  const liteJewels: CrownJewelSummary[] = useMemo(() => {
+    const cjs =
+      jewelsRaw?.result?.crown_jewels ??
+      jewelsRaw?.data?.crown_jewels ??
+      jewelsRaw?.crown_jewels ??
+      []
+    return Array.isArray(cjs) ? cjs : []
+  }, [jewelsRaw])
+
   // Envelope unwrap. Backend wraps in {provenance, result}; we want the
-  // result.
+  // result. Proxy stale fallback may also stamp fromStaleCache on the
+  // outer object — keep that visible for freshness UX.
   const data: IdentityAttackPathsResponse | null = useMemo(() => {
     if (!rawData) return null
     return isTrustEnvelope(rawData) ? rawData.result : rawData
   }, [rawData])
 
-  const jewels: CrownJewelSummary[] = data?.crown_jewels ?? []
+  const fromProxyStale =
+    Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
+    Boolean((data as { fromStaleCache?: boolean } | null)?.fromStaleCache)
+
+  // Prefer full IAP jewels (accurate path_count + severity) when present;
+  // otherwise show the lite list so the shell paints immediately.
+  const jewels: CrownJewelSummary[] =
+    data?.crown_jewels && data.crown_jewels.length > 0
+      ? data.crown_jewels
+      : liteJewels
+
   // Trust gate: distinguish a real "0 crown jewels" from a cold/failed
   // routing compute that returned HTTP 200 with an error envelope (jewels
   // are derived from the Neo4j graph, so an empty list is only meaningful
@@ -343,6 +387,12 @@ export function AttackPathsV2({
     () => filterActivePaths(data?.paths ?? []),
     [data?.paths],
   )
+
+  // Paths still loading for a selected jewel — center column spinner.
+  const pathsPending = Boolean(selectedJewelId) && isLoading && !data
+  const showingStale =
+    fromProxyStale || iapIsStale || jewelsIsStale
+
 
   // Paths for the currently-selected jewel. Empty list = no jewel
   // selected or no paths to it. narrowActivePaths preserves the
@@ -674,7 +724,14 @@ export function AttackPathsV2({
   }
 
   // ─── Loading / error states ────────────────────────────────────
-  if (isLoading && !data) {
+  // Zoom −1 (default, no jewel) only needs systemName — blast-radius is
+  // its own fetch. Do NOT block the whole tab on full IAP.
+  const zoomMinus1Ready =
+    viewMode === "attack-path" && !selectedJewelId && Boolean(systemName)
+  const hasUsableJewels = jewels.length > 0
+  // First-paint spinner only when we can't show Zoom −1 and still have
+  // no jewel list from either endpoint.
+  if (!zoomMinus1Ready && !hasUsableJewels && (jewelsLoading || isLoading) && !data) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -685,7 +742,14 @@ export function AttackPathsV2({
     )
   }
 
-  if (error && !data) {
+  // Hard error only when both lite jewels and full IAP failed with nothing
+  // to render (no Zoom −1 either, or Zoom −1 still allowed below).
+  if (
+    !zoomMinus1Ready &&
+    !hasUsableJewels &&
+    !data &&
+    ((error && !isLoading) || (jewelsError && !jewelsLoading))
+  ) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 max-w-md">
@@ -693,7 +757,9 @@ export function AttackPathsV2({
             <AlertTriangle className="h-5 w-5" />
             <span className="text-sm font-semibold">Could not load attack paths</span>
           </div>
-          <div className="text-xs text-muted-foreground mb-3">{String(error)}</div>
+          <div className="text-xs text-muted-foreground mb-3">
+            {String(error || jewelsError)}
+          </div>
           <button
             onClick={retry}
             className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/20 transition-colors"
@@ -709,7 +775,14 @@ export function AttackPathsV2({
   // "couldn't compute" state, NEVER the false "No crown jewels defined"
   // empty. Once the response is healthy (or has any jewels) this yields to
   // the normal layout. Any-system: gated on the response's own provenance.
-  if (jewels.length === 0 && iapHealth.failed) {
+  // Skip while Zoom −1 can still render, or while jewels lite is in flight.
+  if (
+    !zoomMinus1Ready &&
+    jewels.length === 0 &&
+    iapHealth.failed &&
+    !jewelsLoading &&
+    !isLoading
+  ) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-6 max-w-md">
@@ -782,7 +855,12 @@ export function AttackPathsV2({
               />
               )}
               <div className="text-[11px] text-muted-foreground mt-0.5">
-                {allPaths.length} paths · {jewels.length} crown jewels
+                {data
+                  ? `${allPaths.length} paths · ${jewels.length} crown jewels`
+                  : jewelsLoading
+                    ? "Loading crown jewels…"
+                    : `${jewels.length} crown jewels${isLoading ? " · paths loading…" : ""}`}
+                {showingStale ? " · showing cached" : ""}
               </div>
             </div>
           </div>
@@ -806,6 +884,25 @@ export function AttackPathsV2({
             title="Select a crown jewel"
             subtitle="Pick an asset on the left to see every path that reaches it."
           />
+        ) : pathsPending ? (
+          <div className="flex h-full min-h-[240px] items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading paths for this jewel…
+          </div>
+        ) : error && !data ? (
+          <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <div className="flex items-center gap-2 text-destructive mb-2 text-sm font-semibold">
+              <AlertTriangle className="h-4 w-4" />
+              Could not load paths
+            </div>
+            <div className="text-xs text-muted-foreground mb-3">{String(error)}</div>
+            <button
+              onClick={retryFullIap}
+              className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/20 transition-colors"
+            >
+              <RefreshCw className="h-3 w-3" /> Retry paths
+            </button>
+          </div>
         ) : viewMode === "exfil" ? (
           // Exfil tab: channel-grouped exfil-path rail. Mirrors
           // PathListGrouped's role for the attack-path tab — same

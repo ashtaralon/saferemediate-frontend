@@ -34,6 +34,23 @@ export async function GET(
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[iap-jewels] backend ${res.status}: ${body.slice(0, 200)}`)
+      if (res.status >= 500) {
+        const stale = getStaleCached(cacheKey)
+        if (stale) {
+          console.warn(
+            `[iap-jewels] backend ${res.status} — serving stale cache systemName=${systemName}`,
+          )
+          return NextResponse.json(
+            { ...stale, fromStaleCache: true, staleReason: `backend_${res.status}` },
+            {
+              headers: {
+                "X-Cache": "STALE",
+                "Cache-Control": "no-store",
+              },
+            },
+          )
+        }
+      }
       return NextResponse.json(
         { error: `backend_${res.status}`, crown_jewels: [] },
         { status: res.status },
@@ -53,10 +70,10 @@ export async function GET(
       err instanceof Error &&
       (err.name === "TimeoutError" || err.name === "AbortError" || msg.includes("timeout"))
     const stale = getStaleCached(cacheKey)
-    if (isTimeout && stale) {
-      console.warn(`[iap-jewels] timeout — serving stale cache systemName=${systemName}`)
+    if (stale) {
+      console.warn(`[iap-jewels] ${isTimeout ? "timeout" : "fetch failed"} — serving stale cache systemName=${systemName}`)
       return NextResponse.json(
-        { ...stale, fromStaleCache: true, staleReason: "timeout" },
+        { ...stale, fromStaleCache: true, staleReason: isTimeout ? "timeout" : "fetch_failed" },
         {
           headers: {
             "X-Cache": "STALE",

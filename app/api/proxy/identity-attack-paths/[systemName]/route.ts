@@ -4,7 +4,7 @@ import {
   IAP_PROXY_DEFAULT_MAX_JEWELS,
   IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL,
 } from "@/lib/server/iap-proxy-query"
-import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 export const runtime = "nodejs"
 // Intentionally NOT `dynamic = "force-dynamic"` — that flag opts the
@@ -112,6 +112,23 @@ export async function GET(
     })
   }
 
+  const serveStale = (reason: string) => {
+    const stale = getStaleCached(cacheKey)
+    if (!stale) return null
+    console.warn(
+      `[identity-attack-paths] ${reason} — serving stale cache systemName=${systemName}`,
+    )
+    return NextResponse.json(
+      { ...(stale as object), fromStaleCache: true, staleReason: reason },
+      {
+        headers: {
+          "X-Cache": "STALE",
+          "Cache-Control": "no-store",
+        },
+      },
+    )
+  }
+
   try {
     const query = buildIapIdentityAttackPathsQuery({
       maxJewels,
@@ -124,18 +141,33 @@ export async function GET(
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}`
     console.log("[identity-attack-paths] Fetching:", url)
     const t0 = Date.now()
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(55000),
     })
+    // 503 compute-in-progress — peer single-flight; one short retry
+    // (mirrors topology-risk). Keeps us under the 55s budget.
+    if (res.status === 503) {
+      await new Promise((r) => setTimeout(r, 1500))
+      res = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(55000),
+      })
+    }
     const latencyMs = Date.now() - t0
     console.log(
       `[identity-attack-paths] systemName=${systemName} status=${res.status} latency_ms=${latencyMs}`
     )
     if (!res.ok) {
-      // Mirror the /all aggregator's structured 502 shape so the UI can
-      // degrade gracefully (empty-state render) instead of dead-ending.
+      // Prefer last-good snapshot over empty 502 — cold IAP routinely
+      // exceeds the 55s proxy abort on alon-prod; jewels sub-route and
+      // topology-risk already degrade this way.
+      if (res.status >= 500) {
+        const staleRes = serveStale(`backend_${res.status}`)
+        if (staleRes) return staleRes
+      }
       return NextResponse.json(
         {
           error: "attack_paths_unavailable",
@@ -164,6 +196,8 @@ export async function GET(
     })
   } catch (err: any) {
     const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError"
+    const staleRes = serveStale(isTimeout ? "timeout" : "fetch_failed")
+    if (staleRes) return staleRes
     console.error(
       `[identity-attack-paths] systemName=${systemName} error=${err?.name || "unknown"} message=${err?.message || ""}`
     )
