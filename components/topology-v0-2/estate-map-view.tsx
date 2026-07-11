@@ -182,9 +182,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     fetchInit: { cache: "no-store" },
   })
 
-  // Full unscoped topology — deferred until All VPCs is selected (or
-  // defaultToAllVpcs). The primary scoped fetch paints first; this second
-  // topology-risk call was doubling cold Neo4j load on every estate open.
+  // Full account/region topology for All-VPCs · Compare scaffold. When the
+  // primary fetch is already unscoped (All VPCs), reuse it — a second
+  // identical topology-risk GET doubles cold Neo4j / snapshot load.
   const [fullSystemPayload, setFullSystemPayload] = useState<TopologyRiskResponse | null>(
     null,
   )
@@ -192,8 +192,18 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const needsMergedTopology =
     defaultToAllVpcs || selectedVpcId === "all" || selectedVpcId === ""
 
+  const primaryIsMerged = needsMergedTopology && !scopedVpc
+
   useEffect(() => {
-    if (!needsMergedTopology) return
+    if (primaryIsMerged) {
+      if (data) setFullSystemPayload(data)
+      return
+    }
+    if (!needsMergedTopology) {
+      setFullSystemPayload(null)
+      return
+    }
+    // Primary is VPC-scoped; fetch account/region once for Compare rails.
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
       accountId: selectedAccountId,
@@ -208,7 +218,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return () => {
       cancelled = true
     }
-  }, [systemName, selectedAccountId, selectedRegionId, needsMergedTopology])
+  }, [
+    systemName,
+    selectedAccountId,
+    selectedRegionId,
+    needsMergedTopology,
+    primaryIsMerged,
+    data,
+  ])
 
   /**
    * Own + used-shared scope. Backend already system-tags nodes; this drops
