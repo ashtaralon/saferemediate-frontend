@@ -338,17 +338,6 @@ export function AttackPathsV2({
     retryFullIap()
   }
 
-  // Auto-retry once after a cold 502 — backend often finishes compute
-  // shortly after the proxy aborted; manual Retry is too easy to miss.
-  useEffect(() => {
-    if (!error || data || isLoading) return
-    if (!String(error).includes("502") && !String(error).includes("504")) return
-    const t = setTimeout(() => {
-      retryFullIap()
-    }, 8000)
-    return () => clearTimeout(t)
-  }, [error, data, isLoading, retryFullIap])
-
   const liteJewels: CrownJewelSummary[] = useMemo(() => {
     const cjs =
       jewelsRaw?.result?.crown_jewels ??
@@ -365,6 +354,17 @@ export function AttackPathsV2({
     if (!rawData) return null
     return isTrustEnvelope(rawData) ? rawData.result : rawData
   }, [rawData])
+
+  // Auto-retry once after a cold 502 — backend often finishes compute
+  // shortly after the proxy aborted; manual Retry is too easy to miss.
+  useEffect(() => {
+    if (!error || rawData || isLoading) return
+    if (!String(error).includes("502") && !String(error).includes("504")) return
+    const t = setTimeout(() => {
+      retryFullIap()
+    }, 8000)
+    return () => clearTimeout(t)
+  }, [error, rawData, isLoading, retryFullIap])
 
   const fromProxyStale =
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
