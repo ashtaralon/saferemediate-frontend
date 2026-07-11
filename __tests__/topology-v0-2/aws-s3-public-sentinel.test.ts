@@ -35,6 +35,7 @@ describe("ensureAwsS3PublicSentinel", () => {
     ]
     const out = ensureAwsS3PublicSentinel(base, edges)
     expect(out.some(n => n.id === AWS_S3_PUBLIC_SENTINEL_ID)).toBe(true)
+    expect(out.find(n => n.id === AWS_S3_PUBLIC_SENTINEL_ID)?.name).toMatch(/observed/i)
     expect(out.find(n => n.id === AWS_S3_PUBLIC_SENTINEL_ID)?.type).toBe("S3Bucket")
   })
 

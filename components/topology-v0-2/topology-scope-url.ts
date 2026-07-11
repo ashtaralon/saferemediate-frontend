@@ -19,12 +19,12 @@ export function buildTopologyRiskProxyUrl(
   return qs ? `${base}?${qs}` : base
 }
 
-/** Client-side useCachedFetch key — v6 adds account + region dimensions. */
+/** Client-side useCachedFetch key — v7 busts stale traffic_edges missing Neo4j AWS dests. */
 export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${systemName}:v6:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  return `topology-risk:${systemName}:v7:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
 }
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}. */

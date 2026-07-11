@@ -466,6 +466,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     poisonRetryRef.current = true
     clearCachedFetch(cacheKey)
     clearCachedFetch(`topology-risk:${systemName}:v2`)
+    clearCachedFetch(`topology-risk:${systemName}:v6`)
     clearCachedFetch(`topology-risk:${systemName}`)
     retry()
   }, [data, loading, isStale, cachedAt, retry, cacheKey, systemName])
