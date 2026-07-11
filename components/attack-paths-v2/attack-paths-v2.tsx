@@ -54,7 +54,12 @@ import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
 import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
 import { LateralMovementPanel } from "./lateral-movement-panel"
-import { AllCrownJewelsView } from "./all-crown-jewels-view"
+import { ZoomMinus1Landing } from "./zoom-minus1-landing"
+import {
+  buildModeBarTabs,
+  modeBarHighlight,
+  type AttackPathsMode,
+} from "./mode-bar-tabs"
 // Explorer tab now renders the real Traffic Map (same TrafficFlowMap engine the
 // Topology tab uses), per Alon 2026-07 — replaced the AttackExplorer
 // graph/surface/scorecard lenses. Static import mirrors attacker-view-v3, which
@@ -89,16 +94,15 @@ export function AttackPathsV2({
   systemName?: string | null
   embedded?: boolean
   // Seeds the view mode when the URL has no explicit ?mode= param. An
-  // explicit ?mode= always wins, so deep links are preserved. The main-page
-  // "Attack Paths" entry passes defaultMode="attacker_map" to land on the
-  // account-wide every-path view (retiring the legacy IdentityAttackPaths).
+  // explicit ?mode= always wins. Default attack-path = Zoom −1 blast-radius
+  // landing (no jewel) → Zoom 0 fan-in → Zoom 1 investigation (S4).
   defaultMode?: string
   /** When false, PathAnalysisPanel hides the per-path Attack map block
-   *  (AttackPathLaneFlowMap). Dashboard Attack Paths tab sets this false;
-   *  Attacker Map tab sets true so the map lives only there. */
+   *  (AttackPathLaneFlowMap). Dashboard Attack Paths tab may set false;
+   *  deep-link ?mode=attacker_map still forces the map-only panel. */
   showEmbeddedAttackMap?: boolean
-  /** Attacker Map tab: right column is ONLY the embedded Attack map block —
-   *  no mode chips, path report, lateral summary, or supporting evidence. */
+  /** Deep-link / folded Attacker Map: right column is ONLY the embedded
+   *  Attack map block — no mode chips, path report, or evidence. */
   mapOnlyPanel?: boolean
   /** Navigate to the per-resource role-split remediation view (owned by the
    *  page shell, which holds the section-switch state). Threaded to the
@@ -484,29 +488,20 @@ export function AttackPathsV2({
     // re-pick when it shouldn't).
   }, [viewMode, exfilData, selectedExfilPathId])
 
-  // Auto-select the first crown jewel when Risk → Attack Paths opens
-  // with no ?jewel= (or a stale id). Without this the center column
-  // stays on "Select a crown jewel" while the right rail shows the
-  // aggregate AllCrownJewelsView — operators expect the first CJ in
-  // the left rail to already be selected, same as clicking it
-  // (Alon, 2026-07-11).
+  // S4: do NOT auto-select the first crown jewel. No ?jewel= = Zoom −1
+  // system blast-radius landing. Operators pick a jewel deliberately
+  // for Zoom 0 fan-in (Alon / PRD-attacker-lens-three-zoom).
+  // Clear stale ?jewel= so a removed/renamed id doesn't blank Zoom −1.
   useEffect(() => {
-    if (jewels.length === 0) return
-    if (selectedJewelId) {
-      const stillThere = jewels.some(
-        (j) =>
-          j.id === selectedJewelId ||
-          (j.canonical_id != null && j.canonical_id === selectedJewelId),
-      )
-      if (stillThere) return
-    }
-    const first = jewels[0]
-    if (first?.id) {
-      setUrl({ jewel: first.id, path: null, exfilPath: null })
-    }
+    if (!selectedJewelId || jewels.length === 0) return
+    const stillThere = jewels.some(
+      (j) =>
+        j.id === selectedJewelId ||
+        (j.canonical_id != null && j.canonical_id === selectedJewelId),
+    )
+    if (stillThere) return
+    setUrl({ jewel: null, path: null, exfilPath: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setUrl
-    // identity changes every URL write; only re-run on jewel list /
-    // selection changes.
   }, [jewels, selectedJewelId])
 
   // The selected path object, if any. We tolerate selectedPathId
@@ -874,25 +869,21 @@ export function AttackPathsV2({
             )}
           </>
         ) : !selectedJewelId ? (
-          // 2026-05-30: aggregated view replaces the old "select a
-          // jewel" empty state. Shows every CJ + every path on the
-          // system at once so the operator gets the full attack-
-          // surface footprint at a glance. Click any CJ → drill in.
-          <AllCrownJewelsView
-            jewels={jewels}
-            paths={allPaths}
-            onSelectJewel={(jewelId) => setUrl({ jewel: jewelId })}
-            onSelectPath={(jewelId, pathId) => setUrl({ jewel: jewelId, path: pathId })}
-            currentSystem={systemName}
-            otherSystems={availableSystems.filter((s) => s !== systemName)}
-            onSwitchSystem={(s) => {
-              const params = new URLSearchParams(searchParams?.toString() ?? "")
-              params.set("system", s)
-              params.delete("jewel")
-              params.delete("path")
-              router.replace(`${pathname}?${params.toString()}`)
-            }}
-          />
+          // Zoom −1 (S4): system blast-radius landing. Pick a jewel on
+          // the left → Zoom 0 fan-in. Attacker Map / Lateral chips are
+          // folded; deep-links still render when ?mode= is set.
+          <>
+            <ModeToggle
+              mode={viewMode}
+              onChange={handleSetMode}
+              jewelName={null}
+              pathCount={0}
+              isExpanded={isPathExpanded}
+              onToggleExpand={handleToggleExpand}
+              showBeta={showBeta}
+            />
+            <ZoomMinus1Landing systemName={systemName} />
+          </>
         ) : (
           <>
             <ModeToggle
@@ -1124,83 +1115,19 @@ function ModeToggle({
   onToggleExpand,
   showBeta = false,
 }: {
-  mode: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence"
-  onChange: (next: "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence") => void
+  mode: AttackPathsMode
+  onChange: (next: AttackPathsMode) => void
   jewelName: string | null
   pathCount: number
   isExpanded: boolean
   onToggleExpand: () => void
-  /** Gate for the beta "Attack Map" (typed DTO canvas) tab — enabled
-      via ?beta=1 or when a deep link already points at it. Keeps
-      engineering-internal surfaces out of the default operator UI. */
+  /** Gate for beta engineering canvases (?beta=1). */
   showBeta?: boolean
 }) {
-  type TabKey = "attack-path" | "exposure" | "attacker_v2" | "phase" | "exfil" | "topology" | "lateral" | "attacker_map" | "convergence"
-  // Capability-named tabs — no version stamps in the operator UI.
-  // Engineering context (DTO provenance, phase docs) lives in the
-  // title tooltips, not the labels.
-  const tabs: { key: TabKey; label: string; title: string }[] = [
-    {
-      key: "attack-path",
-      label: "Attack Path",
-      title:
-        "Per-path analysis — severity, evidence, breadcrumb, and closure wrapped around the attacker-view canvas. One chain, one source of truth.",
-    },
-    {
-      key: "attacker_map",
-      label: "Attacker Map",
-      title:
-        "Per-path attack map on live VPC topology — observed (CloudTrail) vs configured paths to this crown jewel.",
-    },
-    {
-      key: "lateral",
-      label: "Lateral Movement",
-      title:
-        "Where this path's identity can pivot next — for each role on the path, the other resources it can also reach (real sibling-neighbor graph data).",
-    },
-    {
-      key: "convergence",
-      label: "Convergence",
-      title:
-        "Every path to this crown jewel, fanned over real AWS subnet and security-group placement — observed vs configured paths ranked together.",
-    },
-    {
-      key: "exposure",
-      label: "Exposure",
-      title: "Aggregate view — every workload, role, and policy that exposes this jewel.",
-    },
-    {
-      key: "exfil",
-      label: "Exfiltration",
-      title:
-        "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
-    },
-    // 2026-06-18: Topology is the new CISO-facing 3-pane Attack Graph on
-    // AWS Topology — promoted out of beta. Attacker Map + Phases stay
-    // behind ?beta=1 as the legacy engineering canvases.
-    {
-      key: "topology" as TabKey,
-      label: "Topology",
-      title:
-        "3-pane Attack Graph on AWS topology — crown jewels left, real VPC containment center, paths ranked by damage right. Every node from Neo4j.",
-    },
-    ...(showBeta
-      ? [
-          {
-            key: "attacker_v2" as TabKey,
-            label: "Attack Map (beta)",
-            title:
-              "Typed, edge-proven canvas — every node and edge comes from an explicit Neo4j relationship; the renderer does zero inference.",
-          },
-          {
-            key: "phase" as TabKey,
-            label: "Phases (beta)",
-            title:
-              "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
-          },
-        ]
-      : []),
-  ]
+  // S4: Attacker Map + Lateral folded into Zoom 1 — not primary chips.
+  // Deep-link ?mode=attacker_map|lateral still renders; bar highlights Attack Path.
+  const tabs = buildModeBarTabs(showBeta)
+  const highlight = modeBarHighlight(mode)
   return (
     <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
@@ -1221,7 +1148,7 @@ function ModeToggle({
             onClick={() => onChange(tab.key)}
             title={tab.title}
             className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
-              mode === tab.key
+              highlight === tab.key
                 ? "bg-primary/10 text-primary"
                 : "bg-card text-muted-foreground hover:text-foreground"
             }`}
