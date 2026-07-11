@@ -1,9 +1,14 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { convergenceToTargetTopology } from "@/lib/attack-paths/convergence-to-target-topology"
 import { TargetAttackMap } from "@/components/attack-map/target-attack-map"
+import { ChokePointTilesBar } from "./choke-point-tiles-bar"
+import {
+  CHOKE_TILE_THRESHOLD,
+  shouldCollapseToChokeTiles,
+} from "./choke-point-tiles"
 
 export function ConvergenceMap({
   data,
@@ -16,12 +21,36 @@ export function ConvergenceMap({
   onSelectPath: (pathId: string | null) => void
   source?: "live" | "fallback"
 }) {
+  const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
+
+  const displayData = useMemo(() => {
+    if (!tileFilterIds || tileFilterIds.length === 0) return data
+    const allow = new Set(tileFilterIds)
+    const paths = data.paths.filter((p) => allow.has(p.path_id))
+    return {
+      ...data,
+      paths,
+      paths_total: paths.length,
+      observed_paths: paths.filter((p) => p.confidence === "observed").length,
+    }
+  }, [data, tileFilterIds])
+
   const topo = useMemo(
-    () => convergenceToTargetTopology(data, selectedPathId),
-    [data, selectedPathId],
+    () => convergenceToTargetTopology(displayData, selectedPathId),
+    [displayData, selectedPathId],
   )
 
   const topChoke = Object.entries(data.choke_points).sort((a, b) => b[1] - a[1])[0]
+  const collapsed = shouldCollapseToChokeTiles(
+    data.paths_total || data.paths.length,
+    CHOKE_TILE_THRESHOLD,
+  )
+
+  // When collapsed and no path / tile filter: don't draw all edges (hairball).
+  const hideFullFan =
+    collapsed && !selectedPathId && (!tileFilterIds || tileFilterIds.length === 0)
+
+  const pathChips = displayData.paths
 
   return (
     <div className="space-y-3">
@@ -39,10 +68,20 @@ export function ConvergenceMap({
             choke {topChoke[0].split("/").pop()} ×{topChoke[1]}
           </span>
         ) : null}
-        <span>{selectedPathId ? "1 path highlighted" : "all paths fanned"}</span>
+        <span>
+          {selectedPathId
+            ? "1 path highlighted"
+            : hideFullFan
+              ? "choke tiles (expand a group)"
+              : tileFilterIds
+                ? `${pathChips.length} paths in tile`
+                : "all paths fanned"}
+        </span>
       </div>
 
-      {data.paths.length > 1 && (
+      <ChokePointTilesBar data={data} onFilterPathIds={setTileFilterIds} />
+
+      {pathChips.length > 1 && (
         <div className="flex flex-wrap gap-1.5 px-1">
           <button
             type="button"
@@ -55,7 +94,7 @@ export function ConvergenceMap({
           >
             All paths
           </button>
-          {data.paths.map((p) => {
+          {pathChips.map((p) => {
             const active = p.path_id === selectedPathId
             return (
               <button
@@ -77,7 +116,15 @@ export function ConvergenceMap({
         </div>
       )}
 
-      {topo.nodes.length === 0 ? (
+      {hideFullFan ? (
+        <div
+          className="flex min-h-[240px] items-center justify-center rounded-lg border border-dashed border-border text-[12px] text-muted-foreground px-6 text-center"
+          data-testid="choke-tiles-map-placeholder"
+        >
+          Fan-in collapsed — expand a choke-point tile above, or pick a path chip,
+          to draw edges without spaghetti.
+        </div>
+      ) : topo.nodes.length === 0 ? (
         <div className="flex min-h-[400px] items-center justify-center text-[12px] text-muted-foreground">
           Paths loaded but hop placement is empty — check hops_json materialization.
         </div>
