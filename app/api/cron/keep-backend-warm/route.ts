@@ -39,10 +39,15 @@ const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   "https://saferemediate-backend-f.onrender.com"
 
-// Must match the Attack Paths v2 proxy defaults (lib/server/iap-proxy-query.ts)
+// Must match Attack Paths v2 proxy defaults (lib/server/iap-proxy-query.ts)
 // so the sweep warms the exact cache/snapshot key the tab reads.
-const IAP_PREWARM_MAX_JEWELS = 8
-const IAP_PREWARM_MAX_PATHS_PER_JEWEL = 8
+import {
+  IAP_PROXY_DEFAULT_MAX_JEWELS,
+  IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL,
+} from "@/lib/server/iap-proxy-query"
+
+const IAP_PREWARM_MAX_JEWELS = IAP_PROXY_DEFAULT_MAX_JEWELS
+const IAP_PREWARM_MAX_PATHS_PER_JEWEL = IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL
 // Under maxDuration=60 with headroom; an aborted fetch still completes
 // and snapshots server-side.
 const IAP_PREWARM_FETCH_TIMEOUT_MS = 50_000

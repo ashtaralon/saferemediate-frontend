@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CrownJewelSummary, IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import {
   buildConvergenceDetailUrl,
@@ -16,6 +16,10 @@ import type {
 interface UseCrownJewelConvergenceResult {
   data: CrownJewelConvergence | null
   loading: boolean
+  /** True while an automatic cold-start retry is scheduled / in flight. */
+  retrying: boolean
+  /** How many summary attempts have been made for this jewel (1-based). */
+  attempts: number
   error: string | null
   retry: () => void
 }
@@ -76,20 +80,15 @@ function summaryToConvergence(
   }
 }
 
+const MAX_AUTO_RETRIES = 4
+const RETRY_DELAYS_MS = [3000, 6000, 10000, 15000]
+
 /** Summary first (fast strip) + hop detail for canvas spine wiring.
  *
- * `selectedPathId` may arrive in the IAP (identity-attack-paths) id
- * namespace (e.g. "path-8e64e734b0f6", the URL's ?path= value) rather
- * than the live convergence namespace `/summary` actually returns
- * (real Neo4j AttackPath.id hashes). Fetching /detail?path_id=<raw IAP
- * id> against a namespace it was never in silently 404s (detail is
- * "optional" — see the catch below), detailsByPathId stays empty, and
- * summaryToConvergence keeps EVERY path's hops=[] — the map's "Paths
- * loaded but hop placement is empty" state, even though the real
- * AttackPath node has a fully populated hops_json. matchConvergencePathId
- * already exists to solve exactly this (used elsewhere for render-time
- * path selection) but wasn't being applied to the detail-fetch trigger.
- * `iapPaths` lets this resolve the id the same way before fetching. */
+ * Cold Render workers often return nothing for 55s+ on first hit. We auto-
+ * retry the summary a few times instead of surfacing a hard HTTP 502 after
+ * one abort — operators were getting bricked by a single cold miss.
+ */
 export function useCrownJewelConvergence(
   systemName: string | null,
   jewel: CrownJewelSummary | null,
@@ -101,33 +100,61 @@ export function useCrownJewelConvergence(
     Record<string, ConvergencePath>
   >({})
   const [loading, setLoading] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [attempts, setAttempts] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
+  const attemptRef = useRef(0)
 
-  const retry = useCallback(() => setNonce((n) => n + 1), [])
+  const retry = useCallback(() => {
+    attemptRef.current = 0
+    setAttempts(0)
+    setNonce((n) => n + 1)
+  }, [])
 
-  // Phase 1: summary only — must complete within 55s for the strip.
+  // Phase 1: summary with auto-retry on cold timeout / 5xx.
   useEffect(() => {
     if (!systemName || !jewel) {
       setSummary(null)
       setDetailsByPathId({})
       setError(null)
+      setLoading(false)
+      setRetrying(false)
+      setAttempts(0)
+      attemptRef.current = 0
       return
     }
 
     let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    attemptRef.current = 0
+    setAttempts(0)
     setLoading(true)
+    setRetrying(false)
     setError(null)
     setDetailsByPathId({})
+    setSummary(null)
 
     const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel)
-    const ctrl = new AbortController()
-    const timer = setTimeout(
-      () => ctrl.abort(new DOMException("Backend slow — no response in 55s", "TimeoutError")),
-      55_000,
-    )
 
-    const run = async () => {
+    const runAttempt = async () => {
+      if (cancelled) return
+      attemptRef.current += 1
+      const attempt = attemptRef.current
+      setAttempts(attempt)
+      setLoading(true)
+      setRetrying(attempt > 1)
+      setError(null)
+
+      const ctrl = new AbortController()
+      const timer = setTimeout(
+        () =>
+          ctrl.abort(
+            new DOMException("Backend warming up — retrying…", "TimeoutError"),
+          ),
+        55_000,
+      )
+
       try {
         const summaryRes = await fetch(summaryUrl, { signal: ctrl.signal })
         const summaryBody = (await summaryRes.json().catch(() => null)) as
@@ -136,50 +163,59 @@ export function useCrownJewelConvergence(
           | null
         if (cancelled) return
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
-          setSummary(null)
-          setError(
-            (summaryBody as { error?: string })?.error ?? `http_${summaryRes.status}`,
-          )
-          return
+          const msg =
+            (summaryBody as { error?: string })?.error ??
+            `Backend busy (${summaryRes.status})`
+          throw new Error(msg)
         }
         setSummary(summaryBody as CrownJewelConvergenceSummary)
         setError(null)
+        setRetrying(false)
+        setLoading(false)
       } catch (e) {
         if (cancelled) return
-        setSummary(null)
         const m = (e as Error).message ?? String(e)
+        const friendly =
+          m.includes("aborted") || m.includes("Timeout")
+            ? "Backend warming up — retrying…"
+            : m.startsWith("HTTP") || m.startsWith("http_")
+              ? "Backend busy — retrying…"
+              : m
+        if (attempt <= MAX_AUTO_RETRIES) {
+          setError(friendly)
+          setRetrying(true)
+          setLoading(false)
+          const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)]
+          retryTimer = setTimeout(() => {
+            void runAttempt()
+          }, delay)
+          return
+        }
+        setSummary(null)
         setError(
-          m.includes("aborted without reason") ? "Backend slow — no response in 55s" : m,
+          "Couldn’t reach path data after several tries — backend may be cold. Hit Retry.",
         )
+        setRetrying(false)
+        setLoading(false)
       } finally {
         clearTimeout(timer)
-        if (!cancelled) setLoading(false)
       }
     }
 
-    void run()
+    void runAttempt()
 
     return () => {
       cancelled = true
-      clearTimeout(timer)
-      ctrl.abort()
+      if (retryTimer) clearTimeout(retryTimer)
     }
   }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, nonce])
 
-  // Resolved once summary lands — `iapPaths` is commonly a fresh array
-  // reference per parent render, so this is memoized down to the
-  // resulting primitive string/null before it reaches the fetch effect's
-  // dependency array below (avoids re-triggering the detail fetch on
-  // every unrelated parent render).
   const resolvedSelectedPathId = useMemo(
     () => (summary ? matchConvergencePathId(summary.paths, selectedPathId, iapPaths) : null),
     [summary, selectedPathId, iapPaths],
   )
 
-  // Phase 2: hop detail — drives kill-chain strip + TFM spine lines.
-  // Fetches the selected path, or the first real workload path by default
-  // so the canvas wires EC2→Subnet→SG→NACL→Role→VPCE→S3 without blocking
-  // the summary response (detail runs after summary lands).
+  // Phase 2: hop detail
   useEffect(() => {
     if (!systemName || !jewel || !summary) return
 
@@ -236,7 +272,7 @@ export function useCrownJewelConvergence(
   const data =
     summary != null ? summaryToConvergence(summary, detailsByPathId) : null
 
-  return { data, loading, error, retry }
+  return { data, loading, retrying, attempts, error, retry }
 }
 
 /** Minimal jewel for callers that only have arn/name (convergence-map-loader). */
