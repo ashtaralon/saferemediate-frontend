@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
+import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -74,18 +75,18 @@ export async function GET(
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(55_000),
+      signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
     })
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[topology-risk] backend ${res.status}: ${body.slice(0, 200)}`)
       // 503 compute-in-progress — peer single-flight; retry shortly.
       if (res.status === 503) {
-        await new Promise(r => setTimeout(r, 1500))
+        await new Promise(r => setTimeout(r, 500))
         const retry = await fetch(url, {
           headers: { "Content-Type": "application/json" },
           cache: "no-store",
-          signal: AbortSignal.timeout(55_000),
+          signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
         })
         if (retry.ok) {
           const data = await retry.json()
@@ -148,6 +149,23 @@ export async function GET(
         {
           headers: { "X-Cache": "STALE", "Cache-Control": "no-store" },
         },
+      )
+    }
+    if (isTimeout) {
+      const started = new Date()
+      const deadline = new Date(started.getTime() + 180_000)
+      return NextResponse.json(
+        {
+          status: "computing",
+          system_name: systemName,
+          computing_started_at: started.toISOString(),
+          compute_deadline_at: deadline.toISOString(),
+          staleReason: "peer_computing",
+          scored_at: null,
+          system_kpis: null,
+          nodes: [],
+        },
+        { status: 200 },
       )
     }
     console.error(`[topology-risk] systemName=${systemName} error=${msg}`)
