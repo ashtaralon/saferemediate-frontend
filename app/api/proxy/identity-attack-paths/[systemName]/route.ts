@@ -5,6 +5,7 @@ import {
   IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL,
 } from "@/lib/server/iap-proxy-query"
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 
 export const runtime = "nodejs"
 // Intentionally NOT `dynamic = "force-dynamic"` — that flag opts the
@@ -136,16 +137,16 @@ export async function GET(
     let res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(55000),
+      signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
     })
-    // 503 compute-in-progress — peer single-flight; one short retry
-    // (mirrors topology-risk). Keeps us under the 55s budget.
+    // Legacy 503 compute-in-progress — Wave B+ returns 200 envelopes;
+    // keep a short retry for backends mid-rollout.
     if (res.status === 503) {
-      await new Promise((r) => setTimeout(r, 1500))
+      await new Promise((r) => setTimeout(r, 500))
       res = await fetch(url, {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        signal: AbortSignal.timeout(55000),
+        signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
       })
     }
     let latencyMs = Date.now() - t0
@@ -199,14 +200,32 @@ export async function GET(
     const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError"
     const staleRes = serveStale(isTimeout ? "timeout" : "fetch_failed")
     if (staleRes) return staleRes
-    // Do NOT start a second full fetch after timeout — Vercel maxDuration
-    // is 60s and we already spent ~55s. Lighter retry only runs on fast 5xx.
+    // Wave D: no stale cache on timeout — honest computing envelope (HTTP 200)
+    // instead of a 502 that bricks the rail.
+    if (isTimeout) {
+      const started = new Date()
+      const deadline = new Date(started.getTime() + 180_000)
+      return NextResponse.json(
+        {
+          status: "computing",
+          system_name: systemName,
+          computing_started_at: started.toISOString(),
+          compute_deadline_at: deadline.toISOString(),
+          staleReason: "peer_computing",
+          crown_jewels: [],
+          paths: [],
+          total_jewels: 0,
+          total_paths: 0,
+        },
+        { status: 200 }
+      )
+    }
     console.error(
       `[identity-attack-paths] systemName=${systemName} error=${err?.name || "unknown"} message=${err?.message || ""}`
     )
     return NextResponse.json(
       {
-        error: isTimeout ? "attack_paths_timeout" : "attack_paths_proxy_error",
+        error: "attack_paths_proxy_error",
         message:
           err?.message ||
           "Failed to fetch identity attack paths — backend slow or unreachable",
@@ -249,7 +268,7 @@ async function fetchLighterBudget(opts: {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(55000),
+      signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
     })
     if (!res.ok) return null
     const data = await res.json()
