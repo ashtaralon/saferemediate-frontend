@@ -19,12 +19,12 @@ export function buildTopologyRiskProxyUrl(
   return qs ? `${base}?${qs}` : base
 }
 
-/** Client-side useCachedFetch key — v8 busts payloads missing node ownership stamps. */
+/** Client-side useCachedFetch key — v9 busts Wave-D computing envelopes with null system_kpis. */
 export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${systemName}:v8:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  return `topology-risk:${systemName}:v9:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
 }
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}. */

@@ -316,10 +316,19 @@ export function useCachedFetch<T = unknown>(
         )
       }
       const sanitized = cleaned as T
+      // Wave D computing envelopes are HTTP 200 with null payloads — never
+      // write them into client cache or Estate Map sticks on "No system_kpis".
+      const envelope = sanitized as { status?: string; system_kpis?: unknown }
+      const isComputingEnvelope =
+        envelope.status === "computing" &&
+        (envelope.system_kpis == null || envelope.system_kpis === undefined)
       setData(sanitized)
       if (proxyStale) {
         setIsStale(true)
         setCachedAt(cachedAt ?? Date.now())
+      } else if (isComputingEnvelope) {
+        setIsStale(false)
+        setCachedAt(null)
       } else {
         setIsStale(false)
         setCachedAt(null)

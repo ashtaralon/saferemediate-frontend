@@ -490,6 +490,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     clearCachedFetch(`topology-risk:${systemName}:v2`)
     clearCachedFetch(`topology-risk:${systemName}:v6`)
     clearCachedFetch(`topology-risk:${systemName}:v7`)
+    clearCachedFetch(`topology-risk:${systemName}:v8`)
     clearCachedFetch(`topology-risk:${systemName}`)
     retry()
   }, [data, loading, isStale, cachedAt, retry, cacheKey, systemName])
@@ -887,9 +888,27 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [selectedNodeId, scopedEstate?.nodes, data?.nodes])
 
   const narrative = useMemo(
-    () => (data ? buildHeadlineNarrative(data) : null),
+    () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),
     [data],
   )
+
+  // Wave D 5s abort returned HTTP 200 { status: "computing", system_kpis: null }.
+  // That is not a finished map — keep loading and retry instead of "No system_kpis".
+  const isComputingEnvelope =
+    !!data &&
+    !data.system_kpis &&
+    (data.status === "computing" ||
+      data.staleReason === "peer_computing" ||
+      ((data.nodes?.length ?? 0) === 0 && !data.error))
+
+  useEffect(() => {
+    if (!isComputingEnvelope) return
+    clearCachedFetch(cacheKey)
+    const id = window.setInterval(() => {
+      retry()
+    }, 4000)
+    return () => window.clearInterval(id)
+  }, [isComputingEnvelope, cacheKey, retry])
 
   const rankedEntries = useMemo(
     () =>
@@ -946,13 +965,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [data?.system_kpis, chipCountNodes],
   )
 
-  if (loading && !data) {
+  if ((loading && !data) || isComputingEnvelope) {
     return (
       <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
         <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
           Topology v0.2 · Estate
         </div>
-        <div>Loading topology risk for {systemName}…</div>
+        <div>
+          {isComputingEnvelope
+            ? `Computing estate map for ${systemName}…`
+            : `Loading topology risk for ${systemName}…`}
+        </div>
       </div>
     )
   }
@@ -986,6 +1009,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         <div>
           No system_kpis returned for <span className="font-mono">{systemName}</span>.
         </div>
+        <button
+          type="button"
+          className="mt-4 px-4 py-2 text-xs uppercase tracking-wider border rounded hover:bg-white"
+          style={{ borderColor: "#5A6B7A" }}
+          onClick={() => {
+            clearCachedFetch(cacheKey)
+            retry()
+          }}
+        >
+          Refresh Data
+        </button>
       </div>
     )
   }
