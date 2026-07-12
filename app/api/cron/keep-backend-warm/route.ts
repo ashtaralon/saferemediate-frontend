@@ -270,7 +270,12 @@ export async function GET() {
     }
     const sweep = [...iapSweep, ...topoSweep, ...blastSweep]
     const failures = sweep.filter(
-      (r) => r.status !== 200 && r.status !== 503, // 503 = compute_in_progress: single-flight working, not a failure
+      (r) => {
+        // 200 = success (incl. Wave B computing / compute_failed envelopes).
+        // Legacy 503 compute_in_progress may linger until backends roll.
+        if (r.status === 200 || r.status === 503) return false
+        return true
+      },
     )
     if (failures.length > 0) {
       console.warn(
