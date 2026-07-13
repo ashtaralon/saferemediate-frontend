@@ -1,21 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import {
-  Shield,
-  Globe,
-  ChevronLeft,
-  ChevronRight,
-  HardDrive,
-  Database,
-  KeyRound,
-  Key,
-  Zap,
-  Box,
-  type LucideIcon,
-} from "lucide-react"
+import { Shield, Globe, ChevronLeft, ChevronRight } from "lucide-react"
 import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
-import { awsIconUrl } from "@/components/topology-v0-2/aws-architecture-icons"
+import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 import { SeverityBadge } from "./severity-badge"
 import type { CrownJewelSummary } from "./types"
 
@@ -27,116 +15,12 @@ interface CrownJewelListPanelProps {
   onCollapsedChange?: (collapsed: boolean) => void
 }
 
-type JewelTypeMeta = {
-  label: string
-  short: string
-  Icon: LucideIcon
-  /** Tailwind text/bg/border for the type chip — AWS-ish, not purple. */
-  chip: string
-  iconTint: string
-  awsType: string
-}
-
-function getJewelTypeMeta(type: string | null | undefined): JewelTypeMeta {
-  const t = (type ?? "").toLowerCase()
-  if (t.includes("s3")) {
-    return {
-      label: "S3 Bucket",
-      short: "S3",
-      Icon: HardDrive,
-      chip: "bg-emerald-500/15 text-emerald-800 border-emerald-500/35 dark:text-emerald-300",
-      iconTint: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-      awsType: "S3Bucket",
-    }
-  }
-  if (t.includes("dynamo")) {
-    return {
-      label: "DynamoDB",
-      short: "DDB",
-      Icon: Database,
-      chip: "bg-sky-500/15 text-sky-800 border-sky-500/35 dark:text-sky-300",
-      iconTint: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
-      awsType: "DynamoDBTable",
-    }
-  }
-  if (t.includes("rds") || t.includes("aurora") || t.includes("redshift")) {
-    return {
-      label: "RDS Database",
-      short: "RDS",
-      Icon: Database,
-      chip: "bg-blue-500/15 text-blue-800 border-blue-500/35 dark:text-blue-300",
-      iconTint: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
-      awsType: "RDSInstance",
-    }
-  }
-  if (t.includes("secret")) {
-    return {
-      label: "Secret",
-      short: "Secret",
-      Icon: KeyRound,
-      chip: "bg-amber-500/15 text-amber-900 border-amber-500/35 dark:text-amber-300",
-      iconTint: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
-      awsType: "SecretsManagerSecret",
-    }
-  }
-  if (t.includes("kms")) {
-    return {
-      label: "KMS Key",
-      short: "KMS",
-      Icon: Key,
-      chip: "bg-rose-500/15 text-rose-800 border-rose-500/35 dark:text-rose-300",
-      iconTint: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
-      awsType: "KMSKey",
-    }
-  }
-  if (t.includes("lambda")) {
-    return {
-      label: "Lambda",
-      short: "Lambda",
-      Icon: Zap,
-      chip: "bg-orange-500/15 text-orange-900 border-orange-500/35 dark:text-orange-300",
-      iconTint: "bg-orange-500/15 text-orange-800 dark:text-orange-300",
-      awsType: "Lambda",
-    }
-  }
-  return {
-    label: type ?? "Resource",
-    short: type ?? "Resource",
-    Icon: Box,
-    chip: "bg-slate-500/15 text-slate-800 border-slate-500/30 dark:text-slate-300",
-    iconTint: "bg-slate-500/15 text-slate-700 dark:text-slate-300",
-    awsType: type ?? "Resource",
-  }
-}
-
-function JewelServiceIcon({ type }: { type: string | null | undefined }) {
-  const meta = getJewelTypeMeta(type)
-  const url = awsIconUrl(meta.awsType)
-  const { Icon } = meta
-  const [imgFailed, setImgFailed] = useState(false)
-  const showImg = Boolean(url) && !imgFailed
-  return (
-    <span
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${meta.iconTint}`}
-      title={meta.label}
-      aria-hidden
-    >
-      {showImg ? (
-        // Official AWS architecture icon (CDN). Lucide fallback on error.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={url!}
-          alt=""
-          width={16}
-          height={16}
-          className="h-4 w-4 object-contain"
-          onError={() => setImgFailed(true)}
-        />
-      ) : (
-        <Icon className="h-3.5 w-3.5" />
-      )}
-    </span>
-  )
+/** Crown-jewel names carry a trailing `-<12-digit account id>`; strip it for a
+ *  cleaner rail (full name stays in the title attr). Type icon + color now come
+ *  from the canonical `@/lib/service-type` badge — the old per-panel
+ *  getJewelTypeMeta / JewelServiceIcon maps were retired (2026-07-13). */
+function jewelDisplayName(name: string): string {
+  return name.replace(/-\d{12}$/, "")
 }
 
 export function CrownJewelListPanel({
@@ -213,20 +97,21 @@ export function CrownJewelListPanel({
             sev === "CRITICAL" ? "#ef4444" :
             sev === "HIGH" ? "#f97316" :
             sev === "MEDIUM" ? "#eab308" : "#22c55e"
-          const typeMeta = getJewelTypeMeta(jewel.type)
+          const svc = getServiceMeta(jewel.type)
 
           return (
             <button
               key={jewel.id}
               onClick={() => onSelect(jewel.id)}
-              className="group w-full text-left rounded-lg px-2.5 py-2.5 transition-all"
+              className="group w-full text-left rounded-lg px-2.5 py-2.5 transition-all hover:bg-muted/40"
               style={{
-                background: isSelected ? `${sevColor}18` : "transparent",
-                border: `1px solid ${isSelected ? `${sevColor}45` : "transparent"}`,
+                background: isSelected ? "var(--muted)" : "transparent",
+                border: `1px solid ${isSelected ? "var(--border)" : "transparent"}`,
+                boxShadow: isSelected ? "inset 3px 0 0 var(--primary)" : "none",
               }}
             >
               <div className="flex items-start gap-2.5">
-                <JewelServiceIcon type={jewel.type} />
+                <ServiceTypeBadge type={jewel.type} variant="tile" size={34} />
 
                 <div
                   className="w-9 shrink-0 text-right text-base font-semibold tabular-nums leading-none pt-0.5"
@@ -237,18 +122,18 @@ export function CrownJewelListPanel({
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="line-clamp-2 break-all text-xs font-semibold text-foreground" title={jewel.name ?? jewel.id}>
-                      {jewel.name ?? jewel.id}
+                    <span className="truncate text-xs font-semibold text-foreground" title={jewel.name ?? jewel.id}>
+                      {jewel.name ? jewelDisplayName(jewel.name) : jewel.id}
                     </span>
                     {!notComputed && <SeverityBadge severity={sev} size="sm" />}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span
-                      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${typeMeta.chip}`}
+                      className="text-[10px] font-semibold tracking-wide"
+                      style={{ color: svc.accent }}
                     >
-                      <typeMeta.Icon className="h-2.5 w-2.5" />
-                      {typeMeta.short}
+                      {svc.short}
                     </span>
                     {notComputed && (
                       <span

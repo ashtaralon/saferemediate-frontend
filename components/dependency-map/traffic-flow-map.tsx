@@ -3784,7 +3784,28 @@ export function ConnectionLinesSVG({
 
       const getNodeCenter = (el: Element | null, side: 'left' | 'right'): { x: number; y: number } | null => {
         if (!el) return null;
+        // 2026-07-13 — the "lines cut off" fix. An anchor can be in the DOM
+        // yet not laid out: off-path cards get display:none during spotlight
+        // (PR #203), and the lane renderers emit hidden DUPLICATE anchors for
+        // the same aws id (a jewel fan-in carries lambda ×18, dynamodb ×14,
+        // instance-profile ×4 — all but at most one display:none). A hidden
+        // element's getBoundingClientRect() is 0×0 at the viewport origin, so
+        // the old code mapped it to (−containerLeft, −containerTop) and drew
+        // the segment into the canvas top-left corner, where the container's
+        // overflow-hidden clipped it — the diagonal "cut off" lines.
+        //
+        // The explicit-edges branch already gates visibility via
+        // findCardForId (offsetParent !== null); the legacy flow-synthesis
+        // branch below queries the DOM directly and had NO such gate, so its
+        // phantom endpoints slipped through. Enforce the gate here at the
+        // shared chokepoint so BOTH branches drop the phantom — every caller
+        // already null-checks the result (source/target `return`, checkpoints
+        // `if (posL && posR)`). offsetParent === null is the cheap
+        // not-rendered signal (display:none / detached); the zero-rect check
+        // also catches the rare visibility:collapse case.
+        if ((el as HTMLElement).offsetParent === null) return null;
         const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return null;
         const containerRect = container.getBoundingClientRect();
         return {
           x: side === 'right' ? rect.right - containerRect.left - 6 : rect.left - containerRect.left + 6,
