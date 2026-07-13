@@ -48,7 +48,11 @@ import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
 import { filterMergedVpcOverlayEdges } from "./estate-flow-edges"
 import { subnetOwnershipTooltipLine } from "./estate-ownership"
-import { databasePublicIpExposureLabel } from "./estate-edge-labels"
+import {
+  databasePublicIpExposureLabel,
+  corridorKindForEdge,
+  selectBundledCorridorBadges,
+} from "./estate-edge-labels"
 import {
   ALB_HEADER_TYPES,
   RDS_TYPES,
@@ -2062,6 +2066,8 @@ interface FlowPath {
   badgeX: number
   badgeY: number
   badgeLabel: string
+  /** Full per-edge detail when badgeLabel is a corridor bundle chip. */
+  badgeTitle?: string
   /** DB exposure honesty — red stroke + badge when true. */
   isExposed?: boolean
   highlight?: "attack_path" | null
@@ -2213,7 +2219,7 @@ function FlowModeToggle({
 }
 
 function FlowOverlay({
-  edges, containerRef, scale = 1, densityCollapsed = false,
+  edges, containerRef, scale = 1, densityCollapsed = false, viewDensity = "glance",
 }: {
   edges: TrafficEdge[]
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -2225,6 +2231,8 @@ function FlowOverlay({
   /** In deps so the LOD chip↔stack-tile swap always triggers a re-measure —
    *  member chips leave/enter the DOM on this flag. */
   densityCollapsed?: boolean
+  /** Glance collapses IGW/VPCE corridor badges; Inventory keeps more detail. */
+  viewDensity?: ViewDensity
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -2533,9 +2541,55 @@ function FlowOverlay({
           badgeX: badge.x,
           badgeY: badge.y - 6,
           badgeLabel,
+          badgeTitle: badgeLabel,
           isExposed: Boolean(e.is_exposed),
           highlight: j.highlight,
+          _edge: e,
+          _routedViaIgw: routedViaIgw,
+          _routedViaVpce: routedViaVpce,
+        } as FlowPath & {
+          _edge: TrafficEdge
+          _routedViaIgw: boolean
+          _routedViaVpce: boolean
         })
+      }
+
+      // P1-B — Glance (and Inventory when noisy): one badge per IGW/VPCE
+      // corridor instead of a translucent pile on the right rail.
+      type PathExt = FlowPath & {
+        _edge?: TrafficEdge
+        _routedViaIgw?: boolean
+        _routedViaVpce?: boolean
+      }
+      const pathExt = next as PathExt[]
+      const bundleMode = viewDensity === "inventory" ? "inventory" : "glance"
+      const selected = selectBundledCorridorBadges(
+        pathExt.map(p => ({
+          kind: p._edge
+            ? corridorKindForEdge(p._edge, {
+                routedViaIgw: p._routedViaIgw,
+                routedViaVpce: p._routedViaVpce,
+              })
+            : null,
+          label: p.badgeLabel,
+          externalDestinations: p.externalDestinations,
+          badgeX: p.badgeX,
+          badgeY: p.badgeY,
+        })),
+        bundleMode,
+      )
+      for (let i = 0; i < pathExt.length; i++) {
+        const pick = selected[i]
+        if (!pick) {
+          pathExt[i].badgeLabel = ""
+          pathExt[i].badgeTitle = undefined
+        } else {
+          pathExt[i].badgeLabel = pick.label
+          pathExt[i].badgeTitle = pick.title
+        }
+        delete pathExt[i]._edge
+        delete pathExt[i]._routedViaIgw
+        delete pathExt[i]._routedViaVpce
       }
 
       // Pass 4 — de-overlap badges against BOTH other badges AND chip boxes.
@@ -2567,6 +2621,7 @@ function FlowOverlay({
         return true
       }
       for (const p of next) {
+        if (!p.badgeLabel) continue
         const hw = Math.max(14, (p.badgeLabel.length * 6.4) / 2)
         let y = p.badgeY
         if (!clearAt(p.badgeX, y, hw)) {
@@ -2633,7 +2688,7 @@ function FlowOverlay({
     // the CURRENT zoom; densityCollapsed because the chip↔stack-tile swap
     // replaces the DOM elements edges anchor to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges, scale, densityCollapsed])
+  }, [edges, scale, densityCollapsed, viewDensity])
 
   const colorByCls: Record<TrafficEdgeClass, string> = {
     internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
@@ -2717,28 +2772,33 @@ function FlowOverlay({
             />
           </path>
           <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
-            <rect
-              x={-Math.max(p.badgeLabel.length * 3.8, 14)}
-              y={-7}
-              width={Math.max(p.badgeLabel.length * 7.6, 28)}
-              height={14}
-              rx={3}
-              fill="white"
-              stroke={stroke}
-              strokeWidth="0.75"
-              opacity="0.94"
-            />
-            <text
-              x={0}
-              y={3}
-              textAnchor="middle"
-              fontSize="8"
-              fontWeight="600"
-              fontFamily="ui-sans-serif, system-ui, sans-serif"
-              fill={stroke}
-            >
-              {p.badgeLabel}
-            </text>
+            {p.badgeLabel ? (
+              <>
+                <title>{p.badgeTitle || p.badgeLabel}</title>
+                <rect
+                  x={-Math.max(p.badgeLabel.length * 3.8, 14)}
+                  y={-7}
+                  width={Math.max(p.badgeLabel.length * 7.6, 28)}
+                  height={14}
+                  rx={3}
+                  fill="white"
+                  stroke={stroke}
+                  strokeWidth="0.75"
+                  opacity="0.94"
+                />
+                <text
+                  x={0}
+                  y={3}
+                  textAnchor="middle"
+                  fontSize="8"
+                  fontWeight="600"
+                  fontFamily="ui-sans-serif, system-ui, sans-serif"
+                  fill={stroke}
+                >
+                  {p.badgeLabel}
+                </text>
+              </>
+            ) : null}
           </g>
         </g>
         )
@@ -4693,7 +4753,13 @@ export function AwsFrame({
           order paints them on top of every chip box. z-index alone was
           not enough on prod (the subnet/AZ boxes are static siblings,
           and elementsFromPoint still returned them first). */}
-      <FlowOverlay edges={visibleEdges} containerRef={flowContainerRef} scale={scale} densityCollapsed={densityCollapsed} />
+      <FlowOverlay
+        edges={visibleEdges}
+        containerRef={flowContainerRef}
+        scale={scale}
+        densityCollapsed={densityCollapsed}
+        viewDensity={viewDensity}
+      />
     </div>
   )
 }
