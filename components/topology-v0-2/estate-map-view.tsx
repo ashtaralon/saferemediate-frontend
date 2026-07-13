@@ -176,7 +176,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   )
   const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
   const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
-  const { data, loading, error, isStale, cachedAt, retry } = useCachedFetch<TopologyRiskResponse>(url, {
+  const { data, loading, error, isStale, cachedAt, retry, isComputing } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
@@ -892,23 +892,26 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [data],
   )
 
-  // Wave D 5s abort returned HTTP 200 { status: "computing", system_kpis: null }.
-  // That is not a finished map — keep loading and retry instead of "No system_kpis".
+  // Wave D computing envelope with no usable payload. Prefer hook
+  // `isComputing` (keeps stale map on screen) over replacing data with
+  // the empty envelope — only full-page wait when we have nothing to show.
   const isComputingEnvelope =
-    !!data &&
-    !data.system_kpis &&
-    (data.status === "computing" ||
-      data.staleReason === "peer_computing" ||
-      ((data.nodes?.length ?? 0) === 0 && !data.error))
+    isComputing ||
+    (!!data &&
+      !data.system_kpis &&
+      (data.status === "computing" ||
+        data.staleReason === "peer_computing" ||
+        ((data.nodes?.length ?? 0) === 0 && !data.error)))
 
   useEffect(() => {
-    if (!isComputingEnvelope) return
-    clearCachedFetch(cacheKey)
+    if (!isComputing) return
+    // Do NOT clearCachedFetch — that threw away the last-good map and
+    // forced a blank "Computing…" screen on every peer_computing tick.
     const id = window.setInterval(() => {
       retry()
     }, 4000)
     return () => window.clearInterval(id)
-  }, [isComputingEnvelope, cacheKey, retry])
+  }, [isComputing, retry])
 
   const rankedEntries = useMemo(
     () =>
@@ -965,7 +968,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [data?.system_kpis, chipCountNodes],
   )
 
-  if ((loading && !data) || isComputingEnvelope) {
+  if ((loading && !data) || (isComputingEnvelope && !data?.system_kpis)) {
     return (
       <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
         <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
