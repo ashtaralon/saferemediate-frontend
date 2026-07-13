@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { ServiceTypeBadge } from "@/lib/service-type";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
@@ -52,6 +52,16 @@ export interface ServiceNode {
    *  row" as a UI clutter issue — the ENI is conceptually part of
    *  the EC2, not a peer workload. */
   enis?: Array<{ id: string; name: string; shortName: string }>;
+  /** Concrete AWS resource type as it arrives in the raw dep-map / path
+   *  payload (e.g. "S3Bucket", "EFSFileSystem", "RDSInstance",
+   *  "RedshiftCluster") BEFORE `mapNodeType` collapses it into the abstract
+   *  `type` union above. `type` stays abstract for layout/NODE_CONFIG; this
+   *  optional field lets `ServiceTypeBadge` resolve the REAL service tile
+   *  (EFS vs S3, Redshift/Aurora vs RDS) via `resolveServiceType`, which the
+   *  abstract union cannot distinguish. Populated only at resource
+   *  construction sites; undefined ⇒ fall back to the RESOURCE_PLANE_SERVICE_TYPE
+   *  heuristic. Added 2026-07-13 (Phase 1b-c EFS/Redshift data-model fix). */
+  awsServiceType?: string;
 }
 
 export interface SGRule {
@@ -782,7 +792,13 @@ export function ServiceNodeBox({
   // crown jewels) swap the generic NODE_CONFIG glyph for the canonical
   // design-system service tile so the type is scannable on the dark island.
   // undefined ⇒ not a resource-plane node ⇒ keep the existing icon below.
-  const resourceServiceType = RESOURCE_PLANE_SERVICE_TYPE[node.type];
+  // Prefer the CONCRETE AWS type carried end-to-end from the payload
+  // (node.awsServiceType, e.g. "EFSFileSystem" / "RedshiftCluster") so the
+  // tile resolves the real service — `resolveServiceType` inside
+  // ServiceTypeBadge normalizes S3Bucket→S3, EFSFileSystem→EFS,
+  // aurora→RDS, etc. Falls back to the lossy abstract-type heuristic only
+  // when the concrete type wasn't plumbed through.
+  const resourceServiceType = node.awsServiceType ?? RESOURCE_PLANE_SERVICE_TYPE[node.type];
   // 2026-06-11 rebalance: icon color = category IDENTITY, it stays in
   // spine mode (founder feedback: full neutralization read as dead).
   // Card-bg tints stay neutral (bg-card) — only the icon chip + label
@@ -6915,7 +6931,10 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
         : t.includes('kms') ? 'kms'
         : t.includes('secret') ? 'secret'
         : 'storage';
-      resources.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype });
+      // Preserve the concrete AWS type (pn.type) so the tile can resolve
+      // EFS vs S3 / Redshift vs RDS — the `subtype` above collapses EFS and
+      // Redshift into 'storage' and would mislabel them. See ServiceNode.awsServiceType.
+      resources.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype, awsServiceType: pn.type });
     } else if (bucket === 'security_group') {
       // Hydrate from arch.securityGroups when possible — the path node
       // might use a slightly different id (synthesized stub, cross-system
@@ -7708,13 +7727,17 @@ export default function TrafficFlowMap({
   // "collapse by default, don't permanently hide").
   //
   // 2026-06-09: design pivot — operator review on the embedded per-path
-  // canvas confirmed they want StackSidebar OPEN by default in both
-  // contexts. The "closed when pathFilter" branch was hiding the rich
-  // path-scoped inventory that is the operator's primary navigation
-  // surface on the Per-Path tab. Defaulting open everywhere; toggle
-  // remains available to collapse when the operator needs canvas
-  // real-estate.
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // canvas confirmed they wanted StackSidebar OPEN by default in both
+  // contexts, so the rich path-scoped inventory stayed visible.
+  //
+  // 2026-07-13 (Phase 1b-c): reversed — the STACK COMPONENTS rail is a
+  // scrolling list of raw resource names that costs ~260px and adds visual
+  // noise on the Attack Map, so the map now claims full width by default and
+  // the operator reveals the rail on demand via the header toggle (the same
+  // `sidebarOpen` control, now labeled "stack components"). No data wiring
+  // changed — the sidebar and its onSelect/onFilter handlers are untouched;
+  // only the default visibility flipped from true → false.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [heatmapMode, setHeatmapMode] = useState(false);
   const [hopDepth, setHopDepth] = useState(3);
   const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
@@ -8305,6 +8328,8 @@ export default function TrafficFlowMap({
         name: resName,
         shortName: shortName(resName),
         type: mapNodeType(node.type || 'storage'),
+        // Concrete AWS type preserved for the service tile (EFS/Redshift-aware).
+        awsServiceType: node.type,
       });
     });
 
@@ -8321,6 +8346,8 @@ export default function TrafficFlowMap({
             name: dynName,
             shortName: shortName(dynName),
             type: nType,
+            // Concrete AWS type preserved for the service tile (EFS/Redshift-aware).
+            awsServiceType: node.type,
           });
           // Create flows from all compute to this resource
           computeServices.forEach(cs => {
@@ -8365,6 +8392,8 @@ export default function TrafficFlowMap({
               name: node.name || node.id,
               shortName: shortName(node.name || node.id),
               type: nType,
+              // Concrete AWS type preserved for the service tile (EFS/Redshift-aware).
+              awsServiceType: node.type,
             });
           }
         }
@@ -9652,15 +9681,20 @@ export default function TrafficFlowMap({
       {/* Header with refresh controls */}
       <div className="flex items-center gap-2 px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 min-w-0">
         <div className="flex items-center gap-4 shrink-0 min-w-0 max-w-[42%] overflow-hidden">
-          {/* Sidebar toggle */}
+          {/* Stack Components rail toggle. Collapsed by default (Phase 1b-c)
+              so the map claims full width; click to reveal the STACK
+              COMPONENTS inventory sidebar. Same styling as before; panel
+              icons + aria-label make the affordance legible. */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               sidebarOpen ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'bg-muted text-muted-foreground'
             }`}
-            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            title={sidebarOpen ? 'Hide stack components' : 'Show stack components'}
+            aria-label={sidebarOpen ? 'Hide stack components' : 'Show stack components'}
+            aria-pressed={sidebarOpen}
           >
-            <Layers className="w-4 h-4" />
+            {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </button>
           <h2 className="text-foreground font-bold text-lg">
             {titleOverride ?? (pathFilter ? 'Path Flow Map' : 'Traffic Flow Map')}

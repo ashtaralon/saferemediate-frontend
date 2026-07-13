@@ -22,9 +22,6 @@ export function PathComparisonTable({
 
   return (
     <div className="px-4 py-3 border-b border-border bg-card" data-testid="path-comparison-table">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-        Same crown jewel · different paths · different damage · different fixes
-      </p>
       <div className="overflow-x-auto -mx-1">
         <table className="w-full text-left text-[11px] min-w-[520px]">
           <thead>

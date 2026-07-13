@@ -304,7 +304,7 @@ export function PathListGrouped({
       <div className="px-4 py-3 border-b border-border sticky top-0 bg-background/95 backdrop-blur">
         <div className="flex items-center gap-2">
           <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Paths
           </div>
         </div>
@@ -345,7 +345,7 @@ export function PathListGrouped({
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
                 <Icon className={`h-3.5 w-3.5 ${meta.tone}`} />
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   {meta.label}
                 </span>
                 <span className="text-[10px] text-muted-foreground ml-auto">
