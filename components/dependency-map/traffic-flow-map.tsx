@@ -6,6 +6,7 @@ import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
+import { ServiceTypeBadge } from "@/lib/service-type";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
 import {
   countVpceLane,
@@ -549,6 +550,25 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
   vpc_endpoint: { icon: Network, color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-500/20', border: 'border-teal-500/50', text: 'VPCE' },
 };
 
+// ---------------------------------------------------------------------------
+// Resource-plane service tiles. The RESOURCE column's data-store cards
+// (S3 / RDS / DynamoDB / KMS / Secrets crown-jewel targets) render the
+// canonical, triple-coded service tile from the design system
+// (`ServiceTypeBadge`, lib/service-type) instead of the generic NODE_CONFIG
+// glyph — the dark-map counterpart of the crown-jewels rail. This table only
+// TRANSLATES the abstract NodeType to a spelling `resolveServiceType` knows;
+// the design system still owns every icon, color and label. (`resolveServiceType`
+// resolves 'dynamodb'/'kms'/'secret' on its own but NOT the abstract
+// 'storage'/'database', so all five are mapped explicitly.) A NodeType absent
+// here keeps its NODE_CONFIG icon — this is NOT a general icon map.
+const RESOURCE_PLANE_SERVICE_TYPE: Partial<Record<NodeType, string>> = {
+  storage: 'S3',
+  database: 'RDS',
+  dynamodb: 'DynamoDB',
+  kms: 'KMS',
+  secret: 'SecretsManager',
+};
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -758,6 +778,11 @@ export function ServiceNodeBox({
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
+  // Resource-plane nodes (S3 / RDS / DynamoDB / KMS / Secrets targets, incl.
+  // crown jewels) swap the generic NODE_CONFIG glyph for the canonical
+  // design-system service tile so the type is scannable on the dark island.
+  // undefined ⇒ not a resource-plane node ⇒ keep the existing icon below.
+  const resourceServiceType = RESOURCE_PLANE_SERVICE_TYPE[node.type];
   // 2026-06-11 rebalance: icon color = category IDENTITY, it stays in
   // spine mode (founder feedback: full neutralization read as dead).
   // Card-bg tints stay neutral (bg-card) — only the icon chip + label
@@ -783,9 +808,16 @@ export function ServiceNodeBox({
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className={`w-11 h-11 rounded-lg ${iconBoxCls} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-5 h-5 ${iconCls}`} />
-      </div>
+      {resourceServiceType ? (
+        // Canonical, triple-coded service tile (color + icon + aria label),
+        // onDark for the #11202F map island. Type/color/label come from the
+        // design system; the NODE_CONFIG.text row below still shows the label.
+        <ServiceTypeBadge type={resourceServiceType} variant="tile" onDark size={28} />
+      ) : (
+        <div className={`w-11 h-11 rounded-lg ${iconBoxCls} flex items-center justify-center flex-shrink-0`}>
+          <Icon className={`w-5 h-5 ${iconCls}`} />
+        </div>
+      )}
       <div className="flex-1 min-w-0">
         <div className="text-sm font-bold text-foreground truncate">{node.shortName}</div>
         {node.instanceId && showDetail && (
