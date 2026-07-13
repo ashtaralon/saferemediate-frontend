@@ -59,6 +59,13 @@ export interface UseCachedFetchResult<T> {
   cachedAt: number | null
   /** True only on the first ever load with no cache available. */
   loading: boolean
+  /**
+   * Wave D / snapshot contract: backend returned HTTP 200
+   * `{ status: "computing" }` with a null payload. When we already have
+   * usable cached data, we KEEP showing it (isStale=true) and set this
+   * so callers can poll — never blank the UI for a peer lock.
+   */
+  isComputing: boolean
   /** Surfaced ONLY when there's no cached fallback to show. */
   error: string | null
   /** Manual re-fetch. */
@@ -225,6 +232,7 @@ export function useCachedFetch<T = unknown>(
   // visit to this card). If we have any cached data (even 6h old), we
   // show it instantly and background-refresh — no skeleton flash.
   const [loading, setLoading] = useState<boolean>(initial === null && !!url)
+  const [isComputing, setIsComputing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
   // Re-sync rendered state when `cacheKey` changes mid-mount — e.g. the
@@ -256,6 +264,7 @@ export function useCachedFetch<T = unknown>(
     setIsStale(nextInitial !== null && nextFresh === null)
     setCachedAt(nextInitial?.ts ?? null)
     setLoading(nextInitial === null && !!url)
+    setIsComputing(false)
     setError(null)
   }
 
@@ -322,13 +331,34 @@ export function useCachedFetch<T = unknown>(
       const isComputingEnvelope =
         envelope.status === "computing" &&
         (envelope.system_kpis == null || envelope.system_kpis === undefined)
+      if (isComputingEnvelope) {
+        // Keep last-good map on screen; only show the empty computing
+        // envelope when we have nothing else to render.
+        const fallback =
+          (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+          readCacheAny<T>(cacheKey)
+        if (fallback?.data) {
+          setData(fallback.data)
+          setIsStale(true)
+          setCachedAt(fallback.ts)
+          setIsComputing(true)
+          setError(null)
+          setLoading(false)
+          return
+        }
+        setData(sanitized)
+        setIsStale(false)
+        setCachedAt(null)
+        setIsComputing(true)
+        setError(null)
+        setLoading(false)
+        return
+      }
       setData(sanitized)
+      setIsComputing(false)
       if (proxyStale) {
         setIsStale(true)
         setCachedAt(cachedAt ?? Date.now())
-      } else if (isComputingEnvelope) {
-        setIsStale(false)
-        setCachedAt(null)
       } else {
         setIsStale(false)
         setCachedAt(null)
@@ -372,5 +402,5 @@ export function useCachedFetch<T = unknown>(
     fetchFresh()
   }, [fetchFresh])
 
-  return { data, isStale, cachedAt, loading, error, retry }
+  return { data, isStale, cachedAt, loading, isComputing, error, retry }
 }

@@ -82,3 +82,38 @@ describe("useCachedFetch — cacheKey change (scope switch)", () => {
     expect(result.current.data).toEqual({ ec2: 7 })
   })
 })
+
+describe("useCachedFetch — Wave D computing envelope", () => {
+  it("keeps last-good cache when fetch returns status=computing", async () => {
+    const { waitFor } = await import("@testing-library/react")
+    seed("topo:alon", { system_kpis: { n: 1 }, nodes: [{ id: "a" }] })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            status: "computing",
+            system_name: "alon-prod",
+            staleReason: "peer_computing",
+            system_kpis: null,
+            nodes: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    )
+
+    const { result } = renderHook(() =>
+      useCachedFetch<{ system_kpis: { n: number }; nodes: { id: string }[] }>(
+        "/api/proxy/topology-risk/alon-prod",
+        { cacheKey: "topo:alon" },
+      ),
+    )
+    expect(result.current.data?.system_kpis).toEqual({ n: 1 })
+
+    await waitFor(() => expect(result.current.isComputing).toBe(true))
+    expect(result.current.data?.system_kpis).toEqual({ n: 1 })
+    expect(result.current.data?.nodes).toEqual([{ id: "a" }])
+    expect(result.current.isStale).toBe(true)
+  })
+})
