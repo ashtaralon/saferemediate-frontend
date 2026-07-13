@@ -58,11 +58,20 @@ export function compileThreeLayerChips(
     classifyPathShape(path, report?.remediation_diff?.remove_actions ?? undefined).kind
   const networkIsNA = isNetworkGateNA(shape, gates.network)
 
-  // Prefer report gates; fall back to materialized path gates when report is thin.
+  // Prefer report.current_state.spine gates (#453) when present.
+  const spine = report?.current_state?.spine
   const mp = path.materialized_path
-  const identity = (gates.identity ?? mp?.identity_gate) as GateState | undefined
-  const network = (gates.network ?? mp?.route_gate) as GateState | undefined
-  const data = (gates.data_plane ?? mp?.data_plane_gate) as GateState | undefined
+  const identity = (spine?.identity_gate ??
+    gates.identity ??
+    mp?.identity_gate) as GateState | undefined
+  const network = (spine?.route_gate ??
+    gates.network ??
+    mp?.route_gate) as GateState | undefined
+  const data = (spine?.data_plane_gate ??
+    gates.data_plane ??
+    mp?.data_plane_gate) as GateState | undefined
+
+  const standingFromSpine = spine?.origin_confidence === "origin_unresolved"
 
   return [
     {
@@ -71,7 +80,7 @@ export function compileThreeLayerChips(
       answer: gateAnswer(identity),
       tone: gateTone(identity),
     },
-    networkIsNA
+    networkIsNA || standingFromSpine
       ? {
           key: "N",
           label: "Network",

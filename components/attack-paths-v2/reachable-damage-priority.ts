@@ -1,8 +1,15 @@
 /**
  * Reachable Damage Priority + Zoom 0 row contract (PRD-attacker-lens-three-zoom).
  *
- * Pure + deterministic. Observed vs config stay separate axes — never blended
- * into a single risk score. Network on IAM-only paths is N/A, never fake green.
+ * Two-axis lexicographic sort (never blend into one Risk N):
+ *   1. impact_tier         DELETE/ADMIN > WRITE/EXFIL > READ > other
+ *   2. origin_confidence   observed_complete > config_complete > origin_unresolved
+ *   3. tie-breaks          identity_pivot breadth > fix_readiness > hit_count
+ *
+ * `standing_iam_only` degrades the origin chip / origin_confidence — it does
+ * NOT auto-bury a destructive standing path under a config-read foothold.
+ *
+ * Pure + deterministic. Observed vs config stay separate axes.
  */
 
 import type {
@@ -19,6 +26,7 @@ export type LayerEvidence =
   | "unknown"
   | "na-standing"
 
+/** UI / grouping label — NOT the sort key. */
 export type ReachableDamageBucket =
   | "observed_destructive"
   | "observed_exfil_read"
@@ -26,7 +34,30 @@ export type ReachableDamageBucket =
   | "config_exfil_read"
   | "standing_iam_only"
 
-/** Lower rank = higher triage priority (1 = fix first). */
+export type ImpactTier = "destructive" | "write_exfil" | "read" | "other"
+export type OriginConfidence =
+  | "observed_complete"
+  | "config_complete"
+  | "origin_unresolved"
+
+/** Lower = higher triage priority. Mirrors api/zoom0_sort.py. */
+export const IMPACT_TIER_RANK: Record<ImpactTier, number> = {
+  destructive: 1,
+  write_exfil: 2,
+  read: 3,
+  other: 4,
+}
+
+export const ORIGIN_CONFIDENCE_RANK: Record<OriginConfidence, number> = {
+  observed_complete: 1,
+  config_complete: 2,
+  origin_unresolved: 3,
+}
+
+/**
+ * @deprecated Flat bucket rank buried standing IAM. Kept only for callers
+ * that still read the name — prefer impact_tier + origin_confidence.
+ */
 export const REACHABLE_DAMAGE_RANK: Record<ReachableDamageBucket, number> = {
   observed_destructive: 1,
   observed_exfil_read: 2,
@@ -47,7 +78,11 @@ export interface Zoom0PathProjection {
   damage_verbs: string[]
   lateral_count: number
   reachable_damage_bucket: ReachableDamageBucket
+  /** Composite: impact_tier * 100 + origin_confidence (legacy list/bucket sort). */
   reachable_damage_rank: number
+  impact_tier: number
+  origin_confidence: OriginConfidence
+  origin_confidence_rank: number
   fix_ready: boolean
 }
 
@@ -166,6 +201,65 @@ function isExfilOrRead(verbs: string[], path: IdentityAttackPath): boolean {
   return buckets.some((b) => b === "EXFIL" || b === "READ" || b === "WRITE")
 }
 
+export function classifyImpactTier(verbs: string[], path: IdentityAttackPath): ImpactTier {
+  if (isDestructive(verbs, path)) return "destructive"
+  if (verbs.some((v) => /WRITE|EXFIL/i.test(v))) return "write_exfil"
+  const buckets = path.impact_buckets ?? []
+  if (buckets.some((b) => b === "WRITE" || b === "EXFIL")) return "write_exfil"
+  if (isExfilOrRead(verbs, path) || buckets.includes("READ")) return "read"
+  return "other"
+}
+
+/**
+ * Origin-confidence axis. Standing / unresolved origin never masquerades as
+ * a resolved foothold — even when impact evidence is observed.
+ */
+export function deriveOriginConfidence(
+  path: IdentityAttackPath,
+  layers: PathLayerChips,
+): OriginConfidence {
+  const standing = layers.network === "na-standing"
+  const shape = classifyPathShape(path)
+  const orphanWorkload = /\(orphan role:/i.test(
+    path.materialized_path?.workload_name || path.nodes?.[0]?.name || "",
+  )
+  const hasCompute = (path.nodes ?? []).some((n) =>
+    /EC2Instance|Lambda|ECS|Fargate|Container|Workload/i.test(n.type),
+  )
+  const ia = path.initial_access?.category
+  const classifiedOrigin =
+    Boolean(ia) && ia !== "UNKNOWN" && !standing
+
+  const originResolved =
+    !standing &&
+    !orphanWorkload &&
+    (hasCompute || classifiedOrigin || (shape.kind === "A" && hasCompute))
+
+  if (standing || orphanWorkload || !originResolved) {
+    return "origin_unresolved"
+  }
+  if (
+    layers.permissions === "observed" ||
+    layers.data === "observed" ||
+    layers.network === "observed" ||
+    hasAnyObserved(path)
+  ) {
+    return "observed_complete"
+  }
+  return "config_complete"
+}
+
+export function compositeReachableDamageRank(
+  impactTier: number,
+  originConfidenceRank: number,
+): number {
+  return impactTier * 100 + originConfidenceRank
+}
+
+/**
+ * UI bucket for chips / headlines. Standing stays a visible label; sort uses
+ * impact_tier × origin_confidence instead of burying standing at rank 5.
+ */
 export function classifyReachableDamageBucket(
   path: IdentityAttackPath,
   layers: PathLayerChips,
@@ -248,6 +342,10 @@ export function compileZoom0Projection(
     layers,
     damage_verbs,
   )
+  const impactTierName = classifyImpactTier(damage_verbs, path)
+  const impact_tier = IMPACT_TIER_RANK[impactTierName]
+  const origin_confidence = deriveOriginConfidence(path, layers)
+  const origin_confidence_rank = ORIGIN_CONFIDENCE_RANK[origin_confidence]
   const lateral_count = Math.max(
     0,
     path.damage_capability?.lateral_action_count ?? 0,
@@ -270,14 +368,22 @@ export function compileZoom0Projection(
     damage_verbs,
     lateral_count,
     reachable_damage_bucket,
-    reachable_damage_rank: REACHABLE_DAMAGE_RANK[reachable_damage_bucket],
+    reachable_damage_rank: compositeReachableDamageRank(
+      impact_tier,
+      origin_confidence_rank,
+    ),
+    impact_tier,
+    origin_confidence,
+    origin_confidence_rank,
     fix_ready,
   }
 }
 
-/** Sort comparator: Reachable Damage Priority, then lateral, then fix readiness. */
+/** Sort comparator: impact tier → origin confidence → pivots → fix → hits. */
 export function compareReachableDamagePriority(
   a: {
+    impact_tier?: number
+    origin_confidence_rank?: number
     reachable_damage_rank: number
     lateral_count: number
     fix_ready: boolean
@@ -285,6 +391,8 @@ export function compareReachableDamagePriority(
     hop_count?: number
   },
   b: {
+    impact_tier?: number
+    origin_confidence_rank?: number
     reachable_damage_rank: number
     lateral_count: number
     fix_ready: boolean
@@ -292,9 +400,16 @@ export function compareReachableDamagePriority(
     hop_count?: number
   },
 ): number {
-  if (a.reachable_damage_rank !== b.reachable_damage_rank) {
-    return a.reachable_damage_rank - b.reachable_damage_rank
-  }
+  const ai = a.impact_tier ?? Math.floor(a.reachable_damage_rank / 100)
+  const bi = b.impact_tier ?? Math.floor(b.reachable_damage_rank / 100)
+  if (ai !== bi) return ai - bi
+
+  const ao =
+    a.origin_confidence_rank ?? a.reachable_damage_rank % 100
+  const bo =
+    b.origin_confidence_rank ?? b.reachable_damage_rank % 100
+  if (ao !== bo) return ao - bo
+
   if (b.lateral_count !== a.lateral_count) return b.lateral_count - a.lateral_count
   if (Number(b.fix_ready) !== Number(a.fix_ready)) {
     return Number(b.fix_ready) - Number(a.fix_ready)

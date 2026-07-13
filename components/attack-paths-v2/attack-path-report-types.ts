@@ -224,6 +224,8 @@ export interface AttackPathReport {
      *  fields (never by string-splitting business_sentence). The renderer
      *  prefers this over its Shape-A-only fallback. */
     headline?: string
+    /** Three-node attacker spine (#453). Prefer over collapsed source_label. */
+    spine?: Zoom1Spine | null
   }
 
   claims: Claim[]
@@ -267,6 +269,41 @@ export interface AttackPathReport {
   narration_source?: "llm" | "template" | "business_sentence_floor" | null
   narration_l3_ok?: boolean | null
   narration_generated_at?: string | null
+}
+
+/** Backend Zoom1Spine DTO (#453 flat shape on current_state.spine). */
+export interface SpineNode {
+  id: string
+  name: string
+  kind: string
+}
+
+export type SpineOriginConfidence =
+  | "observed_complete"
+  | "config_complete"
+  | "origin_unresolved"
+
+export interface IdentityHop {
+  via: string
+  from_node: SpineNode
+  to_node: SpineNode
+  observed?: boolean
+}
+
+export interface Zoom1Spine {
+  origin_node?: SpineNode | null
+  origin_category?: string | null
+  origin_confidence: SpineOriginConfidence
+  identity_hops: IdentityHop[]
+  effective_principal: SpineNode
+  impact_target: SpineNode
+  identity_gate?: string | null
+  route_gate?: string | null
+  data_plane_gate?: string | null
+  damage_verbs?: string[]
+  damage_scoped_to?: string
+  identity_pivots?: SpineNode[]
+  excess_service_reach?: number
 }
 
 /** Stored L2 narration payload (from :AttackPath.narration_json). */
@@ -453,9 +490,12 @@ export interface PathListRow {
   /** Lateral reach count from identity (0 when unknown). */
   lateral_count: number
 
-  /** Reachable Damage Priority bucket + numeric rank (1 = highest). */
+  /** Reachable Damage Priority — UI bucket + two-axis sort keys. */
   reachable_damage_bucket: ReachableDamageBucket
+  /** Composite impact*100 + origin_confidence (lower = higher priority). */
   reachable_damage_rank: number
+  impact_tier: number
+  origin_confidence_rank: number
 
   /** Weak fix-readiness signal for triage tie-break. */
   fix_ready: boolean
