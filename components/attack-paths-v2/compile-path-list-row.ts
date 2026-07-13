@@ -373,6 +373,8 @@ export function compilePathListRow(
     lateral_count: zoom0.lateral_count,
     reachable_damage_bucket: zoom0.reachable_damage_bucket,
     reachable_damage_rank: zoom0.reachable_damage_rank,
+    impact_tier: zoom0.impact_tier,
+    origin_confidence_rank: zoom0.origin_confidence_rank,
     fix_ready: zoom0.fix_ready,
   }
 }

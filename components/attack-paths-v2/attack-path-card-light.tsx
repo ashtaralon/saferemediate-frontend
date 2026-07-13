@@ -313,11 +313,15 @@ export function AttackPathCardLightView({
           >
             Attack path · {cs.target_label}
           </div>
-          <div className="flex items-center gap-4 flex-wrap">
-            <NodeChip meta={sourceMeta} name={sourceName} sub={sourceSub} />
-            <span style={{ color: "#9aa3b1" }} className="text-xl">→</span>
-            <NodeChip meta={targetMeta} name={cs.target_label || nodeName(targetNode)} />
-          </div>
+          {/* When Zoom1Spine is present, AttackSpineStrip owns the chain —
+              do not re-render the collapsed 2-chip (role → jewel) lie. */}
+          {!report.current_state?.spine && (
+            <div className="flex items-center gap-4 flex-wrap">
+              <NodeChip meta={sourceMeta} name={sourceName} sub={sourceSub} />
+              <span style={{ color: "#9aa3b1" }} className="text-xl">→</span>
+              <NodeChip meta={targetMeta} name={cs.target_label || nodeName(targetNode)} />
+            </div>
+          )}
         </div>
         <div
           className="rounded-2xl px-6 py-3.5 text-center shrink-0"

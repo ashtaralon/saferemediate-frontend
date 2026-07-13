@@ -174,6 +174,83 @@ describe("Reachable Damage Priority", () => {
     expect(compareReachableDamagePriority(observedDel, configRead)).toBeLessThan(0)
   })
 
+  it("does not bury standing destructive under foothold config-read", () => {
+    const standingDelete = compileZoom0Projection(
+      basePath({
+        id: "standing",
+        evidence_type: "configured",
+        damage_types: ["delete", "admin"],
+        edges: [
+          {
+            source: "role-entry",
+            target: "role-1",
+            type: "ASSUMES_ROLE",
+            is_observed: false,
+          },
+        ],
+        nodes: [
+          {
+            id: "role-entry",
+            name: "EntryRole",
+            type: "IAMRole",
+            tier: "identity",
+            is_internet_exposed: false,
+            lp_score: null,
+            gap_count: 0,
+          },
+          {
+            id: "role-1",
+            name: "AppRole",
+            type: "IAMRole",
+            tier: "identity",
+            is_internet_exposed: false,
+            lp_score: null,
+            gap_count: 0,
+          },
+          {
+            id: "arn:aws:s3:::customer-data-s3",
+            name: "customer-data-s3",
+            type: "S3Bucket",
+            tier: "crown_jewel",
+            is_internet_exposed: false,
+            lp_score: null,
+            gap_count: 0,
+          },
+        ],
+        materialized_path: {
+          id: "m-stand",
+          path_status: "POTENTIAL_EXCESS",
+          damage_types: ["delete", "admin"],
+          identity_gate: "OPEN_CONFIG",
+          route_gate: "UNKNOWN",
+          data_plane_gate: "OPEN_CONFIG",
+          role_name: "AppRole",
+        },
+      }),
+      jewel,
+    )
+    const footholdRead = compileZoom0Projection(
+      basePath({
+        id: "foothold-read",
+        evidence_type: "configured",
+        damage_types: ["read"],
+        materialized_path: {
+          id: "m-read",
+          path_status: "POTENTIAL_EXCESS",
+          damage_types: ["read"],
+          identity_gate: "OPEN_CONFIG",
+          route_gate: "OPEN_CONFIG",
+          data_plane_gate: "OPEN_CONFIG",
+        },
+      }),
+      jewel,
+    )
+    expect(standingDelete.reachable_damage_bucket).toBe("standing_iam_only")
+    expect(standingDelete.origin_confidence).toBe("origin_unresolved")
+    expect(standingDelete.impact_tier).toBeLessThan(footholdRead.impact_tier)
+    expect(compareReachableDamagePriority(standingDelete, footholdRead)).toBeLessThan(0)
+  })
+
   it("classifies standing IAM-only when network is N/A", () => {
     const layers = {
       permissions: "config-open" as const,
