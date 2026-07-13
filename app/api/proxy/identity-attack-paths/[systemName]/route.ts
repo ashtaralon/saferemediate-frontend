@@ -5,6 +5,7 @@ import {
   IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL,
 } from "@/lib/server/iap-proxy-query"
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
 import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 
 export const runtime = "nodejs"
@@ -72,7 +73,8 @@ export async function GET(
   // that the gated backend response no longer includes. Bumping the key
   // invalidates every Vercel edge-cached payload + every in-memory
   // per-instance cache atomically on deploy.
-  const SCHEMA_VERSION = "2026-06-21:p0gate"
+  // 2026-07-13:poison — never cache Wave D computing envelopes (empty maps).
+  const SCHEMA_VERSION = "2026-07-13:poison-bypass"
   const cacheKey = [
     "identity-attack-paths",
     SCHEMA_VERSION,
@@ -86,8 +88,9 @@ export async function GET(
   ].join(":")
 
   // Per-instance in-memory cache (warm-instance path — instant on repeat).
+  // Never serve a cached computing/empty poison envelope — refetch BE.
   const cached = getCached(cacheKey)
-  if (cached) {
+  if (cached && !isPoisonousProxyPayload(cached)) {
     return NextResponse.json(cached, {
       headers: {
         "X-Cache": "HIT",
@@ -103,7 +106,7 @@ export async function GET(
 
   const serveStale = (reason: string) => {
     const stale = getStaleCached(cacheKey)
-    if (!stale) return null
+    if (!stale || isPoisonousProxyPayload(stale)) return null
     console.warn(
       `[identity-attack-paths] ${reason} — serving stale cache systemName=${systemName}`,
     )
@@ -185,6 +188,14 @@ export async function GET(
       )
     }
     const data = await res.json()
+    // Prefer last-good over caching/returning an empty computing envelope.
+    if (isPoisonousProxyPayload(data)) {
+      const staleRes = serveStale("peer_computing")
+      if (staleRes) return staleRes
+      return NextResponse.json(data, {
+        headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
+      })
+    }
     setCached(cacheKey, data, TTL_SLOW)
     return NextResponse.json(data, {
       headers: {
@@ -268,6 +279,7 @@ async function fetchLighterBudget(opts: {
     })
     if (!res.ok) return null
     const data = await res.json()
+    if (isPoisonousProxyPayload(data)) return null
     // Cache under BOTH the lite key shape (via setCached on primary key)
     // so the operator's next visit with default params hits stale/fresh.
     setCached(opts.cacheKey, data, TTL_SLOW)

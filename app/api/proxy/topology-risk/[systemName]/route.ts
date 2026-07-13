@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
 import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
 import { TOPOLOGY_RISK_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 
@@ -60,7 +61,8 @@ export async function GET(
   const cacheKey = buildTopologyRiskServerCacheKey(systemName, scope)
 
   const cached = getCached(cacheKey)
-  if (cached) {
+  // Never serve a cached computing/empty poison envelope — refetch BE.
+  if (cached && !isPoisonousProxyPayload(cached)) {
     return NextResponse.json(cached, {
       headers: {
         "X-Cache": "HIT",
@@ -90,6 +92,18 @@ export async function GET(
         })
         if (retry.ok) {
           const data = await retry.json()
+          if (isPoisonousProxyPayload(data)) {
+            const stale = getStaleCached(cacheKey)
+            if (stale && !isPoisonousProxyPayload(stale)) {
+              return NextResponse.json(
+                { ...stale, fromStaleCache: true, staleReason: "peer_computing" },
+                { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
+              )
+            }
+            return NextResponse.json(data, {
+              headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
+            })
+          }
           setCached(cacheKey, data, TTL_SLOW)
           return NextResponse.json(data, {
             headers: { "X-Cache": "MISS", "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },
@@ -102,7 +116,7 @@ export async function GET(
       // the next BE deploy stabilizes.
       if (res.status >= 500) {
         const stale = getStaleCached(cacheKey)
-        if (stale) {
+        if (stale && !isPoisonousProxyPayload(stale)) {
           console.warn(`[topology-risk] backend ${res.status} — serving stale cache systemName=${systemName}`)
           return NextResponse.json(
             { ...stale, fromStaleCache: true, staleReason: `backend_${res.status}` },
@@ -125,6 +139,19 @@ export async function GET(
       )
     }
     const data = await res.json()
+    // Prefer last-good over caching/returning an empty computing envelope.
+    if (isPoisonousProxyPayload(data)) {
+      const stale = getStaleCached(cacheKey)
+      if (stale && !isPoisonousProxyPayload(stale)) {
+        return NextResponse.json(
+          { ...stale, fromStaleCache: true, staleReason: "peer_computing" },
+          { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
+        )
+      }
+      return NextResponse.json(data, {
+        headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
+      })
+    }
     setCached(cacheKey, data, TTL_SLOW)
     return NextResponse.json(data, {
       headers: {
@@ -142,7 +169,7 @@ export async function GET(
     // fetch-rejection, and TLS/connection blips all count — the operator
     // gets their last-good rollup either way, with the amber pill telling
     // the truth about freshness.
-    if (stale) {
+    if (stale && !isPoisonousProxyPayload(stale)) {
       console.warn(`[topology-risk] ${isTimeout ? "timeout" : "fetch failed"} — serving stale cache systemName=${systemName}`)
       return NextResponse.json(
         { ...stale, fromStaleCache: true, staleReason: isTimeout ? "timeout" : "fetch_failed" },

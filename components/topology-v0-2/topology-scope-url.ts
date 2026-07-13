@@ -19,15 +19,18 @@ export function buildTopologyRiskProxyUrl(
   return qs ? `${base}?${qs}` : base
 }
 
-/** Client-side useCachedFetch key — v9 busts Wave-D computing envelopes with null system_kpis. */
+/** Client-side useCachedFetch key — v10 busts poisoned empty computing caches. */
 export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${systemName}:v9:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  return `topology-risk:${systemName}:v10:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
 }
 
-/** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}. */
+/** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}.
+ * Schema suffix busts Vercel/in-memory poison after Wave-D empty envelopes. */
+const TOPOLOGY_RISK_SERVER_CACHE_SCHEMA = "2026-07-13:poison-bypass"
+
 export function buildTopologyRiskServerCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
@@ -35,6 +38,9 @@ export function buildTopologyRiskServerCacheKey(
   const account = scope.accountId ?? ""
   const region = scope.region ?? ""
   const vpc = scope.vpcId ?? ""
-  if (!account && !region && !vpc) return `topology-risk:${systemName}`
-  return `topology-risk:${systemName}:${account}:${region}:${vpc}`
+  const base =
+    !account && !region && !vpc
+      ? `topology-risk:${systemName}`
+      : `topology-risk:${systemName}:${account}:${region}:${vpc}`
+  return `${base}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
 }
