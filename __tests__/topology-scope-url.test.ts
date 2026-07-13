@@ -21,14 +21,14 @@ describe("topology scope URLs", () => {
     )
   })
 
-  it("builds client cache key v9", () => {
+  it("builds client cache key v10", () => {
     expect(
       buildTopologyRiskCacheKey("alon-prod", {
         accountId: "745783559495",
         region: "eu-west-1",
         vpcId: "vpc-abc",
       }),
-    ).toBe("topology-risk:alon-prod:v9:745783559495:eu-west-1:vpc-abc")
+    ).toBe("topology-risk:alon-prod:v10:745783559495:eu-west-1:vpc-abc")
   })
 
   it("builds server cache key aligned with BE dimensions", () => {
@@ -38,6 +38,8 @@ describe("topology scope URLs", () => {
         region: "eu-west-1",
         vpcId: "vpc-abc",
       }),
-    ).toBe("topology-risk:alon-prod:745783559495:eu-west-1:vpc-abc")
+    ).toBe(
+      "topology-risk:alon-prod:745783559495:eu-west-1:vpc-abc:2026-07-13:poison-bypass",
+    )
   })
 })
