@@ -32,18 +32,11 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import type { ResourceInspectorData, RemoveSection } from '@/types/resource-inspector'
+import { ServiceTypeBadge } from '@/lib/service-type'
 
-// Icon mapping for resource types
-const RESOURCE_ICONS: Record<string, React.ReactNode> = {
-  SecurityGroup: <Shield className="w-6 h-6 text-[#3b82f6]" />,
-  NetworkACL: <Globe className="w-6 h-6 text-cyan-600" />,
-  IAMRole: <Key className="w-6 h-6 text-[#f97316]" />,
-  IAMUser: <Key className="w-6 h-6 text-amber-500" />,
-  S3: <Database className="w-6 h-6 text-[#22c55e]" />,
-  RDS: <Database className="w-6 h-6 text-[#8b5cf6]" />,
-  EC2: <Server className="w-6 h-6 text-orange-600" />,
-  Unknown: <HelpCircle className="w-6 h-6 text-[var(--muted-foreground,#9ca3af)]" />,
-}
+// The header type glyph now comes from the canonical `@/lib/service-type`
+// badge — the old per-file `RESOURCE_ICONS` map was retired (Phase 2,
+// 2026-07-13). The per-template headers below keep their bespoke inline icons.
 
 export interface ResourceInspectorProps {
   resourceId: string
@@ -158,7 +151,7 @@ export function ResourceInspector({
       <div className="bg-white rounded-xl shadow-sm border border-[var(--border,#e5e7eb)] overflow-hidden">
         <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
           <div className="flex items-center gap-3">
-            {RESOURCE_ICONS[data.resource_type] || RESOURCE_ICONS.Unknown}
+            <ServiceTypeBadge type={data.resource_type} variant="tile" size={40} />
             <div>
               <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
               <p className="text-sm text-[var(--muted-foreground,#6b7280)]">{data.resource_type}</p>
