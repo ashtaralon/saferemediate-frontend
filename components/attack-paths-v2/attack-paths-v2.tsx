@@ -301,7 +301,7 @@ export function AttackPathsV2({
   // Progressive load (P0 perf):
   //   1. /jewels — fast materialized crown-jewel list → left rail + shell
   //   2. by-crown-jewel/summary per selected jewel → path rail (critical)
-  //   3. full IAP 5×5 — background only; never bricks the path rail on 502
+  //   3. full IAP 12×8 — background only; never bricks the path rail on 502
   // (Render wake happens via jewels fetch + keep-warm cron — don't fire the
   // full keep-warm sweep from the browser on every tab open.)
   const jewelsUrl = systemName
@@ -323,10 +323,10 @@ export function AttackPathsV2({
   })
 
   // Full IAP fan-out is OPTIONAL enrichment only — never gate the path rail.
-  // Cold alon-prod routinely exceeds the 55s proxy abort → HTTP 502 and used
-  // to brick the middle column. Paths come from by-crown-jewel/summary
-  // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
-  // succeeds (richer severity / damage), but do not block or hard-error on it.
+  // Cold alon-prod routinely exceeds the Wave D proxy abort → computing
+  // envelope / 502. Paths come from by-crown-jewel/summary (materialized
+  // AttackPath rows). Keep a background 12×8 fetch for when it succeeds
+  // (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
     ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
     : null
@@ -337,7 +337,7 @@ export function AttackPathsV2({
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap-v2:5x5:${systemName}`,
+    cacheKey: `iap-v2:12x8:${systemName}`,
   })
   // Intentionally ignore _iapBackgroundError for the path rail UI.
 
@@ -376,6 +376,19 @@ export function AttackPathsV2({
     }, 8000)
     return () => clearTimeout(t)
   }, [_iapBackgroundError, rawData, isLoading, retryFullIap])
+
+  // Wave D computing envelope (HTTP 200, empty jewels) — keep polling so
+  // the rail doesn't stick on a false empty after peer_computing / 5s abort.
+  useEffect(() => {
+    if (isLoading || !rawData || typeof rawData !== "object") return
+    const status = (rawData as { status?: unknown }).status
+    if (status !== "computing") return
+    const t = setTimeout(() => {
+      retryFullIap()
+      retryJewels()
+    }, 6000)
+    return () => clearTimeout(t)
+  }, [rawData, isLoading, retryFullIap, retryJewels])
 
   const fromProxyStale =
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
@@ -635,10 +648,18 @@ export function AttackPathsV2({
   // found" rather than crashing.
   const selectedPath = useMemo(() => {
     if (!selectedPathId) return null
+    const matches = jewelPaths.filter(
+      (p) => p.id === selectedPathId || p.attack_path_id === selectedPathId,
+    )
+    if (matches.length === 0) return null
+    // Prefer materialized / path-mat-* so Zoom 1 report hits a real :AttackPath.
     return (
-      jewelPaths.find(
-        (p) => p.id === selectedPathId || p.attack_path_id === selectedPathId,
-      ) ?? null
+      matches.find(
+        (p) =>
+          p.materialized === true ||
+          Boolean(p.materialized_path?.id) ||
+          p.id.startsWith("path-mat-"),
+      ) ?? matches[0]
     )
   }, [selectedPathId, jewelPaths])
 

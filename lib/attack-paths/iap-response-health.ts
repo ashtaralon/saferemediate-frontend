@@ -41,9 +41,31 @@ const HEALTHY: IapResponseHealth = {
  */
 export function classifyIapResponse(
   rawData: unknown,
-  result: { error?: string | null } | null | undefined,
+  result: { error?: string | null; status?: string | null } | null | undefined,
 ): IapResponseHealth {
   if (rawData == null && result == null) return HEALTHY
+
+  // 0. Wave D computing envelope (proxy 5s abort / peer_computing) —
+  // HTTP 200 with empty jewels is NOT a trustworthy empty.
+  const rawStatus =
+    rawData && typeof rawData === "object"
+      ? (rawData as { status?: unknown }).status
+      : undefined
+  const resultStatus = result?.status
+  if (rawStatus === "computing" || resultStatus === "computing") {
+    const staleReason =
+      rawData && typeof rawData === "object"
+        ? (rawData as { staleReason?: unknown }).staleReason
+        : undefined
+    return {
+      failed: true,
+      reason:
+        typeof staleReason === "string" && staleReason
+          ? `Attack paths still computing (${staleReason}).`
+          : "Attack paths still computing.",
+      graphUnavailable: true,
+    }
+  }
 
   // 1. Result-level error — the backend told us the compute failed.
   const resultError = result?.error
