@@ -328,7 +328,7 @@ export function AttackPathsV2({
   // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
   // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=5&max_paths_per_jewel=5`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
     : null
   const {
     data: rawData,

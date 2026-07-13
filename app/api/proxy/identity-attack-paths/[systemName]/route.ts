@@ -27,13 +27,9 @@ export async function GET(
 ) {
   const { systemName } = await params
   const { searchParams } = new URL(req.url)
-  // 5 jewels × 5 paths/jewel — reduced from 8×8 (2026-07) because cold
-  // alon-prod compute routinely exceeded the 55s AbortSignal → HTTP 502.
-  // Cost driver is max_jewels (per-jewel BFS). Smaller budget keeps the
-  // operator usable; drill-down still loads per-path detail on demand.
-  //
-  // Measured cold latency on alon-prod (2026-06): 8×8 ≈ 41s — thin margin
-  // vs 55s. Graph has only grown since.
+  // 12 jewels × 8 paths/jewel — align with API defaults / warm snapshot key.
+  // A prior 5×5 reduction left FE on a cold key that Wave C fair-caps then
+  // starved into endless peer_computing while 12×8 still served.
   const maxJewels =
     searchParams.get("max_jewels") || String(IAP_PROXY_DEFAULT_MAX_JEWELS)
   const maxPathsPerJewel =

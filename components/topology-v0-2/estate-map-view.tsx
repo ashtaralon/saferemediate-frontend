@@ -805,7 +805,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // the 30–55s cold IAP compute. Cap 5×5 to stay under the proxy abort.
   const iapUrl =
     flowMode === "attack_paths"
-      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=5&max_paths_per_jewel=5`
+      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
       : null
   const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
     cacheKey: `estate-iap:5x5:${systemName}`,
