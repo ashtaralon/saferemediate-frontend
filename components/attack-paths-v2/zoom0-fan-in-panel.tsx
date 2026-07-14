@@ -282,6 +282,10 @@ export function Zoom0FanInPanel({
                   systemName={systemName}
                   spotlightPaths={spotlightPaths}
                   spotlightPathId={null}
+                  // Show the FULL system estate with the attack paths
+                  // highlighted (on-path emphasized, off-path dimmed as
+                  // context) instead of collapsing to just the spine.
+                  fullEstateContext
                   spotlightJewel={{
                     id: jewel.id,
                     canonical_id: jewel.canonical_id ?? cjArn,
