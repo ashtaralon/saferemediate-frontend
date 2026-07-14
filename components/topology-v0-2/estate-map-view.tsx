@@ -21,6 +21,7 @@ import {
   workloadTypeRowsFromNodes,
 } from "@/components/topology-v0-2/filter-rail"
 import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
+import { OutOfScopeOverflowLine } from "@/components/topology-v0-2/estate-out-of-scope"
 import {
   buildHeadlineNarrative,
   buildRankedEntries,
@@ -1487,6 +1488,21 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               </>
             ) : null}
           </div>
+          {scopedVpc ? (
+            <div className="mb-1.5">
+              <OutOfScopeOverflowLine
+                systemName={systemName}
+                outOfScope={data.out_of_scope_workloads}
+                onOpenCompare={() => {
+                  // Match the VPC-scope picker's "All VPCs · Compare" path.
+                  setSelectedNodeId(null)
+                  setHighlightedRoleName(null)
+                  setSelectedVpcId("all")
+                  setFlowMode("attack_paths")
+                }}
+              />
+            </div>
+          ) : null}
           <div className="relative flex-1 min-h-0">
             <div
               className="h-full overflow-auto rounded-2xl"
