@@ -81,6 +81,15 @@ export interface TopologyNode {
   name: string
   type: string | null
   subnet_id: string | null
+  /**
+   * All subnets this workload occupies (BE >= estate-honesty deploy). A Multi-AZ
+   * resource (e.g. an RDS instance with standby, or a service spread across AZ
+   * subnets) carries every IN_SUBNET edge here; `subnet_id` stays the primary.
+   * When present with length > 1 the grid places ONE instance into every
+   * matching AZ×tier cell so a real Multi-AZ DB never leaves a cell falsely
+   * empty. Counts still dedupe by node id — two cells, one database.
+   */
+  subnet_ids?: string[]
   vpc_id?: string | null
   account_id?: string | null
   region?: string | null
@@ -122,11 +131,16 @@ export interface TopologyNode {
   /**
    * Co-location ownership (BE >= ownership-clarity deploy).
    * `owner_system_name`: node's own SystemName tag.
-   * `is_foreign`: true when this system's map admits a node tagged for a
-   * different system (e.g. enriched TargetGroup in a shared VPC). Untagged
-   * nodes stay is_foreign=false — unknown, not a foreignness claim.
+   * `is_foreign`: true when this system's map admits a node that also
+   * BELONGS_TO_SYSTEM one of the customer's OTHER systems — i.e. a SHARED
+   * resource, not another tenant. The chip renders "shared · <system>", never
+   * "foreign". Untagged nodes stay is_foreign=false — unknown, not a claim.
+   * `owner_systems`: the OTHER systems this resource belongs to (BE >=
+   * estate-honesty deploy). `owner_systems[0]` names the sharing peer on the
+   * chip; falls back to `owner_system_name` on older payloads.
    */
   owner_system_name?: string | null
+  owner_systems?: string[]
   is_foreign?: boolean
 }
 
@@ -305,6 +319,19 @@ export interface AvailableAccount {
   onboarded: boolean
 }
 
+/**
+ * This system's workloads that live OUTSIDE the currently-scoped VPC (BE >=
+ * estate-honesty deploy). Lets the scoped canvas admit "there is more of this
+ * system elsewhere" with one honest chrome line instead of silently implying
+ * the scoped VPC is the whole system. The backend already excludes null-vpc_id
+ * ghosts from `count`, so the FE renders `count` verbatim — never recomputes.
+ */
+export interface OutOfScopeWorkloads {
+  count: number
+  by_vpc: { vpc_id: string; count: number }[]
+  sample_names: string[]
+}
+
 export interface TopologyRiskResponse {
   system: string
   scored_at: string
@@ -325,6 +352,8 @@ export interface TopologyRiskResponse {
   traffic_edges?: TrafficEdge[]
   /** External systems consuming this system's shared data (observed/declared). */
   foreign_shared_access?: ForeignSharedAccessEdge[]
+  /** This system's workloads outside the scoped VPC — drives the overflow line. */
+  out_of_scope_workloads?: OutOfScopeWorkloads
   error?: string
   fromStaleCache?: boolean
   /** Wave D proxy computing envelope — not a finished topology-risk payload. */

@@ -326,6 +326,43 @@ function workloadInCanvasVpc(
   return true
 }
 
+/**
+ * All subnet ids a workload occupies — its `subnet_ids` (Multi-AZ) unioned with
+ * the primary `subnet_id`, deduped and order-stable (primary included). Older
+ * payloads without `subnet_ids` degrade cleanly to `[subnet_id]`.
+ */
+export function workloadSubnetIds(n: TopologyNode): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (s: string | null | undefined) => {
+    if (s && !seen.has(s)) {
+      seen.add(s)
+      out.push(s)
+    }
+  }
+  if (Array.isArray(n.subnet_ids)) for (const s of n.subnet_ids) push(s)
+  push(n.subnet_id)
+  return out
+}
+
+/** True when a workload declares more than one subnet — a Multi-AZ instance the
+ *  grid renders in several AZ cells. The chip badges it so it reads as ONE
+ *  resource spanning zones, never as N separate databases. */
+export function isMultiAzWorkload(n: TopologyNode): boolean {
+  return workloadSubnetIds(n).length > 1
+}
+
+/** The peer system a SHARED (is_foreign) resource also BELONGS_TO — the chip
+ *  reads "shared · <name>". Prefers owner_systems[0]; older payloads fall back
+ *  to owner_system_name. Never the word "foreign" (that implies another tenant;
+ *  this is one of the customer's OWN systems). */
+export function sharedOwnerName(
+  node: Pick<TopologyNode, "owner_systems" | "owner_system_name">,
+): string {
+  const first = node.owner_systems?.find(s => !!s && s.trim().length > 0)
+  return first ?? node.owner_system_name ?? "other system"
+}
+
 /** AZ columns available for the current VPC / merged canvas scope. */
 export function listTopologyAzs(
   subnets: SubnetMeta[],
@@ -763,7 +800,7 @@ function chipLayout(size: ChipSize): {
   }
 }
 
-function WorkloadChip({
+export function WorkloadChip({
   node, selected, onClick, iamSummary, size,
 }: {
   node: TopologyNode
@@ -807,9 +844,10 @@ function WorkloadChip({
       ? `${foreignSysCount} external system${foreignSysCount === 1 ? "" : "s"}`
       : null
   const isForeignOwner = node.is_foreign === true
-  const ownerChip = isForeignOwner
-    ? (node.owner_system_name ?? "other system")
-    : null
+  // "shared · <system>", never "foreign": a resource that BELONGS_TO two of the
+  // customer's OWN systems is SHARED (co-owned), not another tenant's.
+  const ownerChip = isForeignOwner ? sharedOwnerName(node) : null
+  const multiAz = isMultiAzWorkload(node)
   // Rich tooltip — when the BE attached a source_breakdown, show the
   // per-kind tally + top sources. Falls back to a short one-liner when
   // older BE deploys don't include the breakdown.
@@ -880,7 +918,7 @@ function WorkloadChip({
     <button
       type="button"
       onClick={onClick}
-      title={`${node.name}${ownerChip ? `\nShared neighbor · owned by ${ownerChip}` : ""}${usageTitle}`}
+      title={`${node.name}${ownerChip ? `\nShared · also belongs to ${ownerChip}` : ""}${usageTitle}`}
       data-flow-id={node.id}
       data-chip-size={resolvedSize}
       data-is-foreign={isForeignOwner ? "true" : undefined}
@@ -928,14 +966,24 @@ function WorkloadChip({
           <span className="text-[12px] font-semibold truncate" style={{ color: PAL.ink }}>
             {node.name}
           </span>
+          {multiAz ? (
+            <span
+              className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+              style={{ background: "#E0E7FF", color: "#3730A3", border: "1px solid #A5B4FC" }}
+              title="Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)"
+              data-testid="topology-multi-az-badge"
+            >
+              Multi-AZ
+            </span>
+          ) : null}
           {ownerChip ? (
             <span
               className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
               style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
-              title={`Shared VPC neighbor — owned by ${ownerChip}`}
+              title={`Shared resource — also belongs to ${ownerChip}`}
               data-testid="topology-foreign-owner-chip"
             >
-              {ownerChip}
+              shared · {ownerChip}
             </span>
           ) : null}
         </div>
@@ -1012,6 +1060,7 @@ function ServiceIconShell({
   flowId,
   extraAttrs,
   dense = false,
+  multiAz = false,
 }: {
   type: string | null | undefined
   selected: boolean
@@ -1026,6 +1075,8 @@ function ServiceIconShell({
   extraAttrs?: Record<string, string | number | undefined>
   /** Cell density — smaller glyph, drop sublabel so 1 service fits without scroll. */
   dense?: boolean
+  /** Multi-AZ instance — badge it so a DB spanning zones reads as ONE resource. */
+  multiAz?: boolean
 }) {
   const ic = nodeIcon(type)
   const showDepth = Boolean(depth && countBadge && countBadge > 1)
@@ -1101,6 +1152,16 @@ function ServiceIconShell({
             ×{countBadge}
           </span>
         ) : null}
+        {multiAz ? (
+          <span
+            className="absolute bottom-0 left-0 z-[3] text-[7px] font-bold uppercase tracking-wide rounded px-0.5 leading-none"
+            style={{ background: "#E0E7FF", color: "#3730A3", border: "1px solid #A5B4FC" }}
+            title="Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)"
+            data-testid="topology-multi-az-badge"
+          >
+            AZ+
+          </span>
+        ) : null}
       </span>
       <span
         className={
@@ -1134,9 +1195,12 @@ function ServiceStackChip({
 }) {
   const depth = shouldShowStackDepth(stack)
   const selected = stack.nodes.some(n => n.id === selectedNodeId)
+  // Only a lone service (depth 1) can honestly claim Multi-AZ from its
+  // representative; a stack of N mixed instances must not inherit one member's span.
+  const multiAz = !depth && isMultiAzWorkload(stack.representative)
   const title = depth
     ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
-    : `${stack.representative.name} · ${stack.label}`
+    : `${stack.representative.name} · ${stack.label}${multiAz ? " · Multi-AZ" : ""}`
   return (
     <ServiceIconShell
       type={stack.type}
@@ -1150,6 +1214,7 @@ function ServiceStackChip({
       testId="topology-service-stack"
       flowId={stack.representative.id}
       dense={dense}
+      multiAz={multiAz}
       extraAttrs={{
         "data-stack-type": stack.type,
         "data-stack-count": stack.nodes.length,
@@ -1173,24 +1238,26 @@ function ServiceNodeIcon({
 }) {
   const typeLabel = node.type ?? "?"
   const isForeignOwner = node.is_foreign === true
-  const ownerChip = isForeignOwner
-    ? (node.owner_system_name ?? "other system")
-    : null
+  // "shared · <system>", never "foreign" — co-owned by one of the customer's
+  // OWN systems, not another tenant.
+  const ownerChip = isForeignOwner ? sharedOwnerName(node) : null
+  const multiAz = isMultiAzWorkload(node)
   return (
     <ServiceIconShell
       type={node.type}
       selected={selected}
       label={node.name}
-      sublabel={ownerChip ? `shared · ${ownerChip}` : typeLabel}
+      sublabel={ownerChip ? `shared · ${ownerChip}` : multiAz ? `${typeLabel} · Multi-AZ` : typeLabel}
       title={
         ownerChip
-          ? `${node.name} · shared neighbor owned by ${ownerChip} — click for details`
-          : `${node.name} · ${typeLabel} — click for details`
+          ? `${node.name} · shared — also belongs to ${ownerChip} — click for details`
+          : `${node.name} · ${typeLabel}${multiAz ? " · Multi-AZ" : ""} — click for details`
       }
       onClick={() => onSelect(node.id)}
       testId={isForeignOwner ? "topology-foreign-node" : "topology-service-node-icon"}
       flowId={node.id}
       dense={dense}
+      multiAz={multiAz}
       extraAttrs={{
         "data-node-id": node.id,
         "data-is-foreign": isForeignOwner ? "true" : undefined,
@@ -2875,21 +2942,33 @@ export function computeCanvasGrid(
   const tryPlaceInGrid = (n: TopologyNode): boolean => {
     if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
     if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
-    const sub = n.subnet_id ? subnetById.get(n.subnet_id) ?? null : null
     const overrideTier =
       n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
         ? n.placement_tier
         : null
+    // Multi-AZ: resolve EVERY subnet this workload occupies and drop ONE chip
+    // into each distinct (az × tier) cell. A Multi-AZ RDS whose IN_SUBNET edges
+    // land in DB-1 AND DB-2 must appear in BOTH — never leave a cell Neo4j says
+    // holds it falsely empty. Cells dedupe so two subnets in the same cell place
+    // once; downstream counts dedupe by node id (two cells, one database).
+    const placedCells = new Set<string>()
+    for (const sid of workloadSubnetIds(n)) {
+      const sub = subnetById.get(sid)
+      if (!sub?.az) continue
+      const tier = overrideTier ?? sub.tier
+      const key = `${sub.az}::${tier}`
+      if (placedCells.has(key)) continue
+      placedCells.add(key)
+      placeInTier(n, sub.az, tier)
+    }
+    if (placedCells.size > 0) return true
+    // No resolvable subnet cell — fall back to synthetic / rail placement.
     if (overrideTier) {
-      const az = sub?.az ?? pickSyntheticAz(overrideTier)
+      const az = pickSyntheticAz(overrideTier)
       if (az) {
         placeInTier(n, az, overrideTier)
         return true
       }
-    }
-    if (sub?.az) {
-      placeInTier(n, sub.az, sub.tier)
-      return true
     }
     if (n.type && SERVERLESS_TYPES.has(n.type)) {
       serverlessNodes.push(n)
@@ -3096,12 +3175,24 @@ function compareVpcTitle(frame: VpcFrameSpec, isPrimary?: boolean): string {
   return "Own VPC"
 }
 
-function countTierWorkloads(frame: VpcFrameSpec, tier: "web" | "app" | "data"): number {
-  let n = 0
-  for (const azMap of frame.grid.byAzAndTier.values()) {
-    n += azMap.get(tier)?.length ?? 0
+/** Distinct workloads placed across every cell of a grid (Multi-AZ deduped by
+ *  node id). One resource occupying DB-1 and DB-2 counts once. */
+export function countGridWorkloads(grid: CanvasGrid): number {
+  const ids = new Set<string>()
+  for (const azMap of grid.byAzAndTier.values()) {
+    for (const cell of azMap.values()) for (const n of cell) ids.add(n.id)
   }
-  return n
+  return ids.size
+}
+
+export function countTierWorkloads(frame: VpcFrameSpec, tier: "web" | "app" | "data"): number {
+  // Dedupe by node id — a Multi-AZ workload occupies several cells in a tier but
+  // is ONE instance. Count distinct resources, never chips rendered.
+  const ids = new Set<string>()
+  for (const azMap of frame.grid.byAzAndTier.values()) {
+    for (const n of azMap.get(tier) ?? []) ids.add(n.id)
+  }
+  return ids.size
 }
 
 function frameHasTier(frame: VpcFrameSpec, tier: "web" | "app" | "data"): boolean {
@@ -3656,10 +3747,7 @@ function PrimaryPlusPeerStrip({
       {peers.length > 0 ? (
         <div className="flex flex-wrap gap-2" data-testid="topology-peer-vpc-cards">
           {peers.map(p => {
-            const wl = [...p.grid.byAzAndTier.values()].reduce(
-              (n, az) => n + [...az.values()].reduce((m, cell) => m + cell.length, 0),
-              0,
-            ) + p.grid.albNodes.length
+            const wl = countGridWorkloads(p.grid) + p.grid.albNodes.length
             return (
               <div
                 key={p.vid}
