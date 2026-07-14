@@ -57,6 +57,12 @@ export type CardKind = "INTERNET" | "CROSS_NETWORK" | "SHARED_RT" | "AWS_SERVICE
 
 export function classify(r: RouteOut): CardKind | null {
   if ((r.route_state || "").toLowerCase() === "blackhole") return "BLACKHOLE"
+  // KEEP is never a candidate — not even on a shared route table. Without this
+  // guard the `|| r.shared_route_table` below promoted every KEEP/local/VPCE
+  // route on a shared RT to a SHARED_RT card, inflating the headline count
+  // ("21 candidates" when only 3 were actionable). This page is candidate-grade:
+  // only actionable recommendations count (the backend's candidate_count agrees).
+  if (r.recommendation === "KEEP") return null
   if (r.recommendation === "SPLIT_ROUTE_TABLE_FIRST" || r.shared_route_table) return "SHARED_RT"
   if (r.path_type === "AWS_SERVICE" || r.recommendation === "REPLACE_NAT_WITH_VPCE") return "AWS_SERVICE"
   if (r.recommendation === "REMOVE_ROUTE_CANDIDATE" || r.recommendation === "NARROW_ROUTE_CIDR") {
