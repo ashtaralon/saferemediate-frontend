@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import path from 'node:path'
 
 // Vitest config: pure-function tests + a small set of component
@@ -12,7 +12,21 @@ export default defineConfig({
     include: [
       '__tests__/**/*.test.ts',
       '__tests__/**/*.test.tsx',
+      // Vitest integration specs only (bulk-iam-sg-fallback.spec.ts,
+      // canvas-canonical-id-live.vitest.spec.ts) — the Playwright ones in the
+      // same dir are removed below.
       'tests/integration/**/*.spec.ts',
+    ],
+    // tests/integration mixes two runners. The PLAYWRIGHT specs import
+    // @playwright/test + call test.describe() and run via `playwright test`
+    // (playwright.config.ts, testMatch: "*-live.spec.ts"); vitest CANNOT run
+    // them ("Playwright Test did not expect test.describe() to be called
+    // here"). Exclude those (12 *-live.spec.ts + the legacy ac1 e2e) so vitest
+    // runs only the real vitest integration specs.
+    exclude: [
+      ...configDefaults.exclude,
+      'tests/integration/**/*-live.spec.ts',
+      'tests/integration/**/ac1_capital_one_e2e.spec.ts',
     ],
     // describe/it/expect available without import — keeps existing
     // sg-inspector.test.ts and the new instance-profile-routing tests
