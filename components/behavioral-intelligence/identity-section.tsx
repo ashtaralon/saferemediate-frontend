@@ -5,6 +5,7 @@ import {
   Users, Key, Shield, Eye, ChevronDown, ChevronRight,
   Clock, Activity, AlertTriangle
 } from 'lucide-react'
+import { ServiceTypeBadge } from '@/lib/service-type'
 
 export interface Principal {
   arn: string
@@ -71,20 +72,6 @@ const getActionColor = (action: string): string => {
     return 'text-blue-400 bg-[#3b82f610]0/10 border-[#3b82f6]/30'
   }
   return 'text-slate-400 bg-slate-700/30 border-slate-600/30'
-}
-
-const getServiceIcon = (service: string): string => {
-  const icons: Record<string, string> = {
-    kms: '🔐',
-    s3: '📦',
-    iam: '👤',
-    ec2: '🖥️',
-    rds: '🗄️',
-    secretsmanager: '🔑',
-    sts: '🎫',
-    dynamodb: '📊',
-  }
-  return icons[service.toLowerCase()] || '☁️'
 }
 
 const CollapsibleSection: React.FC<{
@@ -272,7 +259,7 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
                 className="flex items-center justify-between bg-slate-800/30 border border-slate-700/50 rounded-lg p-3"
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-lg">{getServiceIcon(dep.service)}</span>
+                  <ServiceTypeBadge type={dep.service} variant="tile" size={30} onDark />
                   <div>
                     <div className="text-white text-sm font-medium">
                       {dep.service}:{dep.action}
