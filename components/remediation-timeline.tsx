@@ -32,6 +32,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { dispatchRemediationChanged } from "@/lib/remediation-events"
+import { ServiceTypeBadge } from "@/lib/service-type"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 
@@ -277,19 +278,6 @@ const getActionIcon = (actionType: string) => {
       return <Shield className="w-4 h-4" />
     case "S3_POLICY_REMOVED":
       return <Database className="w-4 h-4" />
-    default:
-      return <CheckCircle className="w-4 h-4" />
-  }
-}
-
-const getResourceIcon = (resourceType: string) => {
-  switch (resourceType) {
-    case "IAMRole":
-      return <Key className="w-4 h-4 text-purple-400" />
-    case "SecurityGroup":
-      return <Shield className="w-4 h-4 text-blue-400" />
-    case "S3Bucket":
-      return <Database className="w-4 h-4 text-orange-400" />
     default:
       return <CheckCircle className="w-4 h-4" />
   }
@@ -591,7 +579,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                   Resource
                 </p>
                 <div className="flex items-center gap-2">
-                  {getResourceIcon(event.resource_type)}
+                  <ServiceTypeBadge type={event.resource_type} variant="inline" showLabel={false} onDark />
                   <p className="text-sm font-medium font-mono text-white">
                     {event.resource_id}
                   </p>
@@ -1852,7 +1840,7 @@ export function RemediationTimeline({
                         className="w-2 h-2 rounded-full"
                         style={{ background: getStatusColor(event.status) }}
                       />
-                      {getResourceIcon(event.resource_type)}
+                      <ServiceTypeBadge type={event.resource_type} variant="inline" showLabel={false} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">

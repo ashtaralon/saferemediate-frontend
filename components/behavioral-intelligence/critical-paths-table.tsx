@@ -3,9 +3,10 @@
 import React, { useState } from 'react'
 import {
   Network, ChevronRight, CheckCircle, XCircle,
-  Eye, Settings, Database, Globe, Server, Shield, Activity
+  Eye, Settings, Globe, Activity
 } from 'lucide-react'
 import { ReconciliationBadge, PlaneBadges } from './reconciliation-badge'
+import { getServiceMeta } from '@/lib/service-type'
 
 interface CriticalPath {
   src_key: string
@@ -28,26 +29,17 @@ interface CriticalPathsTableProps {
   paths: CriticalPath[]
 }
 
+// Canonical service icon (lib/service-type). Internet / IGW endpoints have no
+// canonical service tile, so keep the Globe override keyed on the node id;
+// every other node resolves through resolveServiceType on its type (falling
+// back to the id when type is absent) so the real service icon is used.
 const getResourceIcon = (key: string, type?: string) => {
   const keyLower = (key || '').toLowerCase()
-  const typeLower = (type || '').toLowerCase()
-
-  if (typeLower.includes('rds') || keyLower.includes('rds') || keyLower.includes('database')) {
-    return <Database className="w-4 h-4" />
-  }
   if (keyLower.includes('internet') || keyLower.includes('igw') || keyLower.includes('0.0.0.0')) {
     return <Globe className="w-4 h-4" />
   }
-  if (typeLower.includes('s3') || keyLower.includes('s3') || keyLower.includes('bucket')) {
-    return <Server className="w-4 h-4" />
-  }
-  if (keyLower.includes('sg-') || keyLower.includes('security')) {
-    return <Shield className="w-4 h-4" />
-  }
-  if (typeLower.includes('ec2') || keyLower.startsWith('i-')) {
-    return <Server className="w-4 h-4" />
-  }
-  return <Network className="w-4 h-4" />
+  const Icon = getServiceMeta(type || key).Icon
+  return <Icon className="w-4 h-4" />
 }
 
 const RiskFlagBadge: React.FC<{ flag: string }> = ({ flag }) => {

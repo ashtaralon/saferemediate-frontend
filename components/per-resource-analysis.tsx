@@ -16,7 +16,6 @@ import {
   Play,
   Loader2,
   ArrowLeft,
-  Database,
   Activity,
   Eye,
   Globe,
@@ -24,6 +23,7 @@ import {
   Network,
   Filter,
 } from "lucide-react"
+import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 
 // ── Types ────────────────────────────────────────────
 
@@ -251,7 +251,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
           .map(([kind, count]) => ({
             resource_id: `${sg.sg_id}::${kind}`,
             resource_name: `${kind.replace("_", " ")} × ${count}`,
-            resource_type: kind === "load_balancer" ? "ALB/NLB" : kind.toUpperCase(),
+            // Emit a spelling resolveServiceType understands ("load_balancer"
+            // maps via ALIAS; "ALB/NLB" did not). getServiceMeta normalizes it.
+            resource_type: kind === "load_balancer" ? "LoadBalancer" : kind.toUpperCase(),
           }))
         return {
           role_name: sg.sg_name,
@@ -395,79 +397,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     [apiCall, selectedRole]
   )
 
-  // Get icon and display info for resource type
-  const getResourceTypeInfo = (type: string) => {
-    const typeUpper = type?.toUpperCase() || ""
-    if (typeUpper.includes("LAMBDA") || typeUpper.includes("FUNCTION")) {
-      return { icon: <Zap className="w-4 h-4" />, label: "Lambda", color: "bg-[#8b5cf615] text-[#7c3aed] border-purple-300" }
-    }
-    if (typeUpper.includes("EC2") || typeUpper === "INSTANCE") {
-      return { icon: <Server className="w-4 h-4" />, label: "EC2", color: "bg-[#f9731620] text-[#f97316] border-orange-300" }
-    }
-    if (typeUpper.includes("INSTANCEPROFILE") || typeUpper.includes("INSTANCE-PROFILE") || typeUpper.includes("INSTANCE_PROFILE")) {
-      return { icon: <Shield className="w-4 h-4" />, label: "Instance Profile", color: "bg-[#8b5cf615] text-[#7c3aed] border-[#8b5cf640]" }
-    }
-    if (typeUpper.includes("SECURITY") || typeUpper.includes("SG")) {
-      return { icon: <Shield className="w-4 h-4" />, label: "Security Group", color: "bg-[#ef444420] text-[#ef4444] border-[#ef444440]" }
-    }
-    if (typeUpper.includes("IAM") || typeUpper.includes("ROLE")) {
-      return { icon: <Shield className="w-4 h-4" />, label: "IAM Role", color: "bg-[#3b82f620] text-[#3b82f6] border-blue-300" }
-    }
-    if (typeUpper.includes("ECS") || typeUpper.includes("CONTAINER")) {
-      return { icon: <Server className="w-4 h-4" />, label: "ECS", color: "bg-teal-100 text-teal-700 border-teal-300" }
-    }
-    if (typeUpper.includes("RDS") || typeUpper.includes("DATABASE")) {
-      return { icon: <Database className="w-4 h-4" />, label: "RDS", color: "bg-[#3b82f620] text-[#3b82f6] border-blue-300" }
-    }
-    if (typeUpper.includes("S3") || typeUpper.includes("BUCKET")) {
-      return { icon: <Database className="w-4 h-4" />, label: "S3", color: "bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]" }
-    }
-    if (typeUpper.includes("DYNAMO")) {
-      return { icon: <Database className="w-4 h-4" />, label: "DynamoDB", color: "bg-[#eab30820] text-[#eab308] border-yellow-300" }
-    }
-    return { icon: <Server className="w-4 h-4" />, label: type || "Resource", color: "bg-gray-100 text-[var(--foreground,#374151)] border-[var(--border,#d1d5db)]" }
-  }
-
-  const resourceIcon = (type: string) => getResourceTypeInfo(type).icon
-
-  // ── Resource type colors for themed rendering ──
-  const getTypeColor = (type: string) => {
-    const t = (type || "").toUpperCase()
-    if (t.includes("LAMBDA")) return "#f59e0b"
-    if (t.includes("EC2")) return "#3b82f6"
-    if (t.includes("ECS") || t.includes("FARGATE") || t.includes("CONTAINER")) return "#06b6d4"
-    if (t.includes("RDS") || t.includes("DATABASE")) return "#8b5cf6"
-    if (t.includes("S3") || t.includes("BUCKET")) return "#22c55e"
-    if (t.includes("DYNAMO")) return "#f97316"
-    if (t.includes("LOADBALANCER") || t.includes("ELB") || t.includes("ALB") || t.includes("NLB")) return "#ec4899"
-    if (t.includes("VPCENDPOINT") || t.includes("VPCE")) return "#a78bfa"
-    if (t.includes("NATGATEWAY") || t.includes("NAT")) return "#14b8a6"
-    if (t.includes("EFS") || t.includes("MOUNT")) return "#84cc16"
-    if (t.includes("ELASTICACHE") || t.includes("REDIS") || t.includes("MEMCACHED")) return "#f43f5e"
-    if (t.includes("REDSHIFT")) return "#7c3aed"
-    if (t.includes("CODEBUILD")) return "#0ea5e9"
-    if (t.includes("NETWORK") && t.includes("INTERFACE")) return "#6b7280"
-    return "#6b7280"
-  }
-  const getTypeLabel = (type: string) => {
-    const t = (type || "").toUpperCase()
-    if (t.includes("LAMBDA")) return "Lambda"
-    if (t.includes("EC2")) return "EC2"
-    if (t.includes("ECS") || t.includes("FARGATE")) return "ECS"
-    if (t.includes("RDS")) return "RDS"
-    if (t.includes("S3")) return "S3"
-    if (t.includes("DYNAMO")) return "DynamoDB"
-    if (t.includes("LOADBALANCER") || t.includes("ELB")) return "ALB/NLB"
-    if (t.includes("VPCENDPOINT") || t.includes("VPCE")) return "VPC Endpoint"
-    if (t.includes("NATGATEWAY") || t.includes("NAT")) return "NAT GW"
-    if (t.includes("EFS") || t.includes("MOUNT")) return "EFS"
-    if (t.includes("ELASTICACHE")) return "ElastiCache"
-    if (t.includes("REDSHIFT")) return "Redshift"
-    if (t.includes("CODEBUILD")) return "CodeBuild"
-    if (t.includes("NETWORK") && t.includes("INTERFACE")) return "ENI"
-    if (t.includes("INSTANCE") && t.includes("PROFILE")) return "Profile"
-    return type || "Resource"
-  }
+  // Resource-type icon / color / label now come from the canonical service-type
+  // design language (lib/service-type). The former substring maps
+  // (getResourceTypeInfo / resourceIcon / getTypeColor / getTypeLabel) are
+  // retired — getServiceMeta(type) resolves every spelling and returns
+  // { Icon, accent, label, … }. Icon tiles render via <ServiceTypeBadge/>.
 
   // ── RENDER ──
 
@@ -630,7 +564,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               </div>
             )}
             {currentIamRoles.map((role) => {
-              const resourceTypes = [...new Set(role.resources.map(r => getTypeLabel(r.resource_type)))]
+              const resourceTypes = [...new Set(role.resources.map(r => getServiceMeta(r.resource_type).label))]
               const roleType = resourceTypes.length === 1
                 ? `${resourceTypes[0]} Execution Role`
                 : `Shared across ${resourceTypes.join(", ")}`
@@ -704,8 +638,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
 
                   <div className="flex flex-wrap gap-1.5">
                     {role.resources.map((r) => {
-                      const color = getTypeColor(r.resource_type)
-                      const label = getTypeLabel(r.resource_type)
+                      const meta = getServiceMeta(r.resource_type)
+                      const color = meta.accent
+                      const label = meta.label
                       return (
                         <span
                           key={r.resource_id}
@@ -813,8 +748,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
 
                       <div className="flex flex-wrap gap-1.5">
                         {sg.resources.map((r) => {
-                          const color = getTypeColor(r.resource_type)
-                          const label = getTypeLabel(r.resource_type)
+                          const meta = getServiceMeta(r.resource_type)
+                          const color = meta.accent
+                          const label = meta.label
                           return (
                             <span
                               key={r.resource_id}
@@ -986,13 +922,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {selectedSGData.resources.map((r) => {
-                const color = getTypeColor(r.resource_type)
-                const label = getTypeLabel(r.resource_type)
+                const label = getServiceMeta(r.resource_type).label
                 return (
                   <div key={r.resource_id} className="flex items-center gap-3 p-3 rounded-lg border" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}>
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}15` }}>
-                      {resourceIcon(r.resource_type)}
-                    </div>
+                    <ServiceTypeBadge type={r.resource_type} variant="tile" size={32} className="flex-shrink-0" />
                     <div className="min-w-0">
                       <div className="font-mono text-sm font-bold truncate" style={{ color: "var(--text-primary)" }}>{r.resource_name}</div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>{label}</div>
@@ -1129,8 +1062,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                     <div className="space-y-2">
                       {eniList.map((eni: any) => {
                         const ports = eni.observed_ports || []
-                        const color = getTypeColor(eni.resource_type || '')
-                        const label = getTypeLabel(eni.resource_type || 'Unknown')
+                        const meta = getServiceMeta(eni.resource_type || '')
+                        const color = meta.accent
+                        const label = meta.label
                         const ephCount = eni.ephemeral_filtered || 0
                         const totalConns = ports.reduce((s: number, p: any) => s + (p.connection_count || 0), 0)
 
@@ -1138,9 +1072,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                           <div key={eni.eni_id} className="rounded-lg border p-4" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}>
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${color}15` }}>
-                                  {resourceIcon(eni.resource_type || '')}
-                                </div>
+                                <ServiceTypeBadge type={eni.resource_type || ''} variant="tile" size={32} />
                                 <div>
                                   <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                                     {eni.resource_name || eni.eni_id}
@@ -1557,17 +1489,14 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   {analysisData.analyses.map((a) => {
                     const unusedShown = a.unused_permissions.slice(0, 4)
                     const unusedMore = a.unused_permissions.length > 4 ? a.unused_permissions.length - 4 : 0
-                    const color = getTypeColor(a.resource_type)
-                    const label = getTypeLabel(a.resource_type)
+                    const label = getServiceMeta(a.resource_type).label
                     const utilPct = a.utilization_rate < 0.005 ? "<1" : String(Math.round(a.utilization_rate * 100))
                     const utilColor = a.utilization_rate < 0.1 ? "#ef4444" : a.utilization_rate < 0.5 ? "#f97316" : "#22c55e"
                     return (
                       <div key={a.resource_id} className="px-4 py-3">
                         <div className="grid grid-cols-[2fr_80px_80px_80px_100px] gap-2 items-center">
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}20` }}>
-                              {resourceIcon(a.resource_type)}
-                            </div>
+                            <ServiceTypeBadge type={a.resource_type} variant="tile" size={28} className="flex-shrink-0" />
                             <div className="min-w-0">
                               <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{a.resource_name}</div>
                               <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{label} &middot; {a.resource_id}</div>

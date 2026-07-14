@@ -2,9 +2,10 @@
 
 import React, { useState } from 'react'
 import {
-  AlertTriangle, ChevronDown, ChevronRight, Key, Shield, Server,
+  AlertTriangle, ChevronDown, ChevronRight,
   TrendingUp, TrendingDown, ArrowRight, CheckCircle, XCircle
 } from 'lucide-react'
+import { getServiceMeta } from '@/lib/service-type'
 
 interface DriftItem {
   resource_key: string
@@ -22,15 +23,13 @@ interface DriftSectionProps {
   items: DriftItem[]
 }
 
+// Canonical service icon (lib/service-type). Resolves the real resource type
+// (IAM role → UserCog, SG → Shield, EC2 → Server, …) via resolveServiceType,
+// replacing the previous three-branch substring guess. Inherits the parent's
+// slate color (rendered inside a `text-slate-500` wrapper) so it stays muted.
 const getResourceIcon = (type: string) => {
-  const typeLower = type.toLowerCase()
-  if (typeLower.includes('iam') || typeLower.includes('role')) {
-    return <Key className="w-4 h-4" />
-  }
-  if (typeLower.includes('security') || typeLower.includes('sg')) {
-    return <Shield className="w-4 h-4" />
-  }
-  return <Server className="w-4 h-4" />
+  const Icon = getServiceMeta(type).Icon
+  return <Icon className="w-4 h-4" />
 }
 
 const getDriftTypeLabel = (type: string) => {

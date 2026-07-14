@@ -6,6 +6,7 @@ import {
   ArrowRight, Clock, Activity, Zap
 } from 'lucide-react'
 import { ReconciliationBadge, PlaneBadges } from './reconciliation-badge'
+import { getServiceMeta } from '@/lib/service-type'
 
 export interface EdgeFact {
   src_key: string
@@ -124,12 +125,17 @@ const classifyDestination = (edge: EdgeFact): DestinationType => {
   return 'internet'
 }
 
+// Canonical service icon (lib/service-type) for the muted table glyph.
+// Internet / network endpoints have no canonical service tile — keep the
+// Globe for those; everything else resolves through resolveServiceType so the
+// real type (RDS/S3/Lambda…) gets its true icon instead of a generic Server.
 const getResourceIcon = (type: string) => {
   const typeLower = type?.toLowerCase() || ''
-  if (typeLower.includes('network') || typeLower === 'unknown') {
+  if (typeLower.includes('network') || typeLower === 'unknown' || typeLower === '') {
     return <Globe className="w-4 h-4 text-slate-400" />
   }
-  return <Server className="w-4 h-4 text-slate-400" />
+  const Icon = getServiceMeta(type).Icon
+  return <Icon className="w-4 h-4 text-slate-400" />
 }
 
 const EdgeTable: React.FC<{
