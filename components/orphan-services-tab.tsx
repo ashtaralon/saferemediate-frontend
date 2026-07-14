@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { riskLabel } from "@/lib/utils"
+import { ServiceTypeBadge } from "@/lib/service-type"
 import {
   Search,
   ChevronDown,
@@ -152,31 +153,10 @@ interface OrphanServicesTabProps {
   systemName: string
 }
 
-const SERVICE_ICONS: Record<string, React.ElementType> = {
-  EC2: Server, EC2Instance: Server, Lambda: Cloud, LambdaFunction: Cloud,
-  S3: HardDrive, S3Bucket: HardDrive, RDS: Database, RDSInstance: Database,
-  DynamoDB: Database, DynamoDBTable: Database, ECS: Box, EKS: Box,
-  VPC: Network, Subnet: Network,
-  LoadBalancer: Layers, ALB: Layers, NLB: Layers, IAMRole: Key, IAMPolicy: FileText,
-  IAMUser: User, SecurityGroup: Shield, CloudTrail: Eye, CloudWatch: Activity,
-  SQSQueue: Layers, StepFunction: Activity, EventBridge: Activity,
-  default: Box,
-}
-
-const SERVICE_COLORS: Record<string, string> = {
-  EC2: "bg-[#f9731620] text-[#f97316]", EC2Instance: "bg-[#f9731620] text-[#f97316]",
-  Lambda: "bg-[#f9731620] text-[#f97316]", LambdaFunction: "bg-[#f9731620] text-[#f97316]",
-  S3: "bg-[#22c55e20] text-[#22c55e]", S3Bucket: "bg-[#22c55e20] text-[#22c55e]",
-  RDS: "bg-[#3b82f620] text-[#3b82f6]", RDSInstance: "bg-[#3b82f620] text-[#3b82f6]",
-  DynamoDB: "bg-[#8b5cf615] text-[#7c3aed]", DynamoDBTable: "bg-[#8b5cf615] text-[#7c3aed]",
-  ECS: "bg-cyan-100 text-cyan-700", EKS: "bg-cyan-100 text-cyan-700",
-  LoadBalancer: "bg-teal-100 text-teal-700", IAMRole: "bg-[#ef444420] text-[#ef4444]",
-  IAMPolicy: "bg-[#ef444420] text-[#ef4444]", IAMUser: "bg-[#ef444420] text-[#ef4444]",
-  SecurityGroup: "bg-pink-100 text-pink-700",
-  SQSQueue: "bg-teal-100 text-teal-700", StepFunction: "bg-[#8b5cf615] text-[#7c3aed]",
-  EventBridge: "bg-[#f9731620] text-[#f97316]",
-  default: "bg-gray-100 text-[var(--foreground,#374151)]",
-}
+// Type icon + color come from the canonical `@/lib/service-type` badge — the
+// old per-file `SERVICE_ICONS` / `SERVICE_COLORS` maps were retired (Phase 2,
+// 2026-07-13). StepFunction / EventBridge have no canonical entry yet and fall
+// back to the neutral `Resource` tile.
 
 const COMPUTE_DATA_TYPES = [
   "EC2", "EC2Instance", "Lambda", "LambdaFunction", "RDS", "RDSInstance",
@@ -595,9 +575,6 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     return new Date(iso).toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
   }
 
-  const getIcon = (type: string) => SERVICE_ICONS[type] || SERVICE_ICONS.default
-  const getColor = (type: string) => SERVICE_COLORS[type] || SERVICE_COLORS.default
-
   // --- Safety Score Gauge ---
   const SafetyGauge = ({ score, size = "lg" }: { score: number; size?: "sm" | "lg" }) => {
     const color = score >= 75 ? "#22c55e" : score >= 50 ? "#f97316" : "#ef4444"
@@ -751,8 +728,6 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             ) : (
               <div className="divide-y divide-[var(--border,#e5e7eb)]">
                 {filteredOrphans.map((orphan) => {
-                  const Icon = getIcon(orphan.type)
-                  const colorClass = getColor(orphan.type)
                   const riskClass = RISK_COLORS[orphan.riskLevel]
                   const recConfig = RECOMMENDATION_CONFIG[orphan.recommendation]
                   const RecIcon = recConfig.icon
@@ -783,9 +758,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                         className="flex items-center gap-4 p-4 cursor-pointer"
                         onClick={() => toggleCard(orphan.id)}
                       >
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colorClass}`}>
-                          <Icon className="w-4.5 h-4.5" />
-                        </div>
+                        <ServiceTypeBadge type={orphan.type} variant="tile" size={36} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-[var(--foreground,#111827)] truncate">{orphan.name}</span>
@@ -1076,13 +1049,9 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
           {expandedSections.has("seasonal") && (
             <div className="border-t border-[var(--border,#e5e7eb)] divide-y divide-[var(--border,#e5e7eb)]">
               {seasonal.map((svc) => {
-                const Icon = getIcon(svc.type)
-                const colorClass = getColor(svc.type)
                 return (
                   <div key={svc.id} className="flex items-center gap-4 p-4">
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colorClass}`}>
-                      <Icon className="w-4.5 h-4.5" />
-                    </div>
+                    <ServiceTypeBadge type={svc.type} variant="tile" size={36} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-[var(--foreground,#111827)] truncate">{svc.name}</span>
@@ -1124,8 +1093,6 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
           {expandedSections.has("new") && (
             <div className="border-t border-[var(--border,#e5e7eb)] divide-y divide-[var(--border,#e5e7eb)]">
               {newResources.map((res) => {
-                const Icon = getIcon(res.type)
-                const colorClass = getColor(res.type)
                 const phaseConfig = LP_PHASE_CONFIG[res.phase]
                 const isExpanded = expandedCards.has(`new-${res.id}`)
                 const phaseColor = res.phase === 'DISCOVERY' ? '#8b5cf6' : res.phase === 'LEARNING' ? '#3b82f6' : res.phase === 'ADVISORY' ? '#f97316' : '#22c55e'
@@ -1136,9 +1103,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                       className="flex items-center gap-4 p-4 cursor-pointer"
                       onClick={() => toggleCard(`new-${res.id}`)}
                     >
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colorClass}`}>
-                        <Icon className="w-4.5 h-4.5" />
-                      </div>
+                      <ServiceTypeBadge type={res.type} variant="tile" size={36} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-[var(--foreground,#111827)] truncate">{res.name}</span>

@@ -12,43 +12,12 @@ import {
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
 import { dedupeKmsListRows } from '@/lib/inventory-list'
+import { ServiceTypeBadge } from '@/lib/service-type'
 
-// Service icons by type
-const SERVICE_ICONS: Record<string, React.ReactNode> = {
-  EC2: <Server className="w-5 h-5" />,
-  Lambda: <Zap className="w-5 h-5" />,
-  LambdaFunction: <Zap className="w-5 h-5" />,
-  RDS: <Database className="w-5 h-5" />,
-  RDSInstance: <Database className="w-5 h-5" />,
-  DynamoDB: <Database className="w-5 h-5" />,
-  DynamoDBTable: <Database className="w-5 h-5" />,
-  S3: <HardDrive className="w-5 h-5" />,
-  S3Bucket: <HardDrive className="w-5 h-5" />,
-  IAMRole: <Key className="w-5 h-5" />,
-  IAM: <Key className="w-5 h-5" />,
-  SecurityGroup: <Shield className="w-5 h-5" />,
-  KMS: <Lock className="w-5 h-5" />,
-  KMSKey: <Lock className="w-5 h-5" />,
-  Secret: <Lock className="w-5 h-5" />,
-  ECS: <Box className="w-5 h-5" />,
-  ECSCluster: <Box className="w-5 h-5" />,
-  ECSService: <Box className="w-5 h-5" />,
-  CloudFront: <Globe className="w-5 h-5" />,
-  CloudFrontDistribution: <Globe className="w-5 h-5" />,
-  ALB: <Network className="w-5 h-5" />,
-  LoadBalancer: <Network className="w-5 h-5" />,
-  APIGateway: <Radio className="w-5 h-5" />,
-  SQS: <FileText className="w-5 h-5" />,
-  SNS: <Radio className="w-5 h-5" />,
-  LogGroup: <FileText className="w-5 h-5" />,
-  VPC: <Network className="w-5 h-5" />,
-  VPCEndpoint: <Network className="w-5 h-5" />,
-  NATGateway: <Network className="w-5 h-5" />,
-  InternetGateway: <Globe className="w-5 h-5" />,
-  ACMCertificate: <Shield className="w-5 h-5" />,
-  Subnet: <Network className="w-5 h-5" />,
-  default: <Server className="w-5 h-5" />
-}
+// Icon + color for a resource type now come from the canonical
+// `@/lib/service-type` badge — the old per-file `SERVICE_ICONS` map was
+// retired (Phase 2, 2026-07-13). Category color still drives the tag pills
+// (CATEGORIES below); the type tile is triple-coded by the badge.
 
 // Types whose configuration the unified inspector (/api/proxy/inspector) can
 // render. IAMRole is deliberately absent — it has its own "IAM Role &
@@ -438,8 +407,6 @@ export default function AllServicesInventory({ systemName }: Props) {
     return stats
   }, [services])
 
-  const getIcon = (type: string) => SERVICE_ICONS[type] || SERVICE_ICONS.default
-
   const getCategoryStyle = (category: string) => CATEGORIES[category as keyof typeof CATEGORIES] || CATEGORIES.Management
 
   // Extract IAM role name from service details
@@ -723,9 +690,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                 {/* Header */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${style.bg}`}>
-                      <div className={style.text}>{getIcon(service.type)}</div>
-                    </div>
+                    <ServiceTypeBadge type={service.type} variant="tile" size={38} />
                     <div>
                       <h3 className="font-semibold text-slate-900 text-sm leading-tight truncate max-w-[120px]">
                         {service.name}
@@ -802,9 +767,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className={`p-1.5 rounded ${style.bg}`}>
-                          <div className={style.text}>{getIcon(service.type)}</div>
-                        </div>
+                        <ServiceTypeBadge type={service.type} variant="tile" size={30} />
                         <span className="font-medium text-slate-900">{service.name}</span>
                       </div>
                     </td>
@@ -842,11 +805,7 @@ export default function AllServicesInventory({ systemName }: Props) {
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b">
               <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-xl ${getCategoryStyle(selectedService.category).bg}`}>
-                  <div className={getCategoryStyle(selectedService.category).text}>
-                    {getIcon(selectedService.type)}
-                  </div>
-                </div>
+                <ServiceTypeBadge type={selectedService.type} variant="tile" size={44} />
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">{selectedService.name}</h2>
                   <p className="text-slate-500">{selectedService.type} • {selectedService.category}</p>

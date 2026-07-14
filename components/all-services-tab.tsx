@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
+import { ServiceTypeBadge } from "@/lib/service-type"
 
 interface ServiceNode {
   id: string
@@ -106,49 +107,10 @@ function matchesTypeList(type: string, list: readonly string[]): boolean {
   return list.some((t) => typeUpper.includes(t.toUpperCase()))
 }
 
-const SERVICE_ICONS: Record<string, React.ElementType> = {
-  EC2: Server,
-  Lambda: Cloud,
-  LambdaFunction: Cloud,
-  S3: HardDrive,
-  RDS: Database,
-  DynamoDB: Database,
-  ECS: Box,
-  EKS: Box,
-  VPC: Network,
-  Subnet: Network,
-  LoadBalancer: Layers,
-  ALB: Layers,
-  NLB: Layers,
-  IAMRole: Key,
-  IAMPolicy: FileText,
-  IAMUser: User,
-  SecurityGroup: Shield,
-  CloudTrail: Eye,
-  CloudWatch: Activity,
-  default: Box,
-}
-
-const SERVICE_COLORS: Record<string, string> = {
-  EC2: "bg-[#f9731620] text-[#f97316]",
-  Lambda: "bg-[#f9731620] text-[#f97316]",
-  LambdaFunction: "bg-[#f9731620] text-[#f97316]",
-  S3: "bg-[#22c55e20] text-[#22c55e]",
-  RDS: "bg-[#3b82f620] text-[#3b82f6]",
-  DynamoDB: "bg-[#8b5cf615] text-[#7c3aed]",
-  ECS: "bg-cyan-100 text-cyan-700",
-  EKS: "bg-cyan-100 text-cyan-700",
-  VPC: "bg-[#8b5cf615] text-[#7c3aed]",
-  Subnet: "bg-[#8b5cf615] text-[#7c3aed]",
-  LoadBalancer: "bg-teal-100 text-teal-700",
-  IAMRole: "bg-[#ef444420] text-[#ef4444]",
-  IAMPolicy: "bg-[#ef444420] text-[#ef4444]",
-  IAMUser: "bg-[#ef444420] text-[#ef4444]",
-  SecurityGroup: "bg-pink-100 text-pink-700",
-  CloudTrail: "bg-[#eab30820] text-[#eab308]",
-  CloudWatch: "bg-[#eab30820] text-[#eab308]",
-  default: "bg-gray-100 text-[var(--foreground,#374151)]",
-}
+// Type icon + color come from the canonical `@/lib/service-type` badge — the
+// old per-file `SERVICE_ICONS` / `SERVICE_COLORS` maps were retired (Phase 2,
+// 2026-07-13). Covered types render triple-coded (color + icon + short label);
+// uncovered types fall back to the neutral `Resource` tile.
 
 export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [services, setServices] = useState<ServiceNode[]>([])
@@ -785,11 +747,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 8)
                 .map(([type, count]) => (
-                  <span
-                    key={type}
-                    className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[type] || SERVICE_COLORS.default}`}
-                  >
-                    {type}: {count}
+                  <span key={type} className="inline-flex items-center gap-1">
+                    <ServiceTypeBadge type={type} variant="chip" />
+                    <span className="text-xs tabular-nums text-[var(--muted-foreground,#6b7280)]">{count}</span>
                   </span>
                 ))}
             </div>
@@ -818,7 +778,6 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   </TableRow>
                 ) : (
                   filteredAllServices.map((service) => {
-                    const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
                     return (
                       <TableRow
                         key={service.id}
@@ -827,18 +786,14 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
-                            <IconComponent className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+                            <ServiceTypeBadge type={service.type} variant="inline" showLabel={false} />
                             <span className="truncate max-w-[250px]" title={service.name}>
                               {service.name}
                             </span>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span
-                            className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[service.type] || SERVICE_COLORS.default}`}
-                          >
-                            {service.type}
-                          </span>
+                          <ServiceTypeBadge type={service.type} variant="chip" />
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
@@ -936,15 +891,10 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             {/* Header */}
             <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between z-10">
               <div className="flex items-center gap-3">
-                {(() => {
-                  const IconComponent = SERVICE_ICONS[selectedService.type] || SERVICE_ICONS.default
-                  return <IconComponent className="w-6 h-6 text-[var(--muted-foreground,#4b5563)]" />
-                })()}
+                <ServiceTypeBadge type={selectedService.type} variant="tile" size={40} />
                 <div>
                   <h2 className="text-xl font-bold">{selectedService.name}</h2>
-                  <span className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[selectedService.type] || SERVICE_COLORS.default}`}>
-                    {selectedService.type}
-                  </span>
+                  <ServiceTypeBadge type={selectedService.type} variant="chip" />
                 </div>
               </div>
               <button 

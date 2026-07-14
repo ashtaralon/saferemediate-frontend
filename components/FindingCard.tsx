@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
+import { getServiceMeta } from "@/lib/service-type"
 
 interface FindingCardProps {
   finding: SecurityFinding
@@ -148,12 +149,23 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                       {severity.toUpperCase()}
                     </Badge>
                     {(() => {
-                      const label = formatResourceTypeLabel(
+                      const rawType =
                         (finding as any).resourceType ??
-                          (finding as any).resource_type ??
-                          (iamData as any).resource_type
+                        (finding as any).resource_type ??
+                        (iamData as any).resource_type
+                      const label = formatResourceTypeLabel(rawType)
+                      if (!label) return null
+                      // Canonical icon + accent alongside the richer local label
+                      // (e.g. "IAM Role", "S3 Bucket") — same visual language as
+                      // the inventory/inspector surfaces (Phase 2, 2026-07-13).
+                      const meta = getServiceMeta(rawType)
+                      const TypeIcon = meta.Icon
+                      return (
+                        <Badge variant="outline" className="inline-flex items-center gap-1">
+                          <TypeIcon className="w-3 h-3" style={{ color: meta.accent }} aria-hidden />
+                          {label}
+                        </Badge>
                       )
-                      return label ? <Badge variant="outline">{label}</Badge> : null
                     })()}
                     {iamData.confidence && (
                       <Badge variant="outline" className="text-xs">
