@@ -73,9 +73,12 @@ describe("AwsFrame All VPCs · Compare renders both VPCs", () => {
     // Full VPC ids are visible in the column chrome (not truncated away).
     expect(screen.getByText(OWN)).toBeInTheDocument()
     expect(screen.getByText(SHARED)).toBeInTheDocument()
-    // The co-tenant VPC is badged + titled by owner system.
+    // The co-tenant VPC is badged + titled by owner system. The owner name
+    // renders in >1 place (the shared-VPC badge AND the "System path" story
+    // "1 shared (payment-production)"), so assert presence, not uniqueness —
+    // getByText throws on multiple matches.
     expect(screen.getByText(/^shared$/i)).toBeInTheDocument()
-    expect(screen.getByText("payment-production")).toBeInTheDocument()
+    expect(screen.getAllByText("payment-production").length).toBeGreaterThan(0)
   })
 
   it("scoped view renders a single VPC frame", () => {
