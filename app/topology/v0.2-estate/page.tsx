@@ -4,7 +4,8 @@
  * Topology v0.2 — Estate view (live data).
  *
  * Thin page wrapper: reads `systemName` from the URL; with no param it
- * resolves the first system from /api/systems (never a pinned environment)
+ * resolves the WORST system from /api/systems (most criticals, then highs,
+ * then lowest health — see lib/pick-worst-system; never a pinned environment)
  * and renders the shared <EstateMapView/>. The map itself —
  * HeadlineStrip + AwsFrame + FilterRail + DetailPanel, all live from
  * /api/proxy/topology-risk/{system} per docs/topology-v0.2-risk-contract.md —
@@ -15,6 +16,7 @@
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { EstateMapView } from "@/components/topology-v0-2/estate-map-view"
+import { pickWorstSystemName } from "@/lib/pick-worst-system"
 
 function EstateView() {
   const params = useSearchParams()
@@ -33,8 +35,11 @@ function EstateView() {
       try {
         const res = await fetch("/api/proxy/systems", { cache: "no-store" })
         const json = res.ok ? await res.json() : {}
-        const name = (json.systems ?? [])[0]?.name
-        if (!cancelled) setSystemName(typeof name === "string" && name ? name : null)
+        // Default to the WORST system (most criticals, then highs, then lowest
+        // health) — mirrors the dashboard's "Systems Needing Attention" ranking,
+        // so a bare /topology/v0.2-estate lands on the system that needs eyes,
+        // not an arbitrary first entry.
+        if (!cancelled) setSystemName(pickWorstSystemName(json.systems))
       } catch {
         if (!cancelled) setSystemName(null)
       } finally {
