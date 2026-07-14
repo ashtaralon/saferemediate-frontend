@@ -282,10 +282,10 @@ export function Zoom0FanInPanel({
                   systemName={systemName}
                   spotlightPaths={spotlightPaths}
                   spotlightPathId={null}
-                  // Show the FULL system estate with the attack paths
-                  // highlighted (on-path emphasized, off-path dimmed as
-                  // context) instead of collapsing to just the spine.
-                  fullEstateContext
+                  // Fan-in defaults to the focused path-only view: the
+                  // full-estate-dimmed treatment buried the path in clutter
+                  // (2026-07-14). The `fullEstateContext` flag + render gates
+                  // remain in TrafficFlowMap as an opt-in toggle for later.
                   spotlightJewel={{
                     id: jewel.id,
                     canonical_id: jewel.canonical_id ?? cjArn,
