@@ -4490,6 +4490,7 @@ export function UnifiedArchitectureDiagram({
   showAllConnections = false,
   pathBlastRadius = null,
   onShowBlastRadius,
+  fullEstateContext = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -4563,6 +4564,12 @@ export function UnifiedArchitectureDiagram({
     otherCrownJewelCount: number;
   } | null;
   onShowBlastRadius?: () => void;
+  /** Full-estate context mode (2026-07-14) — forwarded from
+   *  TrafficFlowMap (Jewel fan-in only). When true, off-path spotlight
+   *  nodes DIM instead of hide, lanes render even with no on-path item,
+   *  and column counts show the real full-estate totals. Default false =
+   *  legacy REMOVE behavior (byte-for-byte) for all other consumers. */
+  fullEstateContext?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -4642,6 +4649,14 @@ export function UnifiedArchitectureDiagram({
         if (spotlightActiveNodeIds.has(nodeId)) {
           return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
         }
+        // Full-estate context (Jewel fan-in, 2026-07-14): DIM off-path
+        // nodes as context instead of removing them. Every other
+        // spotlight consumer keeps the operator-mandated REMOVE (PR
+        // #202/#203) — gated strictly on fullEstateContext so the
+        // default path below is byte-for-byte unchanged.
+        if (fullEstateContext) {
+          return ' opacity-30 grayscale-[0.5] pointer-events-none';
+        }
         return ' hidden';
       }
       if (!pathFilterActive) return '';
@@ -4673,6 +4688,7 @@ export function UnifiedArchitectureDiagram({
       spotlightActiveNodeIds,
       showAllConnections,
       pathBlastRadius?.targetJewelId,
+      fullEstateContext,
     ],
   );
 
@@ -4683,8 +4699,11 @@ export function UnifiedArchitectureDiagram({
   // EC2 card is misleading. Drop the suffix during spotlight.
   const spotlightActive = (spotlightActiveNodeIds?.size ?? 0) > 0 || pathFilterActive;
   const countLabel = useCallback(
-    (n: number) => (spotlightActive ? '' : ` (${n})`),
-    [spotlightActive],
+    // Full-estate context (fan-in): lanes show the whole system estate,
+    // so the header counts are the real full-estate totals — keep them.
+    // Otherwise suppress the suffix during spotlight (on-path subset).
+    (n: number) => (spotlightActive && !fullEstateContext ? '' : ` (${n})`),
+    [spotlightActive, fullEstateContext],
   );
   // Per-column visibility: when spotlight is active, hide a whole
   // column if NONE of its items are on the path. Eliminates the
@@ -4692,13 +4711,18 @@ export function UnifiedArchitectureDiagram({
   // operator flagged in 2026-06-24 screenshot.
   const anyVisibleOnPath = useCallback(
     (items: ReadonlyArray<{ id?: string | null }>): boolean => {
+      // Full-estate context (fan-in): render every lane — off-path
+      // nodes are dimmed context, not removed, so columns with no
+      // on-path item must still draw. Gated so the REMOVE behavior for
+      // other spotlight consumers is untouched.
+      if (fullEstateContext) return true;
       if (!spotlightActive) return true;
       if (pathFilterActive) {
         return items.some(i => i.id && isOnSelectedPath(i.id));
       }
       return items.some(i => i.id && spotlightActiveNodeIds!.has(i.id));
     },
-    [spotlightActive, pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
+    [fullEstateContext, spotlightActive, pathFilterActive, isOnSelectedPath, spotlightActiveNodeIds],
   );
   const vpceLaneCounts = useMemo(() => {
     const endpoints = architecture.vpcEndpoints ?? [];
@@ -7289,6 +7313,7 @@ export default function TrafficFlowMap({
   spotlightPathId,
   spotlightJewel,
   systemCrownJewelIds,
+  fullEstateContext = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -7397,6 +7422,17 @@ export default function TrafficFlowMap({
   entryNodeId?: string;
   /** Set to the canvas root while in browser fullscreen (for Radix portal container). */
   fullscreenContainerRef?: React.MutableRefObject<HTMLDivElement | null>;
+  /** Full-estate context mode (2026-07-14) — Jewel fan-in only. When
+   *  true, the spotlight stops HIDING off-path nodes and instead DIMS
+   *  them (opacity + grayscale) so the attack path is highlighted over
+   *  the full system estate as context, rather than collapsing to just
+   *  the kill-chain spine. Threads to UnifiedArchitectureDiagram, which
+   *  gates pathEmphasisClass / anyVisibleOnPath / countLabel on it.
+   *  Off-path EDGES stay hidden (ghostedNodeIds unchanged) so only the
+   *  path's own flows draw — clean read, lowest perf risk. Default false
+   *  preserves the existing REMOVE behavior for every other consumer
+   *  (System Map, per-path spotlight, EXFIL). */
+  fullEstateContext?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -9991,6 +10027,9 @@ export default function TrafficFlowMap({
             architecture={architecture}
             animate={animate}
             spotlightActiveNodeIds={effectiveSpotlightActiveNodeIds}
+            // Fan-in only: dim off-path nodes over the full estate
+            // instead of hiding them. Forwarded from TrafficFlowMap.
+            fullEstateContext={fullEstateContext}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy
