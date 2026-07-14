@@ -22,9 +22,8 @@
  * local map. Triple-coded (color + icon + label) so type never rides on color
  * alone — legible under colorblindness and on the dark map island.
  */
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType } from "react";
 import {
-  Package,
   Folders,
   Key,
   Lock,
@@ -102,6 +101,15 @@ export type ServiceCategory =
   | "integration"
   | "other";
 
+/** Any icon component our badge can render — a lucide icon or a custom inline
+ *  SVG (e.g. the S3 bucket below). Called with size / color / className. */
+export type ServiceIcon = ComponentType<{
+  size?: number | string;
+  color?: string;
+  className?: string;
+  "aria-hidden"?: boolean;
+}>;
+
 export interface ServiceMeta {
   key: CanonicalServiceType;
   /** Human label, e.g. "Secrets Manager". */
@@ -109,7 +117,7 @@ export interface ServiceMeta {
   /** Compact label for chips/rails, e.g. "KMS", "DDB". */
   short: string;
   category: ServiceCategory;
-  Icon: LucideIcon;
+  Icon: ServiceIcon;
   /** Main hex — icon + text color on a LIGHT surface. */
   accent: string;
   /** Tile / chip background on a LIGHT surface. */
@@ -122,13 +130,46 @@ export interface ServiceMeta {
   iconDark: string;
 }
 
+/** S3 — hand-authored bucket glyph (lucide has no bucket). A tapered pail with
+ *  an elliptical rim, so an S3 resource reads as a bucket, not a generic box. */
+function S3BucketIcon({
+  size = 24,
+  color = "currentColor",
+  className,
+  ...rest
+}: {
+  size?: number | string;
+  color?: string;
+  className?: string;
+  "aria-hidden"?: boolean;
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <ellipse cx="12" cy="6" rx="8" ry="2.3" />
+      <path d="M4 6 L6.2 17.6 Q12 19.4 17.8 17.6 L20 6" />
+    </svg>
+  );
+}
+
 /**
  * The canonical palette. Colors follow AWS category conventions but are pulled
  * apart enough (green storage, red keys, blue/indigo databases, pink secrets)
  * that a fatigued analyst can tell them apart at a glance in the rail.
  */
 export const SERVICE_TYPE_CONFIG: Record<CanonicalServiceType, ServiceMeta> = {
-  S3: { key: "S3", label: "S3", short: "S3", category: "storage", Icon: Package, accent: "#1E8A4C", bgLight: "#E7F6EF", bdLight: "#B7E4CC", bgDark: "#12332A", iconDark: "#5DCAA5" },
+  S3: { key: "S3", label: "S3", short: "S3", category: "storage", Icon: S3BucketIcon, accent: "#1E8A4C", bgLight: "#E7F6EF", bdLight: "#B7E4CC", bgDark: "#12332A", iconDark: "#5DCAA5" },
   EFS: { key: "EFS", label: "EFS", short: "EFS", category: "storage", Icon: Folders, accent: "#0D8577", bgLight: "#E1F5F0", bdLight: "#A9E5D8", bgDark: "#0E3A34", iconDark: "#5DD3BE" },
   KMS: { key: "KMS", label: "KMS", short: "KMS", category: "security", Icon: Key, accent: "#C7131F", bgLight: "#FCEBEB", bdLight: "#F4C9C9", bgDark: "#3A1516", iconDark: "#F4A0A0" },
   SecretsManager: { key: "SecretsManager", label: "Secrets Manager", short: "Secret", category: "security", Icon: Lock, accent: "#BE185D", bgLight: "#FBEAF0", bdLight: "#F2C6DA", bgDark: "#3A1524", iconDark: "#EE93B6" },

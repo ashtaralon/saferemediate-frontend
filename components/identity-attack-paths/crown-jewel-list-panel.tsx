@@ -130,7 +130,7 @@ export function CrownJewelListPanel({
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span
-                      className="text-[10px] font-semibold tracking-wide"
+                      className="text-[13px] font-bold tracking-wide"
                       style={{ color: svc.accent }}
                     >
                       {svc.short}
