@@ -904,15 +904,47 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         data.staleReason === "peer_computing" ||
         ((data.nodes?.length ?? 0) === 0 && !data.error)))
 
+  // Cap endless "Computing…" when Neo4j flaps / peer lock never resolves.
+  // Without this, a cold client with no last-good cache spins forever while
+  // the proxy returns Wave D computing envelopes on every timeout.
+  const [computingStartedAt, setComputingStartedAt] = useState<number | null>(null)
   useEffect(() => {
-    if (!isComputing) return
+    if (isComputingEnvelope && !data?.system_kpis) {
+      setComputingStartedAt(prev => prev ?? Date.now())
+      return
+    }
+    setComputingStartedAt(null)
+  }, [isComputingEnvelope, data?.system_kpis])
+
+  const computingDeadlineMs = useMemo(() => {
+    const raw = data?.compute_deadline_at
+    if (typeof raw === "string") {
+      const t = Date.parse(raw)
+      if (!Number.isNaN(t)) return t
+    }
+    if (computingStartedAt != null) return computingStartedAt + 90_000
+    return null
+  }, [data?.compute_deadline_at, computingStartedAt])
+
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isComputingEnvelope || data?.system_kpis) return
+    const id = window.setInterval(() => setNowTick(Date.now()), 2000)
+    return () => window.clearInterval(id)
+  }, [isComputingEnvelope, data?.system_kpis])
+
+  const computingTimedOut =
+    computingDeadlineMs != null && nowTick >= computingDeadlineMs
+
+  useEffect(() => {
+    if (!isComputing || computingTimedOut) return
     // Do NOT clearCachedFetch — that threw away the last-good map and
     // forced a blank "Computing…" screen on every peer_computing tick.
     const id = window.setInterval(() => {
       retry()
     }, 4000)
     return () => window.clearInterval(id)
-  }, [isComputing, retry])
+  }, [isComputing, computingTimedOut, retry])
 
   const rankedEntries = useMemo(
     () =>
@@ -968,6 +1000,34 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     },
     [data?.system_kpis, chipCountNodes],
   )
+
+  if (computingTimedOut && !data?.system_kpis) {
+    return (
+      <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
+        <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
+          Topology v0.2 · Estate
+        </div>
+        <div className="font-semibold" style={{ color: "#E04545" }}>
+          Estate map temporarily unavailable
+        </div>
+        <div className="text-xs mt-2" style={{ color: "#5A6B7A" }}>
+          The graph backend did not finish computing for {systemName}. This usually
+          clears when Neo4j routing recovers — try again in a moment.
+        </div>
+        <button
+          type="button"
+          className="mt-4 px-4 py-2 text-xs uppercase tracking-wider border rounded hover:bg-white"
+          style={{ borderColor: "#5A6B7A" }}
+          onClick={() => {
+            setComputingStartedAt(null)
+            retry()
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   if ((loading && !data) || (isComputingEnvelope && !data?.system_kpis)) {
     return (
