@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
-import { ServiceTypeBadge } from "@/lib/service-type"
+import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
 interface ServiceNode {
   id: string
@@ -766,25 +766,36 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       ) : (
         <div className="space-y-3">
           {groupedFilteredServices.map(([type, items]) => {
+            const meta = getServiceMeta(type)
             // Open on click, or auto-open every group while a search is active so matches are visible.
             const isOpen = expandedSections.has(type) || searchQuery.trim() !== ""
             return (
-              <Card key={type}>
+              <Card key={type} className="py-0 gap-0 overflow-hidden">
                 <CardHeader
-                  className="cursor-pointer hover:bg-gray-50 py-3"
+                  className="cursor-pointer hover:bg-gray-50 px-4 py-3"
                   onClick={() => toggleSection(type)}
                 >
                   <CardTitle className="flex items-center gap-3">
-                    {isOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                    <ServiceTypeBadge type={type} variant="chip" />
-                    <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)] tabular-nums">
-                      {items.length}
-                      {searchQuery.trim() && allTypeCounts[type] ? ` of ${allTypeCounts[type]}` : ""}
+                    {isOpen ? (
+                      <ChevronDown className="w-5 h-5 shrink-0 text-[var(--muted-foreground,#6b7280)]" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 shrink-0 text-[var(--muted-foreground,#6b7280)]" />
+                    )}
+                    <ServiceTypeBadge type={type} variant="inline" showLabel={false} />
+                    <span className="text-base font-semibold text-[var(--foreground,#111827)]">{meta.label}</span>
+                    <span className="ml-auto flex items-baseline gap-1.5">
+                      <span className="text-xl font-bold tabular-nums" style={{ color: meta.accent }}>
+                        {items.length}
+                        {searchQuery.trim() && allTypeCounts[type] ? `/${allTypeCounts[type]}` : ""}
+                      </span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">
+                        service{items.length === 1 ? "" : "s"}
+                      </span>
                     </span>
                   </CardTitle>
                 </CardHeader>
                 {isOpen && (
-                  <CardContent className="p-0">
+                  <CardContent className="border-t p-0">
                     <Table>
                       <TableHeader>
                         <TableRow>
