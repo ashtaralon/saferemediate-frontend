@@ -359,6 +359,8 @@ export interface TopologyRiskResponse {
   /** Wave D proxy computing envelope — not a finished topology-risk payload. */
   status?: "computing" | string
   staleReason?: string
+  computing_started_at?: string
+  compute_deadline_at?: string
 }
 
 export const SCORE_TIER_LABEL: Record<ScoreTier, string> = {
