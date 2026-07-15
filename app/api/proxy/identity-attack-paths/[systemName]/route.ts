@@ -207,35 +207,20 @@ export async function GET(
     const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError"
     const staleRes = serveStale(isTimeout ? "timeout" : "fetch_failed")
     if (staleRes) return staleRes
-    // Wave D: no stale cache on timeout — honest computing envelope (HTTP 200)
-    // instead of a 502 that bricks the rail.
-    if (isTimeout) {
-      const started = new Date()
-      const deadline = new Date(started.getTime() + 180_000)
-      return NextResponse.json(
-        {
-          status: "computing",
-          system_name: systemName,
-          computing_started_at: started.toISOString(),
-          compute_deadline_at: deadline.toISOString(),
-          staleReason: "peer_computing",
-          crown_jewels: [],
-          paths: [],
-          total_jewels: 0,
-          total_paths: 0,
-        },
-        { status: 200 }
-      )
-    }
+    // Never invent status:"computing" on timeout — that trapped Attack Paths
+    // on empty peer_computing envelopes while BE was slow/unreachable.
     console.error(
-      `[identity-attack-paths] systemName=${systemName} error=${err?.name || "unknown"} message=${err?.message || ""}`
+      `[identity-attack-paths] systemName=${systemName} error=${err?.name || "unknown"} message=${err?.message || ""}`,
     )
     return NextResponse.json(
       {
-        error: "attack_paths_proxy_error",
-        message:
-          err?.message ||
-          "Failed to fetch identity attack paths — backend slow or unreachable",
+        error: isTimeout
+          ? "attack_paths_proxy_timeout"
+          : "attack_paths_proxy_error",
+        message: isTimeout
+          ? "Backend identity-attack-paths timed out — try again shortly"
+          : err?.message ||
+            "Failed to fetch identity attack paths — backend slow or unreachable",
         system_name: systemName,
         crown_jewels: [],
         paths: [],
@@ -243,7 +228,7 @@ export async function GET(
         total_paths: 0,
         errors: [err?.message || String(err)],
       },
-      { status: 502 }
+      { status: isTimeout ? 504 : 502 },
     )
   }
 }

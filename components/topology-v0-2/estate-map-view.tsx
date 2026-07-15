@@ -893,16 +893,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [data],
   )
 
-  // Wave D computing envelope with no usable payload. Prefer hook
-  // `isComputing` (keeps stale map on screen) over replacing data with
-  // the empty envelope — only full-page wait when we have nothing to show.
+  // Only a real Wave D computing envelope (or hook flag while last-good is
+  // kept on screen) means "still computing". Empty nodes without status are
+  // errors/unavailable — never invent a Computing… wait from that.
   const isComputingEnvelope =
     isComputing ||
     (!!data &&
       !data.system_kpis &&
-      (data.status === "computing" ||
-        data.staleReason === "peer_computing" ||
-        ((data.nodes?.length ?? 0) === 0 && !data.error)))
+      (data.status === "computing" || data.staleReason === "peer_computing"))
 
   // Cap endless "Computing…" when Neo4j flaps / peer lock never resolves.
   // Without this, a cold client with no last-good cache spins forever while
