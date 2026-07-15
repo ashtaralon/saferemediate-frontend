@@ -178,34 +178,24 @@ export async function GET(
         },
       )
     }
-    if (isTimeout) {
-      const started = new Date()
-      const deadline = new Date(started.getTime() + 180_000)
-      return NextResponse.json(
-        {
-          status: "computing",
-          system_name: systemName,
-          computing_started_at: started.toISOString(),
-          compute_deadline_at: deadline.toISOString(),
-          staleReason: "peer_computing",
-          scored_at: null,
-          system_kpis: null,
-          nodes: [],
-        },
-        { status: 200 },
-      )
-    }
-    console.error(`[topology-risk] systemName=${systemName} error=${msg}`)
+    // Never invent status:"computing" on timeout — that lied to Estate Map and
+    // trapped cold clients on endless "Computing estate map…" while BE was
+    // actually unreachable / Neo4j-flapping. Honest 504 → unavailable + Retry.
+    console.error(
+      `[topology-risk] systemName=${systemName} ${isTimeout ? "timeout" : "error"}=${msg}`,
+    )
     return NextResponse.json(
       {
-        error: "topology_risk_proxy_error",
-        message: msg,
+        error: isTimeout ? "topology_risk_proxy_timeout" : "topology_risk_proxy_error",
+        message: isTimeout
+          ? "Backend topology-risk timed out — try again shortly"
+          : msg,
         system: systemName,
         scored_at: null,
         system_kpis: null,
         nodes: [],
       },
-      { status: 502 },
+      { status: isTimeout ? 504 : 502 },
     )
   }
 }
