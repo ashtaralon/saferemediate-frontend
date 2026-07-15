@@ -155,7 +155,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["all"]))
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set<string>())
   const [gapData, setGapData] = useState<any>(null)
   const [selectedService, setSelectedService] = useState<ServiceNode | null>(null)
   const [iamData, setIamData] = useState<any>(null)
@@ -357,6 +357,15 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       {} as Record<string, number>,
     )
   }, [services])
+
+  // Group the (search-filtered) services by service type, largest group first.
+  const groupedFilteredServices = useMemo<[string, ServiceNode[]][]>(() => {
+    const groups: Record<string, ServiceNode[]> = {}
+    for (const s of filteredAllServices) {
+      ;(groups[s.type] ??= []).push(s)
+    }
+    return Object.entries(groups).sort((a, b) => b[1].length - a[1].length)
+  }, [filteredAllServices])
 
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections)
@@ -764,134 +773,146 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         )}
       </div>
 
-      {/* All system-attributed services — single flat list matching backend count */}
-      <Card>
-        <CardHeader className="cursor-pointer hover:bg-gray-50" onClick={() => toggleSection("all")}>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {expandedSections.has("all") ? (
-                <ChevronDown className="w-5 h-5" />
-              ) : (
-                <ChevronRight className="w-5 h-5" />
-              )}
-              <Layers className="w-5 h-5 text-[#8b5cf6]" />
-              <span>ALL SERVICES (SystemName tagged)</span>
-              <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">
-                ({filteredAllServices.length} of {services.length})
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2 justify-end max-w-[60%]">
-              {Object.entries(allTypeCounts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 8)
-                .map(([type, count]) => (
-                  <span
-                    key={type}
-                    className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[type] || SERVICE_COLORS.default}`}
-                  >
-                    {type}: {count}
-                  </span>
-                ))}
-            </div>
-          </CardTitle>
-        </CardHeader>
-        {expandedSections.has("all") && (
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Service Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>SystemName</TableHead>
-                  <TableHead>Environment</TableHead>
-                  <TableHead>Region</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Seen</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAllServices.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-[var(--muted-foreground,#6b7280)] py-8">
-                      No system-attributed services found for {systemName}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredAllServices.map((service) => {
-                    const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
-                    return (
-                      <TableRow
-                        key={service.id}
-                        className="hover:bg-gray-50 cursor-pointer"
-                        onClick={() => setSelectedService(service)}
-                      >
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <IconComponent className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
-                            <span className="truncate max-w-[250px]" title={service.name}>
-                              {service.name}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[service.type] || SERVICE_COLORS.default}`}
-                          >
-                            {service.type}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <span
-                              className={`text-xs px-2 py-1 rounded ${
-                                service.systemName !== "Untagged"
-                                  ? "bg-[#3b82f620] text-[#3b82f6]"
-                                  : "bg-[#f9731620] text-[#f97316]"
-                              }`}
-                            >
-                              {service.systemName === "Untagged" ? "Untagged" : service.systemName}
-                            </span>
-                            {service.vpcId && (
-                              <span
-                                className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]"
-                                title={service.vpcId}
-                              >
-                                VPC: {service.vpcId.slice(0, 12)}...
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {service.environment ? (
-                            <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
-                              {service.environment}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#4b5563)]">
-                          {service.region ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`text-xs px-2 py-1 rounded ${getStatusColor(service.instanceState || service.status)}`}
-                          >
-                            {service.instanceState || service.status}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">
-                          {service.lastSeen ? formatDate(service.lastSeen) : "—"}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
+      {/* System-attributed services — one collapsible section PER TYPE (grouped, largest first) */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-sm text-[var(--muted-foreground,#6b7280)]">
+          {filteredAllServices.length} of {services.length} services · {groupedFilteredServices.length} type
+          {groupedFilteredServices.length === 1 ? "" : "s"}
+        </span>
+        {groupedFilteredServices.length > 0 && (
+          <button
+            type="button"
+            className="text-xs font-medium text-[#8b5cf6] hover:underline"
+            onClick={() =>
+              setExpandedSections(
+                groupedFilteredServices.every(([t]) => expandedSections.has(t))
+                  ? new Set<string>()
+                  : new Set(groupedFilteredServices.map(([t]) => t)),
+              )
+            }
+          >
+            {groupedFilteredServices.every(([t]) => expandedSections.has(t)) ? "Collapse all" : "Expand all"}
+          </button>
         )}
-      </Card>
+      </div>
+
+      {filteredAllServices.length === 0 ? (
+        <Card>
+          <CardContent className="text-center text-[var(--muted-foreground,#6b7280)] py-8">
+            No system-attributed services found for {systemName}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {groupedFilteredServices.map(([type, items]) => {
+            const TypeIcon = SERVICE_ICONS[type] || SERVICE_ICONS.default
+            // Open on click, or auto-open every group while a search is active so matches are visible.
+            const isOpen = expandedSections.has(type) || searchQuery.trim() !== ""
+            return (
+              <Card key={type}>
+                <CardHeader
+                  className="cursor-pointer hover:bg-gray-50 py-3"
+                  onClick={() => toggleSection(type)}
+                >
+                  <CardTitle className="flex items-center gap-3">
+                    {isOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                    <TypeIcon className="w-5 h-5 text-[#8b5cf6]" />
+                    <span
+                      className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[type] || SERVICE_COLORS.default}`}
+                    >
+                      {type}
+                    </span>
+                    <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">
+                      {items.length}
+                      {searchQuery.trim() && allTypeCounts[type] ? ` of ${allTypeCounts[type]}` : ""}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                {isOpen && (
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Service Name</TableHead>
+                          <TableHead>SystemName</TableHead>
+                          <TableHead>Environment</TableHead>
+                          <TableHead>Region</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Last Seen</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {items.map((service) => {
+                          const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
+                          return (
+                            <TableRow
+                              key={service.id}
+                              className="hover:bg-gray-50 cursor-pointer"
+                              onClick={() => setSelectedService(service)}
+                            >
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  <IconComponent className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+                                  <span className="truncate max-w-[250px]" title={service.name}>
+                                    {service.name}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-1">
+                                  <span
+                                    className={`text-xs px-2 py-1 rounded ${
+                                      service.systemName !== "Untagged"
+                                        ? "bg-[#3b82f620] text-[#3b82f6]"
+                                        : "bg-[#f9731620] text-[#f97316]"
+                                    }`}
+                                  >
+                                    {service.systemName === "Untagged" ? "Untagged" : service.systemName}
+                                  </span>
+                                  {service.vpcId && (
+                                    <span
+                                      className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]"
+                                      title={service.vpcId}
+                                    >
+                                      VPC: {service.vpcId.slice(0, 12)}...
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {service.environment ? (
+                                  <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
+                                    {service.environment}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-[var(--muted-foreground,#4b5563)]">
+                                {service.region ?? "—"}
+                              </TableCell>
+                              <TableCell>
+                                <span
+                                  className={`text-xs px-2 py-1 rounded ${getStatusColor(service.instanceState || service.status)}`}
+                                >
+                                  {service.instanceState || service.status}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">
+                                {service.lastSeen ? formatDate(service.lastSeen) : "—"}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+      )}
 
       {/* Gap Analysis Summary */}
       {gapData && (
