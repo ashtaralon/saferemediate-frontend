@@ -181,6 +181,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
+    // Render cold-start 504s self-heal once the wake+snapshot retry lands.
+    transientRetries: 2,
   })
 
   // Full account/region topology for All-VPCs · Compare scaffold. When the

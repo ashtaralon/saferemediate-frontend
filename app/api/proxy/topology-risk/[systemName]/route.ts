@@ -10,6 +10,25 @@ export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
 
+/**
+ * Split the Vercel 60s budget across a wake attempt + one retry.
+ *
+ * Render cold workers often hang with zero bytes for >55s on the first
+ * hit (operator sees HTTP 504). The hung request still wakes the worker;
+ * a second attempt typically serves the DynamoDB snapshot in ~2–8s
+ * (observed 2026-07-15: first 90s/0 bytes, second 6s/60 nodes).
+ *
+ * Keep sum ≤ TOPOLOGY_RISK_PROXY_TIMEOUT_MS so we stay under maxDuration.
+ */
+const TOPOLOGY_WAKE_TIMEOUT_MS = Math.min(
+  20_000,
+  Math.floor(TOPOLOGY_RISK_PROXY_TIMEOUT_MS * 0.4),
+)
+const TOPOLOGY_RETRY_TIMEOUT_MS = Math.max(
+  15_000,
+  TOPOLOGY_RISK_PROXY_TIMEOUT_MS - TOPOLOGY_WAKE_TIMEOUT_MS - 2_000,
+)
+
 function scopeFromRequest(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get("account_id")
   const region = req.nextUrl.searchParams.get("region")
@@ -30,27 +49,76 @@ function backendQueryString(scope: ReturnType<typeof scopeFromRequest>): string 
   return qs ? `?${qs}` : ""
 }
 
+function isTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return (
+    err.name === "TimeoutError" ||
+    err.name === "AbortError" ||
+    err.message.includes("timeout")
+  )
+}
+
+function serveStale(cacheKey: string, reason: string): NextResponse | null {
+  const stale = getStaleCached(cacheKey)
+  if (!stale || isPoisonousProxyPayload(stale)) return null
+  console.warn(`[topology-risk] ${reason} — serving stale cache`)
+  return NextResponse.json(
+    { ...stale, fromStaleCache: true, staleReason: reason },
+    { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
+  )
+}
+
+function respondOk(cacheKey: string, data: unknown, cacheLabel: string): NextResponse {
+  if (isPoisonousProxyPayload(data)) {
+    const stale = serveStale(cacheKey, "peer_computing")
+    if (stale) return stale
+    return NextResponse.json(data, {
+      headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
+    })
+  }
+  setCached(cacheKey, data, TTL_SLOW)
+  return NextResponse.json(data, {
+    headers: {
+      "X-Cache": cacheLabel,
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+    },
+  })
+}
+
+async function fetchTopology(
+  url: string,
+  timeoutMs: number,
+): Promise<{ ok: true; data: unknown } | { ok: false; status: number; body: string } | { ok: false; timeout: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      return { ok: false, status: res.status, body }
+    }
+    return { ok: true, data: await res.json() }
+  } catch (err: unknown) {
+    if (isTimeoutError(err)) return { ok: false, timeout: true }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
 /**
  * Topology Risk proxy — pairs with BE /api/topology-risk/{systemName}
- * (contract: docs/topology-v0.2-risk-contract.md).
  *
- * Resilience strategy (CLAUDE.md rule #1 honesty + amber-self-heal pattern):
- *
- *   1. Hot cache (60s)            → return cached data immediately.
- *   2. Backend reachable + 2xx    → cache + return fresh data.
- *   3. Backend 5xx OR timeout     → if stale cache exists, serve it with
- *                                    `fromStaleCache=true` so the FE renders
- *                                    an amber "serving stale" pill. Render
- *                                    is on a free/starter tier and bounces
- *                                    a few times per hour mid-deploy; serving
- *                                    the last-known-good rollup keeps the
- *                                    canvas useful instead of a hard error.
- *   4. No stale cache to fall    → emit an honest empty envelope so the FE
- *      back to                      can render "topology risk unavailable"
- *                                    rather than NPE on missing fields.
- *
- * Per CLAUDE.md feedback_amber_must_self_heal: the amber "serving stale"
- * state auto-resolves on the next successful fetch — no operator action.
+ * Resilience:
+ *   1. Hot cache → HIT
+ *   2. Wake attempt (short) + one retry (remaining budget) — handles Render
+ *      cold hangs that otherwise become operator-visible HTTP 504
+ *   3. Stale cache on 5xx / timeout
+ *   4. Honest 504/502 only when nothing durable is available
+ *   Never invent status:"computing" on timeout (endless Computing… bug).
  */
 export async function GET(
   req: NextRequest,
@@ -61,7 +129,6 @@ export async function GET(
   const cacheKey = buildTopologyRiskServerCacheKey(systemName, scope)
 
   const cached = getCached(cacheKey)
-  // Never serve a cached computing/empty poison envelope — refetch BE.
   if (cached && !isPoisonousProxyPayload(cached)) {
     return NextResponse.json(cached, {
       headers: {
@@ -71,131 +138,71 @@ export async function GET(
     })
   }
 
-  try {
-    const qs = backendQueryString(scope)
-    const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(systemName)}${qs}`
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(TOPOLOGY_RISK_PROXY_TIMEOUT_MS),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      console.error(`[topology-risk] backend ${res.status}: ${body.slice(0, 200)}`)
-      // 503 compute-in-progress — peer single-flight; retry shortly.
-      if (res.status === 503) {
-        await new Promise(r => setTimeout(r, 1500))
-        const retry = await fetch(url, {
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          signal: AbortSignal.timeout(TOPOLOGY_RISK_PROXY_TIMEOUT_MS),
-        })
-        if (retry.ok) {
-          const data = await retry.json()
-          if (isPoisonousProxyPayload(data)) {
-            const stale = getStaleCached(cacheKey)
-            if (stale && !isPoisonousProxyPayload(stale)) {
-              return NextResponse.json(
-                { ...stale, fromStaleCache: true, staleReason: "peer_computing" },
-                { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
-              )
-            }
-            return NextResponse.json(data, {
-              headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
-            })
-          }
-          setCached(cacheKey, data, TTL_SLOW)
-          return NextResponse.json(data, {
-            headers: { "X-Cache": "MISS", "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },
-          })
-        }
-      }
-      // On 5xx, try the stale cache first — Render free-tier bounces are
-      // typically transient (10-60s). Serving last-good data with an
-      // amber pill is far better UX than "topology risk unavailable" until
-      // the next BE deploy stabilizes.
-      if (res.status >= 500) {
-        const stale = getStaleCached(cacheKey)
-        if (stale && !isPoisonousProxyPayload(stale)) {
-          console.warn(`[topology-risk] backend ${res.status} — serving stale cache systemName=${systemName}`)
-          return NextResponse.json(
-            { ...stale, fromStaleCache: true, staleReason: `backend_${res.status}` },
-            {
-              headers: { "X-Cache": "STALE", "Cache-Control": "no-store" },
-            },
-          )
-        }
-      }
-      // No stale cache → honest empty envelope.
-      return NextResponse.json(
-        {
-          error: `backend_${res.status}`,
-          system: systemName,
-          scored_at: null,
-          system_kpis: null,
-          nodes: [],
-        },
-        { status: res.status },
-      )
-    }
-    const data = await res.json()
-    // Prefer last-good over caching/returning an empty computing envelope.
-    if (isPoisonousProxyPayload(data)) {
-      const stale = getStaleCached(cacheKey)
-      if (stale && !isPoisonousProxyPayload(stale)) {
-        return NextResponse.json(
-          { ...stale, fromStaleCache: true, staleReason: "peer_computing" },
-          { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
-        )
-      }
-      return NextResponse.json(data, {
-        headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
-      })
-    }
-    setCached(cacheKey, data, TTL_SLOW)
-    return NextResponse.json(data, {
-      headers: {
-        "X-Cache": "MISS",
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-      },
-    })
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    const isTimeout =
-      err instanceof Error &&
-      (err.name === "TimeoutError" || err.name === "AbortError" || msg.includes("timeout"))
-    const stale = getStaleCached(cacheKey)
-    // Serve stale on ANY transient failure when we have a cache. Timeout,
-    // fetch-rejection, and TLS/connection blips all count — the operator
-    // gets their last-good rollup either way, with the amber pill telling
-    // the truth about freshness.
-    if (stale && !isPoisonousProxyPayload(stale)) {
-      console.warn(`[topology-risk] ${isTimeout ? "timeout" : "fetch failed"} — serving stale cache systemName=${systemName}`)
-      return NextResponse.json(
-        { ...stale, fromStaleCache: true, staleReason: isTimeout ? "timeout" : "fetch_failed" },
-        {
-          headers: { "X-Cache": "STALE", "Cache-Control": "no-store" },
-        },
-      )
-    }
-    // Never invent status:"computing" on timeout — that lied to Estate Map and
-    // trapped cold clients on endless "Computing estate map…" while BE was
-    // actually unreachable / Neo4j-flapping. Honest 504 → unavailable + Retry.
-    console.error(
-      `[topology-risk] systemName=${systemName} ${isTimeout ? "timeout" : "error"}=${msg}`,
+  const qs = backendQueryString(scope)
+  const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(systemName)}${qs}`
+
+  // Attempt 1 — short wake. Cold Render often hangs past 55s with 0 bytes;
+  // abort early so we still have budget for a snapshot retry.
+  let result = await fetchTopology(url, TOPOLOGY_WAKE_TIMEOUT_MS)
+  if (result.ok === true) {
+    return respondOk(cacheKey, result.data, "MISS")
+  }
+
+  if ("status" in result && result.status === 503) {
+    await new Promise((r) => setTimeout(r, 800))
+    result = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
+    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS")
+  }
+
+  // Attempt 2 — after wake / timeout / 5xx, DynamoDB snapshot is usually ready.
+  if ("timeout" in result || ("status" in result && result.status >= 500)) {
+    console.warn(
+      `[topology-risk] wake miss systemName=${systemName} — retrying snapshot path ` +
+        `(timeout=${"timeout" in result} status=${"status" in result ? result.status : "n/a"})`,
     )
+    await new Promise((r) => setTimeout(r, 400))
+    const retry = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
+    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY")
+    result = retry
+  }
+
+  if ("status" in result) {
+    console.error(
+      `[topology-risk] backend ${result.status}: ${result.body.slice(0, 200)}`,
+    )
+    const stale = serveStale(cacheKey, `backend_${result.status}`)
+    if (stale) return stale
     return NextResponse.json(
       {
-        error: isTimeout ? "topology_risk_proxy_timeout" : "topology_risk_proxy_error",
-        message: isTimeout
-          ? "Backend topology-risk timed out — try again shortly"
-          : msg,
+        error: `backend_${result.status}`,
         system: systemName,
         scored_at: null,
         system_kpis: null,
         nodes: [],
       },
-      { status: isTimeout ? 504 : 502 },
+      { status: result.status },
     )
   }
+
+  const timedOut = "timeout" in result
+  const stale = serveStale(cacheKey, timedOut ? "timeout" : "fetch_failed")
+  if (stale) return stale
+
+  const msg = "error" in result ? result.error : "Backend topology-risk timed out"
+  console.error(
+    `[topology-risk] systemName=${systemName} ${timedOut ? "timeout" : "error"}=${msg}`,
+  )
+  return NextResponse.json(
+    {
+      error: timedOut ? "topology_risk_proxy_timeout" : "topology_risk_proxy_error",
+      message: timedOut
+        ? "Backend topology-risk timed out — try again shortly"
+        : msg,
+      system: systemName,
+      scored_at: null,
+      system_kpis: null,
+      nodes: [],
+    },
+    { status: timedOut ? 504 : 502 },
+  )
 }
