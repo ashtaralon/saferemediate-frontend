@@ -44,6 +44,13 @@ export interface UseCachedFetchOptions {
   maxStaleMs?: number
   /** Pass-through to fetch. */
   fetchInit?: RequestInit
+  /**
+   * Extra attempts after the first when the response is a transient
+   * proxy/upstream failure (502/503/504) and we have no cached data.
+   * Default 0. Estate Map uses 2 so a Render cold-start 504 self-heals
+   * once the wake+snapshot retry lands (~5–15s later).
+   */
+  transientRetries?: number
 }
 
 export interface UseCachedFetchResult<T> {
@@ -208,7 +215,12 @@ export function useCachedFetch<T = unknown>(
   url: string | null,
   options: UseCachedFetchOptions,
 ): UseCachedFetchResult<T> {
-  const { cacheKey, maxStaleMs = DEFAULT_MAX_STALE_MS, fetchInit } = options
+  const {
+    cacheKey,
+    maxStaleMs = DEFAULT_MAX_STALE_MS,
+    fetchInit,
+    transientRetries = 0,
+  } = options
 
   // Synchronous initial read so the first paint renders cached data
   // without a flash of the loading state.
@@ -284,9 +296,21 @@ export function useCachedFetch<T = unknown>(
     epochRef.current += 1
     const myEpoch = epochRef.current
 
+    const TRANSIENT = new Set([408, 425, 429, 502, 503, 504, 522, 524])
+    const maxAttempts = 1 + Math.max(0, transientRetries)
+
     try {
-      const res = await fetch(url, { ...fetchInit })
-      if (myEpoch !== epochRef.current) return
+      let res: Response | null = null
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (myEpoch !== epochRef.current) return
+        res = await fetch(url, { ...fetchInit })
+        if (myEpoch !== epochRef.current) return
+        if (res.ok) break
+        if (!TRANSIENT.has(res.status) || attempt === maxAttempts - 1) break
+        // Cold Render / Vercel 504 — wait then retry; wake+snapshot often lands.
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+      }
+      if (!res) return
       if (!res.ok) {
         // Only surface error when we have no cached fallback to show
         // — including older-than-maxStaleMs cache, which we can use as
@@ -386,7 +410,7 @@ export function useCachedFetch<T = unknown>(
       // If we have cached data, swallow the error — keep showing stale.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, cacheKey, fetchInit])
+  }, [url, cacheKey, fetchInit, transientRetries])
 
   useEffect(() => {
     if (!url) return
