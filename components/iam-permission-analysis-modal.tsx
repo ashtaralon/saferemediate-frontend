@@ -304,7 +304,14 @@ export function IAMPermissionAnalysisModal({
   const [simulating, setSimulating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
-  const [detachManagedPolicies, setDetachManagedPolicies] = useState(true)
+  // Containment (P0-A): both managed-policy detach controls default OFF.
+  // Detaching a managed policy is a coarse, high-consequence IAM mutation;
+  // it must be an explicit operator choice, never a silent default. Enabling
+  // it by default meant Apply stayed clickable with zero individual
+  // permissions selected (the disable predicate is
+  // `selected.size === 0 && !detachManagedPolicies`), so an unbound detach
+  // could execute without the operator ever selecting anything.
+  const [detachManagedPolicies, setDetachManagedPolicies] = useState(false)
   const [detachAllManagedPolicies, setDetachAllManagedPolicies] = useState(false)  // Detach ALL regardless of overlap
   const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
   // In-app override confirmation modal. Replaces the old window.confirm
@@ -588,12 +595,15 @@ export function IAMPermissionAnalysisModal({
       const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !excludedPerms.has(p)))
       setSelectedPermissionsToRemove(unusedPermsSet)
 
-      // Auto-enable "Detach managed policies" when permission lists are empty
-      // (managed policies can't be remediated by removing individual permissions)
-      if (mappedData.unused_permissions.length === 0 && mappedData.summary.unused_count > 0) {
-        setDetachManagedPolicies(true)
-        setDetachAllManagedPolicies(true)
-      }
+      // Containment (P0-A): do NOT auto-enable managed-policy detach here.
+      // The trigger condition (empty permission list but unused_count > 0) is
+      // INDISTINGUISHABLE at the frontend from degraded/partial backend data:
+      // a role whose excess is genuinely only in managed policies looks
+      // identical to a role whose permission lists failed to hydrate. Silently
+      // flipping on "Detach managed policies" AND "Detach ALL" on that
+      // ambiguous signal turned incomplete data into the most aggressive
+      // possible IAM mutation. Detaching managed policies is now always an
+      // explicit operator choice via the checkboxes below.
     } catch (err: any) {
       console.error('[IAM-Modal] Error:', err)
       setError(err.message || 'Failed to fetch gap analysis')
