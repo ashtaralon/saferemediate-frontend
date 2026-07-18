@@ -52,12 +52,23 @@ interface GapAnalysisData {
   role_name: string
   role_arn?: string
   observation_days: number
+  // Backend remediability contract (api/iam_gap_analysis.py). When
+  // is_remediable is false the role must NOT be presented as removal-ready:
+  // reason is 'no_policy_attached' (sync IAM policies) or 'usage_not_computed'
+  // (usage never measured — sync CloudTrail/behavioral first). remediable_reason
+  // is the human-readable string to surface.
+  is_remediable?: boolean
+  remediable_reason?: string
+  reason?: string | null
   summary: {
     total_permissions: number
     used_count: number
     unused_count: number
     lp_score: number
     overall_risk: string
+    // 'OBSERVED' | 'UNKNOWN' | 'LOW'. UNKNOWN = usage never measured (or no
+    // policy attached). Never render a removal/clean verdict on UNKNOWN.
+    data_confidence?: string
     cloudtrail_events: number
     high_risk_unused_count?: number
   }
@@ -535,6 +546,10 @@ export function IAMPermissionAnalysisModal({
         role_name: rawData.role_name || roleName,
         role_arn: rawData.role_arn,
         observation_days: rawData.observation_days || 365,
+        // Backend remediability contract — consumed by the mutation gate below.
+        is_remediable: rawData.is_remediable,
+        remediable_reason: rawData.remediable_reason,
+        reason: rawData.reason ?? null,
         summary: {
           // Always use backend counts — they come from Neo4j pre-computed data
           total_permissions: finalTotalCount,
@@ -542,6 +557,7 @@ export function IAMPermissionAnalysisModal({
           unused_count: finalUnusedCount,
           lp_score: derivedLpScore,
           overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
+          data_confidence: rawData.summary?.data_confidence ?? rawData.data_confidence,
           cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
           high_risk_unused_count: rawData.summary?.high_risk_unused_count ?? rawData.high_risk_unused?.length ?? 0
         },
@@ -586,14 +602,25 @@ export function IAMPermissionAnalysisModal({
       })
       
       setGapData(mappedData)
-      // Initialize all unused permissions as selected by default, excluding protected, warn, and reserved ones
-      const excludedPerms = new Set(
-        (mappedData.confidence_groups?.groups ?? [])
-          .filter(g => g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
-          .flatMap(g => g.permissions.map(p => p.permission))
-      )
-      const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !excludedPerms.has(p)))
-      setSelectedPermissionsToRemove(unusedPermsSet)
+      // Honor the backend remediability contract. When the role is explicitly
+      // NOT remediable — no policy data, or usage was never measured
+      // (data_confidence UNKNOWN / reason 'usage_not_computed') — select nothing.
+      // Pre-checking a removal set on evidence we don't have is exactly the
+      // "not observed ≠ safe to remove" fabrication; the mutation gate below
+      // renders a "sync usage" CTA instead of Apply. (Old backends omit the
+      // field → undefined !== false → unchanged default behavior.)
+      if (mappedData.is_remediable === false) {
+        setSelectedPermissionsToRemove(new Set())
+      } else {
+        // Initialize unused permissions as selected by default, excluding protected/warn/reserved.
+        const excludedPerms = new Set(
+          (mappedData.confidence_groups?.groups ?? [])
+            .filter(g => g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
+            .flatMap(g => g.permissions.map(p => p.permission))
+        )
+        const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !excludedPerms.has(p)))
+        setSelectedPermissionsToRemove(unusedPermsSet)
+      }
 
       // Containment (P0-A): do NOT auto-enable managed-policy detach here.
       // The trigger condition (empty permission list but unused_count > 0) is
@@ -741,6 +768,22 @@ export function IAMPermissionAnalysisModal({
     skipAutoClose: boolean = false,
   ): Promise<string | undefined> => {
     if (!gapData) return undefined
+
+    // Fail-closed (defense in depth): the backend marked this role not-remediable
+    // — no attached policy data, or usage was never measured (data_confidence
+    // UNKNOWN / reason 'usage_not_computed'). Refuse EVERY mutation path here
+    // (Apply, Apply Anyway, Acknowledge & Apply, detach) regardless of which
+    // caller reached this handler, so no code path can narrow on evidence we
+    // don't have. Pairs with the UI gate in the button block and backend PR #519.
+    if (gapData.is_remediable === false) {
+      toast({
+        title: "More data needed",
+        description: gapData.remediable_reason
+          || "Usage not computed — sync CloudTrail / behavioral usage before remediation.",
+        variant: "destructive",
+      })
+      return undefined
+    }
 
     // If this is an override (force=true) AND the caller didn't already
     // build a lineage payload, open the in-app confirmation modal and
@@ -2765,7 +2808,7 @@ export function IAMPermissionAnalysisModal({
                   type="checkbox"
                   checked={detachManagedPolicies}
                   onChange={(e) => setDetachManagedPolicies(e.target.checked)}
-                  disabled={applying}
+                  disabled={applying || gapData?.is_remediable === false}
                   className="rounded border-[var(--border,#d1d5db)] text-orange-600 focus:ring-orange-500"
                 />
                 <span className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>Detach managed policies</span>
@@ -2775,13 +2818,18 @@ export function IAMPermissionAnalysisModal({
                   type="checkbox"
                   checked={detachAllManagedPolicies}
                   onChange={(e) => setDetachAllManagedPolicies(e.target.checked)}
-                  disabled={applying || !detachManagedPolicies}
+                  disabled={applying || !detachManagedPolicies || gapData?.is_remediable === false}
                   className="rounded border-[var(--border,#d1d5db)] text-[#ef4444] focus:ring-[#ef4444]"
                 />
                 <span className={`text-sm ${detachManagedPolicies ? 'text-[#ef4444] font-medium' : 'text-[var(--muted-foreground,#9ca3af)]'}`}>Detach ALL</span>
               </label>
               {(() => {
                 const blocked = shouldBlockRemediation()
+                // Backend remediability gate (api/iam_gap_analysis.py). false ONLY
+                // when there is no attached policy data OR usage was never measured
+                // (data_confidence UNKNOWN / reason 'usage_not_computed'). Undefined
+                // on older backends → not gated.
+                const evidenceUnknown = gapData?.is_remediable === false
                 const lowConfidence = safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
                 // Honest counts: report what the user actually selected. Non-auto
@@ -2803,6 +2851,29 @@ export function IAMPermissionAnalysisModal({
                       <XCircle className="w-4 h-4" />
                       BLOCKED - Service Role
                     </button>
+                  )
+                } else if (evidenceUnknown) {
+                  // Backend says this role is NOT remediable: no policy data, or
+                  // usage was never measured (data_confidence UNKNOWN). Surface the
+                  // honest reason and hard-disable Apply — no removal / detach /
+                  // override path on evidence we don't have. This is the frontend
+                  // half of the fail-closed contract from backend PR #519.
+                  return (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-[#b45309] max-w-md text-right">
+                        {gapData?.remediable_reason
+                          || 'Usage not computed — sync evidence before remediation.'}
+                      </span>
+                      <button
+                        disabled
+                        className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                        title={gapData?.remediable_reason
+                          || 'Usage not computed — sync CloudTrail / behavioral usage before remediation.'}
+                      >
+                        <XCircle className="w-4 h-4" />
+                        MORE DATA NEEDED
+                      </button>
+                    </div>
                   )
                 } else if (pipelineBlocked) {
                   // Pipeline routed this to "review required". Two
