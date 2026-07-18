@@ -377,6 +377,14 @@ export function IAMPermissionAnalysisModal({
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
   const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
+  // Signed remediation plan from simulate-fix (exact-change binding). The
+  // plan_token binds a FROZEN permission set; the backend, when it receives the
+  // token, executes plan.permissions_to_remove AS-IS. planPermissions is that
+  // bound set (the SAFE_TO_STAGE set). We forward the token on Apply ONLY when
+  // the operator's current selection still equals it (see handleApplyFix), so
+  // sending it can never execute a different set than what is shown.
+  const [planToken, setPlanToken] = useState<string | null>(null)
+  const [planPermissions, setPlanPermissions] = useState<string[] | null>(null)
   // Default to `true` so the FIRST render shows the loading skeleton,
   // not the "Cyntro could not verify safety" red fallback below
   // (which only fires correctly once the fetch has actually completed
@@ -402,9 +410,24 @@ export function IAMPermissionAnalysisModal({
     return () => { cancelled = true }
   }, [isOpen, roleName])
 
+  // Prefer the backend-signed plan's frozen set as the default selection once
+  // it arrives: it IS the SAFE_TO_STAGE set, and defaulting to it means the
+  // plan_token can be forwarded on Apply (exact-change binding active by
+  // default). Only when the role is remediable. Deps are [planPermissions,
+  // gapData] — neither changes on a manual row toggle, so this does not stomp
+  // the operator's customized selection mid-session (it re-runs only on load /
+  // refetch). Falls back to the gap-analysis default from fetchGapAnalysis when
+  // there is no plan (older backend, or nothing safely removable).
+  useEffect(() => {
+    if (!planPermissions || !gapData || gapData.is_remediable === false) return
+    setSelectedPermissionsToRemove(new Set(planPermissions))
+  }, [planPermissions, gapData])
+
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
     setSafetyContext(null)
+    setPlanToken(null)
+    setPlanPermissions(null)
     try {
       const res = await fetch('/api/proxy/least-privilege/simulate-fix', {
         method: 'POST',
@@ -420,6 +443,13 @@ export function IAMPermissionAnalysisModal({
         return null
       }
       const data = await res.json()
+      // Capture the signed plan (issued by simulate-fix when there is a
+      // safely-removable set). plan.permissions_to_remove is the bound safe set.
+      const plan = data?.plan
+      if (plan?.plan_token && Array.isArray(plan?.permissions_to_remove)) {
+        setPlanToken(String(plan.plan_token))
+        setPlanPermissions((plan.permissions_to_remove as unknown[]).map((p) => String(p)))
+      }
       const safety = data?.safety as SimulateFixSafety | undefined
       if (safety) {
         setSafetyContext(safety)
@@ -864,6 +894,22 @@ export function IAMPermissionAnalysisModal({
     try {
       const permissionsToRemove = allSelected
 
+      // Exact-change binding: forward the signed plan_token ONLY when the
+      // operator's selection still equals the plan's bound safe set. When the
+      // token is present the backend executes plan.permissions_to_remove AS-IS,
+      // so sending it while the selection differs would execute the wrong set —
+      // instead we send the raw list unbound (current behavior). Once the
+      // backend CYNTRO_REQUIRE_PLAN_TOKEN flag is enabled, a customized-but-
+      // unbound selection is correctly rejected until simulate-fix can issue a
+      // plan for an arbitrary selection (deferred backend work).
+      const selectionSorted = [...permissionsToRemove].sort()
+      const planSorted = planPermissions ? [...planPermissions].sort() : null
+      const selectionMatchesPlan =
+        !!planToken &&
+        !!planSorted &&
+        planSorted.length === selectionSorted.length &&
+        planSorted.every((p, i) => p === selectionSorted[i])
+
       console.log('[IAM-Modal] Starting DIRECT MODIFY remediation for:', roleName)
       console.log('[IAM-Modal] Permissions to remove:', permissionsToRemove.length)
       console.log('[IAM-Modal] Create snapshot:', createSnapshot)
@@ -885,6 +931,7 @@ export function IAMPermissionAnalysisModal({
           detach_all_managed_policies: detachAllManagedPolicies,
           permissions_to_remove: permissionsToRemove,
           force: effectiveForce,
+          ...(selectionMatchesPlan ? { plan_token: planToken } : {}),
           ...(overrideLineage ? { override_lineage: overrideLineage } : {}),
         })
       })
