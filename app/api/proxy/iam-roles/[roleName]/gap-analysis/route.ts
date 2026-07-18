@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -33,18 +34,20 @@ export async function GET(
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[IAM Proxy] Backend error ${res.status}: ${errorText}`)
-      // Return 200 with empty data instead of error to prevent UI crashes
-      return NextResponse.json({
-        role_name: roleName,
-        allowed_count: 0,
-        used_count: 0,
-        unused_count: 0,
-        summary: { allowed_count: 0, used_count: 0, unused_count: 0, lp_score: 0 },
-        error: `Backend returned ${res.status}`,
-        detail: errorText.substring(0, 200)
-      }, { status: 200 })
+      const errorText = await res.text().catch(() => "")
+      console.error(`[IAM Proxy] Backend error ${res.status}: ${errorText.slice(0, 200)}`)
+      // Fail closed: propagate a typed non-2xx (never 200-with-zeros). Returning
+      // 200 {used:0, unused:0} on a backend fault is the forbidden anti-pattern
+      // documented in lib/server/proxy-error.ts — the LP UI cannot tell "backend
+      // down" from "role is genuinely clean" and renders the removal/clean state
+      // for both. Every consumer of this route already guards on `res.ok`
+      // (or `fetchWithEnvelope`, which throws on non-2xx), so a typed error
+      // surfaces an honest error/empty state instead of a fabricated zero.
+      return backendError({
+        status: res.status,
+        message: `IAM gap-analysis backend returned ${res.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await res.json()
@@ -53,27 +56,12 @@ export async function GET(
     return NextResponse.json(data, {
       headers: { "Cache-Control": "no-store" },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId)
-
-    console.error(`[IAM Proxy] Error for ${roleName}:`, error.message)
-
-    if (error.name === "AbortError") {
-      // Return empty data instead of error - UI will show 0s gracefully
-      return NextResponse.json({
-        role_name: roleName,
-        allowed_count: 0,
-        used_count: 0,
-        unused_count: 0,
-        summary: { allowed_count: 0, used_count: 0, unused_count: 0, lp_score: 0 },
-        timeout: true,
-        message: "Analysis is taking longer than expected - data will refresh shortly"
-      }, { status: 200 })
-    }
-
-    return NextResponse.json(
-      { error: "Backend unavailable", detail: error.message },
-      { status: 503 }
-    )
+    const e = error as Error
+    console.error(`[IAM Proxy] Error for ${roleName}:`, e?.name, e?.message)
+    // Fail closed on timeout/unreachable too: AbortError -> 504, else -> 503.
+    // Never a 200-with-zeros (see the !res.ok branch above).
+    return fromCaughtError(error)
   }
 }
