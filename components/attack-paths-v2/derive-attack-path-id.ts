@@ -50,15 +50,60 @@ export async function deriveAttackPathId(
   return sha256Hex(blob)
 }
 
-/** Prefer backend field; derive client-side when prod hasn't shipped attack_path_id yet. */
-export async function resolveClosurePathId(
-  path: Pick<IdentityAttackPath, "id" | "attack_path_id" | "nodes" | "crown_jewel_id"> & {
-    materialized_path?: { id?: string | null } | null
-  },
-): Promise<string> {
-  const fromMaterialized = path.materialized_path?.id
-  if (fromMaterialized) return fromMaterialized
-  if (path.attack_path_id) return path.attack_path_id
+const SHA256_HEX = /^[a-f0-9]{64}$/i
+
+export function isSha256HexId(id: string | null | undefined): boolean {
+  return Boolean(id && SHA256_HEX.test(id))
+}
+
+type PathIdSource = Pick<
+  IdentityAttackPath,
+  "id" | "attack_path_id" | "nodes" | "crown_jewel_id" | "materialized"
+> & {
+  materialized_path?: { id?: string | null } | null
+}
+
+/**
+ * Ordered candidates for Neo4j :AttackPath lookups (report / closure-preview).
+ *
+ * IAP-synthesized rows often carry an `attack_path_id` that is NOT a graph
+ * node id — `/report` 404s. Prefer materialized / URL hex ids, then derive,
+ * and only then fall back to the IAP hash so callers can try-next-on-404.
+ */
+export async function resolveReportPathIds(path: PathIdSource): Promise<string[]> {
+  const out: string[] = []
+  const push = (id: string | null | undefined) => {
+    const v = (id ?? "").trim()
+    if (!v || out.includes(v)) return
+    out.push(v)
+  }
+
+  push(path.materialized_path?.id ?? null)
+
+  // Deep-link / list id that is already a mat sha256.
+  if (isSha256HexId(path.id)) push(path.id)
+
+  // path-mat-* rows: attack_path_id is the mat id and report accepts it.
+  const matBacked =
+    path.materialized === true ||
+    Boolean(path.materialized_path?.id) ||
+    path.id.startsWith("path-mat-")
+  if (matBacked && isSha256HexId(path.attack_path_id)) {
+    push(path.attack_path_id)
+  }
+
   const derived = await deriveAttackPathId(path.nodes, path.crown_jewel_id)
-  return derived ?? path.id
+  push(derived)
+
+  // Non-mat IAP hashes last — often 404 on /report; still try before raw path-*.
+  if (isSha256HexId(path.attack_path_id)) push(path.attack_path_id)
+  push(path.id)
+
+  return out
+}
+
+/** Prefer backend field; derive client-side when prod hasn't shipped attack_path_id yet. */
+export async function resolveClosurePathId(path: PathIdSource): Promise<string> {
+  const ids = await resolveReportPathIds(path)
+  return ids[0] ?? path.id
 }
