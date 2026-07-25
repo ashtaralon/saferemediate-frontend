@@ -11,6 +11,7 @@ export interface SpotlightFlowCheckpoint {
   roleId?: string
   vpceId?: string
   subnetId?: string
+  egressGatewayId?: string
 }
 
 function normHopType(t: string | undefined | null): string {
@@ -30,6 +31,7 @@ export function checkpointIdsFromHops(hops: ConvergenceHop[]): {
   instanceProfileId?: string
   roleId?: string
   vpceId?: string
+  egressGatewayId?: string
 } {
   const out: {
     subnetId?: string
@@ -38,6 +40,7 @@ export function checkpointIdsFromHops(hops: ConvergenceHop[]): {
     instanceProfileId?: string
     roleId?: string
     vpceId?: string
+    egressGatewayId?: string
   } = {}
   for (const h of hops) {
     const id = h.node_id
@@ -55,6 +58,14 @@ export function checkpointIdsFromHops(hops: ConvergenceHop[]): {
       out.roleId = id
     }
     if (nt.includes("vpcendpoint") || nt === "vpce") out.vpceId = id
+    if (
+      nt.includes("internetgateway") ||
+      nt.includes("natgateway") ||
+      nt.includes("egressonly") ||
+      nt.includes("transitgateway")
+    ) {
+      out.egressGatewayId = id
+    }
     for (const sg of h.security_groups || []) {
       if (sg && !out.sgId) out.sgId = sg
     }
@@ -358,6 +369,7 @@ export function patchSpotlightFlowCheckpoints<T extends { flows: SpotlightFlowCh
       instanceProfileId: flow.instanceProfileId ?? ck.instanceProfileId,
       roleId: flow.roleId ?? ck.roleId,
       vpceId: flow.vpceId ?? ck.vpceId,
+      egressGatewayId: flow.egressGatewayId ?? ck.egressGatewayId,
     }
   })
 

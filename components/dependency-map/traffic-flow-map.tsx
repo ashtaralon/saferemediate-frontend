@@ -7656,6 +7656,19 @@ export default function TrafficFlowMap({
               iamRoles: architecture.iamRoles,
               flows: architecture.flows,
               vpcEndpoints: architecture.vpcEndpoints,
+              subnets: (architecture.subnets ?? []).map((s) => ({
+                id: s.id,
+                vpcId: s.vpcId,
+                connectedComputeIds: s.connectedComputeIds,
+              })),
+              egressGateways: (architecture.egressGateways ?? []).map((g) => ({
+                id: g.id,
+                vpcId: g.vpcId,
+              })),
+              nacls: (architecture.nacls ?? []).map((n) => ({
+                id: n.id,
+                connectedSources: n.connectedSources,
+              })),
             }
           : null,
       })

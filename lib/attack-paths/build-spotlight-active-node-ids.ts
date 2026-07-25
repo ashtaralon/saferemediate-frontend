@@ -21,8 +21,19 @@ export interface SpotlightArchitectureSlice {
     roleId?: string
     vpceId?: string
     egressGatewayId?: string
+    subnetId?: string
   }>
   vpcEndpoints?: Array<{ id: string }>
+  /** Subnets from dep-map (IN_SUBNET). Included when attached to path compute. */
+  subnets?: Array<{
+    id: string
+    vpcId?: string | null
+    connectedComputeIds?: string[]
+  }>
+  /** IGW / NAT / etc. from dep-map. Included when in a path compute's VPC. */
+  egressGateways?: Array<{ id: string; vpcId?: string | null }>
+  /** NACLs attached to path compute (connectedSources) or path subnet. */
+  nacls?: Array<{ id: string; connectedSources?: string[] }>
 }
 
 function extractInstanceId(id: string | null | undefined): string {
@@ -121,6 +132,58 @@ function addFlowAttachments(
     if (flow.roleId) out.add(flow.roleId)
     if (flow.vpceId) out.add(flow.vpceId)
     if (flow.egressGatewayId) out.add(flow.egressGatewayId)
+    if (flow.subnetId) out.add(flow.subnetId)
+  }
+}
+
+function computeMatches(
+  computeId: string,
+  candidate: string,
+): boolean {
+  const instanceKey = extractInstanceId(computeId)
+  const candKey = extractInstanceId(candidate)
+  return (
+    candidate === computeId ||
+    candidate === instanceKey ||
+    candKey === computeId ||
+    candKey === instanceKey
+  )
+}
+
+/**
+ * Attach Neo4j network placement for a path compute: subnet (IN_SUBNET),
+ * NACL (via compute attachment), and same-VPC egress gateways (IGW/NAT).
+ * Without this, fan-in hid empty SUBNETS / EGRESS lanes even when dep-map
+ * carried the real nodes (graph had ROUTES_VIA → IGW).
+ */
+function addNetworkPlacementForCompute(
+  computeId: string,
+  out: Set<string>,
+  architecture?: SpotlightArchitectureSlice | null,
+): void {
+  if (!architecture) return
+  const pathVpcs = new Set<string>()
+
+  for (const sub of architecture.subnets ?? []) {
+    const attached = (sub.connectedComputeIds ?? []).some((cid) =>
+      computeMatches(computeId, cid),
+    )
+    if (!attached) continue
+    out.add(sub.id)
+    if (sub.vpcId) pathVpcs.add(sub.vpcId)
+  }
+
+  for (const nacl of architecture.nacls ?? []) {
+    const attached = (nacl.connectedSources ?? []).some((cid) =>
+      computeMatches(computeId, cid),
+    )
+    if (attached) out.add(nacl.id)
+  }
+
+  for (const gw of architecture.egressGateways ?? []) {
+    if (gw.vpcId && pathVpcs.has(gw.vpcId)) {
+      out.add(gw.id)
+    }
   }
 }
 
@@ -156,6 +219,7 @@ export function buildSpotlightActiveNodeIds(params: {
     if (computeId) {
       out.add(computeId)
       addFlowAttachments(computeId, out, architecture)
+      addNetworkPlacementForCompute(computeId, out, architecture)
       for (const sgId of resolveSecurityGroupIdsForCompute(computeId, architecture)) {
         out.add(sgId)
       }
@@ -167,11 +231,9 @@ export function buildSpotlightActiveNodeIds(params: {
     if (jewel.canonical_id) out.add(jewel.canonical_id)
   }
 
-  if (architecture?.vpcEndpoints?.length && pathsToInclude.length > 0) {
-    for (const vpce of architecture.vpcEndpoints) {
-      if (vpce.id) out.add(vpce.id)
-    }
-  }
+  // VPCEs stay opt-in via flow.vpceId / hop — do not blanket-add every
+  // VPC endpoint (that re-filled empty lanes with unrelated Interface VPCEs).
+  // Egress IGW/NAT are added above only when in a path compute's VPC.
 
   return out
 }
