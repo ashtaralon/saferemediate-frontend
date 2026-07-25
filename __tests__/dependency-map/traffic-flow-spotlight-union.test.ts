@@ -150,4 +150,37 @@ describe("buildSpotlightActiveNodeIds", () => {
     // Do not blanket-include unrelated VPCEs.
     expect(ids.has("vpce-s3")).toBe(false)
   })
+
+  it("matches IGW via compute.vpcId when subnet.vpcId is missing", () => {
+    const ids = buildSpotlightActiveNodeIds({
+      paths: [
+        path({
+          path_id: "p1",
+          source: "alon-demo-app2",
+          workload_arn: "i-0aa725bf8ff4c2001",
+        }),
+      ],
+      spotlightPathId: "p1",
+      architecture: {
+        ...arch,
+        computeServices: [
+          {
+            id: "i-0aa725bf8ff4c2001",
+            name: "alon-demo-app2",
+            instanceId: "i-0aa725bf8ff4c2001",
+            vpcId: "vpc-1",
+          },
+        ],
+        subnets: [
+          {
+            id: "subnet-app2",
+            vpcId: null,
+            connectedComputeIds: ["i-0aa725bf8ff4c2001"],
+          },
+        ],
+      },
+    })
+    expect(ids.has("subnet-app2")).toBe(true)
+    expect(ids.has("igw-1")).toBe(true)
+  })
 })
