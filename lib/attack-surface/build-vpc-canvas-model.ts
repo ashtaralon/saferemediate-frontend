@@ -55,7 +55,8 @@ export function buildVpcCanvasModel(
 
   const entry = architecture.entryPoints?.[0] ?? architecture.principals?.[0]
   const unusedPerms = role
-    ? role.gapCount ?? Math.max(0, role.totalCount - role.usedCount)
+    ? role.gapCount ??
+      (role.totalCount != null ? Math.max(0, role.totalCount - role.usedCount) : 0)
     : 0
 
   const vpcName =

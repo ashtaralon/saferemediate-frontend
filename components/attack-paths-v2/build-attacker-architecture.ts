@@ -41,6 +41,38 @@ import type { IdentityAttackPath } from "@/components/identity-attack-paths/type
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 import { isOpaqueIamId } from "./friendly-names"
 
+/** Rule/permission totals from Neo4j props only — never invent 0. */
+function finiteNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null
+}
+
+function rulesArrayLength(val: unknown): number | null {
+  if (Array.isArray(val)) return val.length
+  if (typeof val === "string" && val.length > 0) {
+    try {
+      const parsed = JSON.parse(val)
+      return Array.isArray(parsed) ? parsed.length : null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+function seedRuleTotalFromGraphProps(p: Record<string, unknown>): number | null {
+  const total = finiteNumber(p.total_rules)
+  if (total != null) return total
+  const inbound = finiteNumber(p.inbound_rule_count)
+  const outbound = finiteNumber(p.outbound_rule_count)
+  if (inbound != null || outbound != null) return (inbound ?? 0) + (outbound ?? 0)
+  const inboundArr = rulesArrayLength(p.inbound_rules)
+  const outboundArr = rulesArrayLength(p.outbound_rules)
+  if (inboundArr != null || outboundArr != null) {
+    return (inboundArr ?? 0) + (outboundArr ?? 0)
+  }
+  return null
+}
+
 // ─── Graph-view response shape (forwarded verbatim from the backend) ──
 
 export interface GraphViewNode {
@@ -522,7 +554,7 @@ export function buildAttackerArchitecture(
     if (isOpaqueIamId(display) && path.damage_capability?.role_name) {
       display = path.damage_capability.role_name
     }
-    const totalCount = Number(p.allowed_actions_count ?? 0) || 0
+    const totalCount = finiteNumber(p.allowed_actions_count)
     // 2026-05-26 audit fix: trust LIVE evidence over collector scalars.
     // The `used_actions_count` field on cyntro-demo-ec2-s3-role lies
     // (=0) while the role has USES_PERMISSION → s3:GetObject + s3:PutObject
@@ -533,7 +565,7 @@ export function buildAttackerArchitecture(
     // live_uses_permission_edge_count = COUNT of distinct USES_PERMISSION
     // edges off the role — i.e., distinct actions observed in use.
     // That IS the operator-meaningful "used actions" number.
-    const scalarUsed = Number(p.used_actions_count ?? 0) || 0
+    const scalarUsed = finiteNumber(p.used_actions_count) ?? 0
     const stale = p.used_actions_count_likely_stale === true
     // Canonical edge is :USED_ACTION (per cloudtrail_silver.py gold
     // output). The backend now reads from that edge type — the
@@ -541,17 +573,17 @@ export function buildAttackerArchitecture(
     // caught in the 2026-05-26 audit. Old live_uses_permission_edge_count
     // is read as a fallback for stale Vercel deploys; new code prefers
     // live_used_action_count.
-    const liveUsed = Number(
-      p.live_used_action_count ??
-        p.live_uses_permission_edge_count ??
-        0,
-    ) || 0
+    const liveUsed =
+      finiteNumber(p.live_used_action_count) ??
+      finiteNumber(p.live_uses_permission_edge_count) ??
+      0
     const usedCount = stale && liveUsed > 0 ? liveUsed : scalarUsed
     // Math invariant: gap = max(0, allowed − used). DO NOT trust the
     // collector's `unused_actions_count` field — at least one writer
     // emits values that don't match. Recompute from the (now honest)
-    // usedCount.
-    const gapCount = Math.max(0, totalCount - usedCount)
+    // usedCount when total is known; otherwise leave gap at 0 (unknown).
+    const gapCount =
+      totalCount != null ? Math.max(0, totalCount - usedCount) : 0
     // 2026-05-26 (Phase 1.7-followup): pipe the live observed-activity
     // evidence through to the role card. Backend now reads :USED_ACTION
     // edges (canonical per cloudtrail_silver.py gold-output schema) and
@@ -611,23 +643,14 @@ export function buildAttackerArchitecture(
       name: display,
       shortName: shortName(display),
       usedCount: 0,
-      totalCount: 0,
+      totalCount: null,
       gapCount: 0,
       connectedSources: [],
       connectedTargets: [],
     })
   }
-  // SG populates totalCount from the graph node's rule counters. Per
-  // 2026-05-22 audit the panel was initializing all SGs with
-  // totalCount=0 which made TFM render "0 rules" even on the
-  // saferemediate-test-app-sg (real rules in Neo4j). Now we pipe:
-  //   - total_rules  (preferred — single canonical scalar set by the
-  //                   security_group_collector)
-  //   - inbound_rule_count + outbound_rule_count (fallback for older
-  //                   collector versions that hadn't materialized
-  //                   total_rules yet)
-  //   - inbound_rules.length + outbound_rules.length (last-resort
-  //                   fallback from the raw rule arrays)
+  // SG populates totalCount from Neo4j rule counters only. Missing
+  // fields → null (UI: "rules not collected"), never invent 0.
   // gapCount uses unused_rules_count when present (rules with no
   // observed traffic match) — that's the "configured-but-unused"
   // signal the operator can act on.
@@ -644,20 +667,12 @@ export function buildAttackerArchitecture(
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     const p = props || {}
-    const inboundCount = Number(p.inbound_rule_count ?? 0) || 0
-    const outboundCount = Number(p.outbound_rule_count ?? 0) || 0
-    const inboundArr = Array.isArray(p.inbound_rules) ? p.inbound_rules.length : 0
-    const outboundArr = Array.isArray(p.outbound_rules) ? p.outbound_rules.length : 0
-    // Fallback chain — prefer scalar total_rules, fall back to summed
-    // count fields, then to array-length fallback. Don't use ??-chains
-    // here: the intermediate sums are always numbers (never nullish),
-    // so the chain collapses to the first non-null and skips the
-    // fallbacks. Plain `||` on zero gives the right effect.
-    let totalCount = Number(p.total_rules ?? 0) || 0
-    if (totalCount === 0) totalCount = inboundCount + outboundCount
-    if (totalCount === 0) totalCount = inboundArr + outboundArr
-    const gapCount = Number(p.unused_rules_count ?? 0) || 0
-    const usedCount = totalCount > 0 ? Math.max(0, totalCount - gapCount) : 0
+    const totalCount = seedRuleTotalFromGraphProps(p)
+    const gapCount = finiteNumber(p.unused_rules_count) ?? 0
+    const usedCount =
+      totalCount != null && totalCount > 0
+        ? Math.max(0, totalCount - gapCount)
+        : 0
     // Surface the collector's authoritative "this SG accepts inbound
     // 0.0.0.0/0" flag. The renderer uses it to badge SGs that are
     // public when rules[] isn't passed (lateral SGs carry counters +
@@ -684,17 +699,9 @@ export function buildAttackerArchitecture(
       ...(onPath === false ? { onPath: false } : onPath === true ? { onPath: true } : {}),
     })
   }
-  // NACL populates totalCount from rule counters on the graph node.
-  // Per 2026-05-22 audit the panel rendered "NACLs (1) · 0 affected"
-  // even when the subnet was associated and the NACL had rules. The
-  // "0 affected" label comes from totalCount=0 (TFM checks blastRadius
-  // from these scalars). Source fields on :NACL nodes:
-  //   - total_rules (preferred)
-  //   - inbound_rule_count + outbound_rule_count (fallback)
-  //   - inbound_rules.length + outbound_rules.length (last-resort)
-  // gapCount uses inbound_deny_count + outbound_deny_count when
-  // present — explicit denies are the high-signal rules an operator
-  // should know about.
+  // NACL populates totalCount from Neo4j rule counters only. Missing
+  // → null (never invent "0 rules" / "0 affected").
+  // gapCount uses inbound_deny_count + outbound_deny_count when present.
   const addAsNACL = (
     id: string,
     name: string | null,
@@ -708,42 +715,22 @@ export function buildAttackerArchitecture(
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     const p = props || {}
-    const inboundCount = Number(p.inbound_rule_count ?? 0) || 0
-    const outboundCount = Number(p.outbound_rule_count ?? 0) || 0
-    // 2026-05-24 data-quirk fix: inbound_rules / outbound_rules come
-    // back from Neo4j as JSON-encoded STRINGS (not arrays) on some
-    // collector versions. Array.isArray() returned false, so the
-    // previous fallback never fired even on NACLs with real rule
-    // data. Parse the string defensively so the last-resort path
-    // doesn't silently no-op. (`total_rules` scalar is preferred
-    // when present, which it is on the current collector — this is
-    // belt-and-suspenders against older/inconsistent writers.)
-    const rulesArrayLength = (val: any): number => {
-      if (Array.isArray(val)) return val.length
-      if (typeof val === "string" && val.length > 0) {
-        try {
-          const parsed = JSON.parse(val)
-          return Array.isArray(parsed) ? parsed.length : 0
-        } catch {
-          return 0
-        }
-      }
-      return 0
-    }
-    const inboundArr = rulesArrayLength(p.inbound_rules)
-    const outboundArr = rulesArrayLength(p.outbound_rules)
-    // Same fallback chain pattern as addAsSG — see comment there.
-    let totalCount = Number(p.total_rules ?? 0) || 0
-    if (totalCount === 0) totalCount = inboundCount + outboundCount
-    if (totalCount === 0) totalCount = inboundArr + outboundArr
-    const denyCount = Number(p.inbound_deny_count ?? 0) + Number(p.outbound_deny_count ?? 0)
-    const gapCount = denyCount || 0
-    const usedCount = totalCount > 0 ? Math.max(0, totalCount - gapCount) : 0
+    const totalCount = seedRuleTotalFromGraphProps(p)
+    const inboundDeny = finiteNumber(p.inbound_deny_count)
+    const outboundDeny = finiteNumber(p.outbound_deny_count)
+    const gapCount =
+      inboundDeny != null || outboundDeny != null
+        ? (inboundDeny ?? 0) + (outboundDeny ?? 0)
+        : 0
+    const usedCount =
+      totalCount != null && totalCount > 0
+        ? Math.max(0, totalCount - gapCount)
+        : 0
     // subnet_count — number of subnets this NACL applies to. Drives
     // the "M subnets" pill on the NACL card so the operator sees the
     // blast surface; the previous "0 affected" label was always 0 on
     // NACLs with only allow rules.
-    const subnetCount = Number(p.subnet_count ?? 0) || 0
+    const subnetCount = finiteNumber(p.subnet_count) ?? 0
     // 2026-05-25 user feedback: surface the NACL's risk flags so the
     // chip can render "Default · No filtering" (AWS default NACL is
     // 0.0.0.0/0 ALLOW ALL on both directions) and "High risk" badges.
@@ -799,7 +786,7 @@ export function buildAttackerArchitecture(
     seenByCanonical.add(canon)
     const display = friendlyName(name, id)
     const p = props || {}
-    const totalCount = Number(p.permission_count ?? 0) || 0
+    const totalCount = finiteNumber(p.permission_count)
     iamPolicies.push({
       id,
       type: "iam_role", // keep existing checkpoint discriminator —

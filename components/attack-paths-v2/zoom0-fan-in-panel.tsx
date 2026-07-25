@@ -148,10 +148,37 @@ export function Zoom0FanInPanel({
               Jewel fan-in
             </p>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              Every initial-access path to{" "}
-              <span className="font-mono text-foreground">{jewel.name}</span>
-              {" "}({paths.length || effective.data?.paths_total || 0}) on the Attack Map.
-              Sorted on the left by Reachable Damage Priority — pick a path to investigate.
+              {(() => {
+                const classes = jewel.class_counts ?? {}
+                const inSystem =
+                  typeof classes.in_system === "number" ? classes.in_system : null
+                const outOfScope =
+                  (typeof classes.platform_access === "number"
+                    ? classes.platform_access
+                    : 0) +
+                  (typeof classes.service_linked === "number"
+                    ? classes.service_linked
+                    : 0) +
+                  (typeof classes.external_pivot === "number"
+                    ? classes.external_pivot
+                    : 0)
+                // Drawn = paths actually returned for the map (Neo4j in-scope).
+                const drawn = paths.length
+                const scopeNote =
+                  outOfScope > 0
+                    ? ` · ${outOfScope} platform/out-of-scope path${outOfScope === 1 ? "" : "s"} not drawn`
+                    : ""
+                return (
+                  <>
+                    Neo4j paths to{" "}
+                    <span className="font-mono text-foreground">{jewel.name}</span>
+                    {" "}({drawn} drawn
+                    {inSystem != null ? ` · ${inSystem} in-system` : ""}
+                    {scopeNote}) on the Attack Map. Sorted on the left by
+                    Reachable Damage Priority — pick a path to investigate.
+                  </>
+                )
+              })()}
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">{lensSubtitle}</p>
             {effective.source === "fallback" ? (
@@ -297,7 +324,17 @@ export function Zoom0FanInPanel({
                       ? "Lateral pivots on fan-in · Laterals bright"
                       : mapLens === "exfiltration"
                         ? "Paths that can reach data egress from this jewel"
-                        : "All paths to this crown jewel · observed vs configured"
+                        : (() => {
+                            const classes = jewel.class_counts ?? {}
+                            const outOfScope =
+                              (classes.platform_access ?? 0) +
+                              (classes.service_linked ?? 0) +
+                              (classes.external_pivot ?? 0)
+                            const drawn = spotlightPaths.length
+                            return outOfScope > 0
+                              ? `${drawn} Neo4j path${drawn === 1 ? "" : "s"} drawn · ${outOfScope} platform/out-of-scope not shown · observed vs configured`
+                              : `${drawn} Neo4j path${drawn === 1 ? "" : "s"} · observed vs configured`
+                          })()
                   }
                   pathBadgeOverride={`${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`}
                   observedMode
