@@ -850,9 +850,8 @@ export function ServiceNodeBox({
   // click drill-down still carry the full story).
   const showDetail = !spineMode || isHighlighted;
 
-  // Crown jewel target — compact button (not a stretched RESOURCES bar).
-  // Amber CJ chip + Crown icon so the kill-chain terminus reads as the
-  // jewel at a glance (fan-in / path spine).
+  // Crown jewel — wide full-bleed RESOURCES button (fan-in attachment size)
+  // with the CJ / Crown mark INSIDE the button, not a tiny side card.
   if (isCrownJewel) {
     return (
       <div
@@ -860,12 +859,12 @@ export function ServiceNodeBox({
         tabIndex={onClick ? 0 : undefined}
         data-testid="crown-jewel-node-button"
         data-crown-jewel="true"
-        className={`relative flex w-[168px] max-w-[168px] flex-col items-center gap-1.5 px-3 pt-5 pb-3 rounded-xl border-2 transition-all duration-200
+        className={`relative flex w-full items-center gap-4 px-5 py-4 rounded-xl border-2 transition-all duration-200
           ${onClick ? "cursor-pointer" : "cursor-default"}
           ${
             isHighlighted
-              ? "bg-amber-500/20 border-amber-400 shadow-md scale-105"
-              : "bg-amber-500/10 border-amber-400/70 hover:border-amber-400 hover:bg-amber-500/15"
+              ? "bg-amber-500/20 border-amber-400 shadow-md"
+              : "bg-card border-amber-400/80 hover:border-amber-400 hover:bg-amber-500/10"
           }`}
         onMouseEnter={() => onHover(node.id)}
         onMouseLeave={() => onHover(null)}
@@ -880,37 +879,37 @@ export function ServiceNodeBox({
         title={`Crown jewel — ${node.name || node.shortName}`}
       >
         <div
-          className="absolute -top-2.5 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300/40"
+          className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-400 text-amber-950 shadow-sm"
           title="Crown jewel — attack-path target"
         >
-          <Crown className="w-3 h-3 shrink-0" aria-hidden />
-          <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
+          <Crown className="w-4 h-4 shrink-0" aria-hidden />
+          <span className="text-xs font-bold uppercase tracking-wider leading-none">
             CJ
           </span>
         </div>
         {resourceServiceType ? (
-          <ServiceTypeBadge type={resourceServiceType} variant="tile" onDark size={28} />
+          <ServiceTypeBadge type={resourceServiceType} variant="tile" onDark size={32} />
         ) : (
-          <div className={`w-10 h-10 rounded-lg ${iconBoxCls} flex items-center justify-center flex-shrink-0`}>
+          <div className={`w-11 h-11 rounded-lg ${iconBoxCls} flex items-center justify-center flex-shrink-0`}>
             <Icon className={`w-5 h-5 ${iconCls}`} />
           </div>
         )}
-        <div className="w-full min-w-0 text-center">
-          <div className="text-sm font-bold text-foreground truncate">
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-bold text-foreground truncate">
             {node.shortName}
           </div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
             Crown Jewel · {config.text}
           </div>
         </div>
         {flowInfo && flowInfo.bytes > 0 && (
-          <div className="absolute -top-2 -right-2 flex items-center gap-1 px-2 py-0.5 bg-emerald-500 rounded-full shadow-lg">
+          <div className="shrink-0 flex items-center gap-1 px-2.5 py-1 bg-emerald-500 rounded-full shadow-lg">
             <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
             <span className="text-[10px] font-bold text-white">{formatBytes(flowInfo.bytes)}</span>
           </div>
         )}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full transition-colors
+          className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full transition-colors
           ${isHighlighted ? "bg-amber-400" : "bg-muted-foreground/50"} border border-border
           ${position === "left" ? "-right-1" : "-left-1"}`}
         />
@@ -4863,15 +4862,15 @@ export function UnifiedArchitectureDiagram({
   // visible nodes. Showing "COMPUTE (40)" next to a single visible
   // EC2 card is misleading. Drop the suffix during spotlight.
   const spotlightActive = (spotlightActiveNodeIds?.size ?? 0) > 0 || pathFilterActive;
-  // Fan-in / path spine: keep the full chain on one horizontal plane and
-  // scale-to-fit so operators see COMPUTE→…→IGW/VPCE→RESOURCE without
-  // scrolling RESOURCES onto a second row. Also when a crown jewel is
-  // on the canvas (jewel fan-in may mark CJ before spotlight ids hydrate).
+  // Fan-in / path spine: scale network lanes to fit. Crown jewels sit on
+  // their own full-width RESOURCES row under the network plane (wide CJ
+  // button) — so we wrap when a CJ is present.
+  const hasCrownJewel = architecture.resources.some((r) => r.isCrownJewel);
   const spineFit =
     spotlightActive ||
     pathFilterActive ||
     jewelEmphasis ||
-    architecture.resources.some((r) => r.isCrownJewel);
+    hasCrownJewel;
 
   useEffect(() => {
     if (!spineFit) {
@@ -5349,13 +5348,12 @@ export function UnifiedArchitectureDiagram({
           // reintroduce as a separate banner UI rather than a
           // template-switch.
           //
-          // Spine / fan-in (2026-07-26): keep RESOURCES on the same row
-          // and scale-to-fit so the full kill chain is visible in one
-          // viewport. System Map keeps the prior wrap + RESOURCES row
-          // break for visual hierarchy on dense estates.
+          // Fan-in: wrap so RESOURCES (CJ wide button) can take its own
+          // full-width row under the network lanes. Scale still applies
+          // so the network hop row fits the viewport.
           ref={lanesRef}
-          className={`relative flex flex-row items-start ${
-            spineFit ? "flex-nowrap gap-3" : "flex-wrap gap-6"
+          className={`relative flex flex-row items-start flex-wrap ${
+            spineFit ? "gap-3" : "gap-6"
           }`}
           style={{
             zIndex: 2,
@@ -6419,15 +6417,11 @@ export function UnifiedArchitectureDiagram({
               not VPC-scoped. The GLOBAL chip makes the semantic explicit
               so the VPC boundary's exclusion of this column reads as
               correct AWS semantics, not a missing-data bug.
-              System Map: basis-full row break below infra.
-              Spine / fan-in: same horizontal row as EGRESS so the
-              polyline stays on one visual plane. */}
+              Fan-in / CJ: always a full-width row under the network
+              lanes so the crown-jewel button matches the wide bar size
+              operators expect (not a tiny side card). */}
           <div
-            className={
-              spineFit
-                ? "flex flex-col gap-3 shrink-0 items-center"
-                : "basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3 items-start"
-            }
+            className="basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3 w-full"
             data-lane-global="true"
             data-lane="resources"
           >
@@ -6464,10 +6458,10 @@ export function UnifiedArchitectureDiagram({
             {resourceLaneGroups.map((group, groupIdx) => (
               <div
                 key={group.label ?? `resources-${groupIdx}`}
-                className="flex flex-col gap-3 items-center"
+                className="flex flex-col gap-3 w-full"
               >
                 {group.label ? (
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {group.label}
                   </div>
                 ) : null}
@@ -6526,8 +6520,8 @@ export function UnifiedArchitectureDiagram({
                     routePrecedence ? (routePrecedence.isPrivate ? "private" : "public") : undefined
                   }
                   data-route-precedence-gateway-id={routePrecedence?.gateway.id}
-                  className={`relative w-auto max-w-[180px] self-center transition-transform duration-200 ${
-                    emphasizeJewel || node.isCrownJewel ? 'scale-[1.05] z-20' : ''
+                  className={`relative w-full transition-transform duration-200 ${
+                    emphasizeJewel || node.isCrownJewel ? 'z-20' : ''
                   }${pathEmphasisClass(node.id, !!node.isCrownJewel)}`}
                   style={
                     emphasizeJewel || node.isCrownJewel

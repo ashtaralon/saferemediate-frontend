@@ -225,11 +225,11 @@ export function S3ObjectAccessExpander({
   const bucketName = data?.bucket_name ?? bucketLabel ?? bucketArn.split(":::").pop()?.split("/")[0] ?? ""
 
   return (
-    <div className="mt-1 w-auto max-w-[168px] mx-auto">
+    <div className="mt-1.5 w-full">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 mx-auto text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
         title="Inspect per-object data access"
       >
         {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
