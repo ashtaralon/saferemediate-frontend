@@ -801,6 +801,7 @@ export function ServiceNodeBox({
   onClick,
   exfilSummary,
   spineMode = false,
+  isCrownJewel = false,
 }: {
   node: ServiceNode;
   position: 'left' | 'right';
@@ -818,6 +819,8 @@ export function ServiceNodeBox({
   // every other consumer (System Map, EXFIL, egress map, identity
   // attack-path viz) renders exactly as before.
   spineMode?: boolean;
+  /** Compact crown-jewel button — amber CJ chip + fixed width (not a full-bleed bar). */
+  isCrownJewel?: boolean;
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
@@ -846,6 +849,74 @@ export function ServiceNodeBox({
   // only while the card is hovered/highlighted (Connection Details +
   // click drill-down still carry the full story).
   const showDetail = !spineMode || isHighlighted;
+
+  // Crown jewel target — compact button (not a stretched RESOURCES bar).
+  // Amber CJ chip + Crown icon so the kill-chain terminus reads as the
+  // jewel at a glance (fan-in / path spine).
+  if (isCrownJewel) {
+    return (
+      <div
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        data-testid="crown-jewel-node-button"
+        data-crown-jewel="true"
+        className={`relative flex w-[168px] max-w-[168px] flex-col items-center gap-1.5 px-3 pt-5 pb-3 rounded-xl border-2 transition-all duration-200
+          ${onClick ? "cursor-pointer" : "cursor-default"}
+          ${
+            isHighlighted
+              ? "bg-amber-500/20 border-amber-400 shadow-md scale-105"
+              : "bg-amber-500/10 border-amber-400/70 hover:border-amber-400 hover:bg-amber-500/15"
+          }`}
+        onMouseEnter={() => onHover(node.id)}
+        onMouseLeave={() => onHover(null)}
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (!onClick) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        title={`Crown jewel — ${node.name || node.shortName}`}
+      >
+        <div
+          className="absolute -top-2.5 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300/40"
+          title="Crown jewel — attack-path target"
+        >
+          <Crown className="w-3 h-3 shrink-0" aria-hidden />
+          <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
+            CJ
+          </span>
+        </div>
+        {resourceServiceType ? (
+          <ServiceTypeBadge type={resourceServiceType} variant="tile" onDark size={28} />
+        ) : (
+          <div className={`w-10 h-10 rounded-lg ${iconBoxCls} flex items-center justify-center flex-shrink-0`}>
+            <Icon className={`w-5 h-5 ${iconCls}`} />
+          </div>
+        )}
+        <div className="w-full min-w-0 text-center">
+          <div className="text-sm font-bold text-foreground truncate">
+            {node.shortName}
+          </div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+            Crown Jewel · {config.text}
+          </div>
+        </div>
+        {flowInfo && flowInfo.bytes > 0 && (
+          <div className="absolute -top-2 -right-2 flex items-center gap-1 px-2 py-0.5 bg-emerald-500 rounded-full shadow-lg">
+            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+            <span className="text-[10px] font-bold text-white">{formatBytes(flowInfo.bytes)}</span>
+          </div>
+        )}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-colors
+          ${isHighlighted ? "bg-emerald-500" : "bg-amber-400/70"} border-2 border-border
+          ${position === "left" ? "-right-1.5" : "-left-1.5"}`}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -4754,8 +4825,13 @@ export function UnifiedArchitectureDiagram({
   const spotlightActive = (spotlightActiveNodeIds?.size ?? 0) > 0 || pathFilterActive;
   // Fan-in / path spine: keep the full chain on one horizontal plane and
   // scale-to-fit so operators see COMPUTE→…→IGW/VPCE→RESOURCE without
-  // scrolling RESOURCES onto a second row.
-  const spineFit = spotlightActive || pathFilterActive;
+  // scrolling RESOURCES onto a second row. Also when a crown jewel is
+  // on the canvas (jewel fan-in may mark CJ before spotlight ids hydrate).
+  const spineFit =
+    spotlightActive ||
+    pathFilterActive ||
+    jewelEmphasis ||
+    architecture.resources.some((r) => r.isCrownJewel);
 
   useEffect(() => {
     if (!spineFit) {
@@ -6309,8 +6385,8 @@ export function UnifiedArchitectureDiagram({
           <div
             className={
               spineFit
-                ? "flex flex-col gap-3 shrink-0"
-                : "basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3"
+                ? "flex flex-col gap-3 shrink-0 items-center"
+                : "basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3 items-start"
             }
             data-lane-global="true"
             data-lane="resources"
@@ -6346,9 +6422,12 @@ export function UnifiedArchitectureDiagram({
                 </div>
               )}
             {resourceLaneGroups.map((group, groupIdx) => (
-              <div key={group.label ?? `resources-${groupIdx}`} className="flex flex-col gap-3">
+              <div
+                key={group.label ?? `resources-${groupIdx}`}
+                className="flex flex-col gap-3 items-center"
+              >
                 {group.label ? (
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center">
                     {group.label}
                   </div>
                 ) : null}
@@ -6402,39 +6481,23 @@ export function UnifiedArchitectureDiagram({
                 <div
                   key={node.id}
                   data-resource-id={node.id}
-                  data-jewel-severity={emphasizeJewel ? jewelSev || "LOW" : undefined}
+                  data-jewel-severity={emphasizeJewel || node.isCrownJewel ? jewelSev || "LOW" : undefined}
                   data-route-precedence-via={
                     routePrecedence ? (routePrecedence.isPrivate ? "private" : "public") : undefined
                   }
                   data-route-precedence-gateway-id={routePrecedence?.gateway.id}
-                  className={`relative transition-transform duration-200 ${
-                    emphasizeJewel ? 'scale-[1.15] z-20' : ''
+                  className={`relative w-auto max-w-[180px] self-center transition-transform duration-200 ${
+                    emphasizeJewel || node.isCrownJewel ? 'scale-[1.05] z-20' : ''
                   }${pathEmphasisClass(node.id, !!node.isCrownJewel)}`}
-                  style={emphasizeJewel ? {
-                    filter: jewelHaloFilter,
-                  } : undefined}
+                  style={
+                    emphasizeJewel || node.isCrownJewel
+                      ? { filter: jewelHaloFilter }
+                      : undefined
+                  }
                 >
                   {renderPathStepBadge(node.id)}
-                  {/* Crown jewel indicator — set by applyPathFilter when this
-                      resource is the path's target. Renders ABOVE the
-                      legacy attack-path target chip when both apply.
-                      Shifts right when a numbered step badge occupies the
-                      top-left corner (pathFilter mode) so the two markers
-                      don't overlap. */}
-                  {node.isCrownJewel && (
-                    <div
-                      className={`absolute -top-2 z-10 ${
-                        pathFilterActive && pathStepById?.has(node.id) ? 'left-4' : '-left-2'
-                      }`}
-                      title="Crown jewel — attack-path target"
-                    >
-                      <div className="w-6 h-6 rounded-full bg-amber-400 flex items-center justify-center shadow-lg ring-2 ring-amber-300/40">
-                        <Crown className="w-3.5 h-3.5 text-amber-900" />
-                      </div>
-                    </div>
-                  )}
                   {/* Attack path target indicator — legacy overlay, gated
-                      off in spine mode (the Crown marker + dominant spine
+                      off in spine mode (the CJ button + dominant spine
                       already mark the target; a second pulsing red badge
                       competes with the single-red-narrative discipline). */}
                   {isInAttackPath && isTarget && !pathFilterActive && (
@@ -6457,6 +6520,7 @@ export function UnifiedArchitectureDiagram({
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'resource')}
                     spineMode={pathFilterActive}
+                    isCrownJewel={!!node.isCrownJewel}
                   />
                   {/* Object-access expander — observed verbs; LP in Resource Risk. */}
                   {(node.type as string) === 'storage' && (() => {
@@ -7684,18 +7748,52 @@ export default function TrafficFlowMap({
   }, [rawArchitecture, pathFilter, architectureOverride, systemCrownJewelIds]);
 
   const architecture = useMemo(() => {
-    if (!baseArchitecture || !spotlightPaths?.length) return baseArchitecture;
-    const enriched = enrichArchitectureForSpotlight(
-      baseArchitecture,
-      spotlightPaths,
-      spotlightPathId ?? null,
-    );
-    return patchSpotlightFlowCheckpoints(
-      enriched,
-      spotlightPaths,
-      spotlightPathId ?? null,
-    );
-  }, [baseArchitecture, spotlightPaths, spotlightPathId]);
+    if (!baseArchitecture) return baseArchitecture;
+    let arch = baseArchitecture;
+    if (spotlightPaths?.length) {
+      const enriched = enrichArchitectureForSpotlight(
+        arch,
+        spotlightPaths,
+        spotlightPathId ?? null,
+      );
+      arch = patchSpotlightFlowCheckpoints(
+        enriched,
+        spotlightPaths,
+        spotlightPathId ?? null,
+      );
+    }
+    // Fan-in / spotlight: mark the selected jewel so the RESOURCES lane
+    // renders the compact CJ button (not a plain stretched S3 card).
+    const jewelKeys = [
+      spotlightJewel?.id,
+      spotlightJewel?.canonical_id,
+    ].filter(Boolean) as string[];
+    if (jewelKeys.length) {
+      const keySet = new Set(jewelKeys);
+      const norm = (id: string) => id.replace(/^arn:aws:s3:::/, "");
+      arch = {
+        ...arch,
+        resources: arch.resources.map((r) => {
+          if (r.isCrownJewel) return r;
+          const ids = [r.id, r.name, norm(r.id), norm(r.name || "")];
+          const hit = ids.some(
+            (id) =>
+              id &&
+              (keySet.has(id) ||
+                jewelKeys.some(
+                  (k) =>
+                    id === k ||
+                    id === norm(k) ||
+                    k.endsWith(id) ||
+                    id.endsWith(norm(k)),
+                )),
+          );
+          return hit ? { ...r, isCrownJewel: true } : r;
+        }),
+      };
+    }
+    return arch;
+  }, [baseArchitecture, spotlightPaths, spotlightPathId, spotlightJewel]);
 
   const pathFilterKey = useMemo(() => {
     if (!pathFilter) return null;
