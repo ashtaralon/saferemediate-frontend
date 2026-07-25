@@ -303,7 +303,11 @@ export function Zoom0FanInPanel({
                 draw that subset on the Attack Map — avoids spaghetti.
               </div>
             ) : (
-              <div className={`h-full ${isExpanded ? "min-h-0" : "min-h-[520px]"}`}>
+              <div
+                className={`h-full overflow-hidden ${
+                  isExpanded ? "min-h-0" : "min-h-[480px]"
+                }`}
+              >
                 <TrafficFlowMap
                   key={`zoom0-tfm-${mapLens}`}
                   systemName={systemName}

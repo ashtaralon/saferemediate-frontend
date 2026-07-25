@@ -4175,14 +4175,16 @@ export function ConnectionLinesSVG({
         // SG never gates Gateway-VPCE traffic, so showing the VPCE in the
         // polyline is how the operator sees why a 0-rule SG still permits
         // S3 access.
+        // Prefer Gateway VPCE over IGW when both exist (AWS LPM) — never
+        // draw Role → VPCE → IGW → S3; that is not the packet path.
         const vpceEl = flow.vpceId ? container.querySelector(`[data-vpce-id="${flow.vpceId}"]`) : null;
         // Egress gateway hop — IGW / NAT / EgressOnlyIGW / TGW. Routed
-        // AFTER the role hop and BEFORE the VPCE/target so the
-        // polyline reads EC2 → SG → NACL → Role → IGW → S3.
-        // Without this, the IGW chip renders as an orphan box even when
-        // the path header reports observed bytes that genuinely flowed
-        // through it (the 2026-05-23 audit's "egress orphan" issue).
-        const igwEl = flow.egressGatewayId ? container.querySelector(`[data-gateway-id="${flow.egressGatewayId}"]`) : null;
+        // AFTER the role hop so the polyline reads
+        // EC2 → SG → NACL → Role → IGW → S3 when there is no VPCE.
+        const igwEl =
+          !vpceEl && flow.egressGatewayId
+            ? container.querySelector(`[data-gateway-id="${flow.egressGatewayId}"]`)
+            : null;
 
         const sourcePos = getNodeCenter(sourceEl, 'right');
         const targetPos = getNodeCenter(targetEl, 'left');
@@ -4630,6 +4632,9 @@ export function UnifiedArchitectureDiagram({
   // renders. No-op outside spine mode (pathFilterActive false).
   const [identityDetailOpen, setIdentityDetailOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const lanesRef = useRef<HTMLDivElement>(null);
+  /** Scale the kill-chain row so COMPUTE→…→RESOURCES fits one viewport. */
+  const [fitScale, setFitScale] = useState(1);
 
   // Get nodes that are part of attack paths for highlighting
   const attackPathNodeIds = useMemo(() => {
@@ -4747,6 +4752,56 @@ export function UnifiedArchitectureDiagram({
   // visible nodes. Showing "COMPUTE (40)" next to a single visible
   // EC2 card is misleading. Drop the suffix during spotlight.
   const spotlightActive = (spotlightActiveNodeIds?.size ?? 0) > 0 || pathFilterActive;
+  // Fan-in / path spine: keep the full chain on one horizontal plane and
+  // scale-to-fit so operators see COMPUTE→…→IGW/VPCE→RESOURCE without
+  // scrolling RESOURCES onto a second row.
+  const spineFit = spotlightActive || pathFilterActive;
+
+  useEffect(() => {
+    if (!spineFit) {
+      setFitScale(1);
+      return;
+    }
+    const wrap = containerRef.current;
+    const lanes = lanesRef.current;
+    if (!wrap || !lanes) return;
+
+    const measure = () => {
+      // Temporarily clear scale so scrollWidth reflects natural layout.
+      const prev = lanes.style.transform;
+      lanes.style.transform = "none";
+      const needW = Math.max(lanes.scrollWidth, 1);
+      const needH = Math.max(lanes.scrollHeight, 1);
+      lanes.style.transform = prev;
+      const availW = Math.max(wrap.clientWidth - 8, 1);
+      const availH = Math.max(wrap.clientHeight || 480, 1);
+      const next = Math.min(1, availW / needW, availH / needH);
+      const clamped = Number.isFinite(next) && next > 0 ? Math.max(0.42, next) : 1;
+      setFitScale((prevScale) =>
+        Math.abs(prevScale - clamped) < 0.01 ? prevScale : clamped,
+      );
+    };
+
+    measure();
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(wrap);
+    ro.observe(lanes);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [
+    spineFit,
+    architecture.computeServices.length,
+    architecture.resources.length,
+    architecture.egressGateways?.length,
+    architecture.vpcEndpoints?.length,
+    architecture.securityGroups.length,
+    architecture.flows.length,
+    identityDetailOpen,
+  ]);
+
   const countLabel = useCallback(
     // Full-estate context (fan-in): lanes show the whole system estate,
     // so the header counts are the real full-estate totals — keep them.
@@ -5108,7 +5163,12 @@ export function UnifiedArchitectureDiagram({
           design (one path, few cards) — the 450px floor left a dead
           band of empty canvas below the lanes. Lower floor in spine
           mode only. */}
-      <div ref={containerRef} className={`relative ${pathFilterActive ? 'min-h-[320px]' : 'min-h-[450px]'}`}>
+      <div
+        ref={containerRef}
+        className={`relative ${
+          pathFilterActive || spineFit ? "min-h-[320px]" : "min-h-[450px]"
+        } ${spineFit ? "overflow-hidden" : ""}`}
+      >
         {/* VPC Boundary boxes */}
         {showVPCBoundaries && architecture.vpcGroups && (
           <VPCBoundaries
@@ -5131,7 +5191,7 @@ export function UnifiedArchitectureDiagram({
           // detailed stack) and shifts every card below it — bump the
           // epoch so line endpoints re-measure instead of waiting for
           // the next hover/scroll/resize.
-          layoutEpoch={identityDetailOpen ? 1 : 0}
+          layoutEpoch={(identityDetailOpen ? 1 : 0) + Math.round(fitScale * 100)}
           showAllConnections={showAllConnections}
         />
 
@@ -5173,15 +5233,20 @@ export function UnifiedArchitectureDiagram({
           // reintroduce as a separate banner UI rather than a
           // template-switch.
           //
-          // 2026-06-25 (visual hierarchy): flex-wrap lets the RESOURCES
-          // lane explicitly take its own row via basis-full (see the
-          // RESOURCES div className). Network architecture on top,
-          // data resources/Crown Jewels visually separated below.
-          // ConnectionLinesSVG re-measures on layout shifts; the line
-          // density toggle already prevents the 3500px-polyline issue
-          // by default.
-          className="relative flex flex-row flex-wrap gap-6 items-start"
-          style={{ zIndex: 2 }}
+          // Spine / fan-in (2026-07-26): keep RESOURCES on the same row
+          // and scale-to-fit so the full kill chain is visible in one
+          // viewport. System Map keeps the prior wrap + RESOURCES row
+          // break for visual hierarchy on dense estates.
+          ref={lanesRef}
+          className={`relative flex flex-row items-start ${
+            spineFit ? "flex-nowrap gap-3" : "flex-wrap gap-6"
+          }`}
+          style={{
+            zIndex: 2,
+            transform: spineFit && fitScale < 1 ? `scale(${fitScale})` : undefined,
+            transformOrigin: "top left",
+            width: spineFit && fitScale < 1 ? `${100 / fitScale}%` : undefined,
+          }}
         >
           {/* ENTRY lane (Phase 2 — 2026-05-25). Leftmost column.
               Surfaces the attacker's entry point — Internet / IGW /
@@ -6238,12 +6303,18 @@ export function UnifiedArchitectureDiagram({
               not VPC-scoped. The GLOBAL chip makes the semantic explicit
               so the VPC boundary's exclusion of this column reads as
               correct AWS semantics, not a missing-data bug.
-              2026-06-25: basis-full forces a row break before RESOURCES
-              so it sits on its own row below the network architecture
-              lanes (operator-readable visual hierarchy: "infra above,
-              data targets below"). border-t + pt-6 + mt-2 add explicit
-              separation. */}
-          <div className="basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3" data-lane-global="true" data-lane="resources">
+              System Map: basis-full row break below infra.
+              Spine / fan-in: same horizontal row as EGRESS so the
+              polyline stays on one visual plane. */}
+          <div
+            className={
+              spineFit
+                ? "flex flex-col gap-3 shrink-0"
+                : "basis-full mt-2 pt-6 border-t border-border/40 flex flex-col gap-3"
+            }
+            data-lane-global="true"
+            data-lane="resources"
+          >
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Resources{countLabel(architecture.resources.length)}
@@ -7204,9 +7275,30 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     const key = flowKey(f.sourceId, f.targetId);
     const existing = flowMap.get(key);
     // Prefer the synthesized flow when it has bytes; otherwise fall back
-    // to the arch flow.
+    // to the arch flow. Always keep graph-backed egress checkpoints
+    // (ROUTES_VIA → IGW/VPCE) even when bytes come from the path edge.
     if (!existing || (existing.bytes === 0 && f.bytes > 0)) {
-      flowMap.set(key, f);
+      flowMap.set(key, existing ? {
+        ...f,
+        subnetId: f.subnetId ?? existing.subnetId,
+        sgId: f.sgId ?? existing.sgId,
+        naclId: f.naclId ?? existing.naclId,
+        instanceProfileId: f.instanceProfileId ?? existing.instanceProfileId,
+        roleId: f.roleId ?? existing.roleId,
+        vpceId: f.vpceId ?? existing.vpceId,
+        egressGatewayId: f.egressGatewayId ?? existing.egressGatewayId,
+      } : f);
+    } else if (existing) {
+      flowMap.set(key, {
+        ...existing,
+        subnetId: existing.subnetId ?? f.subnetId,
+        sgId: existing.sgId ?? f.sgId,
+        naclId: existing.naclId ?? f.naclId,
+        instanceProfileId: existing.instanceProfileId ?? f.instanceProfileId,
+        roleId: existing.roleId ?? f.roleId,
+        vpceId: existing.vpceId ?? f.vpceId,
+        egressGatewayId: existing.egressGatewayId ?? f.egressGatewayId,
+      });
     }
   });
 
@@ -8262,19 +8354,81 @@ export default function TrafficFlowMap({
       return node?.vpc_id || node?.vpcId || null;
     };
 
-    // Disabled per #87a (2026-06-26): this heuristic synthesized VPCE→S3
-    // polylines from `service_name='s3'` matching with zero graph edges
-    // backing them. Result: canvas drew phantom EC2→VPCE→bucket flows that
-    // looked observed but were pure inference. Violates [[feedback_no_frontend_synthesis]] —
-    // every rendered claim must come from the API/graph payload.
-    //
-    // Until the backend emits real `(:Subnet|:EC2)-[:ROUTES_VIA]->(:VPCE)`
-    // + `(:VPCE)-[:ROUTES_TO]->(:S3Bucket)` edges, this returns undefined
-    // so the polyline routes compute→target directly. The VPCE chip stays
-    // visible (it IS a real graph node); we just don't claim a route
-    // through it that isn't there.
-    const pickVPCEForTarget = (_canonicalSrc: string, _targetType: string): string | undefined => {
-      return undefined;
+    // Egress from real (:Subnet)-[:ROUTES_VIA]->(IGW|VPCE) edges in the
+    // dep-map payload (BE emits these explicitly since 2026-07-25).
+    // Prefer S3/Dynamo Gateway VPCE when present for that service;
+    // otherwise IGW/NAT. Never invent a hop without a ROUTES_VIA edge
+    // (#87a — no frontend synthesis).
+    const routesViaBySubnet = new Map<string, string[]>();
+    edges.forEach((e) => {
+      const et = (e.edge_type || e.type || "").toUpperCase();
+      if (et !== "ROUTES_VIA") return;
+      const src = String(e.source || e.from || "");
+      const tgt = String(e.target || e.to || "");
+      if (!src || !tgt) return;
+      const list = routesViaBySubnet.get(src) ?? [];
+      if (!list.includes(tgt)) list.push(tgt);
+      routesViaBySubnet.set(src, list);
+    });
+
+    const pickEgressForCompute = (
+      canonicalSrc: string,
+      targetType: string,
+    ): { vpceId?: string; egressGatewayId?: string } => {
+      const sub = nodeToSubnet.get(canonicalSrc);
+      const via = sub ? routesViaBySubnet.get(sub.subnetId) ?? [] : [];
+      if (!via.length) return {};
+
+      const wantsS3 =
+        targetType === "storage" ||
+        targetType === "dynamodb" ||
+        /s3|dynamo/i.test(targetType);
+      let vpceId: string | undefined;
+      let egressGatewayId: string | undefined;
+
+      for (const gwId of via) {
+        const gwNode = nodeMap.get(gwId);
+        const labels = (gwNode?.node_labels || []) as string[];
+        const typ = String(gwNode?.type || "").toLowerCase();
+        const isVpce =
+          typ === "vpcendpoint" ||
+          labels.includes("VPCEndpoint") ||
+          gwId.startsWith("vpce-");
+        const isIgw =
+          typ.includes("internetgateway") ||
+          typ.includes("natgateway") ||
+          typ.includes("egressonly") ||
+          typ.includes("transitgateway") ||
+          labels.some((l: string) =>
+            /InternetGateway|NATGateway|EgressOnly|TransitGateway/.test(l),
+          ) ||
+          gwId.startsWith("igw-") ||
+          gwId.startsWith("nat-");
+
+        if (isVpce && wantsS3) {
+          const svc = String(gwNode?.service_name || gwNode?.serviceName || "").toLowerCase();
+          const epType = String(
+            gwNode?.vpc_endpoint_type || gwNode?.endpoint_type || "",
+          ).toLowerCase();
+          const serviceMatch =
+            !svc ||
+            svc.includes("s3") ||
+            svc.includes("dynamodb") ||
+            (targetType === "dynamodb" && svc.includes("dynamo"));
+          const gatewayOk = !epType || epType.includes("gateway");
+          if (serviceMatch && gatewayOk) {
+            vpceId = gwId;
+          }
+        } else if (isIgw && !egressGatewayId) {
+          egressGatewayId = gwId;
+        }
+      }
+
+      // S3 Gateway VPCE wins over default IGW when both are on the RT
+      // (AWS LPM — same as materializer suppress_default_igw).
+      if (vpceId) return { vpceId };
+      if (egressGatewayId) return { egressGatewayId };
+      return {};
     };
 
     const trafficEdges = edges.filter(e => {
@@ -8365,13 +8519,16 @@ export default function TrafficFlowMap({
       resourcesWithTraffic.add(targetNode.id);
 
       if (!flowMap.has(flowKey)) {
+        const egress = pickEgressForCompute(canonicalSrc, finalTargetType);
         flowMap.set(flowKey, {
           sourceId: canonicalSrc,
           targetId: targetNode.id,
           sgId: computeToSG.get(canonicalSrc),
           naclId: computeToNACL.get(canonicalSrc),
           roleId: computeToRole.get(canonicalSrc),
-          vpceId: pickVPCEForTarget(canonicalSrc, finalTargetType),
+          subnetId: nodeToSubnet.get(canonicalSrc)?.subnetId,
+          vpceId: egress.vpceId,
+          egressGatewayId: egress.egressGatewayId,
           ports: [],
           protocol: 'TCP',
           bytes: 0,
@@ -8491,11 +8648,14 @@ export default function TrafficFlowMap({
           computeServices.forEach(cs => {
             const flowKey = `${cs.id}->${node.id}`;
             if (!flowMap.has(flowKey)) {
+              const egress = pickEgressForCompute(cs.id, nType);
               flowMap.set(flowKey, {
                 sourceId: cs.id, targetId: node.id,
                 sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
                 roleId: computeToRole.get(cs.id),
-                vpceId: pickVPCEForTarget(cs.id, nType),
+                subnetId: nodeToSubnet.get(cs.id)?.subnetId,
+                vpceId: egress.vpceId,
+                egressGatewayId: egress.egressGatewayId,
                 ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false,
               });
             }
@@ -8541,11 +8701,14 @@ export default function TrafficFlowMap({
         resources.forEach(res => {
           const flowKey = `${cs.id}->${res.id}`;
           if (!flowMap.has(flowKey)) {
+            const egress = pickEgressForCompute(cs.id, res.type);
             flowMap.set(flowKey, {
               sourceId: cs.id, targetId: res.id,
               sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
               roleId: computeToRole.get(cs.id),
-              vpceId: pickVPCEForTarget(cs.id, res.type),
+              subnetId: nodeToSubnet.get(cs.id)?.subnetId,
+              vpceId: egress.vpceId,
+              egressGatewayId: egress.egressGatewayId,
               ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false, isStructural: true,
             });
           }
@@ -8782,6 +8945,23 @@ export default function TrafficFlowMap({
             isActive: false,
           });
         });
+      });
+    }
+
+    // Stamp ROUTES_VIA egress on any compute→resource flow still missing
+    // vpceId/egressGatewayId (path-filter merge / late resource adds).
+    for (const [key, flow] of flowMap) {
+      if (flow.vpceId || flow.egressGatewayId) continue;
+      if (!nodeToSubnet.has(flow.sourceId)) continue;
+      const target = nodeMap.get(flow.targetId);
+      const tType = mapNodeType(String(target?.type || ""));
+      const egress = pickEgressForCompute(flow.sourceId, tType || "storage");
+      if (!egress.vpceId && !egress.egressGatewayId) continue;
+      flowMap.set(key, {
+        ...flow,
+        subnetId: flow.subnetId ?? nodeToSubnet.get(flow.sourceId)?.subnetId,
+        vpceId: egress.vpceId,
+        egressGatewayId: egress.egressGatewayId,
       });
     }
 
