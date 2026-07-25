@@ -69,7 +69,11 @@ export interface SpotlightCheckpoint {
   name: string
   shortName: string
   usedCount: number
-  totalCount: number
+  /**
+   * Neo4j / inspector total only. ``null`` = not collected — never invent 0
+   * (fan-in was hardcoding totalCount: 0 and lying with "0 rules").
+   */
+  totalCount: number | null
   gapCount: number
   connectedSources: string[]
   connectedTargets: string[]
@@ -105,18 +109,41 @@ function seedCheckpoint(
   id: string,
   name: string,
   computeId?: string,
+  /** Optional Neo4j scalars from hop / key_properties when present. */
+  totals?: { totalCount?: number | null },
 ): SpotlightCheckpoint {
+  const totalCount =
+    typeof totals?.totalCount === "number" && Number.isFinite(totals.totalCount)
+      ? totals.totalCount
+      : null
   return {
     id,
     type,
     name,
     shortName: truncate(name, 14),
     usedCount: 0,
-    totalCount: 0,
+    totalCount,
     gapCount: 0,
     connectedSources: computeId ? [computeId] : [],
     connectedTargets: [],
   }
+}
+
+/** Read rule/permission total from a convergence hop if the API stamped it. */
+function hopTotalCount(hop: ConvergenceHop): number | null {
+  const anyHop = hop as ConvergenceHop & {
+    total_rules?: unknown
+    key_properties?: Record<string, unknown> | null
+    properties?: Record<string, unknown> | null
+  }
+  const props = anyHop.key_properties || anyHop.properties || null
+  const raw =
+    (typeof anyHop.total_rules === "number" ? anyHop.total_rules : null) ??
+    (props && typeof props.total_rules === "number" ? props.total_rules : null) ??
+    (props && typeof props.allowed_actions_count === "number"
+      ? props.allowed_actions_count
+      : null)
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null
 }
 
 function mergeCheckpoint(
@@ -126,10 +153,14 @@ function mergeCheckpoint(
   computeId?: string,
 ): void {
   if (seen.has(item.id)) {
-    if (computeId) {
-      const existing = list.find((x) => x.id === item.id)
-      if (existing && !existing.connectedSources.includes(computeId)) {
+    const existing = list.find((x) => x.id === item.id)
+    if (existing) {
+      if (computeId && !existing.connectedSources.includes(computeId)) {
         existing.connectedSources.push(computeId)
+      }
+      // Upgrade unknown → known when a hop carries Neo4j totals.
+      if (existing.totalCount == null && item.totalCount != null) {
+        existing.totalCount = item.totalCount
       }
     }
     return
@@ -179,7 +210,9 @@ function seedFromHop(
     mergeCheckpoint(
       buckets.securityGroups,
       seen.sg,
-      seedCheckpoint("security_group", id, name, workloadId),
+      seedCheckpoint("security_group", id, name, workloadId, {
+        totalCount: hopTotalCount(hop),
+      }),
       workloadId,
     )
     return
@@ -189,7 +222,9 @@ function seedFromHop(
     mergeCheckpoint(
       buckets.iamRoles,
       seen.role,
-      seedCheckpoint("iam_role", id, name, workloadId),
+      seedCheckpoint("iam_role", id, name, workloadId, {
+        totalCount: hopTotalCount(hop),
+      }),
       workloadId,
     )
     return
@@ -209,7 +244,9 @@ function seedFromHop(
     mergeCheckpoint(
       buckets.nacls,
       seen.nacl,
-      seedCheckpoint("nacl", id, name, workloadId),
+      seedCheckpoint("nacl", id, name, workloadId, {
+        totalCount: hopTotalCount(hop),
+      }),
       workloadId,
     )
   }

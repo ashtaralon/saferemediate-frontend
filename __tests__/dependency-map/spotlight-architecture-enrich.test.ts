@@ -96,9 +96,31 @@ describe("enrichArchitectureForSpotlight", () => {
     )
     expect(enriched.securityGroups.map((s) => s.id)).toEqual(["sg-0f3c9dfda7d4c3614"])
     expect(enriched.securityGroups[0].name).toBe("cyntrotest-sg")
+    // Hop stubs without Neo4j totals must stay null — never invent "0 rules".
+    expect(enriched.securityGroups[0].totalCount).toBeNull()
     expect(enriched.iamRoles.map((r) => r.id)).toContain(
       "arn:aws:iam::745783559495:role/cyntrotest-ec2-role",
     )
+  })
+
+  it("seeds NACL totalCount from hop key_properties when present", () => {
+    const naclHop = {
+      node_id: "acl-071aecb1e96778858",
+      node_type: "NACL",
+      name: "acl-071aecb1e96778858",
+      plane: "network" as const,
+      security_groups: [] as string[],
+      is_crown_jewel: false,
+      key_properties: { total_rules: 2 },
+    }
+    const pathWithNacl: ConvergencePath = {
+      ...cyntrotestPath,
+      path_id: "with-nacl",
+      hops: [naclHop as ConvergencePath["hops"][number]],
+    }
+    const enriched = enrichArchitectureForSpotlight(emptyArch, [pathWithNacl], null)
+    expect(enriched.nacls?.[0]?.id).toBe("acl-071aecb1e96778858")
+    expect(enriched.nacls?.[0]?.totalCount).toBe(2)
   })
 
   it("drill mode only enriches from selected path", () => {
