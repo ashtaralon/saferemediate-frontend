@@ -49,7 +49,7 @@ const PRIMARY_TABS: ModeTabDef[] = [
     key: "convergence",
     label: "Convergence",
     title:
-      "Every path to this crown jewel, fanned over real AWS subnet and security-group placement — observed vs configured paths ranked together.",
+      "In-system Neo4j paths to this crown jewel on real VPC placement — observed vs configured. Platform/out-of-scope paths are counted separately, not drawn as “all paths”.",
   },
   {
     key: "exposure",

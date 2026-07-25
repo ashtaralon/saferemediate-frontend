@@ -332,7 +332,7 @@ export function PathAnalysisPanel({
           Attack map
         </p>
         <p className="text-[11px] text-muted-foreground mt-0.5">
-          All paths to this crown jewel, placed on the live VPC topology.
+          In-system Neo4j paths to this crown jewel on live VPC topology.
           Observed (CloudTrail) vs configured. Legacy map:{" "}
           <span className="font-mono">?map=legacy</span>
         </p>

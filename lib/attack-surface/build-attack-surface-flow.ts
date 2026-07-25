@@ -73,6 +73,7 @@ function onPath(id: string, arch: SystemArchitecture, path: IdentityAttackPath):
 }
 
 function metricForCheckpoint(cp: SecurityCheckpoint): string | undefined {
+  if (cp.totalCount == null) return undefined
   const unused = cp.gapCount ?? Math.max(0, cp.totalCount - cp.usedCount)
   if (cp.type === "iam_role" && unused > 0) return `${unused} Unused Permissions`
   if (cp.type === "security_group" && cp.totalCount > 0) {

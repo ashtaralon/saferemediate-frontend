@@ -84,7 +84,12 @@ export interface SecurityCheckpoint {
   name: string;
   shortName: string;
   usedCount: number;
-  totalCount: number;
+  /**
+   * Rule / permission total from Neo4j (or LP inspector).
+   * ``null`` = not collected / unknown — UI must NOT render "0 rules"
+   * (that lied when builders hardcoded ``totalCount: 0``).
+   */
+  totalCount: number | null;
   gapCount: number;
   connectedSources: string[];
   connectedTargets: string[];
@@ -635,6 +640,32 @@ function formatRelativeTime(iso: string | null | undefined): string {
   }
 }
 
+/**
+ * Rule / entry counts from Neo4j node props only.
+ * Never invent 0 — missing collector fields return null so the chip
+ * can say "not collected" instead of lying with "0 rules".
+ */
+function seedRuleCountFromGraphNode(node: {
+  total_rules?: unknown
+  inbound_rule_count?: unknown
+  outbound_rule_count?: unknown
+} | null | undefined): number | null {
+  if (!node) return null
+  if (typeof node.total_rules === "number" && Number.isFinite(node.total_rules)) {
+    return node.total_rules
+  }
+  const inbound =
+    typeof node.inbound_rule_count === "number" && Number.isFinite(node.inbound_rule_count)
+      ? node.inbound_rule_count
+      : null
+  const outbound =
+    typeof node.outbound_rule_count === "number" && Number.isFinite(node.outbound_rule_count)
+      ? node.outbound_rule_count
+      : null
+  if (inbound == null && outbound == null) return null
+  return (inbound ?? 0) + (outbound ?? 0)
+}
+
 function shortName(name: string, maxLen = 18): string {
   // 2026-05-30 — removed customer/demo prefix replacements
   // (SafeRemediate-Test-, cyntro-demo-, hardcoded account 745783559495,
@@ -1098,9 +1129,18 @@ export function SecurityGroupPanel({
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-foreground truncate">{sg.shortName}</div>
           <div className="flex items-center gap-2 text-[10px] flex-wrap">
-            <span className="text-muted-foreground">
-              {sg.totalCount} rules
-            </span>
+            {sg.totalCount != null ? (
+              <span className="text-muted-foreground">
+                {sg.totalCount} rules
+              </span>
+            ) : (
+              <span
+                className="text-muted-foreground"
+                title="Rule count not present on the SecurityGroup node in Neo4j"
+              >
+                rules not collected
+              </span>
+            )}
             {showDetail && inboundRules.length > 0 && (
               <span className="text-blue-600 dark:text-blue-400">↓{inboundRules.length} in</span>
             )}
@@ -1305,14 +1345,21 @@ export function NACLNode({
           Network ACL
         </div>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
-          {/* Rule count — the actionable signal for an attacker view.
-              Replaces the old "{blastRadius} affected" label which was
-              always 0 on NACLs with only allow rules (no denies =
-              gapCount 0). N rules tells the operator what's enforceable
-              here. */}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 && !spineMode ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
-            {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
-          </span>
+          {/* Rule count — Neo4j total_rules / inbound+outbound only.
+              Never invent "0 rules" when the collector hasn't written
+              counts (hardcoded 0 was a credibility bug on fan-in). */}
+          {nacl.totalCount != null ? (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 && !spineMode ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
+              {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
+            </span>
+          ) : (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+              title="Rule count not present on the NetworkAcl node in Neo4j — collector gap, not an empty NACL"
+            >
+              rules not collected
+            </span>
+          )}
           {/* Deny count — only when there ARE denies. Coloured amber
               because explicit denies are what catch unintended egress. */}
           {nacl.gapCount > 0 && (
@@ -1731,8 +1778,8 @@ export function IAMRoleNode({
   spineMode?: boolean;
 }) {
   const hasGap = role.gapCount > 0;
-  const hasData = role.totalCount > 0;
-  const usagePercent = hasData ? Math.round((role.usedCount / role.totalCount) * 100) : 0;
+  const hasData = role.totalCount != null && role.totalCount > 0;
+  const usagePercent = hasData ? Math.round((role.usedCount / (role.totalCount as number)) * 100) : 0;
   const blastRadius = role.connectedTargets?.length || role.connectedSources?.length || 0;
   // Detect InstanceProfile by id/arn pattern — System Map buckets IP into
   // iam_role (single column), but operators can't distinguish IP from Role
@@ -1977,9 +2024,9 @@ function IdentityRiskToken({
   onClick?: () => void;
   onShowDetail: () => void;
 }) {
-  const hasData = role.totalCount > 0;
+  const hasData = role.totalCount != null && role.totalCount > 0;
   const unused = role.gapCount;
-  const usagePercent = hasData ? Math.round((role.usedCount / role.totalCount) * 100) : 0;
+  const usagePercent = hasData ? Math.round((role.usedCount / (role.totalCount as number)) * 100) : 0;
   return (
     <div
       data-identity-token="true"
@@ -6976,7 +7023,18 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       if (archMatch && archMatch.onPath !== false) {
         securityGroups.push(archMatch);
       } else if (!archMatch) {
-        securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+        // Unknown counts — null, never invent "0 rules".
+        securityGroups.push({
+          id: pn.id,
+          type: 'security_group',
+          name: pn.name,
+          shortName: sname,
+          usedCount: 0,
+          totalCount: seedRuleCountFromGraphNode(pn as { total_rules?: unknown }),
+          gapCount: 0,
+          connectedSources: [],
+          connectedTargets: [],
+        });
       }
     } else if (bucket === 'nacl') {
       // Same strict path-only gate for NACLs.
@@ -6986,7 +7044,17 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       if (archMatch && archMatch.onPath !== false) {
         nacls.push(archMatch);
       } else if (!archMatch) {
-        nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+        nacls.push({
+          id: pn.id,
+          type: 'nacl',
+          name: pn.name,
+          shortName: sname,
+          usedCount: 0,
+          totalCount: seedRuleCountFromGraphNode(pn as { total_rules?: unknown }),
+          gapCount: 0,
+          connectedSources: [],
+          connectedTargets: [],
+        });
       }
     } else if (bucket === 'iam_role') {
       const archMatch = arch.iamRoles.find(
@@ -6995,7 +7063,17 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       if (archMatch) {
         iamRoles.push(archMatch);
       } else {
-        iamRoles.push({ id: pn.id, type: 'iam_role', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+        iamRoles.push({
+          id: pn.id,
+          type: 'iam_role',
+          name: pn.name,
+          shortName: sname,
+          usedCount: 0,
+          totalCount: null,
+          gapCount: 0,
+          connectedSources: [],
+          connectedTargets: [],
+        });
       }
     }
     // 'network' / 'unknown' — skip (no System Map bucket)
@@ -8508,27 +8586,10 @@ export default function TrafficFlowMap({
         }
       });
 
-      // Rules will be populated by fetchSGRules() — no mock data. But
-      // seed totalCount from whatever rule-count signal the dep-map
-      // node carries, so the chip doesn't read "0 rules" between
-      // build-time and the async inspector fetch completing.
-      // Precedence: total_rules → (inbound+outbound) → gap_count.
-      // Last fallback is `gap_count`, which is technically "rules with
-      // gaps" but on every real SG it correlates with "has rules" and
-      // gives the operator a non-zero floor. The fetchSGRules
-      // completion later replaces this with the accurate rule list +
-      // breakdown.
-      //
-      // This fixes the path screenshot from 2026-05-21 where the
-      // 'default' SG (3 actual rules, including 0.0.0.0/0:0-65535)
-      // rendered as "default · 0 rules" — a credibility bug that
-      // contradicted the closure footer's "review ingress rules"
-      // recommendation.
-      const seedTotalCount =
-        (typeof sgNode.total_rules === 'number' && sgNode.total_rules) ||
-        ((sgNode.inbound_rule_count || 0) + (sgNode.outbound_rule_count || 0)) ||
-        (typeof sgNode.gap_count === 'number' && sgNode.gap_count) ||
-        0;
+      // Rules from Neo4j node props only — never invent 0.
+      // Precedence: total_rules → inbound+outbound. No gap_count fallback
+      // (that is "rules with gaps", not rule count).
+      const seedTotalCount = seedRuleCountFromGraphNode(sgNode);
       securityGroups.push({
         id: sgId,
         type: 'security_group',
@@ -8562,17 +8623,33 @@ export default function TrafficFlowMap({
         .filter(f => f.naclId === naclId)
         .map(f => f.sourceId);
 
+      // Seed from Neo4j — never hardcode totalCount: 0 (fan-in credibility bug).
+      const naclRuleCount = seedRuleCountFromGraphNode(naclNode);
+      const naclDenyCount =
+        typeof naclNode.inbound_deny_count === 'number' ||
+        typeof naclNode.outbound_deny_count === 'number'
+          ? (Number(naclNode.inbound_deny_count) || 0) +
+            (Number(naclNode.outbound_deny_count) || 0)
+          : typeof naclNode.high_risk_rule_count === 'number'
+            ? naclNode.high_risk_rule_count
+            : 0;
+
       nacls.push({
         id: naclId,
         type: 'nacl',
         name: naclNode.name || naclId,
         shortName: shortName(naclNode.name || naclId, 14),
         usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
+        totalCount: naclRuleCount,
+        gapCount: naclDenyCount,
         connectedSources,
         connectedTargets: [],
         vpcId: naclNode.vpc_id,
+        isDefault: naclNode.is_default === true,
+        hasHighRisk: naclNode.has_high_risk === true,
+        hasPublicInboundAllow: naclNode.has_public_inbound_allow === true,
+        subnetCount:
+          typeof naclNode.subnet_count === 'number' ? naclNode.subnet_count : undefined,
       });
     });
 
@@ -8604,7 +8681,7 @@ export default function TrafficFlowMap({
         name: roleNode?.name || roleId,
         shortName: shortName(roleNode?.name || roleId, 14),
         usedCount: iamInfo?.used_permissions ?? 0,
-        totalCount: iamInfo?.allowed_permissions ?? 0,
+        totalCount: iamInfo?.allowed_permissions ?? null,
         gapCount: iamInfo?.unused_permissions ?? 0,
         connectedSources,
         connectedTargets: [],
@@ -8890,7 +8967,7 @@ export default function TrafficFlowMap({
         name: n.name || n.id,
         shortName: shortName(n.name || n.id, 14),
         usedCount: 0,
-        totalCount: 0,
+        totalCount: null,
         gapCount: 0,
         connectedSources: [],
         connectedTargets: [],
@@ -8990,7 +9067,7 @@ export default function TrafficFlowMap({
         name: n.name || n.id,
         shortName: shortName(n.name || n.id, 16),
         usedCount: 0,
-        totalCount: 0,
+        totalCount: null,
         gapCount: 0,
         connectedSources: Array.from(attachedRoles),
         connectedTargets: [],
@@ -9068,29 +9145,33 @@ export default function TrafficFlowMap({
   // Fetch IAM role gap analysis data
   const fetchIAMRoleData = useCallback(async (roleName: string): Promise<{
     usedCount: number;
-    totalCount: number;
+    totalCount: number | null;
     gapCount: number;
     lpScore: number;
-  }> => {
+  } | null> => {
     try {
       const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`);
       if (!res.ok) {
         console.warn(`[IAM] Failed to fetch gap analysis for ${roleName}: ${res.status}`);
-        return { usedCount: 0, totalCount: 0, gapCount: 0, lpScore: 0 };
+        return null;
       }
 
       const data = await res.json();
       const summary = data.summary || {};
+      const totalRaw =
+        summary.total_permissions ?? summary.allowed_count ?? data.allowed_count;
+      const totalCount =
+        typeof totalRaw === "number" && Number.isFinite(totalRaw) ? totalRaw : null;
 
       return {
         usedCount: summary.used_count || data.used_count || 0,
-        totalCount: summary.allowed_count || data.allowed_count || 0,
+        totalCount,
         gapCount: summary.unused_count || data.unused_count || 0,
         lpScore: summary.lp_score || 0,
       };
     } catch (err) {
       console.error(`[IAM] Error fetching gap analysis for ${roleName}:`, err);
-      return { usedCount: 0, totalCount: 0, gapCount: 0, lpScore: 0 };
+      return null;
     }
   }, []);
 
@@ -9245,10 +9326,14 @@ export default function TrafficFlowMap({
             const data = merged[role.name];
             if (!data) return null;
             const summary = data.summary || {};
+            const totalRaw =
+              summary.total_permissions ?? summary.allowed_count ?? data.allowed_count;
+            const totalCount =
+              typeof totalRaw === "number" && Number.isFinite(totalRaw) ? totalRaw : null;
             return {
               roleId: role.id,
               usedCount: summary.used_count || data.used_count || 0,
-              totalCount: summary.total_permissions || summary.allowed_count || data.allowed_count || 0,
+              totalCount,
               gapCount: summary.unused_count || data.unused_count || 0,
               lpScore: summary.lp_score || 0,
             };
@@ -9283,10 +9368,14 @@ export default function TrafficFlowMap({
             const data = merged[role.name];
             if (!data) return null;
             const summary = data.summary || {};
+            const totalRaw =
+              summary.total_permissions ?? summary.allowed_count ?? data.allowed_count;
+            const totalCount =
+              typeof totalRaw === "number" && Number.isFinite(totalRaw) ? totalRaw : null;
             return {
               roleId: role.id,
               usedCount: summary.used_count || data.used_count || 0,
-              totalCount: summary.total_permissions || summary.allowed_count || data.allowed_count || 0,
+              totalCount,
               gapCount: summary.unused_count || data.unused_count || 0,
               lpScore: summary.lp_score || 0,
             };
@@ -9307,7 +9396,8 @@ export default function TrafficFlowMap({
           const role = archForGaps.iamRoles.find(r => r.id === roleId);
           if (role) {
             role.usedCount = usedCount;
-            role.totalCount = totalCount;
+            // Keep Neo4j/LP seed when batch omitted the total — never invent 0.
+            if (totalCount != null) role.totalCount = totalCount;
             role.gapCount = gapCount;
           }
         });
@@ -9388,15 +9478,9 @@ export default function TrafficFlowMap({
           const sg = archForGaps.securityGroups.find(s => s.id === sgId);
           if (sg) {
             sg.rules = rules;
-            // Only overwrite totalCount when the inspector returned a
-            // non-zero count. Otherwise keep the build-time seed
-            // (gap_count fallback from buildArchitecture) so the chip
-            // doesn't drop back to "0 rules" when the inspector returns
-            // empty (cold, no policy parsed yet, or the endpoint
-            // omits config-only rules). The 2026-05-21 demo bug:
-            // alon-prod default SG has 3 real rules but inspector
-            // returned empty array → chip read "0 rules" while the
-            // closure footer said "review ingress rules."
+            // Only overwrite totalCount when the inspector returned rules.
+            // Empty inspector must not invent "0 rules" over the Neo4j seed
+            // (total_rules / inbound+outbound on the SecurityGroup node).
             if (rules.length > 0) {
               sg.totalCount = rules.length;
             }
