@@ -225,7 +225,7 @@ export function S3ObjectAccessExpander({
   const bucketName = data?.bucket_name ?? bucketLabel ?? bucketArn.split(":::").pop()?.split("/")[0] ?? ""
 
   return (
-    <div className="mt-1 w-full">
+    <div className="mt-1 w-auto max-w-[168px] mx-auto">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

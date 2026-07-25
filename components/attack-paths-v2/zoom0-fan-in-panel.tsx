@@ -343,6 +343,7 @@ export function Zoom0FanInPanel({
                   pathBadgeOverride={`${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`}
                   observedMode
                   canvasV2
+                  jewelEmphasis
                   defaultShowLaterals={mapLens === "lateral"}
                 />
               </div>
