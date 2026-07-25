@@ -6,7 +6,13 @@ export interface SpotlightJewelRef {
 }
 
 export interface SpotlightArchitectureSlice {
-  computeServices: Array<{ id: string; name?: string; instanceId?: string }>
+  computeServices: Array<{
+    id: string
+    name?: string
+    instanceId?: string
+    /** VPC from dep-map node — used when subnet.vpcId is missing. */
+    vpcId?: string | null
+  }>
   securityGroups: Array<{
     id: string
     name?: string
@@ -33,7 +39,12 @@ export interface SpotlightArchitectureSlice {
   /** IGW / NAT / etc. from dep-map. Included when in a path compute's VPC. */
   egressGateways?: Array<{ id: string; vpcId?: string | null }>
   /** NACLs attached to path compute (connectedSources) or path subnet. */
-  nacls?: Array<{ id: string; connectedSources?: string[] }>
+  nacls?: Array<{
+    id: string
+    connectedSources?: string[]
+    vpcId?: string | null
+    totalCount?: number | null
+  }>
 }
 
 function extractInstanceId(id: string | null | undefined): string {
@@ -164,6 +175,11 @@ function addNetworkPlacementForCompute(
   if (!architecture) return
   const pathVpcs = new Set<string>()
 
+  const compute = architecture.computeServices.find(
+    (c) => computeMatches(computeId, c.id) || computeMatches(computeId, c.instanceId || ""),
+  )
+  if (compute?.vpcId) pathVpcs.add(compute.vpcId)
+
   for (const sub of architecture.subnets ?? []) {
     const attached = (sub.connectedComputeIds ?? []).some((cid) =>
       computeMatches(computeId, cid),
@@ -177,7 +193,9 @@ function addNetworkPlacementForCompute(
     const attached = (nacl.connectedSources ?? []).some((cid) =>
       computeMatches(computeId, cid),
     )
-    if (attached) out.add(nacl.id)
+    if (attached || (nacl.vpcId && pathVpcs.has(nacl.vpcId))) {
+      out.add(nacl.id)
+    }
   }
 
   for (const gw of architecture.egressGateways ?? []) {

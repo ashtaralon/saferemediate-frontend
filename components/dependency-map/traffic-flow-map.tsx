@@ -44,6 +44,8 @@ export interface ServiceNode {
   shortName: string;
   type: NodeType;
   instanceId?: string;
+  /** VPC id from dep-map — used by spotlight to match same-VPC IGW/NACL. */
+  vpcId?: string;
   isCrownJewel?: boolean;
   /** Attached ENIs (NetworkInterfaces) for EC2 / workload nodes.
    *  Rendered as compact chips on the workload card so the SG-ENI-EC2
@@ -7668,6 +7670,8 @@ export default function TrafficFlowMap({
               nacls: (architecture.nacls ?? []).map((n) => ({
                 id: n.id,
                 connectedSources: n.connectedSources,
+                vpcId: n.vpcId,
+                totalCount: n.totalCount,
               })),
             }
           : null,
@@ -8419,12 +8423,19 @@ export default function TrafficFlowMap({
       if (seenCompute.has(canonicalId) || !node) return;
       seenCompute.add(canonicalId);
       const computeName = (node.name && node.name !== 'Unknown') ? node.name : node.id || canonicalId;
+      const vpcId =
+        node.vpc_id ||
+        node.vpcId ||
+        nodeToVPC.get(canonicalId) ||
+        nodeToVPC.get(node.id) ||
+        undefined;
       computeServices.push({
         id: canonicalId,
         name: computeName,
         shortName: shortName(computeName),
         type: mapNodeType(node.type || 'compute'),
         instanceId: canonicalId.substring(0, 12),
+        ...(vpcId ? { vpcId: String(vpcId) } : {}),
       });
     };
     // Traffic-derived first (preserves any ordering tied to traffic).
@@ -8558,12 +8569,17 @@ export default function TrafficFlowMap({
       const connectedComputeIds = computeServices
         .filter(c => nodeToSubnet.get(c.id)?.subnetId === sub.subnetId)
         .map(c => c.id);
+      // Prefer subnet.vpc_id; fall back to any attached compute's VPC
+      // (dep-map historically omitted Subnet.vpc_id even when Neo4j had it).
+      const vpcFromCompute = connectedComputeIds
+        .map((cid) => nodeToVPC.get(cid) || nodeByInstanceId.get(cid)?.vpc_id)
+        .find(Boolean);
       subnets.push({
         id: sub.subnetId,
         name: subnetName,
         shortName: shortName(subnetName, 18),
         isPublic: sub.isPublic,
-        vpcId: subnetNode?.vpc_id,
+        vpcId: subnetNode?.vpc_id || subnetNode?.vpcId || vpcFromCompute || undefined,
         connectedComputeIds,
       });
     });
@@ -8620,8 +8636,25 @@ export default function TrafficFlowMap({
 
     // Build NACLs. Same dual-source pattern as SGs above: flowMap-driven
     // (traffic-traversed) PLUS naclNodeMap (attached via USES_NACL/HAS_NACL/
-    // PROTECTED_BY_NACL). Operator wants to see ALL NACLs gating the path
-    // workloads, not just the ones a BFS edge happened to cross.
+    // PROTECTED_BY_NACL / ASSOCIATED_WITH). Also include NACL nodes that
+    // share a path compute's VPC — dep-map may ship the NACL node with
+    // total_rules but drop ASSOCIATED_WITH under STEP 6 edge LIMIT.
+    const pathComputeVpcs = new Set<string>();
+    computeServices.forEach((cs) => {
+      if (cs.vpcId) pathComputeVpcs.add(cs.vpcId);
+      const v = resolveComputeVPC(cs.id);
+      if (v) pathComputeVpcs.add(v);
+    });
+    nodes.forEach((n) => {
+      const t = (n.type || "").toLowerCase();
+      if (t !== "nacl" && t !== "networkacl" && !(n.node_labels || []).includes("NACL")) {
+        return;
+      }
+      const vpc = n.vpc_id || n.vpcId;
+      if (vpc && pathComputeVpcs.has(String(vpc)) && !naclNodeMap.has(n.id)) {
+        naclNodeMap.set(n.id, n);
+      }
+    });
     const usedNACLIds = new Set<string>([
       ...Array.from(flowMap.values()).map(f => f.naclId).filter(Boolean) as string[],
       ...Array.from(naclNodeMap.keys()),
@@ -8629,12 +8662,28 @@ export default function TrafficFlowMap({
     const nacls: SecurityCheckpoint[] = [];
     usedNACLIds.forEach(naclId => {
       if (!naclId) return;
-      const naclNode = naclNodeMap.get(naclId);
+      const naclNode = naclNodeMap.get(naclId) || nodeMap.get(naclId);
       if (!naclNode) return;
 
+      // Prefer flow-stamped sources; also attach computes whose subnet
+      // is ASSOCIATED_WITH this NACL (or share the NACL's VPC when that
+      // is the only signal — default NACLs cover the VPC).
       const connectedSources = Array.from(flowMap.values())
         .filter(f => f.naclId === naclId)
         .map(f => f.sourceId);
+      const naclVpc = naclNode.vpc_id || naclNode.vpcId;
+      computeServices.forEach((cs) => {
+        const sub = nodeToSubnet.get(cs.id);
+        if (sub && subnetToNACL.get(sub.subnetId) === naclId) {
+          if (!connectedSources.includes(cs.id)) connectedSources.push(cs.id);
+        } else if (
+          naclVpc &&
+          (cs.vpcId === naclVpc || resolveComputeVPC(cs.id) === naclVpc) &&
+          !connectedSources.includes(cs.id)
+        ) {
+          connectedSources.push(cs.id);
+        }
+      });
 
       // Seed from Neo4j — never hardcode totalCount: 0 (fan-in credibility bug).
       const naclRuleCount = seedRuleCountFromGraphNode(naclNode);
