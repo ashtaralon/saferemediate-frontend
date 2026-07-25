@@ -57,12 +57,18 @@ export function checkpointIdsFromHops(hops: ConvergenceHop[]): {
     ) {
       out.roleId = id
     }
-    if (nt.includes("vpcendpoint") || nt === "vpce") out.vpceId = id
+    if (nt.includes("vpcendpoint") || nt === "vpce" || id.startsWith("vpce-")) {
+      out.vpceId = id
+    }
     if (
       nt.includes("internetgateway") ||
       nt.includes("natgateway") ||
       nt.includes("egressonly") ||
-      nt.includes("transitgateway")
+      nt.includes("transitgateway") ||
+      id.startsWith("igw-") ||
+      id.startsWith("nat-") ||
+      id.startsWith("eigw-") ||
+      id.startsWith("tgw-")
     ) {
       out.egressGatewayId = id
     }
