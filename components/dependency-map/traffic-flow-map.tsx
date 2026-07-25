@@ -910,9 +910,9 @@ export function ServiceNodeBox({
           </div>
         )}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-colors
-          ${isHighlighted ? "bg-emerald-500" : "bg-amber-400/70"} border-2 border-border
-          ${position === "left" ? "-right-1.5" : "-left-1.5"}`}
+          className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full transition-colors
+          ${isHighlighted ? "bg-amber-400" : "bg-muted-foreground/50"} border border-border
+          ${position === "left" ? "-right-1" : "-left-1"}`}
         />
       </div>
     );
@@ -1010,10 +1010,10 @@ export function ServiceNodeBox({
         );
       })()}
 
-      {/* Connection point */}
-      <div className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-colors
-        ${isHighlighted ? 'bg-emerald-500' : 'bg-muted-foreground/40'} border-2 border-border
-        ${position === 'left' ? '-right-1.5' : '-left-1.5'}`} />
+      {/* Connection point — kept small so line endpoints don't bloom. */}
+      <div className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full transition-colors
+        ${isHighlighted ? 'bg-emerald-500/80' : 'bg-muted-foreground/40'} border border-border
+        ${position === 'left' ? '-right-1' : '-left-1'}`} />
     </div>
   );
 }
@@ -3208,9 +3208,7 @@ function AnimatedTrafficLine({
                    trafficIntensity === 'high' ? baseDuration * 0.7 :
                    trafficIntensity === 'low' ? baseDuration * 1.3 : baseDuration;
 
-  // More particles for attack paths and higher traffic
-  const particleCount = isAttackPath ? 6 : trafficIntensity === 'high' ? 5 : trafficIntensity === 'medium' ? 3 : 2;
-  const particleOffsets = Array.from({ length: particleCount }, (_, i) => i / particleCount);
+  // particleCount / quietParticles computed after spineDominant below.
 
   // Heatmap color calculation - RISK-BASED (not traffic volume)
   // Risk gradient: green (safe) → yellow (warning) → orange (high) → red (critical)
@@ -3345,6 +3343,20 @@ function AnimatedTrafficLine({
     : spineDominant
       ? 'var(--canvas-danger)'
       : undefined;
+  // Fan-in / multi-hop maps: many segments share hop anchors. Large
+  // white particle cores stack into "lens flare" blobs (2026-07-26).
+  // Quiet whenever we're not on the legacy attack-path pulse treatment.
+  const quietParticles = !legacyAttack;
+  const particleCount = quietParticles
+    ? Math.min(2, isAttackPath ? 6 : trafficIntensity === 'high' ? 5 : trafficIntensity === 'medium' ? 3 : 2)
+    : isAttackPath
+      ? 6
+      : trafficIntensity === 'high'
+        ? 5
+        : trafficIntensity === 'medium'
+          ? 3
+          : 2;
+  const particleOffsets = Array.from({ length: particleCount }, (_, i) => i / particleCount);
 
   // Ghosted (outside spotlight / heatmap radius). 2026-06-23: changed
   // from opacity={0.08} (faintly visible) to NULL — when the spotlight
@@ -3748,11 +3760,25 @@ function AnimatedTrafficLine({
             stroke="transparent"
           />
 
-          {/* Main particles - larger and more prominent for attack paths */}
+          {/* Main particles - larger and more prominent for attack paths.
+              Spine/fan-in: no white core + smaller glow so hop junctions
+              stay readable instead of blooming into white blobs. */}
           {particleOffsets.map((offset, i) => (
             <g key={i}>
               {/* Outer glow */}
-              <circle r={legacyAttack ? 10 : isHighlighted ? 8 : 6} fill={spineParticleColor ?? glowColor} opacity={legacyAttack ? 0.5 : 0.3}>
+              <circle
+                r={
+                  quietParticles
+                    ? 3
+                    : legacyAttack
+                      ? 10
+                      : isHighlighted
+                        ? 8
+                        : 6
+                }
+                fill={spineParticleColor ?? glowColor}
+                opacity={quietParticles ? 0.25 : legacyAttack ? 0.5 : 0.3}
+              >
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3762,7 +3788,19 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Core particle */}
-              <circle r={legacyAttack ? 7 : isHighlighted ? 5 : 4} fill={spineParticleColor ?? particleColor} opacity={1}>
+              <circle
+                r={
+                  quietParticles
+                    ? 2
+                    : legacyAttack
+                      ? 7
+                      : isHighlighted
+                        ? 5
+                        : 4
+                }
+                fill={spineParticleColor ?? particleColor}
+                opacity={quietParticles ? 0.85 : 1}
+              >
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -3771,16 +3809,18 @@ function AnimatedTrafficLine({
                   <mpath href={`#${pathId}`} />
                 </animateMotion>
               </circle>
-              {/* Inner bright core */}
-              <circle r={legacyAttack ? 3 : isHighlighted ? 2 : 1.5} fill="#ffffff" opacity={0.9}>
-                <animateMotion
-                  dur={`${duration}s`}
-                  repeatCount="indefinite"
-                  begin={`${offset * duration}s`}
-                >
-                  <mpath href={`#${pathId}`} />
-                </animateMotion>
-              </circle>
+              {/* Inner bright core — skipped on spine (was the white flare). */}
+              {!quietParticles && (
+                <circle r={legacyAttack ? 3 : isHighlighted ? 2 : 1.5} fill="#ffffff" opacity={0.9}>
+                  <animateMotion
+                    dur={`${duration}s`}
+                    repeatCount="indefinite"
+                    begin={`${offset * duration}s`}
+                  >
+                    <mpath href={`#${pathId}`} />
+                  </animateMotion>
+                </circle>
+              )}
             </g>
           ))}
         </>
