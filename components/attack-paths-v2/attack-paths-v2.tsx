@@ -41,6 +41,12 @@ import { ExfilPathListColumn } from "./exfil-path-list-column"
 import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
+import {
+  isServeJewelsAuthoritative,
+  resolveJewelPickerList,
+  resolveJewelRailPaths,
+  shouldShowAttackPathsNotComputed,
+} from "@/lib/attack-paths/resolve-jewel-rail"
 import { AttackPathPanel } from "./attack-path-panel"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
@@ -74,10 +80,6 @@ import {
   matchConvergencePathId,
 } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
-import {
-  resolveJewelPickerList,
-  resolveJewelRailPaths,
-} from "@/lib/attack-paths/resolve-jewel-rail"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -631,9 +633,13 @@ export function AttackPathsV2({
   // S4: do NOT auto-select the first crown jewel. No ?jewel= = Zoom −1
   // system blast-radius landing. Operators pick a jewel deliberately
   // for Zoom 0 fan-in (Alon / PRD-attacker-lens-three-zoom).
-  // Clear stale ?jewel= so a removed/renamed id doesn't blank Zoom −1.
+  // Clear stale ?jewel= (removed/renamed OR SERVE-empty projection) so
+  // Zoom −1 can render — previously jewels.length === 0 early-returned
+  // and left a phantom jewel id that tripped the IAP "not computed" gate.
   useEffect(() => {
-    if (!selectedJewelId || jewels.length === 0) return
+    if (!selectedJewelId || jewelsLoading) return
+    const serveSettled = jewelsRaw != null || Boolean(jewelsError)
+    if (!serveSettled && (isLoading || !rawData)) return
     const stillThere = jewels.some(
       (j) =>
         j.id === selectedJewelId ||
@@ -642,7 +648,15 @@ export function AttackPathsV2({
     if (stillThere) return
     setUrl({ jewel: null, path: null, exfilPath: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setUrl
-  }, [jewels, selectedJewelId])
+  }, [
+    jewels,
+    selectedJewelId,
+    jewelsLoading,
+    jewelsRaw,
+    jewelsError,
+    isLoading,
+    rawData,
+  ])
 
   // The selected path object, if any. We tolerate selectedPathId
   // pointing at a path that doesn't exist (e.g. operator deep-linked
@@ -819,9 +833,16 @@ export function AttackPathsV2({
   const zoomMinus1Ready =
     viewMode === "attack-path" && !selectedJewelId && Boolean(systemName)
   const hasUsableJewels = jewels.length > 0
+  const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
   // First-paint spinner only when we can't show Zoom −1 and still have
-  // no jewel list from either endpoint.
-  if (!zoomMinus1Ready && !hasUsableJewels && (jewelsLoading || isLoading) && !data) {
+  // no authoritative jewel list (SERVE empty is settled — don't wait on IAP).
+  if (
+    !zoomMinus1Ready &&
+    !hasUsableJewels &&
+    !serveJewelsOk &&
+    (jewelsLoading || isLoading) &&
+    !data
+  ) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -832,13 +853,14 @@ export function AttackPathsV2({
     )
   }
 
-  // Hard error only when both lite jewels and full IAP failed with nothing
-  // to render (no Zoom −1 either, or Zoom −1 still allowed below).
+  // Hard error only when SERVE jewels failed (or never loaded) and IAP
+  // also failed — never when SERVE answered empty successfully.
   if (
     !zoomMinus1Ready &&
     !hasUsableJewels &&
+    !serveJewelsOk &&
     !data &&
-    (( _iapBackgroundError && !isLoading) || (jewelsError && !jewelsLoading))
+    ((_iapBackgroundError && !isLoading) || (jewelsError && !jewelsLoading))
   ) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
@@ -861,17 +883,20 @@ export function AttackPathsV2({
     )
   }
 
-  // Errored / cold-compute envelope with no usable jewels — show an honest
-  // "couldn't compute" state, NEVER the false "No crown jewels defined"
-  // empty. Once the response is healthy (or has any jewels) this yields to
-  // the normal layout. Any-system: gated on the response's own provenance.
-  // Skip while Zoom −1 can still render, or while jewels lite is in flight.
+  // Errored / cold-compute IAP envelope with no usable jewels — honest
+  // "couldn't compute", NEVER false "No crown jewels". SERVE /jewels
+  // success (including empty) wins: IAP "Graph snapshot is stale" must
+  // not brick the tab when the projection pin already answered.
   if (
     !zoomMinus1Ready &&
-    jewels.length === 0 &&
-    iapHealth.failed &&
-    !jewelsLoading &&
-    !isLoading
+    shouldShowAttackPathsNotComputed({
+      serveJewelsRaw: jewelsRaw,
+      serveJewelsError: jewelsError,
+      jewelsEmpty: jewels.length === 0,
+      iapFailed: iapHealth.failed,
+      jewelsLoading,
+      iapLoading: isLoading,
+    })
   ) {
     return (
       <div className={`flex ${shellHeight} items-center justify-center bg-background`}>
