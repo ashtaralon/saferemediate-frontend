@@ -393,6 +393,9 @@ export interface ExfilPayload {
   atlas_summary?: AtlasSummary | null
   keystones?: ExfilKeystone[]
   observed_exfil: { available: boolean; not_wired_reason: string }
+  /** Present when observed transport collectors are unwired (PRD Exfil lens). */
+  coverage_badge?: string | null
+  coverage_badge_text?: string | null
   phase: string
   phase_note: string
 }

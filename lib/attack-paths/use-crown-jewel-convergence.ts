@@ -36,7 +36,7 @@ function summaryToConvergence(
   detailsByPathId: Record<string, ConvergencePath>,
 ): CrownJewelConvergence {
   const paths: ConvergencePath[] = summary.paths.map((p) => {
-    const base = {
+    const base: ConvergencePath = {
       path_id: p.path_id,
       source: p.source,
       source_kind: p.source_kind,
@@ -46,13 +46,17 @@ function summaryToConvergence(
       damage: p.damage,
       score: p.score,
       severity: p.severity,
+      severity_label: p.severity_label,
       confidence: p.confidence,
       hop_count: p.hop_count,
-      routes_via: [] as string[],
+      routes_via: [],
       role_assumption_observed: false,
       cj_target_id: summary.cj_arn ?? summary.cj_name ?? null,
-      hops: [] as ConvergencePath["hops"],
-      initial_access: [] as ConvergencePath["initial_access"],
+      hops: [],
+      initial_access: [],
+      impact_headline: p.impact_headline,
+      business_sentence: p.business_sentence,
+      closure_recommendation: p.closure_recommendation,
     }
     const detail = detailsByPathId[p.path_id]
     if (detail) {
@@ -63,6 +67,11 @@ function summaryToConvergence(
         cj_target_id: detail.cj_target_id ?? base.cj_target_id,
         hops: detail.hops ?? [],
         initial_access: detail.initial_access ?? [],
+        impact_headline: detail.impact_headline ?? base.impact_headline,
+        business_sentence: detail.business_sentence ?? base.business_sentence,
+        closure_recommendation:
+          detail.closure_recommendation ?? base.closure_recommendation,
+        severity_label: detail.severity_label ?? base.severity_label,
       }
     }
     return base
@@ -77,6 +86,7 @@ function summaryToConvergence(
     observed_paths: summary.observed_paths,
     choke_points: summary.choke_points,
     paths,
+    risk_summary: summary.risk_summary ?? null,
   }
 }
 
