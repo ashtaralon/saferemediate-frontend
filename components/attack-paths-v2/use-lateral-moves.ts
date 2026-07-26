@@ -34,6 +34,8 @@ export interface LateralMovesPayload {
     risk?: string
     mitigation_hint?: string
   } | null
+  /** Best-effort sections that timed out / failed (network, IAM). */
+  degraded?: string[]
   total_moves: number
   timestamp: string
   error?: string

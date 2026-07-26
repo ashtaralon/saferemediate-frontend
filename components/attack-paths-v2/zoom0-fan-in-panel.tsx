@@ -47,7 +47,7 @@ import {
 } from "./choke-point-tiles"
 import { Zoom0RiskHeader } from "./zoom0-risk-header"
 import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
-import { LateralMovesSummaryCard } from "./lateral-moves-summary-card"
+import { Zoom0LateralLensPanel } from "./zoom0-lateral-lens-panel"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -162,24 +162,12 @@ export function Zoom0FanInPanel({
     [effective.data],
   )
 
-  const lateralPath = useMemo(() => {
-    if (paths.length === 0) return null
-    if (selectedPathId) {
-      const hit = paths.find(
-        (p) => p.attack_path_id === selectedPathId || p.id === selectedPathId,
-      )
-      if (hit) return hit
-    }
-    if (riskSummary?.path_id) {
-      const hit = paths.find(
-        (p) =>
-          p.attack_path_id === riskSummary.path_id ||
-          p.id === riskSummary.path_id,
-      )
-      if (hit) return hit
-    }
-    return paths[0] ?? null
-  }, [paths, selectedPathId, riskSummary?.path_id])
+  const lateralIdentityId = useMemo(() => {
+    if (riskSummary?.identity) return riskSummary.identity
+    // Convergence path identity when risk_summary absent (older BE).
+    const top = effective.data?.paths?.[0]
+    return top?.identity ?? null
+  }, [riskSummary?.identity, effective.data?.paths])
 
   const collapsed =
     effective.data != null &&
@@ -316,16 +304,20 @@ export function Zoom0FanInPanel({
         ) : null}
 
         {mapLens === "lateral" ? (
-          <div className="mt-3 space-y-2" data-testid="zoom0-lateral-lens">
-            {lateralPath ? (
-              <LateralMovesSummaryCard
-                path={lateralPath}
-                jewel={jewel}
+          <div className="mt-3 space-y-2">
+            {lateralIdentityId ? (
+              <Zoom0LateralLensPanel
                 systemName={systemName}
+                jewel={jewel}
+                identityId={lateralIdentityId}
+                identityName={
+                  riskSummary?.identity_name ??
+                  effective.data?.paths?.[0]?.identity_name
+                }
               />
             ) : (
               <p className="text-[11px] text-muted-foreground">
-                Select a path with an identity to load lateral blast.
+                No path identity yet — wait for jewel risk summary.
               </p>
             )}
             {onRequestMode ? (
