@@ -204,9 +204,10 @@ function addNetworkPlacementForCompute(
     }
   }
 
-  // Gateway VPCEs already kept on architecture (ROUTES_VIA / flow.vpceId)
-  // must stay in the spotlight active set — otherwise anyVisibleOnPath
-  // hides the VPC ENDPOINTS lane while EGRESS still shows a grey IGW.
+  // Gateway VPCEs already kept on architecture.vpcEndpoints (buildArchitecture
+  // filters to ROUTES_VIA / flow.vpceId only) must stay in the spotlight
+  // active set — otherwise anyVisibleOnPath hides the VPC ENDPOINTS lane
+  // while EGRESS still shows a grey IGW.
   for (const vpce of architecture.vpcEndpoints ?? []) {
     out.add(vpce.id)
   }

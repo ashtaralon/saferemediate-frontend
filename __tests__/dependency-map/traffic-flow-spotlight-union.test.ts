@@ -147,8 +147,11 @@ describe("buildSpotlightActiveNodeIds", () => {
     expect(ids.has("acl-app2")).toBe(true)
     // Sibling compute's subnet stays out of the active set.
     expect(ids.has("subnet-web")).toBe(false)
-    // Do not blanket-include unrelated VPCEs.
-    expect(ids.has("vpce-s3")).toBe(false)
+    // VPCEs already on the architecture lane (post ROUTES_VIA / flow
+    // filter in buildArchitecture) stay active so the VPC ENDPOINTS
+    // column is not hidden. Unrelated Interface VPCEs never reach
+    // architecture.vpcEndpoints.
+    expect(ids.has("vpce-s3")).toBe(true)
   })
 
   it("matches IGW via compute.vpcId when subnet.vpcId is missing", () => {
