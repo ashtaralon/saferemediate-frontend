@@ -73,8 +73,11 @@ import {
   iapPathsToConvergence,
   matchConvergencePathId,
 } from "@/lib/attack-paths/iap-to-convergence"
-import { convergencePathsToIdentityAttackPaths } from "@/lib/attack-paths/convergence-to-iap"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
+import {
+  resolveJewelPickerList,
+  resolveJewelRailPaths,
+} from "@/lib/attack-paths/resolve-jewel-rail"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -381,12 +384,18 @@ export function AttackPathsV2({
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
     Boolean((data as { fromStaleCache?: boolean } | null)?.fromStaleCache)
 
-  // Prefer full IAP jewels (accurate path_count + severity) when present;
-  // otherwise show the lite list so the shell paints immediately.
-  const jewels: CrownJewelSummary[] =
-    data?.crown_jewels && data.crown_jewels.length > 0
-      ? data.crown_jewels
-      : liteJewels
+  // SERVE /jewels is authoritative once loaded (including empty). Full IAP
+  // jewels only before /jewels responds or when /jewels failed — never
+  // overwrite SERVE path_count with IAP phantoms.
+  const jewels: CrownJewelSummary[] = useMemo(
+    () =>
+      resolveJewelPickerList({
+        serveJewels: jewelsRaw != null ? liteJewels : null,
+        serveJewelsError: jewelsError,
+        iapJewels: data?.crown_jewels ?? null,
+      }),
+    [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
+  )
 
   // Trust gate: distinguish a real "0 crown jewels" from a cold/failed
   // routing compute that returned HTTP 200 with an error envelope (jewels
@@ -458,38 +467,44 @@ export function AttackPathsV2({
     [...allPaths],
   )
 
-  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
-    if (iapJewelPaths.length > 0) return iapJewelPaths
-    if (selectedJewel && jewelSummaryConvergence?.paths?.length) {
-      return filterActivePaths(
-        convergencePathsToIdentityAttackPaths(
-          selectedJewel,
-          jewelSummaryConvergence.paths,
-        ),
-      )
-    }
-    return filterActivePaths([])
-  }, [iapJewelPaths, selectedJewel, jewelSummaryConvergence])
+  const jewelRail = useMemo(
+    () =>
+      resolveJewelRailPaths({
+        serve: jewelSummaryConvergence,
+        serveError: jewelSummaryError,
+        jewel: selectedJewel,
+        iapPaths: [...iapJewelPaths],
+      }),
+    [jewelSummaryConvergence, jewelSummaryError, selectedJewel, iapJewelPaths],
+  )
+
+  const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(
+    () => filterActivePaths(jewelRail.paths),
+    [jewelRail.paths],
+  )
 
   const pathsPending =
     Boolean(selectedJewelId) &&
     jewelPaths.length === 0 &&
+    jewelRail.source === "none" &&
     (jewelSummaryLoading || jewelSummaryRetrying)
 
   const pathsHardError =
     Boolean(selectedJewelId) &&
     jewelPaths.length === 0 &&
     !pathsPending &&
+    jewelRail.source === "none" &&
     Boolean(jewelSummaryError) &&
     jewelSummaryAttempts >= 3
 
-  const pathsFromMaterializedFallback =
-    iapJewelPaths.length === 0 && jewelPaths.length > 0
+  // IAP only when SERVE unreachable — label as non-authoritative.
+  const pathsFromIapFallback = jewelRail.source === "iap_fallback"
 
   const pathsWarming =
     Boolean(selectedJewelId) &&
     jewelPaths.length === 0 &&
     !pathsHardError &&
+    jewelRail.source === "none" &&
     (jewelSummaryLoading || jewelSummaryRetrying || Boolean(jewelSummaryError))
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
@@ -1000,10 +1015,13 @@ export function AttackPathsV2({
           </div>
         ) : (
           <>
-            {pathsFromMaterializedFallback && _iapBackgroundError ? (
-              <div className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
-                Showing materialized paths for this jewel. Full system fan-out
-                is still catching up in the background.
+            {pathsFromIapFallback ? (
+              <div
+                className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300"
+                data-testid="path-rail-non-authoritative-iap"
+              >
+                SERVE unreachable — showing legacy IAP paths. Not projection
+                truth; Zoom0 canvas stays fail-closed.
               </div>
             ) : null}
             {viewMode === "exfil" ? (
