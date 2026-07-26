@@ -376,8 +376,9 @@ interface ExfilDestination {
 export interface ExfilPayload {
   ok: boolean
   error?: string
+  message?: string
   system_name?: string
-  jewel: { id: string; name: string; type: string; classification: string | null }
+  jewel?: { id: string; name: string; type: string; classification: string | null }
   accessors: ExfilAccessor[]
   paths?: ExfilPath[]
   egress_lanes: {

@@ -64,9 +64,12 @@ export function useLateralMoves(target: LateralMovesFetchTarget | null) {
         error?: string
         detail?: string
       }
-      if (!res.ok || body.error) {
+      if (!res.ok) {
         throw new Error(body.detail || body.error || `HTTP ${res.status}`)
       }
+      // Soft failures (overall_timeout, degraded sections) arrive as 200
+      // with error/degraded set — keep the payload so the UI can show a
+      // typed empty instead of inventing "no pivots = safe".
       setData(body as LateralMovesPayload)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load lateral moves")

@@ -36,6 +36,7 @@ function summaryToConvergence(
   detailsByPathId: Record<string, ConvergencePath>,
 ): CrownJewelConvergence {
   const paths: ConvergencePath[] = summary.paths.map((p) => {
+    const evidence = p.evidence ?? p.confidence
     const base: ConvergencePath = {
       path_id: p.path_id,
       source: p.source,
@@ -47,7 +48,12 @@ function summaryToConvergence(
       score: p.score,
       severity: p.severity,
       severity_label: p.severity_label,
-      confidence: p.confidence,
+      evidence,
+      confidence: evidence,
+      identity_gate: p.identity_gate,
+      route_gate: p.route_gate,
+      data_plane_gate: p.data_plane_gate,
+      path_status: p.path_status,
       hop_count: p.hop_count,
       routes_via: [],
       role_assumption_observed: false,
@@ -57,11 +63,20 @@ function summaryToConvergence(
       impact_headline: p.impact_headline,
       business_sentence: p.business_sentence,
       closure_recommendation: p.closure_recommendation,
+      computed_at: p.computed_at,
+      schema_version: p.schema_version,
     }
     const detail = detailsByPathId[p.path_id]
     if (detail) {
+      const detailEvidence = detail.evidence ?? detail.confidence ?? evidence
       return {
         ...base,
+        evidence: detailEvidence,
+        confidence: detailEvidence,
+        identity_gate: detail.identity_gate ?? base.identity_gate,
+        route_gate: detail.route_gate ?? base.route_gate,
+        data_plane_gate: detail.data_plane_gate ?? base.data_plane_gate,
+        path_status: detail.path_status ?? base.path_status,
         routes_via: detail.routes_via ?? [],
         role_assumption_observed: detail.role_assumption_observed ?? false,
         cj_target_id: detail.cj_target_id ?? base.cj_target_id,
@@ -72,6 +87,8 @@ function summaryToConvergence(
         closure_recommendation:
           detail.closure_recommendation ?? base.closure_recommendation,
         severity_label: detail.severity_label ?? base.severity_label,
+        computed_at: detail.computed_at ?? base.computed_at,
+        schema_version: detail.schema_version ?? base.schema_version,
       }
     }
     return base
@@ -87,6 +104,10 @@ function summaryToConvergence(
     choke_points: summary.choke_points,
     paths,
     risk_summary: summary.risk_summary ?? null,
+    serve_state: summary.serve_state,
+    coverage_state: summary.coverage_state,
+    generation: summary.generation,
+    as_of: summary.as_of,
   }
 }
 

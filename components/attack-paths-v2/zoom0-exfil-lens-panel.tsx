@@ -1,8 +1,8 @@
 "use client"
 
 /**
- * Zoom0 Exfiltration lens — jewel → out, with mandatory coverage honesty
- * when observed transport is unwired (PRD).
+ * Zoom0 Exfiltration details panel — jewel → out, with mandatory coverage
+ * honesty when observed transport is unwired (PRD).
  */
 
 import { useMemo } from "react"
@@ -70,7 +70,7 @@ export function Zoom0ExfilLensPanel({
   return (
     <div
       className="rounded-lg border border-violet-200/60 bg-violet-50/40 px-3 py-2.5 dark:border-violet-500/30 dark:bg-violet-500/10"
-      data-testid="zoom0-exfil-lens"
+      data-testid="zoom0-exfil-details"
     >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-violet-800 dark:text-violet-300">
         <Network className="h-3.5 w-3.5" />
@@ -83,8 +83,23 @@ export function Zoom0ExfilLensPanel({
           Loading egress…
         </p>
       ) : error && !data ? (
-        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+        <p
+          className="mt-2 text-[11px] text-amber-700 dark:text-amber-400"
+          data-empty-state="ERROR"
+        >
           {error}{" "}
+          <button type="button" onClick={retry} className="underline">
+            Retry
+          </button>
+        </p>
+      ) : data && data.ok === false ? (
+        <p
+          className="mt-2 text-[11px] text-amber-800 dark:text-amber-200"
+          data-empty-state={data.error === "jewel_not_found" ? "NOT_FOUND" : "ERROR"}
+        >
+          {data.error === "jewel_not_found"
+            ? "Jewel not found in the graph — egress is unknown, not empty."
+            : data.message || data.error || "Exfil lookup failed."}{" "}
           <button type="button" onClick={retry} className="underline">
             Retry
           </button>
@@ -101,7 +116,10 @@ export function Zoom0ExfilLensPanel({
           ) : null}
 
           {network.length === 0 ? (
-            <p className="mt-2 text-[11px] text-muted-foreground">
+            <p
+              className="mt-2 text-[11px] text-muted-foreground"
+              data-empty-state="READY_ZERO"
+            >
               No configured network egress doors for this jewel.
             </p>
           ) : (
