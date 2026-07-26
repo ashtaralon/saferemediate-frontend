@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  resolveZoom0Effective,
+  zoom0EmptyCanvasMessage,
   zoom0RiskSummary,
   zoom0SpotlightPaths,
 } from "@/components/attack-paths-v2/zoom0-fan-in-panel"
@@ -101,5 +103,73 @@ describe("zoom0RiskSummary", () => {
       ]),
     )
     expect(out).toBeNull()
+  })
+})
+
+describe("resolveZoom0Effective", () => {
+  const fallback = data([path({ path_id: "iap-1" })])
+
+  it("never replaces NOT_READY with IAP fallback", () => {
+    const authoritative: CrownJewelConvergence = {
+      ...data([]),
+      serve_state: "NOT_READY",
+      coverage_state: "NOT_READY",
+      risk_summary: {
+        evidence: "configured",
+        damage_types: [],
+        observed_paths: 0,
+        configured_paths: 0,
+        serve_state: "NOT_READY",
+        coverage_state: "NOT_READY",
+      },
+    }
+    const out = resolveZoom0Effective(authoritative, fallback, null)
+    expect(out.source).toBe("live")
+    expect(out.data?.serve_state).toBe("NOT_READY")
+    expect(out.data?.paths).toEqual([])
+  })
+
+  it("never replaces PARTIAL/ERROR with IAP fallback", () => {
+    for (const coverage_state of ["PARTIAL", "ERROR"] as const) {
+      const authoritative: CrownJewelConvergence = {
+        ...data([]),
+        coverage_state,
+        serve_state: "ACTIVE",
+      }
+      const out = resolveZoom0Effective(authoritative, fallback, null)
+      expect(out.source).toBe("live")
+      expect(out.data?.coverage_state).toBe(coverage_state)
+    }
+  })
+
+  it("allows IAP fallback only when endpoint unreachable", () => {
+    const out = resolveZoom0Effective(null, fallback, "Backend busy")
+    expect(out.source).toBe("fallback")
+    expect(out.data?.paths[0]?.path_id).toBe("iap-1")
+  })
+
+  it("does not fallback while loading (no error, no data)", () => {
+    const out = resolveZoom0Effective(null, fallback, null)
+    expect(out.source).toBe("live")
+    expect(out.data).toBeNull()
+  })
+})
+
+describe("zoom0EmptyCanvasMessage", () => {
+  it("distinguishes NOT_READY from zero paths", () => {
+    const notReady = zoom0EmptyCanvasMessage({
+      ...data([]),
+      serve_state: "NOT_READY",
+      coverage_state: "NOT_READY",
+    })
+    expect(notReady.state).toBe("NOT_READY")
+    expect(notReady.message).toMatch(/unknown/i)
+
+    const zero = zoom0EmptyCanvasMessage({
+      ...data([]),
+      coverage_state: "READY_ZERO",
+    })
+    expect(zero.state).toBe("READY_ZERO")
+    expect(zero.message).toMatch(/active projection/i)
   })
 })
