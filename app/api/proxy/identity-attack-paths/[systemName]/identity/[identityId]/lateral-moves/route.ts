@@ -43,7 +43,7 @@ export async function GET(
     (qs ? `?${qs}` : "")
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 55_000)
+  const timeoutId = setTimeout(() => controller.abort(), 12_000)
 
   try {
     const res = await fetch(backendUrl, {
@@ -62,7 +62,10 @@ export async function GET(
       data = { detail: text }
     }
 
-    if (res.ok) {
+    // Never cache empty/error — a hung-then-empty response was poisoning Zoom0.
+    const moves = (data as { moves?: unknown[] })?.moves
+    const hasMoves = Array.isArray(moves) && moves.length > 0
+    if (res.ok && hasMoves) {
       setCached(cacheKey, data, TTL_STD)
     }
 
