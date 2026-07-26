@@ -7,8 +7,8 @@
  * spotlightPaths from by-crown-jewel convergence. Adaptations for Zoom 0:
  *   - choke tiles when paths > threshold (filter spotlightPaths, no hairball)
  *   - no path URL yet — left list owns Zoom 1 drill-in
- *   - presentation lenses (Reachability / Lateral / Exfiltration) restored
- *     from the previous TargetAttackMap chrome
+ *   - details panels (Reachability / Lateral / Exfiltration) — presentation
+ *     filters until genuine lens canvases land; restored from TargetAttackMap
  *   - canvasV2 so the Laterals bright/dim toolbar control is visible
  */
 
@@ -54,8 +54,10 @@ const TrafficFlowMap = dynamic(
   { ssr: false },
 )
 
-/** Same lenses as TargetAttackMap — presentation filter, not a mode switch. */
-export type Zoom0MapLens = "reachability" | "lateral" | "exfiltration"
+/** Details-panel selector — presentation filter, not a real map lens yet. */
+export type Zoom0DetailsPanel = "reachability" | "lateral" | "exfiltration"
+/** @deprecated Use Zoom0DetailsPanel — kept for short-term import compat. */
+export type Zoom0MapLens = Zoom0DetailsPanel
 
 /** Pure: which convergence paths feed TFM spotlight for Zoom 0. */
 export function zoom0SpotlightPaths(
@@ -72,37 +74,12 @@ export function zoom0SpotlightPaths(
   return selectSpotlightPaths(paths, null)
 }
 
-/** Prefer server risk_summary; never invent ranking across unsorted IAP. */
+/** Server risk_summary only — never synthesize from paths[0]. */
 export function zoom0RiskSummary(
   data: CrownJewelConvergence | null,
 ): JewelRiskSummary | null {
-  if (!data) return null
-  if (data.risk_summary) return data.risk_summary
-  // Live convergence paths are already ORDER BY confidence DESC, score DESC.
-  const top = data.paths[0]
-  if (!top) return null
-  const observed = data.observed_paths ?? 0
-  const remove = Array.isArray(top.closure_recommendation?.remove_actions)
-    ? (top.closure_recommendation!.remove_actions as unknown[])
-    : []
-  const who = top.identity_name || "path identity"
-  return {
-    path_id: top.path_id,
-    evidence: top.confidence === "observed" ? "observed" : "configured",
-    severity_label: top.severity_label ?? top.severity ?? null,
-    impact_headline: top.impact_headline ?? null,
-    business_sentence: top.business_sentence ?? null,
-    damage_types: top.damage ?? [],
-    mitigation_hint:
-      remove.length > 0
-        ? `Remove ${remove.length} unused action${remove.length === 1 ? "" : "s"} from ${who}`
-        : `Tighten least-privilege for ${who}`,
-    closure_recommendation: top.closure_recommendation ?? null,
-    identity: top.identity ?? null,
-    identity_name: top.identity_name ?? null,
-    observed_paths: observed,
-    configured_paths: Math.max(0, (data.paths_total || data.paths.length) - observed),
-  }
+  if (!data?.risk_summary) return null
+  return data.risk_summary
 }
 
 export function Zoom0FanInPanel({
@@ -147,7 +124,8 @@ export function Zoom0FanInPanel({
   }, [data, iapFallback])
 
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
-  const [mapLens, setMapLens] = useState<Zoom0MapLens>("reachability")
+  const [detailsPanel, setDetailsPanel] =
+    useState<Zoom0DetailsPanel>("reachability")
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -163,11 +141,13 @@ export function Zoom0FanInPanel({
   )
 
   const lateralIdentityId = useMemo(() => {
-    if (riskSummary?.identity) return riskSummary.identity
-    // Convergence path identity when risk_summary absent (older BE).
-    const top = effective.data?.paths?.[0]
-    return top?.identity ?? null
-  }, [riskSummary?.identity, effective.data?.paths])
+    return (
+      riskSummary?.top_risk?.identity ??
+      riskSummary?.identity ??
+      riskSummary?.current_state?.identity ??
+      null
+    )
+  }, [riskSummary])
 
   const collapsed =
     effective.data != null &&
@@ -179,17 +159,19 @@ export function Zoom0FanInPanel({
   const hideMapUntilTile =
     collapsed && (!tileFilterIds || tileFilterIds.length === 0)
 
-  const lensSubtitle =
-    mapLens === "lateral"
-      ? "Lateral — blast from the on-path identity (DTO fan-out, not the kill-chain spine)"
-      : mapLens === "exfiltration"
-        ? "Exfiltration — configured egress from this jewel (observed transport when collected)"
-        : "Reachability — initial-access paths to this crown jewel (default map)"
+  const detailsSubtitle =
+    detailsPanel === "lateral"
+      ? "Lateral details — blast from the on-path identity (DTO fan-out, not the kill-chain spine)"
+      : detailsPanel === "exfiltration"
+        ? "Exfiltration details — configured egress from this jewel (observed transport when collected)"
+        : "Reachability details — initial-access paths to this crown jewel (default map)"
 
   const openRankedPath = () => {
-    if (!riskSummary?.path_id) return
+    const pathId =
+      riskSummary?.top_risk?.path_id ?? riskSummary?.path_id ?? null
+    if (!pathId) return
     const params = new URLSearchParams(searchParams?.toString() ?? "")
-    params.set("path", riskSummary.path_id)
+    params.set("path", pathId)
     if (!params.get("system") && systemName) params.set("system", systemName)
     router.push(`${pathname}?${params.toString()}`)
   }
@@ -244,7 +226,7 @@ export function Zoom0FanInPanel({
                 )
               })()}
             </p>
-            <p className="text-[11px] text-muted-foreground mt-1">{lensSubtitle}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{detailsSubtitle}</p>
             {effective.source === "fallback" ? (
               <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
                 Offline preview — convergence API unavailable; map uses IAP paths.
@@ -252,12 +234,12 @@ export function Zoom0FanInPanel({
             ) : null}
           </div>
 
-          {/* Presentation lenses — same labels as the previous TargetAttackMap */}
+          {/* Details panels — not genuine map lenses until canvas DTOs land */}
           <div
             className="flex shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1"
-            data-testid="zoom0-map-lenses"
+            data-testid="zoom0-map-details"
             role="tablist"
-            aria-label="Map presentation"
+            aria-label="Jewel details"
           >
             {(
               [
@@ -266,14 +248,14 @@ export function Zoom0FanInPanel({
                 { id: "exfiltration" as const, label: "Exfiltration", Icon: Network },
               ]
             ).map(({ id, label, Icon }) => {
-              const on = mapLens === id
+              const on = detailsPanel === id
               return (
                 <button
                   key={id}
                   type="button"
                   role="tab"
                   aria-selected={on}
-                  onClick={() => setMapLens(id)}
+                  onClick={() => setDetailsPanel(id)}
                   className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 font-mono text-xs transition-all ${
                     on
                       ? id === "reachability"
@@ -297,13 +279,22 @@ export function Zoom0FanInPanel({
             <Zoom0RiskHeader
               risk={riskSummary}
               onMitigate={
-                riskSummary.path_id ? openRankedPath : undefined
+                riskSummary.top_risk?.path_id || riskSummary.path_id
+                  ? openRankedPath
+                  : undefined
               }
             />
           </div>
+        ) : !loading && effective.data ? (
+          <p
+            className="mt-3 text-[11px] text-muted-foreground"
+            data-testid="zoom0-risk-summary-unavailable"
+          >
+            Risk summary unavailable — waiting for server-authored jewel header.
+          </p>
         ) : null}
 
-        {mapLens === "lateral" ? (
+        {detailsPanel === "lateral" ? (
           <div className="mt-3 space-y-2">
             {lateralIdentityId ? (
               <Zoom0LateralLensPanel
@@ -311,8 +302,9 @@ export function Zoom0FanInPanel({
                 jewel={jewel}
                 identityId={lateralIdentityId}
                 identityName={
+                  riskSummary?.top_risk?.identity_name ??
                   riskSummary?.identity_name ??
-                  effective.data?.paths?.[0]?.identity_name
+                  null
                 }
               />
             ) : (
@@ -332,7 +324,7 @@ export function Zoom0FanInPanel({
             ) : null}
           </div>
         ) : null}
-        {mapLens === "exfiltration" ? (
+        {detailsPanel === "exfiltration" ? (
           <div className="mt-3 space-y-2">
             <Zoom0ExfilLensPanel systemName={systemName} jewel={jewel} />
             {onRequestMode ? (
@@ -408,7 +400,7 @@ export function Zoom0FanInPanel({
                 }`}
               >
                 <TrafficFlowMap
-                  key={`zoom0-tfm-${mapLens}`}
+                  key={`zoom0-tfm-${detailsPanel}`}
                   systemName={systemName}
                   spotlightPaths={spotlightPaths}
                   spotlightPathId={null}
@@ -423,9 +415,9 @@ export function Zoom0FanInPanel({
                   titleOverride="Attack Map"
                   innerTitleOverride="Jewel fan-in"
                   innerSubtitleOverride={
-                    mapLens === "lateral"
+                    detailsPanel === "lateral"
                       ? "Lateral pivots on fan-in · Laterals bright"
-                      : mapLens === "exfiltration"
+                      : detailsPanel === "exfiltration"
                         ? "Paths that can reach data egress from this jewel"
                         : (() => {
                             const classes = jewel.class_counts ?? {}
@@ -443,7 +435,7 @@ export function Zoom0FanInPanel({
                   observedMode
                   canvasV2
                   jewelEmphasis
-                  defaultShowLaterals={mapLens === "lateral"}
+                  defaultShowLaterals={detailsPanel === "lateral"}
                 />
               </div>
             )}

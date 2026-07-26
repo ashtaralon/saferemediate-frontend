@@ -1,8 +1,8 @@
 "use client"
 
 /**
- * Zoom0 Lateral lens — fan-out from the server-ranked path identity
- * (risk_summary.identity), not IAP path identity-tier nodes.
+ * Zoom0 Lateral details panel — fan-out from the server-ranked path
+ * identity (risk_summary.top_risk / identity), not IAP identity-tier nodes.
  */
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
@@ -84,7 +84,7 @@ export function Zoom0LateralLensPanel({
   return (
     <div
       className="rounded-lg border border-amber-200/60 bg-amber-50/40 px-3 py-2.5 dark:border-amber-500/30 dark:bg-amber-500/10"
-      data-testid="zoom0-lateral-lens"
+      data-testid="zoom0-lateral-details"
     >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">
         <Sliders className="h-3.5 w-3.5" />
@@ -97,11 +97,26 @@ export function Zoom0LateralLensPanel({
           Loading lateral moves…
         </p>
       ) : error && !data ? (
-        <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-200">
+        <p
+          className="mt-2 text-[11px] text-amber-800 dark:text-amber-200"
+          data-empty-state="ERROR"
+        >
           {error}
         </p>
+      ) : data?.error === "lateral_moves_timeout" ||
+        data?.degraded?.includes("overall_timeout") ? (
+        <p
+          className="mt-2 text-[11px] text-amber-800 dark:text-amber-200"
+          data-empty-state="TIMEOUT"
+        >
+          Lateral fan-out timed out — pivots are unknown, not absent. Retry or
+          open the full Lateral Movement view.
+        </p>
       ) : moves.length === 0 ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p
+          className="mt-2 text-[11px] text-muted-foreground"
+          data-empty-state="READY_ZERO"
+        >
           No lateral pivots from this identity beyond the current jewel.
         </p>
       ) : (

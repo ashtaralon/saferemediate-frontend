@@ -63,7 +63,7 @@ describe("zoom0SpotlightPaths", () => {
 })
 
 describe("zoom0RiskSummary", () => {
-  it("prefers server risk_summary over path[0] derivation", () => {
+  it("returns server risk_summary when present", () => {
     const base = data([path({ path_id: "p1", impact_headline: "FROM PATH" })])
     const out = zoom0RiskSummary({
       ...base,
@@ -75,13 +75,18 @@ describe("zoom0RiskSummary", () => {
         observed_paths: 1,
         configured_paths: 0,
         mitigation_hint: "Remove 3 unused actions from app-role",
+        serve_state: "ACTIVE",
+        coverage_state: "READY",
+        generation: "3",
+        as_of: "2026-07-09T12:00:00Z",
       },
     })
     expect(out?.path_id).toBe("server-top")
     expect(out?.impact_headline).toBe("FROM SERVER")
+    expect(out?.generation).toBe("3")
   })
 
-  it("falls back to first server-ordered path when risk_summary absent", () => {
+  it("does not synthesize from paths when risk_summary absent", () => {
     const out = zoom0RiskSummary(
       data([
         path({
@@ -95,8 +100,6 @@ describe("zoom0RiskSummary", () => {
         path({ path_id: "lower", confidence: "configured" }),
       ]),
     )
-    expect(out?.path_id).toBe("top")
-    expect(out?.evidence).toBe("observed")
-    expect(out?.mitigation_hint).toContain("1 unused action")
+    expect(out).toBeNull()
   })
 })

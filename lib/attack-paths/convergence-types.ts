@@ -37,6 +37,13 @@ export interface InitialAccessEdge {
   verdict_confidence?: "observed" | "config" | "inferred" | null
 }
 
+export type PathEvidence =
+  | "observed"
+  | "configured"
+  | "unverified"
+  | "blocked"
+  | string
+
 export interface ConvergencePath {
   path_id: string
   source?: string | null
@@ -48,7 +55,14 @@ export interface ConvergencePath {
   score: number
   severity?: string | null
   severity_label?: string | null
+  /** Full-path evidence from identity+route+data_plane gates. */
+  evidence?: PathEvidence
+  /** Legacy alias kept in sync with evidence by the server. */
   confidence: string
+  identity_gate?: string | null
+  route_gate?: string | null
+  data_plane_gate?: string | null
+  path_status?: string | null
   hop_count: number
   routes_via?: string[]
   role_assumption_observed?: boolean
@@ -64,12 +78,17 @@ export interface ConvergencePath {
   impact_headline?: string | null
   business_sentence?: string | null
   closure_recommendation?: Record<string, unknown> | null
+  computed_at?: string | null
+  schema_version?: string | null
 }
 
-/** Server-ranked jewel header from by-crown-jewel — do not FE-rank. */
-export interface JewelRiskSummary {
+/** One server-picked path used in the jewel header. */
+export interface PathRiskRef {
   path_id?: string | null
-  evidence: "observed" | "configured" | string
+  evidence: PathEvidence
+  identity_gate?: string | null
+  route_gate?: string | null
+  data_plane_gate?: string | null
   severity_label?: string | null
   impact_headline?: string | null
   business_sentence?: string | null
@@ -78,8 +97,38 @@ export interface JewelRiskSummary {
   closure_recommendation?: Record<string, unknown> | null
   identity?: string | null
   identity_name?: string | null
+  score?: number
+}
+
+/** Server-owned jewel header — FE must not invent state/risk/mitigation. */
+export interface JewelRiskSummary {
+  serve_state?: "ACTIVE" | "NOT_READY" | string
+  coverage_state?:
+    | "NOT_READY"
+    | "READY_ZERO"
+    | "PARTIAL"
+    | "READY"
+    | "ERROR"
+    | string
+  generation?: string | null
+  as_of?: string | null
+  current_state?: PathRiskRef | null
+  top_risk?: PathRiskRef | null
+  top_observed_risk?: PathRiskRef | null
   observed_paths: number
   configured_paths: number
+  unverified_paths?: number
+  /** Flat compat — mirrors current_state.evidence / top_risk fields. */
+  path_id?: string | null
+  evidence: PathEvidence
+  severity_label?: string | null
+  impact_headline?: string | null
+  business_sentence?: string | null
+  damage_types: string[]
+  mitigation_hint?: string | null
+  closure_recommendation?: Record<string, unknown> | null
+  identity?: string | null
+  identity_name?: string | null
 }
 
 export interface CrownJewelConvergenceSummary {
@@ -92,6 +141,10 @@ export interface CrownJewelConvergenceSummary {
   choke_points: Record<string, number>
   paths: ConvergencePath[]
   risk_summary?: JewelRiskSummary | null
+  serve_state?: string
+  coverage_state?: string
+  generation?: string | null
+  as_of?: string | null
   endpoint?: string
 }
 
@@ -105,4 +158,8 @@ export interface CrownJewelConvergence {
   choke_points: Record<string, number>
   paths: ConvergencePath[]
   risk_summary?: JewelRiskSummary | null
+  serve_state?: string
+  coverage_state?: string
+  generation?: string | null
+  as_of?: string | null
 }
