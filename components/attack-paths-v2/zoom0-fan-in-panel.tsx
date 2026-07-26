@@ -82,6 +82,78 @@ export function zoom0RiskSummary(
   return data.risk_summary
 }
 
+/** Authoritative coverage/serve from response root or risk_summary. */
+export function zoom0ServeCoverage(data: CrownJewelConvergence | null): {
+  serve_state: string | null
+  coverage_state: string | null
+} {
+  if (!data) return { serve_state: null, coverage_state: null }
+  return {
+    serve_state: data.serve_state ?? data.risk_summary?.serve_state ?? null,
+    coverage_state:
+      data.coverage_state ?? data.risk_summary?.coverage_state ?? null,
+  }
+}
+
+/**
+ * Resolve what the canvas may show.
+ * - Authoritative response present → always use it (including empty NOT_READY).
+ * - IAP fallback only when the endpoint is genuinely unreachable.
+ * - Never override NOT_READY / PARTIAL / ERROR with a legacy preview.
+ */
+export function resolveZoom0Effective(
+  data: CrownJewelConvergence | null,
+  iapFallback: CrownJewelConvergence | null,
+  error: string | null,
+): { data: CrownJewelConvergence | null; source: "live" | "fallback" } {
+  // Any successful serve response is authoritative — including empty
+  // NOT_READY / READY_ZERO / PARTIAL / ERROR envelopes.
+  if (data != null) {
+    return { data, source: "live" }
+  }
+  if (error && iapFallback?.paths?.length) {
+    return { data: iapFallback, source: "fallback" }
+  }
+  return { data: null, source: "live" }
+}
+
+/** Canvas empty copy — never treat NOT_READY as "no paths today". */
+export function zoom0EmptyCanvasMessage(
+  data: CrownJewelConvergence | null,
+): { state: string; message: string } {
+  const { serve_state, coverage_state } = zoom0ServeCoverage(data)
+  if (serve_state === "NOT_READY" || coverage_state === "NOT_READY") {
+    return {
+      state: "NOT_READY",
+      message:
+        "Attack-path materialization is not ready for this system. Paths are unknown — not absent.",
+    }
+  }
+  if (coverage_state === "ERROR") {
+    return {
+      state: "ERROR",
+      message: "Attack-path serve error — retry after the next projection.",
+    }
+  }
+  if (coverage_state === "PARTIAL") {
+    return {
+      state: "PARTIAL",
+      message:
+        "Attack-path coverage is partial — do not treat an empty map as clear.",
+    }
+  }
+  if (coverage_state === "READY_ZERO") {
+    return {
+      state: "READY_ZERO",
+      message: "No attack paths to this crown jewel in the active projection.",
+    }
+  }
+  return {
+    state: "EMPTY",
+    message: "No attack paths to this crown jewel today.",
+  }
+}
+
 export function Zoom0FanInPanel({
   systemName,
   jewel,
@@ -115,13 +187,10 @@ export function Zoom0FanInPanel({
     return iapPathsToConvergence(systemName, jewel, paths)
   }, [systemName, jewel, paths])
 
-  const effective = useMemo(() => {
-    if (data?.paths?.length) return { data, source: "live" as const }
-    if (iapFallback?.paths?.length) {
-      return { data: iapFallback, source: "fallback" as const }
-    }
-    return { data: data ?? null, source: "live" as const }
-  }, [data, iapFallback])
+  const effective = useMemo(
+    () => resolveZoom0Effective(data, iapFallback, error),
+    [data, iapFallback, error],
+  )
 
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
   const [detailsPanel, setDetailsPanel] =
@@ -228,8 +297,12 @@ export function Zoom0FanInPanel({
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">{detailsSubtitle}</p>
             {effective.source === "fallback" ? (
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
-                Offline preview — convergence API unavailable; map uses IAP paths.
+              <p
+                className="text-[11px] text-amber-700 dark:text-amber-400 mt-1"
+                data-testid="zoom0-non-authoritative-preview"
+              >
+                Non-authoritative preview — convergence API unreachable; map
+                uses legacy IAP paths. Not SERVE truth.
               </p>
             ) : null}
           </div>
@@ -360,9 +433,18 @@ export function Zoom0FanInPanel({
           </button>
         </div>
       ) : !effective.data || effective.data.paths.length === 0 ? (
-        <div className="flex flex-1 min-h-[400px] items-center justify-center text-[12px] text-muted-foreground">
-          No attack paths to this crown jewel today.
-        </div>
+        (() => {
+          const empty = zoom0EmptyCanvasMessage(effective.data)
+          return (
+            <div
+              className="flex flex-1 min-h-[400px] items-center justify-center px-6 text-center text-[12px] text-muted-foreground"
+              data-testid="zoom0-empty-canvas"
+              data-empty-state={empty.state}
+            >
+              {empty.message}
+            </div>
+          )
+        })()
       ) : (
         <div className="flex flex-1 min-h-0 flex-col">
           <div className="shrink-0 px-4 pt-3 space-y-2">
