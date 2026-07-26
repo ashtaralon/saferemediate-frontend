@@ -14,6 +14,7 @@
 
 import dynamic from "next/dynamic"
 import { useMemo, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   Loader2,
@@ -26,7 +27,11 @@ import type {
   CrownJewelSummary,
   IdentityAttackPath,
 } from "@/components/identity-attack-paths/types"
-import type { ConvergencePath, CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
+import type {
+  ConvergencePath,
+  CrownJewelConvergence,
+  JewelRiskSummary,
+} from "@/lib/attack-paths/convergence-types"
 import {
   crownJewelFromArnName,
   useCrownJewelConvergence,
@@ -40,6 +45,9 @@ import {
   CHOKE_TILE_THRESHOLD,
   shouldCollapseToChokeTiles,
 } from "./choke-point-tiles"
+import { Zoom0RiskHeader } from "./zoom0-risk-header"
+import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
+import { LateralMovesSummaryCard } from "./lateral-moves-summary-card"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -62,6 +70,39 @@ export function zoom0SpotlightPaths(
   // Union all (workload) paths to the jewel — same selectSpotlightPaths(null)
   // as dependency-map CJ spotlight.
   return selectSpotlightPaths(paths, null)
+}
+
+/** Prefer server risk_summary; never invent ranking across unsorted IAP. */
+export function zoom0RiskSummary(
+  data: CrownJewelConvergence | null,
+): JewelRiskSummary | null {
+  if (!data) return null
+  if (data.risk_summary) return data.risk_summary
+  // Live convergence paths are already ORDER BY confidence DESC, score DESC.
+  const top = data.paths[0]
+  if (!top) return null
+  const observed = data.observed_paths ?? 0
+  const remove = Array.isArray(top.closure_recommendation?.remove_actions)
+    ? (top.closure_recommendation!.remove_actions as unknown[])
+    : []
+  const who = top.identity_name || "path identity"
+  return {
+    path_id: top.path_id,
+    evidence: top.confidence === "observed" ? "observed" : "configured",
+    severity_label: top.severity_label ?? top.severity ?? null,
+    impact_headline: top.impact_headline ?? null,
+    business_sentence: top.business_sentence ?? null,
+    damage_types: top.damage ?? [],
+    mitigation_hint:
+      remove.length > 0
+        ? `Remove ${remove.length} unused action${remove.length === 1 ? "" : "s"} from ${who}`
+        : `Tighten least-privilege for ${who}`,
+    closure_recommendation: top.closure_recommendation ?? null,
+    identity: top.identity ?? null,
+    identity_name: top.identity_name ?? null,
+    observed_paths: observed,
+    configured_paths: Math.max(0, (data.paths_total || data.paths.length) - observed),
+  }
 }
 
 export function Zoom0FanInPanel({
@@ -107,11 +148,38 @@ export function Zoom0FanInPanel({
 
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
   const [mapLens, setMapLens] = useState<Zoom0MapLens>("reachability")
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   const spotlightPaths = useMemo(() => {
     if (!effective.data) return []
     return zoom0SpotlightPaths(effective.data, tileFilterIds)
   }, [effective.data, tileFilterIds])
+
+  const riskSummary = useMemo(
+    () => zoom0RiskSummary(effective.data),
+    [effective.data],
+  )
+
+  const lateralPath = useMemo(() => {
+    if (paths.length === 0) return null
+    if (selectedPathId) {
+      const hit = paths.find(
+        (p) => p.attack_path_id === selectedPathId || p.id === selectedPathId,
+      )
+      if (hit) return hit
+    }
+    if (riskSummary?.path_id) {
+      const hit = paths.find(
+        (p) =>
+          p.attack_path_id === riskSummary.path_id ||
+          p.id === riskSummary.path_id,
+      )
+      if (hit) return hit
+    }
+    return paths[0] ?? null
+  }, [paths, selectedPathId, riskSummary?.path_id])
 
   const collapsed =
     effective.data != null &&
@@ -125,10 +193,18 @@ export function Zoom0FanInPanel({
 
   const lensSubtitle =
     mapLens === "lateral"
-      ? "Lateral — bright pivot edges + identity blast surface on the Attack Map"
+      ? "Lateral — blast from the on-path identity (DTO fan-out, not the kill-chain spine)"
       : mapLens === "exfiltration"
-        ? "Exfiltration — data-egress doors from this jewel (full view via Exfiltration tab)"
-        : "Reachability — all initial-access paths to this crown jewel"
+        ? "Exfiltration — configured egress from this jewel (observed transport when collected)"
+        : "Reachability — initial-access paths to this crown jewel (default map)"
+
+  const openRankedPath = () => {
+    if (!riskSummary?.path_id) return
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.set("path", riskSummary.path_id)
+    if (!params.get("system") && systemName) params.set("system", systemName)
+    router.push(`${pathname}?${params.toString()}`)
+  }
 
   return (
     <div
@@ -228,25 +304,56 @@ export function Zoom0FanInPanel({
           </div>
         </div>
 
-        {mapLens === "lateral" && onRequestMode ? (
-          <button
-            type="button"
-            onClick={() => onRequestMode("lateral")}
-            className="mt-2 text-[11px] font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
-            data-testid="zoom0-open-lateral-movement"
-          >
-            Open full Lateral Movement view →
-          </button>
+        {riskSummary ? (
+          <div className="mt-3">
+            <Zoom0RiskHeader
+              risk={riskSummary}
+              onMitigate={
+                riskSummary.path_id ? openRankedPath : undefined
+              }
+            />
+          </div>
         ) : null}
-        {mapLens === "exfiltration" && onRequestMode ? (
-          <button
-            type="button"
-            onClick={() => onRequestMode("exfil")}
-            className="mt-2 text-[11px] font-medium text-violet-700 underline-offset-2 hover:underline dark:text-violet-400"
-            data-testid="zoom0-open-exfiltration"
-          >
-            Open full Exfiltration view →
-          </button>
+
+        {mapLens === "lateral" ? (
+          <div className="mt-3 space-y-2" data-testid="zoom0-lateral-lens">
+            {lateralPath ? (
+              <LateralMovesSummaryCard
+                path={lateralPath}
+                jewel={jewel}
+                systemName={systemName}
+              />
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Select a path with an identity to load lateral blast.
+              </p>
+            )}
+            {onRequestMode ? (
+              <button
+                type="button"
+                onClick={() => onRequestMode("lateral")}
+                className="text-[11px] font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+                data-testid="zoom0-open-lateral-movement"
+              >
+                Open full Lateral Movement view →
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {mapLens === "exfiltration" ? (
+          <div className="mt-3 space-y-2">
+            <Zoom0ExfilLensPanel systemName={systemName} jewel={jewel} />
+            {onRequestMode ? (
+              <button
+                type="button"
+                onClick={() => onRequestMode("exfil")}
+                className="text-[11px] font-medium text-violet-700 underline-offset-2 hover:underline dark:text-violet-400"
+                data-testid="zoom0-open-exfiltration"
+              >
+                Open full Exfiltration view →
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

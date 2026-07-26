@@ -26,6 +26,14 @@ export interface LateralMovesPayload {
   identity_id: string
   excluded_jewel_id: string | null
   moves: LateralMove[]
+  /** Server-ranked top blast + mitigation hint (PRD Lateral lens). */
+  highest_blast?: {
+    type?: string
+    target?: string
+    evidence?: string
+    risk?: string
+    mitigation_hint?: string
+  } | null
   total_moves: number
   timestamp: string
   error?: string

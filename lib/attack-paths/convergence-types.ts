@@ -47,6 +47,7 @@ export interface ConvergencePath {
   damage: string[]
   score: number
   severity?: string | null
+  severity_label?: string | null
   confidence: string
   hop_count: number
   routes_via?: string[]
@@ -60,6 +61,25 @@ export interface ConvergencePath {
   attack_class?: string | null
   catalog_name?: string | null
   catalog_title?: string | null
+  impact_headline?: string | null
+  business_sentence?: string | null
+  closure_recommendation?: Record<string, unknown> | null
+}
+
+/** Server-ranked jewel header from by-crown-jewel — do not FE-rank. */
+export interface JewelRiskSummary {
+  path_id?: string | null
+  evidence: "observed" | "configured" | string
+  severity_label?: string | null
+  impact_headline?: string | null
+  business_sentence?: string | null
+  damage_types: string[]
+  mitigation_hint?: string | null
+  closure_recommendation?: Record<string, unknown> | null
+  identity?: string | null
+  identity_name?: string | null
+  observed_paths: number
+  configured_paths: number
 }
 
 export interface CrownJewelConvergenceSummary {
@@ -71,6 +91,7 @@ export interface CrownJewelConvergenceSummary {
   observed_paths: number
   choke_points: Record<string, number>
   paths: ConvergencePath[]
+  risk_summary?: JewelRiskSummary | null
   endpoint?: string
 }
 
@@ -83,4 +104,5 @@ export interface CrownJewelConvergence {
   observed_paths: number
   choke_points: Record<string, number>
   paths: ConvergencePath[]
+  risk_summary?: JewelRiskSummary | null
 }
