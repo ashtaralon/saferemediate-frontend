@@ -5805,14 +5805,24 @@ export function UnifiedArchitectureDiagram({
                   color (active) and grayed (alternative) IS the security
                   signal. Per pattern_visualize_by_negation. */}
               {architecture.egressGateways.map(gw => {
+                // Prefer flow.vpceId as winning-egress evidence: when the
+                // kill chain routes via a Gateway VPCE, IGW is unused even
+                // if derivePrecedence only sees IGW in egressGateways
+                // (VPCEs live in the VPC ENDPOINTS lane, not this array).
+                const flowUsesVpce = architecture.flows.some((f) => !!f.vpceId)
+                const flowUsesThisIgw = architecture.flows.some(
+                  (f) => f.egressGatewayId === gw.id,
+                )
                 const isWinningForAnyDestination =
-                  architecture.resources.some(r => {
-                    const rp = derivePrecedenceForDestination(
-                      r,
-                      architecture.egressGateways,
-                    )
-                    return rp?.gateway.id === gw.id
-                  })
+                  flowUsesThisIgw ||
+                  (!flowUsesVpce &&
+                    architecture.resources.some((r) => {
+                      const rp = derivePrecedenceForDestination(
+                        r,
+                        architecture.egressGateways,
+                      )
+                      return rp?.gateway.id === gw.id
+                    }))
                 // Some paths have no resources (identity-only paths) —
                 // in that case no gateway "wins" anything; render at full
                 // color since the canvas isn't making a routing claim.
@@ -8492,15 +8502,47 @@ export default function TrafficFlowMap({
     // otherwise IGW/NAT. Never invent a hop without a ROUTES_VIA edge
     // (#87a — no frontend synthesis).
     const routesViaBySubnet = new Map<string, string[]>();
+    const addRoutesVia = (subnetId: string, gwId: string) => {
+      if (!subnetId || !gwId) return;
+      const list = routesViaBySubnet.get(subnetId) ?? [];
+      if (!list.includes(gwId)) list.push(gwId);
+      routesViaBySubnet.set(subnetId, list);
+    };
+    const looksLikeSubnet = (id: string) =>
+      id.startsWith("subnet-") || /subnet/i.test(String(nodeMap.get(id)?.type || ""));
+    const looksLikeGateway = (id: string) => {
+      if (
+        id.startsWith("vpce-") ||
+        id.startsWith("igw-") ||
+        id.startsWith("nat-") ||
+        id.startsWith("eigw-") ||
+        id.startsWith("tgw-")
+      ) {
+        return true;
+      }
+      const n = nodeMap.get(id);
+      const typ = String(n?.type || "").toLowerCase();
+      const labels = (n?.node_labels || []) as string[];
+      return (
+        typ.includes("vpcendpoint") ||
+        typ.includes("internetgateway") ||
+        typ.includes("natgateway") ||
+        labels.some((l) =>
+          /VPCEndpoint|InternetGateway|NATGateway|EgressOnly|TransitGateway/.test(l),
+        )
+      );
+    };
     edges.forEach((e) => {
       const et = (e.edge_type || e.type || "").toUpperCase();
       if (et !== "ROUTES_VIA") return;
       const src = String(e.source || e.from || "");
       const tgt = String(e.target || e.to || "");
       if (!src || !tgt) return;
-      const list = routesViaBySubnet.get(src) ?? [];
-      if (!list.includes(tgt)) list.push(tgt);
-      routesViaBySubnet.set(src, list);
+      // Canonical: Subnet -[:ROUTES_VIA]-> IGW|VPCE. Also accept reversed
+      // edge orientation from older dep-map payloads.
+      if (looksLikeSubnet(src) && looksLikeGateway(tgt)) addRoutesVia(src, tgt);
+      else if (looksLikeSubnet(tgt) && looksLikeGateway(src)) addRoutesVia(tgt, src);
+      else addRoutesVia(src, tgt);
     });
 
     const pickEgressForCompute = (
@@ -9257,6 +9299,49 @@ export default function TrafficFlowMap({
       });
     });
 
+    // Hydrate Gateway VPCEs that only appear as ROUTES_VIA targets
+    // (missing IN_VPC / vpc_id on the node would leave the lane empty
+    // even when Neo4j has Subnet→VPCE). Filtered again below to S3/
+    // flow-backed endpoints only.
+    computeServices.forEach((cs) => {
+      const sub = nodeToSubnet.get(cs.id);
+      if (!sub) return;
+      const vpcId = resolveComputeVPC(cs.id) || "";
+      for (const gwId of routesViaBySubnet.get(sub.subnetId) ?? []) {
+        if (seenVPCEIds.has(gwId)) continue;
+        if (!gwId.startsWith("vpce-") && !looksLikeGateway(gwId)) continue;
+        const v = nodeMap.get(gwId);
+        const typ = String(v?.type || "").toLowerCase();
+        const labels = (v?.node_labels || []) as string[];
+        const isVpce =
+          typ === "vpcendpoint" ||
+          labels.includes("VPCEndpoint") ||
+          gwId.startsWith("vpce-");
+        if (!isVpce) continue;
+        seenVPCEIds.add(gwId);
+        const serviceName = v?.service_name || v?.serviceName || null;
+        const epTypeRaw = (v?.vpc_endpoint_type || v?.endpoint_type || "").toString();
+        const endpointType: "Gateway" | "Interface" | null = /gateway/i.test(
+          epTypeRaw,
+        )
+          ? "Gateway"
+          : /interface/i.test(epTypeRaw)
+            ? "Interface"
+            : gwId.startsWith("vpce-")
+              ? "Gateway"
+              : null;
+        vpcEndpoints.push({
+          id: gwId,
+          name: v?.name || gwId,
+          shortName: shortName(v?.name || gwId, 16),
+          vpcId,
+          serviceName,
+          serviceShort: vpceServiceShort(serviceName),
+          endpointType,
+        });
+      }
+    });
+
     // Chip item 10: collect egress gateways (IGW / NAT / Egress-only
     // IGW / Transit GW) per path VPC. Mirrors the VPCE pass above —
     // dedup by id since both IN_VPC edge and node.vpc_id property can
@@ -9448,19 +9533,49 @@ export default function TrafficFlowMap({
       });
     });
 
-    // ── Filter unused VPCEs (Q2-A — 2026-06-25) ────────────────────
-    // Operator complaint: SSM / SSMMESSAGES / EC2MESSAGES VPCEs took
-    // ~30% of vertical space on alon-prod's canvas while contributing
-    // zero signal (none of them carry observed flows). Per the chosen
-    // option A, drop VPCEs that no flow.vpceId references. The "Not
-    // used" badge introduced in #79 stays in the codebase for future
-    // option B (collapse-to-pill) if we ever want to surface unused
-    // VPCEs as a security signal again, but today the lane only shows
-    // endpoints that are part of an active flow.
+    // Keep VPCEs that are on the kill chain:
+    //   (a) referenced by flow.vpceId, OR
+    //   (b) Gateway S3/Dynamo ROUTES_VIA targets from a path compute's
+    //       subnet (graph truth — operator must see the winning egress
+    //       hop; dropping these left only a grey IGW with no VPCE).
+    // Still drop unrelated Interface VPCEs (SSM/etc.) that only share
+    // the VPC (Q2-A — 2026-06-25).
     const activeVpceIds = new Set<string>(
-      flows.map(f => f.vpceId).filter(Boolean) as string[]
+      flows.map((f) => f.vpceId).filter(Boolean) as string[],
     );
-    const filteredVpcEndpoints = vpcEndpoints.filter(v => activeVpceIds.has(v.id));
+    const pathHasS3Like = resources.some((r) =>
+      ["storage", "dynamodb"].includes(r.type),
+    );
+    if (pathHasS3Like) {
+      computeServices.forEach((cs) => {
+        const sub = nodeToSubnet.get(cs.id);
+        const via = sub ? routesViaBySubnet.get(sub.subnetId) ?? [] : [];
+        for (const gwId of via) {
+          if (!gwId.startsWith("vpce-") && !looksLikeGateway(gwId)) continue;
+          const gwNode = nodeMap.get(gwId);
+          const typ = String(gwNode?.type || "").toLowerCase();
+          const labels = (gwNode?.node_labels || []) as string[];
+          const isVpce =
+            typ === "vpcendpoint" ||
+            labels.includes("VPCEndpoint") ||
+            gwId.startsWith("vpce-");
+          if (!isVpce) continue;
+          const svc = String(
+            gwNode?.service_name || gwNode?.serviceName || "",
+          ).toLowerCase();
+          const epType = String(
+            gwNode?.vpc_endpoint_type || gwNode?.endpoint_type || "",
+          ).toLowerCase();
+          const serviceMatch =
+            !svc || svc.includes("s3") || svc.includes("dynamodb");
+          const gatewayOk = !epType || epType.includes("gateway");
+          if (serviceMatch && gatewayOk) activeVpceIds.add(gwId);
+        }
+      });
+    }
+    const filteredVpcEndpoints = vpcEndpoints.filter((v) =>
+      activeVpceIds.has(v.id),
+    );
 
     return {
       computeServices,

@@ -203,6 +203,13 @@ function addNetworkPlacementForCompute(
       out.add(gw.id)
     }
   }
+
+  // Gateway VPCEs already kept on architecture (ROUTES_VIA / flow.vpceId)
+  // must stay in the spotlight active set — otherwise anyVisibleOnPath
+  // hides the VPC ENDPOINTS lane while EGRESS still shows a grey IGW.
+  for (const vpce of architecture.vpcEndpoints ?? []) {
+    out.add(vpce.id)
+  }
 }
 
 /** Union (or single-path) node ids for Crown Jewel Spotlight canvas dimming. */
