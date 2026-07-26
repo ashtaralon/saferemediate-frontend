@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
+  isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
+  shouldShowAttackPathsNotComputed,
 } from "@/lib/attack-paths/resolve-jewel-rail"
 
 const jewel: CrownJewelSummary = {
@@ -153,5 +155,49 @@ describe("resolveJewelPickerList", () => {
         iapJewels,
       }),
     ).toEqual(iapJewels)
+  })
+})
+
+describe("shouldShowAttackPathsNotComputed", () => {
+  it("never shows when SERVE /jewels answered empty (IAP stale must not brick)", () => {
+    expect(
+      shouldShowAttackPathsNotComputed({
+        serveJewelsRaw: { result: { crown_jewels: [] } },
+        serveJewelsError: null,
+        jewelsEmpty: true,
+        iapFailed: true,
+        jewelsLoading: false,
+        iapLoading: false,
+      }),
+    ).toBe(false)
+    expect(isServeJewelsAuthoritative({ result: { crown_jewels: [] } }, null)).toBe(
+      true,
+    )
+  })
+
+  it("shows when SERVE unavailable and IAP cold/stale envelope", () => {
+    expect(
+      shouldShowAttackPathsNotComputed({
+        serveJewelsRaw: null,
+        serveJewelsError: "502",
+        jewelsEmpty: true,
+        iapFailed: true,
+        jewelsLoading: false,
+        iapLoading: false,
+      }),
+    ).toBe(true)
+  })
+
+  it("hides while either fetch is still in flight", () => {
+    expect(
+      shouldShowAttackPathsNotComputed({
+        serveJewelsRaw: null,
+        serveJewelsError: null,
+        jewelsEmpty: true,
+        iapFailed: true,
+        jewelsLoading: true,
+        iapLoading: false,
+      }),
+    ).toBe(false)
   })
 })

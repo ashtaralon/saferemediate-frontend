@@ -70,3 +70,38 @@ export function resolveJewelPickerList(args: {
   }
   return serveJewels ?? []
 }
+
+/**
+ * True when GET /jewels returned successfully — including empty.
+ * Empty SERVE is projection truth, not "not computed yet."
+ */
+export function isServeJewelsAuthoritative(
+  serveJewelsRaw: unknown,
+  serveJewelsError: string | null | undefined,
+): boolean {
+  return serveJewelsRaw != null && !serveJewelsError
+}
+
+/**
+ * Full-page "Attack paths not computed yet" (IAP cold/stale envelope).
+ * Never show when SERVE /jewels already answered — IAP provenance must
+ * not override an honest READY / empty projection.
+ */
+export function shouldShowAttackPathsNotComputed(args: {
+  serveJewelsRaw: unknown
+  serveJewelsError: string | null | undefined
+  jewelsEmpty: boolean
+  iapFailed: boolean
+  jewelsLoading: boolean
+  iapLoading: boolean
+}): boolean {
+  if (isServeJewelsAuthoritative(args.serveJewelsRaw, args.serveJewelsError)) {
+    return false
+  }
+  return (
+    args.jewelsEmpty &&
+    args.iapFailed &&
+    !args.jewelsLoading &&
+    !args.iapLoading
+  )
+}
