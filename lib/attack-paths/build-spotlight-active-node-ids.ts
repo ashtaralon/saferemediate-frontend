@@ -252,7 +252,11 @@ export function buildSpotlightActiveNodeIds(params: {
       if (h.node_id) out.add(h.node_id)
       if (h.subnet_id) out.add(h.subnet_id)
       for (const sg of h.security_groups || []) {
-        if (sg) out.add(sg)
+        // Path-authority: only canonical sg-* ids. Name strings repeated
+        // on every hop must not enter the active set (card inflation).
+        if (!sg) continue
+        if (pathAuthorityOnly && !/^sg-[a-f0-9]+$/i.test(sg)) continue
+        out.add(sg)
       }
     }
 
