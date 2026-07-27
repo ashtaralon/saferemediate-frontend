@@ -343,6 +343,96 @@ describe("path-authority honesty invariants", () => {
     }
   })
 
+  it("7b. COLLECTED rule_count seeds checkpoint totalCount", () => {
+    const withRules = path({
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          name: "app",
+          plane: "compute",
+          subnet_id: "subnet-app",
+          security_groups: ["sg-on-path"],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "sg-on-path",
+          node_type: "SecurityGroup",
+          name: "on-path",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "SECURED_BY",
+          rule_count: 12,
+          rules_coverage: "COLLECTED",
+        },
+        {
+          node_id: "arn:aws:iam::1:role/app",
+          node_type: "IAMRole",
+          name: "app",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "USES_ROLE",
+          rule_count: 47,
+          rules_coverage: "COLLECTED",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          name: "saferemediate-raw",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [withRules],
+      spotlightPathId: "p1",
+    })
+    expect(arch.securityGroups[0]?.totalCount).toBe(12)
+    expect(arch.iamRoles[0]?.totalCount).toBe(47)
+  })
+
+  it("7c. NOT_COLLECTED rule_count must not seed totalCount", () => {
+    const notCollected = path({
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: ["sg-on-path"],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "sg-on-path",
+          node_type: "SecurityGroup",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "SECURED_BY",
+          rule_count: 0,
+          rules_coverage: "NOT_COLLECTED",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [notCollected],
+      spotlightPathId: "p1",
+    })
+    expect(arch.securityGroups[0]?.totalCount).toBeNull()
+  })
+
   it("reversed ~edge_type_from_prev flips direction", () => {
     const arch = buildPathAuthorityArchitecture({
       paths: [

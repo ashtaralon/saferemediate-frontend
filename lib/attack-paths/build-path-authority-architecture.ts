@@ -12,6 +12,7 @@ import type {
   ConvergenceHop,
   ConvergencePath,
 } from "@/lib/attack-paths/convergence-types"
+import { hopRuleTotalCount } from "@/lib/attack-paths/hop-rule-total-count"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 
 export interface PathAuthorityJewelRef {
@@ -387,6 +388,7 @@ function emptyCheckpoint(
   id: string,
   name: string,
   computeId?: string,
+  totalCount?: number | null,
 ): PathAuthorityCheckpoint {
   return {
     id,
@@ -394,8 +396,7 @@ function emptyCheckpoint(
     name,
     shortName: truncate(name),
     usedCount: 0,
-    // NOT_COLLECTED — never invent 0 rules as a safe posture.
-    totalCount: null,
+    totalCount: totalCount ?? null,
     gapCount: 0,
     connectedSources: computeId ? [computeId] : [],
     connectedTargets: [],
@@ -714,7 +715,15 @@ export function buildPathAuthorityArchitecture(params: {
     } else if (nt.includes("securitygroup") || nt === "sg") {
       if (!seen.sg.has(id)) {
         seen.sg.add(id)
-        securityGroups.push(emptyCheckpoint("security_group", id, name, workloadId))
+        securityGroups.push(
+          emptyCheckpoint(
+            "security_group",
+            id,
+            name,
+            workloadId,
+            hopRuleTotalCount(hop),
+          ),
+        )
       }
       if (name && !isSecurityGroupId(name)) {
         sgNameToId.set(name.toLowerCase(), id)
@@ -725,7 +734,9 @@ export function buildPathAuthorityArchitecture(params: {
     } else if (nt.includes("networkacl") || nt === "nacl") {
       if (!seen.nacl.has(id)) {
         seen.nacl.add(id)
-        nacls.push(emptyCheckpoint("nacl", id, name, workloadId))
+        nacls.push(
+          emptyCheckpoint("nacl", id, name, workloadId, hopRuleTotalCount(hop)),
+        )
       }
     } else if (nt.includes("instanceprofile")) {
       if (!seen.ip.has(id)) {
@@ -738,7 +749,9 @@ export function buildPathAuthorityArchitecture(params: {
     ) {
       if (!seen.role.has(id)) {
         seen.role.add(id)
-        iamRoles.push(emptyCheckpoint("iam_role", id, name, workloadId))
+        iamRoles.push(
+          emptyCheckpoint("iam_role", id, name, workloadId, hopRuleTotalCount(hop)),
+        )
       }
     } else if (nt.includes("subnet")) {
       if (!seen.subnet.has(id)) {

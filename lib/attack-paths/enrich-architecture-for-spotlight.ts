@@ -1,5 +1,6 @@
 import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
 import type { ConvergenceHop, ConvergencePath } from "@/lib/attack-paths/convergence-types"
+import { hopRuleTotalCount } from "@/lib/attack-paths/hop-rule-total-count"
 
 /** Minimal flow shape for checkpoint patching (avoids importing TFM). */
 export interface SpotlightFlowCheckpoint {
@@ -148,19 +149,7 @@ function seedCheckpoint(
 
 /** Read rule/permission total from a convergence hop if the API stamped it. */
 function hopTotalCount(hop: ConvergenceHop): number | null {
-  const anyHop = hop as ConvergenceHop & {
-    total_rules?: unknown
-    key_properties?: Record<string, unknown> | null
-    properties?: Record<string, unknown> | null
-  }
-  const props = anyHop.key_properties || anyHop.properties || null
-  const raw =
-    (typeof anyHop.total_rules === "number" ? anyHop.total_rules : null) ??
-    (props && typeof props.total_rules === "number" ? props.total_rules : null) ??
-    (props && typeof props.allowed_actions_count === "number"
-      ? props.allowed_actions_count
-      : null)
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null
+  return hopRuleTotalCount(hop)
 }
 
 function mergeCheckpoint(
