@@ -45,6 +45,11 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
       page.getByRole("tab", { name: "Reachability", exact: true }),
     ).toBeVisible()
 
+    // Model-level hop detail for all fan-in paths must settle first.
+    await expect(page.getByTestId("zoom0-path-details-loading")).toHaveCount(0, {
+      timeout: READY_MS,
+    })
+
     const map = page.getByTestId("zoom0-attack-map-slot")
     await expect(map).toBeVisible()
 

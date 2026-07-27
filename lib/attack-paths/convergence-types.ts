@@ -68,6 +68,13 @@ export interface ConvergencePath {
   role_assumption_observed?: boolean
   cj_target_id?: string | null
   hops?: ConvergenceHop[]
+  /**
+   * Hop DTO load state from the convergence model.
+   * - pending: summary only — do NOT treat empty hops as "no network"
+   * - ready: /detail settled (hops may still be [] when the path has none)
+   * - error: detail fetch failed
+   */
+  hops_load_state?: "pending" | "ready" | "error"
   /** Multi-edge: one entry per category. Empty list when classifier
    *  hasn't run for this system yet (migration window). */
   initial_access?: InitialAccessEdge[]

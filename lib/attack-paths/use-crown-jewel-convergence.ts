@@ -6,6 +6,14 @@ import {
   buildConvergenceDetailUrl,
   buildConvergenceSummaryUrl,
 } from "./convergence-fetch-url"
+import {
+  detailsLoadingFor,
+  detailsReadyFor,
+  mapPool,
+  mergeSummaryWithPathDetails,
+  pathIdsNeedingDetail,
+  type PathDetailRecord,
+} from "./convergence-path-details"
 import { matchConvergencePathId } from "./iap-to-convergence"
 import type {
   ConvergencePath,
@@ -16,105 +24,28 @@ import type {
 interface UseCrownJewelConvergenceResult {
   data: CrownJewelConvergence | null
   loading: boolean
-  /** True while an automatic cold-start retry is scheduled / in flight. */
+  /** True while summary auto-retry is scheduled / in flight. */
   retrying: boolean
+  /** True while one or more required path /detail fetches are unsettled. */
+  detailsLoading: boolean
+  /** True when every required path detail has settled (ready or error). */
+  detailsReady: boolean
   /** How many summary attempts have been made for this jewel (1-based). */
   attempts: number
   error: string | null
   retry: () => void
 }
 
-function firstWorkloadPathId(
-  paths: CrownJewelConvergenceSummary["paths"],
-): string | null {
-  const real = paths.find((p) => (p.workload_arn ?? "").trim().length > 0)
-  return real?.path_id ?? paths[0]?.path_id ?? null
-}
-
-function summaryToConvergence(
-  summary: CrownJewelConvergenceSummary,
-  detailsByPathId: Record<string, ConvergencePath>,
-): CrownJewelConvergence {
-  const paths: ConvergencePath[] = summary.paths.map((p) => {
-    const evidence = p.evidence ?? p.confidence
-    const base: ConvergencePath = {
-      path_id: p.path_id,
-      source: p.source,
-      source_kind: p.source_kind,
-      workload_arn: p.workload_arn,
-      identity: p.identity,
-      identity_name: p.identity_name,
-      damage: p.damage,
-      score: p.score,
-      severity: p.severity,
-      severity_label: p.severity_label,
-      evidence,
-      confidence: evidence,
-      identity_gate: p.identity_gate,
-      route_gate: p.route_gate,
-      data_plane_gate: p.data_plane_gate,
-      path_status: p.path_status,
-      hop_count: p.hop_count,
-      routes_via: [],
-      role_assumption_observed: false,
-      cj_target_id: summary.cj_arn ?? summary.cj_name ?? null,
-      hops: [],
-      initial_access: [],
-      impact_headline: p.impact_headline,
-      business_sentence: p.business_sentence,
-      closure_recommendation: p.closure_recommendation,
-      computed_at: p.computed_at,
-      schema_version: p.schema_version,
-    }
-    const detail = detailsByPathId[p.path_id]
-    if (detail) {
-      const detailEvidence = detail.evidence ?? detail.confidence ?? evidence
-      return {
-        ...base,
-        evidence: detailEvidence,
-        confidence: detailEvidence,
-        identity_gate: detail.identity_gate ?? base.identity_gate,
-        route_gate: detail.route_gate ?? base.route_gate,
-        data_plane_gate: detail.data_plane_gate ?? base.data_plane_gate,
-        path_status: detail.path_status ?? base.path_status,
-        routes_via: detail.routes_via ?? [],
-        role_assumption_observed: detail.role_assumption_observed ?? false,
-        cj_target_id: detail.cj_target_id ?? base.cj_target_id,
-        hops: detail.hops ?? [],
-        initial_access: detail.initial_access ?? [],
-        impact_headline: detail.impact_headline ?? base.impact_headline,
-        business_sentence: detail.business_sentence ?? base.business_sentence,
-        closure_recommendation:
-          detail.closure_recommendation ?? base.closure_recommendation,
-        severity_label: detail.severity_label ?? base.severity_label,
-        computed_at: detail.computed_at ?? base.computed_at,
-        schema_version: detail.schema_version ?? base.schema_version,
-      }
-    }
-    return base
-  })
-
-  return {
-    system: summary.system,
-    cj_arn: summary.cj_arn,
-    cj_name: summary.cj_name,
-    cj_type: summary.cj_type,
-    paths_total: summary.paths_total,
-    observed_paths: summary.observed_paths,
-    choke_points: summary.choke_points,
-    paths,
-    risk_summary: summary.risk_summary ?? null,
-    serve_state: summary.serve_state,
-    coverage_state: summary.coverage_state,
-    generation: summary.generation,
-    as_of: summary.as_of,
-  }
-}
-
 const MAX_AUTO_RETRIES = 4
 const RETRY_DELAYS_MS = [3000, 6000, 10000, 15000]
+/** Parallel /detail fetches — keep modest to avoid proxy saturation. */
+const DETAIL_FETCH_CONCURRENCY = 4
 
-/** Summary first (fast strip) + hop detail for canvas spine wiring.
+/** Summary first (fast strip) + hop detail for every path in the model.
+ *
+ * Fan-in (no path pin) detail-fetches ALL summary path_ids so the
+ * path-authority canvas never paints a Lambda-only spine over an EC2
+ * sibling that still has subnet/SG/NACL hops in Neo4j.
  *
  * Cold Render workers often return nothing for 55s+ on first hit. We auto-
  * retry the summary a few times instead of surfacing a hard HTTP 502 after
@@ -128,7 +59,7 @@ export function useCrownJewelConvergence(
 ): UseCrownJewelConvergenceResult {
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
-    Record<string, ConvergencePath>
+    Record<string, PathDetailRecord>
   >({})
   const [loading, setLoading] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -246,49 +177,88 @@ export function useCrownJewelConvergence(
     [summary, selectedPathId, iapPaths],
   )
 
-  // Phase 2: hop detail
+  const neededDetailIds = useMemo(
+    () => pathIdsNeedingDetail(summary, resolvedSelectedPathId),
+    [summary, resolvedSelectedPathId],
+  )
+
+  // Phase 2: hop detail for every path the model needs (fan-in = all).
   useEffect(() => {
     if (!systemName || !jewel || !summary) return
-
-    const pathIdToFetch = resolvedSelectedPathId ?? firstWorkloadPathId(summary.paths)
-    if (!pathIdToFetch) return
+    if (neededDetailIds.length === 0) return
 
     let cancelled = false
-    const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathIdToFetch)
-    const ctrl = new AbortController()
-    const timer = setTimeout(
-      () => ctrl.abort(new DOMException("Backend slow — no response in 55s", "TimeoutError")),
-      55_000,
-    )
+
+    // Mark required ids pending (preserve already-ready rows for the same pin).
+    setDetailsByPathId((prev) => {
+      const next: Record<string, PathDetailRecord> = {}
+      for (const id of neededDetailIds) {
+        const existing = prev[id]
+        next[id] =
+          existing?.state === "ready" && existing.path
+            ? existing
+            : { state: "pending" }
+      }
+      return next
+    })
 
     const run = async () => {
-      try {
-        const detailRes = await fetch(detailUrl, {
-          cache: "no-store",
-          signal: ctrl.signal,
-        })
-        const detailBody = (await detailRes.json().catch(() => null)) as
-          | { path?: ConvergencePath; error?: string }
-          | null
-        if (!cancelled && detailRes.ok && detailBody?.path) {
+      await mapPool(neededDetailIds, DETAIL_FETCH_CONCURRENCY, async (pathId) => {
+        if (cancelled) return pathId
+        const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId)
+        const ctrl = new AbortController()
+        const timer = setTimeout(
+          () =>
+            ctrl.abort(
+              new DOMException("Backend slow — no response in 55s", "TimeoutError"),
+            ),
+          55_000,
+        )
+        try {
+          const detailRes = await fetch(detailUrl, {
+            cache: "no-store",
+            signal: ctrl.signal,
+          })
+          const detailBody = (await detailRes.json().catch(() => null)) as
+            | { path?: ConvergencePath; error?: string }
+            | null
+          if (cancelled) return pathId
+          if (detailRes.ok && detailBody?.path) {
+            setDetailsByPathId((prev) => ({
+              ...prev,
+              [pathId]: { state: "ready", path: detailBody.path! },
+            }))
+          } else {
+            setDetailsByPathId((prev) => ({
+              ...prev,
+              [pathId]: {
+                state: "error",
+                error:
+                  detailBody?.error ??
+                  `detail ${detailRes.status}`,
+              },
+            }))
+          }
+        } catch (e) {
+          if (cancelled) return pathId
           setDetailsByPathId((prev) => ({
             ...prev,
-            [pathIdToFetch]: detailBody.path!,
+            [pathId]: {
+              state: "error",
+              error: (e as Error).message ?? "detail fetch failed",
+            },
           }))
+        } finally {
+          clearTimeout(timer)
         }
-      } catch {
-        // Detail is optional — summary strip still renders.
-      } finally {
-        clearTimeout(timer)
-      }
+        return pathId
+      })
     }
 
     void run()
 
     return () => {
       cancelled = true
-      clearTimeout(timer)
-      ctrl.abort()
     }
   }, [
     systemName,
@@ -297,13 +267,26 @@ export function useCrownJewelConvergence(
     jewel?.name,
     resolvedSelectedPathId,
     summary,
+    neededDetailIds.join("|"),
     nonce,
   ])
 
   const data =
-    summary != null ? summaryToConvergence(summary, detailsByPathId) : null
+    summary != null ? mergeSummaryWithPathDetails(summary, detailsByPathId) : null
 
-  return { data, loading, retrying, attempts, error, retry }
+  const detailsReady = detailsReadyFor(neededDetailIds, detailsByPathId)
+  const detailsLoading = detailsLoadingFor(neededDetailIds, detailsByPathId)
+
+  return {
+    data,
+    loading,
+    retrying,
+    detailsLoading,
+    detailsReady,
+    attempts,
+    error,
+    retry,
+  }
 }
 
 /** Minimal jewel for callers that only have arn/name (convergence-map-loader). */
