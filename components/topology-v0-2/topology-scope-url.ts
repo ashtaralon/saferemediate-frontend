@@ -29,7 +29,7 @@ export function buildTopologyRiskCacheKey(
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}.
  * Schema suffix busts Vercel/in-memory poison after Wave-D empty envelopes. */
-const TOPOLOGY_RISK_SERVER_CACHE_SCHEMA = "2026-07-13:poison-bypass"
+const TOPOLOGY_RISK_SERVER_CACHE_SCHEMA = "2026-07-27:selected-scope-echo"
 
 export function buildTopologyRiskServerCacheKey(
   systemName: string,

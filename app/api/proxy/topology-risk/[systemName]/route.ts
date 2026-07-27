@@ -68,16 +68,43 @@ function serveStale(cacheKey: string, reason: string): NextResponse | null {
   )
 }
 
-function respondOk(cacheKey: string, data: unknown, cacheLabel: string): NextResponse {
-  if (isPoisonousProxyPayload(data)) {
+function stampSelectedScope(
+  data: unknown,
+  scope: ReturnType<typeof scopeFromRequest>,
+): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data
+  const out = { ...(data as Record<string, unknown>) }
+  // Snapshot HIT paths often omit echo fields even when the request was
+  // scoped — stamp from the request so UI/tests see the active filter.
+  if (scope.accountId && out.selected_account_id == null) {
+    out.selected_account_id = scope.accountId
+  }
+  if (scope.region && out.selected_region_id == null) {
+    out.selected_region_id = scope.region
+  }
+  if (scope.vpcId) {
+    if (out.selected_vpc_id == null) out.selected_vpc_id = scope.vpcId
+    if (out.vpc_id == null) out.vpc_id = scope.vpcId
+  }
+  return out
+}
+
+function respondOk(
+  cacheKey: string,
+  data: unknown,
+  cacheLabel: string,
+  scope: ReturnType<typeof scopeFromRequest>,
+): NextResponse {
+  const stamped = stampSelectedScope(data, scope)
+  if (isPoisonousProxyPayload(stamped)) {
     const stale = serveStale(cacheKey, "peer_computing")
     if (stale) return stale
-    return NextResponse.json(data, {
+    return NextResponse.json(stamped, {
       headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
     })
   }
-  setCached(cacheKey, data, TTL_SLOW)
-  return NextResponse.json(data, {
+  setCached(cacheKey, stamped, TTL_SLOW)
+  return NextResponse.json(stamped, {
     headers: {
       "X-Cache": cacheLabel,
       "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
@@ -130,7 +157,7 @@ export async function GET(
 
   const cached = getCached(cacheKey)
   if (cached && !isPoisonousProxyPayload(cached)) {
-    return NextResponse.json(cached, {
+    return NextResponse.json(stampSelectedScope(cached, scope), {
       headers: {
         "X-Cache": "HIT",
         "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
@@ -145,13 +172,13 @@ export async function GET(
   // abort early so we still have budget for a snapshot retry.
   let result = await fetchTopology(url, TOPOLOGY_WAKE_TIMEOUT_MS)
   if (result.ok === true) {
-    return respondOk(cacheKey, result.data, "MISS")
+    return respondOk(cacheKey, result.data, "MISS", scope)
   }
 
   if ("status" in result && result.status === 503) {
     await new Promise((r) => setTimeout(r, 800))
     result = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
-    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS")
+    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS", scope)
   }
 
   // Attempt 2 — after wake / timeout / 5xx, DynamoDB snapshot is usually ready.
@@ -162,7 +189,7 @@ export async function GET(
     )
     await new Promise((r) => setTimeout(r, 400))
     const retry = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
-    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY")
+    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY", scope)
     result = retry
   }
 

@@ -466,5 +466,36 @@ export async function layoutCloudGraphFlow(
       enforced.violations.map((v) => v.detail),
     )
   }
-  return layoutContainmentNested(enforced.model, path, viewMode)
+
+  // Re-apply A6 after frame expansion. Containment can leave a later ENTRY
+  // (FOOTHOLD in a left subnet) left of an earlier NETWORK (IGW) in absolute
+  // space — which C8 reads from DOM after nested layout.
+  const postContainmentPositioned = enforced.model.cards.map((card) => ({
+    id: card.id,
+    x: card.x,
+    y: card.y,
+    width: card.w,
+    height: card.h,
+    semantic: classifyNodeSemantic({
+      cat: card.cat,
+      badge: card.badge,
+      title: card.title,
+      onPath: card.onPath,
+    }),
+  }))
+  const reAnchored = enforceAnchoring(
+    postContainmentPositioned,
+    canvas,
+    spineIds,
+  )
+  const reSnappedById = new Map(reAnchored.nodes.map((n) => [n.id, n]))
+  const finalModel: ContainmentModel = {
+    ...enforced.model,
+    cards: enforced.model.cards.map((card) => {
+      const s = reSnappedById.get(card.id)
+      return s ? { ...card, x: s.x, y: s.y } : card
+    }),
+  }
+  const finalContained = enforceContainmentOnModel(finalModel)
+  return layoutContainmentNested(finalContained.model, path, viewMode)
 }

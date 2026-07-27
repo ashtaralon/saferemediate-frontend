@@ -59,8 +59,8 @@ const RETRYABLE_STATUSES = new Set([502, 503, 504])
 export async function liveGetWithRetry(
   request: APIRequestContext,
   path: string,
-  attempts = 3,
-  pauseMs = 8000,
+  attempts = 5,
+  pauseMs = 10_000,
 ) {
   let last = await request.get(path)
   for (let i = 1; i < attempts && RETRYABLE_STATUSES.has(last.status()); i++) {
@@ -69,3 +69,4 @@ export async function liveGetWithRetry(
   }
   return last
 }
+

@@ -344,6 +344,7 @@ export function PathAnalysisPanel({
         />
       ) : null}
       <div
+        ref={damageScopePortalContainerRef}
         className={`relative rounded-[14px] px-3 pt-2 pb-4 ${
           mapOnlyPanel
             ? "flex flex-1 flex-col min-h-0 overflow-hidden"
@@ -358,6 +359,16 @@ export function PathAnalysisPanel({
           architecture={architecture}
           architectureLoading={architectureLoading}
           fillHeight={mapOnlyPanel}
+          fullscreenContainerRef={damageScopePortalContainerRef}
+          onDamageScopeDataNode={(node) => {
+            setDamageScopeTarget({
+              systemName,
+              pathId: path.id,
+              nodeId: node.id,
+              nodeName: node.name,
+            })
+            setDamageScopeOpen(true)
+          }}
         />
       </div>
     </div>
@@ -371,6 +382,12 @@ export function PathAnalysisPanel({
             Attack map unavailable — enable Cyntro map mode or select a path.
           </div>
         )}
+        <DamageScopeDrawer
+          target={damageScopeTarget}
+          open={damageScopeOpen}
+          onOpenChange={setDamageScopeOpen}
+          portalContainerRef={damageScopePortalContainerRef}
+        />
       </div>
     )
   }

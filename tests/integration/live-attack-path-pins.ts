@@ -12,5 +12,5 @@ export const ALON_LOGS_PATH_CANONICAL_ID =
   "432c6db135ff8b2af80a67e22ec466f2b4fd3a37512bffea62c73779ac199d42"
 export const ALON_LOGS_JEWEL_ARN = "arn:aws:s3:::saferemediate-logs-745783559495"
 
-/** Facade IAP fetch shape — must match attack-path proxy route. */
-export const FACADE_IAP_QUERY = "?max_jewels=8&max_paths_per_jewel=8&enriched=true"
+/** Facade IAP fetch shape — must match attack-path proxy / IAP_PROXY_DEFAULT_MAX_JEWELS. */
+export const FACADE_IAP_QUERY = "?max_jewels=12&max_paths_per_jewel=8&enriched=true"

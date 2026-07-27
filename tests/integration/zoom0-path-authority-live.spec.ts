@@ -15,6 +15,15 @@ const JEWEL = encodeURIComponent(
 const READY_MS = 90_000
 
 async function waitForZoom0(page: Page): Promise<void> {
+  // Clear any auto-selected path so Zoom0 fan-in (no path pin) mounts.
+  const url = new URL(page.url())
+  if (url.searchParams.has("path")) {
+    url.searchParams.delete("path")
+    await page.goto(url.toString(), { waitUntil: "domcontentloaded" })
+  }
+  await expect(page.getByText(/Loading attack paths for/i)).toHaveCount(0, {
+    timeout: READY_MS,
+  })
   await expect(page.getByTestId("zoom0-fan-in")).toBeVisible({
     timeout: READY_MS,
   })
