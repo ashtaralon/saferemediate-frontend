@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import {
+  getCached,
+  getStaleCached,
+  setCached,
+  TTL_FAST,
+  TTL_SLOW,
+} from "@/lib/server/proxy-cache"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
+
+function crownJewelCount(data: unknown): number {
+  if (!data || typeof data !== "object") return -1
+  const d = data as Record<string, unknown>
+  const nested =
+    (d.result as Record<string, unknown> | undefined)?.crown_jewels ??
+    (d.data as Record<string, unknown> | undefined)?.crown_jewels ??
+    d.crown_jewels
+  return Array.isArray(nested) ? nested.length : -1
+}
+
+function hasUsableJewels(data: unknown): boolean {
+  return crownJewelCount(data) > 0
+}
 
 /** Lightweight Crown Jewel list — pairs with BE /identity-attack-paths/{system}/jewels */
 export async function GET(
@@ -15,7 +35,9 @@ export async function GET(
   const { systemName } = await params
   const cacheKey = `iap-jewels:${systemName}`
   const cached = getCached(cacheKey)
-  if (cached) {
+  // Never serve a cached empty list as a HIT — empty was often a cold
+  // SERVE / freeze artifact and poisons the Attack Paths rail for TTL_SLOW.
+  if (cached && hasUsableJewels(cached)) {
     return NextResponse.json(cached, {
       headers: {
         "X-Cache": "HIT",
@@ -36,7 +58,9 @@ export async function GET(
       console.error(`[iap-jewels] backend ${res.status}: ${body.slice(0, 200)}`)
       if (res.status >= 500) {
         const stale = getStaleCached(cacheKey)
-        if (stale) {
+        // Only degrade to stale when it actually has jewels — never
+        // re-poison the rail with a cached empty.
+        if (stale && hasUsableJewels(stale)) {
           console.warn(
             `[iap-jewels] backend ${res.status} — serving stale cache systemName=${systemName}`,
           )
@@ -57,11 +81,15 @@ export async function GET(
       )
     }
     const data = await res.json()
-    setCached(cacheKey, data, TTL_SLOW)
+    // Authoritative non-empty → long TTL. Empty → short TTL so a post-rebuild
+    // populate is visible within ~30s, not stuck for 5 minutes.
+    setCached(cacheKey, data, hasUsableJewels(data) ? TTL_SLOW : TTL_FAST)
     return NextResponse.json(data, {
       headers: {
         "X-Cache": "MISS",
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        "Cache-Control": hasUsableJewels(data)
+          ? "public, s-maxage=300, stale-while-revalidate=600"
+          : "public, s-maxage=30, stale-while-revalidate=30",
       },
     })
   } catch (err: unknown) {
@@ -70,7 +98,7 @@ export async function GET(
       err instanceof Error &&
       (err.name === "TimeoutError" || err.name === "AbortError" || msg.includes("timeout"))
     const stale = getStaleCached(cacheKey)
-    if (stale) {
+    if (stale && hasUsableJewels(stale)) {
       console.warn(`[iap-jewels] ${isTimeout ? "timeout" : "fetch failed"} — serving stale cache systemName=${systemName}`)
       return NextResponse.json(
         { ...stale, fromStaleCache: true, staleReason: isTimeout ? "timeout" : "fetch_failed" },
