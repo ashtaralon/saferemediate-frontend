@@ -160,13 +160,14 @@ export function Zoom0FanInPanel({
   systemName,
   jewel,
   paths,
-  selectedPathId,
+  selectedPathId: _selectedPathId,
   onRequestMode,
   isExpanded = false,
 }: {
   systemName: string
   jewel: CrownJewelSummary
   paths: IdentityAttackPath[]
+  /** Call-site compat; fan-in always loads hop detail for all paths. */
   selectedPathId: string | null
   /** Optional: jump to full Lateral Movement / Exfiltration presentation. */
   onRequestMode?: (mode: "lateral" | "exfil") => void
