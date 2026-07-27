@@ -32,6 +32,7 @@ import type {
   CrownJewelConvergence,
   JewelRiskSummary,
 } from "@/lib/attack-paths/convergence-types"
+import { pathsWithAuthoritativeHops } from "@/lib/attack-paths/convergence-path-details"
 import {
   crownJewelFromArnName,
   useCrownJewelConvergence,
@@ -70,8 +71,9 @@ export function zoom0SpotlightPaths(
     paths = paths.filter((p) => allow.has(p.path_id))
   }
   // Union all (workload) paths to the jewel — same selectSpotlightPaths(null)
-  // as dependency-map CJ spotlight.
-  return selectSpotlightPaths(paths, null)
+  // as dependency-map CJ spotlight. Only paths with settled hop DTOs —
+  // pending summary rows must not paint a false "no network" spine.
+  return pathsWithAuthoritativeHops(selectSpotlightPaths(paths, null))
 }
 
 /** Server risk_summary only — never synthesize from paths[0]. */
@@ -175,12 +177,11 @@ export function Zoom0FanInPanel({
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
   const convergenceJewel = crownJewelFromArnName(cjArn, jewel.name)
 
-  const { data, loading, error, retry } = useCrownJewelConvergence(
-    systemName,
-    convergenceJewel,
-    selectedPathId,
-    paths,
-  )
+  // Fan-in model: never pin a single path_id into the detail fetch.
+  // Pinning would load hops for only one sibling (often Lambda) and paint
+  // a false "IAM-only" map over EC2 paths that still have network hops.
+  const { data, loading, error, retry, detailsLoading, detailsReady } =
+    useCrownJewelConvergence(systemName, convergenceJewel, null, paths)
 
   const iapFallback = useMemo(() => {
     if (paths.length === 0) return null
@@ -475,6 +476,18 @@ export function Zoom0FanInPanel({
                 Many paths converge here. Expand a choke-point tile above to
                 draw that subset on the Attack Map — avoids spaghetti.
               </div>
+            ) : !detailsReady || detailsLoading ? (
+              <div
+                className="flex h-full min-h-[360px] items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                data-testid="zoom0-path-details-loading"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading hop topology for all paths to this jewel…
+              </div>
+            ) : spotlightPaths.length === 0 ? (
+              <div className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground">
+                Path hop details unavailable — cannot draw an honest Attack Map.
+              </div>
             ) : (
               <div
                 className={`h-full overflow-hidden ${
@@ -482,7 +495,7 @@ export function Zoom0FanInPanel({
                 }`}
               >
                 <TrafficFlowMap
-                  key={`zoom0-tfm-${detailsPanel}`}
+                  key={`zoom0-tfm-${detailsPanel}-${spotlightPaths.map((p) => p.path_id).join(",")}`}
                   systemName={systemName}
                   spotlightPaths={spotlightPaths}
                   spotlightPathId={null}
