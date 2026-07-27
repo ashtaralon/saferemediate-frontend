@@ -80,6 +80,17 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
       map.getByText("Security Gap (finding)", { exact: true }),
     ).toBeVisible()
 
+    // Amber reserved for findings: CJ + IGW chrome must stay neutral.
+    const cj = map.locator('[data-testid="crown-jewel-node-button"]')
+    if ((await cj.count()) > 0) {
+      await expect(cj.first()).toHaveAttribute("data-cj-chrome", "neutral")
+    }
+    const gateways = map.locator('[data-gateway-id][data-gateway-chrome="neutral"]')
+    // Present only when an IGW/NAT hop is on the DTO (logs jewel has none).
+    if ((await gateways.count()) > 0) {
+      await expect(gateways.first()).toHaveAttribute("data-gateway-chrome", "neutral")
+    }
+
     // Gateway / VPCE ownership chips (N of M paths) when those hops exist
     const ownershipChips = map.locator("[data-path-ownership-chip]")
     const ownershipCount = await ownershipChips.count()
