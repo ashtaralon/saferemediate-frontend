@@ -6299,7 +6299,19 @@ export function UnifiedArchitectureDiagram({
               )}
             </div>
             {architecture.vpcEndpoints.map(vpce => {
-              const isActive = architecture.flows.some(f => f.vpceId === vpce.id);
+              // Path-authority / explicit-edges: a VPCE on a DTO edge
+              // (ROUTES_VIA / EXFILTRATES_VIA→ROUTES_VIA) is in use even
+              // when legacy flows[] is empty. Checking flows alone lied
+              // with "Not used" on Zoom0 fan-in.
+              const onPathEdge = (architecture.edges ?? []).some(
+                (e) =>
+                  e.source_aws_id === vpce.id || e.target_aws_id === vpce.id,
+              )
+              const isActive =
+                architecture.flows.some((f) => f.vpceId === vpce.id) ||
+                onPathEdge ||
+                (pathAuthorityOnly &&
+                  !!spotlightActiveNodeIds?.has(vpce.id));
               const serviceTitle = vpce.serviceName
                 ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}`
                 : undefined;
@@ -6343,14 +6355,10 @@ export function UnifiedArchitectureDiagram({
                     </div>
                   )}
                   {/* "Not used" badge — visible without hovering when
-                      no flow.vpceId references this endpoint. Matches
-                      pattern_visualize_by_negation: the gap between
-                      "VPCE exists" and "VPCE carries traffic" IS the
-                      security signal (e.g. private routing is
-                      available but the workload egresses via IGW
-                      instead). Path-filter-on hides this since the
-                      filter narrative already implies the same. */}
-                  {!isActive && !pathFilterActive && (
+                      no flow.vpceId / path edge references this endpoint.
+                      Matches pattern_visualize_by_negation. Path-filter /
+                      path-authority hide this when the VPCE is on-path. */}
+                  {!isActive && !pathFilterActive && !pathAuthorityOnly && (
                     <div className="mt-1 text-center">
                       <span
                         className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded border bg-slate-500/15 border-slate-500/40 text-slate-700 dark:text-slate-300"

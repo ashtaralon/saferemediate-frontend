@@ -163,14 +163,26 @@ const KNOWN_RELS = new Set<string>([
   "RUNTIME_CALLS",
 ])
 
+/** DTO aliases → canvas relationship (never invent; only normalize spelling). */
+const REL_ALIASES: Record<string, CanvasRelationshipType> = {
+  // Materializer stamps bucket/role → VPCE as EXFILTRATES_VIA; canvas
+  // already treats ROUTES_VIA as configured routing association.
+  EXFILTRATES_VIA: "ROUTES_VIA",
+}
+
+function isSecurityGroupId(id: string): boolean {
+  return /^sg-[a-f0-9]+$/i.test(id)
+}
+
 function parseEdgeType(
   raw: string | null | undefined,
 ): { relationship: CanvasRelationshipType; reversed: boolean } | null {
   if (!raw || !raw.trim()) return null
   const reversed = raw.startsWith("~")
   const rel = (reversed ? raw.slice(1) : raw).toUpperCase().trim()
-  if (!KNOWN_RELS.has(rel)) return null
-  return { relationship: rel as CanvasRelationshipType, reversed }
+  const canonical = REL_ALIASES[rel] ?? rel
+  if (!KNOWN_RELS.has(canonical)) return null
+  return { relationship: canonical as CanvasRelationshipType, reversed }
 }
 
 /**
@@ -249,8 +261,10 @@ export function collectPathAuthorityNodeIds(params: {
     for (const h of p.hops ?? []) {
       if (h.node_id) out.add(h.node_id)
       if (h.subnet_id) out.add(h.subnet_id)
+      // Only canonical sg-* ids — hop.security_groups often repeats the
+      // SG *name* on every hop and must not invent path-layer cards.
       for (const sg of h.security_groups || []) {
-        if (sg) out.add(sg)
+        if (sg && isSecurityGroupId(sg)) out.add(sg)
       }
     }
   }
@@ -405,6 +419,8 @@ export function buildPathAuthorityArchitecture(params: {
   const edges: CanvasEdge[] = []
   const edgeSeen = new Set<string>()
   const onPathNodeIds = collectPathAuthorityNodeIds(params)
+  /** SG display-name → canonical sg-* id from SecurityGroup hops. */
+  const sgNameToId = new Map<string, string>()
 
   const seedHop = (hop: ConvergenceHop, workloadId: string) => {
     const id = hop.node_id
@@ -427,6 +443,12 @@ export function buildPathAuthorityArchitecture(params: {
       if (!seen.sg.has(id)) {
         seen.sg.add(id)
         securityGroups.push(emptyCheckpoint("security_group", id, name, workloadId))
+      }
+      if (name && !isSecurityGroupId(name)) {
+        sgNameToId.set(name.toLowerCase(), id)
+      }
+      if (isSecurityGroupId(id)) {
+        sgNameToId.set(id.toLowerCase(), id)
       }
     } else if (nt.includes("networkacl") || nt === "nacl") {
       if (!seen.nacl.has(id)) {
@@ -512,7 +534,8 @@ export function buildPathAuthorityArchitecture(params: {
       }
     }
 
-    // Attachment facts on the hop (parallel to the walk — not a pipeline).
+    // Subnet attachment id only — never invent SG cards from name strings
+    // stamped on every hop (that inflated 3 SGs → 7).
     if (hop.subnet_id && !seen.subnet.has(hop.subnet_id)) {
       seen.subnet.add(hop.subnet_id)
       subnets.push({
@@ -524,11 +547,12 @@ export function buildPathAuthorityArchitecture(params: {
         connectedComputeIds: workloadId ? [workloadId] : [],
       })
     }
-    for (const sg of hop.security_groups || []) {
-      if (!sg || seen.sg.has(sg)) continue
-      seen.sg.add(sg)
-      securityGroups.push(emptyCheckpoint("security_group", sg, sg, workloadId))
-    }
+  }
+
+  const resolveSgId = (raw: string): string | null => {
+    if (!raw) return null
+    if (isSecurityGroupId(raw)) return raw
+    return sgNameToId.get(raw.toLowerCase()) ?? null
   }
 
   for (const p of lane) {
@@ -609,13 +633,20 @@ export function buildPathAuthorityArchitecture(params: {
             p.evidence || p.confidence || "configured",
           )
         }
-        for (const sg of hop.security_groups || []) {
-          if (!sg) continue
+        for (const sgRaw of hop.security_groups || []) {
+          const sgId = resolveSgId(sgRaw)
+          if (!sgId) continue
+          if (!seen.sg.has(sgId)) {
+            seen.sg.add(sgId)
+            securityGroups.push(
+              emptyCheckpoint("security_group", sgId, sgRaw, workloadId),
+            )
+          }
           pushEdge(
             edges,
             edgeSeen,
             computeId,
-            sg,
+            sgId,
             "SECURED_BY",
             p.evidence || p.confidence || "configured",
           )

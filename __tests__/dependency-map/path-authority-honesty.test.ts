@@ -372,4 +372,154 @@ describe("path-authority honesty invariants", () => {
     expect(routes[0].source_aws_id).toBe("arn:aws:s3:::saferemediate-raw")
     expect(routes[0].target_aws_id).toBe("vpce-s3")
   })
+
+  it("8. SG name stamps on every hop do not invent extra SG cards", () => {
+    // Live DTO pattern: security_groups repeats display names on IAM/S3
+    // hops; only three canonical sg-* hops exist.
+    const inflated = path({
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          name: "app",
+          plane: "compute",
+          subnet_id: "subnet-app",
+          security_groups: [
+            "sg-02a2ccfe185765527",
+            "launch-wizard-1",
+            "cyntro-web-sg",
+          ],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "sg-02a2ccfe185765527",
+          node_type: "SecurityGroup",
+          name: "launch-wizard-1",
+          plane: "network",
+          security_groups: ["launch-wizard-1"],
+          is_crown_jewel: false,
+          edge_type_from_prev: "SECURED_BY",
+        },
+        {
+          node_id: "sg-08f4ba91d94bc6d99",
+          node_type: "SecurityGroup",
+          name: "cyntro-web-sg",
+          plane: "network",
+          security_groups: ["cyntro-web-sg"],
+          is_crown_jewel: false,
+          edge_type_from_prev: "SECURED_BY",
+        },
+        {
+          node_id: "sg-0212ab87005f59737",
+          node_type: "SecurityGroup",
+          name: "default",
+          plane: "network",
+          security_groups: ["default"],
+          is_crown_jewel: false,
+          edge_type_from_prev: "SECURED_BY",
+        },
+        {
+          node_id: "arn:aws:iam::1:role/app",
+          node_type: "IAMRole",
+          name: "app",
+          plane: "identity",
+          security_groups: ["launch-wizard-1", "cyntro-web-sg", "default"],
+          is_crown_jewel: false,
+          edge_type_from_prev: "USES_ROLE",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          name: "saferemediate-raw",
+          plane: "data",
+          security_groups: ["launch-wizard-1", "cyntro-web-sg"],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+
+    const ids = collectPathAuthorityNodeIds({
+      paths: [inflated],
+      spotlightPathId: "p1",
+    })
+    expect(ids.has("launch-wizard-1")).toBe(false)
+    expect(ids.has("cyntro-web-sg")).toBe(false)
+    expect(ids.has("default")).toBe(false)
+
+    const arch = buildPathAuthorityArchitecture({
+      paths: [inflated],
+      spotlightPathId: "p1",
+    })
+    expect(arch.securityGroups.map((s) => s.id).sort()).toEqual([
+      "sg-0212ab87005f59737",
+      "sg-02a2ccfe185765527",
+      "sg-08f4ba91d94bc6d99",
+    ])
+
+    const spotlight = buildSpotlightActiveNodeIds({
+      paths: [inflated],
+      spotlightPathId: "p1",
+      architecture: estateArch,
+      pathAuthorityOnly: true,
+    })
+    expect(spotlight.has("launch-wizard-1")).toBe(false)
+    expect(spotlight.has("sg-02a2ccfe185765527")).toBe(true)
+  })
+
+  it("9. EXFILTRATES_VIA becomes ROUTES_VIA and seeds the VPCE", () => {
+    const exfil = path({
+      hops: [
+        {
+          node_id: "i-bbb",
+          node_type: "EC2Instance",
+          name: "web",
+          plane: "compute",
+          security_groups: ["sg-08f4ba91d94bc6d99"],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          name: "saferemediate-raw",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+        {
+          node_id: "vpce-03697705b0333e336",
+          node_type: "VPCEndpoint",
+          name: "vpce-03697705b0333e336",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "EXFILTRATES_VIA",
+        },
+      ],
+    })
+
+    const arch = buildPathAuthorityArchitecture({
+      paths: [exfil],
+      spotlightPathId: "p1",
+      jewel: { id: "arn:aws:s3:::saferemediate-raw" },
+    })
+    expect(arch.vpcEndpoints.map((v) => v.id)).toEqual([
+      "vpce-03697705b0333e336",
+    ])
+    const routes = arch.edges.filter((e) => e.relationship === "ROUTES_VIA")
+    expect(routes).toHaveLength(1)
+    expect(routes[0].source_aws_id).toBe("arn:aws:s3:::saferemediate-raw")
+    expect(routes[0].target_aws_id).toBe("vpce-03697705b0333e336")
+    // Path-authority flows stay empty — TFM must treat edge membership
+    // as "in use", not require flows[].vpceId.
+    expect(arch.flows).toEqual([])
+    expect(
+      arch.edges.some(
+        (e) =>
+          e.source_aws_id === "vpce-03697705b0333e336" ||
+          e.target_aws_id === "vpce-03697705b0333e336",
+      ),
+    ).toBe(true)
+  })
 })
