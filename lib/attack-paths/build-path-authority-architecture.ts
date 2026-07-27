@@ -419,10 +419,13 @@ export function buildPathAuthorityArchitecture(params: {
   const edges: CanvasEdge[] = []
   const edgeSeen = new Set<string>()
   const onPathNodeIds = collectPathAuthorityNodeIds(params)
-  /** SG display-name → canonical sg-* id from SecurityGroup hops. */
-  const sgNameToId = new Map<string, string>()
 
-  const seedHop = (hop: ConvergenceHop, workloadId: string) => {
+  const seedHop = (
+    hop: ConvergenceHop,
+    workloadId: string,
+    /** Per-path name→sg-* map — never share across fan-in siblings. */
+    sgNameToId: Map<string, string>,
+  ) => {
     const id = hop.node_id
     if (!id) return
     const name = hop.name || id
@@ -549,19 +552,22 @@ export function buildPathAuthorityArchitecture(params: {
     }
   }
 
-  const resolveSgId = (raw: string): string | null => {
-    if (!raw) return null
-    if (isSecurityGroupId(raw)) return raw
-    return sgNameToId.get(raw.toLowerCase()) ?? null
-  }
-
   for (const p of lane) {
     const workloadId =
       extractInstanceId(p.workload_arn) ||
       (p.workload_arn ?? "").trim() ||
       ""
     const hops = p.hops ?? []
-    for (const hop of hops) seedHop(hop, workloadId)
+    // Scope SG name resolution to this path only — a shared map would let
+    // path A's "default" resolve path B's name stamp to the wrong sg-*.
+    const sgNameToId = new Map<string, string>()
+    for (const hop of hops) seedHop(hop, workloadId, sgNameToId)
+
+    const resolveSgId = (raw: string): string | null => {
+      if (!raw) return null
+      if (isSecurityGroupId(raw)) return raw
+      return sgNameToId.get(raw.toLowerCase()) ?? null
+    }
 
     if (p.identity?.trim() && !seen.role.has(p.identity)) {
       seen.role.add(p.identity)

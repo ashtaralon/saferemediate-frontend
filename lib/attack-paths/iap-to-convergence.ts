@@ -86,6 +86,8 @@ export function iapPathsToConvergence(
       role_assumption_observed: p.evidence_type === "observed",
       cj_target_id: jewel.canonical_id ?? jewel.id,
       hops,
+      // Synthetic IAP spine — never authoritative for path-authority TFM.
+      hops_load_state: "fallback",
     })
   }
 

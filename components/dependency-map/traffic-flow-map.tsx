@@ -3914,6 +3914,7 @@ export function ConnectionLinesSVG({
   showLaterals = false,
   layoutEpoch = 0,
   showAllConnections = false,
+  pathAuthorityOnly = false,
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
@@ -3943,6 +3944,8 @@ export function ConnectionLinesSVG({
   // restore the legacy "show every flow" behavior — accessible via
   // the "Connections" toolbar button.
   showAllConnections?: boolean;
+  /** Zoom0 path-authority — never invent FE route-precedence chips. */
+  pathAuthorityOnly?: boolean;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
@@ -4567,8 +4570,15 @@ export function ConnectionLinesSVG({
           const targetResource = isDataPlaneAccess
             ? architecture.resources.find((r) => r.id === line.targetId)
             : undefined
+          // Path-authority: DTO edges are the only routing truth. FE
+          // most-specific-prefix against egressGateways invents
+          // "via IGW · public" / data-crosses-internet on fan-in when
+          // one path has IGW and another routes via VPCE.
           const linePrecedence =
-            isOnPath && targetResource && architecture.egressGateways.length > 0
+            !pathAuthorityOnly &&
+            isOnPath &&
+            targetResource &&
+            architecture.egressGateways.length > 0
               ? derivePrecedenceForDestination(
                   targetResource,
                   architecture.egressGateways,
@@ -5321,6 +5331,7 @@ export function UnifiedArchitectureDiagram({
           // the next hover/scroll/resize.
           layoutEpoch={(identityDetailOpen ? 1 : 0) + Math.round(fitScale * 100)}
           showAllConnections={showAllConnections}
+          pathAuthorityOnly={pathAuthorityOnly}
         />
 
         {/* When the path has no network controls at all — no subnets, no
@@ -5840,8 +5851,13 @@ export function UnifiedArchitectureDiagram({
                 // in that case no gateway "wins" anything; render at full
                 // color since the canvas isn't making a routing claim.
                 const noDestinationsAtAll = architecture.resources.length === 0
+                // Path-authority: gateway is on the DTO (else absent from
+                // this lane). FE precedence "Available · Not selected"
+                // invents unused-IGW claims against sibling VPCE paths.
                 const isGateUnused =
-                  !noDestinationsAtAll && !isWinningForAnyDestination
+                  !pathAuthorityOnly &&
+                  !noDestinationsAtAll &&
+                  !isWinningForAnyDestination
                 // Spine mode (3-color discipline): gateway kind hues (sky
                 // NAT, violet TGW) demote to neutral. Internet-facing
                 // gateways (IGW / egress-only IGW) keep the amber/orange
@@ -6510,10 +6526,14 @@ export function UnifiedArchitectureDiagram({
               // that could carry this destination's traffic — chip
               // is omitted rather than fabricated. Anchor:
               // pattern_render_the_answer_not_the_inventory.
-              const routePrecedence = derivePrecedenceForDestination(
-                node,
-                architecture.egressGateways,
-              );
+              // Path-authority: never stamp FE-derived public/private
+              // route claims on the jewel card — only DTO edges speak.
+              const routePrecedence = pathAuthorityOnly
+                ? null
+                : derivePrecedenceForDestination(
+                    node,
+                    architecture.egressGateways,
+                  );
               // 2026-05-28 — emphasize crown jewels in attacker view.
               // jewelEmphasis is opt-in per consumer (ATTACKER VIEW turns it
               // on; System Map, Per-Path, Exfil leave it off so their
@@ -6587,8 +6607,9 @@ export function UnifiedArchitectureDiagram({
                     spineMode={pathFilterActive}
                     isCrownJewel={!!node.isCrownJewel}
                   />
-                  {/* Object-access expander — observed verbs; LP in Resource Risk. */}
-                  {(node.type as string) === 'storage' && (() => {
+                  {/* Object-access expander — estate bucket accessors, not
+                      path-bound. Hidden under path-authority (Zoom0). */}
+                  {!pathAuthorityOnly && (node.type as string) === 'storage' && (() => {
                     const raw = node.name || node.id || '';
                     const bucketArn = raw.startsWith('arn:aws:s3:')
                       ? raw
@@ -7774,15 +7795,29 @@ export default function TrafficFlowMap({
     }) as unknown as SystemArchitecture
   }, [pathAuthorityOnly, spotlightPaths, spotlightPathId, spotlightJewel])
 
-  const showObservedTrafficMetrics = useMemo(
-    () =>
-      !pathAuthorityOnly ||
-      pathHasObservedNetworkEvidence(
+  // Path-authority: never unlock GB / Live Traffic from hop props alone
+  // while architecture totals stay hard-zero (builder does not copy
+  // unbound hop bytes onto edges). Require both path-bound evidence AND
+  // non-zero architecture totals.
+  const showObservedTrafficMetrics = useMemo(() => {
+    if (!pathAuthorityOnly) return true
+    if (
+      !pathHasObservedNetworkEvidence(
         spotlightPaths ?? [],
         spotlightPathId ?? null,
-      ),
-    [pathAuthorityOnly, spotlightPaths, spotlightPathId],
-  )
+      )
+    ) {
+      return false
+    }
+    const arch = pathAuthorityArchitecture
+    if (!arch) return false
+    return (arch.totalBytes ?? 0) > 0 || (arch.totalConnections ?? 0) > 0
+  }, [
+    pathAuthorityOnly,
+    spotlightPaths,
+    spotlightPathId,
+    pathAuthorityArchitecture,
+  ])
 
   const baseArchitecture = useMemo(() => {
     // Always-on Crown Jewel marking pass. Applies AFTER any override /

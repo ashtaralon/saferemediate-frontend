@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  detailFailuresFor,
   detailsReadyFor,
   mergeSummaryWithPathDetails,
   pathIdsNeedingDetail,
@@ -176,6 +177,10 @@ describe("mergeSummaryWithPathDetails", () => {
 
     const ready = pathsWithAuthoritativeHops(merged.paths)
     expect(ready.map((p) => p.path_id).sort()).toEqual(["ec2-path", "lambda-path"])
+
+    expect(
+      detailFailuresFor(["lambda-path", "ec2-path", "orphan-path"], details),
+    ).toEqual([{ pathId: "orphan-path", error: "detail 404" }])
 
     const ec2 = ready.find((p) => p.path_id === "ec2-path")!
     const hopTypes = (ec2.hops ?? []).map((h) => h.node_type)

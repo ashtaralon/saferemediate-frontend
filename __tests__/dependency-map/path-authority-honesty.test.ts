@@ -467,6 +467,88 @@ describe("path-authority honesty invariants", () => {
     expect(spotlight.has("sg-02a2ccfe185765527")).toBe(true)
   })
 
+  it("10. SG display-name resolution stays per-path (no cross-fan-in attach)", () => {
+    const pathA = path({
+      path_id: "p-a",
+      workload_arn: "i-aaa",
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: ["default"],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "sg-aaaaaaaaaaaaaaaaa",
+          node_type: "SecurityGroup",
+          name: "default",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "SECURED_BY",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    // Path B stamps "default" on the compute hop but has NO SecurityGroup
+    // hop of its own — must NOT resolve to path A's sg-*.
+    const pathB = path({
+      path_id: "p-b",
+      source: "web",
+      workload_arn: "i-bbb",
+      identity: "arn:aws:iam::1:role/web",
+      hops: [
+        {
+          node_id: "i-bbb",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: ["default"],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:iam::1:role/web",
+          node_type: "IAMRole",
+          plane: "identity",
+          security_groups: ["default"],
+          is_crown_jewel: false,
+          edge_type_from_prev: "USES_ROLE",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [pathA, pathB],
+      spotlightPathId: null,
+      jewel: { id: "arn:aws:s3:::saferemediate-raw" },
+    })
+    expect(arch.securityGroups.map((s) => s.id)).toEqual([
+      "sg-aaaaaaaaaaaaaaaaa",
+    ])
+    expect(
+      arch.edges.some(
+        (e) =>
+          e.relationship === "SECURED_BY" &&
+          e.source_aws_id === "i-bbb" &&
+          e.target_aws_id === "sg-aaaaaaaaaaaaaaaaa",
+      ),
+    ).toBe(false)
+  })
+
   it("9. EXFILTRATES_VIA becomes ROUTES_VIA and seeds the VPCE", () => {
     const exfil = path({
       hops: [
