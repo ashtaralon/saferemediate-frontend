@@ -39,7 +39,7 @@ describe("topology scope URLs", () => {
         vpcId: "vpc-abc",
       }),
     ).toBe(
-      "topology-risk:alon-prod:745783559495:eu-west-1:vpc-abc:2026-07-13:poison-bypass",
+      "topology-risk:alon-prod:745783559495:eu-west-1:vpc-abc:2026-07-27:selected-scope-echo",
     )
   })
 })
