@@ -9,6 +9,10 @@ import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/rout
 import { ServiceTypeBadge } from "@/lib/service-type";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
 import {
+  buildPathAuthorityArchitecture,
+  pathHasObservedNetworkEvidence,
+} from "@/lib/attack-paths/build-path-authority-architecture";
+import {
   countVpceLane,
   vpceCardChrome,
   vpceCardTitle,
@@ -3460,7 +3464,8 @@ function AnimatedTrafficLine({
       READS_FROM: "reads",
       WRITES_TO: "writes",
       RUNTIME_CALLS: "calls",
-      ROUTES_VIA: "via VPCE",
+      // Config association (route table → VPCE/IGW), not packet-flow order.
+      ROUTES_VIA: "configured routing",
       IN_VPC: "in VPC",
       RUNS_IN_VPC: "in VPC",
       IN_SUBNET: "in subnet",
@@ -4652,6 +4657,8 @@ export function UnifiedArchitectureDiagram({
   pathBlastRadius = null,
   onShowBlastRadius,
   fullEstateContext = false,
+  pathAuthorityOnly = false,
+  showObservedTrafficMetrics = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -4731,6 +4738,10 @@ export function UnifiedArchitectureDiagram({
    *  and column counts show the real full-estate totals. Default false =
    *  legacy REMOVE behavior (byte-for-byte) for all other consumers. */
   fullEstateContext?: boolean;
+  /** Zoom0 Reachability honesty — suppress unsupported estate claims. */
+  pathAuthorityOnly?: boolean;
+  /** Show Traffic / Connections / Live Traffic only with path evidence. */
+  showObservedTrafficMetrics?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -5173,7 +5184,15 @@ export function UnifiedArchitectureDiagram({
               gating was misleading visual noise. */}
         </div>
         <div className="flex items-center gap-4 text-sm">
-          {architecture.metricsBasis === "cloudtrail" ? (
+          {/* Path-authority (Zoom0): hide Traffic/Connections/Live Traffic
+              unless selected-path observed network evidence is bound. */}
+          {pathAuthorityOnly && !showObservedTrafficMetrics ? (
+            <div className="text-center px-3" data-path-metrics="not-bound">
+              <div className="text-[10px] text-muted-foreground">
+                Network volume not bound to this path
+              </div>
+            </div>
+          ) : architecture.metricsBasis === "cloudtrail" ? (
             // CloudTrail data: bytes panel hidden (data source can't
             // observe payload size — rendering "0 B Traffic" lies by
             // implying "we saw no traffic"). Connections label is
@@ -5194,7 +5213,7 @@ export function UnifiedArchitectureDiagram({
               </div>
             </>
           )}
-          {architecture.totalGaps > 0 && !observedMode && (
+          {architecture.totalGaps > 0 && !observedMode && !pathAuthorityOnly && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/20 rounded-lg border-l border-border">
               <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <div>
@@ -5212,17 +5231,11 @@ export function UnifiedArchitectureDiagram({
         </div>
       )}
 
-      {/* Canvas v3 Slice C — Internet partition banner. Visible header
-          showing the security boundary between AWS-backbone-routed
-          traffic and public-internet-routed traffic. Renders the
-          security claim's home (per pattern_partition_boundaries_carry_
-          security_state) without requiring a full layout repartition.
-          Counts of edges per side are computed from architecture.edges
-          when present + the resolved route precedence for each.
-          Banner suppressed when no destinations on path have route
-          precedence (e.g. identity-only paths) — honest empty rather
-          than rendering a meaningless boundary. */}
-      {(() => {
+      {/* Canvas v3 Slice C — Internet partition banner.
+          Removed entirely under pathAuthorityOnly (Zoom0 Reachability):
+          destination counts from FE route precedence are not selected-path
+          Neo4j edges and read as false path claims. */}
+      {!pathAuthorityOnly && (() => {
         const resources = architecture.resources ?? []
         const gateways = architecture.egressGateways ?? []
         if (resources.length === 0 || gateways.length === 0) return null
@@ -6720,10 +6733,21 @@ export function UnifiedArchitectureDiagram({
           <HardDrive className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
           <span className="text-muted-foreground">Storage</span>
         </span>
-        <span className="flex items-center gap-1.5 ml-auto">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-          <span className="text-emerald-600 dark:text-emerald-400">Live Traffic</span>
-        </span>
+        {(!pathAuthorityOnly || showObservedTrafficMetrics) && (
+          <span className="flex items-center gap-1.5 ml-auto">
+            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+            <span className="text-emerald-600 dark:text-emerald-400">Live Traffic</span>
+          </span>
+        )}
+        {pathAuthorityOnly && (
+          <span
+            className={`flex items-center gap-1.5 text-muted-foreground ${
+              showObservedTrafficMetrics ? "" : "ml-auto"
+            }`}
+          >
+            ROUTES_VIA = configured routing association
+          </span>
+        )}
         <span className="flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
           <span className="text-amber-600 dark:text-amber-400">Security Gap</span>
@@ -7594,6 +7618,7 @@ export default function TrafficFlowMap({
   spotlightJewel,
   systemCrownJewelIds,
   fullEstateContext = false,
+  pathAuthorityOnly = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -7620,7 +7645,12 @@ export default function TrafficFlowMap({
    *  pins a single path) using architecture-aware id resolution. */
   spotlightPaths?: ConvergencePath[];
   spotlightPathId?: string | null;
-  spotlightJewel?: { id: string; canonical_id?: string | null };
+  spotlightJewel?: {
+    id: string
+    canonical_id?: string | null
+    name?: string | null
+    type?: string | null
+  };
   /** Crown Jewel always-on marking (2026-06-22) — set of node IDs the
    *  parent knows are Crown Jewels for this system, fetched from the
    *  per-system attack-paths endpoint. When a resource's id is in this
@@ -7713,6 +7743,12 @@ export default function TrafficFlowMap({
    *  preserves the existing REMOVE behavior for every other consumer
    *  (System Map, per-path spotlight, EXFIL). */
   fullEstateContext?: boolean;
+  /**
+   * Zoom0 Reachability honesty (P0a/P0b): render only selected-path DTO
+   * hops/edges. Skips dependency-map fetch and estate spotlight expand
+   * (same-VPC IGW, traffic totals, partition banner).
+   */
+  pathAuthorityOnly?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -7720,6 +7756,26 @@ export default function TrafficFlowMap({
   // re-renders instantly without refetching and stale fetches can't
   // race-overwrite the right filter.
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
+
+  const pathAuthorityArchitecture = useMemo((): SystemArchitecture | null => {
+    if (!pathAuthorityOnly || !spotlightPaths?.length) return null
+    return buildPathAuthorityArchitecture({
+      paths: spotlightPaths,
+      spotlightPathId: spotlightPathId ?? null,
+      jewel: spotlightJewel ?? null,
+    }) as unknown as SystemArchitecture
+  }, [pathAuthorityOnly, spotlightPaths, spotlightPathId, spotlightJewel])
+
+  const showObservedTrafficMetrics = useMemo(
+    () =>
+      !pathAuthorityOnly ||
+      pathHasObservedNetworkEvidence(
+        spotlightPaths ?? [],
+        spotlightPathId ?? null,
+      ),
+    [pathAuthorityOnly, spotlightPaths, spotlightPathId],
+  )
+
   const baseArchitecture = useMemo(() => {
     // Always-on Crown Jewel marking pass. Applies AFTER any override /
     // pathFilter logic so existing `isCrownJewel: true` from
@@ -7737,6 +7793,11 @@ export default function TrafficFlowMap({
         ),
       };
     };
+    // Path-authority wins over dep-map / override — estate must not
+    // enter the path layer.
+    if (pathAuthorityArchitecture) {
+      return markCjs(pathAuthorityArchitecture)
+    }
     if (architectureOverride) {
       // 2026-07-12: empty graph-view canvas used to short-circuit here with
       // zero cards → "No Active Traffic" on Attack Map even when pathFilter
@@ -7789,12 +7850,20 @@ export default function TrafficFlowMap({
     }
     if (!rawArchitecture) return null;
     return markCjs(pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture);
-  }, [rawArchitecture, pathFilter, architectureOverride, systemCrownJewelIds]);
+  }, [
+    rawArchitecture,
+    pathFilter,
+    architectureOverride,
+    systemCrownJewelIds,
+    pathAuthorityArchitecture,
+  ]);
 
   const architecture = useMemo(() => {
     if (!baseArchitecture) return baseArchitecture;
     let arch = baseArchitecture;
-    if (spotlightPaths?.length) {
+    // Path-authority architecture is already hop/DTO complete — do not
+    // merge estate dep-map attachments or patch estate flows onto it.
+    if (spotlightPaths?.length && !pathAuthorityOnly) {
       const enriched = enrichArchitectureForSpotlight(
         arch,
         spotlightPaths,
@@ -7837,7 +7906,13 @@ export default function TrafficFlowMap({
       };
     }
     return arch;
-  }, [baseArchitecture, spotlightPaths, spotlightPathId, spotlightJewel]);
+  }, [
+    baseArchitecture,
+    spotlightPaths,
+    spotlightPathId,
+    spotlightJewel,
+    pathAuthorityOnly,
+  ]);
 
   const pathFilterKey = useMemo(() => {
     if (!pathFilter) return null;
@@ -7881,34 +7956,37 @@ export default function TrafficFlowMap({
         paths: spotlightPaths,
         spotlightPathId: spotlightPathId ?? null,
         jewel: spotlightJewel ?? null,
-        architecture: architecture
-          ? {
-              computeServices: architecture.computeServices,
-              securityGroups: architecture.securityGroups.map((sg) => ({
-                id: sg.id,
-                name: sg.name,
-                connectedSources: sg.connectedSources,
-              })),
-              iamRoles: architecture.iamRoles,
-              flows: architecture.flows,
-              vpcEndpoints: architecture.vpcEndpoints,
-              subnets: (architecture.subnets ?? []).map((s) => ({
-                id: s.id,
-                vpcId: s.vpcId,
-                connectedComputeIds: s.connectedComputeIds,
-              })),
-              egressGateways: (architecture.egressGateways ?? []).map((g) => ({
-                id: g.id,
-                vpcId: g.vpcId,
-              })),
-              nacls: (architecture.nacls ?? []).map((n) => ({
-                id: n.id,
-                connectedSources: n.connectedSources,
-                vpcId: n.vpcId,
-                totalCount: n.totalCount,
-              })),
-            }
-          : null,
+        pathAuthorityOnly,
+        architecture: pathAuthorityOnly
+          ? null
+          : architecture
+            ? {
+                computeServices: architecture.computeServices,
+                securityGroups: architecture.securityGroups.map((sg) => ({
+                  id: sg.id,
+                  name: sg.name,
+                  connectedSources: sg.connectedSources,
+                })),
+                iamRoles: architecture.iamRoles,
+                flows: architecture.flows,
+                vpcEndpoints: architecture.vpcEndpoints,
+                subnets: (architecture.subnets ?? []).map((s) => ({
+                  id: s.id,
+                  vpcId: s.vpcId,
+                  connectedComputeIds: s.connectedComputeIds,
+                })),
+                egressGateways: (architecture.egressGateways ?? []).map((g) => ({
+                  id: g.id,
+                  vpcId: g.vpcId,
+                })),
+                nacls: (architecture.nacls ?? []).map((n) => ({
+                  id: n.id,
+                  connectedSources: n.connectedSources,
+                  vpcId: n.vpcId,
+                  totalCount: n.totalCount,
+                })),
+              }
+            : null,
       })
       if (built.size > 0) return built
     }
@@ -7919,6 +7997,7 @@ export default function TrafficFlowMap({
     spotlightJewel,
     architecture,
     spotlightActiveNodeIds,
+    pathAuthorityOnly,
   ])
 
   const setArchitecture = setRawArchitecture;
@@ -7957,6 +8036,9 @@ export default function TrafficFlowMap({
   }, [])
 
   const depMapUrl = useMemo(() => {
+    // Path-authority Zoom0 must not fetch estate dep-map — membership
+    // and metrics would leak into the path layer.
+    if (pathAuthorityOnly) return null
     // maxNodes=300 (was 500). On alon-prod's graph, 500 nodes pushes
     // the backend past the 55s upstream timeout and surfaces 504/502
     // when the in-memory + edge caches are cold. 300 nodes still
@@ -7964,7 +8046,7 @@ export default function TrafficFlowMap({
     // top IAM roles, which is what this viz actually renders.
     const cacheBust = manualBustEpoch > 0 ? `&_t=${manualBustEpoch}` : "";
     return `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${cacheBust}`;
-  }, [systemName, manualBustEpoch]);
+  }, [systemName, manualBustEpoch, pathAuthorityOnly]);
 
   const depMapFetchInit = useMemo<RequestInit>(() => {
     return manualBustEpoch > 0
@@ -8000,8 +8082,15 @@ export default function TrafficFlowMap({
   // When the caller passes an architectureOverride we already have the
   // data — never block the render on the dep-map fetch (which is best-
   // effort warming only in that mode).
-  const loading = !architectureOverride && depMapLoading && !rawArchitecture;
-  const error = architectureOverride ? null : (emptyDataError ?? depMapError);
+  const loading =
+    !pathAuthorityOnly &&
+    !architectureOverride &&
+    depMapLoading &&
+    !rawArchitecture;
+  const error =
+    pathAuthorityOnly || architectureOverride
+      ? null
+      : (emptyDataError ?? depMapError);
   // Fetch-generation counter. Each runEnrichment call bumps this;
   // background enrichment closures capture the epoch at start and skip
   // their setArchitecture if a newer fetch has resolved in the meantime.
@@ -9997,9 +10086,10 @@ export default function TrafficFlowMap({
   // 30-40s cold backend wait), and again whenever the hook's background
   // refresh writes new data to its state.
   useEffect(() => {
+    if (pathAuthorityOnly) return;
     if (!rawDepMap) return;
     runEnrichment(rawDepMap);
-  }, [rawDepMap, runEnrichment]);
+  }, [rawDepMap, runEnrichment, pathAuthorityOnly]);
 
   // Auto-refresh with configurable interval. retryDepMap refetches the
   // same URL → proxy edge cache may serve (matches old loadData(false)).
@@ -10603,6 +10693,8 @@ export default function TrafficFlowMap({
             // Fan-in only: dim off-path nodes over the full estate
             // instead of hiding them. Forwarded from TrafficFlowMap.
             fullEstateContext={fullEstateContext}
+            pathAuthorityOnly={pathAuthorityOnly}
+            showObservedTrafficMetrics={showObservedTrafficMetrics}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy
