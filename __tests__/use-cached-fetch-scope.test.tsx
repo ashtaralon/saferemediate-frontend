@@ -83,6 +83,55 @@ describe("useCachedFetch — cacheKey change (scope switch)", () => {
   })
 })
 
+describe("useCachedFetch — isCacheable (empty poison)", () => {
+  it("ignores and evicts a cached empty payload on mount", () => {
+    seed("iap-v2-jewels:alon-prod", {
+      result: { crown_jewels: [] },
+    })
+    vi.stubGlobal("fetch", hangingFetch())
+
+    const { result } = renderHook(() =>
+      useCachedFetch<{ result?: { crown_jewels?: unknown[] } }>(
+        "/api/proxy/identity-attack-paths/alon-prod/jewels",
+        {
+          cacheKey: "iap-v2-jewels:alon-prod",
+          isCacheable: (payload) => {
+            const d = payload as { result?: { crown_jewels?: unknown[] } }
+            const cjs = d?.result?.crown_jewels
+            return Array.isArray(cjs) && cjs.length > 0
+          },
+        },
+      ),
+    )
+    expect(result.current.data).toBeNull()
+    expect(result.current.loading).toBe(true)
+    expect(window.localStorage.getItem(PREFIX + "iap-v2-jewels:alon-prod")).toBeNull()
+  })
+
+  it("still serves a cached non-empty jewels payload", () => {
+    seed("iap-v2-jewels:alon-prod", {
+      result: { crown_jewels: [{ id: "arn:aws:s3:::bucket" }] },
+    })
+    vi.stubGlobal("fetch", hangingFetch())
+
+    const { result } = renderHook(() =>
+      useCachedFetch<{ result?: { crown_jewels?: { id: string }[] } }>(
+        "/api/proxy/identity-attack-paths/alon-prod/jewels",
+        {
+          cacheKey: "iap-v2-jewels:alon-prod",
+          isCacheable: (payload) => {
+            const d = payload as { result?: { crown_jewels?: unknown[] } }
+            const cjs = d?.result?.crown_jewels
+            return Array.isArray(cjs) && cjs.length > 0
+          },
+        },
+      ),
+    )
+    expect(result.current.data?.result?.crown_jewels).toHaveLength(1)
+    expect(result.current.loading).toBe(false)
+  })
+})
+
 describe("useCachedFetch — Wave D computing envelope", () => {
   it("keeps last-good cache when fetch returns status=computing", async () => {
     const { waitFor } = await import("@testing-library/react")

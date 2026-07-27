@@ -20,6 +20,18 @@ export type JewelRailResolution = {
   source: JewelRailSource
 }
 
+/** True when a /jewels proxy payload has at least one crown jewel. */
+export function isJewelsPayloadCacheable(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false
+  const d = payload as {
+    result?: { crown_jewels?: unknown }
+    data?: { crown_jewels?: unknown }
+    crown_jewels?: unknown
+  }
+  const cjs = d.result?.crown_jewels ?? d.data?.crown_jewels ?? d.crown_jewels
+  return Array.isArray(cjs) && cjs.length > 0
+}
+
 /**
  * Resolve paths for the Attack Paths V2 middle rail.
  *
