@@ -42,6 +42,7 @@ import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import {
+  isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
@@ -325,6 +326,9 @@ export function AttackPathsV2({
   }>(jewelsUrl, {
     cacheKey: `iap-v2-jewels:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
+    // Never SWR-paint a cached empty jewels list — that is how the rail
+    // stuck on "No crown jewels · showing cached" after SERVE recovered.
+    isCacheable: isJewelsPayloadCacheable,
   })
 
   // Full IAP fan-out is OPTIONAL enrichment only — never gate the path rail.

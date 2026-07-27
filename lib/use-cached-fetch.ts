@@ -51,6 +51,13 @@ export interface UseCachedFetchOptions {
    * once the wake+snapshot retry lands (~5–15s later).
    */
   transientRetries?: number
+  /**
+   * When false, the payload is never written to localStorage and any
+   * existing entry for this key is treated as a miss on read.
+   * Use for empty / cold responses that must not poison SWR (e.g.
+   * Attack Paths /jewels returning [] during a freeze).
+   */
+  isCacheable?: (data: unknown) => boolean
 }
 
 export interface UseCachedFetchResult<T> {
@@ -152,7 +159,11 @@ function sanitizePhantomEdges(value: unknown): { cleaned: unknown; dropped: numb
   return { cleaned, dropped }
 }
 
-function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | null {
+function readCache<T>(
+  key: string,
+  maxAge: number,
+  isCacheable?: (data: T) => boolean,
+): { data: T; ts: number } | null {
   if (typeof window === "undefined") return null
   try {
     const raw = window.localStorage.getItem(CACHE_PREFIX + key)
@@ -175,7 +186,18 @@ function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | nu
           `where dep_map step-10 emitted Neo4j elementId targets.`,
       )
     }
-    return { data: cleaned as T, ts: entry.ts }
+    const data = cleaned as T
+    // Drop poisoned empties (and any other non-cacheable shape) so a
+    // prior cold/freeze response cannot paint as "showing cached".
+    if (isCacheable && !isCacheable(data)) {
+      try {
+        window.localStorage.removeItem(CACHE_PREFIX + key)
+      } catch {
+        // ignore
+      }
+      return null
+    }
+    return { data, ts: entry.ts }
   } catch {
     return null
   }
@@ -187,8 +209,11 @@ function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | nu
  *  to an operator trying to work. The hard cap is 7 days — beyond
  *  that the data is too dated to be useful even as fallback. */
 const FALLBACK_HARD_CAP_MS = 7 * 24 * 60 * 60 * 1000
-function readCacheAny<T>(key: string): { data: T; ts: number } | null {
-  return readCache<T>(key, FALLBACK_HARD_CAP_MS)
+function readCacheAny<T>(
+  key: string,
+  isCacheable?: (data: T) => boolean,
+): { data: T; ts: number } | null {
+  return readCache<T>(key, FALLBACK_HARD_CAP_MS, isCacheable)
 }
 
 export function clearCachedFetch(key: string): void {
@@ -220,6 +245,7 @@ export function useCachedFetch<T = unknown>(
     maxStaleMs = DEFAULT_MAX_STALE_MS,
     fetchInit,
     transientRetries = 0,
+    isCacheable,
   } = options
 
   // Synchronous initial read so the first paint renders cached data
@@ -235,8 +261,8 @@ export function useCachedFetch<T = unknown>(
   //      limit and individual cards 504. Stale data is honest signal
   //      with a clear indicator; a stuck skeleton is the dishonest
   //      mode — it reads as "loading forever" not "Vercel overloaded".
-  const fresh = readCache<T>(cacheKey, maxStaleMs)
-  const initial = fresh ?? readCacheAny<T>(cacheKey)
+  const fresh = readCache<T>(cacheKey, maxStaleMs, isCacheable)
+  const initial = fresh ?? readCacheAny<T>(cacheKey, isCacheable)
   const [data, setData] = useState<T | null>(initial?.data ?? null)
   const [isStale, setIsStale] = useState<boolean>(initial !== null && fresh === null)
   const [cachedAt, setCachedAt] = useState<number | null>(initial?.ts ?? null)
@@ -270,8 +296,8 @@ export function useCachedFetch<T = unknown>(
   const prevKeyRef = useRef<string>(cacheKey)
   if (prevKeyRef.current !== cacheKey) {
     prevKeyRef.current = cacheKey
-    const nextFresh = readCache<T>(cacheKey, maxStaleMs)
-    const nextInitial = nextFresh ?? readCacheAny<T>(cacheKey)
+    const nextFresh = readCache<T>(cacheKey, maxStaleMs, isCacheable)
+    const nextInitial = nextFresh ?? readCacheAny<T>(cacheKey, isCacheable)
     setData(nextInitial?.data ?? null)
     setIsStale(nextInitial !== null && nextFresh === null)
     setCachedAt(nextInitial?.ts ?? null)
@@ -318,7 +344,7 @@ export function useCachedFetch<T = unknown>(
         // clear "as of 6h ago, refreshing" pill than to block the
         // operator with a 504 error message.
         if (data === null) {
-          const fallback = readCacheAny<T>(cacheKey)
+          const fallback = readCacheAny<T>(cacheKey, isCacheable)
           if (fallback) {
             setData(fallback.data)
             setIsStale(true)
@@ -359,8 +385,9 @@ export function useCachedFetch<T = unknown>(
         // Keep last-good map on screen; only show the empty computing
         // envelope when we have nothing else to render.
         const fallback =
-          (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
-          readCacheAny<T>(cacheKey)
+          (data != null && (!isCacheable || isCacheable(data))
+            ? { data, ts: cachedAt ?? Date.now() }
+            : null) ?? readCacheAny<T>(cacheKey, isCacheable)
         if (fallback?.data) {
           setData(fallback.data)
           setIsStale(true)
@@ -386,7 +413,15 @@ export function useCachedFetch<T = unknown>(
       } else {
         setIsStale(false)
         setCachedAt(null)
-        writeCache(cacheKey, sanitized)
+        if (!isCacheable || isCacheable(sanitized)) {
+          writeCache(cacheKey, sanitized)
+        } else {
+          // Do not persist cold/empty payloads. Evict so a prior good
+          // entry cannot lose to a poisoned empty on the next mount,
+          // and a true READY_ZERO remount refetches instead of painting
+          // stale jewels.
+          clearCachedFetch(cacheKey)
+        }
       }
       setError(null)
       setLoading(false)
@@ -396,7 +431,7 @@ export function useCachedFetch<T = unknown>(
         // Same fallback as the !res.ok path — try last-resort cache
         // first before erroring. Keeps the operator's screen populated
         // with usable data rather than a 504 message.
-        const fallback = readCacheAny<T>(cacheKey)
+        const fallback = readCacheAny<T>(cacheKey, isCacheable)
         if (fallback) {
           setData(fallback.data)
           setIsStale(true)
@@ -410,7 +445,7 @@ export function useCachedFetch<T = unknown>(
       // If we have cached data, swallow the error — keep showing stale.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, cacheKey, fetchInit, transientRetries])
+  }, [url, cacheKey, fetchInit, transientRetries, isCacheable])
 
   useEffect(() => {
     if (!url) return
