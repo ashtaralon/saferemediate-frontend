@@ -7,7 +7,7 @@ import {
 
 /**
  * Prove the attack-path facade resolves a correctly paired IAP row.
- * Uses the same IAP query limits as the facade (8×8) so the probe row
+ * Uses the same IAP query limits as the facade (12×8) so the probe row
  * is guaranteed to be in the truncated set the facade sees.
  */
 export async function probeFacadeIapPair(playwright: import("@playwright/test").Playwright) {
@@ -24,7 +24,7 @@ export async function probeFacadeIapPair(playwright: import("@playwright/test").
     const row = (iap.paths ?? []).find(
       (p) => p.id && p.crown_jewel_id && p.id.startsWith("path-"),
     )
-    expect(row, "IAP 8×8 window must contain at least one path row").toBeTruthy()
+    expect(row, "IAP 12×8 window must contain at least one path row").toBeTruthy()
 
     const jewelEnc = encodeURIComponent(row!.crown_jewel_id)
     const facadeRes = await liveGetWithRetry(

@@ -61,13 +61,16 @@ async function probeResourceNodes(page: Page): Promise<NodeProbe[]> {
 }
 
 async function waitForMap(page: Page) {
+  await expect(page.getByTestId("attack-path-flow-map-slot")).toBeVisible({
+    timeout: 90_000,
+  })
   await page.waitForFunction(
     () => document.querySelectorAll(".react-flow__node-resource").length > 0,
     null,
-    { timeout: 60_000 },
+    { timeout: 90_000 },
   )
   // settle anchoring snaps + frame expansions
-  await page.waitForTimeout(800)
+  await page.waitForTimeout(1200)
 }
 
 test.describe("Cloud Graph Visual Hierarchy Contract — live acceptance (legacy map)", () => {
@@ -76,7 +79,10 @@ test.describe("Cloud Graph Visual Hierarchy Contract — live acceptance (legacy
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 1000 })
     await page.goto(ATTACK_PATHS_V2_URL, { waitUntil: "domcontentloaded" })
-    await page.waitForTimeout(14_000)
+    // Wait for report + legacy map instead of a fixed sleep (cold facade).
+    await expect(page.getByText(/Building the cloud graph/i)).toHaveCount(0, {
+      timeout: 90_000,
+    })
     await waitForMap(page)
   })
 
