@@ -166,13 +166,14 @@ describe("path-authority honesty invariants", () => {
     expect(
       pathHasObservedNetworkEvidence([path({ confidence: "configured" })], "p1"),
     ).toBe(false)
+    // Path-level identity_gate "observed" alone is not enough.
     expect(
       pathHasObservedNetworkEvidence([path({ confidence: "observed" })], "p1"),
     ).toBe(false)
 
     const withProps = path({
-      confidence: "observed",
-      evidence: "observed",
+      confidence: "configured",
+      evidence: "configured",
       hops: [
         {
           node_id: "i-aaa",
@@ -188,6 +189,7 @@ describe("path-authority honesty invariants", () => {
           security_groups: [],
           is_crown_jewel: true,
           edge_type_from_prev: "ACTUAL_S3_ACCESS",
+          edge_evidence: "observed",
           key_properties: { bytes: 1000 },
         } as ConvergencePath["hops"] extends (infer H)[] | undefined ? H : never,
       ],
@@ -656,7 +658,7 @@ describe("path-authority honesty invariants", () => {
         e.target_aws_id === "arn:aws:iam::1:role/app",
     )
     expect(collapsed).toHaveLength(1)
-    expect(collapsed[0].via_label).toBe("via app-profile")
+    expect(collapsed[0].via_label).toBe("uses role via app-profile")
     expect(collapsed[0].collapsed_hop_ids).toEqual([
       "i-aaa",
       "arn:aws:iam::1:instance-profile/app-profile",
@@ -815,5 +817,102 @@ describe("path-authority honesty invariants", () => {
         arch.pathIdsByNodeId["i-aaa"]?.includes(id),
       ),
     ).toBe(false)
+  })
+
+  it("13. ACCESSES_RESOURCE observed hop stamps beat path.confidence configured", () => {
+    const observedAccess = path({
+      path_id: "p1",
+      confidence: "configured",
+      evidence: "configured",
+      hops: [
+        {
+          node_id: "arn:aws:iam::1:role/app",
+          node_type: "IAMRole",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:s3:::cyntro-demo-analytics",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+          edge_evidence: "observed",
+          hit_count: 15,
+          last_seen: "2026-07-01T12:00:00Z",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [observedAccess],
+      spotlightPathId: "p1",
+    })
+    const access = arch.edges.find((e) => e.relationship === "ACCESSES_RESOURCE")
+    expect(access).toBeTruthy()
+    expect(access!.observed).toBe(true)
+    expect(access!.hit_count).toBe(15)
+    expect(access!.last_seen).toBe("2026-07-01T12:00:00Z")
+  })
+
+  it("14. merge: observed wins when a sibling path only has configured", () => {
+    const configuredFirst = path({
+      path_id: "p1",
+      confidence: "configured",
+      evidence: "configured",
+      hops: [
+        {
+          node_id: "arn:aws:iam::1:role/shared",
+          node_type: "IAMRole",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:s3:::cyntro-demo-analytics",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+          edge_evidence: "configured",
+        },
+      ],
+    })
+    const observedSecond = path({
+      path_id: "p2",
+      source: "web",
+      workload_arn: "i-bbb",
+      confidence: "configured",
+      evidence: "configured",
+      hops: [
+        {
+          node_id: "arn:aws:iam::1:role/shared",
+          node_type: "IAMRole",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:s3:::cyntro-demo-analytics",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+          edge_evidence: "observed",
+          hit_count: 15,
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [configuredFirst, observedSecond],
+      spotlightPathId: null,
+    })
+    const access = arch.edges.filter((e) => e.relationship === "ACCESSES_RESOURCE")
+    expect(access).toHaveLength(1)
+    expect(access[0].observed).toBe(true)
+    expect(access[0].hit_count).toBe(15)
   })
 })

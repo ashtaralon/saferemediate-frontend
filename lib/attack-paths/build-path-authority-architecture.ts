@@ -304,10 +304,10 @@ export function buildPathIdsByNodeId(
 }
 
 /**
- * True only when a selected path carries observed *network* evidence
+ * True when a selected path carries observed *network/data* evidence
  * with concrete volume (bytes or hit_count) on a DTO edge.
- * Convergence hops today do not stamp per-edge bytes — so this stays
- * false until the server binds telemetry onto the path DTO.
+ * Uses per-edge hop stamps — path.confidence (identity_gate) alone is
+ * not sufficient and must not be required.
  */
 export function pathHasObservedNetworkEvidence(
   paths: ConvergencePath[],
@@ -318,37 +318,14 @@ export function pathHasObservedNetworkEvidence(
     for (const h of p.hops ?? []) {
       const parsed = parseEdgeType(h.edge_type_from_prev)
       if (!parsed) continue
-      const rel = parsed.relationship
-      const isNetworkOrData =
-        rel === "ACTUAL_TRAFFIC" ||
-        rel === "ACTUAL_API_CALL" ||
-        rel === "ACTUAL_S3_ACCESS" ||
-        rel === "ACCESSES_RESOURCE" ||
-        rel === "READS_FROM" ||
-        rel === "WRITES_TO" ||
-        rel === "RUNTIME_CALLS"
-      if (!isNetworkOrData) continue
-      const anyHop = h as ConvergenceHop & {
-        bytes?: unknown
-        hit_count?: unknown
-        key_properties?: Record<string, unknown> | null
-      }
-      const props = anyHop.key_properties || null
-      const bytes =
-        typeof anyHop.bytes === "number"
-          ? anyHop.bytes
-          : typeof props?.bytes === "number"
-            ? props.bytes
-            : null
-      const hits =
-        typeof anyHop.hit_count === "number"
-          ? anyHop.hit_count
-          : typeof props?.hit_count === "number"
-            ? props.hit_count
-            : null
-      if ((bytes != null && bytes > 0) || (hits != null && hits > 0)) {
-        const evidence = (p.evidence || p.confidence || "").toLowerCase()
-        if (evidence === "observed") return true
+      if (!isObservedCapable(parsed.relationship)) continue
+      const edge = hopIncomingEdgeEvidence(h)
+      if (edge.hit_count != null && edge.hit_count > 0) return true
+      if (edge.evidence === "observed") {
+        const props = h.key_properties || null
+        const bytes =
+          typeof props?.bytes === "number" ? (props.bytes as number) : null
+        if (bytes != null && bytes > 0) return true
       }
     }
   }
@@ -462,24 +439,18 @@ function kindLabel(
   }
 }
 
-function pushEdge(
-  edges: CanvasEdge[],
-  seen: Set<string>,
-  source: string,
-  target: string,
-  relationship: CanvasRelationshipType,
-  pathEvidence: string,
-  meta?: {
-    collapsed_hop_ids?: string[]
-    via_label?: string
-  },
-): void {
-  if (!source || !target || source === target) return
-  const id = `${source}|${relationship}|${target}`
-  if (seen.has(id)) return
-  seen.add(id)
-  const evidence = pathEvidence.toLowerCase()
-  const observedCapable =
+type EdgePushMeta = {
+  collapsed_hop_ids?: string[]
+  via_label?: string
+  /** Per-edge evidence from hops_json — wins over path.confidence. */
+  hop_evidence?: string | null
+  hit_count?: number | null
+  first_seen?: string | null
+  last_seen?: string | null
+}
+
+function isObservedCapable(relationship: CanvasRelationshipType): boolean {
+  return (
     relationship === "ACTUAL_TRAFFIC" ||
     relationship === "ACTUAL_API_CALL" ||
     relationship === "ACTUAL_S3_ACCESS" ||
@@ -487,18 +458,138 @@ function pushEdge(
     relationship === "READS_FROM" ||
     relationship === "WRITES_TO" ||
     relationship === "RUNTIME_CALLS"
+  )
+}
+
+/** Normalize hops_json / path evidence spellings to observed|configured|… */
+export function normalizeEdgeEvidence(raw: string | null | undefined): string {
+  const e = (raw || "").toLowerCase().trim()
+  if (e === "config") return "configured"
+  return e
+}
+
+/**
+ * Per-edge evidence from a ConvergenceHop that carries edge_type_from_prev.
+ * Prefer hop.edge_evidence / hit_count over path-level identity_gate confidence.
+ */
+export function hopIncomingEdgeEvidence(hop: ConvergenceHop): {
+  evidence: string | null
+  hit_count: number | null
+  first_seen: string | null
+  last_seen: string | null
+} {
+  const anyHop = hop as ConvergenceHop & {
+    evidence?: string | null
+    bytes?: unknown
+  }
+  const props = hop.key_properties || null
+  const hitRaw =
+    typeof hop.hit_count === "number"
+      ? hop.hit_count
+      : typeof props?.hit_count === "number"
+        ? (props.hit_count as number)
+        : null
+  const hit_count =
+    hitRaw != null && Number.isFinite(hitRaw) && hitRaw > 0 ? hitRaw : null
+  let evidence = normalizeEdgeEvidence(
+    hop.edge_evidence ?? anyHop.evidence ?? (props?.evidence as string | undefined),
+  )
+  if (!evidence && hit_count != null) evidence = "observed"
+  if (evidence === "") evidence = null
+  const first_seen =
+    (typeof hop.first_seen === "string" && hop.first_seen) ||
+    (typeof props?.first_seen === "string" ? props.first_seen : null) ||
+    null
+  const last_seen =
+    (typeof hop.last_seen === "string" && hop.last_seen) ||
+    (typeof props?.last_seen === "string" ? props.last_seen : null) ||
+    null
+  return { evidence, hit_count, first_seen, last_seen }
+}
+
+function resolveEdgeObserved(
+  relationship: CanvasRelationshipType,
+  _pathEvidence: string,
+  hopEvidence: string | null | undefined,
+  hitCount: number | null | undefined,
+): boolean | null {
+  if (!isObservedCapable(relationship)) return null
+  const hop = normalizeEdgeEvidence(hopEvidence)
+  if (hop === "observed" || (hitCount != null && hitCount > 0)) return true
+  // No hop stamp / explicit configured: do NOT use path.confidence
+  // (identity_gate). That signal downgraded observed ACCESSES_RESOURCE
+  // to Configured when identity was OPEN_CONFIG.
+  return false
+}
+
+function pushEdge(
+  edges: CanvasEdge[],
+  seen: Set<string>,
+  source: string,
+  target: string,
+  relationship: CanvasRelationshipType,
+  pathEvidence: string,
+  meta?: EdgePushMeta,
+): void {
+  if (!source || !target || source === target) return
+  const id = `${source}|${relationship}|${target}`
+  const nextObserved = resolveEdgeObserved(
+    relationship,
+    pathEvidence,
+    meta?.hop_evidence,
+    meta?.hit_count,
+  )
+  const nextHits =
+    typeof meta?.hit_count === "number" && meta.hit_count > 0
+      ? meta.hit_count
+      : null
+
+  if (seen.has(id)) {
+    const existing = edges.find((e) => e.id === id)
+    if (!existing) return
+    // Merge rule: if any canonical edge is observed, the combined edge
+    // is observed. Configured must never overwrite observed.
+    if (nextObserved === true && existing.observed !== true) {
+      existing.observed = true
+    }
+    if (nextHits != null) {
+      existing.hit_count = Math.max(existing.hit_count ?? 0, nextHits)
+    }
+    if (meta?.last_seen) {
+      if (
+        !existing.last_seen ||
+        String(meta.last_seen) > String(existing.last_seen)
+      ) {
+        existing.last_seen = meta.last_seen
+      }
+    }
+    if (meta?.first_seen) {
+      if (
+        !existing.first_seen ||
+        String(meta.first_seen) < String(existing.first_seen)
+      ) {
+        existing.first_seen = meta.first_seen
+      }
+    }
+    if (meta?.collapsed_hop_ids?.length && !existing.collapsed_hop_ids?.length) {
+      existing.collapsed_hop_ids = meta.collapsed_hop_ids
+    }
+    if (meta?.via_label && !existing.via_label) {
+      existing.via_label = meta.via_label
+    }
+    return
+  }
+  seen.add(id)
   edges.push({
     id,
     source_aws_id: source,
     target_aws_id: target,
     relationship,
-    // Config edges: null. Observed-capable without bound volume: false
-    // (never animate "Live Traffic" from estate guesses).
-    observed: observedCapable ? evidence === "observed" : null,
-    hit_count: null,
+    observed: nextObserved,
+    hit_count: nextHits,
     bytes: null,
-    first_seen: null,
-    last_seen: null,
+    first_seen: meta?.first_seen ?? null,
+    last_seen: meta?.last_seen ?? null,
     port: null,
     protocol: null,
     ...(meta?.collapsed_hop_ids?.length
@@ -555,7 +646,7 @@ function tryCollapseProfileHops(
     target: c.node_id,
     relationship: "USES_ROLE",
     collapsed_hop_ids: [a.node_id, b.node_id, c.node_id],
-    via_label: `via ${profileName}`,
+    via_label: `uses role via ${profileName}`,
     skipNext: true,
   }
 }
@@ -805,6 +896,7 @@ export function buildPathAuthorityArchitecture(params: {
       if (!parsed) continue
       const source = parsed.reversed ? cur.node_id : prev.node_id
       const target = parsed.reversed ? prev.node_id : cur.node_id
+      const edgeEv = hopIncomingEdgeEvidence(cur)
       pushEdge(
         edges,
         edgeSeen,
@@ -812,6 +904,12 @@ export function buildPathAuthorityArchitecture(params: {
         target,
         parsed.relationship,
         p.evidence || p.confidence || "configured",
+        {
+          hop_evidence: edgeEv.evidence,
+          hit_count: edgeEv.hit_count,
+          first_seen: edgeEv.first_seen,
+          last_seen: edgeEv.last_seen,
+        },
       )
     }
 

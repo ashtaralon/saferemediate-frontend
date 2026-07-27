@@ -74,6 +74,7 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
 
     // Compressed evidence view + configured vs observed visual language
     await expect(map.getByText(/Compressed evidence view/i)).toBeVisible()
+    await expect(map.getByText(/in-system paths? shown/i)).toBeVisible()
     await expect(map.getByText("Path membership", { exact: true })).toBeVisible()
     await expect(map.getByText("Configured", { exact: true })).toBeVisible()
     await expect(
