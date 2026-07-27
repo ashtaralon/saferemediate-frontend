@@ -30,6 +30,12 @@ export interface ConvergenceHop {
   last_seen?: string | null
   /** Optional Neo4j scalars some detail payloads still nest here. */
   key_properties?: Record<string, unknown> | null
+  /** SG/NACL/IAM rule count when rules_coverage is COLLECTED. */
+  rule_count?: number | null
+  /** Whether rule_count was collected for this hop. */
+  rules_coverage?: string | null // COLLECTED | NOT_COLLECTED | UNKNOWN
+  /** ISO timestamp when rules were last collected. */
+  rules_as_of?: string | null
 }
 
 /** ATT&CK Initial Access edge per path (BE-A.3 / alon@2026-06-20).
@@ -99,6 +105,18 @@ export interface ConvergencePath {
   closure_recommendation?: Record<string, unknown> | null
   computed_at?: string | null
   schema_version?: string | null
+  /** Route verdict envelope from path materializer (when present). */
+  route_verdict?: Record<string, unknown> | null
+}
+
+/** Path selection cardinality from SERVE envelope (when present). */
+export interface PathCardinality {
+  generation_total: number
+  eligible_total: number
+  returned_count: number
+  drawn_count?: number | null
+  excluded_count_by_reason?: Record<string, number>
+  truncated?: boolean
 }
 
 /** One server-picked path used in the jewel header. */
@@ -165,6 +183,7 @@ export interface CrownJewelConvergenceSummary {
   generation?: string | null
   as_of?: string | null
   endpoint?: string
+  cardinality?: PathCardinality | null
 }
 
 export interface CrownJewelConvergence {
@@ -181,4 +200,5 @@ export interface CrownJewelConvergence {
   coverage_state?: string
   generation?: string | null
   as_of?: string | null
+  cardinality?: PathCardinality | null
 }

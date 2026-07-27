@@ -123,6 +123,48 @@ describe("enrichArchitectureForSpotlight", () => {
     expect(enriched.nacls?.[0]?.totalCount).toBe(2)
   })
 
+  it("seeds SG totalCount from COLLECTED rule_count", () => {
+    const pathWithRules: ConvergencePath = {
+      ...cyntrotestPath,
+      path_id: "with-rules",
+      hops: [
+        ...(cyntrotestPath.hops ?? []).slice(0, 2).map((h, i) =>
+          i === 1
+            ? {
+                ...h,
+                rule_count: 8,
+                rules_coverage: "COLLECTED",
+              }
+            : h,
+        ),
+        ...(cyntrotestPath.hops ?? []).slice(2),
+      ],
+    }
+    const enriched = enrichArchitectureForSpotlight(emptyArch, [pathWithRules], null)
+    expect(enriched.securityGroups[0]?.totalCount).toBe(8)
+  })
+
+  it("NOT_COLLECTED rule_count stays null even when count is zero", () => {
+    const pathNotCollected: ConvergencePath = {
+      ...cyntrotestPath,
+      path_id: "not-collected",
+      hops: [
+        ...(cyntrotestPath.hops ?? []).slice(0, 2).map((h, i) =>
+          i === 1
+            ? {
+                ...h,
+                rule_count: 0,
+                rules_coverage: "NOT_COLLECTED",
+              }
+            : h,
+        ),
+        ...(cyntrotestPath.hops ?? []).slice(2),
+      ],
+    }
+    const enriched = enrichArchitectureForSpotlight(emptyArch, [pathNotCollected], null)
+    expect(enriched.securityGroups[0]?.totalCount).toBeNull()
+  })
+
   it("drill mode only enriches from selected path", () => {
     const otherPath: ConvergencePath = {
       ...cyntrotestPath,

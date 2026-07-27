@@ -1,5 +1,5 @@
 /**
- * LIVE — Zoom0 Reachability path-authority honesty (P0a/P0b).
+ * LIVE — Zoom0 Current Access path-authority honesty (P0a/P0b).
  *
  * After #442: fan-in Attack Map must not show estate traffic claims,
  * internet partition banner, or Live Traffic without path-bound volume.
@@ -39,7 +39,7 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
     await seedAuthCookie(context)
   })
 
-  test("Reachability map suppresses unsupported traffic claims", async ({
+  test("Current Access map suppresses unsupported traffic claims", async ({
     page,
     context,
   }) => {
@@ -51,7 +51,7 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
     await waitForZoom0(page)
 
     await expect(
-      page.getByRole("tab", { name: "Reachability", exact: true }),
+      page.getByRole("tab", { name: "Current Access", exact: true }),
     ).toBeVisible()
 
     // Model-level hop detail for all fan-in paths must settle first.

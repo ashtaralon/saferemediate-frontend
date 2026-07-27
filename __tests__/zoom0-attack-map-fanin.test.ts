@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   resolveZoom0Effective,
+  zoom0CardinalityLine,
   zoom0EmptyCanvasMessage,
   zoom0RiskSummary,
   zoom0SpotlightPaths,
@@ -61,6 +62,34 @@ describe("zoom0SpotlightPaths", () => {
       ["p2", "p3"],
     )
     expect(out.map((p) => p.path_id).sort()).toEqual(["p2", "p3"])
+  })
+
+  it("investigation pin spotlights one path only", () => {
+    const out = zoom0SpotlightPaths(
+      data([
+        path({ path_id: "p1" }),
+        path({ path_id: "p2" }),
+      ]),
+      null,
+      "p2",
+    )
+    expect(out.map((p) => p.path_id)).toEqual(["p2"])
+  })
+})
+
+describe("zoom0CardinalityLine", () => {
+  it("formats SERVE cardinality with drawn count and truncated flag", () => {
+    expect(
+      zoom0CardinalityLine(
+        {
+          generation_total: 42,
+          eligible_total: 10,
+          returned_count: 8,
+          truncated: true,
+        },
+        6,
+      ),
+    ).toBe("8 of 10 eligible · 42 in generation · 6 drawn · truncated")
   })
 })
 
