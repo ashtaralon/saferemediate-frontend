@@ -365,6 +365,14 @@ export interface CanvasEdge {
    *  derived. Example: "VPCEndpoint serves com.amazonaws.eu-west-1.s3;
    *  S3Bucket is in same account/region — AWS routes via VPCE." */
   inferred_reason?: string
+  /**
+   * Path-authority collapsed multi-hop (e.g. EC2 → profile → role).
+   * Exact underlying hop aws_ids in walk order — never invent hops.
+   * Renderer hides intermediate cards but keeps these for inspection.
+   */
+  collapsed_hop_ids?: string[]
+  /** Operator label for a collapsed hop, e.g. "via app-instance-profile". */
+  via_label?: string
 }
 
 /**

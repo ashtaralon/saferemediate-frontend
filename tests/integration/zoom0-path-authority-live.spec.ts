@@ -72,10 +72,21 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
       timeout: READY_MS,
     })
 
-    // Configured routing honesty cue
+    // Compressed evidence view + configured vs observed visual language
+    await expect(map.getByText(/Compressed evidence view/i)).toBeVisible()
+    await expect(map.getByText("Path membership", { exact: true })).toBeVisible()
+    await expect(map.getByText("Configured", { exact: true })).toBeVisible()
     await expect(
-      map.getByText(/ROUTES_VIA = configured routing association/i),
+      map.getByText("Security Gap (finding)", { exact: true }),
     ).toBeVisible()
+
+    // Gateway / VPCE ownership chips (N of M paths) when those hops exist
+    const ownershipChips = map.locator("[data-path-ownership-chip]")
+    const ownershipCount = await ownershipChips.count()
+    if (ownershipCount > 0) {
+      await expect(ownershipChips.first()).toBeVisible()
+      await expect(ownershipChips.first()).toContainText(/\d+ of \d+ paths?/)
+    }
 
     // Same-VPC IGW must not appear unless it is a selected-path hop.
     // For saferemediate-logs fan-in the DTO has no IGW hop.
