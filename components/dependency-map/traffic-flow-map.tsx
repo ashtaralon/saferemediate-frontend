@@ -817,6 +817,7 @@ export function ServiceNodeBox({
   exfilSummary,
   spineMode = false,
   isCrownJewel = false,
+  pathAuthorityOnly = false,
 }: {
   node: ServiceNode;
   position: 'left' | 'right';
@@ -836,6 +837,11 @@ export function ServiceNodeBox({
   spineMode?: boolean;
   /** Compact crown-jewel button — amber CJ chip + fixed width (not a full-bleed bar). */
   isCrownJewel?: boolean;
+  /**
+   * Zoom0 path-authority: amber is reserved for Security Gap findings.
+   * Crown-jewel identity stays on the CJ badge — card chrome stays neutral.
+   */
+  pathAuthorityOnly?: boolean;
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
@@ -868,19 +874,35 @@ export function ServiceNodeBox({
   // Crown jewel — wide full-bleed RESOURCES button (fan-in attachment size)
   // with the CJ / Crown mark INSIDE the button, not a tiny side card.
   if (isCrownJewel) {
+    // Path-authority: amber rings mean Security Gap findings only.
+    // CJ identity = labeled badge; card chrome stays neutral.
+    const cjCardChrome = pathAuthorityOnly
+      ? isHighlighted
+        ? "bg-accent border-border shadow-md"
+        : "bg-card border-border hover:border-primary/40"
+      : isHighlighted
+        ? "bg-amber-500/20 border-amber-400 shadow-md"
+        : "bg-card border-amber-400/80 hover:border-amber-400 hover:bg-amber-500/10"
+    const cjSubtitleCls = pathAuthorityOnly
+      ? "text-muted-foreground"
+      : "text-amber-700 dark:text-amber-300"
+    const cjAnchorCls = pathAuthorityOnly
+      ? isHighlighted
+        ? "bg-foreground/70"
+        : "bg-muted-foreground/50"
+      : isHighlighted
+        ? "bg-amber-400"
+        : "bg-muted-foreground/50"
     return (
       <div
         role={onClick ? "button" : undefined}
         tabIndex={onClick ? 0 : undefined}
         data-testid="crown-jewel-node-button"
         data-crown-jewel="true"
+        data-cj-chrome={pathAuthorityOnly ? "neutral" : "amber"}
         className={`relative flex w-full items-center gap-4 px-5 py-4 rounded-xl border-2 transition-all duration-200
           ${onClick ? "cursor-pointer" : "cursor-default"}
-          ${
-            isHighlighted
-              ? "bg-amber-500/20 border-amber-400 shadow-md"
-              : "bg-card border-amber-400/80 hover:border-amber-400 hover:bg-amber-500/10"
-          }`}
+          ${cjCardChrome}`}
         onMouseEnter={() => onHover(node.id)}
         onMouseLeave={() => onHover(null)}
         onClick={onClick}
@@ -894,8 +916,13 @@ export function ServiceNodeBox({
         title={`Crown jewel — ${node.name || node.shortName}`}
       >
         <div
-          className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-400 text-amber-950 shadow-sm"
+          className={`inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg shadow-sm ${
+            pathAuthorityOnly
+              ? "bg-foreground text-background"
+              : "bg-amber-400 text-amber-950"
+          }`}
           title="Crown jewel — attack-path target"
+          data-cj-badge="true"
         >
           <Crown className="w-4 h-4 shrink-0" aria-hidden />
           <span className="text-xs font-bold uppercase tracking-wider leading-none">
@@ -913,7 +940,7 @@ export function ServiceNodeBox({
           <div className="text-base font-bold text-foreground truncate">
             {node.shortName}
           </div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+          <div className={`text-[11px] font-semibold uppercase tracking-wider ${cjSubtitleCls}`}>
             Crown Jewel · {config.text}
           </div>
         </div>
@@ -925,7 +952,7 @@ export function ServiceNodeBox({
         )}
         <div
           className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full transition-colors
-          ${isHighlighted ? "bg-amber-400" : "bg-muted-foreground/50"} border border-border
+          ${cjAnchorCls} border border-border
           ${position === "left" ? "-right-1" : "-left-1"}`}
         />
       </div>
@@ -5949,12 +5976,14 @@ export function UnifiedArchitectureDiagram({
                 // Spine mode (3-color discipline): gateway kind hues (sky
                 // NAT, violet TGW) demote to neutral. Internet-facing
                 // gateways (IGW / egress-only IGW) keep the amber/orange
-                // family — internet egress on an attack path is a risk
-                // signal, not a category color.
+                // family outside path-authority — but under Zoom0 amber
+                // is reserved for Security Gap findings, so IGW card
+                // chrome stays neutral (kind hue on the icon only).
                 const isInternetFacingGw =
                   gw.kind === 'InternetGateway' || gw.kind === 'EgressOnlyInternetGateway';
                 const palette =
                   isGateUnused ? 'bg-muted/30 border-border' :
+                  pathAuthorityOnly ? 'bg-card border-border' :
                   pathFilterActive && !isInternetFacingGw ? 'bg-card border-border' :
                   gw.kind === 'InternetGateway' ? 'bg-amber-500/10 border-amber-500/40' :
                   gw.kind === 'NATGateway' ? 'bg-sky-500/10 border-sky-500/40' :
@@ -5965,7 +5994,9 @@ export function UnifiedArchitectureDiagram({
                 // stays neutral and unused gateways stay muted.
                 const iconColor =
                   isGateUnused ? 'text-muted-foreground' :
-                  gw.kind === 'InternetGateway' ? 'text-amber-700 dark:text-amber-300' :
+                  pathAuthorityOnly && isInternetFacingGw
+                    ? 'text-muted-foreground'
+                    : gw.kind === 'InternetGateway' ? 'text-amber-700 dark:text-amber-300' :
                   gw.kind === 'NATGateway' ? 'text-sky-700 dark:text-sky-300' :
                   gw.kind === 'EgressOnlyInternetGateway' ? 'text-orange-700 dark:text-orange-300' :
                   'text-violet-700 dark:text-violet-300';
@@ -6002,6 +6033,7 @@ export function UnifiedArchitectureDiagram({
                     // probes that key off it.
                     data-gateway-state={isGateUnused ? "available-not-selected" : undefined}
                     data-gateway-unused={isGateUnused ? "true" : undefined}
+                    data-gateway-chrome={pathAuthorityOnly ? "neutral" : "kind"}
                     data-gateway-path-ownership={ownership?.label}
                     data-gateway-focus-dimmed={ownership?.dimmed ? "true" : undefined}
                     className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette} ${
@@ -6686,6 +6718,10 @@ export function UnifiedArchitectureDiagram({
                 // LOW / UNKNOWN / no prop → legacy emerald (back-compat)
                 return "drop-shadow(0 0 8px rgba(16, 185, 129, 0.4))"
               })()
+              // Path-authority: suppress severity halo — MEDIUM amber/yellow
+              // glow collides with Security Gap finding language.
+              const showJewelHalo =
+                !pathAuthorityOnly && (emphasizeJewel || !!node.isCrownJewel)
               return (
                 <div
                   key={node.id}
@@ -6699,7 +6735,7 @@ export function UnifiedArchitectureDiagram({
                     emphasizeJewel || node.isCrownJewel ? 'z-20' : ''
                   }${pathEmphasisClass(node.id, !!node.isCrownJewel)}`}
                   style={
-                    emphasizeJewel || node.isCrownJewel
+                    showJewelHalo
                       ? { filter: jewelHaloFilter }
                       : undefined
                   }
@@ -6730,6 +6766,7 @@ export function UnifiedArchitectureDiagram({
                     onClick={() => onSelectService(node, 'resource')}
                     spineMode={pathFilterActive}
                     isCrownJewel={!!node.isCrownJewel}
+                    pathAuthorityOnly={pathAuthorityOnly}
                   />
                   {/* Object-access expander — estate bucket accessors, not
                       path-bound. Hidden under path-authority (Zoom0). */}
