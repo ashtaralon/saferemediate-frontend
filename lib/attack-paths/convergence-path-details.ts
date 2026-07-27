@@ -74,6 +74,21 @@ export function detailsLoadingFor(
   })
 }
 
+/** Paths whose /detail fetch settled as error (for honesty banners). */
+export function detailFailuresFor(
+  neededIds: string[],
+  byId: Record<string, PathDetailRecord>,
+): Array<{ pathId: string; error?: string }> {
+  const out: Array<{ pathId: string; error?: string }> = []
+  for (const id of neededIds) {
+    const rec = byId[id]
+    if (rec?.state === "error") {
+      out.push({ pathId: id, error: rec.error })
+    }
+  }
+  return out
+}
+
 /**
  * Merge summary path rows with settled detail records.
  * Paths still pending keep hops=[] but are stamped hops_load_state=pending
@@ -206,6 +221,7 @@ export function pathsWithAuthoritativeHops(
     const state = p.hops_load_state
     if (state === "pending") return false
     if (state === "error") return false
+    if (state === "fallback") return false
     // ready, or legacy rows without the stamp
     return true
   })

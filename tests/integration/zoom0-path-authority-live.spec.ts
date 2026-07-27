@@ -72,5 +72,24 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
     // For saferemediate-logs fan-in the DTO has no IGW hop.
     await expect(map.getByText(/^IGW$/)).toHaveCount(0)
     await expect(map.locator('[data-lane="egress-gateways"]')).toHaveCount(0)
+
+    // FE route-precedence must not invent public-internet claims.
+    await expect(map.locator('[data-crosses-internet="true"]')).toHaveCount(0)
+    await expect(map.locator("[data-route-precedence-via]")).toHaveCount(0)
+    await expect(map.getByText(/via IGW/i)).toHaveCount(0)
+    await expect(map.getByText(/Available · Not selected/i)).toHaveCount(0)
+
+    // Partial detail failure must surface, never silent incomplete map.
+    // (Count may be 0 when all details succeed — assert no silent drop.)
+    const partial = page.getByTestId("zoom0-partial-detail-failure")
+    const unavailable = page.getByTestId("zoom0-path-details-unavailable")
+    const blocked = page.getByTestId("zoom0-fallback-map-blocked")
+    // Healthy SERVE: map draws without fallback / unavailable blockers.
+    await expect(blocked).toHaveCount(0)
+    await expect(unavailable).toHaveCount(0)
+    // If a sibling detail failed, the honesty chip must be visible.
+    if ((await partial.count()) > 0) {
+      await expect(partial).toContainText(/Map is incomplete/i)
+    }
   })
 })

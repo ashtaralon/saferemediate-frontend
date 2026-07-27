@@ -181,8 +181,15 @@ export function Zoom0FanInPanel({
   // Fan-in model: never pin a single path_id into the detail fetch.
   // Pinning would load hops for only one sibling (often Lambda) and paint
   // a false "IAM-only" map over EC2 paths that still have network hops.
-  const { data, loading, error, retry, detailsLoading, detailsReady } =
-    useCrownJewelConvergence(systemName, convergenceJewel, null, paths)
+  const {
+    data,
+    loading,
+    error,
+    retry,
+    detailsLoading,
+    detailsReady,
+    detailFailures,
+  } = useCrownJewelConvergence(systemName, convergenceJewel, null, paths)
 
   const iapFallback = useMemo(() => {
     if (paths.length === 0) return null
@@ -303,8 +310,31 @@ export function Zoom0FanInPanel({
                 className="text-[11px] text-amber-700 dark:text-amber-400 mt-1"
                 data-testid="zoom0-non-authoritative-preview"
               >
-                Non-authoritative preview — convergence API unreachable; map
-                uses legacy IAP paths. Not SERVE truth.
+                Non-authoritative preview — convergence API unreachable; Attack
+                Map stays blank until SERVE hop DTOs load. Not SERVE truth.
+              </p>
+            ) : null}
+            {detailFailures.length > 0 &&
+            effective.source === "live" &&
+            detailsReady &&
+            !detailsLoading ? (
+              <p
+                className="text-[11px] text-amber-700 dark:text-amber-400 mt-1"
+                data-testid="zoom0-partial-detail-failure"
+              >
+                Drew {spotlightPaths.length} of{" "}
+                {(effective.data?.paths ?? []).length} path
+                {(effective.data?.paths ?? []).length === 1 ? "" : "s"} — hop
+                detail failed for {detailFailures.length} path
+                {detailFailures.length === 1 ? "" : "s"} (
+                {detailFailures
+                  .slice(0, 3)
+                  .map((f) => f.pathId)
+                  .join(", ")}
+                {detailFailures.length > 3
+                  ? ` +${detailFailures.length - 3} more`
+                  : ""}
+                ). Map is incomplete — not a clear estate.
               </p>
             ) : null}
           </div>
@@ -477,6 +507,14 @@ export function Zoom0FanInPanel({
                 Many paths converge here. Expand a choke-point tile above to
                 draw that subset on the Attack Map — avoids spaghetti.
               </div>
+            ) : effective.source === "fallback" ? (
+              <div
+                className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-800 dark:text-amber-300"
+                data-testid="zoom0-fallback-map-blocked"
+              >
+                Convergence API unreachable — refusing to draw a synthetic
+                Attack Map. Retry when SERVE hop DTOs are available.
+              </div>
             ) : !detailsReady || detailsLoading ? (
               <div
                 className="flex h-full min-h-[360px] items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
@@ -486,8 +524,13 @@ export function Zoom0FanInPanel({
                 Loading hop topology for all paths to this jewel…
               </div>
             ) : spotlightPaths.length === 0 ? (
-              <div className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground">
-                Path hop details unavailable — cannot draw an honest Attack Map.
+              <div
+                className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                data-testid="zoom0-path-details-unavailable"
+              >
+                {detailFailures.length > 0
+                  ? `Hop detail failed for all ${detailFailures.length} path${detailFailures.length === 1 ? "" : "s"} — cannot draw an honest Attack Map.`
+                  : "Path hop details unavailable — cannot draw an honest Attack Map."}
               </div>
             ) : (
               <div

@@ -7,6 +7,7 @@ import {
   buildConvergenceSummaryUrl,
 } from "./convergence-fetch-url"
 import {
+  detailFailuresFor,
   detailsLoadingFor,
   detailsReadyFor,
   mapPool,
@@ -30,6 +31,8 @@ interface UseCrownJewelConvergenceResult {
   detailsLoading: boolean
   /** True when every required path detail has settled (ready or error). */
   detailsReady: boolean
+  /** Paths whose hop /detail fetch failed — never silent on the map. */
+  detailFailures: Array<{ pathId: string; error?: string }>
   /** How many summary attempts have been made for this jewel (1-based). */
   attempts: number
   error: string | null
@@ -276,6 +279,10 @@ export function useCrownJewelConvergence(
 
   const detailsReady = detailsReadyFor(neededDetailIds, detailsByPathId)
   const detailsLoading = detailsLoadingFor(neededDetailIds, detailsByPathId)
+  const detailFailures = useMemo(
+    () => detailFailuresFor(neededDetailIds, detailsByPathId),
+    [neededDetailIds, detailsByPathId],
+  )
 
   return {
     data,
@@ -283,6 +290,7 @@ export function useCrownJewelConvergence(
     retrying,
     detailsLoading,
     detailsReady,
+    detailFailures,
     attempts,
     error,
     retry,

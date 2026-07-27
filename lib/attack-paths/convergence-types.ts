@@ -74,7 +74,7 @@ export interface ConvergencePath {
    * - ready: /detail settled (hops may still be [] when the path has none)
    * - error: detail fetch failed
    */
-  hops_load_state?: "pending" | "ready" | "error"
+  hops_load_state?: "pending" | "ready" | "error" | "fallback"
   /** Multi-edge: one entry per category. Empty list when classifier
    *  hasn't run for this system yet (migration window). */
   initial_access?: InitialAccessEdge[]
