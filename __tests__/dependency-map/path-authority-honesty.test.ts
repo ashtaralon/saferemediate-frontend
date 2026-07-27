@@ -604,4 +604,216 @@ describe("path-authority honesty invariants", () => {
       ),
     ).toBe(true)
   })
+
+  it("10. collapses EC2 → InstanceProfile → Role with via_label + hop ids", () => {
+    const withProfile = path({
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          name: "app",
+          plane: "compute",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:iam::1:instance-profile/app-profile",
+          node_type: "InstanceProfile",
+          name: "app-profile",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "HAS_INSTANCE_PROFILE",
+        },
+        {
+          node_id: "arn:aws:iam::1:role/app",
+          node_type: "IAMRole",
+          name: "app",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "USES_ROLE",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          name: "saferemediate-raw",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [withProfile],
+      spotlightPathId: "p1",
+    })
+    const collapsed = arch.edges.filter(
+      (e) =>
+        e.relationship === "USES_ROLE" &&
+        e.source_aws_id === "i-aaa" &&
+        e.target_aws_id === "arn:aws:iam::1:role/app",
+    )
+    expect(collapsed).toHaveLength(1)
+    expect(collapsed[0].via_label).toBe("via app-profile")
+    expect(collapsed[0].collapsed_hop_ids).toEqual([
+      "i-aaa",
+      "arn:aws:iam::1:instance-profile/app-profile",
+      "arn:aws:iam::1:role/app",
+    ])
+    // Must not also emit the intermediate profile edges as separate lines
+    expect(
+      arch.edges.some(
+        (e) =>
+          e.source_aws_id === "arn:aws:iam::1:instance-profile/app-profile" ||
+          e.target_aws_id === "arn:aws:iam::1:instance-profile/app-profile",
+      ),
+    ).toBe(false)
+  })
+
+  it("11. never invents USES_ROLE without exact profile hops in the DTO", () => {
+    // EC2 → Role direct (no InstanceProfile hop) — keep the DTO edge as-is
+    const direct = path({
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "arn:aws:iam::1:role/app",
+          node_type: "IAMRole",
+          plane: "identity",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "USES_ROLE",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [direct],
+      spotlightPathId: "p1",
+    })
+    const uses = arch.edges.filter((e) => e.relationship === "USES_ROLE")
+    expect(uses).toHaveLength(1)
+    expect(uses[0].via_label).toBeUndefined()
+    expect(uses[0].collapsed_hop_ids).toBeUndefined()
+  })
+
+  it("12. gateway ownership chips reflect exact hop membership per path", () => {
+    const p1 = path({
+      path_id: "p1",
+      workload_arn: "i-aaa",
+      hops: [
+        {
+          node_id: "i-aaa",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "igw-shared",
+          node_type: "InternetGateway",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "ROUTES_VIA",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const p2 = path({
+      path_id: "p2",
+      source: "web",
+      workload_arn: "i-bbb",
+      hops: [
+        {
+          node_id: "i-bbb",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "vpce-s3",
+          node_type: "VPCEndpoint",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "ROUTES_VIA",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const p3 = path({
+      path_id: "p3",
+      source: "batch",
+      workload_arn: "i-ccc",
+      hops: [
+        {
+          node_id: "i-ccc",
+          node_type: "EC2Instance",
+          plane: "compute",
+          security_groups: [],
+          is_crown_jewel: false,
+        },
+        {
+          node_id: "igw-shared",
+          node_type: "InternetGateway",
+          plane: "network",
+          security_groups: [],
+          is_crown_jewel: false,
+          edge_type_from_prev: "ROUTES_VIA",
+        },
+        {
+          node_id: "arn:aws:s3:::saferemediate-raw",
+          node_type: "S3Bucket",
+          plane: "data",
+          security_groups: [],
+          is_crown_jewel: true,
+          edge_type_from_prev: "ACCESSES_RESOURCE",
+        },
+      ],
+    })
+    const arch = buildPathAuthorityArchitecture({
+      paths: [p1, p2, p3],
+      spotlightPathId: null,
+      jewel: { id: "arn:aws:s3:::saferemediate-raw" },
+    })
+    expect(arch.gatewayPathOwnership["igw-shared"]).toEqual({
+      pathIds: ["p1", "p3"],
+      totalPaths: 3,
+    })
+    expect(arch.gatewayPathOwnership["vpce-s3"]).toEqual({
+      pathIds: ["p2"],
+      totalPaths: 3,
+    })
+    expect(arch.pathIdsByNodeId["i-aaa"]).toEqual(["p1"])
+    expect(arch.pathIdsByNodeId["i-bbb"]).toEqual(["p2"])
+    // Selecting i-aaa must not claim vpce-s3 ownership
+    expect(arch.pathIdsByNodeId["i-aaa"]?.includes("p2")).toBe(false)
+    expect(
+      arch.gatewayPathOwnership["vpce-s3"].pathIds.some((id) =>
+        arch.pathIdsByNodeId["i-aaa"]?.includes(id),
+      ),
+    ).toBe(false)
+  })
 })

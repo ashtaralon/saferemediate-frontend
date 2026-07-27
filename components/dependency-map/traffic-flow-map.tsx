@@ -505,6 +505,17 @@ export interface SystemArchitecture {
   // ids that are on the chain (vs lateral pivots). Drives lateral
   // dimming on the node cards. Optional; legacy callers undefined.
   onPathNodeIds?: Set<string>;
+  /**
+   * Path-authority (Zoom0): gateway/VPCE id → which fan-in path_ids
+   * touch it. Drives always-on "N of M paths" ownership chips.
+   * Optional — only set by buildPathAuthorityArchitecture.
+   */
+  gatewayPathOwnership?: Record<
+    string,
+    { pathIds: string[]; totalPaths: number }
+  >;
+  /** Path-authority: node id → path_ids that include it (DTO hops). */
+  pathIdsByNodeId?: Record<string, string[]>;
   // Attack-path dominance (2026-06-11 design review). Set ONLY by
   // applyPathFilter when a TrafficFlowMapPathFilter is active — its
   // presence is the renderer's gate for the "one dominant path color,
@@ -3010,6 +3021,7 @@ function AnimatedTrafficLine({
   routePrecedence = null,
   waypoint = null,
   pathDominance,
+  pathAuthorityOnly = false,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -3062,6 +3074,8 @@ function AnimatedTrafficLine({
    *  the edge group. Per pattern_geometry_must_match_label —
    *  the label REINFORCES the geometry of the edge. */
   routePrecedence?: RoutePrecedence | null;
+  /** Zoom0 path-authority: dash configured edges; evidence cues on chips. */
+  pathAuthorityOnly?: boolean;
   /** Canvas v3 Slice B — waypoint that the edge must geometrically
    *  pass through (the resolved egress gateway's center). When set,
    *  the source→target line becomes piecewise: source → waypoint →
@@ -3501,7 +3515,8 @@ function AnimatedTrafficLine({
   // doesn't already contain it.
   const baseVerb =
     canvasV2 && isOnPath && !dim && edgeData
-      ? verbForRelationship(edgeData.relationship)
+      ? // Collapsed EC2→profile→role: prefer exact via_label from DTO hops.
+        edgeData.via_label || verbForRelationship(edgeData.relationship)
       : null
   const precedenceSuffix = routePrecedence
     ? (() => {
@@ -3515,13 +3530,41 @@ function AnimatedTrafficLine({
         return ` · via ${klabel}${serviceSegment} · ${privacy}`
       })()
     : ""
+  // Path-authority honesty: configured (observed null/false) vs observed
+  // (true). Observed stays solid; configured is dashed + "Configured" cue.
+  const isConfiguredEdge =
+    pathAuthorityOnly &&
+    !!edgeData &&
+    edgeData.observed !== true &&
+    !edgeData.inferred
+  const evidenceCue = !pathAuthorityOnly
+    ? ""
+    : edgeData?.observed === true
+      ? " · Observed"
+      : isConfiguredEdge
+        ? " · Configured"
+        : ""
   const verbChipLabel = baseVerb
-    ? `${baseVerb}${precedenceSuffix}`
+    ? `${baseVerb}${precedenceSuffix}${evidenceCue}`
     : null
   return (
     <g
       data-canvas-mode={canvasV2 ? "v2" : "v1"}
       data-edge-onpath={canvasV2 ? (isOnPath ? "true" : "false") : undefined}
+      data-edge-evidence={
+        pathAuthorityOnly && edgeData
+          ? edgeData.observed === true
+            ? "observed"
+            : edgeData.inferred
+              ? "inferred"
+              : "configured"
+          : undefined
+      }
+      data-collapsed-hops={
+        edgeData?.collapsed_hop_ids?.length
+          ? edgeData.collapsed_hop_ids.join(",")
+          : undefined
+      }
       // data-edge-dim kept for backward compat with any existing e2e probes
       // (PR #82-era). data-laterals is the canonical attribute going forward
       // — tri-state, distinguishes 'dim' vs 'bright' vs 'on-path' for DOM-probe
@@ -3615,12 +3658,15 @@ function AnimatedTrafficLine({
           // Precedence (most-specific first):
           //   1. attack path → red dashed "10,5" (operator-critical signal)
           //   2. inferred edge → "6,4" (provenance via line style not palette)
-          //   3. lateral edge → "4 4" dim / "6 3" bright (V2-6 multi-channel)
-          //   4. observed/config on-path → solid
+          //   3. path-authority configured → "4,3" (distinct from observed solid)
+          //   4. lateral edge → "4 4" dim / "6 3" bright (V2-6 multi-channel)
+          //   5. observed on-path → solid
           legacyAttack
             ? "10,5"
             : edgeData?.inferred
               ? "6,4"
+              : isConfiguredEdge
+                ? "4,3"
               // Dominant spine stays SOLID even if the V2 lateral
               // classifier would dash it (2026-06-11 rebalance).
               : spineDominant
@@ -3629,9 +3675,14 @@ function AnimatedTrafficLine({
         }
         className="transition-all duration-300"
       >
-        {edgeData?.inferred && edgeData.inferred_reason && (
+        {edgeData?.collapsed_hop_ids?.length ? (
+          <title>
+            Collapsed hops: {edgeData.collapsed_hop_ids.join(" → ")}
+            {edgeData.via_label ? ` (${edgeData.via_label})` : ""}
+          </title>
+        ) : edgeData?.inferred && edgeData.inferred_reason ? (
           <title>Inferred edge — {edgeData.inferred_reason}</title>
-        )}
+        ) : null}
         {/*
           2026-05-30 (FE follow-up #7): when the producer threaded
           first_seen / last_seen onto the CanvasEdge (PR #76's feature),
@@ -4630,6 +4681,7 @@ export function ConnectionLinesSVG({
               routePrecedence={linePrecedence}
               waypoint={lineWaypoint}
               pathDominance={dominanceForLine(line.sourceId, line.targetId)}
+              pathAuthorityOnly={pathAuthorityOnly}
             />
           );
         })}
@@ -4832,6 +4884,13 @@ export function UnifiedArchitectureDiagram({
     (nodeId: string, isCrownJewel = false): string => {
       if (spotlightActiveNodeIds && spotlightActiveNodeIds.size > 0) {
         if (spotlightActiveNodeIds.has(nodeId)) {
+          // Path-authority (Zoom0 compressed evidence): neutral border =
+          // path membership. Amber/yellow is reserved for server-authored
+          // findings (gapCount rings on SG/NACL/role cards) — never for
+          // "this hop is on a selected path."
+          if (pathAuthorityOnly) {
+            return ' rounded-xl ring-2 ring-border shadow-sm';
+          }
           return ' rounded-xl ring-2 ring-amber-400/60 shadow-md';
         }
         // Full-estate context (Jewel fan-in, 2026-07-14): DIM off-path
@@ -4874,7 +4933,36 @@ export function UnifiedArchitectureDiagram({
       showAllConnections,
       pathBlastRadius?.targetJewelId,
       fullEstateContext,
+      pathAuthorityOnly,
     ],
+  );
+
+  /** Fan-in path ids that include the hovered/highlighted workload (or hop). */
+  const focusPathIds = useMemo(() => {
+    if (!pathAuthorityOnly || !effectiveHoveredId) return null;
+    const ids = architecture.pathIdsByNodeId?.[effectiveHoveredId];
+    if (!ids?.length) return null;
+    return new Set(ids);
+  }, [pathAuthorityOnly, effectiveHoveredId, architecture.pathIdsByNodeId]);
+
+  const gatewayOwnershipChip = useCallback(
+    (gwId: string): { label: string; dimmed: boolean; title: string } | null => {
+      if (!pathAuthorityOnly) return null;
+      const own = architecture.gatewayPathOwnership?.[gwId];
+      if (!own || own.totalPaths <= 0) return null;
+      const n = own.pathIds.length;
+      const m = own.totalPaths;
+      const dimmed =
+        !!focusPathIds && !own.pathIds.some((pid) => focusPathIds.has(pid));
+      return {
+        label: `${n} of ${m} path${m === 1 ? "" : "s"}`,
+        dimmed,
+        title: dimmed
+          ? `Not on the focused workload's path(s) · present on ${n} of ${m} fan-in paths`
+          : `Present on ${n} of ${m} fan-in path${m === 1 ? "" : "s"}`,
+      };
+    },
+    [pathAuthorityOnly, architecture.gatewayPathOwnership, focusPathIds],
   );
 
   // 2026-06-24: when a spotlight/path is active, column headers should
@@ -5892,10 +5980,12 @@ export function UnifiedArchitectureDiagram({
                   : gw.routeDestinationCidr
                   ? `via ${gw.routeDestinationCidr}`
                   : null;
+                const ownership = gatewayOwnershipChip(gw.id);
                 const titleParts = [
                   `${gw.kindLabel} · ${gw.name}`,
                   gw.vpcId ? gw.vpcId : null,
                   routeLine,
+                  ownership?.title ?? null,
                   gw.routed === false ? "sibling gateway — no route points here" : null,
                 ].filter(Boolean);
                 return (
@@ -5912,8 +6002,10 @@ export function UnifiedArchitectureDiagram({
                     // probes that key off it.
                     data-gateway-state={isGateUnused ? "available-not-selected" : undefined}
                     data-gateway-unused={isGateUnused ? "true" : undefined}
+                    data-gateway-path-ownership={ownership?.label}
+                    data-gateway-focus-dimmed={ownership?.dimmed ? "true" : undefined}
                     className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${palette} ${
-                      isGateUnused ? "opacity-50" : ""
+                      isGateUnused || ownership?.dimmed ? "opacity-50" : ""
                     }${pathEmphasisClass(gw.id)}`}
                     title={
                       isGateUnused
@@ -5926,11 +6018,22 @@ export function UnifiedArchitectureDiagram({
                     {renderPathStepBadge(gw.id)}
                     <div className="flex items-center justify-center gap-2 mb-1">
                       <Globe className={`w-4 h-4 ${iconColor}`} />
-                      <span className={`text-sm font-semibold ${isGateUnused ? "text-muted-foreground" : "text-foreground"}`}>{gw.kindLabel}</span>
+                      <span className={`text-sm font-semibold ${isGateUnused || ownership?.dimmed ? "text-muted-foreground" : "text-foreground"}`}>{gw.kindLabel}</span>
                     </div>
                     <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${iconColor}`}>
                       {gw.shortName}
                     </div>
+                    {ownership && (
+                      <div
+                        className="mt-1.5 text-center"
+                        data-path-ownership-chip="true"
+                        title={ownership.title}
+                      >
+                        <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded border border-border bg-muted text-muted-foreground">
+                          {ownership.label}
+                        </span>
+                      </div>
+                    )}
                     {routeLine && (!pathFilterActive || effectiveHoveredId === gw.id) && (
                       <div
                         className="text-[10px] text-center text-muted-foreground mt-1 truncate max-w-[140px]"
@@ -6328,6 +6431,7 @@ export function UnifiedArchitectureDiagram({
                 onPathEdge ||
                 (pathAuthorityOnly &&
                   !!spotlightActiveNodeIds?.has(vpce.id));
+              const ownership = gatewayOwnershipChip(vpce.id);
               const serviceTitle = vpce.serviceName
                 ? `${vpce.serviceName}${vpce.endpointType ? ` (${vpce.endpointType})` : ''}`
                 : undefined;
@@ -6336,8 +6440,17 @@ export function UnifiedArchitectureDiagram({
                   key={vpce.id}
                   data-vpce-id={vpce.id}
                   data-active={isActive ? 'true' : 'false'}
-                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${vpceCardChrome(isActive, pathFilterActive)}${pathEmphasisClass(vpce.id)}`}
-                  title={vpceCardTitle(isActive, pathFilterActive, serviceTitle, vpce.id)}
+                  data-gateway-path-ownership={ownership?.label}
+                  data-gateway-focus-dimmed={ownership?.dimmed ? "true" : undefined}
+                  className={`relative group cursor-default rounded-xl border-2 px-4 py-3 transition-all duration-300 min-w-[150px] ${vpceCardChrome(isActive, pathFilterActive)} ${
+                    ownership?.dimmed ? "opacity-50" : ""
+                  }${pathEmphasisClass(vpce.id)}`}
+                  title={[
+                    vpceCardTitle(isActive, pathFilterActive, serviceTitle, vpce.id),
+                    ownership?.title,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                   onMouseEnter={() => setHoveredId(vpce.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
@@ -6346,6 +6459,17 @@ export function UnifiedArchitectureDiagram({
                     <Cloud className={`w-4 h-4 ${isActive || pathFilterActive ? 'text-violet-700 dark:text-violet-300' : 'text-amber-600/70 dark:text-amber-400/70'}`} />
                     <span className={`text-sm font-semibold ${isActive || pathFilterActive ? 'text-foreground' : 'text-foreground/70'}`}>{vpce.serviceShort}</span>
                   </div>
+                  {ownership && (
+                    <div
+                      className="mb-1 text-center"
+                      data-path-ownership-chip="true"
+                      title={ownership.title}
+                    >
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded border border-border bg-muted text-muted-foreground">
+                        {ownership.label}
+                      </span>
+                    </div>
+                  )}
                   {(!pathFilterActive || effectiveHoveredId === vpce.id) && (
                     <div className={`text-[10px] text-center font-mono truncate max-w-[140px] ${
                       pathFilterActive
@@ -6769,17 +6893,30 @@ export function UnifiedArchitectureDiagram({
           </span>
         )}
         {pathAuthorityOnly && (
-          <span
-            className={`flex items-center gap-1.5 text-muted-foreground ${
-              showObservedTrafficMetrics ? "" : "ml-auto"
-            }`}
-          >
-            ROUTES_VIA = configured routing association
-          </span>
+          <>
+            <span
+              className={`flex items-center gap-1.5 text-muted-foreground ${
+                showObservedTrafficMetrics ? "" : "ml-auto"
+              }`}
+            >
+              <span className="inline-block w-4 border-t-2 border-border" />
+              Path membership
+            </span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="inline-block w-4 border-t-2 border-dashed border-muted-foreground" />
+              Configured
+            </span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="inline-block w-4 border-t-2 border-foreground" />
+              Observed
+            </span>
+          </>
         )}
         <span className="flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-          <span className="text-amber-600 dark:text-amber-400">Security Gap</span>
+          <span className="text-amber-600 dark:text-amber-400">
+            {pathAuthorityOnly ? "Security Gap (finding)" : "Security Gap"}
+          </span>
         </span>
       </div>
     </div>

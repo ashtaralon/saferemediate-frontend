@@ -557,9 +557,9 @@ export function Zoom0FanInPanel({
                   innerTitleOverride="Jewel fan-in"
                   innerSubtitleOverride={
                     detailsPanel === "lateral"
-                      ? "Lateral pivots on fan-in · Laterals bright"
+                      ? "Compressed evidence view · Lateral pivots on fan-in"
                       : detailsPanel === "exfiltration"
-                        ? "Paths that can reach data egress from this jewel"
+                        ? "Compressed evidence view · Paths that can reach data egress from this jewel"
                         : (() => {
                             const classes = jewel.class_counts ?? {}
                             const outOfScope =
@@ -568,8 +568,8 @@ export function Zoom0FanInPanel({
                               (classes.external_pivot ?? 0)
                             const drawn = spotlightPaths.length
                             return outOfScope > 0
-                              ? `${drawn} Neo4j path${drawn === 1 ? "" : "s"} drawn · ${outOfScope} platform/out-of-scope not shown · observed vs configured`
-                              : `${drawn} Neo4j path${drawn === 1 ? "" : "s"} · observed vs configured`
+                              ? `Compressed evidence view · ${drawn} Neo4j path${drawn === 1 ? "" : "s"} · ${outOfScope} platform/out-of-scope not shown`
+                              : `Compressed evidence view · ${drawn} Neo4j path${drawn === 1 ? "" : "s"} · observed vs configured`
                           })()
                   }
                   pathBadgeOverride={`${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`}

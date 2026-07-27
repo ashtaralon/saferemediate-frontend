@@ -117,6 +117,16 @@ export interface PathAuthorityArchitecture {
   edges: CanvasEdge[]
   onPathEdgeIds: Set<string>
   onPathNodeIds: Set<string>
+  /**
+   * Gateway / VPCE id → which fan-in path_ids touch it (hop or edge).
+   * Drives "N of M paths" ownership chips — never invent ownership.
+   */
+  gatewayPathOwnership: Record<
+    string,
+    { pathIds: string[]; totalPaths: number }
+  >
+  /** Hop / workload node id → path_ids that include it (DTO only). */
+  pathIdsByNodeId: Record<string, string[]>
   totalBytes: number
   totalConnections: number
   totalGaps: number
@@ -174,6 +184,27 @@ function isSecurityGroupId(id: string): boolean {
   return /^sg-[a-f0-9]+$/i.test(id)
 }
 
+function isComputeHop(nt: string, id: string): boolean {
+  const t = normType(nt)
+  return (
+    t.includes("ec2") ||
+    t === "compute" ||
+    t.includes("lambda") ||
+    id.startsWith("i-") ||
+    id.includes(":instance/") ||
+    id.includes(":function:")
+  )
+}
+
+function isInstanceProfileHop(nt: string): boolean {
+  return normType(nt).includes("instanceprofile")
+}
+
+function isIamRoleHop(nt: string): boolean {
+  const t = normType(nt)
+  return t.includes("iamrole") || (t.includes("role") && !t.includes("profile"))
+}
+
 function parseEdgeType(
   raw: string | null | undefined,
 ): { relationship: CanvasRelationshipType; reversed: boolean } | null {
@@ -183,6 +214,93 @@ function parseEdgeType(
   const canonical = REL_ALIASES[rel] ?? rel
   if (!KNOWN_RELS.has(canonical)) return null
   return { relationship: canonical as CanvasRelationshipType, reversed }
+}
+
+export type GatewayPathOwnership = PathAuthorityArchitecture["gatewayPathOwnership"]
+
+/** Which fan-in paths touch a gateway/VPCE id (hop node or edge endpoint). */
+export function buildGatewayPathOwnership(
+  paths: ConvergencePath[],
+  spotlightPathId?: string | null,
+): GatewayPathOwnership {
+  const lane = selectSpotlightPaths(paths, spotlightPathId ?? null)
+  const totalPaths = lane.length
+  const byGw = new Map<string, Set<string>>()
+  const touch = (gwId: string, pathId: string) => {
+    if (!gwId || !pathId) return
+    let set = byGw.get(gwId)
+    if (!set) {
+      set = new Set()
+      byGw.set(gwId, set)
+    }
+    set.add(pathId)
+  }
+  for (const p of lane) {
+    const pid = p.path_id
+    for (const h of p.hops ?? []) {
+      const id = h.node_id
+      if (!id) continue
+      const nt = normType(h.node_type)
+      if (
+        id.startsWith("igw-") ||
+        id.startsWith("nat-") ||
+        id.startsWith("eigw-") ||
+        id.startsWith("tgw-") ||
+        id.startsWith("vpce-") ||
+        nt.includes("internetgateway") ||
+        nt.includes("natgateway") ||
+        nt.includes("vpcendpoint") ||
+        nt.includes("transitgateway")
+      ) {
+        touch(id, pid)
+      }
+    }
+  }
+  const out: GatewayPathOwnership = {}
+  for (const [id, set] of byGw) {
+    out[id] = { pathIds: [...set].sort(), totalPaths }
+  }
+  return out
+}
+
+/** Node id → fan-in path_ids that list it as a hop / workload / identity. */
+export function buildPathIdsByNodeId(
+  paths: ConvergencePath[],
+  spotlightPathId?: string | null,
+): Record<string, string[]> {
+  const lane = selectSpotlightPaths(paths, spotlightPathId ?? null)
+  const byNode = new Map<string, Set<string>>()
+  const touch = (nodeId: string, pathId: string) => {
+    if (!nodeId || !pathId) return
+    let set = byNode.get(nodeId)
+    if (!set) {
+      set = new Set()
+      byNode.set(nodeId, set)
+    }
+    set.add(pathId)
+  }
+  for (const p of lane) {
+    const pid = p.path_id
+    if (p.workload_arn) {
+      touch(p.workload_arn, pid)
+      const inst = extractInstanceId(p.workload_arn)
+      if (inst) touch(inst, pid)
+    }
+    if (p.identity) touch(p.identity, pid)
+    if (p.cj_target_id) touch(p.cj_target_id, pid)
+    for (const h of p.hops ?? []) {
+      if (h.node_id) touch(h.node_id, pid)
+      if (h.subnet_id) touch(h.subnet_id, pid)
+      for (const sg of h.security_groups || []) {
+        if (sg && isSecurityGroupId(sg)) touch(sg, pid)
+      }
+    }
+  }
+  const out: Record<string, string[]> = {}
+  for (const [id, set] of byNode) {
+    out[id] = [...set].sort()
+  }
+  return out
 }
 
 /**
@@ -351,6 +469,10 @@ function pushEdge(
   target: string,
   relationship: CanvasRelationshipType,
   pathEvidence: string,
+  meta?: {
+    collapsed_hop_ids?: string[]
+    via_label?: string
+  },
 ): void {
   if (!source || !target || source === target) return
   const id = `${source}|${relationship}|${target}`
@@ -379,7 +501,63 @@ function pushEdge(
     last_seen: null,
     port: null,
     protocol: null,
+    ...(meta?.collapsed_hop_ids?.length
+      ? { collapsed_hop_ids: meta.collapsed_hop_ids }
+      : {}),
+    ...(meta?.via_label ? { via_label: meta.via_label } : {}),
   })
+}
+
+/**
+ * Collapse exact EC2 → InstanceProfile → Role consecutive hops into one
+ * USES_ROLE edge labeled "via <profile>". Never invent USES_ROLE without
+ * both typed hops present in the DTO walk.
+ */
+function tryCollapseProfileHops(
+  hops: ConvergenceHop[],
+  i: number,
+): {
+  source: string
+  target: string
+  relationship: CanvasRelationshipType
+  collapsed_hop_ids: string[]
+  via_label: string
+  skipNext: boolean
+} | null {
+  if (i + 1 >= hops.length) return null
+  const a = hops[i - 1]
+  const b = hops[i]
+  const c = hops[i + 1]
+  if (!a?.node_id || !b?.node_id || !c?.node_id) return null
+  if (!isComputeHop(a.node_type, a.node_id)) return null
+  if (!isInstanceProfileHop(b.node_type)) return null
+  if (!isIamRoleHop(c.node_type)) return null
+
+  const ab = parseEdgeType(b.edge_type_from_prev)
+  const bc = parseEdgeType(c.edge_type_from_prev)
+  if (!ab || !bc) return null
+
+  // Accept common DTO spellings for the two hops; collapse to USES_ROLE.
+  const abOk =
+    ab.relationship === "HAS_INSTANCE_PROFILE" ||
+    ab.relationship === "USES_ROLE" ||
+    ab.relationship === "ASSOCIATED_WITH"
+  const bcOk =
+    bc.relationship === "USES_ROLE" ||
+    bc.relationship === "ASSUMES_ROLE" ||
+    bc.relationship === "HAS_INSTANCE_PROFILE" ||
+    bc.relationship === "ASSOCIATED_WITH"
+  if (!abOk || !bcOk) return null
+
+  const profileName = (b.name || b.node_id).trim()
+  return {
+    source: a.node_id,
+    target: c.node_id,
+    relationship: "USES_ROLE",
+    collapsed_hop_ids: [a.node_id, b.node_id, c.node_id],
+    via_label: `via ${profileName}`,
+    skipNext: true,
+  }
 }
 
 /**
@@ -601,7 +779,25 @@ export function buildPathAuthorityArchitecture(params: {
     }
 
     // Exact stored edges only — consecutive hops with a typed edge.
+    // Collapse EC2 → InstanceProfile → Role when both hops are present.
     for (let i = 1; i < hops.length; i++) {
+      const collapsed = tryCollapseProfileHops(hops, i)
+      if (collapsed) {
+        pushEdge(
+          edges,
+          edgeSeen,
+          collapsed.source,
+          collapsed.target,
+          collapsed.relationship,
+          p.evidence || p.confidence || "configured",
+          {
+            collapsed_hop_ids: collapsed.collapsed_hop_ids,
+            via_label: collapsed.via_label,
+          },
+        )
+        if (collapsed.skipNext) i += 1
+        continue
+      }
       const prev = hops[i - 1]
       const cur = hops[i]
       if (!prev.node_id || !cur.node_id) continue
@@ -705,6 +901,8 @@ export function buildPathAuthorityArchitecture(params: {
     edges,
     onPathEdgeIds: new Set(edges.map((e) => e.id)),
     onPathNodeIds,
+    gatewayPathOwnership: buildGatewayPathOwnership(paths, spotlightPathId),
+    pathIdsByNodeId: buildPathIdsByNodeId(paths, spotlightPathId),
     totalBytes: 0,
     totalConnections: 0,
     totalGaps: 0,
