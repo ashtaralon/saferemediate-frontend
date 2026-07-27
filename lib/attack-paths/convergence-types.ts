@@ -18,6 +18,18 @@ export interface ConvergenceHop {
    *  direction of rendered walk). Field is additive; older backends
    *  that don't emit it simply leave it undefined. */
   edge_type_from_prev?: string | null
+  /**
+   * Per-edge evidence from hops_json (NOT path.confidence / identity_gate).
+   * ACCESSES_RESOURCE may be "observed" while path.confidence stays
+   * "configured". Optional — older backends omit it.
+   */
+  edge_evidence?: string | null
+  /** CloudTrail / flow observation count on the edge from hops_json. */
+  hit_count?: number | null
+  first_seen?: string | null
+  last_seen?: string | null
+  /** Optional Neo4j scalars some detail payloads still nest here. */
+  key_properties?: Record<string, unknown> | null
 }
 
 /** ATT&CK Initial Access edge per path (BE-A.3 / alon@2026-06-20).

@@ -3564,10 +3564,19 @@ function AnimatedTrafficLine({
     !!edgeData &&
     edgeData.observed !== true &&
     !edgeData.inferred
+  const observationCue =
+    pathAuthorityOnly &&
+    edgeData?.observed === true &&
+    typeof edgeData.hit_count === "number" &&
+    edgeData.hit_count > 0
+      ? ` · ${edgeData.hit_count.toLocaleString()} observation${
+          edgeData.hit_count === 1 ? "" : "s"
+        }`
+      : ""
   const evidenceCue = !pathAuthorityOnly
     ? ""
     : edgeData?.observed === true
-      ? " · Observed"
+      ? ` · Observed${observationCue}`
       : isConfiguredEdge
         ? " · Configured"
         : ""

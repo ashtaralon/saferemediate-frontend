@@ -568,8 +568,8 @@ export function Zoom0FanInPanel({
                               (classes.external_pivot ?? 0)
                             const drawn = spotlightPaths.length
                             return outOfScope > 0
-                              ? `Compressed evidence view · ${drawn} Neo4j path${drawn === 1 ? "" : "s"} · ${outOfScope} platform/out-of-scope not shown`
-                              : `Compressed evidence view · ${drawn} Neo4j path${drawn === 1 ? "" : "s"} · observed vs configured`
+                              ? `Compressed evidence view · ${drawn} in-system path${drawn === 1 ? "" : "s"} shown · ${outOfScope} platform/out-of-scope not shown`
+                              : `Compressed evidence view · ${drawn} in-system path${drawn === 1 ? "" : "s"} shown · observed vs configured`
                           })()
                   }
                   pathBadgeOverride={`${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`}
