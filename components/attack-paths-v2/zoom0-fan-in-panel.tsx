@@ -486,13 +486,15 @@ export function Zoom0FanInPanel({
                   systemName={systemName}
                   spotlightPaths={spotlightPaths}
                   spotlightPathId={null}
-                  // Fan-in defaults to the focused path-only view: the
-                  // full-estate-dimmed treatment buried the path in clutter
-                  // (2026-07-14). The `fullEstateContext` flag + render gates
-                  // remain in TrafficFlowMap as an opt-in toggle for later.
+                  // Path-authority honesty (P0a/P0b): Reachability draws
+                  // only selected-path DTO hops/edges — no dep-map estate
+                  // merge, no same-VPC IGW invention, no unbound traffic.
+                  pathAuthorityOnly
                   spotlightJewel={{
                     id: jewel.id,
                     canonical_id: jewel.canonical_id ?? cjArn,
+                    name: jewel.name,
+                    type: jewel.type,
                   }}
                   titleOverride="Attack Map"
                   innerTitleOverride="Jewel fan-in"

@@ -219,8 +219,20 @@ export function buildSpotlightActiveNodeIds(params: {
   spotlightPathId?: string | null
   jewel?: SpotlightJewelRef | null
   architecture?: SpotlightArchitectureSlice | null
+  /**
+   * Path-authority mode (Zoom0 Reachability honesty): only DTO hop /
+   * attachment ids. Never promote same-VPC IGW, flow attachments, or
+   * dep-map SG/NACL/VPCE inventory into the path layer.
+   */
+  pathAuthorityOnly?: boolean
 }): Set<string> {
-  const { paths, spotlightPathId, jewel, architecture } = params
+  const {
+    paths,
+    spotlightPathId,
+    jewel,
+    architecture,
+    pathAuthorityOnly = false,
+  } = params
   const out = new Set<string>()
   if (!paths.length) return out
 
@@ -232,6 +244,9 @@ export function buildSpotlightActiveNodeIds(params: {
     if (p.identity) out.add(p.identity)
     if (p.cj_target_id) out.add(p.cj_target_id)
     for (const roleId of resolveRoleIds(p, architecture)) out.add(roleId)
+    for (const rv of p.routes_via ?? []) {
+      if (rv) out.add(rv)
+    }
 
     for (const h of p.hops || []) {
       if (h.node_id) out.add(h.node_id)
@@ -244,10 +259,13 @@ export function buildSpotlightActiveNodeIds(params: {
     const computeId = resolveComputeId(p, architecture)
     if (computeId) {
       out.add(computeId)
-      addFlowAttachments(computeId, out, architecture)
-      addNetworkPlacementForCompute(computeId, out, architecture)
-      for (const sgId of resolveSecurityGroupIdsForCompute(computeId, architecture)) {
-        out.add(sgId)
+      // Estate expansions invent path membership (same-VPC IGW, etc.).
+      if (!pathAuthorityOnly) {
+        addFlowAttachments(computeId, out, architecture)
+        addNetworkPlacementForCompute(computeId, out, architecture)
+        for (const sgId of resolveSecurityGroupIdsForCompute(computeId, architecture)) {
+          out.add(sgId)
+        }
       }
     }
   }
@@ -259,7 +277,8 @@ export function buildSpotlightActiveNodeIds(params: {
 
   // VPCEs stay opt-in via flow.vpceId / hop — do not blanket-add every
   // VPC endpoint (that re-filled empty lanes with unrelated Interface VPCEs).
-  // Egress IGW/NAT are added above only when in a path compute's VPC.
+  // Egress IGW/NAT are added above only when in a path compute's VPC
+  // (disabled under pathAuthorityOnly).
 
   return out
 }
