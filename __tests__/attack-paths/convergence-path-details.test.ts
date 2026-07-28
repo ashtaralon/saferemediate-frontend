@@ -34,6 +34,12 @@ const summary: CrownJewelConvergenceSummary = {
   paths_total: 3,
   observed_paths: 0,
   choke_points: {},
+  cardinality: {
+    generation_total: 5,
+    eligible_total: 3,
+    returned_count: 3,
+    truncated: false,
+  },
   paths: [
     summaryPath({
       path_id: "lambda-path",
@@ -171,6 +177,12 @@ describe("mergeSummaryWithPathDetails", () => {
     }
 
     const merged = mergeSummaryWithPathDetails(summary, details)
+    expect(merged.cardinality).toEqual({
+      generation_total: 5,
+      eligible_total: 3,
+      returned_count: 3,
+      truncated: false,
+    })
     expect(detailsReadyFor(["lambda-path", "ec2-path", "orphan-path"], details)).toBe(
       true,
     )

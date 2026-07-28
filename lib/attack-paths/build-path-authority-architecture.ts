@@ -713,6 +713,7 @@ export function buildPathAuthorityArchitecture(params: {
         })
       }
     } else if (nt.includes("securitygroup") || nt === "sg") {
+      const ruleTotal = hopRuleTotalCount(hop)
       if (!seen.sg.has(id)) {
         seen.sg.add(id)
         securityGroups.push(
@@ -721,9 +722,16 @@ export function buildPathAuthorityArchitecture(params: {
             id,
             name,
             workloadId,
-            hopRuleTotalCount(hop),
+            ruleTotal,
           ),
         )
+      } else if (ruleTotal != null) {
+        // Attachment edges may create the SG shell first without rules —
+        // upgrade when the SecurityGroup hop DTO arrives with COLLECTED count.
+        const existing = securityGroups.find((s) => s.id === id)
+        if (existing && existing.totalCount == null) {
+          existing.totalCount = ruleTotal
+        }
       }
       if (name && !isSecurityGroupId(name)) {
         sgNameToId.set(name.toLowerCase(), id)
@@ -732,11 +740,17 @@ export function buildPathAuthorityArchitecture(params: {
         sgNameToId.set(id.toLowerCase(), id)
       }
     } else if (nt.includes("networkacl") || nt === "nacl") {
+      const ruleTotal = hopRuleTotalCount(hop)
       if (!seen.nacl.has(id)) {
         seen.nacl.add(id)
         nacls.push(
-          emptyCheckpoint("nacl", id, name, workloadId, hopRuleTotalCount(hop)),
+          emptyCheckpoint("nacl", id, name, workloadId, ruleTotal),
         )
+      } else if (ruleTotal != null) {
+        const existing = nacls.find((n) => n.id === id)
+        if (existing && existing.totalCount == null) {
+          existing.totalCount = ruleTotal
+        }
       }
     } else if (nt.includes("instanceprofile")) {
       if (!seen.ip.has(id)) {
