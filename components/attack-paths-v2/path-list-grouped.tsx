@@ -409,8 +409,25 @@ export function PathListGrouped({
                               Damage: {row.damage_verbs.join(", ")}
                             </span>
                           )}
-                          <span className="inline-flex items-center text-[9px] font-semibold rounded border border-border bg-muted/50 text-muted-foreground px-1.5 py-0.5">
-                            Lateral: +{row.lateral_count}
+                          {/* NOT lateral movement. The backend field behind this
+                              (damage_capability.lateral_action_count, renamed
+                              server-side to excess_service_reach) counts DISTINCT
+                              NON-JEWEL AWS SERVICES in the role's excess IAM
+                              breadth. It has never measured assume-role pivots —
+                              those are identity_pivots, and an inbound assume into
+                              the path principal is acquisition, not lateral.
+                              Labelling it "Lateral: +0" made operators read "no
+                              lateral movement here", which is a claim this number
+                              cannot support. */}
+                          <span
+                            className="inline-flex items-center text-[9px] font-semibold rounded border border-border bg-muted/50 text-muted-foreground px-1.5 py-0.5"
+                            title={
+                              "Off-jewel IAM breadth: distinct non-jewel AWS services this role's " +
+                              "excess permissions can reach. Not assume-role pivots, and not a " +
+                              "statement about lateral movement."
+                            }
+                          >
+                            Off-jewel: +{row.excess_service_reach} svc
                           </span>
                         </div>
                         <div className="text-[10px] text-muted-foreground font-mono truncate">
