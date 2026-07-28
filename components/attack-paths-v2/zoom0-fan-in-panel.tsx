@@ -610,12 +610,16 @@ export function Zoom0FanInPanel({
           <div
             className={`flex flex-1 min-h-0 ${
               pinPathId && detailsPanel === "current_access"
-                ? "flex-col lg:flex-row"
+                ? "flex-col overflow-y-auto lg:flex-row lg:overflow-hidden"
                 : "flex-col"
             }`}
           >
             <div
-              className="flex-1 min-h-0 relative px-2 pb-2"
+              className={`relative px-2 pb-2 ${
+                pinPathId && detailsPanel === "current_access"
+                  ? "min-h-[360px] shrink-0 lg:min-h-0 lg:flex-1 lg:shrink"
+                  : "flex-1 min-h-0"
+              }`}
               data-testid="zoom0-attack-map-slot"
             >
               {hideMapUntilTile ? (
