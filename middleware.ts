@@ -28,7 +28,11 @@ export function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
   // Allow the login page and login API
-  if (pathname === "/login" || pathname === "/api/auth/login") {
+  if (
+    pathname === "/login" ||
+    pathname === "/api/auth/login" ||
+    pathname === "/api/build-version"
+  ) {
     return NextResponse.next()
   }
 
