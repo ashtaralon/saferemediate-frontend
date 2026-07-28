@@ -129,6 +129,7 @@ export function mergeSummaryWithPathDetails(
       closure_recommendation: p.closure_recommendation,
       computed_at: p.computed_at,
       schema_version: p.schema_version,
+      route_verdict: p.route_verdict ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]
@@ -166,6 +167,8 @@ export function mergeSummaryWithPathDetails(
       computed_at: detail.computed_at ?? base.computed_at,
       schema_version: detail.schema_version ?? base.schema_version,
       hop_count: detail.hop_count ?? base.hop_count,
+      // Keep server route verdict on the pinned path — dossier needs it.
+      route_verdict: detail.route_verdict ?? base.route_verdict ?? null,
     }
   })
 
@@ -183,6 +186,8 @@ export function mergeSummaryWithPathDetails(
     coverage_state: summary.coverage_state,
     generation: summary.generation,
     as_of: summary.as_of,
+    // SERVE N-of-M envelope — must survive detail merge or Zoom0 lies.
+    cardinality: summary.cardinality ?? null,
   }
 }
 

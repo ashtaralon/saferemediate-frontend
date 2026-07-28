@@ -74,12 +74,12 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
 
     // Compressed evidence view + configured vs observed visual language
     await expect(map.getByText(/Compressed evidence view/i)).toBeVisible()
-    // True N-of-M from server cardinality (or drawn fallback)
-    await expect(
-      page.getByTestId("zoom0-path-cardinality").or(
-        map.getByText(/\d+ of \d+ eligible|\d+ drawn/i),
-      ),
-    ).toBeVisible({ timeout: READY_MS })
+    // True N-of-M from server cardinality (must survive detail merge)
+    await expect(page.getByTestId("zoom0-path-cardinality")).toContainText(
+      /\d+ of \d+ eligible/,
+      { timeout: READY_MS },
+    )
+    await expect(map.getByText(/\d+ of \d+ eligible/i)).toBeVisible()
     await expect(map.getByText("Path membership", { exact: true })).toBeVisible()
     await expect(map.getByText("Configured", { exact: true })).toBeVisible()
     await expect(
