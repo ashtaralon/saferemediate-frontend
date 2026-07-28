@@ -82,3 +82,46 @@ describe("convergence → IAP → row → chip", () => {
     expect(acquisitionChrome(row.acquisition)).toBeNull()
   })
 })
+
+/**
+ * The FULL chain the UI actually walks, boundary by boundary:
+ *
+ *   summary payload
+ *     → mergeSummaryWithPathDetails   (field-by-field REBUILD, whitelist #1)
+ *     → convergencePathsToIdentityAttackPaths (object literal, whitelist #2)
+ *     → compilePathListRow
+ *     → acquisitionChrome  → chip
+ *
+ * Each whitelist dropped `acquisition` in turn, and every drop looked the
+ * same from outside: correct upstream, invisible in the UI. This test exists
+ * so the next ConvergencePath field only has to be debugged once.
+ */
+describe("full jewel-rail chain preserves acquisition", () => {
+  it("survives merge → convert → row → chip", async () => {
+    const { mergeSummaryWithPathDetails } = await import(
+      "@/lib/attack-paths/convergence-path-details"
+    )
+
+    const summary = {
+      system: "alon-prod",
+      cj_arn: "arn:aws:s3:::cyntro-demo-prod-data-745783559495",
+      cj_name: "cyntro-demo-prod-data-745783559495",
+      paths_total: 1,
+      observed_paths: 0,
+      paths: [convergencePath(LIVE)],
+    } as never
+
+    const merged = mergeSummaryWithPathDetails(summary, {})
+    expect(
+      merged.paths[0].acquisition,
+      "mergeSummaryWithPathDetails rebuilds field-by-field — it must copy acquisition",
+    ).toBeTruthy()
+
+    const [iap] = convergencePathsToIdentityAttackPaths(jewel, merged.paths)
+    const row = compilePathListRow(iap, jewel)
+    const chip = acquisitionChrome(row.acquisition)!
+
+    expect(chip.label).toBe("Assumable by anyone in the account")
+    expect(chip.accountWide && chip.unconditioned).toBe(true)
+  })
+})
