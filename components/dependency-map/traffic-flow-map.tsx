@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Clock, FileText } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Gem, Clock, FileText } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { ServiceTypeBadge } from "@/lib/service-type";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
@@ -920,18 +920,20 @@ export function ServiceNodeBox({
         }}
         title={`Crown jewel — ${node.name || node.shortName}`}
       >
+        {/* Crown-jewel identity badge. Always gold — a SOLID FILLED pill is
+            an identity marker, visually distinct from the Security Gap
+            language (amber ring + warning triangle), so this does not
+            re-conflate "yellow = server-authored finding". Card chrome
+            stays governed by pathAuthorityOnly above; only the badge is
+            gold, and only ever on the jewel. */}
         <div
-          className={`inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg shadow-sm ${
-            pathAuthorityOnly
-              ? "bg-foreground text-background"
-              : "bg-amber-400 text-amber-950"
-          }`}
+          className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg shadow-sm bg-amber-400 text-amber-950"
           title="Crown jewel — attack-path target"
           data-cj-badge="true"
         >
-          <Crown className="w-4 h-4 shrink-0" aria-hidden />
-          <span className="text-xs font-bold uppercase tracking-wider leading-none">
-            CJ
+          <Gem className="w-4 h-4 shrink-0" aria-hidden />
+          <span className="text-xs font-bold uppercase tracking-wider leading-none whitespace-nowrap">
+            Crown Jewel
           </span>
         </div>
         {resourceServiceType ? (
@@ -942,11 +944,16 @@ export function ServiceNodeBox({
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-base font-bold text-foreground truncate">
-            {node.shortName}
+          {/* Full resource name, not shortName+truncate. The jewel card is a
+              full-bleed row with room to spare, and a clipped jewel identity
+              ("cyntro-demo-p…") is the one name on the canvas an operator
+              must be able to read. break-words keeps pathological ARNs from
+              overflowing instead of clipping them. */}
+          <div className="text-base font-bold text-foreground break-words">
+            {node.name || node.shortName}
           </div>
           <div className={`text-[11px] font-semibold uppercase tracking-wider ${cjSubtitleCls}`}>
-            Crown Jewel · {config.text}
+            {config.text}
           </div>
         </div>
         {flowInfo && flowInfo.bytes > 0 && (
@@ -3066,6 +3073,7 @@ function AnimatedTrafficLine({
   isActive,
   isHighlighted,
   isAttackPath = false,
+  renderMode = 'all',
   flowData,
   animate,
   trafficIntensity = 'medium',
@@ -3087,6 +3095,17 @@ function AnimatedTrafficLine({
   isActive: boolean;
   isHighlighted: boolean;
   isAttackPath?: boolean;
+  /** Which layer this pass paints (2026-07-27 label-occlusion fix).
+   *  The connection SVG sits BELOW the lane cards (zIndex 1 vs 2) so
+   *  edges pass behind cards — correct for lines, wrong for the verb
+   *  chips, which got clipped whenever an edge's midpoint landed on an
+   *  intermediate lane card (e.g. compute→SG crossing the SUBNETS lane).
+   *    'lines'  → geometry only, no verb chip (painted under cards)
+   *    'labels' → verb chip only (painted in an overlay above cards)
+   *    'all'    → both, single-pass legacy behaviour (System Map etc.)
+   *  Callers that layer render the same line set twice; geometry is
+   *  deterministic, so the chip lands on its own edge either way. */
+  renderMode?: 'all' | 'lines' | 'labels';
   /** Attack-path dominance (pathFilter mode only — 2026-06-11 design
    *  review "one dominant path color; everything else fades").
    *    'dominant' → edge is on the selected attack path: single hero
@@ -3657,6 +3676,63 @@ function AnimatedTrafficLine({
         .filter(Boolean)
         .join("\n")
     : ""
+
+  // Verb chip ("secured by · Configured", "accesses · 2 paths · 2 observed").
+  // Built once and painted by whichever pass owns labels, so the lines pass
+  // and the overlay pass can never disagree about its text or position.
+  const verbChipNode = verbChipLabel
+    ? (() => {
+        const midX = useCurve
+          ? 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
+          : (x1 + x2) / 2
+        const midY = useCurve
+          ? 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
+          : (y1 + y2) / 2
+        // Approximate text width from char count (no canvas measurement
+        // available in SSR-safe SVG). 6.5px per char at font-size 10.
+        const labelW = verbChipLabel.length * 6.5 + 10
+        return (
+          <g
+            data-verb-chip="true"
+            data-verb-chip-text={verbChipLabel}
+            pointerEvents="none"
+          >
+            <rect
+              x={midX - labelW / 2}
+              y={midY - 8}
+              width={labelW}
+              height={14}
+              rx={4}
+              ry={4}
+              fill="var(--canvas-node-bg)"
+              stroke="var(--canvas-node-border)"
+              strokeWidth={0.5}
+              // Opaque in the overlay pass: the chip now sits ABOVE the lane
+              // cards, so it must fully mask whatever it covers or the card
+              // text bleeds through and both become unreadable.
+              opacity={renderMode === 'labels' ? 1 : 0.92}
+            />
+            <text
+              x={midX}
+              y={midY + 2}
+              textAnchor="middle"
+              fontSize={10}
+              fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif"
+              fill="var(--canvas-label)"
+              letterSpacing={0.2}
+            >
+              {verbChipLabel}
+            </text>
+          </g>
+        )
+      })()
+    : null
+
+  // Overlay pass: chips only, nothing else. Rendered by a second SVG that
+  // sits above the lane cards so a chip is never clipped by a card it
+  // happens to cross.
+  if (renderMode === 'labels') return verbChipNode
+
   return (
     <g
       data-canvas-mode={canvasV2 ? "v2" : "v1"}
@@ -3837,49 +3913,10 @@ function AnimatedTrafficLine({
        *  For straight legacy lines fall back to the simple midpoint.
        *  Background rect renders behind the text so the chip stays
        *  readable on top of other lines / canvas chrome. */}
-      {verbChipLabel && (() => {
-        const midX = useCurve
-          ? 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
-          : (x1 + x2) / 2
-        const midY = useCurve
-          ? 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
-          : (y1 + y2) / 2
-        // Approximate text width from char count (no canvas
-        // measurement available in SSR-safe SVG). 6.5px per char at
-        // font-size 10 is conservative.
-        const labelW = verbChipLabel.length * 6.5 + 10
-        return (
-          <g
-            data-verb-chip="true"
-            data-verb-chip-text={verbChipLabel}
-            pointerEvents="none"
-          >
-            <rect
-              x={midX - labelW / 2}
-              y={midY - 8}
-              width={labelW}
-              height={14}
-              rx={4}
-              ry={4}
-              fill="var(--canvas-node-bg)"
-              stroke="var(--canvas-node-border)"
-              strokeWidth={0.5}
-              opacity={0.92}
-            />
-            <text
-              x={midX}
-              y={midY + 2}
-              textAnchor="middle"
-              fontSize={10}
-              fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif"
-              fill="var(--canvas-label)"
-              letterSpacing={0.2}
-            >
-              {verbChipLabel}
-            </text>
-          </g>
-        )
-      })()}
+      {/* Single-pass callers (System Map) keep the chip inline. Layered
+          callers pass renderMode="lines" here and paint chips in the
+          overlay SVG instead — see ConnectionLinesSVG. */}
+      {renderMode === 'all' && verbChipNode}
 
       {/* Animated particles - always show when animate is true.
        *  Suppressed for inferred service-plane edges — those are
@@ -4633,17 +4670,11 @@ export function ConnectionLinesSVG({
     return 'faded';
   };
 
-  return (
-    // width/height="100%" is REQUIRED — SVG's intrinsic default is 300x150
-    // and `inset-0` only zeroes top/right/bottom/left, it does not stretch
-    // the SVG to its container the way it does for divs. Without these
-    // attrs the connection lines render clipped into the top-left 300x150
-    // corner of the container, invisible past the first column. This
-    // manifested in the Egress Flow Map as "SG cards present but no
-    // lines drawn through them."
-    <svg width="100%" height="100%" className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 1 }}>
-      {/* Render non-highlighted lines first, then attack paths, then highlighted on top */}
-      {lines
+  // Render non-highlighted lines first, then attack paths, then highlighted
+  // on top. Called twice — once per layer — so the chip overlay draws the
+  // exact same line set with the exact same (deterministic) geometry.
+  const renderLines = (renderMode: 'lines' | 'labels') =>
+    lines
         .sort((a, b) => {
           // Attack paths render on top of normal lines; in pathFilter
           // mode the dominant path edges render on top of everything.
@@ -4776,10 +4807,45 @@ export function ConnectionLinesSVG({
               waypoint={lineWaypoint}
               pathDominance={dominanceForLine(line.sourceId, line.targetId)}
               pathAuthorityOnly={pathAuthorityOnly}
+              renderMode={renderMode}
             />
           );
-        })}
-    </svg>
+        });
+
+  // width/height="100%" is REQUIRED — SVG's intrinsic default is 300x150
+  // and `inset-0` only zeroes top/right/bottom/left, it does not stretch
+  // the SVG to its container the way it does for divs. Without these
+  // attrs the connection lines render clipped into the top-left 300x150
+  // corner of the container, invisible past the first column. This
+  // manifested in the Egress Flow Map as "SG cards present but no
+  // lines drawn through them."
+  //
+  // TWO LAYERS (2026-07-27): lane cards sit at zIndex 2. Lines belong
+  // BELOW them (edges should pass behind a card, not across its face);
+  // verb chips belong ABOVE them, or a chip whose edge midpoint lands on
+  // an intermediate lane card gets clipped — which is exactly what made
+  // "secured by · Configured" and "…subnet · Configured" unreadable.
+  return (
+    <>
+      <svg
+        width="100%"
+        height="100%"
+        className="absolute inset-0 pointer-events-none overflow-visible"
+        style={{ zIndex: 1 }}
+        data-connection-layer="lines"
+      >
+        {renderLines('lines')}
+      </svg>
+      <svg
+        width="100%"
+        height="100%"
+        className="absolute inset-0 pointer-events-none overflow-visible"
+        style={{ zIndex: 3 }}
+        data-connection-layer="labels"
+      >
+        {renderLines('labels')}
+      </svg>
+    </>
   );
 }
 
