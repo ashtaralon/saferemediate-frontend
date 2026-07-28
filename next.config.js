@@ -1,6 +1,19 @@
+const deploymentVersion =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GITHUB_SHA ||
+  process.env.SOURCE_VERSION ||
+  "development";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+
+  // Bake the source revision into every client bundle. The matching
+  // /api/build-version route reads the deployment's runtime revision so
+  // long-lived tabs can detect that a newer production bundle exists.
+  env: {
+    NEXT_PUBLIC_DEPLOYMENT_VERSION: deploymentVersion,
+  },
 
   // Parallel dev instances (e.g. two agent sessions previewing the same
   // checkout) collide on .next/dev/lock — give each its own dist dir.
@@ -77,4 +90,3 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-

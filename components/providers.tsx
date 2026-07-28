@@ -3,6 +3,7 @@
 import { Suspense, type ReactNode } from "react"
 import { ThemeProvider } from "next-themes"
 import { SystemProvider } from "@/lib/system-context"
+import { DeploymentVersionGuard } from "@/components/deployment-version-guard"
 
 /**
  * Client-side providers wrapper.
@@ -22,6 +23,7 @@ import { SystemProvider } from "@/lib/system-context"
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false} disableTransitionOnChange>
+      <DeploymentVersionGuard />
       <Suspense fallback={null}>
         <SystemProvider>
           {children}
