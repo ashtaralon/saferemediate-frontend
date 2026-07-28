@@ -76,19 +76,18 @@ test.describe("Zoom0 analytics Chrome QA (live)", () => {
       path: "test-results/analytics-fan-in-chrome-qa.png",
       fullPage: true,
     })
-    const expand = page.getByRole("button", { name: /expand/i }).first()
-    if (await expand.isVisible()) {
-      await expand.click()
-      await expect(map).toBeVisible()
-    }
+    const expand = page.getByRole("button", { name: "Expand canvas" })
+    await expect(expand).toBeVisible()
+    await expand.click()
+    await expect(page).toHaveURL(/(?:\?|&)expand=path(?:&|$)/)
+    await expect(map).toBeVisible()
     await map.screenshot({
       path: "test-results/analytics-fan-in-map-chrome-qa.png",
     })
     const collapse = page.getByRole("button", { name: /collapse canvas/i })
-    if (await collapse.isVisible()) {
-      await collapse.click()
-      await expect(page.getByTestId("zoom0-path-row").first()).toBeVisible()
-    }
+    await expect(collapse).toBeVisible()
+    await collapse.click()
+    await expect(page.getByTestId("zoom0-path-row").first()).toBeVisible()
 
     // Pin → dossier
     await page.getByTestId("zoom0-path-row").first().click()
