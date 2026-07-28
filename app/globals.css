@@ -204,3 +204,24 @@
   filter: grayscale(80%);
   transition: opacity 200ms ease-out, filter 200ms ease-out;
 }
+
+/* Zoom 0 path-authority canvas: distribute service lanes across the space
+   the map already owns instead of packing narrow cards against the left.
+   Long AWS names wrap inside a readable card rather than forcing the entire
+   kill-chain row to scale down and clip its labels. The crown-jewel resource
+   lane remains the full-width second row. */
+[data-path-authority-lanes="true"]
+  > [data-lane]:not([data-lane="resources"]) {
+  flex: 1 1 210px;
+  min-width: 210px;
+  max-width: 340px;
+}
+
+[data-path-authority-lanes="true"]
+  [data-lane]:not([data-lane="resources"])
+  .truncate {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

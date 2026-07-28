@@ -5094,7 +5094,14 @@ export function UnifiedArchitectureDiagram({
       const availW = Math.max(wrap.clientWidth - 8, 1);
       const availH = Math.max(wrap.clientHeight || 480, 1);
       const next = Math.min(1, availW / needW, availH / needH);
-      const clamped = Number.isFinite(next) && next > 0 ? Math.max(0.42, next) : 1;
+      // Investigation maps must keep labels readable. If an unusually
+      // wide path still cannot fit, the containing canvas can scroll
+      // horizontally instead of shrinking cards into illegibility.
+      const minReadableScale = pathAuthorityOnly ? 0.78 : 0.42;
+      const clamped =
+        Number.isFinite(next) && next > 0
+          ? Math.max(minReadableScale, next)
+          : 1;
       setFitScale((prevScale) =>
         Math.abs(prevScale - clamped) < 0.01 ? prevScale : clamped,
       );
@@ -5118,6 +5125,7 @@ export function UnifiedArchitectureDiagram({
     architecture.securityGroups.length,
     architecture.flows.length,
     identityDetailOpen,
+    pathAuthorityOnly,
   ]);
 
   const countLabel = useCallback(
@@ -5487,7 +5495,13 @@ export function UnifiedArchitectureDiagram({
         ref={containerRef}
         className={`relative ${
           pathFilterActive || spineFit ? "min-h-[320px]" : "min-h-[450px]"
-        } ${spineFit ? "overflow-hidden" : ""}`}
+        } ${
+          pathAuthorityOnly
+            ? "overflow-x-auto overflow-y-hidden"
+            : spineFit
+              ? "overflow-hidden"
+              : ""
+        }`}
       >
         {/* VPC Boundary boxes */}
         {showVPCBoundaries && architecture.vpcGroups && (
@@ -5558,9 +5572,14 @@ export function UnifiedArchitectureDiagram({
           // full-width row under the network lanes. Scale still applies
           // so the network hop row fits the viewport.
           ref={lanesRef}
-          className={`relative flex flex-row items-start flex-wrap ${
-            spineFit ? "gap-3" : "gap-6"
+          className={`relative flex w-full flex-row items-start flex-wrap ${
+            pathAuthorityOnly
+              ? "content-start gap-x-8 gap-y-6"
+              : spineFit
+                ? "gap-3"
+                : "gap-6"
           }`}
+          data-path-authority-lanes={pathAuthorityOnly ? "true" : undefined}
           style={{
             zIndex: 2,
             transform: spineFit && fitScale < 1 ? `scale(${fitScale})` : undefined,
@@ -7975,6 +7994,7 @@ export default function TrafficFlowMap({
   defaultShowVPCBoundaries = false,
   defaultShowLaterals,
   headerSlot,
+  fullscreenHeaderSlot,
   onRoleClick,
   jewelEmphasis = false,
   jewelSeverity,
@@ -8044,6 +8064,10 @@ export default function TrafficFlowMap({
   // 2026-05-25: shipped after the selector strip ended up unreachable
   // in fullscreen.
   headerSlot?: React.ReactNode;
+  /** Parent-supplied navigation rendered only while this map owns
+   * browser fullscreen. Outer page chrome is outside the fullscreen
+   * subtree, so lens/view controls that must remain reachable belong here. */
+  fullscreenHeaderSlot?: React.ReactNode;
   // When provided, this fully-formed SystemArchitecture is used in place
   // of the dependency-map fetch. The dep-map fetch is still kicked off
   // for stale-cache warming, but the override wins the render. This is
@@ -10772,7 +10796,11 @@ export default function TrafficFlowMap({
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header with refresh controls */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 min-w-0">
+      <div
+        className={`flex items-center gap-2 px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 min-w-0 ${
+          isFullscreen ? "flex-wrap" : ""
+        }`}
+      >
         <div className="flex items-center gap-4 shrink-0 min-w-0 max-w-[42%] overflow-hidden">
           {/* Stack Components rail toggle. Collapsed by default (Phase 1b-c)
               so the map claims full width; click to reveal the STACK
@@ -10879,6 +10907,12 @@ export default function TrafficFlowMap({
             </span>
           )}
         </div>
+
+        {isFullscreen && fullscreenHeaderSlot ? (
+          <div className="shrink-0" data-testid="canvas-fullscreen-header-slot">
+            {fullscreenHeaderSlot}
+          </div>
+        ) : null}
 
         <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto">
           {/* Connections toggle — 2026-06-25. Defaults OFF: the canvas

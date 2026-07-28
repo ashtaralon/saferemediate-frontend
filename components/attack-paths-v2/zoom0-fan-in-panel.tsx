@@ -344,6 +344,58 @@ export function Zoom0FanInPanel({
     router.replace(`${pathname}?${params.toString()}`)
   }
 
+  const renderDetailsTabs = (surface: "panel" | "fullscreen") => (
+    <div
+      className={`flex shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1 ${
+        surface === "panel" && !isExpanded ? "w-full" : ""
+      }`}
+      data-testid={
+        surface === "fullscreen"
+          ? "zoom0-fullscreen-map-details"
+          : "zoom0-map-details"
+      }
+      role="tablist"
+      aria-label={
+        surface === "fullscreen"
+          ? "Jewel details in fullscreen map"
+          : "Jewel details"
+      }
+    >
+      {(
+        [
+          { id: "current_access" as const, label: "Current Access", Icon: Zap },
+          { id: "lateral" as const, label: "Lateral", Icon: Sliders },
+          { id: "exfiltration" as const, label: "Exfiltration", Icon: Network },
+        ]
+      ).map(({ id, label, Icon }) => {
+        const on = detailsPanel === id
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() => setDetailsPanel(id)}
+            className={`flex items-center gap-1.5 whitespace-nowrap rounded px-2.5 py-1.5 font-mono text-xs transition-all ${
+              surface === "panel" && !isExpanded ? "flex-1 justify-center" : ""
+            } ${
+              on
+                ? id === "current_access"
+                  ? "border border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-300"
+                  : id === "lateral"
+                    ? "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300"
+                    : "border border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
   return (
     <div
       className={`flex flex-col min-h-0 ${isExpanded ? "flex-1 h-full overflow-hidden" : "h-full"}`}
@@ -454,47 +506,7 @@ export function Zoom0FanInPanel({
           </div>
 
           {/* Details panels — not genuine map lenses until canvas DTOs land */}
-          <div
-            className={`flex shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1 ${
-              isExpanded ? "" : "w-full"
-            }`}
-            data-testid="zoom0-map-details"
-            role="tablist"
-            aria-label="Jewel details"
-          >
-            {(
-              [
-                { id: "current_access" as const, label: "Current Access", Icon: Zap },
-                { id: "lateral" as const, label: "Lateral", Icon: Sliders },
-                { id: "exfiltration" as const, label: "Exfiltration", Icon: Network },
-              ]
-            ).map(({ id, label, Icon }) => {
-              const on = detailsPanel === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => setDetailsPanel(id)}
-                  className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 font-mono text-xs transition-all ${
-                    isExpanded ? "" : "flex-1 justify-center"
-                  } ${
-                    on
-                      ? id === "current_access"
-                        ? "border border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-300"
-                        : id === "lateral"
-                          ? "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300"
-                          : "border border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              )
-            })}
-          </div>
+          {renderDetailsTabs("panel")}
         </div>
 
         {riskSummary ? (
@@ -775,6 +787,7 @@ export function Zoom0FanInPanel({
                     observedMode
                     canvasV2
                     jewelEmphasis
+                    fullscreenHeaderSlot={renderDetailsTabs("fullscreen")}
                   />
                 </div>
               )}
