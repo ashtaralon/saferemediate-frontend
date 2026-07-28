@@ -150,10 +150,9 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
 
     // Stay on Zoom0 — do not leave for legacy Zoom-1 AttackPathPanel.
     await expect(page.getByTestId("zoom0-fan-in")).toBeVisible()
-    const dossier = page.getByTestId("current-access-dossier")
-    await expect(dossier).toBeAttached({ timeout: READY_MS })
-    await dossier.scrollIntoViewIfNeeded()
-    await expect(dossier).toBeVisible({ timeout: READY_MS })
+    await expect(page.getByTestId("current-access-dossier")).toBeVisible({
+      timeout: READY_MS,
+    })
     await expect(page.getByTestId("dossier-checkpoints")).toBeVisible()
     for (const kind of [
       "credential",

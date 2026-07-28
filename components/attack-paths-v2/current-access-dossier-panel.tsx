@@ -39,7 +39,7 @@ export function CurrentAccessDossierPanel({
   if (hopsPending) {
     return (
       <aside
-        className="flex w-full shrink-0 flex-col border-t border-border bg-background min-h-[200px] lg:h-full lg:w-[380px] lg:border-l lg:border-t-0"
+        className="flex w-full flex-col bg-background min-h-[120px]"
         data-testid="current-access-dossier"
         data-state="loading"
       >
@@ -53,7 +53,7 @@ export function CurrentAccessDossierPanel({
   if (!dossier) {
     return (
       <aside
-        className="flex h-full min-h-[280px] flex-col border-t border-border bg-background lg:border-l lg:border-t-0"
+        className="flex w-full flex-col bg-background min-h-[120px]"
         data-testid="current-access-dossier"
         data-state="missing"
       >
@@ -66,7 +66,7 @@ export function CurrentAccessDossierPanel({
 
   return (
     <aside
-      className="flex w-full shrink-0 flex-col border-t border-border bg-background min-h-[360px] max-h-[50vh] lg:h-full lg:max-h-none lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0"
+      className="flex w-full flex-col bg-background"
       data-testid="current-access-dossier"
       data-path-id={dossier.path_id}
       data-evidence={dossier.evidence}

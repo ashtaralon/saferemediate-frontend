@@ -543,6 +543,23 @@ export function Zoom0FanInPanel({
             ) : null}
           </div>
         ) : null}
+
+        {/* Dossier lives in sticky chrome so overflow-hidden map ancestors cannot clip it. */}
+        {pinPathId && detailsPanel === "current_access" ? (
+          <div className="mt-3 max-h-[min(420px,50vh)] overflow-y-auto rounded-lg border border-border">
+            <CurrentAccessDossierPanel
+              dossier={dossier}
+              jewelName={jewel.name}
+              hopsPending={
+                Boolean(pinPathId) &&
+                (!detailsReady ||
+                  detailsLoading ||
+                  pinnedPath?.hops_load_state === "pending")
+              }
+              onClearPin={clearPin}
+            />
+          </div>
+        ) : null}
       </div>
 
       {loading && !effective.data?.paths?.length ? (
@@ -607,19 +624,9 @@ export function Zoom0FanInPanel({
             />
           </div>
 
-          <div
-            className={`flex flex-1 min-h-0 ${
-              pinPathId && detailsPanel === "current_access"
-                ? "flex-col overflow-y-auto lg:flex-row lg:overflow-hidden"
-                : "flex-col"
-            }`}
-          >
+          <div className="flex flex-1 min-h-0 flex-col">
             <div
-              className={`relative px-2 pb-2 ${
-                pinPathId && detailsPanel === "current_access"
-                  ? "min-h-[360px] shrink-0 lg:min-h-0 lg:flex-1 lg:shrink"
-                  : "flex-1 min-h-0"
-              }`}
+              className="flex-1 min-h-0 relative px-2 pb-2"
               data-testid="zoom0-attack-map-slot"
             >
               {hideMapUntilTile ? (
@@ -721,20 +728,6 @@ export function Zoom0FanInPanel({
                 </div>
               )}
             </div>
-
-            {pinPathId && detailsPanel === "current_access" ? (
-              <CurrentAccessDossierPanel
-                dossier={dossier}
-                jewelName={jewel.name}
-                hopsPending={
-                  Boolean(pinPathId) &&
-                  (!detailsReady ||
-                    detailsLoading ||
-                    pinnedPath?.hops_load_state === "pending")
-                }
-                onClearPin={clearPin}
-              />
-            ) : null}
           </div>
         </div>
       )}
