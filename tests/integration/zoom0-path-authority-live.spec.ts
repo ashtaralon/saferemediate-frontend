@@ -74,7 +74,12 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
 
     // Compressed evidence view + configured vs observed visual language
     await expect(map.getByText(/Compressed evidence view/i)).toBeVisible()
-    await expect(map.getByText(/in-system paths? shown/i)).toBeVisible()
+    // True N-of-M from server cardinality (or drawn fallback)
+    await expect(
+      page.getByTestId("zoom0-path-cardinality").or(
+        map.getByText(/\d+ of \d+ eligible|\d+ drawn/i),
+      ),
+    ).toBeVisible({ timeout: READY_MS })
     await expect(map.getByText("Path membership", { exact: true })).toBeVisible()
     await expect(map.getByText("Configured", { exact: true })).toBeVisible()
     await expect(
@@ -123,5 +128,49 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
     if ((await partial.count()) > 0) {
       await expect(partial).toContainText(/Map is incomplete/i)
     }
+  })
+
+  test("path pin opens Current Access dossier with composed checkpoints", async ({
+    page,
+    context,
+  }) => {
+    await seedAuthCookie(context)
+    await page.goto(
+      `${liveBaseUrl()}/systems?systemName=${SYSTEM}&tab=attack-paths&jewel=${JEWEL}`,
+      { waitUntil: "domcontentloaded" },
+    )
+    await waitForZoom0(page)
+    await expect(page.getByTestId("zoom0-path-details-loading")).toHaveCount(0, {
+      timeout: READY_MS,
+    })
+
+    const row = page.getByTestId("zoom0-path-row").first()
+    await expect(row).toBeVisible({ timeout: READY_MS })
+    await row.click()
+
+    // Stay on Zoom0 — do not leave for legacy Zoom-1 AttackPathPanel.
+    await expect(page.getByTestId("zoom0-fan-in")).toBeVisible()
+    await expect(page.getByTestId("current-access-dossier")).toBeVisible({
+      timeout: READY_MS,
+    })
+    await expect(page.getByTestId("dossier-checkpoints")).toBeVisible()
+    for (const kind of [
+      "credential",
+      "execution_network",
+      "authorization",
+      "data_operation",
+      "damage",
+      "cut",
+    ]) {
+      await expect(page.getByTestId(`dossier-checkpoint-${kind}`)).toBeVisible()
+    }
+
+    // Map spotlights the pin (1 path badge) while dossier is open.
+    await expect(page.getByTestId("zoom0-attack-map-slot")).toContainText(
+      /investigating 1|1 path/i,
+    )
+
+    await page.getByTestId("dossier-clear-pin").click()
+    await expect(page.getByTestId("current-access-dossier")).toHaveCount(0)
   })
 })

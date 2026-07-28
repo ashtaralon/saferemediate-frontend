@@ -1300,47 +1300,28 @@ export function AttackPathsV2({
                   fallbackPaths={[]}
                 />
               </div>
-            ) : !selectedJewelId || (!selectedPath && !selectedPathId) ? (
-              // Zoom 0 — jewel selected, no path: fan-in + triage list on the left.
-              selectedJewel && systemName ? (
-                <Zoom0FanInPanel
-                  systemName={systemName}
-                  jewel={selectedJewel}
-                  paths={[...jewelPaths]}
-                  selectedPathId={selectedPathId}
-                  onRequestMode={handleSetMode}
-                  isExpanded={isPathExpanded}
-                />
-              ) : (
-                <EmptyState
-                  title="Select a path"
-                  subtitle={
-                    jewelPaths.length === 0 && !selectedPathId
-                      ? "No attack paths to this jewel today. Switch to Exposure view to see standing access."
-                      : `Pick one of the ${jewelPaths.length} paths on the left to drill in.`
-                  }
-                  large
-                />
-              )
-            ) : (
-              // Merged "Attack Path" view (2026-05-31). One facade fetch
-              // (/api/proxy/attack-path/<sys>/<jewel>?path_id=<id>),
-              // Per-Path header/footer wrapper around Attacker-View 9-
-              // lane canvas. Replaces both the legacy PathAnalysisPanel
-              // (direct prop pass) and AttackerViewPanel (separate
-              // graph-view fetch) renders.
-              <AttackPathPanel
+            ) : selectedJewel && systemName ? (
+              // Zoom 0 stays mounted after path pin — fan-in is selection;
+              // Current Access dossier opens beside the path-authority map.
+              // Legacy Zoom-1 AttackPathPanel is no longer the default drill-in.
+              <Zoom0FanInPanel
                 systemName={systemName}
-                jewelId={selectedJewelId}
-                pathId={selectedPath?.id ?? selectedPathId!}
-                pathFromPage={selectedPath}
-                jewelFromPage={selectedJewel}
-                siblingPathsFromPage={jewelPaths}
+                jewel={selectedJewel}
+                paths={[...jewelPaths]}
+                selectedPathId={selectedPathId}
+                onRequestMode={handleSetMode}
+                onClearPath={() => setUrl({ path: null })}
                 isExpanded={isPathExpanded}
-                onToggleExpand={handleToggleExpand}
-                onOpenRoleSplit={onOpenRoleSplit}
-                showEmbeddedAttackMap={showEmbeddedAttackMap}
-                mapOnlyPanel={mapOnlyPanel}
+              />
+            ) : (
+              <EmptyState
+                title="Select a path"
+                subtitle={
+                  jewelPaths.length === 0 && !selectedPathId
+                    ? "No attack paths to this jewel today. Switch to Exposure view to see standing access."
+                    : `Pick one of the ${jewelPaths.length} paths on the left to pin Current Access.`
+                }
+                large
               />
             )}
           </>
