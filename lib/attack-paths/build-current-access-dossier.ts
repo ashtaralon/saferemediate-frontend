@@ -95,6 +95,19 @@ function rulesRow(hop: ConvergenceHop | null, label: string): DossierDetailRow |
   return { label, value: `coverage ${coverage}` }
 }
 
+function formatActionList(raw: unknown, label: string): DossierDetailRow | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const actions = raw.filter((a): a is string => typeof a === "string")
+  if (actions.length === 0) return null
+  return {
+    label,
+    value:
+      actions.length <= 4
+        ? actions.join(", ")
+        : `${actions.slice(0, 4).join(", ")} (+${actions.length - 4})`,
+  }
+}
+
 function formatClosure(
   closure: Record<string, unknown> | null | undefined,
 ): { summary: string; details: DossierDetailRow[] } {
@@ -105,16 +118,27 @@ function formatClosure(
     }
   }
   const details: DossierDetailRow[] = []
-  const remove = closure.remove_actions
-  if (Array.isArray(remove) && remove.length > 0) {
-    const actions = remove.filter((a): a is string => typeof a === "string")
-    details.push({
-      label: "Remove actions",
-      value:
-        actions.length <= 4
-          ? actions.join(", ")
-          : `${actions.slice(0, 4).join(", ")} (+${actions.length - 4})`,
-    })
+  const removeRow = formatActionList(closure.remove_actions, "Remove actions")
+  if (removeRow) details.push(removeRow)
+  const keepRow = formatActionList(closure.keep_actions, "Keep actions")
+  if (keepRow) details.push(keepRow)
+  const scopeRow = formatActionList(closure.scope_to_prefixes, "Scope prefixes")
+  if (scopeRow) details.push(scopeRow)
+  if (closure.preserve_kms_chain === true) {
+    details.push({ label: "KMS chain", value: "preserve" })
+  }
+  const windowDays = closure.remediation_window_days
+  if (typeof windowDays === "number" && Number.isFinite(windowDays)) {
+    details.push({ label: "Remediation window", value: `${windowDays} days` })
+  }
+  const notes = closure.posture_notes
+  if (typeof notes === "string" && notes.trim()) {
+    details.push({ label: "Posture notes", value: notes.trim() })
+  } else if (Array.isArray(notes)) {
+    const lines = notes.filter((n): n is string => typeof n === "string")
+    if (lines.length) {
+      details.push({ label: "Posture notes", value: lines.slice(0, 3).join("; ") })
+    }
   }
   for (const key of ["hint", "mitigation_hint", "summary", "recommendation"] as const) {
     const v = closure[key]
@@ -130,6 +154,7 @@ function formatClosure(
       value: keys.length ? keys.join(", ") : "empty object",
     })
   }
+  const remove = closure.remove_actions
   const n =
     Array.isArray(remove) ? remove.filter((a) => typeof a === "string").length : 0
   return {
@@ -145,7 +170,10 @@ function credentialCheckpoint(
   path: ConvergencePath,
   hops: ConvergenceHop[],
 ): DossierCheckpoint {
-  const ia: InitialAccessEdge | undefined = path.initial_access?.[0]
+  const accessRows: InitialAccessEdge[] = Array.isArray(path.initial_access)
+    ? path.initial_access
+    : []
+  const ia = accessRows[0]
   const profile = hopByType(hops, (nt) => nt.includes("instanceprofile"))
   const role = hopByType(
     hops,
@@ -154,17 +182,24 @@ function credentialCheckpoint(
       !nt.includes("instanceprofile"),
   )
   const details: DossierDetailRow[] = []
-  if (ia?.category) {
-    details.push({ label: "Initial access", value: ia.category })
-  }
-  if (ia?.pivot_name || ia?.pivot_node_id) {
-    details.push({
-      label: "Credential pivot",
-      value: (ia.pivot_name ?? ia.pivot_node_id ?? "").trim(),
+  if (accessRows.length > 0) {
+    accessRows.forEach((row, idx) => {
+      const bits = [
+        row.category,
+        row.pivot_name || row.pivot_node_id || null,
+        row.verdict_confidence || null,
+      ].filter(Boolean)
+      details.push({
+        label: accessRows.length === 1 ? "Initial access" : `Initial access ${idx + 1}`,
+        value: bits.join(" · ") || "present",
+      })
+      if (row.attacker_narrative?.trim()) {
+        details.push({
+          label: accessRows.length === 1 ? "Narrative" : `Narrative ${idx + 1}`,
+          value: row.attacker_narrative.trim(),
+        })
+      }
     })
-  }
-  if (ia?.attacker_narrative) {
-    details.push({ label: "Narrative", value: ia.attacker_narrative })
   }
   if (profile) {
     details.push({ label: "Instance profile", value: shortName(profile) })

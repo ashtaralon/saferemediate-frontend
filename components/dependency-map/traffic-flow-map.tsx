@@ -96,6 +96,11 @@ export interface SecurityCheckpoint {
    * (that lied when builders hardcoded ``totalCount: 0``).
    */
   totalCount: number | null;
+  /**
+   * Hop DTO rules_coverage — distinguishes NOT_COLLECTED vs UNKNOWN.
+   * Never conflate both into "rules not collected".
+   */
+  rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null;
   gapCount: number;
   connectedSources: string[];
   connectedTargets: string[];
@@ -1244,15 +1249,29 @@ export function SecurityGroupPanel({
           <div className="text-sm font-semibold text-foreground truncate">{sg.shortName}</div>
           <div className="flex items-center gap-2 text-[10px] flex-wrap">
             {sg.totalCount != null ? (
-              <span className="text-muted-foreground">
+              <span
+                className="text-muted-foreground"
+                title={
+                  sg.rulesCoverage === "COLLECTED"
+                    ? "Rule inventory COLLECTED from hop DTO"
+                    : "Rule count from hop DTO"
+                }
+              >
                 {sg.totalCount} rules
+              </span>
+            ) : sg.rulesCoverage === "NOT_COLLECTED" ? (
+              <span
+                className="text-muted-foreground"
+                title="rules_coverage=NOT_COLLECTED on hop DTO"
+              >
+                rules not collected
               </span>
             ) : (
               <span
                 className="text-muted-foreground"
-                title="Rule count not present on the SecurityGroup node in Neo4j"
+                title="rules_coverage unknown or missing on hop DTO — not the same as not collected"
               >
-                rules not collected
+                coverage unknown
               </span>
             )}
             {showDetail && inboundRules.length > 0 && (
@@ -1463,15 +1482,29 @@ export function NACLNode({
               Never invent "0 rules" when the collector hasn't written
               counts (hardcoded 0 was a credibility bug on fan-in). */}
           {nacl.totalCount != null ? (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 && !spineMode ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded ${nacl.totalCount > 0 && !spineMode ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'bg-muted text-muted-foreground'}`}
+              title={
+                nacl.rulesCoverage === "COLLECTED"
+                  ? "Rule inventory COLLECTED from hop DTO"
+                  : "Rule count from hop DTO"
+              }
+            >
               {nacl.totalCount} {nacl.totalCount === 1 ? 'rule' : 'rules'}
+            </span>
+          ) : nacl.rulesCoverage === "NOT_COLLECTED" ? (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+              title="rules_coverage=NOT_COLLECTED on hop DTO"
+            >
+              rules not collected
             </span>
           ) : (
             <span
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-              title="Rule count not present on the NetworkAcl node in Neo4j — collector gap, not an empty NACL"
+              title="rules_coverage unknown or missing on hop DTO — not the same as not collected"
             >
-              rules not collected
+              coverage unknown
             </span>
           )}
           {/* Deny count — only when there ARE denies. Coloured amber
@@ -4994,8 +5027,8 @@ export function UnifiedArchitectureDiagram({
         label: `${n} of ${m} path${m === 1 ? "" : "s"}`,
         dimmed,
         title: dimmed
-          ? `Not on the focused workload's path(s) · present on ${n} of ${m} fan-in paths`
-          : `Present on ${n} of ${m} fan-in path${m === 1 ? "" : "s"}`,
+          ? `Not on the focused workload's path(s) · present on ${n} of ${m} paths (M from SERVE eligible when available)`
+          : `Present on ${n} of ${m} path${m === 1 ? "" : "s"} (M from SERVE eligible when available)`,
       };
     },
     [pathAuthorityOnly, architecture.gatewayPathOwnership, focusPathIds],
@@ -6811,94 +6844,194 @@ export function UnifiedArchitectureDiagram({
         </div>
       </div>
 
-      {/* Flow details on hover */}
+      {/* Connection details on hover — path-authority uses DTO edges (not flows). */}
       {effectiveHoveredId && (
-        <div className="mt-6 pt-4 border-t border-border animate-in fade-in duration-200">
+        <div
+          className="mt-6 pt-4 border-t border-border animate-in fade-in duration-200"
+          data-testid="connection-details"
+        >
           <div className="flex items-center gap-2 mb-3">
             <Info className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-semibold text-foreground">Connection Details</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {architecture.flows
-              .filter(f => f.sourceId === effectiveHoveredId || f.targetId === effectiveHoveredId || f.sgId === effectiveHoveredId || f.roleId === effectiveHoveredId)
-              .map((flow, i) => {
-                const source = architecture.computeServices.find(c => c.id === flow.sourceId);
-                const target = architecture.resources.find(r => r.id === flow.targetId);
-                return (
-                  <div key={i} className="bg-muted/50 rounded-lg p-3 border border-border">
-                    <div className="text-xs text-muted-foreground mb-2">
-                      {source?.shortName} → {target?.shortName}
-                    </div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-emerald-600 dark:text-emerald-400 font-mono text-sm font-bold">
-                        {flow.ports[0] || 'TCP'}
-                      </span>
-                      <span className="text-foreground font-bold">
-                        {formatBytes(flow.bytes)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                      <span>{flow.connections} conn</span>
-                      {/*
-                        Gate the "active" badge on the flow's actual state.
-                        Previously rendered unconditionally — appeared on rows
-                        with 0 connections, which read as "live traffic
-                        observed" when there was none. Both legs (isActive
-                        AND connections > 0) must hold so an upstream bug in
-                        isActive can't silently re-introduce the issue.
-                      */}
-                      {flow.isStructural && (
-                        <span
-                          className="flex items-center gap-1 text-amber-700 dark:text-amber-300"
-                          title="Topology link inferred from graph structure — not observed traffic"
-                        >
-                          structural, not observed
-                        </span>
-                      )}
-                      {flow.isActive && flow.connections > 0 && !flow.isStructural && (
-                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                          active
-                        </span>
-                      )}
-                    </div>
-                    {/*
-                      2026-05-28 — Phase 2 V1 slice 2. Forensic provenance
-                      surfaced on hover: "Last seen 3h ago · First seen 2d
-                      ago". Renders only when at least one timestamp is
-                      present on the underlying graph edge (synthesized
-                      chain-completion flows leave both null). Makes the
-                      temporal-intelligence patent claim visible on the
-                      canvas without requiring an export or an admin click.
-                    */}
-                    {(flow.lastSeen || flow.firstSeen) && (
+            {pathAuthorityOnly
+              ? (architecture.edges || [])
+                  .filter(
+                    (e) =>
+                      e.source_aws_id === effectiveHoveredId ||
+                      e.target_aws_id === effectiveHoveredId,
+                  )
+                  .map((edge) => {
+                    const labelFor = (id: string) => {
+                      const hit =
+                        architecture.computeServices.find((c) => c.id === id) ||
+                        architecture.resources.find((r) => r.id === id) ||
+                        architecture.securityGroups.find((s) => s.id === id) ||
+                        architecture.nacls?.find((n) => n.id === id) ||
+                        architecture.iamRoles.find((r) => r.id === id) ||
+                        architecture.instanceProfiles?.find((r) => r.id === id) ||
+                        architecture.subnets?.find((s) => s.id === id) ||
+                        architecture.egressGateways?.find((g) => g.id === id) ||
+                        architecture.vpcEndpoints?.find((v) => v.id === id)
+                      return (
+                        (hit as { shortName?: string; name?: string } | undefined)
+                          ?.shortName ||
+                        (hit as { name?: string } | undefined)?.name ||
+                        id
+                      )
+                    }
+                    const evidence =
+                      edge.observed === true
+                        ? "observed"
+                        : edge.observed === false
+                          ? "configured"
+                          : "config-only"
+                    const windowLabel =
+                      edge.first_seen && edge.last_seen
+                        ? `${formatRelativeTime(edge.first_seen)} → ${formatRelativeTime(edge.last_seen)}`
+                        : edge.last_seen
+                          ? `last ${formatRelativeTime(edge.last_seen)}`
+                          : edge.first_seen
+                            ? `first ${formatRelativeTime(edge.first_seen)}`
+                            : null
+                    return (
                       <div
-                        className="mt-1.5 pt-1.5 border-t border-border flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-muted-foreground"
-                        title={[
-                          flow.firstSeen ? `First seen ${flow.firstSeen}` : null,
-                          flow.lastSeen ? `Last seen ${flow.lastSeen}` : null,
-                        ].filter(Boolean).join('\n')}
+                        key={edge.id}
+                        className="bg-muted/50 rounded-lg p-3 border border-border"
+                        data-testid="connection-detail-edge"
+                        data-relationship={edge.relationship}
+                        data-evidence={evidence}
                       >
-                        {flow.lastSeen && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-2.5 h-2.5 text-muted-foreground" />
-                            <span className="text-foreground">last</span>
-                            <span className="font-mono text-emerald-700 dark:text-emerald-300">{formatRelativeTime(flow.lastSeen)}</span>
+                        <div className="text-xs text-muted-foreground mb-2 truncate">
+                          {labelFor(edge.source_aws_id)} → {labelFor(edge.target_aws_id)}
+                        </div>
+                        <div className="font-mono text-sm font-bold text-foreground">
+                          {edge.relationship}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                          <span
+                            className={
+                              evidence === "observed"
+                                ? "text-emerald-700 dark:text-emerald-300"
+                                : ""
+                            }
+                          >
+                            {evidence}
                           </span>
-                        )}
-                        {flow.lastSeen && flow.firstSeen && <span className="text-muted-foreground">·</span>}
-                        {flow.firstSeen && (
-                          <span className="flex items-center gap-1">
-                            <span className="text-muted-foreground">first</span>
-                            <span className="font-mono text-foreground">{formatRelativeTime(flow.firstSeen)}</span>
-                          </span>
+                          {typeof edge.hit_count === "number" && edge.hit_count > 0 ? (
+                            <span>{edge.hit_count} hits</span>
+                          ) : null}
+                          {edge.via_label ? <span>{edge.via_label}</span> : null}
+                        </div>
+                        {windowLabel ? (
+                          <div className="mt-1.5 pt-1.5 border-t border-border text-[9px] font-mono text-muted-foreground">
+                            window {windowLabel}
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 pt-1.5 border-t border-border text-[9px] text-muted-foreground">
+                            observation window unavailable on edge DTO
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    )
+                  })
+              : architecture.flows
+                  .filter(
+                    (f) =>
+                      f.sourceId === effectiveHoveredId ||
+                      f.targetId === effectiveHoveredId ||
+                      f.sgId === effectiveHoveredId ||
+                      f.roleId === effectiveHoveredId,
+                  )
+                  .map((flow, i) => {
+                    const source = architecture.computeServices.find(
+                      (c) => c.id === flow.sourceId,
+                    )
+                    const target = architecture.resources.find(
+                      (r) => r.id === flow.targetId,
+                    )
+                    return (
+                      <div
+                        key={i}
+                        className="bg-muted/50 rounded-lg p-3 border border-border"
+                      >
+                        <div className="text-xs text-muted-foreground mb-2">
+                          {source?.shortName} → {target?.shortName}
+                        </div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-mono text-sm font-bold">
+                            {flow.ports[0] || "TCP"}
+                          </span>
+                          <span className="text-foreground font-bold">
+                            {formatBytes(flow.bytes)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <span>{flow.connections} conn</span>
+                          {flow.isStructural && (
+                            <span
+                              className="flex items-center gap-1 text-amber-700 dark:text-amber-300"
+                              title="Topology link inferred from graph structure — not observed traffic"
+                            >
+                              structural, not observed
+                            </span>
+                          )}
+                          {flow.isActive &&
+                            flow.connections > 0 &&
+                            !flow.isStructural && (
+                              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                                active
+                              </span>
+                            )}
+                        </div>
+                        {(flow.lastSeen || flow.firstSeen) && (
+                          <div
+                            className="mt-1.5 pt-1.5 border-t border-border flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-muted-foreground"
+                            title={[
+                              flow.firstSeen ? `First seen ${flow.firstSeen}` : null,
+                              flow.lastSeen ? `Last seen ${flow.lastSeen}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join("\n")}
+                          >
+                            {flow.lastSeen && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5 text-muted-foreground" />
+                                <span className="text-foreground">last</span>
+                                <span className="font-mono text-emerald-700 dark:text-emerald-300">
+                                  {formatRelativeTime(flow.lastSeen)}
+                                </span>
+                              </span>
+                            )}
+                            {flow.lastSeen && flow.firstSeen && (
+                              <span className="text-muted-foreground">·</span>
+                            )}
+                            {flow.firstSeen && (
+                              <span className="flex items-center gap-1">
+                                <span className="text-muted-foreground">first</span>
+                                <span className="font-mono text-foreground">
+                                  {formatRelativeTime(flow.firstSeen)}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
           </div>
+          {pathAuthorityOnly &&
+          (architecture.edges || []).filter(
+            (e) =>
+              e.source_aws_id === effectiveHoveredId ||
+              e.target_aws_id === effectiveHoveredId,
+          ).length === 0 ? (
+            <p className="text-[11px] text-muted-foreground mt-2">
+              No path-DTO edges touch this node.
+            </p>
+          ) : null}
         </div>
       )}
 
@@ -7828,6 +7961,7 @@ export default function TrafficFlowMap({
   spotlightPaths,
   spotlightPathId,
   spotlightJewel,
+  pathEligibleTotal,
   systemCrownJewelIds,
   fullEstateContext = false,
   pathAuthorityOnly = false,
@@ -7863,6 +7997,8 @@ export default function TrafficFlowMap({
     name?: string | null
     type?: string | null
   };
+  /** SERVE cardinality.eligible_total for gateway ownership chips. */
+  pathEligibleTotal?: number | null;
   /** Crown Jewel always-on marking (2026-06-22) — set of node IDs the
    *  parent knows are Crown Jewels for this system, fetched from the
    *  per-system attack-paths endpoint. When a resource's id is in this
@@ -7975,8 +8111,15 @@ export default function TrafficFlowMap({
       paths: spotlightPaths,
       spotlightPathId: spotlightPathId ?? null,
       jewel: spotlightJewel ?? null,
+      eligibleTotal: pathEligibleTotal ?? null,
     }) as unknown as SystemArchitecture
-  }, [pathAuthorityOnly, spotlightPaths, spotlightPathId, spotlightJewel])
+  }, [
+    pathAuthorityOnly,
+    spotlightPaths,
+    spotlightPathId,
+    spotlightJewel,
+    pathEligibleTotal,
+  ])
 
   // Path-authority: never unlock GB / Live Traffic from hop props alone
   // while architecture totals stay hard-zero (builder does not copy

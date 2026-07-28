@@ -63,8 +63,12 @@ export function ChokePointTilesBar({
   return (
     <div className="space-y-2" data-testid="choke-point-tiles">
       <p className="px-1 text-[11px] text-muted-foreground">
-        {data.paths_total} paths — collapsed to choke-point tiles (threshold {threshold}).
-        Expand one group at a time.
+        {data.cardinality
+          ? `${data.cardinality.returned_count} of ${data.cardinality.eligible_total} eligible · ${data.paths.length} drawn`
+          : `${data.paths_total} paths (cardinality unavailable)`}
+        {" — "}
+        collapsed to choke-point tiles (threshold {threshold}). Expand one group
+        at a time.
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {KIND_ORDER.map((kind) => {
