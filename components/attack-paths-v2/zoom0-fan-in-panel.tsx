@@ -40,8 +40,13 @@ import {
 } from "@/lib/attack-paths/use-crown-jewel-convergence"
 import {
   iapPathsToConvergence,
+  matchConvergencePathId,
 } from "@/lib/attack-paths/iap-to-convergence"
 import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
+import {
+  buildCurrentAccessDossier,
+  findPinnedConvergencePath,
+} from "@/lib/attack-paths/build-current-access-dossier"
 import { ChokePointTilesBar } from "./choke-point-tiles-bar"
 import {
   CHOKE_TILE_THRESHOLD,
@@ -50,6 +55,7 @@ import {
 import { Zoom0RiskHeader } from "./zoom0-risk-header"
 import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
 import { Zoom0LateralLensPanel } from "./zoom0-lateral-lens-panel"
+import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -61,13 +67,18 @@ export type Zoom0DetailsPanel = "current_access" | "lateral" | "exfiltration"
 /** @deprecated Use Zoom0DetailsPanel — kept for short-term import compat. */
 export type Zoom0MapLens = Zoom0DetailsPanel
 
+/** True N-of-M from server cardinality (eligible envelope, not drawn-only). */
+export function zoom0NofMLine(cardinality: PathCardinality): string {
+  return `${cardinality.returned_count} of ${cardinality.eligible_total} eligible`
+}
+
 /** Format SERVE path cardinality for fan-in chrome. */
 export function zoom0CardinalityLine(
   cardinality: PathCardinality,
   drawnCount: number,
 ): string {
   const parts = [
-    `${cardinality.returned_count} of ${cardinality.eligible_total} eligible`,
+    zoom0NofMLine(cardinality),
     `${cardinality.generation_total} in generation`,
     `${drawnCount} drawn`,
   ]
@@ -75,6 +86,16 @@ export function zoom0CardinalityLine(
     parts.push("truncated")
   }
   return parts.join(" · ")
+}
+
+/** Resolve IAP ?path= id → convergence path_id for investigation pin. */
+export function resolveZoom0PinPathId(
+  data: CrownJewelConvergence | null | undefined,
+  selectedPathId: string | null,
+  iapPaths: IdentityAttackPath[],
+): string | null {
+  if (!data?.paths?.length) return selectedPathId
+  return matchConvergencePathId(data.paths, selectedPathId, iapPaths)
 }
 
 /** Pure: which convergence paths feed TFM spotlight for Zoom 0. */
@@ -180,6 +201,7 @@ export function Zoom0FanInPanel({
   paths,
   selectedPathId,
   onRequestMode,
+  onClearPath,
   isExpanded = false,
 }: {
   systemName: string
@@ -189,6 +211,8 @@ export function Zoom0FanInPanel({
   selectedPathId: string | null
   /** Optional: jump to full Lateral Movement / Exfiltration presentation. */
   onRequestMode?: (mode: "lateral" | "exfil") => void
+  /** Clear ?path= pin and return to fan-in selection. */
+  onClearPath?: () => void
   /** When map expand hides left columns, keep fan-in chrome pinned. */
   isExpanded?: boolean
 }) {
@@ -226,10 +250,25 @@ export function Zoom0FanInPanel({
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
+  const pinPathId = useMemo(
+    () => resolveZoom0PinPathId(effective.data, selectedPathId, paths),
+    [effective.data, selectedPathId, paths],
+  )
+
   const spotlightPaths = useMemo(() => {
     if (!effective.data) return []
-    return zoom0SpotlightPaths(effective.data, tileFilterIds, selectedPathId)
-  }, [effective.data, tileFilterIds, selectedPathId])
+    return zoom0SpotlightPaths(effective.data, tileFilterIds, pinPathId)
+  }, [effective.data, tileFilterIds, pinPathId])
+
+  const pinnedPath = useMemo(() => {
+    if (!effective.data || !pinPathId) return null
+    return findPinnedConvergencePath(effective.data.paths, pinPathId)
+  }, [effective.data, pinPathId])
+
+  const dossier = useMemo(
+    () => (pinPathId ? buildCurrentAccessDossier(pinnedPath) : null),
+    [pinPathId, pinnedPath],
+  )
 
   const riskSummary = useMemo(
     () => zoom0RiskSummary(effective.data),
@@ -260,7 +299,9 @@ export function Zoom0FanInPanel({
       ? "Lateral details — blast from the on-path identity (DTO fan-out, not the kill-chain spine)"
       : detailsPanel === "exfiltration"
         ? "Exfiltration details — configured egress from this jewel (observed transport when collected)"
-        : "Current Access details — initial-access paths to this crown jewel (default map)"
+        : pinPathId
+          ? "Current Access dossier — pinned path investigation (credential → network → authz → data → damage → cut)"
+          : "Current Access — fan-in selection surface; pin a path to open the dossier"
 
   const openRankedPath = () => {
     const pathId =
@@ -270,6 +311,16 @@ export function Zoom0FanInPanel({
     params.set("path", pathId)
     if (!params.get("system") && systemName) params.set("system", systemName)
     router.push(`${pathname}?${params.toString()}`)
+  }
+
+  const clearPin = () => {
+    if (onClearPath) {
+      onClearPath()
+      return
+    }
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.delete("path")
+    router.replace(`${pathname}?${params.toString()}`)
   }
 
   return (
@@ -299,9 +350,15 @@ export function Zoom0FanInPanel({
                       Neo4j paths to{" "}
                       <span className="font-mono text-foreground">{jewel.name}</span>
                       {" "}
-                      ({zoom0CardinalityLine(cardinality, drawn)}) on the Attack Map.
-                      Sorted on the left by Reachable Damage Priority — pick a path
-                      to investigate.
+                      — {zoom0NofMLine(cardinality)}
+                      {cardinality.truncated ? " (truncated)" : ""}
+                      {" · "}
+                      {cardinality.generation_total} in generation
+                      {" · "}
+                      {drawn} drawn on the Attack Map.
+                      {pinPathId
+                        ? " Path pinned — dossier is authoritative for this investigation."
+                        : " Sorted on the left by Reachable Damage Priority — pick a path to pin."}
                     </>
                   )
                 }
@@ -486,6 +543,23 @@ export function Zoom0FanInPanel({
             ) : null}
           </div>
         ) : null}
+
+        {/* Dossier lives in sticky chrome so overflow-hidden map ancestors cannot clip it. */}
+        {pinPathId && detailsPanel === "current_access" ? (
+          <div className="mt-3 max-h-[min(420px,50vh)] overflow-y-auto rounded-lg border border-border">
+            <CurrentAccessDossierPanel
+              dossier={dossier}
+              jewelName={jewel.name}
+              hopsPending={
+                Boolean(pinPathId) &&
+                (!detailsReady ||
+                  detailsLoading ||
+                  pinnedPath?.hops_load_state === "pending")
+              }
+              onClearPin={clearPin}
+            />
+          </div>
+        ) : null}
       </div>
 
       {loading && !effective.data?.paths?.length ? (
@@ -535,8 +609,8 @@ export function Zoom0FanInPanel({
               )}
               {effective.data.cj_type ? <span>{effective.data.cj_type}</span> : null}
               <span>
-                {selectedPathId
-                  ? `investigating 1 path`
+                {pinPathId
+                  ? `investigating 1 of ${effective.data.cardinality?.eligible_total ?? effective.data.paths.length} eligible`
                   : hideMapUntilTile
                     ? "choke tiles — expand a group to draw the map"
                     : tileFilterIds
@@ -550,97 +624,110 @@ export function Zoom0FanInPanel({
             />
           </div>
 
-          <div
-            className="flex-1 min-h-0 relative px-2 pb-2"
-            data-testid="zoom0-attack-map-slot"
-          >
-            {hideMapUntilTile ? (
-              <div className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground">
-                Many paths converge here. Expand a choke-point tile above to
-                draw that subset on the Attack Map — avoids spaghetti.
-              </div>
-            ) : effective.source === "fallback" ? (
-              <div
-                className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-800 dark:text-amber-300"
-                data-testid="zoom0-fallback-map-blocked"
-              >
-                Convergence API unreachable — refusing to draw a synthetic
-                Attack Map. Retry when SERVE hop DTOs are available.
-              </div>
-            ) : !detailsReady || detailsLoading ? (
-              <div
-                className="flex h-full min-h-[360px] items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
-                data-testid="zoom0-path-details-loading"
-              >
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading hop topology for all paths to this jewel…
-              </div>
-            ) : detailsPanel !== "current_access" ? (
-              <div
-                className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-6 text-center text-[12px] text-muted-foreground"
-                data-testid="zoom0-lens-map-unavailable"
-              >
-                Not yet authoritative — contracts pending. Switch to Current Access
-                for the path-authority Attack Map.
-              </div>
-            ) : spotlightPaths.length === 0 ? (
-              <div
-                className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
-                data-testid="zoom0-path-details-unavailable"
-              >
-                {detailFailures.length > 0
-                  ? `Hop detail failed for all ${detailFailures.length} path${detailFailures.length === 1 ? "" : "s"} — cannot draw an honest Attack Map.`
-                  : "Path hop details unavailable — cannot draw an honest Attack Map."}
-              </div>
-            ) : (
-              <div
-                className={`h-full overflow-hidden ${
-                  isExpanded ? "min-h-0" : "min-h-[480px]"
-                }`}
-              >
-                <TrafficFlowMap
-                  key={`zoom0-tfm-${detailsPanel}-${selectedPathId ?? "all"}-${spotlightPaths.map((p) => p.path_id).join(",")}`}
-                  systemName={systemName}
-                  spotlightPaths={spotlightPaths}
-                  spotlightPathId={selectedPathId}
-                  // Path-authority honesty (P0a/P0b): Current Access draws
-                  // only selected-path DTO hops/edges — no dep-map estate
-                  // merge, no same-VPC IGW invention, no unbound traffic.
-                  pathAuthorityOnly
-                  spotlightJewel={{
-                    id: jewel.id,
-                    canonical_id: jewel.canonical_id ?? cjArn,
-                    name: jewel.name,
-                    type: jewel.type,
-                  }}
-                  titleOverride="Attack Map"
-                  innerTitleOverride="Jewel fan-in"
-                  innerSubtitleOverride={
-                    selectedPathId
-                      ? "Compressed evidence view · investigating 1 path"
-                      : (() => {
-                          const classes = jewel.class_counts ?? {}
-                          const outOfScope =
-                            (classes.platform_access ?? 0) +
-                            (classes.service_linked ?? 0) +
-                            (classes.external_pivot ?? 0)
-                          const drawn = spotlightPaths.length
-                          return outOfScope > 0
-                            ? `Compressed evidence view · ${drawn} in-system path${drawn === 1 ? "" : "s"} shown · ${outOfScope} platform/out-of-scope not shown`
-                            : `Compressed evidence view · ${drawn} in-system path${drawn === 1 ? "" : "s"} shown · observed vs configured`
-                        })()
-                  }
-                  pathBadgeOverride={
-                    selectedPathId
-                      ? `1 path → ${jewel.name}`
-                      : `${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`
-                  }
-                  observedMode
-                  canvasV2
-                  jewelEmphasis
-                />
-              </div>
-            )}
+          <div className="flex flex-1 min-h-0 flex-col">
+            <div
+              className="flex-1 min-h-0 relative px-2 pb-2"
+              data-testid="zoom0-attack-map-slot"
+            >
+              {hideMapUntilTile ? (
+                <div className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground">
+                  Many paths converge here. Expand a choke-point tile above to
+                  draw that subset on the Attack Map — avoids spaghetti.
+                </div>
+              ) : effective.source === "fallback" ? (
+                <div
+                  className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-800 dark:text-amber-300"
+                  data-testid="zoom0-fallback-map-blocked"
+                >
+                  Convergence API unreachable — refusing to draw a synthetic
+                  Attack Map. Retry when SERVE hop DTOs are available.
+                </div>
+              ) : !detailsReady || detailsLoading ? (
+                <div
+                  className="flex h-full min-h-[360px] items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                  data-testid="zoom0-path-details-loading"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading hop topology for all paths to this jewel…
+                </div>
+              ) : detailsPanel !== "current_access" ? (
+                <div
+                  className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-6 text-center text-[12px] text-muted-foreground"
+                  data-testid="zoom0-lens-map-unavailable"
+                >
+                  Not yet authoritative — contracts pending. Switch to Current Access
+                  for the path-authority Attack Map.
+                </div>
+              ) : spotlightPaths.length === 0 ? (
+                <div
+                  className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                  data-testid="zoom0-path-details-unavailable"
+                >
+                  {detailFailures.length > 0
+                    ? `Hop detail failed for all ${detailFailures.length} path${detailFailures.length === 1 ? "" : "s"} — cannot draw an honest Attack Map.`
+                    : "Path hop details unavailable — cannot draw an honest Attack Map."}
+                </div>
+              ) : (
+                <div
+                  className={`h-full overflow-hidden ${
+                    isExpanded ? "min-h-0" : "min-h-[480px]"
+                  }`}
+                >
+                  <TrafficFlowMap
+                    key={`zoom0-tfm-${detailsPanel}-${pinPathId ?? "all"}-${spotlightPaths.map((p) => p.path_id).join(",")}`}
+                    systemName={systemName}
+                    spotlightPaths={spotlightPaths}
+                    spotlightPathId={pinPathId}
+                    // Path-authority honesty (P0a/P0b): Current Access draws
+                    // only selected-path DTO hops/edges — no dep-map estate
+                    // merge, no same-VPC IGW invention, no unbound traffic.
+                    pathAuthorityOnly
+                    spotlightJewel={{
+                      id: jewel.id,
+                      canonical_id: jewel.canonical_id ?? cjArn,
+                      name: jewel.name,
+                      type: jewel.type,
+                    }}
+                    titleOverride="Attack Map"
+                    innerTitleOverride={
+                      pinPathId ? "Pinned path" : "Jewel fan-in"
+                    }
+                    innerSubtitleOverride={
+                      pinPathId
+                        ? (() => {
+                            const card = effective.data.cardinality
+                            return card
+                              ? `Compressed evidence view · investigating 1 · ${zoom0NofMLine(card)}`
+                              : "Compressed evidence view · investigating 1 path"
+                          })()
+                        : (() => {
+                            const card = effective.data.cardinality
+                            const drawn = spotlightPaths.length
+                            if (card) {
+                              return `Compressed evidence view · ${zoom0NofMLine(card)} · ${drawn} drawn · observed vs configured`
+                            }
+                            const classes = jewel.class_counts ?? {}
+                            const outOfScope =
+                              (classes.platform_access ?? 0) +
+                              (classes.service_linked ?? 0) +
+                              (classes.external_pivot ?? 0)
+                            return outOfScope > 0
+                              ? `Compressed evidence view · ${drawn} drawn · ${outOfScope} platform/out-of-scope not shown`
+                              : `Compressed evidence view · ${drawn} drawn · observed vs configured`
+                          })()
+                    }
+                    pathBadgeOverride={
+                      pinPathId
+                        ? `1 path → ${jewel.name}`
+                        : `${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`
+                    }
+                    observedMode
+                    canvasV2
+                    jewelEmphasis
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

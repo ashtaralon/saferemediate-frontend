@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   resolveZoom0Effective,
+  resolveZoom0PinPathId,
   zoom0CardinalityLine,
   zoom0EmptyCanvasMessage,
+  zoom0NofMLine,
   zoom0RiskSummary,
   zoom0SpotlightPaths,
 } from "@/components/attack-paths-v2/zoom0-fan-in-panel"
@@ -90,6 +92,32 @@ describe("zoom0CardinalityLine", () => {
         6,
       ),
     ).toBe("8 of 10 eligible · 42 in generation · 6 drawn · truncated")
+  })
+
+  it("zoom0NofMLine is server eligible envelope", () => {
+    expect(
+      zoom0NofMLine({
+        generation_total: 42,
+        eligible_total: 10,
+        returned_count: 8,
+      }),
+    ).toBe("8 of 10 eligible")
+  })
+})
+
+describe("resolveZoom0PinPathId", () => {
+  it("maps IAP row id to convergence path_id", () => {
+    const pin = resolveZoom0PinPathId(
+      data([path({ path_id: "conv-1" })]),
+      "iap-row-1",
+      [
+        {
+          id: "iap-row-1",
+          attack_path_id: "conv-1",
+        } as never,
+      ],
+    )
+    expect(pin).toBe("conv-1")
   })
 })
 
