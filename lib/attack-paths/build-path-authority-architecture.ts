@@ -54,6 +54,7 @@ export interface PathAuthorityArchitecture {
     shortName: string
     usedCount: number
     totalCount: number | null
+    rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
     gapCount: number
     connectedSources: string[]
     connectedTargets: string[]
@@ -65,6 +66,7 @@ export interface PathAuthorityArchitecture {
     shortName: string
     usedCount: number
     totalCount: number | null
+    rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
     gapCount: number
     connectedSources: string[]
     connectedTargets: string[]
@@ -76,6 +78,7 @@ export interface PathAuthorityArchitecture {
     shortName: string
     usedCount: number
     totalCount: number | null
+    rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
     gapCount: number
     connectedSources: string[]
     connectedTargets: string[]
@@ -87,6 +90,7 @@ export interface PathAuthorityArchitecture {
     shortName: string
     usedCount: number
     totalCount: number | null
+    rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
     gapCount: number
     connectedSources: string[]
     connectedTargets: string[]
@@ -223,9 +227,16 @@ export type GatewayPathOwnership = PathAuthorityArchitecture["gatewayPathOwnersh
 export function buildGatewayPathOwnership(
   paths: ConvergencePath[],
   spotlightPathId?: string | null,
+  /** SERVE eligible_total when present — never imply drawn === estate. */
+  eligibleTotal?: number | null,
 ): GatewayPathOwnership {
   const lane = selectSpotlightPaths(paths, spotlightPathId ?? null)
-  const totalPaths = lane.length
+  const totalPaths =
+    typeof eligibleTotal === "number" &&
+    Number.isFinite(eligibleTotal) &&
+    eligibleTotal > 0
+      ? eligibleTotal
+      : lane.length
   const byGw = new Map<string, Set<string>>()
   const touch = (gwId: string, pathId: string) => {
     if (!gwId || !pathId) return
@@ -378,9 +389,19 @@ type PathAuthorityCheckpoint = {
   shortName: string
   usedCount: number
   totalCount: number | null
+  rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
   gapCount: number
   connectedSources: string[]
   connectedTargets: string[]
+}
+
+function normalizeRulesCoverage(
+  raw: string | null | undefined,
+): "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null {
+  if (!raw) return null
+  const u = raw.trim().toUpperCase()
+  if (u === "COLLECTED" || u === "NOT_COLLECTED" || u === "UNKNOWN") return u
+  return null
 }
 
 function emptyCheckpoint(
@@ -389,6 +410,7 @@ function emptyCheckpoint(
   name: string,
   computeId?: string,
   totalCount?: number | null,
+  rulesCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null,
 ): PathAuthorityCheckpoint {
   return {
     id,
@@ -397,6 +419,7 @@ function emptyCheckpoint(
     shortName: truncate(name),
     usedCount: 0,
     totalCount: totalCount ?? null,
+    rulesCoverage: rulesCoverage ?? null,
     gapCount: 0,
     connectedSources: computeId ? [computeId] : [],
     connectedTargets: [],
@@ -660,8 +683,10 @@ export function buildPathAuthorityArchitecture(params: {
   paths: ConvergencePath[]
   spotlightPathId?: string | null
   jewel?: PathAuthorityJewelRef | null
+  /** SERVE cardinality.eligible_total for gateway N-of-M honesty. */
+  eligibleTotal?: number | null
 }): PathAuthorityArchitecture {
-  const { paths, spotlightPathId, jewel } = params
+  const { paths, spotlightPathId, jewel, eligibleTotal } = params
   const lane = selectSpotlightPaths(paths, spotlightPathId ?? null)
 
   const computeServices: PathAuthorityArchitecture["computeServices"] = []
@@ -714,6 +739,7 @@ export function buildPathAuthorityArchitecture(params: {
       }
     } else if (nt.includes("securitygroup") || nt === "sg") {
       const ruleTotal = hopRuleTotalCount(hop)
+      const coverage = normalizeRulesCoverage(hop.rules_coverage)
       if (!seen.sg.has(id)) {
         seen.sg.add(id)
         securityGroups.push(
@@ -723,14 +749,20 @@ export function buildPathAuthorityArchitecture(params: {
             name,
             workloadId,
             ruleTotal,
+            coverage,
           ),
         )
-      } else if (ruleTotal != null) {
+      } else {
         // Attachment edges may create the SG shell first without rules —
         // upgrade when the SecurityGroup hop DTO arrives with COLLECTED count.
         const existing = securityGroups.find((s) => s.id === id)
-        if (existing && existing.totalCount == null) {
-          existing.totalCount = ruleTotal
+        if (existing) {
+          if (existing.totalCount == null && ruleTotal != null) {
+            existing.totalCount = ruleTotal
+          }
+          if (!existing.rulesCoverage && coverage) {
+            existing.rulesCoverage = coverage
+          }
         }
       }
       if (name && !isSecurityGroupId(name)) {
@@ -741,15 +773,21 @@ export function buildPathAuthorityArchitecture(params: {
       }
     } else if (nt.includes("networkacl") || nt === "nacl") {
       const ruleTotal = hopRuleTotalCount(hop)
+      const coverage = normalizeRulesCoverage(hop.rules_coverage)
       if (!seen.nacl.has(id)) {
         seen.nacl.add(id)
         nacls.push(
-          emptyCheckpoint("nacl", id, name, workloadId, ruleTotal),
+          emptyCheckpoint("nacl", id, name, workloadId, ruleTotal, coverage),
         )
-      } else if (ruleTotal != null) {
+      } else {
         const existing = nacls.find((n) => n.id === id)
-        if (existing && existing.totalCount == null) {
-          existing.totalCount = ruleTotal
+        if (existing) {
+          if (existing.totalCount == null && ruleTotal != null) {
+            existing.totalCount = ruleTotal
+          }
+          if (!existing.rulesCoverage && coverage) {
+            existing.rulesCoverage = coverage
+          }
         }
       }
     } else if (nt.includes("instanceprofile")) {
@@ -1026,7 +1064,11 @@ export function buildPathAuthorityArchitecture(params: {
     edges,
     onPathEdgeIds: new Set(edges.map((e) => e.id)),
     onPathNodeIds,
-    gatewayPathOwnership: buildGatewayPathOwnership(paths, spotlightPathId),
+    gatewayPathOwnership: buildGatewayPathOwnership(
+      paths,
+      spotlightPathId,
+      eligibleTotal,
+    ),
     pathIdsByNodeId: buildPathIdsByNodeId(paths, spotlightPathId),
     totalBytes: 0,
     totalConnections: 0,

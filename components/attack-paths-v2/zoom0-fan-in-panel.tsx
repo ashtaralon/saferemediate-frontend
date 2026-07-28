@@ -13,7 +13,7 @@
  */
 
 import dynamic from "next/dynamic"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
@@ -255,6 +255,11 @@ export function Zoom0FanInPanel({
     [effective.data, selectedPathId, paths],
   )
 
+  // Pin forces Current Access — dossier is the investigation surface.
+  useEffect(() => {
+    if (pinPathId) setDetailsPanel("current_access")
+  }, [pinPathId])
+
   const spotlightPaths = useMemo(() => {
     if (!effective.data) return []
     return zoom0SpotlightPaths(effective.data, tileFilterIds, pinPathId)
@@ -385,8 +390,15 @@ export function Zoom0FanInPanel({
                     <span className="font-mono text-foreground">{jewel.name}</span>
                     {" "}({drawn} drawn
                     {inSystem != null ? ` · ${inSystem} in-system` : ""}
-                    {scopeNote}) on the Attack Map. Sorted on the left by
-                    Reachable Damage Priority — pick a path to investigate.
+                    {scopeNote}) on the Attack Map.
+                    {" "}
+                    <span className="text-amber-700 dark:text-amber-400">
+                      Cardinality unavailable — showing returned paths only; not
+                      the full generation.
+                    </span>
+                    {" "}
+                    Sorted on the left by Reachable Damage Priority — pick a
+                    path to pin.
                   </>
                 )
               })()}
@@ -682,6 +694,9 @@ export function Zoom0FanInPanel({
                     // only selected-path DTO hops/edges — no dep-map estate
                     // merge, no same-VPC IGW invention, no unbound traffic.
                     pathAuthorityOnly
+                    pathEligibleTotal={
+                      effective.data.cardinality?.eligible_total ?? null
+                    }
                     spotlightJewel={{
                       id: jewel.id,
                       canonical_id: jewel.canonical_id ?? cjArn,

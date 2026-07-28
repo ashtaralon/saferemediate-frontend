@@ -393,6 +393,7 @@ describe("path-authority honesty invariants", () => {
       spotlightPathId: "p1",
     })
     expect(arch.securityGroups[0]?.totalCount).toBe(12)
+    expect(arch.securityGroups[0]?.rulesCoverage).toBe("COLLECTED")
     expect(arch.iamRoles[0]?.totalCount).toBe(47)
   })
 
