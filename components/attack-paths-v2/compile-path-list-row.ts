@@ -370,7 +370,7 @@ export function compilePathListRow(
     layer_network: zoom0.layers.network,
     layer_data: zoom0.layers.data,
     damage_verbs: zoom0.damage_verbs,
-    lateral_count: zoom0.lateral_count,
+    excess_service_reach: zoom0.excess_service_reach,
     reachable_damage_bucket: zoom0.reachable_damage_bucket,
     reachable_damage_rank: zoom0.reachable_damage_rank,
     impact_tier: zoom0.impact_tier,

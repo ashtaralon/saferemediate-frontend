@@ -487,8 +487,14 @@ export interface PathListRow {
   /** Damage verbs for the row chip (DELETE, EXFIL, …). */
   damage_verbs: string[]
 
-  /** Lateral reach count from identity (0 when unknown). */
-  lateral_count: number
+  /** Off-jewel IAM breadth: distinct NON-JEWEL AWS services reachable through
+   *  the role's excess permissions (0 when unknown). Sourced from the backend's
+   *  `damage_capability.lateral_action_count`, which the server renamed to
+   *  `excess_service_reach` precisely because it never measured lateral
+   *  movement — assume-role pivots are `identity_pivots`, and an inbound assume
+   *  into the path principal is acquisition, not lateral. Do NOT re-label this
+   *  "Lateral": a 0 here says nothing about pivot reachability. */
+  excess_service_reach: number
 
   /** Reachable Damage Priority — UI bucket + two-axis sort keys. */
   reachable_damage_bucket: ReachableDamageBucket

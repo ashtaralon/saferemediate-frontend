@@ -76,7 +76,7 @@ export interface Zoom0PathProjection {
   attacker_headline: string
   layers: PathLayerChips
   damage_verbs: string[]
-  lateral_count: number
+  excess_service_reach: number
   reachable_damage_bucket: ReachableDamageBucket
   /** Composite: impact_tier * 100 + origin_confidence (legacy list/bucket sort). */
   reachable_damage_rank: number
@@ -346,7 +346,7 @@ export function compileZoom0Projection(
   const impact_tier = IMPACT_TIER_RANK[impactTierName]
   const origin_confidence = deriveOriginConfidence(path, layers)
   const origin_confidence_rank = ORIGIN_CONFIDENCE_RANK[origin_confidence]
-  const lateral_count = Math.max(
+  const excess_service_reach = Math.max(
     0,
     path.damage_capability?.lateral_action_count ?? 0,
   )
@@ -366,7 +366,7 @@ export function compileZoom0Projection(
     ),
     layers,
     damage_verbs,
-    lateral_count,
+    excess_service_reach,
     reachable_damage_bucket,
     reachable_damage_rank: compositeReachableDamageRank(
       impact_tier,
@@ -385,7 +385,7 @@ export function compareReachableDamagePriority(
     impact_tier?: number
     origin_confidence_rank?: number
     reachable_damage_rank: number
-    lateral_count: number
+    excess_service_reach: number
     fix_ready: boolean
     observed_hits?: number
     hop_count?: number
@@ -394,7 +394,7 @@ export function compareReachableDamagePriority(
     impact_tier?: number
     origin_confidence_rank?: number
     reachable_damage_rank: number
-    lateral_count: number
+    excess_service_reach: number
     fix_ready: boolean
     observed_hits?: number
     hop_count?: number
@@ -410,7 +410,7 @@ export function compareReachableDamagePriority(
     b.origin_confidence_rank ?? b.reachable_damage_rank % 100
   if (ao !== bo) return ao - bo
 
-  if (b.lateral_count !== a.lateral_count) return b.lateral_count - a.lateral_count
+  if (b.excess_service_reach !== a.excess_service_reach) return b.excess_service_reach - a.excess_service_reach
   if (Number(b.fix_ready) !== Number(a.fix_ready)) {
     return Number(b.fix_ready) - Number(a.fix_ready)
   }
