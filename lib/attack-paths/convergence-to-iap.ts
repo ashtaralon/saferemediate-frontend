@@ -137,6 +137,17 @@ export function convergencePathsToIdentityAttackPaths(
       initial_access: p.initial_access?.[0]?.category
         ? { category: p.initial_access[0].category as never }
         : undefined,
+      // ACQUISITION must be carried across the shape change. This object is a
+      // WHITELIST — anything not named here is silently dropped, and the jewel
+      // rail renders from `serve` (convergence) by default, with IAP only as
+      // the error fallback. So a field can be correct in the graph, on both
+      // APIs, and present in the browser's payload, and still never reach the
+      // row: it dies in this transform. That is exactly what happened —
+      // the chip stayed dark on prod while every upstream layer verified
+      // clean. Distinct from initial_access above: acquisition says who can
+      // take this principal once already INSIDE the account; initial_access
+      // says how they got in. Never collapse the two.
+      acquisition: p.acquisition ?? null,
     } as IdentityAttackPath
   })
 }
