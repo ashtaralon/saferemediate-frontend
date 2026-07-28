@@ -13,7 +13,11 @@ import type {
   ConvergencePath,
 } from "@/lib/attack-paths/convergence-types"
 import { hopRuleTotalCount } from "@/lib/attack-paths/hop-rule-total-count"
-import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import type {
+  CanvasEdge,
+  CanvasEdgePathEvidence,
+  CanvasRelationshipType,
+} from "@/lib/types/attack-canvas"
 
 export interface PathAuthorityJewelRef {
   id: string
@@ -515,7 +519,7 @@ export function hopIncomingEdgeEvidence(hop: ConvergenceHop): {
         : null
   const hit_count =
     hitRaw != null && Number.isFinite(hitRaw) && hitRaw > 0 ? hitRaw : null
-  let evidence = normalizeEdgeEvidence(
+  let evidence: string | null = normalizeEdgeEvidence(
     hop.edge_evidence ?? anyHop.evidence ?? (props?.evidence as string | undefined),
   )
   if (!evidence && hit_count != null) evidence = "observed"
@@ -552,6 +556,7 @@ function pushEdge(
   source: string,
   target: string,
   relationship: CanvasRelationshipType,
+  pathId: string,
   pathEvidence: string,
   meta?: EdgePushMeta,
 ): void {
@@ -567,6 +572,13 @@ function pushEdge(
     typeof meta?.hit_count === "number" && meta.hit_count > 0
       ? meta.hit_count
       : null
+  const nextPathEvidence: CanvasEdgePathEvidence = {
+    path_id: pathId,
+    observed: nextObserved,
+    hit_count: nextHits,
+    first_seen: meta?.first_seen ?? null,
+    last_seen: meta?.last_seen ?? null,
+  }
 
   if (seen.has(id)) {
     const existing = edges.find((e) => e.id === id)
@@ -601,6 +613,34 @@ function pushEdge(
     if (meta?.via_label && !existing.via_label) {
       existing.via_label = meta.via_label
     }
+    if (pathId) {
+      existing.path_ids = [...new Set([...(existing.path_ids ?? []), pathId])].sort()
+      const pathEvidenceRows = existing.path_evidence ?? []
+      const prior = pathEvidenceRows.find((row) => row.path_id === pathId)
+      if (!prior) {
+        existing.path_evidence = [...pathEvidenceRows, nextPathEvidence].sort(
+          (a, b) => a.path_id.localeCompare(b.path_id),
+        )
+      } else {
+        if (nextObserved === true) prior.observed = true
+        if (nextHits != null) {
+          prior.hit_count = Math.max(prior.hit_count ?? 0, nextHits)
+        }
+        if (
+          nextPathEvidence.first_seen &&
+          (!prior.first_seen ||
+            nextPathEvidence.first_seen < prior.first_seen)
+        ) {
+          prior.first_seen = nextPathEvidence.first_seen
+        }
+        if (
+          nextPathEvidence.last_seen &&
+          (!prior.last_seen || nextPathEvidence.last_seen > prior.last_seen)
+        ) {
+          prior.last_seen = nextPathEvidence.last_seen
+        }
+      }
+    }
     return
   }
   seen.add(id)
@@ -616,6 +656,7 @@ function pushEdge(
     last_seen: meta?.last_seen ?? null,
     port: null,
     protocol: null,
+    ...(pathId ? { path_ids: [pathId], path_evidence: [nextPathEvidence] } : {}),
     ...(meta?.collapsed_hop_ids?.length
       ? { collapsed_hop_ids: meta.collapsed_hop_ids }
       : {}),
@@ -945,6 +986,7 @@ export function buildPathAuthorityArchitecture(params: {
           collapsed.source,
           collapsed.target,
           collapsed.relationship,
+          p.path_id,
           p.evidence || p.confidence || "configured",
           {
             collapsed_hop_ids: collapsed.collapsed_hop_ids,
@@ -968,6 +1010,7 @@ export function buildPathAuthorityArchitecture(params: {
         source,
         target,
         parsed.relationship,
+        p.path_id,
         p.evidence || p.confidence || "configured",
         {
           hop_evidence: edgeEv.evidence,
@@ -995,6 +1038,7 @@ export function buildPathAuthorityArchitecture(params: {
             computeId,
             hop.subnet_id,
             "IN_SUBNET",
+            p.path_id,
             p.evidence || p.confidence || "configured",
           )
         }
@@ -1013,6 +1057,7 @@ export function buildPathAuthorityArchitecture(params: {
             computeId,
             sgId,
             "SECURED_BY",
+            p.path_id,
             p.evidence || p.confidence || "configured",
           )
         }

@@ -35,6 +35,11 @@ import type {
 } from "@/lib/attack-paths/convergence-types"
 import { pathsWithAuthoritativeHops } from "@/lib/attack-paths/convergence-path-details"
 import {
+  formatFanInCardinality,
+  summarizeFanInDrawability,
+  type FanInDrawabilitySummary,
+} from "@/lib/attack-paths/fan-in-path-model"
+import {
   crownJewelFromArnName,
   useCrownJewelConvergence,
 } from "@/lib/attack-paths/use-crown-jewel-convergence"
@@ -75,17 +80,19 @@ export function zoom0NofMLine(cardinality: PathCardinality): string {
 /** Format SERVE path cardinality for fan-in chrome. */
 export function zoom0CardinalityLine(
   cardinality: PathCardinality,
-  drawnCount: number,
+  drawability: FanInDrawabilitySummary | number,
 ): string {
-  const parts = [
-    zoom0NofMLine(cardinality),
-    `${cardinality.generation_total} in generation`,
-    `${drawnCount} drawn`,
-  ]
-  if (cardinality.truncated) {
-    parts.push("truncated")
-  }
-  return parts.join(" · ")
+  const summary =
+    typeof drawability === "number"
+      ? {
+          drawnPaths: [],
+          drawnCount: drawability,
+          omittedCount: Math.max(cardinality.returned_count - drawability, 0),
+          omittedPathIds: [],
+          omittedByReason: {},
+        }
+      : drawability
+  return formatFanInCardinality(cardinality, summary)
 }
 
 /** Resolve IAP ?path= id → convergence path_id for investigation pin. */
@@ -109,10 +116,15 @@ export function zoom0SpotlightPaths(
     const allow = new Set(tileFilterIds)
     paths = paths.filter((p) => allow.has(p.path_id))
   }
-  // Union all paths when unpinned; investigation pin spotlights one path only.
-  return pathsWithAuthoritativeHops(
-    selectSpotlightPaths(paths, selectedPathId ?? null),
-  )
+  // Investigation pin can place an identity-only path. The unpinned fan-in
+  // is compute-led and uses the shared drawability model so omitted paths
+  // remain counted without producing disconnected cards.
+  if (selectedPathId) {
+    return pathsWithAuthoritativeHops(
+      selectSpotlightPaths(paths, selectedPathId),
+    )
+  }
+  return summarizeFanInDrawability(paths).drawnPaths
 }
 
 /** Server risk_summary only — never synthesize from paths[0]. */
@@ -242,6 +254,10 @@ export function Zoom0FanInPanel({
     () => resolveZoom0Effective(data, iapFallback, error),
     [data, iapFallback, error],
   )
+  const fanInDrawability = useMemo(
+    () => summarizeFanInDrawability(effective.data?.paths ?? []),
+    [effective.data?.paths],
+  )
 
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
   const [detailsPanel, setDetailsPanel] =
@@ -340,7 +356,11 @@ export function Zoom0FanInPanel({
         }`}
         data-testid="zoom0-fan-in-bar"
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div
+          className={`flex flex-col gap-3 ${
+            isExpanded ? "sm:flex-row sm:items-start sm:justify-between" : ""
+          }`}
+        >
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-800 dark:text-cyan-300">
               Jewel fan-in
@@ -355,12 +375,7 @@ export function Zoom0FanInPanel({
                       Neo4j paths to{" "}
                       <span className="font-mono text-foreground">{jewel.name}</span>
                       {" "}
-                      — {zoom0NofMLine(cardinality)}
-                      {cardinality.truncated ? " (truncated)" : ""}
-                      {" · "}
-                      {cardinality.generation_total} in generation
-                      {" · "}
-                      {drawn} drawn on the Attack Map.
+                      — {zoom0CardinalityLine(cardinality, fanInDrawability)}.
                       {pinPathId
                         ? " Path pinned — dossier is authoritative for this investigation."
                         : " Sorted on the left by Reachable Damage Priority — pick a path to pin."}
@@ -440,7 +455,9 @@ export function Zoom0FanInPanel({
 
           {/* Details panels — not genuine map lenses until canvas DTOs land */}
           <div
-            className="flex shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1"
+            className={`flex shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1 ${
+              isExpanded ? "" : "w-full"
+            }`}
             data-testid="zoom0-map-details"
             role="tablist"
             aria-label="Jewel details"
@@ -461,6 +478,8 @@ export function Zoom0FanInPanel({
                   aria-selected={on}
                   onClick={() => setDetailsPanel(id)}
                   className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 font-mono text-xs transition-all ${
+                    isExpanded ? "" : "flex-1 justify-center"
+                  } ${
                     on
                       ? id === "current_access"
                         ? "border border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-300"
@@ -479,16 +498,31 @@ export function Zoom0FanInPanel({
         </div>
 
         {riskSummary ? (
-          <div className="mt-3">
-            <Zoom0RiskHeader
-              risk={riskSummary}
-              onMitigate={
-                riskSummary.top_risk?.path_id || riskSummary.path_id
-                  ? openRankedPath
-                  : undefined
-              }
-            />
-          </div>
+          <details
+            className="mt-3 rounded-md border border-border bg-muted/20"
+            data-testid="zoom0-risk-summary-disclosure"
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+              Risk summary
+              {riskSummary.severity_label
+                ? ` · ${riskSummary.severity_label}`
+                : ""}
+              {` · ${riskSummary.observed_paths} observed · ${riskSummary.configured_paths} configured`}
+              {typeof riskSummary.unverified_paths === "number"
+                ? ` · ${riskSummary.unverified_paths} unverified`
+                : ""}
+            </summary>
+            <div className="border-t border-border p-2">
+              <Zoom0RiskHeader
+                risk={riskSummary}
+                onMitigate={
+                  riskSummary.top_risk?.path_id || riskSummary.path_id
+                    ? openRankedPath
+                    : undefined
+                }
+              />
+            </div>
+          </details>
         ) : !loading && effective.data ? (
           <p
             className="mt-3 text-[11px] text-muted-foreground"
@@ -611,7 +645,10 @@ export function Zoom0FanInPanel({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[11px] font-mono text-muted-foreground">
               {effective.data.cardinality ? (
                 <span data-testid="zoom0-path-cardinality">
-                  {zoom0CardinalityLine(effective.data.cardinality, spotlightPaths.length)}
+                  {zoom0CardinalityLine(
+                    effective.data.cardinality,
+                    fanInDrawability,
+                  )}
                 </span>
               ) : (
                 <>
@@ -717,9 +754,8 @@ export function Zoom0FanInPanel({
                           })()
                         : (() => {
                             const card = effective.data.cardinality
-                            const drawn = spotlightPaths.length
                             if (card) {
-                              return `Compressed evidence view · ${zoom0NofMLine(card)} · ${drawn} drawn · observed vs configured`
+                              return `Compressed evidence view · ${zoom0CardinalityLine(card, fanInDrawability)} · observed vs configured`
                             }
                             const classes = jewel.class_counts ?? {}
                             const outOfScope =
@@ -727,14 +763,14 @@ export function Zoom0FanInPanel({
                               (classes.service_linked ?? 0) +
                               (classes.external_pivot ?? 0)
                             return outOfScope > 0
-                              ? `Compressed evidence view · ${drawn} drawn · ${outOfScope} platform/out-of-scope not shown`
-                              : `Compressed evidence view · ${drawn} drawn · observed vs configured`
+                              ? `Compressed evidence view · ${fanInDrawability.drawnCount} drawn · ${outOfScope} platform/out-of-scope not shown`
+                              : `Compressed evidence view · ${fanInDrawability.drawnCount} drawn · observed vs configured`
                           })()
                     }
                     pathBadgeOverride={
                       pinPathId
-                        ? `1 path → ${jewel.name}`
-                        : `${spotlightPaths.length} path${spotlightPaths.length === 1 ? "" : "s"} → ${jewel.name}`
+                        ? `1 pinned → ${jewel.name}`
+                        : `${spotlightPaths.length} shown → ${jewel.name}`
                     }
                     observedMode
                     canvasV2

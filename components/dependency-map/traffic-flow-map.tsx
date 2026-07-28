@@ -3606,16 +3606,57 @@ function AnimatedTrafficLine({
           edgeData.hit_count === 1 ? "" : "s"
         }`
       : ""
+  const sharedPathCount = edgeData?.path_ids?.length ?? 0
+  const observedPathCount =
+    edgeData?.path_evidence?.filter((item) => item.observed === true).length ?? 0
   const evidenceCue = !pathAuthorityOnly
     ? ""
-    : edgeData?.observed === true
-      ? ` · Observed${observationCue}`
-      : isConfiguredEdge
-        ? " · Configured"
-        : ""
+    : sharedPathCount > 1
+      ? observedPathCount > 0
+        ? ` · ${observedPathCount} observed`
+        : " · Configured"
+      : edgeData?.observed === true
+        ? ` · Observed${observationCue}`
+        : isConfiguredEdge
+          ? " · Configured"
+          : ""
+  const ownershipCue =
+    pathAuthorityOnly && sharedPathCount > 1
+      ? ` · ${sharedPathCount} paths`
+      : ""
   const verbChipLabel = baseVerb
-    ? `${baseVerb}${precedenceSuffix}${evidenceCue}`
+    ? `${baseVerb}${precedenceSuffix}${ownershipCue}${evidenceCue}`
     : null
+  const edgeTooltip = edgeData
+    ? [
+        edgeData.collapsed_hop_ids?.length
+          ? `Collapsed hops: ${edgeData.collapsed_hop_ids.join(" → ")}${
+              edgeData.via_label ? ` (${edgeData.via_label})` : ""
+            }`
+          : null,
+        edgeData.inferred && edgeData.inferred_reason
+          ? `Inferred edge — ${edgeData.inferred_reason}`
+          : null,
+        edgeData.last_seen ? `Last seen ${edgeData.last_seen}` : null,
+        edgeData.first_seen ? `First seen ${edgeData.first_seen}` : null,
+        ...(edgeData.path_evidence ?? []).map((item) => {
+          const evidence =
+            item.observed === true
+              ? `Observed${
+                  item.hit_count != null
+                    ? ` (${item.hit_count.toLocaleString()} hits)`
+                    : ""
+                }`
+              : item.observed === false
+                ? "Configured"
+                : "Structural"
+          const time = item.last_seen ? ` · last ${item.last_seen}` : ""
+          return `Path ${item.path_id}: ${evidence}${time}`
+        }),
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : ""
   return (
     <g
       data-canvas-mode={canvasV2 ? "v2" : "v1"}
@@ -3627,6 +3668,16 @@ function AnimatedTrafficLine({
             : edgeData.inferred
               ? "inferred"
               : "configured"
+          : undefined
+      }
+      data-edge-path-count={
+        pathAuthorityOnly && sharedPathCount > 0
+          ? String(sharedPathCount)
+          : undefined
+      }
+      data-edge-path-ids={
+        pathAuthorityOnly && edgeData?.path_ids?.length
+          ? edgeData.path_ids.join(",")
           : undefined
       }
       data-collapsed-hops={
@@ -3744,33 +3795,7 @@ function AnimatedTrafficLine({
         }
         className="transition-all duration-300"
       >
-        {edgeData?.collapsed_hop_ids?.length ? (
-          <title>
-            Collapsed hops: {edgeData.collapsed_hop_ids.join(" → ")}
-            {edgeData.via_label ? ` (${edgeData.via_label})` : ""}
-          </title>
-        ) : edgeData?.inferred && edgeData.inferred_reason ? (
-          <title>Inferred edge — {edgeData.inferred_reason}</title>
-        ) : null}
-        {/*
-          2026-05-30 (FE follow-up #7): when the producer threaded
-          first_seen / last_seen onto the CanvasEdge (PR #76's feature),
-          surface them as a native browser <title> tooltip on the SVG
-          path. The legacy TrafficFlow hover-panel (line ~4586) carries
-          a richer pill UI; that fires only in flow-mode. Explicit-edges
-          mode has no equivalent pill — a <title> is the lightest
-          honest path to make the temporal evidence visible. Skips when
-          the inferred-edge title already claimed the slot OR neither
-          timestamp is populated.
-        */}
-        {!edgeData?.inferred && edgeData && (edgeData.first_seen || edgeData.last_seen) && (
-          <title>
-            {[
-              edgeData.last_seen ? `Last seen ${edgeData.last_seen}` : null,
-              edgeData.first_seen ? `First seen ${edgeData.first_seen}` : null,
-            ].filter(Boolean).join(' · ')}
-          </title>
-        )}
+        {edgeTooltip ? <title>{edgeTooltip}</title> : null}
       </path>
 
       {/* 2026-06-11 rebalance: marching-dash overlay on the dominant
