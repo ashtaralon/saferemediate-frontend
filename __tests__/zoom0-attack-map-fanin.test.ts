@@ -91,7 +91,9 @@ describe("zoom0CardinalityLine", () => {
         },
         6,
       ),
-    ).toBe("8 of 10 eligible · 42 in generation · 6 drawn · truncated")
+    ).toBe(
+      "10 eligible · 8 returned · 6 drawn · 2 omitted · 42 in generation · 2 not returned · truncated",
+    )
   })
 
   it("zoom0NofMLine is server eligible envelope", () => {

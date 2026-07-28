@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
+  formatFanInCardinality,
+  summarizeFanInDrawability,
+} from "@/lib/attack-paths/fan-in-path-model"
+import {
   CHOKE_TILE_THRESHOLD,
   compileChokePointTiles,
   pathIdsForChokeSelection,
@@ -30,6 +34,10 @@ export function ChokePointTilesBar({
   onFilterPathIds?: (pathIds: string[] | null) => void
 }) {
   const tiles = useMemo(() => compileChokePointTiles(data), [data])
+  const drawability = useMemo(
+    () => summarizeFanInDrawability(data.paths),
+    [data.paths],
+  )
   const collapsed = shouldCollapseToChokeTiles(data.paths_total || data.paths.length, threshold)
   const [expanded, setExpanded] = useState<ChokeTileKind | null>(null)
   const [memberId, setMemberId] = useState<string | null>(null)
@@ -64,7 +72,7 @@ export function ChokePointTilesBar({
     <div className="space-y-2" data-testid="choke-point-tiles">
       <p className="px-1 text-[11px] text-muted-foreground">
         {data.cardinality
-          ? `${data.cardinality.returned_count} of ${data.cardinality.eligible_total} eligible · ${data.paths.length} drawn`
+          ? formatFanInCardinality(data.cardinality, drawability)
           : `${data.paths_total} paths (cardinality unavailable)`}
         {" — "}
         collapsed to choke-point tiles (threshold {threshold}). Expand one group

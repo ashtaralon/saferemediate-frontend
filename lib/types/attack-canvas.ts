@@ -324,6 +324,17 @@ export interface CanvasNode {
  * `relationship`. Producer NEVER synthesizes edges; if the graph
  * doesn't have it, the canvas doesn't draw the line.
  */
+export interface CanvasEdgePathEvidence {
+  /** Path DTO that contributed this exact edge. */
+  path_id: string
+  /** Per-edge observation state for this path before union aggregation. */
+  observed: boolean | null
+  /** Per-path observation count; null when the DTO did not supply one. */
+  hit_count: number | null
+  first_seen: string | null
+  last_seen: string | null
+}
+
 export interface CanvasEdge {
   /** Stable id, format: `${source_aws_id}|${relationship}|${target_aws_id}` */
   id: string
@@ -340,6 +351,16 @@ export interface CanvasEdge {
   last_seen: string | null
   port: number | null
   protocol: string | null
+  /**
+   * Path-authority ownership for fan-in/compare views.
+   *
+   * The top-level evidence fields above remain an aggregate used for line
+   * styling. These fields preserve which path contributed the edge so an
+   * aggregated line can still be audited without attributing one sibling's
+   * observation to every path that shares the same topology.
+   */
+  path_ids?: string[]
+  path_evidence?: CanvasEdgePathEvidence[]
   /**
    * Service-plane inferred edge (2026-05-30). True when the edge is NOT
    * present in Neo4j as a real (n)-[r]-(m) row but is derived from a

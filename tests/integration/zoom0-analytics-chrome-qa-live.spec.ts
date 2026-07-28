@@ -24,6 +24,8 @@ test.describe("Zoom0 analytics Chrome QA (live)", () => {
     page,
     context,
   }) => {
+    // Match the desktop operator canvas used for Attack Map review.
+    await page.setViewportSize({ width: 2048, height: 1152 })
     await seedAuthCookie(context)
     await page.goto(
       `${liveBaseUrl()}/systems?systemName=${SYSTEM}&tab=attack-paths&jewel=${JEWEL}`,
@@ -46,12 +48,15 @@ test.describe("Zoom0 analytics Chrome QA (live)", () => {
     await expect(map).toBeVisible()
 
     // Server cardinality must surface (not a vague "N Neo4j paths").
-    await expect(page.getByTestId("zoom0-path-cardinality")).toContainText(
-      /\d+ of \d+ eligible/,
-      { timeout: READY_MS },
-    )
+    const cardinality = page.getByTestId("zoom0-path-cardinality")
+    await expect(cardinality).toContainText(/\d+ eligible/, {
+      timeout: READY_MS,
+    })
+    await expect(cardinality).toContainText(/\d+ returned/)
+    await expect(cardinality).toContainText(/\d+ drawn/)
+    await expect(cardinality).toContainText(/\d+ omitted/)
     await expect(map.getByText(/Compressed evidence view/i)).toBeVisible()
-    await expect(map.getByText(/\d+ of \d+ eligible|\d+ drawn/i)).toBeVisible()
+    await expect(map.getByText(/\d+ eligible|\d+ drawn/i)).toBeVisible()
 
     // Hop DTO has COLLECTED rules for this jewel's EC2 path — must not lie.
     const body = await page.locator("body").innerText()
@@ -66,6 +71,24 @@ test.describe("Zoom0 analytics Chrome QA (live)", () => {
       "SG/NACL still say rules not collected despite COLLECTED hop DTO",
     ).toBe(0)
     expect(ruleCounts.length).toBeGreaterThan(0)
+
+    await page.screenshot({
+      path: "test-results/analytics-fan-in-chrome-qa.png",
+      fullPage: true,
+    })
+    const expand = page.getByRole("button", { name: /expand/i }).first()
+    if (await expand.isVisible()) {
+      await expand.click()
+      await expect(map).toBeVisible()
+    }
+    await map.screenshot({
+      path: "test-results/analytics-fan-in-map-chrome-qa.png",
+    })
+    const collapse = page.getByRole("button", { name: /collapse canvas/i })
+    if (await collapse.isVisible()) {
+      await collapse.click()
+      await expect(page.getByTestId("zoom0-path-row").first()).toBeVisible()
+    }
 
     // Pin → dossier
     await page.getByTestId("zoom0-path-row").first().click()

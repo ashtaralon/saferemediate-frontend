@@ -1005,5 +1005,22 @@ describe("path-authority honesty invariants", () => {
     expect(access).toHaveLength(1)
     expect(access[0].observed).toBe(true)
     expect(access[0].hit_count).toBe(15)
+    expect(access[0].path_ids).toEqual(["p1", "p2"])
+    expect(access[0].path_evidence).toEqual([
+      {
+        path_id: "p1",
+        observed: false,
+        hit_count: null,
+        first_seen: null,
+        last_seen: null,
+      },
+      {
+        path_id: "p2",
+        observed: true,
+        hit_count: 15,
+        first_seen: null,
+        last_seen: null,
+      },
+    ])
   })
 })

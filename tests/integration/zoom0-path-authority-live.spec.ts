@@ -75,11 +75,14 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
     // Compressed evidence view + configured vs observed visual language
     await expect(map.getByText(/Compressed evidence view/i)).toBeVisible()
     // True N-of-M from server cardinality (must survive detail merge)
-    await expect(page.getByTestId("zoom0-path-cardinality")).toContainText(
-      /\d+ of \d+ eligible/,
-      { timeout: READY_MS },
-    )
-    await expect(map.getByText(/\d+ of \d+ eligible/i)).toBeVisible()
+    const cardinality = page.getByTestId("zoom0-path-cardinality")
+    await expect(cardinality).toContainText(/\d+ eligible/, {
+      timeout: READY_MS,
+    })
+    await expect(cardinality).toContainText(/\d+ returned/)
+    await expect(cardinality).toContainText(/\d+ drawn/)
+    await expect(cardinality).toContainText(/\d+ omitted/)
+    await expect(map.getByText(/\d+ eligible/i)).toBeVisible()
     await expect(map.getByText("Path membership", { exact: true })).toBeVisible()
     await expect(map.getByText("Configured", { exact: true })).toBeVisible()
     await expect(
@@ -103,6 +106,19 @@ test.describe("Zoom0 path-authority honesty (live)", () => {
     if (ownershipCount > 0) {
       await expect(ownershipChips.first()).toBeVisible()
       await expect(ownershipChips.first()).toContainText(/\d+ of \d+ paths?/)
+    }
+
+    // Every path-authority edge exposes auditable path ownership. Shared
+    // lines retain each sibling id instead of flattening evidence.
+    const ownedEdges = map.locator("[data-edge-path-count]")
+    expect(await ownedEdges.count()).toBeGreaterThan(0)
+    for (let i = 0; i < Math.min(await ownedEdges.count(), 20); i += 1) {
+      const edge = ownedEdges.nth(i)
+      const count = Number(await edge.getAttribute("data-edge-path-count"))
+      const ids = (await edge.getAttribute("data-edge-path-ids"))
+        ?.split(",")
+        .filter(Boolean) ?? []
+      expect(ids).toHaveLength(count)
     }
 
     // Same-VPC IGW must not appear unless it is a selected-path hop.
