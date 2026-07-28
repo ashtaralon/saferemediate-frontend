@@ -430,6 +430,18 @@ export interface PathListRow {
    *  the backend writes the edge for every system we delete it. */
   initial_access_category: InitialAccessCategoryLite
 
+  /** ACQUISITION chip source — who can take this principal once already
+   *  inside the account. Distinct from initial_access_category, which is
+   *  ATT&CK Initial Access (how they got in). Null when the server has
+   *  nothing provable; render nothing rather than an "unknown" chip. */
+  acquisition?: {
+    acquisition: string
+    assumable_by: string[]
+    account_wide_trust: boolean
+    trust_has_conditions: boolean | null
+    resolves_initial_access: boolean
+  } | null
+
   /** Phase-A FE-derived class — answers "is this a real exfil route, just
    *  recon, or paper capability?" (#58). */
   observed_e2e_class: PathObservedE2EClass

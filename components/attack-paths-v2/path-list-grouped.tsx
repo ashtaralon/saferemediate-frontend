@@ -30,6 +30,10 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
+import {
+  acquisitionChrome,
+  isAcquisitionNoteworthy,
+} from "@/lib/attack-paths/acquisition-chrome"
 import { MaterializedScopeBadge } from "./materialized-scope-badge"
 import { PathComparisonTable } from "./path-comparison-table"
 import type {
@@ -429,6 +433,44 @@ export function PathListGrouped({
                           >
                             Off-jewel: +{row.excess_service_reach} svc
                           </span>
+                          {/* ACQUISITION — answers a question the group header
+                              cannot: "FROM UNKNOWN ENTRY" is honest about how
+                              the attacker reached the ACCOUNT, but says nothing
+                              about who can take THIS principal once inside.
+                              A path can have fully-explained acquisition and
+                              unknown entry at the same time; that combination
+                              used to render as a bare UNKNOWN with the most
+                              alarming half left unsaid. Server-fed only — null
+                              means nothing provable, so we render nothing
+                              rather than an "unknown" chip. */}
+                          {(() => {
+                            const acq = acquisitionChrome(row.acquisition)
+                            if (!acq) return null
+                            const noteworthy = isAcquisitionNoteworthy(acq)
+                            return (
+                              <span
+                                data-acquisition-chip="true"
+                                data-acquisition-noteworthy={
+                                  noteworthy ? "true" : "false"
+                                }
+                                title={acq.detail}
+                                className={
+                                  "inline-flex items-center text-[9px] font-semibold rounded px-1.5 py-0.5 border " +
+                                  (noteworthy
+                                    ? // No principal boundary at all. Orange, NOT
+                                      // the amber reserved for server-authored
+                                      // Security Gap findings.
+                                      "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+                                    : "border-border bg-muted/50 text-muted-foreground")
+                                }
+                              >
+                                {acq.label}
+                                {acq.unconditioned && acq.accountWide
+                                  ? " · no conditions"
+                                  : ""}
+                              </span>
+                            )
+                          })()}
                         </div>
                         <div className="text-[10px] text-muted-foreground font-mono truncate">
                           {row.start_label ?? "—"}{" "}

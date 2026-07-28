@@ -107,6 +107,20 @@ export interface ConvergencePath {
   schema_version?: string | null
   /** Route verdict envelope from path materializer (when present). */
   route_verdict?: Record<string, unknown> | null
+  /** ACQUISITION — who can take THIS principal once already inside the
+   *  account. Deliberately NOT initial_access: that is ATT&CK Initial Access
+   *  (how they got INTO the account), and intra-account AssumeRole is
+   *  privilege escalation. Server-derived onto (:AttackPath); null when
+   *  nothing is provable, so absence is never an invented claim.
+   *  `resolves_initial_access` is always false — never render this as an
+   *  answer to "how did the attacker get in". */
+  acquisition?: {
+    acquisition: string
+    assumable_by: string[]
+    account_wide_trust: boolean
+    trust_has_conditions: boolean | null
+    resolves_initial_access: boolean
+  } | null
 }
 
 /** Path selection cardinality from SERVE envelope (when present). */

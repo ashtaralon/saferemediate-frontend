@@ -356,6 +356,7 @@ export function compilePathListRow(
     has_observed_edge: compileHasObservedEdge(path),
     evidence_type: path.evidence_type ?? "configured",
     initial_access_category: fromBackend ?? fromFallback ?? "UNKNOWN",
+    acquisition: path.acquisition ?? null,
     observed_e2e_class: compileObservedE2EClass(path),
     is_materialized_stale: path.materialized_stale === true,
     stale_reason: path.stale_reason ?? null,

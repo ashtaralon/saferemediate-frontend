@@ -661,6 +661,21 @@ export interface IdentityAttackPath {
    *  FE falls back to inline derivation from node enrichment until
    *  the backend classifier ships. */
   initial_access?: InitialAccess | null
+  /** ACQUISITION — who can take THIS principal once already inside the
+   *  account. A DIFFERENT question from initial_access, which is ATT&CK
+   *  Initial Access (how they got INTO the account); intra-account
+   *  AssumeRole is privilege escalation and deliberately has no Initial
+   *  Access bucket. Server-derived onto (:AttackPath) by
+   *  classifiers/initial_access_classifier.derive_acquisition; null when
+   *  nothing is provable. `resolves_initial_access` is always false —
+   *  never render this as an answer to "how did the attacker get in". */
+  acquisition?: {
+    acquisition: string
+    assumable_by: string[]
+    account_wide_trust: boolean
+    trust_has_conditions: boolean | null
+    resolves_initial_access: boolean
+  } | null
   // Phase 0: classifies path as identity / network / hybrid / configured.
   // Replaces the old hard filter that dropped non-identity paths.
   path_kind_tag?: "identity" | "network" | "hybrid" | "configured"
