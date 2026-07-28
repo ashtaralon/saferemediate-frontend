@@ -130,6 +130,17 @@ export function mergeSummaryWithPathDetails(
       computed_at: p.computed_at,
       schema_version: p.schema_version,
       route_verdict: p.route_verdict ?? null,
+      // ACQUISITION — who can take this principal once already INSIDE the
+      // account (distinct from initial_access, which is how they got in).
+      //
+      // `base` is a field-by-field REBUILD, not a spread: anything not named
+      // here is dropped even though it arrived on the summary. This is the
+      // fifth whitelist boundary this one field had to cross, and every miss
+      // looked identical from outside — correct in the graph, correct on the
+      // API, correct in the browser payload, and invisible in the UI. When
+      // adding a ConvergencePath field, grep for every place that constructs
+      // one rather than trusting a spread that isn't there.
+      acquisition: p.acquisition ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]
