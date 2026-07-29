@@ -1,0 +1,62 @@
+{
+  "fixture_source": "Sanitized historical alon-demo telemetry-asymmetry response shape",
+  "role_name": "alon-demo-ec2-role",
+  "role_arn": "arn:aws:iam::000000000000:role/alon-demo-ec2-role",
+  "observation_days": 90,
+  "summary": {
+    "total_permissions": 16,
+    "used_count": 3,
+    "unused_count": 13,
+    "data_confidence": "OBSERVED",
+    "cloudtrail_events": 500
+  },
+  "used_permissions": [
+    "ec2:DescribeInstances",
+    "s3:GetObject",
+    "s3:PutObject"
+  ],
+  "unused_permissions": [
+    "ec2:DescribeVolumes",
+    "ec2:RebootInstances",
+    "ec2:StartInstances",
+    "ec2:StopInstances",
+    "iam:ListRoles",
+    "s3:DeleteObject",
+    "s3:GetBucketAcl",
+    "s3:GetBucketPolicy",
+    "s3:GetBucketVersioning",
+    "s3:GetObjectAcl",
+    "s3:ListBucket",
+    "s3:PutBucketPolicy",
+    "s3:PutObjectAcl"
+  ],
+  "confidence_groups": {
+    "groups": [
+      {
+        "group_id": "telemetry-asymmetry",
+        "label": "EC2, IAM, S3 (13)",
+        "action": "safe_to_remove",
+        "permission_count": 13,
+        "auto_remediable": false,
+        "block_reason_code": "telemetry_asymmetry",
+        "permissions": [
+          { "permission": "ec2:DescribeVolumes", "service_prefix": "ec2" },
+          { "permission": "ec2:RebootInstances", "service_prefix": "ec2" },
+          { "permission": "ec2:StartInstances", "service_prefix": "ec2" },
+          { "permission": "ec2:StopInstances", "service_prefix": "ec2" },
+          { "permission": "iam:ListRoles", "service_prefix": "iam" },
+          { "permission": "s3:DeleteObject", "service_prefix": "s3" },
+          { "permission": "s3:GetBucketAcl", "service_prefix": "s3" },
+          { "permission": "s3:GetBucketPolicy", "service_prefix": "s3" },
+          { "permission": "s3:GetBucketVersioning", "service_prefix": "s3" },
+          { "permission": "s3:GetObjectAcl", "service_prefix": "s3" },
+          { "permission": "s3:ListBucket", "service_prefix": "s3" },
+          { "permission": "s3:PutBucketPolicy", "service_prefix": "s3" },
+          { "permission": "s3:PutObjectAcl", "service_prefix": "s3" }
+        ]
+      }
+    ]
+  },
+  "is_remediable": true,
+  "remediable_reason": "Ready for least-privilege remediation"
+}

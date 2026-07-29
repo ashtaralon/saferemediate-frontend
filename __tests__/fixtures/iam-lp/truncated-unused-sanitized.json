@@ -1,0 +1,28 @@
+{
+  "fixture_source": "Sanitized partial-payload contract",
+  "role_name": "role-with-truncated-unused-identities",
+  "role_arn": "arn:aws:iam::000000000000:role/role-with-truncated-unused-identities",
+  "summary": {
+    "total_permissions": 6,
+    "used_count": 1,
+    "unused_count": 5
+  },
+  "used_permissions": ["s3:GetObject"],
+  "unused_permissions": ["s3:DeleteObject", "iam:ListRoles"],
+  "confidence_groups": {
+    "groups": [
+      {
+        "group_id": "truncated",
+        "label": "Truncated group",
+        "action": "safe_to_remove",
+        "permission_count": 5,
+        "auto_remediable": true,
+        "permissions": [
+          { "permission": "s3:DeleteObject" },
+          { "permission": "iam:ListRoles" }
+        ]
+      }
+    ]
+  },
+  "is_remediable": true
+}
