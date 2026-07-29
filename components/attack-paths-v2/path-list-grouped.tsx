@@ -46,6 +46,7 @@ import {
   layerChipLabel,
   type LayerEvidence,
 } from "./reachable-damage-priority"
+import { TrustNarrowPanel } from "./trust-narrow-panel"
 
 interface PathListGroupedProps {
   // ActivePathList enforces at compile time that the caller passed
@@ -260,6 +261,18 @@ export function PathListGrouped({
     })
   }, [rows])
 
+  // The trust-narrow panel needs the full path (to resolve the materialized
+  // :AttackPath id the same way the closure panel does), not the compiled row.
+  const pathsById = useMemo(() => {
+    const m = new Map<string, IdentityAttackPath>()
+    for (const p of paths) m.set(p.id, p)
+    return m
+  }, [paths])
+
+  // One panel open at a time. Each plan is a live iam:GetRole, so opening
+  // several at once would be an API storm for no operator benefit.
+  const [trustPanelPathId, setTrustPanelPathId] = useState<string | null>(null)
+
   // All groups start expanded. Operator can collapse to focus.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const toggleGroup = (bucket: string) => {
@@ -365,11 +378,25 @@ export function PathListGrouped({
                     // Top-of-bucket = highest Reachable Damage Priority (rank 1 first).
                     const isTopOfBucket = idxInBucket === 0
                     return (
-                      <button
-                        key={row.id}
+                      <div key={row.id}>
+                      {/* role="button" rather than a real <button>: the
+                          acquisition chip below is itself a button (it opens the
+                          trust-narrow panel), and interactive content nested
+                          inside a <button> is invalid HTML — browsers tolerate
+                          it, screen readers do not. Keyboard behaviour is
+                          preserved explicitly rather than lost. */}
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => onSelectPath(row.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            onSelectPath(row.id)
+                          }
+                        }}
                         data-testid="zoom0-path-row"
-                        className={`w-full text-left rounded-lg px-3 py-2.5 mx-2 mb-1 transition-colors border ${
+                        className={`w-full text-left rounded-lg px-3 py-2.5 mx-2 mb-1 transition-colors border cursor-pointer ${
                           isSelected
                             ? "bg-primary/10 border-primary/40"
                             : "bg-transparent border-transparent hover:bg-accent/50 hover:border-border"
@@ -447,28 +474,63 @@ export function PathListGrouped({
                             const acq = acquisitionChrome(row.acquisition)
                             if (!acq) return null
                             const noteworthy = isAcquisitionNoteworthy(acq)
+                            const label = `${acq.label}${
+                              acq.unconditioned && acq.accountWide
+                                ? " · no conditions"
+                                : ""
+                            }`
+                            const tone = noteworthy
+                              ? // No principal boundary at all. Orange, NOT the
+                                // amber reserved for server-authored Security
+                                // Gap findings.
+                                "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+                              : "border-border bg-muted/50 text-muted-foreground"
+                            const base =
+                              "inline-flex items-center text-[9px] font-semibold rounded px-1.5 py-0.5 border "
+                            // Only account-wide + unconditioned trust has
+                            // something to cut. A narrower chip is context, and
+                            // dressing it as an action would promise a
+                            // remediation that has no proposal behind it.
+                            if (!noteworthy) {
+                              return (
+                                <span
+                                  data-acquisition-chip="true"
+                                  data-acquisition-noteworthy="false"
+                                  title={acq.detail}
+                                  className={base + tone}
+                                >
+                                  {label}
+                                </span>
+                              )
+                            }
+                            const open = trustPanelPathId === row.id
                             return (
-                              <span
+                              <button
+                                type="button"
                                 data-acquisition-chip="true"
-                                data-acquisition-noteworthy={
-                                  noteworthy ? "true" : "false"
-                                }
-                                title={acq.detail}
+                                data-acquisition-noteworthy="true"
+                                data-trust-narrow-trigger="true"
+                                aria-expanded={open}
+                                onClick={(e) => {
+                                  // The row is a click target too; without this
+                                  // the chip would also re-select the path and
+                                  // scroll the map out from under the panel.
+                                  e.stopPropagation()
+                                  setTrustPanelPathId(open ? null : row.id)
+                                }}
+                                title={`${acq.detail}\n\nClick to plan a trust narrowing.`}
                                 className={
-                                  "inline-flex items-center text-[9px] font-semibold rounded px-1.5 py-0.5 border " +
-                                  (noteworthy
-                                    ? // No principal boundary at all. Orange, NOT
-                                      // the amber reserved for server-authored
-                                      // Security Gap findings.
-                                      "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300"
-                                    : "border-border bg-muted/50 text-muted-foreground")
+                                  base +
+                                  tone +
+                                  " hover:brightness-110 cursor-pointer" +
+                                  (open ? " ring-1 ring-orange-500/50" : "")
                                 }
                               >
-                                {acq.label}
-                                {acq.unconditioned && acq.accountWide
-                                  ? " · no conditions"
-                                  : ""}
-                              </span>
+                                {label}
+                                <span className="ml-1 opacity-70">
+                                  {open ? "▴" : "▾"}
+                                </span>
+                              </button>
                             )
                           })()}
                         </div>
@@ -500,7 +562,19 @@ export function PathListGrouped({
                             </span>
                           </div>
                         )}
-                      </button>
+                      </div>
+                      {/* The cut hangs off the chip, rendered under the row it
+                          belongs to rather than in a modal — the operator keeps
+                          the path in view while deciding. */}
+                      {trustPanelPathId === row.id && pathsById.get(row.id) && (
+                        <div className="mx-2 mb-2">
+                          <TrustNarrowPanel
+                            path={pathsById.get(row.id)!}
+                            onClose={() => setTrustPanelPathId(null)}
+                          />
+                        </div>
+                      )}
+                      </div>
                     )
                   })}
                 </div>

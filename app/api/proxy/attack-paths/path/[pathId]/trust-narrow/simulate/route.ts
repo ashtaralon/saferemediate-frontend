@@ -1,0 +1,85 @@
+import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
+
+// =============================================================================
+// TRUST_NARROW simulate proxy —
+//   POST /api/proxy/attack-paths/path/<pathId>/trust-narrow/simulate
+// (static "path" segment avoids the [pathId] vs [systemName] slug clash, same
+// as the closure-preview proxy next door)
+//
+// DELIBERATELY UNCACHED, unlike closure-preview. The backend authors this plan
+// against a live iam:GetRole and binds it to that document's hash; a cached
+// plan would hand the operator a token bound to a policy that has since
+// changed. Apply would then DRIFT_ABORT — the safe outcome, but the operator
+// would have been shown a plan that was never applicable. Freshness here is
+// part of the safety contract, not a performance knob.
+//
+// A refused plan (`allowed: false` with a populated `guards[]`) is a normal 200
+// carrying the refusal set. It is the useful answer, not an error.
+// =============================================================================
+
+export const runtime = "nodejs"
+export const maxDuration = 60
+
+const BACKEND_URL = getBackendBaseUrl()
+
+interface ProxyError {
+  error: string
+  detail?: string
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ pathId: string }> },
+) {
+  const { pathId } = await params
+  if (!pathId) {
+    return NextResponse.json<ProxyError>(
+      { error: "missing_path_id", detail: "pathId path segment is required" },
+      { status: 400 },
+    )
+  }
+
+  const body = await req.json().catch(() => ({}))
+
+  try {
+    const t0 = Date.now()
+    const res = await fetch(
+      `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(pathId)}/trust-narrow/simulate`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body ?? {}),
+        cache: "no-store",
+        signal: AbortSignal.timeout(55_000),
+      },
+    )
+    console.log(
+      `[trust-narrow/simulate proxy] status=${res.status} latency_ms=${Date.now() - t0} path=${pathId.slice(0, 32)}`,
+    )
+    const data = await res.json().catch(() => null)
+    if (!res.ok) {
+      return NextResponse.json<ProxyError>(
+        {
+          error: "trust_narrow_simulate_unavailable",
+          detail:
+            typeof data?.detail === "string"
+              ? data.detail
+              : JSON.stringify(data?.detail ?? data ?? "").slice(0, 300),
+        },
+        { status: res.status === 404 ? 404 : res.status === 503 ? 503 : 502 },
+      )
+    }
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } })
+  } catch (err: unknown) {
+    const e = err as { name?: string; message?: string }
+    const isTimeout = e?.name === "TimeoutError" || e?.name === "AbortError"
+    return NextResponse.json<ProxyError>(
+      {
+        error: isTimeout ? "trust_narrow_simulate_timeout" : "trust_narrow_simulate_proxy_error",
+        detail: e?.message ?? String(err),
+      },
+      { status: 502 },
+    )
+  }
+}
