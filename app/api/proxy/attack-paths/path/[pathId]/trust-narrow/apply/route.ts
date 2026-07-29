@@ -105,7 +105,17 @@ export async function POST(
     console.log(
       `[trust-narrow/apply proxy] status=${res.status} latency_ms=${Date.now() - t0} path=${pathId.slice(0, 32)}`,
     )
-    const data = await res.json().catch(() => null)
+    // Text-first, same reason as the plan proxy: an unhandled backend exception
+    // is FastAPI's plain "Internal Server Error", which `res.json()` rejects
+    // on, and an apply failure with no visible reason is the worst possible
+    // thing to show after a mutation attempt.
+    const raw = await res.text()
+    let data: Record<string, unknown> | null = null
+    try {
+      data = raw ? (JSON.parse(raw) as Record<string, unknown>) : null
+    } catch {
+      data = null
+    }
 
     if (!res.ok) {
       // Forward the backend's own refusal shape (403 tier gate, 400 token
@@ -113,7 +123,14 @@ export async function POST(
       // reason; flattening these into one error would throw away the only
       // information the operator can act on.
       return NextResponse.json(
-        { error: "trust_narrow_apply_refused", status: res.status, detail: data?.detail ?? data },
+        {
+          error: "trust_narrow_apply_refused",
+          status: res.status,
+          detail:
+            data?.detail ??
+            data ??
+            `backend ${res.status}: ${raw.slice(0, 300) || "(empty body)"}`,
+        },
         { status: res.status },
       )
     }

@@ -57,15 +57,29 @@ export async function POST(
     console.log(
       `[trust-narrow/plan proxy] status=${res.status} latency_ms=${Date.now() - t0} path=${pathId.slice(0, 32)}`,
     )
-    const data = await res.json().catch(() => null)
+    // Read as TEXT first, then try to parse. An unhandled backend exception
+    // comes back as FastAPI's plain "Internal Server Error", which `res.json()`
+    // rejects on — leaving nothing to show. Going text-first means the operator
+    // always gets the body that actually came back rather than an empty string
+    // in exactly the case where they most need to know what happened.
+    const raw = await res.text()
+    let data: unknown = null
+    try {
+      data = raw ? JSON.parse(raw) : null
+    } catch {
+      data = null
+    }
     if (!res.ok) {
+      const d = (data as { detail?: unknown } | null)?.detail
       return NextResponse.json<ProxyError>(
         {
           error: "trust_narrow_plan_unavailable",
           detail:
-            typeof data?.detail === "string"
-              ? data.detail
-              : JSON.stringify(data?.detail ?? data ?? "").slice(0, 300),
+            typeof d === "string" && d
+              ? d
+              : d
+                ? JSON.stringify(d).slice(0, 400)
+                : `backend ${res.status}: ${raw.slice(0, 300) || "(empty body)"}`,
         },
         { status: res.status === 404 ? 404 : res.status === 503 ? 503 : 502 },
       )

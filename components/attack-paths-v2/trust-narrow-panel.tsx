@@ -158,9 +158,10 @@ export function TrustNarrowPanel({ path, onClose }: TrustNarrowPanelProps) {
                 : refusal.error}
             </div>
             <div className="mt-1 text-[10px] leading-snug text-foreground">
-              {typeof refusal.detail === "string"
+              {(typeof refusal.detail === "string"
                 ? refusal.detail
-                : (refusal.detail?.reason ?? "No further detail from the backend.")}
+                : refusal.detail?.reason) ||
+                "No further detail from the backend. Nothing has been changed."}
             </div>
             {typeof refusal.detail === "object" &&
               (refusal.detail?.guards?.length ?? 0) > 0 && (
