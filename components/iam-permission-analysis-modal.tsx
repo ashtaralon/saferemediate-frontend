@@ -23,6 +23,10 @@ import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-en
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type { ConfidenceScore, SimulateFixSafety, DecisionOutcomeCanonical } from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
+import { IamLpReadOnlySummary } from "@/components/iam-lp/IamLpReadOnlySummary"
+import type { IamGapAnalysisWire } from "@/components/iam-lp/types"
+
+const IAM_LP_READ_ONLY_SUMMARY_ENABLED = true
 
 interface PermissionAnalysis {
   permission: string
@@ -308,6 +312,7 @@ export function IAMPermissionAnalysisModal({
   console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
+  const [gapWireData, setGapWireData] = useState<IamGapAnalysisWire | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSimulation, setShowSimulation] = useState(false)
@@ -508,6 +513,7 @@ export function IAMPermissionAnalysisModal({
   const fetchGapAnalysis = async (forceRefresh = false) => {
     setLoading(true)
     setError(null)
+    setGapWireData(null)
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
@@ -516,6 +522,7 @@ export function IAMPermissionAnalysisModal({
       )
       setProvenance(env.provenance)
       const rawData = env.result
+      setGapWireData(rawData as IamGapAnalysisWire)
       console.log('[IAM-Modal] Raw API data:', rawData)
       console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
       console.log('[IAM-Modal] Raw data summary:', rawData.summary)
@@ -757,6 +764,7 @@ export function IAMPermissionAnalysisModal({
     setShowSimulation(false)
     setAnalysisTab('summary')
     setGapData(null)
+    setGapWireData(null)
     setError(null)
     onClose()
   }
@@ -3151,6 +3159,20 @@ export function IAMPermissionAnalysisModal({
             ))}
           </div>
 
+          {analysisTab === 'summary' && IAM_LP_READ_ONLY_SUMMARY_ENABLED && (gapWireData || gapData) && (
+            <IamLpReadOnlySummary
+              gap={(gapWireData || gapData) as IamGapAnalysisWire}
+              pipelineDecision={
+                safetyLoading
+                  ? "PENDING"
+                  : safetyContext?.decision_canonical ??
+                    safetyContext?.decision ??
+                    "UNAVAILABLE"
+              }
+              pipelineReasons={safetyContext?.unsafe_reasons}
+            />
+          )}
+
           {/* ── Pipeline Decision banner (Summary tab) ────────────────────
               The unified pipeline is the AUTHORITATIVE decision source.
               We render it above the Agent 5 panel so the verdict order
@@ -3159,13 +3181,13 @@ export function IAMPermissionAnalysisModal({
               Fail-closed: if simulate-fix returned no safety object, we
               don't show a green "Safe to apply" — we surface the
               fail-closed warning so the user can investigate why. */}
-          {analysisTab === 'summary' && safetyLoading && (
+          {analysisTab === 'summary' && !IAM_LP_READ_ONLY_SUMMARY_ENABLED && safetyLoading && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
               <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
               Reading unified pipeline decision…
             </div>
           )}
-          {analysisTab === 'summary' && !safetyLoading && !safetyContext && (
+          {analysisTab === 'summary' && !IAM_LP_READ_ONLY_SUMMARY_ENABLED && !safetyLoading && !safetyContext && (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4">
               <div className="flex items-start gap-3">
                 <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
@@ -3180,7 +3202,7 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
           )}
-          {analysisTab === 'summary' && safetyContext && (() => {
+          {analysisTab === 'summary' && !IAM_LP_READ_ONLY_SUMMARY_ENABLED && safetyContext && (() => {
             // v5 verdict layout — replaces the old Pipeline Decision +
             // Agent 5 Confidence Scorer + Visibility Signals stack that
             // showed a 100/100 score next to a BLOCKED verdict
@@ -3360,7 +3382,7 @@ export function IAMPermissionAnalysisModal({
               they ARE a different kind of warning — destructive hard-
               block, not a noisy duplicate — and the trust-principal
               line is still suppressed below for demo safety. */}
-          {analysisTab === 'summary' && (() => {
+          {analysisTab === 'summary' && !IAM_LP_READ_ONLY_SUMMARY_ENABLED && (() => {
             if (!serviceAnalysis) return null
             const severity = serviceAnalysis.severity || 'medium'
             // Skip non-critical severity entirely — top verdict covers it
@@ -3449,7 +3471,7 @@ export function IAMPermissionAnalysisModal({
           })()}
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
-          {analysisTab === 'summary' && totalPermissions === 0 && (
+          {analysisTab === 'summary' && !IAM_LP_READ_ONLY_SUMMARY_ENABLED && totalPermissions === 0 && (
             <div className="rounded-md border border-[#86efac] bg-[#f0fdf4] p-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-[#10b98120] rounded-full flex items-center justify-center shrink-0">
@@ -3477,7 +3499,7 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Over-Privileged Summary — single merged card (replaces banner + 3-card grid) */}
-          {analysisTab === 'summary' && totalPermissions > 0 && (() => {
+          {analysisTab === 'summary' && !IAM_LP_READ_ONLY_SUMMARY_ENABLED && totalPermissions > 0 && (() => {
             const accent =
               unusedPercent >= 75 ? '#ef4444' :
               unusedPercent >= 50 ? '#f97316' :
@@ -3846,7 +3868,7 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Recommended Action */}
-          {analysisTab === 'summary' && (() => {
+          {analysisTab === 'summary' && (totalPermissions === 0 || !!gapData?.remediated_at) && (() => {
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
             const isRemediated = totalPermissions === 0 || !!gapData?.remediated_at
