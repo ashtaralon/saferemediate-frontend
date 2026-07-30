@@ -9,7 +9,11 @@
  * having no network hops there.
  */
 import { describe, expect, it } from "vitest"
-import { attachNetworkPosture } from "@/lib/attack-paths/attach-network-posture"
+import {
+  attachLoadStatePosture,
+  attachNetworkPosture,
+  type PostureBearing,
+} from "@/lib/attack-paths/attach-network-posture"
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
 
 function path(overrides: Partial<ConvergencePath>): ConvergencePath {
@@ -24,8 +28,20 @@ function path(overrides: Partial<ConvergencePath>): ConvergencePath {
   } as ConvergencePath
 }
 
-/** Stand-in for the fetched dependency-map architecture. */
-const arch = () => ({ subnets: [], securityGroups: [], nacls: [] })
+/** Stand-in for the fetched dependency-map architecture.
+ *
+ * Annotated rather than left as a bare literal: TS2559 rejects an object
+ * literal with "no properties in common" against a type whose only member is
+ * optional, so an un-annotated fixture fails to typecheck even though the call
+ * is valid. */
+type FakeArch = PostureBearing & {
+  subnets: unknown[]
+  securityGroups: unknown[]
+  nacls: unknown[]
+  resources?: unknown[]
+  marker?: number
+}
+const arch = (): FakeArch => ({ subnets: [], securityGroups: [], nacls: [] })
 
 describe("attachNetworkPosture", () => {
   it("derives a posture for a non-fan-in architecture", () => {
@@ -120,6 +136,62 @@ describe("attachNetworkPosture", () => {
       "p1",
     )
     expect(out.resources).toEqual([{ id: "s3-a" }])
+    expect(out.marker).toBe(7)
+  })
+})
+
+/**
+ * The attacker map has NO ConvergencePath.
+ *
+ * `attack-path-lane-flow-map.tsx` passes `architectureOverride` and an
+ * `IdentityAttackPath`, which carries no `hops_load_state` — so
+ * attachNetworkPosture can never help it, and PR #466 did not in fact fix that
+ * view: production still rendered a null `data-network-banner-reason`.
+ *
+ * Its hydration signal is `architectureLoading`, already trusted to drive the
+ * "Partial view — loading full path topology…" chip.
+ */
+describe("attachLoadStatePosture (views with no ConvergencePath)", () => {
+  it("is NOT settled while the topology is still loading", () => {
+    // The regression: empty lanes during load were claimed as "no network hops".
+    const out = attachLoadStatePosture(arch(), true)
+    expect(out.networkPosture).toEqual({
+      settled: false,
+      reason: "architecture_pending",
+    })
+  })
+
+  it("is settled once the topology has loaded", () => {
+    const out = attachLoadStatePosture(arch(), false)
+    expect(out.networkPosture).toEqual({
+      settled: true,
+      reason: "architecture_loaded",
+    })
+  })
+
+  it("always supplies a non-null reason — the exact prod assertion", () => {
+    // data-network-banner-reason was null in production precisely because no
+    // posture object reached the renderer.
+    for (const loading of [true, false]) {
+      const out = attachLoadStatePosture(arch(), loading)
+      expect(out.networkPosture?.reason).toBeTruthy()
+    }
+  })
+
+  it("never overwrites a real hop-derived posture", () => {
+    // hops_load_state is strictly better evidence than architecture load state.
+    const existing = { settled: false, reason: "hops_pending" }
+    const out = attachLoadStatePosture(
+      { ...arch(), networkPosture: existing },
+      false,
+    )
+    expect(out.networkPosture).toBe(existing)
+  })
+
+  it("does not mutate the input and preserves other fields", () => {
+    const input = { ...arch(), marker: 7 }
+    const out = attachLoadStatePosture(input, true)
+    expect("networkPosture" in input).toBe(false)
     expect(out.marker).toBe(7)
   })
 })
