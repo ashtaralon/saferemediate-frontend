@@ -237,9 +237,10 @@ export function Zoom0FanInPanel({
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
   const convergenceJewel = crownJewelFromArnName(cjArn, jewel.name)
 
-  // Fan-in model: never pin a single path_id into the detail fetch.
-  // Pinning would load hops for only one sibling (often Lambda) and paint
-  // a false "IAM-only" map over EC2 paths that still have network hops.
+  // Fan-in model: fetch EVERY summary path's hops (fanInAllDetails) so a
+  // Lambda sibling cannot paint a false "IAM-only" map over EC2 paths that
+  // still have subnet/SG/NACL hops. Pass the pin so /detail is pin-first,
+  // then siblings at low concurrency with cold retries.
   const {
     data,
     loading,
@@ -248,7 +249,13 @@ export function Zoom0FanInPanel({
     detailsLoading,
     detailsReady,
     detailFailures,
-  } = useCrownJewelConvergence(systemName, convergenceJewel, null, paths)
+  } = useCrownJewelConvergence(
+    systemName,
+    convergenceJewel,
+    selectedPathId,
+    paths,
+    { fanInAllDetails: true },
+  )
 
   const iapFallback = useMemo(() => {
     if (paths.length === 0) return null

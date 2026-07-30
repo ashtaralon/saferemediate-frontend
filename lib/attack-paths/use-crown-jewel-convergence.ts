@@ -10,6 +10,7 @@ import {
   detailFailuresFor,
   detailsLoadingFor,
   detailsReadyFor,
+  fetchConvergencePathDetail,
   mapPool,
   mergeSummaryWithPathDetails,
   pathIdsNeedingDetail,
@@ -17,7 +18,6 @@ import {
 } from "./convergence-path-details"
 import { matchConvergencePathId } from "./iap-to-convergence"
 import type {
-  ConvergencePath,
   CrownJewelConvergence,
   CrownJewelConvergenceSummary,
 } from "./convergence-types"
@@ -39,27 +39,43 @@ interface UseCrownJewelConvergenceResult {
   retry: () => void
 }
 
+export type UseCrownJewelConvergenceOptions = {
+  /**
+   * Fan-in honesty: detail-fetch EVERY summary path even when a pin is
+   * set. Pin only reorders (pin first) so the dossier settles before
+   * siblings. Without this, a pin shrinks the set to one path_id.
+   */
+  fanInAllDetails?: boolean
+}
+
 const MAX_AUTO_RETRIES = 4
 const RETRY_DELAYS_MS = [3000, 6000, 10000, 15000]
-/** Parallel /detail fetches — keep modest to avoid proxy saturation. */
-const DETAIL_FETCH_CONCURRENCY = 4
+/**
+ * Sibling /detail concurrency after the pin settles. Keep low so a cold
+ * Render worker is not flooded (fan-in used to fire 4×55s aborts at once).
+ */
+const DETAIL_SIBLING_CONCURRENCY = 2
 
 /** Summary first (fast strip) + hop detail for every path in the model.
  *
- * Fan-in (no path pin) detail-fetches ALL summary path_ids so the
+ * Fan-in (`fanInAllDetails`) detail-fetches ALL summary path_ids so the
  * path-authority canvas never paints a Lambda-only spine over an EC2
- * sibling that still has subnet/SG/NACL hops in Neo4j.
+ * sibling that still has subnet/SG/NACL hops in Neo4j. The pin (when set)
+ * is fetched first; siblings follow at low concurrency with cold retries.
  *
  * Cold Render workers often return nothing for 55s+ on first hit. We auto-
  * retry the summary a few times instead of surfacing a hard HTTP 502 after
- * one abort — operators were getting bricked by a single cold miss.
+ * one abort — operators were getting bricked by a single cold miss. Detail
+ * uses the same idea with shorter per-attempt aborts.
  */
 export function useCrownJewelConvergence(
   systemName: string | null,
   jewel: CrownJewelSummary | null,
   selectedPathId: string | null = null,
   iapPaths: IdentityAttackPath[] = [],
+  options: UseCrownJewelConvergenceOptions = {},
 ): UseCrownJewelConvergenceResult {
+  const fanInAllDetails = Boolean(options.fanInAllDetails)
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
     Record<string, PathDetailRecord>
@@ -70,6 +86,8 @@ export function useCrownJewelConvergence(
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
   const attemptRef = useRef(0)
+  /** Path ids whose /detail already settled ready — skip re-fetch on pin change. */
+  const readyDetailIdsRef = useRef<Set<string>>(new Set())
 
   const retry = useCallback(() => {
     attemptRef.current = 0
@@ -82,6 +100,7 @@ export function useCrownJewelConvergence(
     if (!systemName || !jewel) {
       setSummary(null)
       setDetailsByPathId({})
+      readyDetailIdsRef.current = new Set()
       setError(null)
       setLoading(false)
       setRetrying(false)
@@ -98,6 +117,7 @@ export function useCrownJewelConvergence(
     setRetrying(false)
     setError(null)
     setDetailsByPathId({})
+    readyDetailIdsRef.current = new Set()
     setSummary(null)
 
     const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel)
@@ -181,87 +201,79 @@ export function useCrownJewelConvergence(
   )
 
   const neededDetailIds = useMemo(
-    () => pathIdsNeedingDetail(summary, resolvedSelectedPathId),
-    [summary, resolvedSelectedPathId],
+    () =>
+      pathIdsNeedingDetail(summary, resolvedSelectedPathId, {
+        fetchAll: fanInAllDetails,
+      }),
+    [summary, resolvedSelectedPathId, fanInAllDetails],
   )
 
-  // Phase 2: hop detail for every path the model needs (fan-in = all).
+  // Phase 2: hop detail — pin first (when present), then siblings @2 with retries.
   useEffect(() => {
     if (!systemName || !jewel || !summary) return
     if (neededDetailIds.length === 0) return
 
-    let cancelled = false
+    const ctrl = new AbortController()
 
-    // Mark required ids pending (preserve already-ready rows for the same pin).
+    // Mark required ids pending; keep already-ready rows across pin changes.
     setDetailsByPathId((prev) => {
-      const next: Record<string, PathDetailRecord> = {}
+      const next: Record<string, PathDetailRecord> = { ...prev }
       for (const id of neededDetailIds) {
         const existing = prev[id]
-        next[id] =
-          existing?.state === "ready" && existing.path
-            ? existing
-            : { state: "pending" }
+        if (existing?.state === "ready" && existing.path) {
+          next[id] = existing
+          readyDetailIdsRef.current.add(id)
+        } else {
+          next[id] = { state: "pending" }
+        }
       }
       return next
     })
 
-    const run = async () => {
-      await mapPool(neededDetailIds, DETAIL_FETCH_CONCURRENCY, async (pathId) => {
-        if (cancelled) return pathId
-        const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId)
-        const ctrl = new AbortController()
-        const timer = setTimeout(
-          () =>
-            ctrl.abort(
-              new DOMException("Backend slow — no response in 55s", "TimeoutError"),
-            ),
-          55_000,
-        )
-        try {
-          const detailRes = await fetch(detailUrl, {
-            cache: "no-store",
-            signal: ctrl.signal,
-          })
-          const detailBody = (await detailRes.json().catch(() => null)) as
-            | { path?: ConvergencePath; error?: string }
-            | null
-          if (cancelled) return pathId
-          if (detailRes.ok && detailBody?.path) {
-            setDetailsByPathId((prev) => ({
-              ...prev,
-              [pathId]: { state: "ready", path: detailBody.path! },
-            }))
-          } else {
-            setDetailsByPathId((prev) => ({
-              ...prev,
-              [pathId]: {
-                state: "error",
-                error:
-                  detailBody?.error ??
-                  `detail ${detailRes.status}`,
-              },
-            }))
-          }
-        } catch (e) {
-          if (cancelled) return pathId
-          setDetailsByPathId((prev) => ({
-            ...prev,
-            [pathId]: {
-              state: "error",
-              error: (e as Error).message ?? "detail fetch failed",
-            },
-          }))
-        } finally {
-          clearTimeout(timer)
-        }
-        return pathId
+    const applyResult = (
+      pathId: string,
+      result: Awaited<ReturnType<typeof fetchConvergencePathDetail>>,
+    ) => {
+      if (ctrl.signal.aborted) return
+      if (result.ok) {
+        readyDetailIdsRef.current.add(pathId)
+        setDetailsByPathId((prev) => ({
+          ...prev,
+          [pathId]: { state: "ready", path: result.path },
+        }))
+      } else {
+        setDetailsByPathId((prev) => ({
+          ...prev,
+          [pathId]: { state: "error", error: result.error },
+        }))
+      }
+    }
+
+    const fetchOne = async (pathId: string) => {
+      if (ctrl.signal.aborted) return pathId
+      if (readyDetailIdsRef.current.has(pathId)) return pathId
+
+      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId)
+      const result = await fetchConvergencePathDetail({
+        url: detailUrl,
+        signal: ctrl.signal,
       })
+      applyResult(pathId, result)
+      return pathId
+    }
+
+    const run = async () => {
+      const [first, ...rest] = neededDetailIds
+      // Pin-first (or first summary path): settle dossier before flooding.
+      if (first) await fetchOne(first)
+      if (ctrl.signal.aborted || rest.length === 0) return
+      await mapPool(rest, DETAIL_SIBLING_CONCURRENCY, fetchOne)
     }
 
     void run()
 
     return () => {
-      cancelled = true
+      ctrl.abort()
     }
   }, [
     systemName,
@@ -272,6 +284,7 @@ export function useCrownJewelConvergence(
     summary,
     neededDetailIds.join("|"),
     nonce,
+    fanInAllDetails,
   ])
 
   const data =

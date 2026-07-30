@@ -112,6 +112,17 @@ describe("network-posture wiring", () => {
     expect(src).toMatch(/data-path-state=\{pathVerdict\.pathState\}/)
   })
 
+  it("fan-in detail-fetches every path with pin-first (not pin-only)", () => {
+    // Passing null for selectedPathId was the old honesty hack; fanInAllDetails
+    // keeps the full set while ordering the pin first for cold retries.
+    const code = readCode(FAN_IN)
+    expect(code).toContain("fanInAllDetails: true")
+    expect(code).toContain("selectedPathId")
+    expect(code).not.toMatch(
+      /useCrownJewelConvergence\(\s*systemName\s*,\s*convergenceJewel\s*,\s*null/,
+    )
+  })
+
   it("the specific route verdict is passed, not just the coarse gate", () => {
     // route_gate=OPEN_CONFIG must not be the only routing signal supplied.
     const code = readCode(FAN_IN)
