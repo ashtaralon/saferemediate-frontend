@@ -107,6 +107,44 @@ export function resolveZoom0PinPathId(
   return matchConvergencePathId(data.paths, selectedPathId, iapPaths)
 }
 
+/**
+ * Pure: which identity the Lateral lens fans out from.
+ *
+ * The attacker lens asks "if I breach THIS compute and steal THIS identity, what
+ * else can I reach next" — so the hub must be the PINNED path's identity, never
+ * the jewel-level `risk_summary.top_risk.identity`. Those two disagree whenever
+ * the jewel's highest-risk path is not the one the operator pinned, and the
+ * fan-out would then describe a different attacker than the spine on screen.
+ *
+ * Returns null rather than falling back to `risk_summary`: a silent fallback
+ * would reintroduce exactly the mismatch this resolves, and reintroduce it
+ * invisibly. A null result is the caller's cue to prompt for a pin.
+ *
+ * A single-path jewel auto-pins, matching the feasibility chip's rule — with one
+ * candidate there is no ambiguity about which breach the operator means. That is
+ * NOT `paths[0]` synthesis (which the risk-summary guard above forbids): it is
+ * the only path, not a guess among several.
+ *
+ * A pin that matches no path resolves to null, not to some other path.
+ */
+export function resolveZoom0LateralIdentity(
+  paths: ConvergencePath[] | null | undefined,
+  pinPathId: string | null,
+): { id: string; name: string | null } | null {
+  const all = paths ?? []
+  if (all.length === 0) return null
+  const pinned =
+    pinPathId != null
+      ? (all.find((p) => p.path_id === pinPathId) ?? null)
+      : all.length === 1
+        ? all[0]
+        : null
+  // An identity-only path, or one whose identity the server could not resolve,
+  // has no hub to fan out from. Say so; do not borrow another path's identity.
+  if (!pinned?.identity) return null
+  return { id: pinned.identity, name: pinned.identity_name ?? null }
+}
+
 /** Pure: which convergence paths feed TFM spotlight for Zoom 0. */
 export function zoom0SpotlightPaths(
   data: CrownJewelConvergence,
@@ -328,14 +366,13 @@ export function Zoom0FanInPanel({
     [effective.data],
   )
 
-  const lateralIdentityId = useMemo(() => {
-    return (
-      riskSummary?.top_risk?.identity ??
-      riskSummary?.identity ??
-      riskSummary?.current_state?.identity ??
-      null
-    )
-  }, [riskSummary])
+  // Lateral fans out from the PINNED path's identity — the breach the operator
+  // selected — not the jewel's top-risk identity. See
+  // resolveZoom0LateralIdentity for why a risk-summary fallback is unsafe here.
+  const lateralIdentity = useMemo(
+    () => resolveZoom0LateralIdentity(effective.data?.paths, pinPathId),
+    [effective.data, pinPathId],
+  )
 
   const collapsed =
     effective.data != null &&
@@ -674,20 +711,20 @@ export function Zoom0FanInPanel({
             >
               Not yet authoritative — contracts pending
             </p>
-            {lateralIdentityId ? (
+            {lateralIdentity ? (
               <Zoom0LateralLensPanel
                 systemName={systemName}
                 jewel={jewel}
-                identityId={lateralIdentityId}
-                identityName={
-                  riskSummary?.top_risk?.identity_name ??
-                  riskSummary?.identity_name ??
-                  null
-                }
+                identityId={lateralIdentity.id}
+                identityName={lateralIdentity.name}
               />
             ) : (
-              <p className="text-[11px] text-muted-foreground">
-                No path identity yet — wait for jewel risk summary.
+              <p
+                className="text-[11px] text-muted-foreground"
+                data-testid="zoom0-lateral-needs-pin"
+              >
+                Pin a path to choose the initial breach — lateral movement is
+                relative to the identity you land on.
               </p>
             )}
             {onRequestMode ? (

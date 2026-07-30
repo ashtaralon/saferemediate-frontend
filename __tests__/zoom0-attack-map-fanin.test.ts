@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   resolveZoom0Effective,
+  resolveZoom0LateralIdentity,
   resolveZoom0PinPathId,
   zoom0CardinalityLine,
   zoom0EmptyCanvasMessage,
@@ -230,5 +231,66 @@ describe("zoom0EmptyCanvasMessage", () => {
     })
     expect(zero.state).toBe("READY_ZERO")
     expect(zero.message).toMatch(/active projection/i)
+  })
+})
+
+describe("resolveZoom0LateralIdentity", () => {
+  it("uses the PINNED path's identity, not the jewel's top-risk identity", () => {
+    // The bug this fixes: lateral identity came from risk_summary.top_risk, which
+    // is jewel-level. When the operator pins a path that is NOT the top risk, the
+    // fan-out described a different attacker than the spine on screen.
+    const paths = [
+      path({ path_id: "top-risk", identity: "role-top", identity_name: "top" }),
+      path({ path_id: "pinned", identity: "role-pinned", identity_name: "pinned" }),
+    ]
+    const got = resolveZoom0LateralIdentity(paths, "pinned")
+    expect(got?.id).toBe("role-pinned")
+    expect(got?.id).not.toBe("role-top")
+  })
+
+  it("pairs the name with the SAME path as the id", () => {
+    // Guards a bug the fix could have introduced: taking the id from the pinned
+    // path while leaving the name on risk_summary would label one identity with
+    // another's name.
+    const paths = [
+      path({ path_id: "a", identity: "role-a", identity_name: "alpha" }),
+      path({ path_id: "b", identity: "role-b", identity_name: "bravo" }),
+    ]
+    expect(resolveZoom0LateralIdentity(paths, "b")).toEqual({
+      id: "role-b",
+      name: "bravo",
+    })
+  })
+
+  it("auto-pins a single-path jewel (no ambiguity about the breach)", () => {
+    const paths = [path({ path_id: "only", identity: "role-only", identity_name: "only" })]
+    expect(resolveZoom0LateralIdentity(paths, null)?.id).toBe("role-only")
+  })
+
+  it("returns null for an unpinned multi-path jewel — caller must prompt for a pin", () => {
+    const paths = [
+      path({ path_id: "a", identity: "role-a" }),
+      path({ path_id: "b", identity: "role-b" }),
+    ]
+    expect(resolveZoom0LateralIdentity(paths, null)).toBeNull()
+  })
+
+  it("returns null when the pinned path has no identity — never borrows another path's", () => {
+    const paths = [
+      path({ path_id: "identity-less", identity: null, identity_name: null }),
+      path({ path_id: "other", identity: "role-other", identity_name: "other" }),
+    ]
+    expect(resolveZoom0LateralIdentity(paths, "identity-less")).toBeNull()
+  })
+
+  it("returns null when the pin matches no path — never silently substitutes", () => {
+    const paths = [path({ path_id: "a", identity: "role-a" })]
+    expect(resolveZoom0LateralIdentity(paths, "stale-pin")).toBeNull()
+  })
+
+  it("handles empty / missing path lists", () => {
+    expect(resolveZoom0LateralIdentity([], "x")).toBeNull()
+    expect(resolveZoom0LateralIdentity(null, "x")).toBeNull()
+    expect(resolveZoom0LateralIdentity(undefined, null)).toBeNull()
   })
 })
