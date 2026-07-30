@@ -134,4 +134,49 @@ describe("network-posture wiring", () => {
     expect(code).toContain("Candidate path")
     expect(code).toContain("not proven reachable")
   })
+
+  // ── edge direction + line occlusion ──────────────────────────────────────
+
+  it("edges carry an arrowhead so direction is unambiguous", () => {
+    // There was NO marker anywhere in this component before: every edge was
+    // undirected, so role->S3 and S3->role rendered identically.
+    const code = readCode(TFM)
+    expect(code).toContain("<marker")
+    expect(code).toContain("markerEnd={")
+  })
+
+  it("the arrowhead id is unique PER MAP INSTANCE, not a module constant", () => {
+    // Two maps mounted at once (fan-in beside a per-path canvas, or a
+    // fullscreen portal) would emit duplicate SVG ids: every url(#id) in the
+    // document resolves to whichever def the browser saw first, so one map's
+    // arrows inherit another's def and unmounting it strips the survivor's.
+    const code = readCode(TFM)
+    expect(code).toContain("useId()")
+    expect(code).toMatch(/const arrowMarkerId = `tfm-edge-arrow-\$\{useId\(\)/)
+    // A module-level constant is exactly the collision this replaced.
+    expect(code).not.toMatch(/^const ARROW_MARKER_ID/m)
+    // and it must be threaded to the child that draws the path
+    expect(code).toContain("arrowMarkerId={arrowMarkerId}")
+  })
+
+  it("the arrowhead is drawn only on the lines pass", () => {
+    // The labels pass repaints the same geometry; two markers doubles the head.
+    // Gated on BOTH the pass and the presence of an id, so a missing id can
+    // never produce url(#undefined).
+    const code = readCode(TFM)
+    expect(code).toMatch(/renderMode === 'lines' && arrowMarkerId/)
+  })
+
+  it("the arrowhead inherits each edge's own stroke colour", () => {
+    // One def for every palette entry — plane colours, attack red, lateral grey.
+    expect(readCode(TFM)).toContain('fill="context-stroke"')
+  })
+
+  it("the network banner is OPAQUE so edges cannot show through the prose", () => {
+    // The banner was already above the lines layer in stacking order; both
+    // variants were ~5-20% alpha, so the edge beneath showed through the text.
+    const code = readCode(TFM)
+    expect(code).toMatch(/border-dashed bg-card/)
+    expect(code).not.toContain('border-border bg-muted/20"')
+  })
 })

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
@@ -3093,6 +3093,7 @@ function ServiceDetailsPopup({
 // ANIMATED TRAFFIC LINE
 // ============================================
 function AnimatedTrafficLine({
+  arrowMarkerId,
   labelExclusion = null,
   x1, y1, x2, y2,
   isActive,
@@ -3116,6 +3117,9 @@ function AnimatedTrafficLine({
   pathDominance,
   pathAuthorityOnly = false,
 }: {
+  /** Arrowhead def id owned by the parent map instance. Undefined on the
+   *  labels pass, where no marker is drawn. */
+  arrowMarkerId?: string;
   /** Container-relative box the verb chip must not cover — a prose block
    *  sharing the lane, measured from the DOM. Same coordinate space as
    *  x1/y1/x2/y2 (see getNodeCenter). Null when there is nothing to avoid. */
@@ -3879,6 +3883,11 @@ function AnimatedTrafficLine({
       <path
         d={pathD}
         fill="none"
+        markerEnd={
+          renderMode === 'lines' && arrowMarkerId
+            ? `url(#${arrowMarkerId})`
+            : undefined
+        }
         stroke={pathDominantLineColor ?? v2StrokeOverride ?? lineColor}
         strokeWidth={
           pathDominantStrokeWidth
@@ -4170,6 +4179,16 @@ export function ConnectionLinesSVG({
      can step around it. Measured from the DOM in the same pass and the same
      coordinate space as the line endpoints — the chip is opaque by design, so
      without this it masks the paragraph it lands on. */
+  /* Arrowhead def id, unique PER MAP INSTANCE.
+     A module-level constant collides as soon as two maps are mounted at once
+     (fan-in beside a per-path canvas, or a fullscreen portal rendering a second
+     copy): duplicate SVG ids are invalid, and every url(#id) reference in the
+     document resolves to whichever def the browser saw first — so one map's
+     arrowheads silently inherit another's def, and unmounting that map removes
+     the arrows from the survivor. useId gives a stable, SSR-safe per-instance
+     value. */
+  const arrowMarkerId = `tfm-edge-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+
   const [labelExclusion, setLabelExclusion] = useState<
     { left: number; right: number; top: number; bottom: number } | null
   >(null);
@@ -4850,6 +4869,7 @@ export function ConnectionLinesSVG({
             <AnimatedTrafficLine
               key={`line-${i}-${line.sourceId}-${line.targetId}`}
               labelExclusion={labelExclusion}
+              arrowMarkerId={arrowMarkerId}
               x1={line.x1}
               y1={line.y1}
               x2={line.x2}
@@ -4900,6 +4920,28 @@ export function ConnectionLinesSVG({
         style={{ zIndex: 1 }}
         data-connection-layer="lines"
       >
+        {/* Direction. Until now the map drew UNDIRECTED lines — no arrowhead
+            existed anywhere in this component — so role->S3 and S3->role looked
+            identical and a diagonal edge read as running backwards. An attacker
+            story has to show progression.
+
+            fill="context-stroke" takes the head's colour from the path's own
+            stroke, so one def serves every edge colour (plane, attack-path red,
+            lateral grey). markerUnits="strokeWidth" keeps it proportional. */}
+        <defs>
+          <marker
+            id={arrowMarkerId}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            markerUnits="strokeWidth"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="context-stroke" />
+          </marker>
+        </defs>
         {renderLines('lines')}
       </svg>
       <svg
@@ -5947,10 +5989,10 @@ export function UnifiedArchitectureDiagram({
               data-network-banner={state.kind}
               data-network-banner-reason={state.reason}
               data-network-banner-finding={state.isFinding ? "true" : "false"}
-              className={`flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed ${
+              className={`flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed bg-card ${
                 state.isFinding
-                  ? "border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5"
-                  : "border-border bg-muted/20"
+                  ? "border-amber-500/40 bg-gradient-to-b from-amber-500/10 to-orange-500/10"
+                  : "border-border"
               }`}
             >
               <div className="flex items-center gap-3 mb-3">
