@@ -366,6 +366,15 @@ export function compilePathListRow(
     impact_headline: compileImpactHeadline(path),
     impact_confidence: compileImpactConfidence(path),
     impact_reasons: compileImpactReasons(path),
+    // Literal passthrough — no derivation. See #480: SERVE owns the verdict.
+    path_state:
+      typeof path.feasibility?.path_state === "string"
+        ? path.feasibility.path_state
+        : null,
+    activity_state:
+      typeof path.feasibility?.activity_state === "string"
+        ? path.feasibility.activity_state
+        : null,
     attacker_headline: zoom0.attacker_headline,
     layer_permissions: zoom0.layers.permissions,
     layer_network: zoom0.layers.network,

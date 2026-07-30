@@ -641,6 +641,15 @@ export interface InitialAccess {
 }
 
 export interface IdentityAttackPath {
+  /**
+   * Server-composed verdict when SERVE ships it (#642). Optional because this
+   * DTO predates it and not every endpoint populates it yet — absent means the
+   * row renders NO verdict chip, never a fabricated one.
+   */
+  feasibility?: {
+    path_state?: string | null
+    activity_state?: string | null
+  } | null
   id: string
   /** Neo4j :AttackPath id (sha256). Closure-preview expects this, not `id`. */
   attack_path_id?: string | null
