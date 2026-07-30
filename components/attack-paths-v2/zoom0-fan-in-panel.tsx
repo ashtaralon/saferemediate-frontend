@@ -312,14 +312,21 @@ export function Zoom0FanInPanel({
       // EXECUTION_LOCATION_UNBOUND.
       routeVerdict: extractRouteVerdictToken(verdictPath.route_verdict),
       coverageState: zoom0ServeCoverage(effective.data).coverage_state,
+      // ── activity axis ONLY. Never an input to path_state. ───────────
       observedTrafficBound: pathHasObservedNetworkEvidence(
         [verdictPath],
         verdictPath.path_id,
       ),
-      roleAssumptionObserved: Boolean(verdictPath.role_assumption_observed),
-      // No path-bound data-plane observation on the DTO, so this stays
-      // CONFIGURED. Failing closed is the point.
-      dataAccessObserved: false,
+      // Without knowing observation coverage existed, "not observed" is
+      // indistinguishable from "never looked", so activity stays UNKNOWN.
+      observationCoverage: null,
+      // ── feasibility: server-composed results only. Neither exists yet,
+      // so authorization and data access stay UNVERIFIED and most paths are
+      // honestly UNVERIFIED rather than locally promoted. ───────────────
+      authorizationComposed: null,
+      dataAccessComposed: null,
+      // Findings are server-owned; the frontend never derives one.
+      serverFinding: false,
     })
   }, [verdictPath, effective.data])
 
@@ -554,7 +561,8 @@ export function Zoom0FanInPanel({
                 : "border-border bg-muted/20"
             }`}
             data-testid="zoom0-path-verdict"
-            data-path-feasibility={pathVerdict.feasibility}
+            data-path-state={pathVerdict.pathState}
+            data-activity-state={pathVerdict.activityState}
             data-path-verdict-finding={pathVerdict.isFinding ? "true" : "false"}
           >
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -574,13 +582,23 @@ export function Zoom0FanInPanel({
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {pathVerdict.reason}
             </p>
-            <p className="text-[11px] text-muted-foreground">
-              {`Observed traffic: ${
-                pathVerdict.observedTrafficBound
-                  ? "bound to this path"
-                  : "none bound to this path"
-              }`}
-            </p>
+            <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                Activity
+              </span>
+              {/* Separate axis. Observation says whether it HAS happened, never
+                  whether an attacker CAN — that conflation was the defect. */}
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
+                {pathVerdict.activityState.replace(/_/g, " ")}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {pathVerdict.activityState === "UNKNOWN"
+                  ? "— no observation coverage for this path"
+                  : pathVerdict.activityState === "NOT_OBSERVED"
+                    ? "— covered, nothing seen on this path"
+                    : "— traffic bound to this path"}
+              </span>
+            </div>
             <div className="mt-2 divide-y divide-border border-t border-border">
               {pathVerdict.checkpoints.map((c) => (
                 <div
@@ -595,13 +613,11 @@ export function Zoom0FanInPanel({
                   <span
                     title={c.detail}
                     className={`shrink-0 text-[11px] font-semibold uppercase tracking-wide ${
-                      c.state === "VERIFIED"
+                      c.state === "PASS"
                         ? "text-emerald-700 dark:text-emerald-300"
                         : c.state === "BLOCKED"
                           ? "text-sky-700 dark:text-sky-300"
-                          : c.state === "CONFIGURED"
-                            ? "text-foreground"
-                            : "text-muted-foreground"
+                          : "text-muted-foreground"
                     }`}
                   >
                     {c.state}
@@ -610,11 +626,13 @@ export function Zoom0FanInPanel({
               ))}
             </div>
             <p className="mt-1.5 text-[11px] italic text-muted-foreground">
-              {pathVerdict.feasibility === "REACHABLE_NOW"
-                ? "Every checkpoint composed — reachable now."
-                : pathVerdict.feasibility === "BLOCKED"
-                  ? "A checkpoint prevents this path."
-                  : "Candidate path — a configured access chain, not proven reachable."}
+              {pathVerdict.pathState === "REACHABLE"
+                ? "Every required checkpoint returned a server-backed pass."
+                : pathVerdict.pathState === "BLOCKED"
+                  ? "A server-backed control stops this path."
+                  : pathVerdict.pathState === "OUT_OF_SCOPE"
+                    ? "Outside the assessed scope."
+                    : "Candidate path — a configured access chain, not proven reachable."}
             </p>
           </div>
         ) : null}
