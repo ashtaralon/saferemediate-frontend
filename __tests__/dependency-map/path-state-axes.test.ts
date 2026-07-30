@@ -33,10 +33,15 @@ describe("two-axis wiring", () => {
     expect(src).not.toContain("dataAccessObserved")
   })
 
-  it("server-composed results are the only feasibility inputs", () => {
+  it("feasibility inputs are AttackPath graph fields — never hardcoded null", () => {
+    // Enterprise contract: credentials/data come from SERVE gates + A1.
+    // Inventing authorizationComposed: null painted UNVERIFIED over Neo4j.
     const src = readCode(PANEL)
-    expect(src).toContain("authorizationComposed:")
-    expect(src).toContain("dataAccessComposed:")
+    expect(src).toContain("identityGate")
+    expect(src).toContain("dataPlaneGate")
+    expect(src).toContain("authzDecision")
+    expect(src).not.toMatch(/authorizationComposed:\s*null/)
+    expect(src).not.toMatch(/dataAccessComposed:\s*null/)
   })
 
   it("the frontend never derives a finding", () => {
