@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react"
 import type { IdentityAttackPath, CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import { buildTrafficFlowPathFilter } from "./build-traffic-flow-path-filter"
+import { attachLoadStatePosture } from "@/lib/attack-paths/attach-network-posture"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -46,6 +47,20 @@ export function AttackPathLaneFlowMap({
   )
   const start = path.nodes?.[0]
 
+  /* Network-posture provenance for the banner. This view has no
+     ConvergencePath — `path` is an IdentityAttackPath with no hops_load_state —
+     so the hydration signal is architectureLoading, the same one behind the
+     "Partial view" chip above. Without this the banner fell through to the
+     renderer's `?? true` default and claimed "No Network Hops On This Path"
+     with a null reason while the topology was still loading. */
+  const architectureWithPosture = useMemo(
+    () =>
+      architecture
+        ? attachLoadStatePosture(architecture, architectureLoading)
+        : architecture,
+    [architecture, architectureLoading],
+  )
+
   return (
     <div
       className={`relative w-full ${fillHeight ? "h-full min-h-0 flex-1" : "h-[520px] min-h-[480px]"}`}
@@ -63,7 +78,7 @@ export function AttackPathLaneFlowMap({
       )}
       <TrafficFlowMap
         systemName={systemName}
-        architectureOverride={architecture ?? undefined}
+        architectureOverride={architectureWithPosture ?? undefined}
         pathFilter={pathFilter}
         titleOverride=""
         innerTitleOverride="Flow Map"

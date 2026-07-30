@@ -35,6 +35,37 @@ export interface PostureBearing {
   networkPosture?: { settled: boolean; reason: string }
 }
 
+/**
+ * Posture for views whose hydration signal is architecture LOAD STATE rather
+ * than `ConvergencePath.hops_load_state`.
+ *
+ * The attacker map (`attack-path-lane-flow-map.tsx` → `architectureOverride`)
+ * has no ConvergencePath at all — its `path` is an `IdentityAttackPath`, which
+ * carries no hop-load state — so `attachNetworkPosture` cannot help it. That is
+ * why PR #466 did not actually fix it: the posture attached only where
+ * spotlightPaths existed, and this view passes none.
+ *
+ * What it does have is `architectureLoading`, already trusted enough to drive
+ * the "Partial view — loading full path topology…" chip. While the full topology
+ * is in flight, empty network lanes prove nothing — the same argument as pending
+ * hops. Once it has loaded, the empty lanes are a settled fact about the path as
+ * drawn, which is exactly what the path-scoped copy claims.
+ */
+export function attachLoadStatePosture<T extends PostureBearing>(
+  arch: T,
+  architectureLoading: boolean,
+): T {
+  // Never overwrite a real derivation (fan-in / hops_load_state), which is
+  // strictly better evidence than load state.
+  if (arch.networkPosture) return arch
+  return {
+    ...arch,
+    networkPosture: architectureLoading
+      ? { settled: false, reason: "architecture_pending" }
+      : { settled: true, reason: "architecture_loaded" },
+  }
+}
+
 export function attachNetworkPosture<T extends PostureBearing>(
   arch: T,
   spotlightPaths: ConvergencePath[] | null | undefined,
