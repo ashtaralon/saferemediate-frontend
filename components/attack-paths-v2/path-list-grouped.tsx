@@ -417,6 +417,39 @@ export function PathListGrouped({
                           )}
                         </div>
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          {/* Server verdict, per path. Rendered ONLY when SERVE
+                              sends one — absent means no chip, never an invented
+                              state (#480: SERVE is the only authority).
+
+                              This exists because the composite strip above the
+                              map only appears for a single drawn path. Once the
+                              EC2 paths returned the fan-in draws four, so the
+                              default view showed no verdict at all. A verdict
+                              per row is the honest shape: each path has its own,
+                              and none of them is a claim about the others. */}
+                          {row.path_state ? (
+                            <span
+                              data-path-state-chip={row.path_state}
+                              data-activity-state-chip={row.activity_state ?? ""}
+                              title={
+                                row.activity_state
+                                  ? `Path ${row.path_state} · activity ${row.activity_state}`
+                                  : `Path ${row.path_state}`
+                              }
+                              className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide rounded border px-1.5 py-0.5 ${
+                                row.path_state === "REACHABLE"
+                                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                  : row.path_state === "BLOCKED"
+                                    ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                                    : "border-border bg-muted/40 text-muted-foreground"
+                              }`}
+                            >
+                              {row.path_state.replace(/_/g, " ")}
+                              {row.activity_state === "OBSERVED" && (
+                                <span className="opacity-70">· obs</span>
+                              )}
+                            </span>
+                          ) : null}
                           <span
                             className={`inline-flex items-center text-[9px] font-semibold rounded border px-1.5 py-0.5 ${layerChipTone(row.layer_permissions)}`}
                             title="Permissions / identity gate"

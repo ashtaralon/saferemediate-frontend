@@ -496,6 +496,12 @@ export interface PathListRow {
   layer_network: LayerEvidence
   layer_data: LayerEvidence
 
+  /** Server-composed verdict, READ LITERALLY from SERVE `feasibility`.
+   *  Null when SERVE sends none — render no chip rather than inventing one.
+   *  The frontend does not derive, default, or compose these (#480). */
+  path_state: string | null
+  activity_state: string | null
+
   /** Damage verbs for the row chip (DELETE, EXFIL, …). */
   damage_verbs: string[]
 
