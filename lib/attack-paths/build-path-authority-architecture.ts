@@ -26,8 +26,35 @@ export interface PathAuthorityJewelRef {
   type?: string | null
 }
 
+/**
+ * Whether an EMPTY network lane is a settled fact or just un-hydrated detail.
+ *
+ * `ConvergencePath.hops_load_state` already spells the rule out — "pending:
+ * summary only — do NOT treat empty hops as 'no network'" — but nothing carried
+ * that state as far as the renderer, so the map's banner read empty buckets as a
+ * positive finding ("No Network Controls · Network defenses do not apply") on
+ * paths whose detail had never loaded. The dossier honours the same contract via
+ * its `hopsPending` prop; the map was the one consumer that did not.
+ *
+ * `settled` is true only when every path in the lane reports `ready`. Absence of
+ * the field is NOT treated as ready: an older payload that predates
+ * hops_load_state cannot prove the lane is empty, and this must fail closed.
+ */
+export interface PathAuthorityNetworkPosture {
+  settled: boolean
+  reason:
+    | "hops_ready"
+    | "hops_pending"
+    | "hops_error"
+    | "hops_fallback"
+    | "hops_state_absent"
+    | "no_paths"
+}
+
 /** Minimal lane shapes — compatible with TFM SystemArchitecture buckets. */
 export interface PathAuthorityArchitecture {
+  /** Provenance for an empty network lane. See PathAuthorityNetworkPosture. */
+  networkPosture: PathAuthorityNetworkPosture
   computeServices: Array<{
     id: string
     name: string
@@ -717,6 +744,51 @@ function tryCollapseProfileHops(
 }
 
 /**
+ * Is an empty network lane a fact, or just detail we never fetched?
+ *
+ * Fails closed on purpose. Anything other than "every path says ready" leaves
+ * `settled: false`, because the only claim this function can support is "the
+ * hop DTOs settled and contained no network hop." A missing `hops_load_state`
+ * (older payload) proves nothing and must not be read as ready — that is the
+ * exact inference `ConvergencePath` warns against.
+ *
+ * Worst state wins so one un-hydrated path cannot be masked by ready siblings.
+ */
+export function deriveNetworkPosture(
+  lane: ConvergencePath[],
+): PathAuthorityNetworkPosture {
+  if (!lane.length) return { settled: false, reason: "no_paths" }
+
+  let sawAbsent = false
+  let sawPending = false
+  let sawError = false
+  let sawFallback = false
+  for (const p of lane) {
+    switch (p.hops_load_state) {
+      case "ready":
+        break
+      case "pending":
+        sawPending = true
+        break
+      case "error":
+        sawError = true
+        break
+      case "fallback":
+        sawFallback = true
+        break
+      default:
+        sawAbsent = true
+    }
+  }
+  // Most-severe first: an error is more informative to surface than a pending.
+  if (sawError) return { settled: false, reason: "hops_error" }
+  if (sawPending) return { settled: false, reason: "hops_pending" }
+  if (sawFallback) return { settled: false, reason: "hops_fallback" }
+  if (sawAbsent) return { settled: false, reason: "hops_state_absent" }
+  return { settled: true, reason: "hops_ready" }
+}
+
+/**
  * Build a TFM-compatible architecture strictly from selected path hops.
  * Estate / dep-map context must not be merged into this object.
  */
@@ -729,6 +801,7 @@ export function buildPathAuthorityArchitecture(params: {
 }): PathAuthorityArchitecture {
   const { paths, spotlightPathId, jewel, eligibleTotal } = params
   const lane = selectSpotlightPaths(paths, spotlightPathId ?? null)
+  const networkPosture = deriveNetworkPosture(lane)
 
   const computeServices: PathAuthorityArchitecture["computeServices"] = []
   const resources: PathAuthorityArchitecture["resources"] = []
@@ -1093,6 +1166,7 @@ export function buildPathAuthorityArchitecture(params: {
   }
 
   return {
+    networkPosture,
     computeServices,
     principals: [],
     entryPoints: [],

@@ -15,6 +15,7 @@ import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-
 import {
   buildPathAuthorityArchitecture,
   collectPathAuthorityNodeIds,
+  deriveNetworkPosture,
   pathHasObservedNetworkEvidence,
 } from "@/lib/attack-paths/build-path-authority-architecture"
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
@@ -1022,5 +1023,95 @@ describe("path-authority honesty invariants", () => {
         last_seen: null,
       },
     ])
+  })
+})
+
+/**
+ * 8. An EMPTY network lane is not evidence of "no network controls".
+ *
+ * `ConvergencePath.hops_load_state` says it outright — "pending: summary only —
+ * do NOT treat empty hops as 'no network'" — and the `workloadNetwork` docstring
+ * in traffic-flow-map says "when undefined/null → no banner (we didn't query)".
+ * Both were already written; the legacy all-four-arrays-empty fallback under
+ * them kept firing anyway, so a Lambda path whose hop DTOs had never loaded
+ * rendered an amber "No Network Controls · Network defenses do not apply"
+ * SECURITY FINDING built on missing data.
+ *
+ * These pin the provenance the renderer needs to tell those cases apart.
+ */
+describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
+  it("settles only when every path reports ready", () => {
+    expect(
+      deriveNetworkPosture([path({ hops_load_state: "ready" })]),
+    ).toEqual({ settled: true, reason: "hops_ready" })
+  })
+
+  it("does NOT settle while hop detail is pending", () => {
+    const posture = deriveNetworkPosture([path({ hops_load_state: "pending" })])
+    expect(posture.settled).toBe(false)
+    expect(posture.reason).toBe("hops_pending")
+  })
+
+  it("does NOT settle when the detail fetch failed", () => {
+    expect(deriveNetworkPosture([path({ hops_load_state: "error" })])).toEqual({
+      settled: false,
+      reason: "hops_error",
+    })
+  })
+
+  it("does NOT settle on a fallback payload", () => {
+    expect(
+      deriveNetworkPosture([path({ hops_load_state: "fallback" })]).settled,
+    ).toBe(false)
+  })
+
+  it("fails CLOSED when hops_load_state is absent entirely", () => {
+    // An older payload predating the field proves nothing about the lane, so
+    // absence must not be read as ready. This is the case that would silently
+    // resurrect the bug for any consumer still on the old shape.
+    const posture = deriveNetworkPosture([path({})])
+    expect(posture.settled).toBe(false)
+    expect(posture.reason).toBe("hops_state_absent")
+  })
+
+  it("fails CLOSED on an empty lane", () => {
+    expect(deriveNetworkPosture([])).toEqual({
+      settled: false,
+      reason: "no_paths",
+    })
+  })
+
+  it("one un-hydrated path cannot be masked by ready siblings", () => {
+    // Worst state wins. Any-instead-of-every here would let a single ready
+    // path vouch for a lane that is still loading.
+    const posture = deriveNetworkPosture([
+      path({ path_id: "p1", hops_load_state: "ready" }),
+      path({ path_id: "p2", hops_load_state: "pending" }),
+    ])
+    expect(posture.settled).toBe(false)
+    expect(posture.reason).toBe("hops_pending")
+  })
+
+  it("reports the most actionable reason when several are un-hydrated", () => {
+    // An operator can retry an error; a pending just needs waiting.
+    expect(
+      deriveNetworkPosture([
+        path({ path_id: "p1", hops_load_state: "pending" }),
+        path({ path_id: "p2", hops_load_state: "error" }),
+      ]).reason,
+    ).toBe("hops_error")
+  })
+
+  it("the built architecture carries the posture to the renderer", () => {
+    // Deriving it correctly is useless if it never reaches the banner — the
+    // original fix was designed and documented, then not wired through.
+    const arch = buildPathAuthorityArchitecture({
+      paths: [path({ hops_load_state: "pending" })],
+      spotlightPathId: "p1",
+    })
+    expect(arch.networkPosture).toEqual({
+      settled: false,
+      reason: "hops_pending",
+    })
   })
 })
