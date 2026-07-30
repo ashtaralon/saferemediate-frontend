@@ -7,8 +7,8 @@
  * spotlightPaths from by-crown-jewel convergence. Adaptations for Zoom 0:
  *   - choke tiles when paths > threshold (filter spotlightPaths, no hairball)
  *   - no path URL yet — left list owns Zoom 1 drill-in
- *   - details panels (Current Access / Lateral / Exfiltration) — presentation
- *     filters until genuine lens canvases land; restored from TargetAttackMap
+ *   - details panels (Current Access / Lateral / Exfiltration) — chrome above
+ *     the map; Lateral + Current Access both draw path-authority TrafficFlowMap
  *   - canvasV2 so the Laterals bright/dim toolbar control is visible
  */
 
@@ -62,11 +62,9 @@ import {
 import { Zoom0RiskHeader } from "./zoom0-risk-header"
 import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
 import { Zoom0LateralLensPanel } from "./zoom0-lateral-lens-panel"
-import { Zoom0LateralAttackMap } from "./zoom0-lateral-attack-map"
 import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
 import { useLateralMoves } from "./use-lateral-moves"
 import { resolveZoom0LateralIdentity } from "@/lib/attack-paths/zoom0-lateral-identity"
-import { focusJewelIdFromMove } from "./lateral-moves-summary-card"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -368,6 +366,26 @@ export function Zoom0FanInPanel({
     loading: lateralMovesLoading,
     error: lateralMovesError,
   } = useLateralMoves(lateralFetchTarget, { limit: 20 })
+
+  /**
+   * Lateral uses the same path-authority TFM as Current Access — pinned-path
+   * hops only. Blast fan-out stays in Zoom0LateralLensPanel chrome above.
+   */
+  const mapSpotlightPaths = useMemo(() => {
+    if (detailsPanel !== "lateral") return spotlightPaths
+    if (lateralIdentity.status !== "ready") return []
+    const pid = lateralIdentity.path.path_id
+    const fromSpotlight = spotlightPaths.find((p) => p.path_id === pid)
+    if (fromSpotlight) return [fromSpotlight]
+    const fromData = effective.data?.paths.find((p) => p.path_id === pid)
+    if (fromData) return pathsWithAuthoritativeHops([fromData])
+    return pathsWithAuthoritativeHops([lateralIdentity.path])
+  }, [detailsPanel, lateralIdentity, spotlightPaths, effective.data?.paths])
+
+  const mapSpotlightPathId =
+    detailsPanel === "lateral" && lateralIdentity.status === "ready"
+      ? lateralIdentity.path.path_id
+      : pinPathId
 
   const collapsed =
     effective.data != null &&
@@ -870,68 +888,26 @@ export function Zoom0FanInPanel({
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading hop topology for all paths to this jewel…
                 </div>
-              ) : detailsPanel === "lateral" ? (
+              ) : detailsPanel === "lateral" &&
                 lateralIdentity.status === "need_pin" ? (
-                  <div
-                    className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-900 dark:text-amber-200"
-                    data-testid="zoom0-lateral-map-need-pin"
-                  >
-                    Pin a path on the left to open the attacker lens — breach
-                    compute → compromised identity → this jewel, plus lateral
-                    blast.
-                  </div>
-                ) : lateralIdentity.status === "no_identity" ? (
-                  <div
-                    className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
-                    data-testid="zoom0-lateral-map-no-identity"
-                  >
-                    No identity on this path — lateral blast unavailable.
-                  </div>
-                ) : lateralMovesLoading && !lateralMoves ? (
-                  <div
-                    className="flex h-full min-h-[360px] items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
-                    data-testid="zoom0-lateral-map-loading"
-                  >
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading lateral moves for {lateralIdentity.identityName || lateralIdentity.identityId}…
-                  </div>
-                ) : (
-                  <div
-                    className={`h-full overflow-auto ${
-                      isExpanded ? "min-h-0" : "min-h-[480px]"
-                    }`}
-                  >
-                    <Zoom0LateralAttackMap
-                      path={lateralIdentity.path}
-                      jewelName={jewel.name}
-                      identityId={lateralIdentity.identityId}
-                      identityName={lateralIdentity.identityName}
-                      moves={lateralMoves}
-                      autoPinned={lateralIdentity.autoPinned}
-                      onFocusJewel={(target) => {
-                        const focusId = focusJewelIdFromMove({
-                          type: "additional_jewel",
-                          target,
-                          evidence: "CONFIGURED",
-                          risk: "UNKNOWN",
-                        })
-                        if (!focusId) return
-                        const params = new URLSearchParams(
-                          searchParams?.toString() ?? "",
-                        )
-                        params.set("jewel", focusId)
-                        params.delete("path")
-                        params.delete("exfil_path")
-                        params.delete("mode")
-                        if (!params.get("system") && systemName) {
-                          params.set("system", systemName)
-                        }
-                        router.push(`${pathname}?${params.toString()}`)
-                      }}
-                    />
-                  </div>
-                )
-              ) : detailsPanel !== "current_access" ? (
+                <div
+                  className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-900 dark:text-amber-200"
+                  data-testid="zoom0-lateral-map-need-pin"
+                >
+                  Pin a path on the left to open the attacker lens — same
+                  path-authority Attack Map as Current Access, plus lateral
+                  blast in the panel above.
+                </div>
+              ) : detailsPanel === "lateral" &&
+                lateralIdentity.status === "no_identity" ? (
+                <div
+                  className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                  data-testid="zoom0-lateral-map-no-identity"
+                >
+                  No identity on this path — lateral blast unavailable.
+                </div>
+              ) : detailsPanel !== "current_access" &&
+                detailsPanel !== "lateral" ? (
                 <div
                   className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-6 text-center text-[12px] text-muted-foreground"
                   data-testid="zoom0-lens-map-unavailable"
@@ -939,7 +915,7 @@ export function Zoom0FanInPanel({
                   Not yet authoritative — contracts pending. Switch to Current Access
                   for the path-authority Attack Map.
                 </div>
-              ) : spotlightPaths.length === 0 ? (
+              ) : mapSpotlightPaths.length === 0 ? (
                 <div
                   className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
                   data-testid="zoom0-path-details-unavailable"
@@ -953,14 +929,19 @@ export function Zoom0FanInPanel({
                   className={`h-full overflow-hidden ${
                     isExpanded ? "min-h-0" : "min-h-[480px]"
                   }`}
+                  data-testid={
+                    detailsPanel === "lateral"
+                      ? "zoom0-lateral-tfm"
+                      : "zoom0-current-access-tfm"
+                  }
                 >
                   <TrafficFlowMap
-                    key={`zoom0-tfm-${detailsPanel}-${pinPathId ?? "all"}-${spotlightPaths.map((p) => p.path_id).join(",")}`}
+                    key={`zoom0-tfm-${detailsPanel}-${mapSpotlightPathId ?? "all"}-${mapSpotlightPaths.map((p) => p.path_id).join(",")}`}
                     systemName={systemName}
-                    spotlightPaths={spotlightPaths}
-                    spotlightPathId={pinPathId}
-                    // Path-authority honesty (P0a/P0b): Current Access draws
-                    // only selected-path DTO hops/edges — no dep-map estate
+                    spotlightPaths={mapSpotlightPaths}
+                    spotlightPathId={mapSpotlightPathId}
+                    // Path-authority honesty (P0a/P0b): Current Access + Lateral
+                    // draw only selected-path DTO hops/edges — no dep-map estate
                     // merge, no same-VPC IGW invention, no unbound traffic.
                     pathAuthorityOnly
                     pathEligibleTotal={
@@ -974,10 +955,14 @@ export function Zoom0FanInPanel({
                     }}
                     titleOverride="Attack Map"
                     innerTitleOverride={
-                      pinPathId ? "Pinned path" : "Jewel fan-in"
+                      detailsPanel === "lateral"
+                        ? "Attacker lens · pinned path"
+                        : mapSpotlightPathId
+                          ? "Pinned path"
+                          : "Jewel fan-in"
                     }
                     innerSubtitleOverride={
-                      pinPathId
+                      detailsPanel === "lateral" || mapSpotlightPathId
                         ? (() => {
                             const card = effective.data.cardinality
                             return card
@@ -1000,9 +985,9 @@ export function Zoom0FanInPanel({
                           })()
                     }
                     pathBadgeOverride={
-                      pinPathId
+                      detailsPanel === "lateral" || mapSpotlightPathId
                         ? `1 pinned → ${jewel.name}`
-                        : `${spotlightPaths.length} shown → ${jewel.name}`
+                        : `${mapSpotlightPaths.length} shown → ${jewel.name}`
                     }
                     observedMode
                     canvasV2

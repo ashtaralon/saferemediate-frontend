@@ -1,5 +1,5 @@
 /**
- * Wiring guard — Lateral attacker lens uses pinned-path identity.
+ * Wiring guard — Lateral attacker lens uses pinned-path identity + TFM.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -18,7 +18,11 @@ describe("Zoom0 Lateral wiring", () => {
   it("resolves identity via resolveZoom0LateralIdentity — not risk_summary hub", () => {
     const src = read(PANEL)
     expect(src).toContain("resolveZoom0LateralIdentity")
-    expect(src).toContain("Zoom0LateralAttackMap")
+    expect(src).toContain("TrafficFlowMap")
+    expect(src).toContain("mapSpotlightPaths")
+    expect(src).toContain('data-testid={')
+    expect(src).toContain('"zoom0-lateral-tfm"')
+    expect(src).not.toContain("Zoom0LateralAttackMap")
     expect(src).not.toMatch(
       /lateralIdentityId\s*=\s*useMemo\(\s*\(\)\s*=>\s*\(\s*riskSummary/,
     )
@@ -41,9 +45,10 @@ describe("Zoom0 Lateral wiring", () => {
     expect(src).toMatch(/if \(detailsPanel === "lateral"\) return/)
   })
 
-  it("mounts attacker map test id", () => {
-    expect(read("components/attack-paths-v2/zoom0-lateral-attack-map.tsx")).toContain(
-      'data-testid="zoom0-lateral-attack-map"',
-    )
+  it("Lateral and Current Access share pathAuthorityOnly TrafficFlowMap", () => {
+    const src = read(PANEL)
+    expect(src).toContain("pathAuthorityOnly")
+    expect(src).toMatch(/detailsPanel === "lateral"/)
+    expect(src).toContain('"Attacker lens · pinned path"')
   })
 })
