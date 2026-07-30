@@ -14,6 +14,7 @@ import {
   pathHasObservedNetworkEvidence,
 } from "@/lib/attack-paths/build-path-authority-architecture";
 import { attachNetworkPosture } from "@/lib/attack-paths/attach-network-posture";
+import { resolveNetworkBannerState } from "@/lib/attack-paths/network-banner-state";
 import {
   countVpceLane,
   vpceCardChrome,
@@ -5926,94 +5927,86 @@ export function UnifiedArchitectureDiagram({
               architecture.egressGateways.length === 0
             )
           })() ? (() => {
-            /* Three claims of decreasing strength, so the banner never says
-               more than the data supports:
+            /* Which claim are we ENTITLED to make? Resolved in
+               lib/attack-paths/network-banner-state.ts, which is unit-tested —
+               the banner has overclaimed three times and each fix left a weaker
+               version of the same error, so the decision does not live inline.
 
-               1. workloadNetwork present — we queried the workload and it is
-                  not VPC-attached. Strongest claim; cites evidence.
-               2. absent but hop DTOs settled — we know THIS PATH records no
-                  network hop. Real finding, but scoped to the path: it is not
-                  proof about the workload, so the prose says so.
-               3. absent and hops un-hydrated — we know nothing. Not a finding;
-                  neutral styling, no ShieldOff alarm, no claim that defenses
-                  do not apply. This is the case that was previously rendered
-                  as an amber security finding on missing data. */
-            const verified = Boolean(architecture.workloadNetwork)
-            // Every view that has path DTOs now supplies a posture (the shared
-            // `architecture` memo derives it, not just the fan-in builder), so
-            // reaching this default means there are no path DTOs at all — an
-            // estate/dependency map with nothing selected. There the only signal
-            // available is the legacy empty-bucket inference, so it is kept
-            // rather than downgrading every estate map to "not verified".
-            //
-            // What that still does NOT cover: an estate map whose network data
-            // was never collected looks identical to one verified as having
-            // none. Closing that needs a collection-state signal on the
-            // dependency-map payload, which does not exist yet — it is a
-            // backend gap, not something this component can infer.
-            const settled = architecture.networkPosture?.settled ?? true
-            const unverified = !verified && !settled
+               The load-bearing distinction: a settled projection containing no
+               network checkpoint is an observation ABOUT THE PROJECTION. It does
+               not prove the workload is non-VPC, that network controls do not
+               apply, or that network coverage was complete. Only an explicit
+               server verdict earns the strong claim. */
+            const state = resolveNetworkBannerState(
+              architecture.workloadNetwork,
+              architecture.networkPosture,
+            )
+            const wn = architecture.workloadNetwork
             return (
             <div
-              data-network-banner={
-                verified ? "workload-verified" : settled ? "path-scoped" : "unverified"
-              }
-              data-network-banner-reason={architecture.networkPosture?.reason}
+              data-network-banner={state.kind}
+              data-network-banner-reason={state.reason}
+              data-network-banner-finding={state.isFinding ? "true" : "false"}
               className={`flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed ${
-                unverified
-                  ? "border-border bg-muted/20"
-                  : "border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5"
+                state.isFinding
+                  ? "border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5"
+                  : "border-border bg-muted/20"
               }`}
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  unverified ? "bg-muted" : "bg-amber-500/15"
+                  state.isFinding ? "bg-amber-500/15" : "bg-muted"
                 }`}>
-                  {unverified ? (
-                    <HelpCircle className="w-6 h-6 text-muted-foreground" />
-                  ) : (
+                  {state.isFinding ? (
                     <ShieldOff className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                  ) : (
+                    <HelpCircle className="w-6 h-6 text-muted-foreground" />
                   )}
                 </div>
                 <div className={`text-lg font-bold uppercase tracking-wider ${
-                  unverified
-                    ? "text-muted-foreground"
-                    : "text-amber-600 dark:text-amber-400"
+                  state.isFinding
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground"
                 }`}>
-                  {verified
+                  {state.kind === "verified-non-vpc"
                     ? "Non-VPC Workload"
-                    : settled
-                      ? "No Network Hops On This Path"
+                    : state.kind === "no-checkpoints-represented"
+                      ? "No Network Checkpoints Represented"
                       : "Network Posture Not Verified"}
                 </div>
               </div>
               <div className="text-foreground text-base font-medium text-center mb-2">
-                {unverified
-                  ? "We can't tell whether network controls apply."
-                  : "IAM is the only gate on this path."}
+                {/* Never "IAM is the only gate": authorization is not just IAM —
+                    resource policy, KMS key policy and IAM conditions gate the
+                    same reach. Naming only IAM understates the control surface. */}
+                {state.kind === "verified-non-vpc"
+                  ? "Network controls do not apply on this path."
+                  : state.kind === "no-checkpoints-represented"
+                    ? "No network checkpoint appears on this path."
+                    : "We can't tell whether network controls apply."}
               </div>
               <div className="text-muted-foreground text-sm text-center max-w-md leading-relaxed">
-                {verified
-                  ? "This workload is not VPC-attached. It reaches AWS services via the public API endpoint, so VPC, subnet, Security Group and NACL defenses do not apply. Compromising the IAM role grants its full permissions on the resources below."
-                  : settled
-                    ? "This path records no VPC, subnet, Security Group or NACL hop, so IAM is the only gate on it. We have not separately queried the workload's own network attachment, so this describes the path rather than the workload."
+                {state.kind === "verified-non-vpc"
+                  ? "This workload is not VPC-attached, so VPC, subnet, Security Group and NACL defenses do not apply. Authorization is the remaining control surface — IAM policy, resource policy, KMS key policy and any conditions on them."
+                  : state.kind === "no-checkpoints-represented"
+                    ? "This loaded path contains no VPC, subnet, route, Security Group or NACL checkpoint. Network applicability and execution location have not been independently verified."
                     : "Path detail hasn't loaded, so the network lane being empty proves nothing either way. This is not a finding — reopen the path once detail settles."}
               </div>
-              {architecture.workloadNetwork ? (
+              {state.kind === "verified-non-vpc" && wn ? (
                 <div className="mt-3 text-amber-700 dark:text-amber-300/80 text-[11px] text-center max-w-md font-mono">
-                  Evidence: {architecture.workloadNetwork.evidence}
-                  {architecture.workloadNetwork.workload_count_in_sample > 1 && (
-                    <> · {architecture.workloadNetwork.workload_count_queried}/{architecture.workloadNetwork.workload_count_in_sample} workloads queried</>
+                  Evidence: {wn.evidence}
+                  {(wn.workload_count_in_sample ?? 0) > 1 && (
+                    <> · {wn.workload_count_queried}/{wn.workload_count_in_sample} workloads queried</>
                   )}
                 </div>
-              ) : architecture.networkPosture ? (
+              ) : (
                 /* Say which state produced this banner. An operator seeing
-                   "not verified" needs to know whether to wait or to chase a
-                   failed fetch. */
+                   "not verified" needs to know whether to wait, chase a failed
+                   fetch, or ask why the server withheld a verdict. */
                 <div className="mt-3 text-muted-foreground text-[11px] text-center max-w-md font-mono">
-                  Hop detail: {architecture.networkPosture.reason}
+                  Hop detail: {state.reason}
                 </div>
-              ) : null}
+              )}
             </div>
             )
           })() : (

@@ -19,6 +19,17 @@ import { describe, expect, it } from "vitest"
 const ROOT = join(__dirname, "..", "..")
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8")
 
+/** Source with comments removed.
+ *
+ * An assertion about user-visible COPY must not be satisfied — or broken — by an
+ * explanatory comment. My first version of the two claim guards below failed
+ * against my own comment saying `Never "IAM is the only gate"`, which is the
+ * same trap as a test matching a docstring instead of the code it describes. */
+const readCode = (p: string) =>
+  read(p)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+
 const LANE_MAP = "components/attack-paths-v2/attack-path-lane-flow-map.tsx"
 const TFM = "components/dependency-map/traffic-flow-map.tsx"
 
@@ -52,10 +63,39 @@ describe("network-posture wiring", () => {
     expect(src).toContain("Hop detail:")
   })
 
-  it("the unverified branch is not styled as a finding", () => {
+  it("only the verified state is styled as a finding", () => {
     const src = read(TFM)
     expect(src).toContain("Network Posture Not Verified")
-    // ShieldOff is the amber alarm icon; the unverified state must use HelpCircle.
-    expect(src).toMatch(/unverified \?\s*\(\s*<HelpCircle/)
+    expect(src).toContain("No Network Checkpoints Represented")
+    // ShieldOff is the amber alarm; it must be gated on isFinding, which the
+    // resolver sets ONLY for verified-non-vpc. An observation about our own
+    // projection is not a security finding.
+    expect(src).toMatch(/state\.isFinding \?\s*\(\s*<ShieldOff/)
+    expect(src).toMatch(/state\.isFinding\s*\?\s*"border-amber/)
+  })
+
+  it("the banner never claims IAM is the only gate", () => {
+    // Wrong even where network genuinely does not apply: resource policy, KMS
+    // key policy and IAM conditions gate the same reach. Naming only IAM
+    // understates the control surface. Shipped in #467; removed here.
+    expect(readCode(TFM)).not.toContain("IAM is the only gate")
+  })
+
+  it("the banner never asserts network defenses do not apply from absence", () => {
+    // The original #465 defect. The only permitted form of this claim is the
+    // verified-non-vpc branch, which requires an explicit server verdict.
+    const code = readCode(TFM)
+    // Exactly two in rendered copy: the verified headline and its evidence-cited
+    // prose. Both live behind the verified-non-vpc branch.
+    expect(code.split("do not apply").length - 1).toBe(2)
+    expect(code).toContain("resolveNetworkBannerState")
+  })
+
+  it("the state decision is delegated, not inlined", () => {
+    // It has overclaimed three times; the decision belongs in a tested module.
+    const src = read(TFM)
+    expect(src).toContain('from "@/lib/attack-paths/network-banner-state"')
+    expect(src).toMatch(/data-network-banner=\{state\.kind\}/)
+    expect(src).toMatch(/data-network-banner-reason=\{state\.reason\}/)
   })
 })
