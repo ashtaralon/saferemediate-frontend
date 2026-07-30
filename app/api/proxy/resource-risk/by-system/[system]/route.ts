@@ -42,10 +42,10 @@ export async function GET(
   }
 
   const controller = new AbortController()
-  // Cold Render + Neo4j flap regularly exceed 30s; abort then surfaced as
-  // "Couldn't load findings: Backend request timed out" on Resource Risk
-  // while the backend was still finishing. Match maxDuration (60s).
-  const timeoutId = setTimeout(() => controller.abort(), 55_000)
+  // Indexed HAS_RISK read is <1s warm / a few seconds cold. A 55s abort made
+  // Trust Exposure feel hung while Render was already 502ing (~40s). Fail
+  // fast so the UI can retry or paint stale cache.
+  const timeoutId = setTimeout(() => controller.abort(), 12_000)
 
   try {
     const res = await fetch(
