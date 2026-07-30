@@ -1,77 +1,94 @@
 /**
- * Compose a path's feasibility from its checkpoints — never assert reach.
+ * TEMPORARY frontend composer. DELETE when the backend returns a composed
+ * verdict — do not keep it as a fallback.
  *
- * The problem this fixes (Alon, 2026-07-30, from the live DTO): the map drew a
- * three-node chain that LOOKS like a completed attack path, while the same DTO
- * said coverage PARTIAL, route_verdict EXECUTION_LOCATION_UNBOUND, route
- * coverage UNKNOWN, no path-bound network observation, live_traffic_promoted
- * false, and a data edge that is configured rather than observed.
+ * A fallback that composes judgment locally is exactly how the renderer stops
+ * being literal. When the server ships `path_state` / `activity_state` /
+ * `reason_codes` plus per-checkpoint evidence, coverage, timestamp and
+ * generation identity, this module goes away; it does not become a default.
  *
- * It also contained a direct contradiction:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Why it was rewritten (Alon, 2026-07-30)
  *
- *     route_gate    = OPEN_CONFIG                  (coarse)
- *     route_verdict = EXECUTION_LOCATION_UNBOUND   (specific)
+ * The first version made observed traffic a PRECONDITION for reachability: the
+ * network checkpoint only reached VERIFIED with a path-bound observation, and
+ * REACHABLE_NOW required every checkpoint VERIFIED. So a configured, provably
+ * usable path could not be called reachable until traffic happened to be seen.
  *
- * THE SPECIFIC VERDICT WINS. A coarse "config is open" must never override a
- * detailed verdict saying execution location is unbound — that is the same
- * fail-open shape as reading an empty array as "no network controls": a weaker
- * signal promoting a stronger one.
+ * That inverts the security question. An attacker does not need us to have
+ * watched them. "We observed it happen" and "an attacker can do it" are
+ * different claims on ORTHOGONAL axes, and collapsing them into one meant the
+ * single most important state — reachable but never exercised, which is the gap
+ * this product exists to find — could not be expressed at all.
  *
- * And "OPEN_CONFIG" on its own is not reachability. Configured-open means the
- * configuration does not forbid it; it does not establish that anything can
- * execute there. So config alone yields CONFIGURED, never VERIFIED.
+ *     path_state      REACHABLE | BLOCKED | UNVERIFIED | OUT_OF_SCOPE
+ *     activity_state  OBSERVED  | NOT_OBSERVED | UNKNOWN
  *
- * Vocabulary: REACHABLE_NOW is earned only when every required checkpoint
- * composes. Until then this is a CANDIDATE path — a configured access chain.
+ * Rules this module must keep:
+ *   - Observation NEVER upgrades feasibility. Traffic evidence controls
+ *     activity_state only, and is not an input to path_state.
+ *   - REACHABLE requires an explicit server-backed PASS on every required
+ *     checkpoint. Configured-but-not-composed is UNVERIFIED, not a pass.
+ *   - BLOCKED requires an explicit server-backed blocker.
+ *   - Findings / amber styling stay SERVER-OWNED. This module never derives
+ *     them.
+ *   - No "REACHABLE_NOW": "now" implies freshness guarantees the frontend does
+ *     not own.
+ *
+ * Consequence, and it is the correct one: with no composed authorization
+ * evaluator today (identity ∩ boundary ∩ SCP ∩ session ∩ resource ∩ KMS ∩
+ * conditions), the authorization checkpoint can never be a server-backed pass,
+ * so most paths honestly remain UNVERIFIED even where a configured route exists.
  */
 
-export type CheckpointState =
-  /** Positively established from observation or an authoritative verdict. */
-  | "VERIFIED"
-  /** Configuration permits it; nothing proves it happens or can happen. */
-  | "CONFIGURED"
-  /** We do not know. Never rendered as a finding. */
+export type PathState =
+  /** Every required checkpoint returned an explicit server-backed pass. */
+  | "REACHABLE"
+  /** A server-backed control positively stops this path. */
+  | "BLOCKED"
+  /** Something required was not evaluated, not covered, or not composed. */
   | "UNVERIFIED"
-  /** Positively established as prevented. */
-  | "BLOCKED"
+  /** Explicitly outside the assessed scope (platform / service-linked). */
+  | "OUT_OF_SCOPE"
 
-export type PathFeasibility =
-  /** Every checkpoint composed. The only state entitled to assert reach. */
-  | "REACHABLE_NOW"
-  /** A configured access chain whose execution/observation is unproven. */
-  | "CANDIDATE"
-  /** Some checkpoint positively prevents it. */
-  | "BLOCKED"
+export type ActivityState =
+  /** Traffic bound to THIS path was observed. */
+  | "OBSERVED"
+  /** Observation coverage exists for this path and saw nothing. */
+  | "NOT_OBSERVED"
+  /** No observation coverage — absence proves nothing. */
+  | "UNKNOWN"
+
+/**
+ * Per-checkpoint feasibility contribution. There is deliberately no
+ * "CONFIGURED" state: configured-without-composition cannot contribute to
+ * REACHABLE, so it is UNVERIFIED, and the nuance lives in `detail`.
+ */
+export type CheckpointState = "PASS" | "BLOCKED" | "UNVERIFIED"
 
 export interface PathCheckpoint {
-  key: "execution_network" | "credentials_authorization" | "data_access"
+  key: "execution_network" | "authorization" | "data_access"
   label: string
   state: CheckpointState
   detail: string
 }
 
 export interface PathVerdict {
-  feasibility: PathFeasibility
-  /** Dominant line for the operator, e.g. "UNVERIFIED · EXECUTION LOCATION UNBOUND". */
+  pathState: PathState
+  activityState: ActivityState
+  /** Dominant line, e.g. "UNVERIFIED · EXECUTION LOCATION UNBOUND". */
   headline: string
   reason: string
-  observedTrafficBound: boolean
   checkpoints: PathCheckpoint[]
-  /** Amber-finding styling. Only a composed REACHABLE_NOW earns it. */
+  /**
+   * Amber-finding styling. SERVER-OWNED — mirrored from input, never derived
+   * here. The frontend does not decide what is a finding.
+   */
   isFinding: boolean
 }
 
-/** route_verdict tokens that mean "we could not bind execution/route". */
-const UNBOUND_VERDICTS = new Set([
-  "EXECUTION_LOCATION_UNBOUND",
-  "UNKNOWN",
-  "NOT_READY",
-  "UNRESOLVED",
-  "NO_WINNING_ROUTE",
-])
-
 /** route_verdict tokens that positively establish a winning route. */
-const BOUND_VERDICTS = new Set([
+const ROUTE_PASS = new Set([
   "ROUTE_BOUND",
   "WINNING_ROUTE",
   "REACHABLE",
@@ -79,21 +96,33 @@ const BOUND_VERDICTS = new Set([
 ])
 
 /** route_verdict tokens that positively establish prevention. */
-const BLOCKED_VERDICTS = new Set(["BLOCKED", "NO_ROUTE", "UNREACHABLE"])
+const ROUTE_BLOCKED = new Set(["BLOCKED", "NO_ROUTE", "UNREACHABLE"])
 
 export interface PathVerdictInput {
-  /** Coarse gate. Deliberately LOWER precedence than routeVerdict. */
+  /** Coarse gate. Deliberately LOWER precedence than routeVerdict, and can
+   *  never on its own produce a PASS. */
   routeGate?: string | null
   /** Specific verdict token — wins over routeGate. */
   routeVerdict?: string | null
-  /** Coverage envelope, e.g. PARTIAL / READY. */
+  /** Coverage envelope. PARTIAL / NOT_READY forces UNVERIFIED. */
   coverageState?: string | null
-  /** True only when a network observation is bound to THIS path. */
+  /** Server-composed authorization result. Absent today; until the evaluator
+   *  exists this stays undefined and authorization is UNVERIFIED. */
+  authorizationComposed?: "PASS" | "BLOCKED" | null
+  /** Server-composed data-plane authorization result. Same. */
+  dataAccessComposed?: "PASS" | "BLOCKED" | null
+  /** Explicitly out of assessed scope. */
+  outOfScope?: boolean
+
+  // ── activity axis ONLY. Never consulted for pathState. ─────────────────
+  /** Traffic bound to this path was observed. */
   observedTrafficBound?: boolean
-  /** True when role assumption was actually observed, not just configured. */
-  roleAssumptionObserved?: boolean
-  /** True when the data-plane access was observed on this path. */
-  dataAccessObserved?: boolean
+  /** Whether observation coverage exists at all. Without it, "not observed"
+   *  is indistinguishable from "never looked", so activity is UNKNOWN. */
+  observationCoverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
+
+  /** Server-declared finding. Mirrored, never derived. */
+  serverFinding?: boolean
 }
 
 function normalize(v: string | null | undefined): string {
@@ -113,39 +142,38 @@ export function extractRouteVerdictToken(
   return null
 }
 
+/** Activity is derived from traffic evidence ALONE. */
+export function deriveActivityState(input: PathVerdictInput): ActivityState {
+  if (input.observedTrafficBound) return "OBSERVED"
+  // Absence is only meaningful when we know coverage existed.
+  if (input.observationCoverage === "COLLECTED") return "NOT_OBSERVED"
+  return "UNKNOWN"
+}
+
 export function composePathVerdict(input: PathVerdictInput): PathVerdict {
   const gate = normalize(input.routeGate)
   const verdict = normalize(input.routeVerdict)
   const coverage = normalize(input.coverageState)
-  const trafficBound = Boolean(input.observedTrafficBound)
 
   // ── execution / network ────────────────────────────────────────────────
-  // Precedence: the specific verdict decides. routeGate is consulted ONLY
-  // when there is no verdict, and even then can never reach VERIFIED.
+  // Precedence: the specific verdict decides. routeGate is consulted only when
+  // there is no verdict, and can never produce a PASS — configured-open means
+  // the configuration does not forbid it, not that anything executes there.
   let network: CheckpointState
   let networkDetail: string
-  if (verdict && BLOCKED_VERDICTS.has(verdict)) {
+  if (verdict && ROUTE_BLOCKED.has(verdict)) {
     network = "BLOCKED"
     networkDetail = `route verdict ${verdict}`
-  } else if (verdict && UNBOUND_VERDICTS.has(verdict)) {
+  } else if (verdict && ROUTE_PASS.has(verdict)) {
+    network = "PASS"
+    networkDetail = `route verdict ${verdict}`
+  } else if (verdict) {
     network = "UNVERIFIED"
     networkDetail =
       gate && gate !== verdict
         ? `route verdict ${verdict} (overrides coarse gate ${gate})`
         : `route verdict ${verdict}`
-  } else if (verdict && BOUND_VERDICTS.has(verdict)) {
-    // An authoritative winning route. Still requires a bound observation to
-    // become VERIFIED — a route that could carry traffic is not traffic.
-    network = trafficBound ? "VERIFIED" : "CONFIGURED"
-    networkDetail = trafficBound
-      ? `route verdict ${verdict} with path-bound observation`
-      : `route verdict ${verdict}, no observation bound to this path`
-  } else if (verdict) {
-    // Unrecognised token: fail closed rather than guess which set it is in.
-    network = "UNVERIFIED"
-    networkDetail = `unrecognised route verdict ${verdict}`
   } else if (gate) {
-    // No verdict at all. Configured-open is not reachability.
     network = "UNVERIFIED"
     networkDetail = `no route verdict; coarse gate ${gate} does not establish execution location`
   } else {
@@ -153,15 +181,22 @@ export function composePathVerdict(input: PathVerdictInput): PathVerdict {
     networkDetail = "no route verdict and no gate"
   }
 
-  // ── credentials / authorization ────────────────────────────────────────
-  const credentials: CheckpointState = input.roleAssumptionObserved
-    ? "VERIFIED"
-    : "CONFIGURED"
+  // ── authorization ──────────────────────────────────────────────────────
+  // Requires the composed stack: identity ∩ boundary ∩ SCP ∩ session ∩
+  // resource ∩ KMS ∩ conditions. No evaluator today, so this is UNVERIFIED.
+  const authorization: CheckpointState =
+    input.authorizationComposed === "PASS"
+      ? "PASS"
+      : input.authorizationComposed === "BLOCKED"
+        ? "BLOCKED"
+        : "UNVERIFIED"
 
-  // ── data access ────────────────────────────────────────────────────────
-  const dataAccess: CheckpointState = input.dataAccessObserved
-    ? "VERIFIED"
-    : "CONFIGURED"
+  const dataAccess: CheckpointState =
+    input.dataAccessComposed === "PASS"
+      ? "PASS"
+      : input.dataAccessComposed === "BLOCKED"
+        ? "BLOCKED"
+        : "UNVERIFIED"
 
   const checkpoints: PathCheckpoint[] = [
     {
@@ -171,70 +206,65 @@ export function composePathVerdict(input: PathVerdictInput): PathVerdict {
       detail: networkDetail,
     },
     {
-      key: "credentials_authorization",
+      key: "authorization",
       label: "Credentials and authorization",
-      state: credentials,
-      detail: input.roleAssumptionObserved
-        ? "role assumption observed"
-        : "configured execution role; assumption not observed",
+      state: authorization,
+      detail:
+        authorization === "UNVERIFIED"
+          ? "configured grant present; identity ∩ boundary ∩ SCP ∩ session ∩ resource ∩ KMS ∩ conditions not composed"
+          : `server-composed authorization ${authorization}`,
     },
     {
       key: "data_access",
       label: "Data access",
       state: dataAccess,
-      detail: input.dataAccessObserved
-        ? "data-plane access observed on this path"
-        : "configured authorization; not observed on this path",
+      detail:
+        dataAccess === "UNVERIFIED"
+          ? "configured authorization; data-plane decision not composed"
+          : `server-composed data access ${dataAccess}`,
     },
   ]
 
-  // ── compose ────────────────────────────────────────────────────────────
-  if (checkpoints.some((c) => c.state === "BLOCKED")) {
-    return {
-      feasibility: "BLOCKED",
-      headline: "BLOCKED",
-      reason:
-        checkpoints.find((c) => c.state === "BLOCKED")?.detail ??
-        "a checkpoint prevents this path",
-      observedTrafficBound: trafficBound,
-      checkpoints,
-      isFinding: false,
-    }
+  const activityState = deriveActivityState(input)
+
+  // ── path state. Observation is NOT an input here. ──────────────────────
+  let pathState: PathState
+  let reason: string
+  if (input.outOfScope) {
+    pathState = "OUT_OF_SCOPE"
+    reason = "explicitly outside the assessed scope"
+  } else if (checkpoints.some((c) => c.state === "BLOCKED")) {
+    pathState = "BLOCKED"
+    reason =
+      checkpoints.find((c) => c.state === "BLOCKED")?.detail ??
+      "a server-backed control stops this path"
+  } else if (coverage === "PARTIAL" || coverage === "NOT_READY") {
+    pathState = "UNVERIFIED"
+    reason = `coverage ${coverage}`
+  } else if (checkpoints.every((c) => c.state === "PASS")) {
+    pathState = "REACHABLE"
+    reason = "every required checkpoint returned a server-backed pass"
+  } else {
+    pathState = "UNVERIFIED"
+    reason =
+      checkpoints.find((c) => c.state === "UNVERIFIED")?.detail ??
+      "a required checkpoint was not evaluated"
   }
 
-  const allVerified = checkpoints.every((c) => c.state === "VERIFIED")
-  if (allVerified && coverage !== "PARTIAL" && coverage !== "NOT_READY") {
-    return {
-      feasibility: "REACHABLE_NOW",
-      headline: "REACHABLE NOW",
-      reason: "every checkpoint composed from observed evidence",
-      observedTrafficBound: trafficBound,
-      checkpoints,
-      isFinding: true,
-    }
-  }
-
-  // CANDIDATE. Lead with the weakest checkpoint — that is what the operator
-  // has to resolve before this becomes a real reachability claim.
-  const weakest =
-    checkpoints.find((c) => c.state === "UNVERIFIED") ??
-    checkpoints.find((c) => c.state === "CONFIGURED")
   const headline =
-    network === "UNVERIFIED" && verdict && UNBOUND_VERDICTS.has(verdict)
+    pathState === "UNVERIFIED" && verdict && !ROUTE_PASS.has(verdict)
       ? `UNVERIFIED · ${verdict.replace(/_/g, " ")}`
-      : network === "UNVERIFIED"
-        ? "UNVERIFIED · EXECUTION LOCATION UNBOUND"
-        : "CANDIDATE · CONFIGURED ACCESS CHAIN"
+      : pathState === "UNVERIFIED"
+        ? "UNVERIFIED"
+        : pathState
 
   return {
-    feasibility: "CANDIDATE",
+    pathState,
+    activityState,
     headline,
-    reason:
-      coverage === "PARTIAL"
-        ? `coverage PARTIAL — ${weakest?.detail ?? "checkpoints incomplete"}`
-        : (weakest?.detail ?? "checkpoints incomplete"),
-    observedTrafficBound: trafficBound,
+    reason,
     checkpoints,
-    isFinding: false,
+    // Mirrored from the server. Never derived — see the module docstring.
+    isFinding: Boolean(input.serverFinding),
   }
 }

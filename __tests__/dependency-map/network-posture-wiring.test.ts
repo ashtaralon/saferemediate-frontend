@@ -107,7 +107,9 @@ describe("network-posture wiring", () => {
     const src = read(FAN_IN)
     expect(src).toContain("composePathVerdict")
     expect(src).toMatch(/data-testid="zoom0-path-verdict"/)
-    expect(src).toMatch(/data-path-feasibility=\{pathVerdict\.feasibility\}/)
+    // Renamed in the two-axis split: feasibility -> pathState, plus a second
+    // orthogonal activityState axis (see path-state-axes.test.ts).
+    expect(src).toMatch(/data-path-state=\{pathVerdict\.pathState\}/)
   })
 
   it("the specific route verdict is passed, not just the coarse gate", () => {
