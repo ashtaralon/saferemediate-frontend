@@ -32,6 +32,7 @@ const readCode = (p: string) =>
 
 const LANE_MAP = "components/attack-paths-v2/attack-path-lane-flow-map.tsx"
 const TFM = "components/dependency-map/traffic-flow-map.tsx"
+const FAN_IN = "components/attack-paths-v2/zoom0-fan-in-panel.tsx"
 
 describe("network-posture wiring", () => {
   it("the attacker map passes a posture-bearing architecture, not the raw one", () => {
@@ -97,5 +98,40 @@ describe("network-posture wiring", () => {
     expect(src).toContain('from "@/lib/attack-paths/network-banner-state"')
     expect(src).toMatch(/data-network-banner=\{state\.kind\}/)
     expect(src).toMatch(/data-network-banner-reason=\{state\.reason\}/)
+  })
+
+  // ── composed feasibility verdict (the "configured chain ≠ attack path" fix) ──
+
+  it("the fan-in composes and RENDERS a feasibility verdict", () => {
+    // A tested composer nothing calls is the #466 mistake. Assert the wiring.
+    const src = read(FAN_IN)
+    expect(src).toContain("composePathVerdict")
+    expect(src).toMatch(/data-testid="zoom0-path-verdict"/)
+    expect(src).toMatch(/data-path-feasibility=\{pathVerdict\.feasibility\}/)
+  })
+
+  it("the specific route verdict is passed, not just the coarse gate", () => {
+    // route_gate=OPEN_CONFIG must not be the only routing signal supplied.
+    const code = readCode(FAN_IN)
+    expect(code).toContain("extractRouteVerdictToken(verdictPath.route_verdict)")
+    expect(code).toContain("routeGate:")
+  })
+
+  it("all three checkpoints reach the DOM with their state", () => {
+    const src = read(FAN_IN)
+    expect(src).toMatch(/data-checkpoint=\{c\.key\}/)
+    expect(src).toMatch(/data-checkpoint-state=\{c\.state\}/)
+  })
+
+  it("the verdict is only amber when the composer says it is a finding", () => {
+    const code = readCode(FAN_IN)
+    expect(code).toMatch(/pathVerdict\.isFinding\s*\?\s*\n?\s*"border-amber/)
+  })
+
+  it("an uncomposed path is never called an attack path", () => {
+    // Vocabulary discipline: candidate / configured access chain until composed.
+    const code = readCode(FAN_IN)
+    expect(code).toContain("Candidate path")
+    expect(code).toContain("not proven reachable")
   })
 })
