@@ -3879,6 +3879,7 @@ function AnimatedTrafficLine({
       <path
         d={pathD}
         fill="none"
+        markerEnd={renderMode === 'lines' ? `url(#${ARROW_MARKER_ID})` : undefined}
         stroke={pathDominantLineColor ?? v2StrokeOverride ?? lineColor}
         strokeWidth={
           pathDominantStrokeWidth
@@ -4118,6 +4119,10 @@ function AnimatedTrafficLine({
 // fired the useEffect with the new Set as a dep, which called setLines,
 // which caused a re-render — "Maximum update depth exceeded" loop. Module
 // scope constants share identity across renders so the deps don't churn.
+/** Single arrowhead def. Coloured from each path's own stroke via
+ *  fill="context-stroke", so one def serves every edge colour. */
+const ARROW_MARKER_ID = "tfm-edge-arrow";
+
 const EMPTY_EDGE_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_NODE_SET: ReadonlySet<string> = new Set<string>();
 
@@ -4900,6 +4905,28 @@ export function ConnectionLinesSVG({
         style={{ zIndex: 1 }}
         data-connection-layer="lines"
       >
+        {/* Direction. Until now the map drew UNDIRECTED lines — no arrowhead
+            existed anywhere in this component — so role->S3 and S3->role looked
+            identical and a diagonal edge read as running backwards. An attacker
+            story has to show progression.
+
+            fill="context-stroke" takes the head's colour from the path's own
+            stroke, so one def serves every edge colour (plane, attack-path red,
+            lateral grey). markerUnits="strokeWidth" keeps it proportional. */}
+        <defs>
+          <marker
+            id={ARROW_MARKER_ID}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            markerUnits="strokeWidth"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="context-stroke" />
+          </marker>
+        </defs>
         {renderLines('lines')}
       </svg>
       <svg
@@ -5947,10 +5974,10 @@ export function UnifiedArchitectureDiagram({
               data-network-banner={state.kind}
               data-network-banner-reason={state.reason}
               data-network-banner-finding={state.isFinding ? "true" : "false"}
-              className={`flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed ${
+              className={`flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed bg-card ${
                 state.isFinding
-                  ? "border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5"
-                  : "border-border bg-muted/20"
+                  ? "border-amber-500/40 bg-gradient-to-b from-amber-500/10 to-orange-500/10"
+                  : "border-border"
               }`}
             >
               <div className="flex items-center gap-3 mb-3">
