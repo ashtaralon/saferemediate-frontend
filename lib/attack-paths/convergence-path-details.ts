@@ -290,6 +290,14 @@ export function mergeSummaryWithPathDetails(
       // VPC-attachment SSOT for Attack Map honesty banner (#469 / BE #632).
       // Without this, verified-non-vpc never reaches path-authority TFM.
       workload_network: p.workload_network ?? null,
+      // A1/O1 from (:AttackPath) — must survive summary→merge or Zoom0
+      // hardcodes UNVERIFIED over real graph state.
+      authz_decision: p.authz_decision ?? null,
+      authz_technique_id: p.authz_technique_id ?? null,
+      authz_verdict: p.authz_verdict ?? null,
+      live_traffic_promoted: Boolean(p.live_traffic_promoted),
+      path_bound_observations: p.path_bound_observations ?? [],
+      feasibility: p.feasibility ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]
@@ -331,6 +339,16 @@ export function mergeSummaryWithPathDetails(
       route_verdict: detail.route_verdict ?? base.route_verdict ?? null,
       workload_network:
         detail.workload_network ?? base.workload_network ?? null,
+      authz_decision: detail.authz_decision ?? base.authz_decision ?? null,
+      authz_technique_id:
+        detail.authz_technique_id ?? base.authz_technique_id ?? null,
+      authz_verdict: detail.authz_verdict ?? base.authz_verdict ?? null,
+      live_traffic_promoted: Boolean(
+        detail.live_traffic_promoted ?? base.live_traffic_promoted,
+      ),
+      path_bound_observations:
+        detail.path_bound_observations ?? base.path_bound_observations ?? [],
+      feasibility: detail.feasibility ?? base.feasibility ?? null,
     }
   })
 

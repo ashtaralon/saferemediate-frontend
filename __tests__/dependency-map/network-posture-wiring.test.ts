@@ -123,6 +123,16 @@ describe("network-posture wiring", () => {
     )
   })
 
+  it("never hardcodes authorizationComposed/dataAccessComposed null", () => {
+    // Graph gates + A1 must drive credentials/data — inventing UNVERIFIED
+    // over AttackPath identity_gate/data_plane_gate is forbidden.
+    const code = readCode(FAN_IN)
+    expect(code).toContain("authzDecision")
+    expect(code).toContain("dataPlaneGate")
+    expect(code).not.toMatch(/authorizationComposed:\s*null/)
+    expect(code).not.toMatch(/dataAccessComposed:\s*null/)
+  })
+
   it("the specific route verdict is passed, not just the coarse gate", () => {
     // route_gate=OPEN_CONFIG must not be the only routing signal supplied.
     const code = readCode(FAN_IN)

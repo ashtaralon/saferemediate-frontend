@@ -51,6 +51,7 @@ import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-
 import {
   composePathVerdict,
   extractRouteVerdictToken,
+  pathVerdictFromServerFeasibility,
 } from "@/lib/attack-paths/path-feasibility-verdict"
 import { pathHasObservedNetworkEvidence } from "@/lib/attack-paths/build-path-authority-architecture"
 import {
@@ -312,35 +313,34 @@ export function Zoom0FanInPanel({
 
   const pathVerdict = useMemo(() => {
     if (!verdictPath) return null
+    // Enterprise: SERVE feasibility is authoritative when present.
+    const server = pathVerdictFromServerFeasibility(
+      verdictPath.feasibility as Record<string, unknown> | null | undefined,
+    )
+    if (server) return server
+
+    // Deploy-skew fallback only — delete when every SERVE path ships
+    // feasibility. Still graph-field driven; never hardcode null checkpoints.
     const identityGate = verdictPath.identity_gate ?? null
+    const dataPlaneGate = verdictPath.data_plane_gate ?? null
+    const authzDecision = verdictPath.authz_decision ?? null
+    const pathBound = verdictPath.path_bound_observations ?? []
+    const livePromoted = Boolean(verdictPath.live_traffic_promoted)
     return composePathVerdict({
       routeGate: verdictPath.route_gate ?? null,
-      // The SPECIFIC verdict wins over route_gate. Shipped reversed: an
-      // OPEN_CONFIG gate read as reachable while the verdict said
-      // EXECUTION_LOCATION_UNBOUND.
       routeVerdict: extractRouteVerdictToken(verdictPath.route_verdict),
-      // Winning gateway lives on the envelope — needed for structural-open
-      // (OPEN_CONFIG + gateway → network OPEN, not PASS / not UNKNOWN).
       routeVerdictEnvelope: verdictPath.route_verdict ?? null,
       coverageState: zoom0ServeCoverage(effective.data).coverage_state,
-      // ── activity axis ONLY. Never an input to path_state. ───────────
-      observedTrafficBound: pathHasObservedNetworkEvidence(
-        [verdictPath],
-        verdictPath.path_id,
-      ),
-      // Path-bound coverage only. Estate identity_gate OPEN_OBSERVED is
-      // grain-blind (role used somewhere) — wire it as estateIdentityObserved
-      // so Activity UNKNOWN tells the truth, never as observationCoverage.
-      observationCoverage: null,
+      observedTrafficBound:
+        livePromoted ||
+        pathHasObservedNetworkEvidence([verdictPath], verdictPath.path_id),
+      observationCoverage:
+        pathBound.length > 0 || livePromoted ? "COLLECTED" : null,
       identityGate,
+      dataPlaneGate,
+      authzDecision,
       estateIdentityObserved:
         (identityGate || "").trim().toUpperCase() === "OPEN_OBSERVED",
-      // ── feasibility: server-composed results only. Neither exists yet,
-      // so authorization and data access stay UNVERIFIED and most paths are
-      // honestly UNVERIFIED rather than locally promoted. ───────────────
-      authorizationComposed: null,
-      dataAccessComposed: null,
-      // Findings are server-owned; the frontend never derives one.
       serverFinding: false,
     })
   }, [verdictPath, effective.data])

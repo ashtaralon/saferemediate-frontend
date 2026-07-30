@@ -10,11 +10,13 @@
  */
 import { describe, expect, it } from "vitest"
 import {
+  checkpointFromAttackPathGate,
   composePathVerdict,
   deriveActivityDetail,
   deriveActivityState,
   extractRouteVerdictToken,
   isStructuralOpenRoute,
+  pathVerdictFromServerFeasibility,
   routeVerdictHasWinningGateway,
   type PathVerdictInput,
 } from "@/lib/attack-paths/path-feasibility-verdict"
@@ -128,14 +130,23 @@ describe("REACHABLE requires explicit server-backed passes", () => {
     })
   }
 
-  it("today's real shape stays UNVERIFIED even with a configured route", () => {
-    // No composed authorization evaluator exists, so a configured route is not
-    // enough. Honestly unverified beats locally manufactured reachability.
-    const v = composePathVerdict({ routeVerdict: "ROUTE_BOUND", coverageState: "READY" })
+  it("graph gates make credentials/data OPEN — path still not REACHABLE", () => {
+    // AttackPath gates are real graph data. OPEN ≠ PASS; overall stays
+    // UNVERIFIED until every checkpoint is an explicit PASS.
+    const v = composePathVerdict({
+      routeVerdict: "ROUTE_BOUND",
+      coverageState: "READY",
+      identityGate: "OPEN_OBSERVED",
+      dataPlaneGate: "OPEN_CONFIG",
+      authzDecision: "ALLOWED",
+    })
     expect(v.pathState).toBe("UNVERIFIED")
-    expect(
-      v.checkpoints.find((c) => c.key === "authorization")!.detail,
-    ).toContain("not composed")
+    expect(v.checkpoints.find((c) => c.key === "authorization")!.state).toBe(
+      "OPEN",
+    )
+    expect(v.checkpoints.find((c) => c.key === "data_access")!.state).toBe(
+      "OPEN",
+    )
   })
 
   it("structural-open network does not make the path REACHABLE", () => {
@@ -144,6 +155,39 @@ describe("REACHABLE requires explicit server-backed passes", () => {
     expect(v.checkpoints.find((c) => c.key === "execution_network")!.state).toBe(
       "OPEN",
     )
+  })
+})
+
+describe("checkpointFromAttackPathGate — graph only, no invented UNVERIFIED", () => {
+  it("OPEN_CONFIG / OPEN_OBSERVED / ALLOWED read OPEN from AttackPath", () => {
+    expect(
+      checkpointFromAttackPathGate({
+        gate: "OPEN_CONFIG",
+        plane: "authorization",
+      }).state,
+    ).toBe("OPEN")
+    expect(
+      checkpointFromAttackPathGate({
+        gate: "OPEN_OBSERVED",
+        plane: "authorization",
+      }).detail,
+    ).toContain("AttackPath")
+    expect(
+      checkpointFromAttackPathGate({
+        authzDecision: "ALLOWED",
+        plane: "data_access",
+      }).state,
+    ).toBe("OPEN")
+  })
+
+  it("EXPLICIT_DENY blocks from A1", () => {
+    expect(
+      checkpointFromAttackPathGate({
+        gate: "OPEN_CONFIG",
+        authzDecision: "EXPLICIT_DENY",
+        plane: "authorization",
+      }).state,
+    ).toBe("BLOCKED")
   })
 })
 
@@ -370,5 +414,54 @@ describe("extractRouteVerdictToken", () => {
     expect(extractRouteVerdictToken(null)).toBeNull()
     expect(extractRouteVerdictToken({})).toBeNull()
     expect(extractRouteVerdictToken("  ")).toBeNull()
+  })
+})
+
+describe("pathVerdictFromServerFeasibility", () => {
+  it("renders SERVE feasibility literally", () => {
+    const v = pathVerdictFromServerFeasibility({
+      path_state: "UNVERIFIED",
+      activity_state: "UNKNOWN",
+      activity_detail:
+        "identity observed in estate; not bound to this execution location",
+      headline: "UNVERIFIED · EXECUTION LOCATION UNBOUND",
+      reason: "route verdict EXECUTION_LOCATION_UNBOUND",
+      checkpoints: [
+        {
+          key: "execution_network",
+          label: "Execution / network",
+          state: "UNVERIFIED",
+          detail: "route verdict EXECUTION_LOCATION_UNBOUND",
+        },
+        {
+          key: "authorization",
+          state: "OPEN",
+          detail: "authz_decision ALLOWED (AttackPath A1 certified)",
+        },
+        {
+          key: "data_access",
+          state: "OPEN",
+          detail: "data_plane_gate OPEN_CONFIG (AttackPath; configured)",
+        },
+      ],
+      is_finding: false,
+    })
+    expect(v).not.toBeNull()
+    expect(v!.pathState).toBe("UNVERIFIED")
+    expect(v!.activityState).toBe("UNKNOWN")
+    expect(v!.headline).toContain("EXECUTION LOCATION UNBOUND")
+    expect(v!.checkpoints[1].state).toBe("OPEN")
+    expect(v!.isFinding).toBe(false)
+  })
+
+  it("rejects incomplete payloads instead of inventing a verdict", () => {
+    expect(pathVerdictFromServerFeasibility(null)).toBeNull()
+    expect(pathVerdictFromServerFeasibility({ path_state: "MAYBE" })).toBeNull()
+    expect(
+      pathVerdictFromServerFeasibility({
+        path_state: "REACHABLE",
+        activity_state: "MAYBE",
+      }),
+    ).toBeNull()
   })
 })

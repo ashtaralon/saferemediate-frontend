@@ -1,11 +1,12 @@
 /**
- * TEMPORARY frontend composer. DELETE when the backend returns a composed
- * verdict — do not keep it as a fallback.
+ * Enterprise path feasibility.
  *
- * A fallback that composes judgment locally is exactly how the renderer stops
- * being literal. When the server ships `path_state` / `activity_state` /
- * `reason_codes` plus per-checkpoint evidence, coverage, timestamp and
- * generation identity, this module goes away; it does not become a default.
+ * Authority: SERVE `feasibility` on ConvergencePath. Zoom0 renders via
+ * `pathVerdictFromServerFeasibility` — no client re-judgment when present.
+ *
+ * `composePathVerdict` is DEPLOY-SKEW ONLY (older BE without feasibility).
+ * DELETE the call site in zoom0-fan-in-panel when every SERVE path ships
+ * feasibility; do not expand local composition as a product default.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Why it was rewritten (Alon, 2026-07-30)
@@ -128,11 +129,13 @@ export interface PathVerdictInput {
   routeVerdictEnvelope?: Record<string, unknown> | string | null
   /** Coverage envelope. PARTIAL / NOT_READY forces UNVERIFIED. */
   coverageState?: string | null
-  /** Server-composed authorization result. Absent today; until the evaluator
-   *  exists this stays undefined and authorization is UNVERIFIED. */
-  authorizationComposed?: "PASS" | "BLOCKED" | null
-  /** Server-composed data-plane authorization result. Same. */
-  dataAccessComposed?: "PASS" | "BLOCKED" | null
+  /**
+   * Optional full-stack composed result when the server ships one.
+   * Prefer AttackPath gates / A1 below — never invent UNVERIFIED by
+   * omitting graph fields the SERVE already returned.
+   */
+  authorizationComposed?: "PASS" | "BLOCKED" | "OPEN" | null
+  dataAccessComposed?: "PASS" | "BLOCKED" | "OPEN" | null
   /** Explicitly out of assessed scope. */
   outOfScope?: boolean
 
@@ -150,8 +153,12 @@ export interface PathVerdictInput {
    * coverage".
    */
   estateIdentityObserved?: boolean
-  /** Raw identity_gate token; OPEN_OBSERVED implies estateIdentityObserved. */
+  /** Raw identity_gate from (:AttackPath) — graph SSOT for credentials. */
   identityGate?: string | null
+  /** Raw data_plane_gate from (:AttackPath) — graph SSOT for data access. */
+  dataPlaneGate?: string | null
+  /** A1 authz_decision from (:AttackPath). */
+  authzDecision?: string | null
 
   /** Server-declared finding. Mirrored, never derived. */
   serverFinding?: boolean
@@ -207,6 +214,86 @@ export function isStructuralOpenRoute(input: PathVerdictInput): boolean {
   // Coarse gate only when no specific verdict contradicts.
   if (!verdict && gate === "OPEN_CONFIG") return true
   return false
+}
+
+const GATE_BLOCKED = new Set(["CLOSED", "BLOCKED"])
+const AUTHZ_BLOCKED = new Set([
+  "EXPLICIT_DENY",
+  "IMPLICIT_DENY",
+  "DENIED",
+  "DENY",
+])
+
+/**
+ * Map an AttackPath gate (+ optional A1 decision) to a checkpoint.
+ * Graph fields only — never default to UNVERIFIED when the gate is present.
+ */
+export function checkpointFromAttackPathGate(params: {
+  gate?: string | null
+  authzDecision?: string | null
+  composed?: "PASS" | "BLOCKED" | "OPEN" | null
+  plane: "authorization" | "data_access"
+}): { state: CheckpointState; detail: string } {
+  const composed = params.composed
+  if (composed === "PASS" || composed === "BLOCKED" || composed === "OPEN") {
+    return {
+      state: composed,
+      detail: `server-composed ${params.plane} ${composed}`,
+    }
+  }
+  const decision = normalize(params.authzDecision)
+  if (decision && AUTHZ_BLOCKED.has(decision)) {
+    return {
+      state: "BLOCKED",
+      detail: `authz_decision ${decision} (AttackPath A1)`,
+    }
+  }
+  if (decision === "ALLOWED") {
+    return {
+      state: "OPEN",
+      detail: "authz_decision ALLOWED (AttackPath A1 certified)",
+    }
+  }
+  const gate = normalize(params.gate)
+  const gateLabel =
+    params.plane === "authorization" ? "identity_gate" : "data_plane_gate"
+  if (gate && GATE_BLOCKED.has(gate)) {
+    return { state: "BLOCKED", detail: `${gateLabel} ${gate} (AttackPath)` }
+  }
+  if (gate === "OPEN_OBSERVED") {
+    return {
+      state: "OPEN",
+      detail: `${gateLabel} OPEN_OBSERVED (AttackPath; estate-grain on path node)`,
+    }
+  }
+  if (gate === "OPEN_CONFIG") {
+    return {
+      state: "OPEN",
+      detail: `${gateLabel} OPEN_CONFIG (AttackPath; configured)`,
+    }
+  }
+  if (gate === "UNKNOWN") {
+    return {
+      state: "UNVERIFIED",
+      detail: `${gateLabel} UNKNOWN (AttackPath)`,
+    }
+  }
+  if (!gate && !decision) {
+    return {
+      state: "UNVERIFIED",
+      detail: `${gateLabel} and authz_decision absent on AttackPath`,
+    }
+  }
+  if (gate) {
+    return {
+      state: "UNVERIFIED",
+      detail: `${gateLabel} ${gate} (AttackPath)`,
+    }
+  }
+  return {
+    state: "UNVERIFIED",
+    detail: `authz_decision ${decision} (AttackPath A1)`,
+  }
 }
 
 /** Activity is derived from path-bound traffic evidence ALONE. */
@@ -268,22 +355,24 @@ export function composePathVerdict(input: PathVerdictInput): PathVerdict {
     networkDetail = "no route verdict and no gate"
   }
 
-  // ── authorization ──────────────────────────────────────────────────────
-  // Requires the composed stack: identity ∩ boundary ∩ SCP ∩ session ∩
-  // resource ∩ KMS ∩ conditions. No evaluator today, so this is UNVERIFIED.
-  const authorization: CheckpointState =
-    input.authorizationComposed === "PASS"
-      ? "PASS"
-      : input.authorizationComposed === "BLOCKED"
-        ? "BLOCKED"
-        : "UNVERIFIED"
-
-  const dataAccess: CheckpointState =
-    input.dataAccessComposed === "PASS"
-      ? "PASS"
-      : input.dataAccessComposed === "BLOCKED"
-        ? "BLOCKED"
-        : "UNVERIFIED"
+  // ── authorization / data access — AttackPath graph fields only ─────────
+  // Never hardcode UNVERIFIED when identity_gate / data_plane_gate / A1
+  // authz_decision are on the path. OPEN = structural/certified from graph;
+  // full REACHABLE still requires every checkpoint PASS (SCP∩KMS∩… later).
+  const authzCp = checkpointFromAttackPathGate({
+    gate: input.identityGate,
+    authzDecision: input.authzDecision,
+    composed: input.authorizationComposed,
+    plane: "authorization",
+  })
+  const dataCp = checkpointFromAttackPathGate({
+    gate: input.dataPlaneGate,
+    authzDecision: input.authzDecision,
+    composed: input.dataAccessComposed,
+    plane: "data_access",
+  })
+  const authorization = authzCp.state
+  const dataAccess = dataCp.state
 
   const checkpoints: PathCheckpoint[] = [
     {
@@ -296,19 +385,13 @@ export function composePathVerdict(input: PathVerdictInput): PathVerdict {
       key: "authorization",
       label: "Credentials and authorization",
       state: authorization,
-      detail:
-        authorization === "UNVERIFIED"
-          ? "configured grant present; identity ∩ boundary ∩ SCP ∩ session ∩ resource ∩ KMS ∩ conditions not composed"
-          : `server-composed authorization ${authorization}`,
+      detail: authzCp.detail,
     },
     {
       key: "data_access",
       label: "Data access",
       state: dataAccess,
-      detail:
-        dataAccess === "UNVERIFIED"
-          ? "configured authorization; data-plane decision not composed"
-          : `server-composed data access ${dataAccess}`,
+      detail: dataCp.detail,
     },
   ]
 
@@ -358,5 +441,85 @@ export function composePathVerdict(input: PathVerdictInput): PathVerdict {
     checkpoints,
     // Mirrored from the server. Never derived — see the module docstring.
     isFinding: Boolean(input.serverFinding),
+  }
+}
+
+const CHECKPOINT_KEYS = [
+  "execution_network",
+  "authorization",
+  "data_access",
+] as const
+
+const CHECKPOINT_LABELS: Record<(typeof CHECKPOINT_KEYS)[number], string> = {
+  execution_network: "Execution / network",
+  authorization: "Credentials and authorization",
+  data_access: "Data access",
+}
+
+/**
+ * Literal render of SERVE `feasibility`. Enterprise path: when the server
+ * ships this object, the FE must not re-compose judgment.
+ */
+export function pathVerdictFromServerFeasibility(
+  feasibility: Record<string, unknown> | null | undefined,
+): PathVerdict | null {
+  if (!feasibility || typeof feasibility !== "object") return null
+  const pathState = normalize(String(feasibility.path_state || ""))
+  const activityState = normalize(String(feasibility.activity_state || ""))
+  if (
+    !["REACHABLE", "BLOCKED", "UNVERIFIED", "OUT_OF_SCOPE"].includes(pathState)
+  ) {
+    return null
+  }
+  if (!["OBSERVED", "NOT_OBSERVED", "UNKNOWN"].includes(activityState)) {
+    return null
+  }
+  const rawCheckpoints = Array.isArray(feasibility.checkpoints)
+    ? feasibility.checkpoints
+    : []
+  const byKey = new Map<string, Record<string, unknown>>()
+  for (const c of rawCheckpoints) {
+    if (c && typeof c === "object" && typeof (c as { key?: string }).key === "string") {
+      byKey.set((c as { key: string }).key, c as Record<string, unknown>)
+    }
+  }
+  const checkpoints: PathCheckpoint[] = CHECKPOINT_KEYS.map((key) => {
+    const c = byKey.get(key)
+    const stateRaw = normalize(String(c?.state || "UNVERIFIED"))
+    const state: CheckpointState = (
+      ["PASS", "OPEN", "BLOCKED", "UNVERIFIED"].includes(stateRaw)
+        ? stateRaw
+        : "UNVERIFIED"
+    ) as CheckpointState
+    return {
+      key,
+      label:
+        typeof c?.label === "string" && c.label.trim()
+          ? c.label
+          : CHECKPOINT_LABELS[key],
+      state,
+      detail:
+        typeof c?.detail === "string" && c.detail.trim()
+          ? c.detail
+          : `server feasibility ${state}`,
+    }
+  })
+  return {
+    pathState: pathState as PathState,
+    activityState: activityState as ActivityState,
+    activityDetail:
+      typeof feasibility.activity_detail === "string"
+        ? feasibility.activity_detail
+        : "",
+    headline:
+      typeof feasibility.headline === "string" && feasibility.headline.trim()
+        ? feasibility.headline
+        : pathState,
+    reason:
+      typeof feasibility.reason === "string" && feasibility.reason.trim()
+        ? feasibility.reason
+        : pathState,
+    checkpoints,
+    isFinding: Boolean(feasibility.is_finding),
   }
 }

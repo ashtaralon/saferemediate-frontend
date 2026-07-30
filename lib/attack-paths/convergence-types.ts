@@ -86,6 +86,32 @@ export interface ConvergencePath {
   role_assumption_observed?: boolean
   cj_target_id?: string | null
   hops?: ConvergenceHop[]
+  /** A1 decision from (:AttackPath).authz_decision — SERVE-projected. */
+  authz_decision?: string | null
+  authz_technique_id?: string | null
+  authz_verdict?: Record<string, unknown> | null
+  /** O1: path-bound traffic was promoted onto this path. */
+  live_traffic_promoted?: boolean
+  path_bound_observations?: Array<Record<string, unknown>>
+  /**
+   * Server-composed feasibility (path_state ⊥ activity_state).
+   * When present, Zoom0 must render literally — no client re-compose.
+   */
+  feasibility?: {
+    path_state: string
+    activity_state: string
+    activity_detail?: string
+    headline?: string
+    reason?: string
+    checkpoints?: Array<{
+      key: string
+      label?: string
+      state: string
+      detail?: string
+    }>
+    reason_codes?: string[]
+    is_finding?: boolean
+  } | null
   /**
    * Hop DTO load state from the convergence model.
    * - pending: summary only — do NOT treat empty hops as "no network"
