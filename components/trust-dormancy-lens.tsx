@@ -69,36 +69,79 @@ function evidenceChips(f: RiskFinding): Array<{ k: string; v: string }> {
  * Every value is a graph fact from /api/proxy/resource-risk/{system}. Honest
  * loading / error / empty states — never a fabricated success view.
  */
+const RETRY_DELAYS_MS = [3000, 8000, 15000]
+
 export function TrustDormancyLens({ systemName }: { systemName?: string }) {
   const [data, setData] = useState<ResourceRiskResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(true)
+  const [retrying, setRetrying] = useState(false)
 
   useEffect(() => {
     if (!systemName) return
     let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
     setLoading(true)
     setError(null)
-    fetch(`/api/proxy/resource-risk/by-system/${encodeURIComponent(systemName)}`)
-      .then(async (res) => {
+    setRetrying(false)
+
+    const load = async (attempt: number) => {
+      if (cancelled) return
+      setRetrying(attempt > 1)
+      try {
+        const res = await fetch(
+          `/api/proxy/resource-risk/by-system/${encodeURIComponent(systemName)}`,
+          { cache: "no-store" },
+        )
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
-          throw new Error(body?.error || `Backend ${res.status}`)
+          const msg = body?.error || `Backend ${res.status}`
+          // Cold Render / Neo4j flap → 502/503/504. Auto-retry instead of
+          // bricking Trust Exposure on the first miss.
+          const retryable = res.status === 502 || res.status === 503 || res.status === 504
+          if (retryable && attempt <= RETRY_DELAYS_MS.length) {
+            if (!cancelled) {
+              setError("Backend warming up — retrying…")
+              setLoading(false)
+            }
+            const delay = RETRY_DELAYS_MS[attempt - 1]
+            retryTimer = setTimeout(() => {
+              void load(attempt + 1)
+            }, delay)
+            return
+          }
+          throw new Error(msg)
         }
-        return res.json()
-      })
-      .then((json: ResourceRiskResponse) => {
-        if (!cancelled) setData(json)
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+        const json = (await res.json()) as ResourceRiskResponse
+        if (!cancelled) {
+          setData(json)
+          setError(null)
+          setRetrying(false)
+          setLoading(false)
+        }
+      } catch (e: unknown) {
+        if (cancelled) return
+        const msg = e instanceof Error ? e.message : "Failed to load"
+        if (attempt <= RETRY_DELAYS_MS.length && /timed out|warming|abort/i.test(msg)) {
+          setError("Backend warming up — retrying…")
+          setLoading(false)
+          const delay = RETRY_DELAYS_MS[attempt - 1]
+          retryTimer = setTimeout(() => {
+            void load(attempt + 1)
+          }, delay)
+          return
+        }
+        setError(msg)
+        setRetrying(false)
+        setLoading(false)
+      }
+    }
+
+    void load(1)
     return () => {
       cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
     }
   }, [systemName])
 
@@ -141,13 +184,14 @@ export function TrustDormancyLens({ systemName }: { systemName?: string }) {
 
       {expanded && (
         <div className="px-4 pb-4 border-t" style={{ borderColor: "var(--border-subtle)" }}>
-          {loading && (
+          {(loading || retrying) && (
             <div className="flex items-center gap-2 py-6 text-sm" style={{ color: "var(--text-muted)" }}>
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading trust findings…
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {retrying ? "Backend warming up — retrying trust findings…" : "Loading trust findings…"}
             </div>
           )}
 
-          {error && !loading && (
+          {error && !loading && !retrying && (
             <div className="flex items-center gap-2 py-6 text-sm" style={{ color: "#ef4444" }}>
               <AlertCircle className="w-4 h-4" /> Couldn’t load findings: {error}
             </div>

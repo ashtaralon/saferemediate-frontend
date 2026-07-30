@@ -704,14 +704,27 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // empty response over a fresh error response.
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const response = await fetch(
-        `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`,
-        { cache: 'no-store' },
-      )
-      if (!response.ok) {
+      const url = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`
+      // Cold Render regularly 504s the first hit; retry before hard-failing
+      // the whole Resource Risk tab (same pattern as Trust Exposure).
+      const retryDelaysMs = [3000, 8000, 15000]
+      let response: Response | null = null
+      let lastDetail = 'unknown'
+      for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+        response = await fetch(url, { cache: 'no-store' })
+        if (response.ok) break
         const body = await response.json().catch(() => ({}))
-        const detail = body.detail || body.error || `HTTP ${response.status}`
-        throw new Error(`Backend ${response.status}: ${detail}`)
+        lastDetail = body.detail || body.error || `HTTP ${response.status}`
+        const retryable =
+          response.status === 502 || response.status === 503 || response.status === 504
+        if (!retryable || attempt >= retryDelaysMs.length) {
+          throw new Error(`Backend ${response.status}: ${lastDetail}`)
+        }
+        setError(`Backend warming up — retrying…`)
+        await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]))
+      }
+      if (!response?.ok) {
+        throw new Error(`Backend ${response?.status}: ${lastDetail}`)
       }
       const result = await response.json()
       
