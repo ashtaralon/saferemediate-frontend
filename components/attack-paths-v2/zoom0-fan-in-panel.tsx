@@ -13,7 +13,7 @@
  */
 
 import dynamic from "next/dynamic"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
@@ -62,7 +62,11 @@ import {
 import { Zoom0RiskHeader } from "./zoom0-risk-header"
 import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
 import { Zoom0LateralLensPanel } from "./zoom0-lateral-lens-panel"
+import { Zoom0LateralAttackMap } from "./zoom0-lateral-attack-map"
 import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
+import { useLateralMoves } from "./use-lateral-moves"
+import { resolveZoom0LateralIdentity } from "@/lib/attack-paths/zoom0-lateral-identity"
+import { focusJewelIdFromMove } from "./lateral-moves-summary-card"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -280,10 +284,16 @@ export function Zoom0FanInPanel({
     [effective.data, selectedPathId, paths],
   )
 
-  // Pin forces Current Access — dossier is the investigation surface.
+  // Pin opens Current Access dossier — deliberate for #451–453. Do NOT bounce
+  // when the operator is already on Lateral (pin-while-on-Lateral friction).
+  const prevPinRef = useRef<string | null>(null)
   useEffect(() => {
-    if (pinPathId) setDetailsPanel("current_access")
-  }, [pinPathId])
+    const prev = prevPinRef.current
+    prevPinRef.current = pinPathId
+    if (!pinPathId || pinPathId === prev) return
+    if (detailsPanel === "lateral") return
+    setDetailsPanel("current_access")
+  }, [pinPathId, detailsPanel])
 
   const spotlightPaths = useMemo(() => {
     if (!effective.data) return []
@@ -328,14 +338,36 @@ export function Zoom0FanInPanel({
     [effective.data],
   )
 
-  const lateralIdentityId = useMemo(() => {
-    return (
-      riskSummary?.top_risk?.identity ??
-      riskSummary?.identity ??
-      riskSummary?.current_state?.identity ??
-      null
-    )
-  }, [riskSummary])
+  /** Attacker-lens hub — pinned path only (or explicit single-path auto-pin). */
+  const lateralIdentity = useMemo(
+    () =>
+      resolveZoom0LateralIdentity({
+        pinnedPath,
+        jewelPaths: effective.data?.paths ?? [],
+      }),
+    [pinnedPath, effective.data?.paths],
+  )
+
+  const lateralJewelId =
+    jewel.canonical_id ??
+    (jewel.id.startsWith("arn:") ? jewel.id : null) ??
+    null
+
+  const lateralFetchTarget = useMemo(() => {
+    if (detailsPanel !== "lateral") return null
+    if (lateralIdentity.status !== "ready") return null
+    return {
+      systemName,
+      identityId: lateralIdentity.identityId,
+      jewelId: lateralJewelId,
+    }
+  }, [detailsPanel, lateralIdentity, systemName, lateralJewelId])
+
+  const {
+    data: lateralMoves,
+    loading: lateralMovesLoading,
+    error: lateralMovesError,
+  } = useLateralMoves(lateralFetchTarget, { limit: 20 })
 
   const collapsed =
     effective.data != null &&
@@ -668,27 +700,32 @@ export function Zoom0FanInPanel({
 
         {detailsPanel === "lateral" ? (
           <div className="mt-3 space-y-2">
-            <p
-              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200"
-              data-testid="zoom0-lens-not-authoritative"
-            >
-              Not yet authoritative — contracts pending
-            </p>
-            {lateralIdentityId ? (
+            {lateralIdentity.status === "need_pin" ? (
+              <p
+                className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200"
+                data-testid="zoom0-lateral-need-pin"
+              >
+                Pin a path to choose the initial breach — Lateral blast is
+                identity-specific and must not invent a hub from jewel
+                top-risk.
+              </p>
+            ) : lateralIdentity.status === "no_identity" ? (
+              <p
+                className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200"
+                data-testid="zoom0-lateral-no-identity"
+              >
+                No identity on this path — lateral blast unavailable.
+              </p>
+            ) : (
               <Zoom0LateralLensPanel
                 systemName={systemName}
                 jewel={jewel}
-                identityId={lateralIdentityId}
-                identityName={
-                  riskSummary?.top_risk?.identity_name ??
-                  riskSummary?.identity_name ??
-                  null
-                }
+                identityId={lateralIdentity.identityId}
+                identityName={lateralIdentity.identityName}
+                moves={lateralMoves}
+                loading={lateralMovesLoading}
+                error={lateralMovesError}
               />
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                No path identity yet — wait for jewel risk summary.
-              </p>
             )}
             {onRequestMode ? (
               <button
@@ -833,6 +870,67 @@ export function Zoom0FanInPanel({
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading hop topology for all paths to this jewel…
                 </div>
+              ) : detailsPanel === "lateral" ? (
+                lateralIdentity.status === "need_pin" ? (
+                  <div
+                    className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-900 dark:text-amber-200"
+                    data-testid="zoom0-lateral-map-need-pin"
+                  >
+                    Pin a path on the left to open the attacker lens — breach
+                    compute → compromised identity → this jewel, plus lateral
+                    blast.
+                  </div>
+                ) : lateralIdentity.status === "no_identity" ? (
+                  <div
+                    className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                    data-testid="zoom0-lateral-map-no-identity"
+                  >
+                    No identity on this path — lateral blast unavailable.
+                  </div>
+                ) : lateralMovesLoading && !lateralMoves ? (
+                  <div
+                    className="flex h-full min-h-[360px] items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground"
+                    data-testid="zoom0-lateral-map-loading"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading lateral moves for {lateralIdentity.identityName || lateralIdentity.identityId}…
+                  </div>
+                ) : (
+                  <div
+                    className={`h-full overflow-auto ${
+                      isExpanded ? "min-h-0" : "min-h-[480px]"
+                    }`}
+                  >
+                    <Zoom0LateralAttackMap
+                      path={lateralIdentity.path}
+                      jewelName={jewel.name}
+                      identityId={lateralIdentity.identityId}
+                      identityName={lateralIdentity.identityName}
+                      moves={lateralMoves}
+                      autoPinned={lateralIdentity.autoPinned}
+                      onFocusJewel={(target) => {
+                        const focusId = focusJewelIdFromMove({
+                          type: "additional_jewel",
+                          target,
+                          evidence: "CONFIGURED",
+                          risk: "UNKNOWN",
+                        })
+                        if (!focusId) return
+                        const params = new URLSearchParams(
+                          searchParams?.toString() ?? "",
+                        )
+                        params.set("jewel", focusId)
+                        params.delete("path")
+                        params.delete("exfil_path")
+                        params.delete("mode")
+                        if (!params.get("system") && systemName) {
+                          params.set("system", systemName)
+                        }
+                        router.push(`${pathname}?${params.toString()}`)
+                      }}
+                    />
+                  </div>
+                )
               ) : detailsPanel !== "current_access" ? (
                 <div
                   className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-6 text-center text-[12px] text-muted-foreground"
