@@ -1,0 +1,175 @@
+{
+    "jewel_ref": "saferemediate-raw-745783559495",
+    "jewel_label": "S3Bucket",
+    "supported": true,
+    "service_prefix": "s3",
+    "bands": {
+        "USED": [
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig",
+                "role_name": "AWSServiceRoleForConfig",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 22,
+                "observed_on_this_jewel": 17,
+                "reason": null,
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer",
+                "role_name": "AWSServiceRoleForResourceExplorer",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 23,
+                "observed_on_this_jewel": 2,
+                "reason": null,
+                "statement_count": 2
+            }
+        ],
+        "CUTTABLE": [
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/CyntroGlueETL-pilot",
+                "role_name": "CyntroGlueETL-pilot",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 1,
+                "observed_on_this_jewel": 0,
+                "reason": null,
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/cyntro-remediation",
+                "role_name": "cyntro-remediation",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 1,
+                "observed_on_this_jewel": 0,
+                "reason": null,
+                "statement_count": 2
+            }
+        ],
+        "UNKNOWN": [
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/aws-service-role/access-analyzer.amazonaws.com/AWSServiceRoleForAccessAnalyzer",
+                "role_name": "AWSServiceRoleForAccessAnalyzer",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/aws-service-role/route53resolver.amazonaws.com/AWSServiceRoleForRoute53Resolver",
+                "role_name": "AWSServiceRoleForRoute53Resolver",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/aws-service-role/support.amazonaws.com/AWSServiceRoleForSupport",
+                "role_name": "AWSServiceRoleForSupport",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/aws-service-role/trustedadvisor.amazonaws.com/AWSServiceRoleForTrustedAdvisor",
+                "role_name": "AWSServiceRoleForTrustedAdvisor",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/AlonIAMTest-least-privilege",
+                "role_name": "AlonIAMTest-least-privilege",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/AlonIAMTest-lp-202602281924",
+                "role_name": "AlonIAMTest-lp-202602281924",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/AlonIAMTest-lp-202602282254",
+                "role_name": "AlonIAMTest-lp-202602282254",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/AlonIAMTest-lp-202602282339",
+                "role_name": "AlonIAMTest-lp-202602282339",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/AlonIAMTest-lp-202603012115",
+                "role_name": "AlonIAMTest-lp-202603012115",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/cyntro-demo-ec2-s3-role-least-privilege",
+                "role_name": "cyntro-demo-ec2-s3-role-least-privilege",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/cyntro-demo-ec2-s3-role-lp-202602081638",
+                "role_name": "cyntro-demo-ec2-s3-role-lp-202602081638",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/cyntro-demo-ec2-s3-role-lp-202602081656",
+                "role_name": "cyntro-demo-ec2-s3-role-lp-202602081656",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            },
+            {
+                "role_arn": "arn:aws:iam::745783559495:role/cyntro-demo-eu-s3-role-least-privilege",
+                "role_name": "cyntro-demo-eu-s3-role-least-privilege",
+                "reach_kind": "WILDCARD",
+                "observed_on_service": 0,
+                "observed_on_this_jewel": 0,
+                "reason": "role has never been observed on this service",
+                "statement_count": 1
+            }
+        ]
+    },
+    "counts": {
+        "reachable_total": 17,
+        "USED": 2,
+        "CUTTABLE": 2,
+        "UNKNOWN": 13
+    },
+    "unjudgeable": 13,
+    "system_name": "alon-prod"
+}

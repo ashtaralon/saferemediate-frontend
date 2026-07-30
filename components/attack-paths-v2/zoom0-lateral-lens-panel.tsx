@@ -15,6 +15,8 @@ import {
   type LateralMovesPayload,
 } from "./use-lateral-moves"
 import { focusJewelIdFromMove } from "./lateral-moves-summary-card"
+import { LateralReachBands } from "./lateral-reach-bands"
+import { normalizeJewelType, useLateralReach } from "./use-lateral-reach"
 
 const RISK_TONE: Record<LateralMoveRisk, string> = {
   REAL_DAMAGE: "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300",
@@ -92,6 +94,23 @@ export function Zoom0LateralLensPanel({
     router.push(`${pathname}?${params.toString()}`)
   }
 
+  // Fan-IN: who can reach THIS jewel and has never used it. Distinct from the
+  // fan-OUT list below (what else the pinned identity can reach) and not
+  // derivable from it — lateral-moves reads :AttackPath, which only ever
+  // contains pairs something was OBSERVED using, so never-used routes are
+  // absent from it by construction.
+  const reachJewelType = normalizeJewelType(jewel.type)
+  const reachJewelRef = jewel.canonical_id ?? jewel.name ?? jewel.id ?? null
+  const reachTarget =
+    reachJewelType && reachJewelRef && systemName
+      ? { systemName, jewelRef: reachJewelRef, jewelType: reachJewelType }
+      : null
+  const {
+    data: reachData,
+    loading: reachLoading,
+    error: reachError,
+  } = useLateralReach(reachTarget)
+
   const label = identityName || identityId
   const moves = data?.moves ?? []
   const jewelMoves = moves.filter((m) => m.type === "additional_jewel")
@@ -105,7 +124,24 @@ export function Zoom0LateralLensPanel({
     >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">
         <Sliders className="h-3.5 w-3.5" />
-        Lateral — blast from {label}
+        Lateral — reach into {jewel.name || "this jewel"}
+      </div>
+
+      {/* Fan-IN — the cut list. Rendered first because it is the Lateral
+          question: who could reach this jewel without ever having used it. */}
+      <LateralReachBands
+        data={reachData}
+        loading={reachLoading}
+        error={reachError}
+        jewelLabel={jewel.name || "this jewel"}
+      />
+
+      {/* Fan-OUT — what the pinned identity can reach NEXT. Kept, but demoted:
+          it answers a different question and is derived from observed paths. */}
+      <div className="mt-3 border-t border-amber-200/60 pt-2 dark:border-amber-500/30">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-800/80 dark:text-amber-300/80">
+          Onward blast from {label}
+        </div>
       </div>
 
       {loading && !data ? (
