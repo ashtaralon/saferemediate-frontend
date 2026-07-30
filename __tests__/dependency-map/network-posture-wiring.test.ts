@@ -102,14 +102,24 @@ describe("network-posture wiring", () => {
 
   // ── composed feasibility verdict (the "configured chain ≠ attack path" fix) ──
 
-  it("the fan-in composes and RENDERS a feasibility verdict", () => {
-    // A tested composer nothing calls is the #466 mistake. Assert the wiring.
+  it("no composer INPUT is assembled at the call site", () => {
+    // Replaces two guards that asserted the composer received a specific
+    // route verdict and non-hardcoded authz fields. Those protected the
+    // composer's inputs; the composer is gone (#642), so the equivalent
+    // protection is that no such inputs are assembled at all.
+    const code = readCode(FAN_IN)
+    for (const smell of ["routeVerdict:", "authorizationComposed:", "dataAccessComposed:"]) {
+      expect(code).not.toContain(smell)
+    }
+  })
+
+  it("the fan-in renders the SERVER verdict, never a composed one", () => {
+    // Inverted after #642: the backend owns the composed verdict, so the
+    // panel must read it literally. See path-state-axes.test.ts.
     const src = read(FAN_IN)
-    expect(src).toContain("composePathVerdict")
+    expect(src).toContain("pathVerdictFromServerFeasibility")
+    expect(src).not.toContain("composePathVerdict")
     expect(src).toMatch(/data-testid="zoom0-path-verdict"/)
-    // Renamed in the two-axis split: feasibility -> pathState, plus a second
-    // orthogonal activityState axis (see path-state-axes.test.ts).
-    expect(src).toMatch(/data-path-state=\{pathVerdict\.pathState\}/)
   })
 
   it("fan-in detail-fetches every path with pin-first (not pin-only)", () => {
@@ -123,27 +133,7 @@ describe("network-posture wiring", () => {
     )
   })
 
-  it("never hardcodes authorizationComposed/dataAccessComposed null", () => {
-    // Graph gates + A1 must drive credentials/data — inventing UNVERIFIED
-    // over AttackPath identity_gate/data_plane_gate is forbidden.
-    const code = readCode(FAN_IN)
-    expect(code).toContain("authzDecision")
-    expect(code).toContain("dataPlaneGate")
-    expect(code).not.toMatch(/authorizationComposed:\s*null/)
-    expect(code).not.toMatch(/dataAccessComposed:\s*null/)
-  })
 
-  it("the specific route verdict is passed, not just the coarse gate", () => {
-    // route_gate=OPEN_CONFIG must not be the only routing signal supplied.
-    const code = readCode(FAN_IN)
-    expect(code).toContain("extractRouteVerdictToken(verdictPath.route_verdict)")
-    expect(code).toContain("routeGate:")
-    // Structural-open needs the envelope (winning gateway); estate activity
-    // honesty needs identity_gate — never promote OPEN_OBSERVED to OBSERVED.
-    expect(code).toContain("routeVerdictEnvelope:")
-    expect(code).toContain("estateIdentityObserved:")
-    expect(code).toContain("activityDetail")
-  })
 
   it("all three checkpoints reach the DOM with their state", () => {
     const src = read(FAN_IN)

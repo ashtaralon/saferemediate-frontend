@@ -48,11 +48,7 @@ import {
   matchConvergencePathId,
 } from "@/lib/attack-paths/iap-to-convergence"
 import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
-import {
-  composePathVerdict,
-  extractRouteVerdictToken,
-  pathVerdictFromServerFeasibility,
-} from "@/lib/attack-paths/path-feasibility-verdict"
+import { pathVerdictFromServerFeasibility } from "@/lib/attack-paths/server-path-verdict"
 import { pathHasObservedNetworkEvidence } from "@/lib/attack-paths/build-path-authority-architecture"
 import {
   buildCurrentAccessDossier,
@@ -313,37 +309,19 @@ export function Zoom0FanInPanel({
 
   const pathVerdict = useMemo(() => {
     if (!verdictPath) return null
-    // Enterprise: SERVE feasibility is authoritative when present.
-    const server = pathVerdictFromServerFeasibility(
+    /* SERVE is the ONLY authority. #642 made the backend own the composed
+       verdict, so the frontend renders it literally or renders nothing.
+
+       There is deliberately no local-compose fallback. A fallback that
+       composes judgment locally is how Zoom0 quietly re-owns judgment: it
+       looks like resilience, and it means two authorities can disagree with
+       no way for an operator to tell which one they are reading. If SERVE
+       omits feasibility, the honest answer is "unavailable", not a second
+       opinion assembled from raw gates. */
+    return pathVerdictFromServerFeasibility(
       verdictPath.feasibility as Record<string, unknown> | null | undefined,
     )
-    if (server) return server
-
-    // Deploy-skew fallback only — delete when every SERVE path ships
-    // feasibility. Still graph-field driven; never hardcode null checkpoints.
-    const identityGate = verdictPath.identity_gate ?? null
-    const dataPlaneGate = verdictPath.data_plane_gate ?? null
-    const authzDecision = verdictPath.authz_decision ?? null
-    const pathBound = verdictPath.path_bound_observations ?? []
-    const livePromoted = Boolean(verdictPath.live_traffic_promoted)
-    return composePathVerdict({
-      routeGate: verdictPath.route_gate ?? null,
-      routeVerdict: extractRouteVerdictToken(verdictPath.route_verdict),
-      routeVerdictEnvelope: verdictPath.route_verdict ?? null,
-      coverageState: zoom0ServeCoverage(effective.data).coverage_state,
-      observedTrafficBound:
-        livePromoted ||
-        pathHasObservedNetworkEvidence([verdictPath], verdictPath.path_id),
-      observationCoverage:
-        pathBound.length > 0 || livePromoted ? "COLLECTED" : null,
-      identityGate,
-      dataPlaneGate,
-      authzDecision,
-      estateIdentityObserved:
-        (identityGate || "").trim().toUpperCase() === "OPEN_OBSERVED",
-      serverFinding: false,
-    })
-  }, [verdictPath, effective.data])
+  }, [verdictPath])
 
   const riskSummary = useMemo(
     () => zoom0RiskSummary(effective.data),
