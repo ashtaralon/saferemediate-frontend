@@ -14,15 +14,14 @@ import {
   type WorkloadNetworkPayload,
 } from "@/lib/attack-paths/network-banner-state"
 
-/** Everything the strong claim needs, including the two fields the backend does
- *  not send yet — so these tests describe the contract, not today's payload. */
+/** Full server verdict — collector SSOT + path route_verdict token. */
 const fullyVerified: WorkloadNetworkPayload = {
   is_vpc_attached: false,
-  evidence: "lambda:GetFunctionConfiguration VpcConfig empty",
+  evidence: "Lambda VpcConfig empty (no VpcId), verified at 2026-07-30T07:00:00Z",
   workload_count_queried: 3,
   workload_count_in_sample: 3,
   verified_at: "2026-07-30T07:00:00Z",
-  route_verdict: "NO_ROUTE_REQUIRED",
+  route_verdict: "EXECUTION_LOCATION_UNBOUND",
 }
 
 const READY = { settled: true, reason: "hops_ready" }
@@ -98,20 +97,18 @@ describe("the strong claim requires an explicit server verdict", () => {
     expect(s.isFinding).toBe(false)
   })
 
-  it("today's real payload shape cannot reach the strong claim", () => {
-    // The backend sends neither verified_at nor route_verdict, so the strong
-    // claim is currently unreachable BY DESIGN — it fails in the safe direction
-    // rather than asserting on partial evidence.
-    const todaysPayload: WorkloadNetworkPayload = {
+  it("a partial payload (pre-SSOT shape) still cannot reach the strong claim", () => {
+    // Missing verified_at / route_verdict must keep failing closed even after
+    // the collector lands — only a complete verdict promotes.
+    const partial: WorkloadNetworkPayload = {
       is_vpc_attached: false,
       evidence: "lambda VpcConfig empty",
       workload_count_queried: 3,
       workload_count_in_sample: 3,
     }
-    const s = resolveNetworkBannerState(todaysPayload, READY)
+    const s = resolveNetworkBannerState(partial, READY)
     expect(s.kind).toBe("no-checkpoints-represented")
-    expect(NETWORK_CLAIM_BACKEND_GAPS).toContain("verified_at")
-    expect(NETWORK_CLAIM_BACKEND_GAPS).toContain("route_verdict")
+    expect(NETWORK_CLAIM_BACKEND_GAPS).toEqual([])
   })
 
   it("an un-hydrated posture cannot be rescued by a server verdict path", () => {

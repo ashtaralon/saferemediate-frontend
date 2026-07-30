@@ -1114,4 +1114,49 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
       reason: "hops_pending",
     })
   })
+
+  it("forwards server workload_network onto architecture.workloadNetwork", () => {
+    // Collector SSOT + route_verdict must reach the banner gate — empty hops
+    // alone must never promote. Fail closed if any spotlight path lacks it.
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          hops_load_state: "ready",
+          workload_network: {
+            is_vpc_attached: false,
+            evidence: "Lambda VpcConfig empty (no VpcId), verified at T",
+            verified_at: "T",
+            route_verdict: "EXECUTION_LOCATION_UNBOUND",
+            workload_count_queried: 1,
+            workload_count_in_sample: 1,
+          },
+        }),
+      ],
+      spotlightPathId: "p1",
+    })
+    expect(arch.workloadNetwork).toMatchObject({
+      is_vpc_attached: false,
+      verified_at: "T",
+      route_verdict: "EXECUTION_LOCATION_UNBOUND",
+    })
+  })
+
+  it("omits workloadNetwork when any spotlight path lacks the server verdict", () => {
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          path_id: "p1",
+          hops_load_state: "ready",
+          workload_network: {
+            is_vpc_attached: false,
+            evidence: "e",
+            verified_at: "T",
+            route_verdict: "EXECUTION_LOCATION_UNBOUND",
+          },
+        }),
+        path({ path_id: "p2", hops_load_state: "ready" }),
+      ],
+    })
+    expect(arch.workloadNetwork).toBeUndefined()
+  })
 })

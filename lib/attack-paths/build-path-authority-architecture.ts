@@ -55,6 +55,20 @@ export interface PathAuthorityNetworkPosture {
 export interface PathAuthorityArchitecture {
   /** Provenance for an empty network lane. See PathAuthorityNetworkPosture. */
   networkPosture: PathAuthorityNetworkPosture
+  /**
+   * Server VPC-attachment verdict — drives the verified-non-vpc banner.
+   * Absent when any spotlight path lacks workload_network (fail closed).
+   */
+  workloadNetwork?: {
+    is_vpc_attached: boolean
+    vpc_id?: string | null
+    vpc_name?: string | null
+    evidence?: string | null
+    verified_at?: string | null
+    route_verdict?: string | null
+    workload_count_queried?: number
+    workload_count_in_sample?: number
+  }
   computeServices: Array<{
     id: string
     name: string
@@ -1165,8 +1179,52 @@ export function buildPathAuthorityArchitecture(params: {
     }
   }
 
+  // Prefer an explicit server verdict over empty-lane inference. When the
+  // lane has multiple paths, require every drawn path to carry a payload and
+  // collapse to "attached" if any workload is VPC-attached.
+  const workloadNetwork = (() => {
+    const rows = lane
+      .map((p) => p.workload_network)
+      .filter((wn): wn is NonNullable<typeof wn> => wn != null)
+    if (!rows.length || rows.length < lane.length) return undefined
+    if (rows.some((r) => r.is_vpc_attached)) {
+      const hit = rows.find((r) => r.is_vpc_attached)!
+      return {
+        is_vpc_attached: true as const,
+        vpc_id: hit.vpc_id,
+        vpc_name: hit.vpc_name,
+        evidence: hit.evidence,
+        verified_at: hit.verified_at,
+        route_verdict: hit.route_verdict,
+        workload_count_queried: rows.length,
+        workload_count_in_sample: lane.length,
+      }
+    }
+    const verifiedAts = rows.map((r) => r.verified_at).filter(Boolean)
+    const evidence = [...new Set(rows.map((r) => r.evidence).filter(Boolean))].join(
+      " · ",
+    )
+    const routeVerdict =
+      rows.map((r) => r.route_verdict).find((v) => typeof v === "string" && v.trim()) ??
+      null
+    return {
+      is_vpc_attached: false as const,
+      vpc_id: null,
+      vpc_name: null,
+      evidence: evidence || null,
+      verified_at:
+        verifiedAts.length === rows.length
+          ? verifiedAts.sort().slice(-1)[0]
+          : null,
+      route_verdict: routeVerdict,
+      workload_count_queried: rows.length,
+      workload_count_in_sample: lane.length,
+    }
+  })()
+
   return {
     networkPosture,
+    workloadNetwork,
     computeServices,
     principals: [],
     entryPoints: [],

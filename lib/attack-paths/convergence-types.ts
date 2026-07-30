@@ -107,6 +107,24 @@ export interface ConvergencePath {
   schema_version?: string | null
   /** Route verdict envelope from path materializer (when present). */
   route_verdict?: Record<string, unknown> | null
+  /**
+   * Server VPC-attachment verdict for the path workload. Populated from
+   * collector SSOT (`is_vpc_attached` true/false + verified_at) — never
+   * inferred from empty hop arrays. Required for the strong
+   * verified-non-vpc Attack Map banner.
+   */
+  workload_network?: {
+    is_vpc_attached: boolean
+    vpc_id?: string | null
+    vpc_name?: string | null
+    evidence?: string | null
+    verified_at?: string | null
+    route_verdict?: string | null
+    workload_count_queried?: number
+    workload_count_in_sample?: number
+    subnets?: Array<{ id: string; name?: string | null; is_public?: boolean | null }>
+    security_groups?: Array<{ id: string; name?: string | null }>
+  } | null
   /** ACQUISITION — who can take THIS principal once already inside the
    *  account. Deliberately NOT initial_access: that is ATT&CK Initial Access
    *  (how they got INTO the account), and intra-account AssumeRole is

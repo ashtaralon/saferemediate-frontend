@@ -49,6 +49,11 @@ import {
 } from "@/lib/attack-paths/iap-to-convergence"
 import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
 import {
+  composePathVerdict,
+  extractRouteVerdictToken,
+} from "@/lib/attack-paths/path-feasibility-verdict"
+import { pathHasObservedNetworkEvidence } from "@/lib/attack-paths/build-path-authority-architecture"
+import {
   buildCurrentAccessDossier,
   findPinnedConvergencePath,
 } from "@/lib/attack-paths/build-current-access-dossier"
@@ -291,6 +296,33 @@ export function Zoom0FanInPanel({
     [pinPathId, pinnedPath],
   )
 
+  /* Composed feasibility for the path actually being DRAWN. Single path only:
+     a verdict spanning several paths would be a composite claim we cannot make. */
+  const verdictPath = useMemo(() => {
+    if (pinnedPath) return pinnedPath
+    return spotlightPaths.length === 1 ? spotlightPaths[0] : null
+  }, [pinnedPath, spotlightPaths])
+
+  const pathVerdict = useMemo(() => {
+    if (!verdictPath) return null
+    return composePathVerdict({
+      routeGate: verdictPath.route_gate ?? null,
+      // The SPECIFIC verdict wins over route_gate. Shipped reversed: an
+      // OPEN_CONFIG gate read as reachable while the verdict said
+      // EXECUTION_LOCATION_UNBOUND.
+      routeVerdict: extractRouteVerdictToken(verdictPath.route_verdict),
+      coverageState: zoom0ServeCoverage(effective.data).coverage_state,
+      observedTrafficBound: pathHasObservedNetworkEvidence(
+        [verdictPath],
+        verdictPath.path_id,
+      ),
+      roleAssumptionObserved: Boolean(verdictPath.role_assumption_observed),
+      // No path-bound data-plane observation on the DTO, so this stays
+      // CONFIGURED. Failing closed is the point.
+      dataAccessObserved: false,
+    })
+  }, [verdictPath, effective.data])
+
   const riskSummary = useMemo(
     () => zoom0RiskSummary(effective.data),
     [effective.data],
@@ -508,6 +540,84 @@ export function Zoom0FanInPanel({
           {/* Details panels — not genuine map lenses until canvas DTOs land */}
           {renderDetailsTabs("panel")}
         </div>
+
+        {/* Composed feasibility, ABOVE the risk summary and the graph.
+            The graph draws a clean three-node chain that reads as a completed
+            attack path, while the DTO behind it said coverage PARTIAL, route
+            verdict EXECUTION_LOCATION_UNBOUND, and a configured-not-observed
+            data edge. The verdict must be read first, not found as a detail. */}
+        {pathVerdict ? (
+          <div
+            className={`mt-3 rounded-md border px-3 py-2 ${
+              pathVerdict.isFinding
+                ? "border-amber-500/40 bg-amber-500/10"
+                : "border-border bg-muted/20"
+            }`}
+            data-testid="zoom0-path-verdict"
+            data-path-feasibility={pathVerdict.feasibility}
+            data-path-verdict-finding={pathVerdict.isFinding ? "true" : "false"}
+          >
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                Overall
+              </span>
+              <span
+                className={`text-[13px] font-bold uppercase tracking-wide ${
+                  pathVerdict.isFinding
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-foreground"
+                }`}
+              >
+                {pathVerdict.headline}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {pathVerdict.reason}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {`Observed traffic: ${
+                pathVerdict.observedTrafficBound
+                  ? "bound to this path"
+                  : "none bound to this path"
+              }`}
+            </p>
+            <div className="mt-2 divide-y divide-border border-t border-border">
+              {pathVerdict.checkpoints.map((c) => (
+                <div
+                  key={c.key}
+                  className="flex items-baseline justify-between gap-3 py-1"
+                  data-checkpoint={c.key}
+                  data-checkpoint-state={c.state}
+                >
+                  <span className="text-[11px] text-muted-foreground">
+                    {c.label}
+                  </span>
+                  <span
+                    title={c.detail}
+                    className={`shrink-0 text-[11px] font-semibold uppercase tracking-wide ${
+                      c.state === "VERIFIED"
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : c.state === "BLOCKED"
+                          ? "text-sky-700 dark:text-sky-300"
+                          : c.state === "CONFIGURED"
+                            ? "text-foreground"
+                            : "text-muted-foreground"
+                    }`}
+                  >
+                    {c.state}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] italic text-muted-foreground">
+              {pathVerdict.feasibility === "REACHABLE_NOW"
+                ? "Every checkpoint composed — reachable now."
+                : pathVerdict.feasibility === "BLOCKED"
+                  ? "A checkpoint prevents this path."
+                  : "Candidate path — a configured access chain, not proven reachable."}
+            </p>
+          </div>
+        ) : null}
 
         {riskSummary ? (
           <details
