@@ -94,6 +94,25 @@ export interface ConvergencePath {
   live_traffic_promoted?: boolean
   path_bound_observations?: Array<Record<string, unknown>>
   /**
+   * Server-composed feasibility (path_state ⊥ activity_state).
+   * When present, Zoom0 must render literally — no client re-compose.
+   */
+  feasibility?: {
+    path_state: string
+    activity_state: string
+    activity_detail?: string
+    headline?: string
+    reason?: string
+    checkpoints?: Array<{
+      key: string
+      label?: string
+      state: string
+      detail?: string
+    }>
+    reason_codes?: string[]
+    is_finding?: boolean
+  } | null
+  /**
    * Hop DTO load state from the convergence model.
    * - pending: summary only — do NOT treat empty hops as "no network"
    * - ready: /detail settled (hops may still be [] when the path has none)

@@ -23,25 +23,22 @@ describe("two-axis wiring", () => {
     expect(src).toMatch(/data-activity-state=\{pathVerdict\.activityState\}/)
   })
 
-  it("observation is passed for activity, NOT for feasibility", () => {
-    // observedTrafficBound must not appear in any pathState branch. The
-    // composer enforces it; this pins that the panel does not smuggle it in
-    // through a feasibility-shaped field.
+  it("SERVE feasibility is authoritative when present", () => {
     const src = readCode(PANEL)
-    expect(src).toContain("observedTrafficBound:")
-    expect(src).not.toContain("roleAssumptionObserved")
-    expect(src).not.toContain("dataAccessObserved")
+    expect(src).toContain("pathVerdictFromServerFeasibility")
+    expect(src).toMatch(/if \(server\) return server/)
   })
 
-  it("feasibility inputs are AttackPath graph fields — never hardcoded null", () => {
-    // Enterprise contract: credentials/data come from SERVE gates + A1.
-    // Inventing authorizationComposed: null painted UNVERIFIED over Neo4j.
+  it("deploy-skew fallback uses AttackPath graph fields — never null hardcodes", () => {
     const src = readCode(PANEL)
     expect(src).toContain("identityGate")
     expect(src).toContain("dataPlaneGate")
     expect(src).toContain("authzDecision")
+    expect(src).toContain("observedTrafficBound:")
     expect(src).not.toMatch(/authorizationComposed:\s*null/)
     expect(src).not.toMatch(/dataAccessComposed:\s*null/)
+    expect(src).not.toContain("roleAssumptionObserved")
+    expect(src).not.toContain("dataAccessObserved")
   })
 
   it("the frontend never derives a finding", () => {
@@ -54,12 +51,10 @@ describe("two-axis wiring", () => {
     expect(readCode(PANEL)).not.toContain("REACHABLE_NOW")
   })
 
-  it("the composer is marked temporary with no fallback", () => {
-    // A fallback that composes judgment locally is how the renderer stops being
-    // literal. This must be deleted when the backend contract lands.
+  it("local compose is deploy-skew only — delete when SERVE always ships", () => {
     const raw = readFileSync(join(ROOT, COMPOSER), "utf8")
-    expect(raw).toContain("TEMPORARY")
-    expect(raw).toMatch(/DELETE when the backend/)
-    expect(raw).toMatch(/do not keep it as a fallback/i)
+    expect(raw).toMatch(/DEPLOY-SKEW ONLY/)
+    expect(raw).toMatch(/DELETE the call site/)
+    expect(raw).toContain("pathVerdictFromServerFeasibility")
   })
 })

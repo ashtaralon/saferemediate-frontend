@@ -16,6 +16,7 @@ import {
   deriveActivityState,
   extractRouteVerdictToken,
   isStructuralOpenRoute,
+  pathVerdictFromServerFeasibility,
   routeVerdictHasWinningGateway,
   type PathVerdictInput,
 } from "@/lib/attack-paths/path-feasibility-verdict"
@@ -413,5 +414,54 @@ describe("extractRouteVerdictToken", () => {
     expect(extractRouteVerdictToken(null)).toBeNull()
     expect(extractRouteVerdictToken({})).toBeNull()
     expect(extractRouteVerdictToken("  ")).toBeNull()
+  })
+})
+
+describe("pathVerdictFromServerFeasibility", () => {
+  it("renders SERVE feasibility literally", () => {
+    const v = pathVerdictFromServerFeasibility({
+      path_state: "UNVERIFIED",
+      activity_state: "UNKNOWN",
+      activity_detail:
+        "identity observed in estate; not bound to this execution location",
+      headline: "UNVERIFIED · EXECUTION LOCATION UNBOUND",
+      reason: "route verdict EXECUTION_LOCATION_UNBOUND",
+      checkpoints: [
+        {
+          key: "execution_network",
+          label: "Execution / network",
+          state: "UNVERIFIED",
+          detail: "route verdict EXECUTION_LOCATION_UNBOUND",
+        },
+        {
+          key: "authorization",
+          state: "OPEN",
+          detail: "authz_decision ALLOWED (AttackPath A1 certified)",
+        },
+        {
+          key: "data_access",
+          state: "OPEN",
+          detail: "data_plane_gate OPEN_CONFIG (AttackPath; configured)",
+        },
+      ],
+      is_finding: false,
+    })
+    expect(v).not.toBeNull()
+    expect(v!.pathState).toBe("UNVERIFIED")
+    expect(v!.activityState).toBe("UNKNOWN")
+    expect(v!.headline).toContain("EXECUTION LOCATION UNBOUND")
+    expect(v!.checkpoints[1].state).toBe("OPEN")
+    expect(v!.isFinding).toBe(false)
+  })
+
+  it("rejects incomplete payloads instead of inventing a verdict", () => {
+    expect(pathVerdictFromServerFeasibility(null)).toBeNull()
+    expect(pathVerdictFromServerFeasibility({ path_state: "MAYBE" })).toBeNull()
+    expect(
+      pathVerdictFromServerFeasibility({
+        path_state: "REACHABLE",
+        activity_state: "MAYBE",
+      }),
+    ).toBeNull()
   })
 })

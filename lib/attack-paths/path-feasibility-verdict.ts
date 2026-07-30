@@ -1,11 +1,12 @@
 /**
- * TEMPORARY frontend composer. DELETE when the backend returns a composed
- * verdict — do not keep it as a fallback.
+ * Enterprise path feasibility.
  *
- * A fallback that composes judgment locally is exactly how the renderer stops
- * being literal. When the server ships `path_state` / `activity_state` /
- * `reason_codes` plus per-checkpoint evidence, coverage, timestamp and
- * generation identity, this module goes away; it does not become a default.
+ * Authority: SERVE `feasibility` on ConvergencePath. Zoom0 renders via
+ * `pathVerdictFromServerFeasibility` — no client re-judgment when present.
+ *
+ * `composePathVerdict` is DEPLOY-SKEW ONLY (older BE without feasibility).
+ * DELETE the call site in zoom0-fan-in-panel when every SERVE path ships
+ * feasibility; do not expand local composition as a product default.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Why it was rewritten (Alon, 2026-07-30)
@@ -440,5 +441,85 @@ export function composePathVerdict(input: PathVerdictInput): PathVerdict {
     checkpoints,
     // Mirrored from the server. Never derived — see the module docstring.
     isFinding: Boolean(input.serverFinding),
+  }
+}
+
+const CHECKPOINT_KEYS = [
+  "execution_network",
+  "authorization",
+  "data_access",
+] as const
+
+const CHECKPOINT_LABELS: Record<(typeof CHECKPOINT_KEYS)[number], string> = {
+  execution_network: "Execution / network",
+  authorization: "Credentials and authorization",
+  data_access: "Data access",
+}
+
+/**
+ * Literal render of SERVE `feasibility`. Enterprise path: when the server
+ * ships this object, the FE must not re-compose judgment.
+ */
+export function pathVerdictFromServerFeasibility(
+  feasibility: Record<string, unknown> | null | undefined,
+): PathVerdict | null {
+  if (!feasibility || typeof feasibility !== "object") return null
+  const pathState = normalize(String(feasibility.path_state || ""))
+  const activityState = normalize(String(feasibility.activity_state || ""))
+  if (
+    !["REACHABLE", "BLOCKED", "UNVERIFIED", "OUT_OF_SCOPE"].includes(pathState)
+  ) {
+    return null
+  }
+  if (!["OBSERVED", "NOT_OBSERVED", "UNKNOWN"].includes(activityState)) {
+    return null
+  }
+  const rawCheckpoints = Array.isArray(feasibility.checkpoints)
+    ? feasibility.checkpoints
+    : []
+  const byKey = new Map<string, Record<string, unknown>>()
+  for (const c of rawCheckpoints) {
+    if (c && typeof c === "object" && typeof (c as { key?: string }).key === "string") {
+      byKey.set((c as { key: string }).key, c as Record<string, unknown>)
+    }
+  }
+  const checkpoints: PathCheckpoint[] = CHECKPOINT_KEYS.map((key) => {
+    const c = byKey.get(key)
+    const stateRaw = normalize(String(c?.state || "UNVERIFIED"))
+    const state: CheckpointState = (
+      ["PASS", "OPEN", "BLOCKED", "UNVERIFIED"].includes(stateRaw)
+        ? stateRaw
+        : "UNVERIFIED"
+    ) as CheckpointState
+    return {
+      key,
+      label:
+        typeof c?.label === "string" && c.label.trim()
+          ? c.label
+          : CHECKPOINT_LABELS[key],
+      state,
+      detail:
+        typeof c?.detail === "string" && c.detail.trim()
+          ? c.detail
+          : `server feasibility ${state}`,
+    }
+  })
+  return {
+    pathState: pathState as PathState,
+    activityState: activityState as ActivityState,
+    activityDetail:
+      typeof feasibility.activity_detail === "string"
+        ? feasibility.activity_detail
+        : "",
+    headline:
+      typeof feasibility.headline === "string" && feasibility.headline.trim()
+        ? feasibility.headline
+        : pathState,
+    reason:
+      typeof feasibility.reason === "string" && feasibility.reason.trim()
+        ? feasibility.reason
+        : pathState,
+    checkpoints,
+    isFinding: Boolean(feasibility.is_finding),
   }
 }

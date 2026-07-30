@@ -297,6 +297,7 @@ export function mergeSummaryWithPathDetails(
       authz_verdict: p.authz_verdict ?? null,
       live_traffic_promoted: Boolean(p.live_traffic_promoted),
       path_bound_observations: p.path_bound_observations ?? [],
+      feasibility: p.feasibility ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]
@@ -347,6 +348,7 @@ export function mergeSummaryWithPathDetails(
       ),
       path_bound_observations:
         detail.path_bound_observations ?? base.path_bound_observations ?? [],
+      feasibility: detail.feasibility ?? base.feasibility ?? null,
     }
   })
 

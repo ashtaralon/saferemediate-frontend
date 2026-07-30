@@ -51,6 +51,7 @@ import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-
 import {
   composePathVerdict,
   extractRouteVerdictToken,
+  pathVerdictFromServerFeasibility,
 } from "@/lib/attack-paths/path-feasibility-verdict"
 import { pathHasObservedNetworkEvidence } from "@/lib/attack-paths/build-path-authority-architecture"
 import {
@@ -312,6 +313,14 @@ export function Zoom0FanInPanel({
 
   const pathVerdict = useMemo(() => {
     if (!verdictPath) return null
+    // Enterprise: SERVE feasibility is authoritative when present.
+    const server = pathVerdictFromServerFeasibility(
+      verdictPath.feasibility as Record<string, unknown> | null | undefined,
+    )
+    if (server) return server
+
+    // Deploy-skew fallback only — delete when every SERVE path ships
+    // feasibility. Still graph-field driven; never hardcode null checkpoints.
     const identityGate = verdictPath.identity_gate ?? null
     const dataPlaneGate = verdictPath.data_plane_gate ?? null
     const authzDecision = verdictPath.authz_decision ?? null
@@ -319,16 +328,9 @@ export function Zoom0FanInPanel({
     const livePromoted = Boolean(verdictPath.live_traffic_promoted)
     return composePathVerdict({
       routeGate: verdictPath.route_gate ?? null,
-      // The SPECIFIC verdict wins over route_gate. Shipped reversed: an
-      // OPEN_CONFIG gate read as reachable while the verdict said
-      // EXECUTION_LOCATION_UNBOUND.
       routeVerdict: extractRouteVerdictToken(verdictPath.route_verdict),
-      // Winning gateway lives on the envelope — needed for structural-open
-      // (OPEN_CONFIG + gateway → network OPEN, not PASS / not UNKNOWN).
       routeVerdictEnvelope: verdictPath.route_verdict ?? null,
       coverageState: zoom0ServeCoverage(effective.data).coverage_state,
-      // ── activity axis ONLY. Never an input to path_state. ───────────
-      // Graph/O1 only — never invent observationCoverage.
       observedTrafficBound:
         livePromoted ||
         pathHasObservedNetworkEvidence([verdictPath], verdictPath.path_id),
@@ -339,9 +341,6 @@ export function Zoom0FanInPanel({
       authzDecision,
       estateIdentityObserved:
         (identityGate || "").trim().toUpperCase() === "OPEN_OBSERVED",
-      // Credentials / data access come from AttackPath gates + A1 — never
-      // hardcode null (that painted UNVERIFIED over real graph state).
-      // Findings are server-owned; the frontend never derives one.
       serverFinding: false,
     })
   }, [verdictPath, effective.data])
