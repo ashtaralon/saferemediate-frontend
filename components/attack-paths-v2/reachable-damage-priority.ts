@@ -166,11 +166,13 @@ export function compilePathLayers(path: IdentityAttackPath): PathLayerChips {
 
 function damageVerbsFromPath(path: IdentityAttackPath): string[] {
   const fromMat = path.damage_capability?.materialized_damage_types
+  const fromDirect = path.damage_capability?.direct_actions
   const types =
     (fromMat && fromMat.length > 0
       ? fromMat
       : path.materialized_path?.damage_types) ??
     path.damage_types ??
+    (fromDirect && fromDirect.length > 0 ? fromDirect : []) ??
     []
   const order = ["admin", "delete", "exfiltrate", "write", "read", "encrypt", "corrupt"]
   const set = new Set(types.map((t) => t.toLowerCase()))
