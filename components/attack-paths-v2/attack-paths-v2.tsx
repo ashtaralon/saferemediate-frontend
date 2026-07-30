@@ -48,7 +48,6 @@ import {
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
 } from "@/lib/attack-paths/resolve-jewel-rail"
-import { AttackPathPanel } from "./attack-path-panel"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -1254,28 +1253,31 @@ export function AttackPathsV2({
                 />
               )
             ) : viewMode === "attacker_map" ? (
-              // Attacker Map — embedded per-path flow map only (same as the
-              // former top-level Attacker Map tab). Sits next to Attack Path
-              // in the mode bar; left + center columns stay for selection.
-              !selectedPath || !selectedJewelId ? (
-                <EmptyState
-                  title="Select a path"
-                  subtitle="Attacker Map shows the per-path VPC topology canvas. Pick a crown jewel and path on the left."
-                  large
-                />
+              // Attack Map chip — same path-authority Zoom0 canvas as Attack
+              // Path (SERVE hop DTOs). The legacy AttackPathPanel map-only
+              // path used facade IAP architecture and painted VPC EC2 paths
+              // as "No subnets / SG unavailable" while Attack Path showed
+              // the real subnet/SG/NACL spine from /detail.
+              selectedJewel && systemName ? (
+                <div
+                  className="flex h-full min-h-0 flex-col"
+                  data-testid="attack-path-flow-map-slot"
+                >
+                  <Zoom0FanInPanel
+                    systemName={systemName}
+                    jewel={selectedJewel}
+                    paths={[...jewelPaths]}
+                    selectedPathId={selectedPathId}
+                    onRequestMode={handleSetMode}
+                    onClearPath={() => setUrl({ path: null })}
+                    isExpanded={isPathExpanded}
+                  />
+                </div>
               ) : (
-                <AttackPathPanel
-                  systemName={systemName}
-                  jewelId={selectedJewelId}
-                  pathId={selectedPath.id}
-                  pathFromPage={selectedPath}
-                  jewelFromPage={selectedJewel}
-                  siblingPathsFromPage={jewelPaths}
-                  isExpanded={isPathExpanded}
-                  onToggleExpand={handleToggleExpand}
-                  onOpenRoleSplit={onOpenRoleSplit}
-                  showEmbeddedAttackMap={true}
-                  mapOnlyPanel={true}
+                <EmptyState
+                  title="Select a crown jewel"
+                  subtitle="Attack Map draws Neo4j paths to the jewel on live VPC topology. Pick a crown jewel on the left."
+                  large
                 />
               )
             ) : jewelPaths.length === 0 && selectedPathId && selectedJewel ? (

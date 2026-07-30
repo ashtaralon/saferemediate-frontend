@@ -10,6 +10,7 @@
 import type {
   CrownJewelSummary,
   IdentityAttackPath,
+  MaterializedPathSummary,
   PathNodeDetail,
   SeverityBreakdown,
 } from "@/components/identity-attack-paths/types"
@@ -120,6 +121,12 @@ export function convergencePathsToIdentityAttackPaths(
 
     const observed = (p.confidence || "").toLowerCase() === "observed"
     const score = typeof p.score === "number" ? p.score : 0
+    const damageTypes = p.damage ?? []
+    // Gates + damage MUST survive this whitelist. Dropping them made every
+    // SERVE rail row compile as "Standing access — IAM-only" even when
+    // route_gate was OPEN_CONFIG and damage was delete/read/write — Zoom0
+    // treated missing materialized_path as standing + unknown network.
+    const pathStatus = normalizePathStatus(p.path_status, observed)
 
     return {
       id: p.path_id,
@@ -127,12 +134,26 @@ export function convergencePathsToIdentityAttackPaths(
       crown_jewel_id: cjId,
       nodes,
       edges,
-      severity: severityStub(score, p.severity ?? null),
+      severity: severityStub(score, p.severity ?? p.severity_label ?? null),
       path_kind: "materialized",
       evidence_type: observed ? "observed" : "configured",
       hop_count: p.hop_count || Math.max(0, hops.length - 1),
+      damage_types: damageTypes,
+      impact_headline: p.impact_headline ?? undefined,
       damage_capability: {
-        direct_actions: p.damage ?? [],
+        direct_actions: damageTypes,
+        materialized_damage_types: damageTypes,
+        role_name: p.identity_name ?? undefined,
+      },
+      materialized_path: {
+        id: p.path_id,
+        path_status: pathStatus,
+        damage_types: damageTypes,
+        identity_gate: p.identity_gate ?? "UNKNOWN",
+        route_gate: p.route_gate ?? "UNKNOWN",
+        data_plane_gate: p.data_plane_gate ?? "UNKNOWN",
+        role_name: p.identity_name ?? null,
+        workload_name: p.source ?? null,
       },
       initial_access: p.initial_access?.[0]?.category
         ? { category: p.initial_access[0].category as never }
@@ -150,4 +171,20 @@ export function convergencePathsToIdentityAttackPaths(
       acquisition: p.acquisition ?? null,
     } as IdentityAttackPath
   })
+}
+
+function normalizePathStatus(
+  raw: string | null | undefined,
+  observed: boolean,
+): MaterializedPathSummary["path_status"] {
+  const s = (raw || "").toUpperCase()
+  if (
+    s === "OBSERVED" ||
+    s === "POTENTIAL_EXCESS" ||
+    s === "UNVERIFIED" ||
+    s === "BLOCKED"
+  ) {
+    return s
+  }
+  return observed ? "OBSERVED" : "POTENTIAL_EXCESS"
 }
