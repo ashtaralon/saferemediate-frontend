@@ -41,7 +41,8 @@ export async function GET(req: NextRequest) {
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 55000)
+  // BRSS enrichment only — must not pin the Resource Risk tab for a minute.
+  const timeoutId = setTimeout(() => controller.abort(), 20_000)
 
   try {
     const backendUrl = systemName
@@ -56,6 +57,12 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
+      if (cached) {
+        return NextResponse.json(
+          { ...cached.data, fromStaleCache: true, staleReason: `backend_${res.status}` },
+          { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
+        )
+      }
       const detail = await res.text().catch(() => "")
       console.error(`[issues-summary proxy] backend ${res.status}: ${detail.slice(0, 200)}`)
       return backendError({
@@ -87,6 +94,16 @@ export async function GET(req: NextRequest) {
       "[issues-summary proxy] fetch error:",
       error instanceof Error ? error.message : error,
     )
+    if (
+      error instanceof Error &&
+      error.name === "AbortError" &&
+      cached
+    ) {
+      return NextResponse.json(
+        { ...cached.data, fromStaleCache: true, staleReason: "timeout" },
+        { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
+      )
+    }
     return fromCaughtError(error)
   }
 }
