@@ -7367,6 +7367,47 @@ export function UnifiedArchitectureDiagram({
             </span>
           </>
         )}
+        {/* Plane key. Edge COLOR encodes the plane (PLANE_COLOR, applied at
+            the line derivation via planeForString); edge STYLE encodes
+            evidence (dashed = configured, solid = observed). Two orthogonal
+            axes — without this key a viewer reads the warm data-plane hue as
+            a severity signal. Shown whenever explicit edges render, which is
+            exactly when planeColor is defined. */}
+        {(architecture.edges || []).length > 0 && (
+          <>
+            <span className="text-muted-foreground">Plane:</span>
+            <span
+              className="flex items-center gap-1.5 text-muted-foreground"
+              title="Identity plane — IAM permission / binding edges (instance profile, role, policy)"
+            >
+              <span
+                className="inline-block w-4 border-t-2"
+                style={{ borderColor: PLANE_COLOR.identity }}
+              />
+              Identity
+            </span>
+            <span
+              className="flex items-center gap-1.5 text-muted-foreground"
+              title="Network plane — VPC topology and reachability (subnet, security group, NACL, route)"
+            >
+              <span
+                className="inline-block w-4 border-t-2"
+                style={{ borderColor: PLANE_COLOR.network }}
+              />
+              Network
+            </span>
+            <span
+              className="flex items-center gap-1.5 text-muted-foreground"
+              title="Data plane — reaching the data itself (resource access, API calls, object access)"
+            >
+              <span
+                className="inline-block w-4 border-t-2"
+                style={{ borderColor: PLANE_COLOR.data }}
+              />
+              Data
+            </span>
+          </>
+        )}
         <span className="flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
           <span className="text-amber-600 dark:text-amber-400">

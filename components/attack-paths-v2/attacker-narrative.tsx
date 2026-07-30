@@ -24,6 +24,7 @@ import {
   Check,
   X,
 } from "lucide-react"
+import { PLANE_COLOR } from "@/lib/types/attack-canvas"
 import type {
   IdentityAttackPath,
   CrownJewelSummary,
@@ -83,9 +84,16 @@ const MICRO_META: Record<
   string,
   { icon: React.ReactNode; accent: string; layerLabel: string; role: string }
 > = {
-  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: "var(--color-primary)", layerLabel: "IAM", role: "Primary fix" },
-  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: "var(--canvas-lateral)", layerLabel: "Network", role: "Secondary hardening" },
-  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: "var(--canvas-observed)", layerLabel: "Data", role: "Data-scope refinement" },
+  // Accents come from PLANE_COLOR because these three layers ARE the three
+  // planes (IAM = identity, Network = network, Data = data). They previously
+  // borrowed unrelated canvas tokens — `--canvas-lateral` (a topology-role
+  // token) for Network and `--canvas-observed` (an evidence token) for Data —
+  // so a layer chip and an edge could share a color while meaning different
+  // things. Sourcing the canonical palette means one color = one meaning
+  // across the narrative and the map legend.
+  micro_permissions: { icon: <KeyRound className="h-3.5 w-3.5" />, accent: PLANE_COLOR.identity, layerLabel: "IAM", role: "Primary fix" },
+  micro_segmentation: { icon: <Network className="h-3.5 w-3.5" />, accent: PLANE_COLOR.network, layerLabel: "Network", role: "Secondary hardening" },
+  micro_access: { icon: <Database className="h-3.5 w-3.5" />, accent: PLANE_COLOR.data, layerLabel: "Data", role: "Data-scope refinement" },
 }
 
 const PHASE_META: Record<AttackerPhase, { step: string; icon: React.ReactNode }> = {
