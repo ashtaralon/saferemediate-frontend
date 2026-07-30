@@ -27,10 +27,9 @@ export interface WorkloadNetworkPayload {
   evidence?: string | null
   workload_count_queried?: number
   workload_count_in_sample?: number
-  /** When the workload's network attachment was established. NOT yet sent by
-   *  the backend — see NETWORK_CLAIM_BACKEND_GAPS. */
+  /** When the workload's network attachment was established by the collector. */
   verified_at?: string | null
-  /** Authoritative route / execution-location verdict. NOT yet sent — ditto. */
+  /** Authoritative route / execution-location verdict token from the path. */
   route_verdict?: string | null
 }
 
@@ -60,16 +59,11 @@ export interface NetworkBannerState {
 }
 
 /**
- * Fields the strong claim requires that the backend does not yet send.
- *
- * Listed rather than quietly ignored. Until they arrive, `verified-non-vpc`
- * cannot be reached and the banner degrades to the honest observation — which
- * is the correct direction to fail.
+ * Fields the strong claim historically lacked. Kept as an empty list once the
+ * collector + convergence/exfil wiring land — tests still import the symbol so
+ * a regression that re-introduces a hard gap is visible.
  */
-export const NETWORK_CLAIM_BACKEND_GAPS = [
-  "verified_at",
-  "route_verdict",
-] as const
+export const NETWORK_CLAIM_BACKEND_GAPS = [] as const
 
 export function resolveNetworkBannerState(
   workloadNetwork: WorkloadNetworkPayload | null | undefined,

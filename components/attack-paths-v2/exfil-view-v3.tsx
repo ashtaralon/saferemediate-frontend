@@ -210,6 +210,8 @@ interface ExfilNetworkEgressItem {
 }
 
 interface WorkloadNetworkPayload {
+  verified_at?: string | null
+  route_verdict?: string | null
   is_vpc_attached: boolean
   vpc_id: string | null
   vpc_name: string | null
@@ -2263,6 +2265,8 @@ function buildExfilArchitecture(
           vpc_id: selectedPath.workload_network.vpc_id,
           vpc_name: selectedPath.workload_network.vpc_name,
           evidence: selectedPath.workload_network.evidence,
+          verified_at: selectedPath.workload_network.verified_at,
+          route_verdict: selectedPath.workload_network.route_verdict,
           workload_count_queried: selectedPath.workload_network.workload_count_queried,
           workload_count_in_sample: selectedPath.workload_network.workload_count_in_sample,
         }
