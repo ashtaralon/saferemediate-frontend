@@ -47,37 +47,44 @@ export type LateralMovesFetchTarget = {
   jewelId?: string | null
 }
 
-export function useLateralMoves(target: LateralMovesFetchTarget | null) {
+export function useLateralMoves(
+  target: LateralMovesFetchTarget | null,
+  opts?: { limit?: number },
+) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<LateralMovesPayload | null>(null)
+  const limit = opts?.limit ?? 5
 
-  const fetchMoves = useCallback(async (t: LateralMovesFetchTarget) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const params = new URLSearchParams({ limit: "5" })
-      if (t.jewelId) params.set("jewel_id", t.jewelId)
-      const url = `/api/proxy/identity-attack-paths/${encodeURIComponent(t.systemName)}/identity/${encodeURIComponent(t.identityId)}/lateral-moves?${params.toString()}`
-      const res = await fetch(url, { cache: "no-store" })
-      const body = (await res.json().catch(() => ({}))) as Partial<LateralMovesPayload> & {
-        error?: string
-        detail?: string
+  const fetchMoves = useCallback(
+    async (t: LateralMovesFetchTarget) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const params = new URLSearchParams({ limit: String(limit) })
+        if (t.jewelId) params.set("jewel_id", t.jewelId)
+        const url = `/api/proxy/identity-attack-paths/${encodeURIComponent(t.systemName)}/identity/${encodeURIComponent(t.identityId)}/lateral-moves?${params.toString()}`
+        const res = await fetch(url, { cache: "no-store" })
+        const body = (await res.json().catch(() => ({}))) as Partial<LateralMovesPayload> & {
+          error?: string
+          detail?: string
+        }
+        if (!res.ok) {
+          throw new Error(body.detail || body.error || `HTTP ${res.status}`)
+        }
+        // Soft failures (overall_timeout, degraded sections) arrive as 200
+        // with error/degraded set — keep the payload so the UI can show a
+        // typed empty instead of inventing "no pivots = safe".
+        setData(body as LateralMovesPayload)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load lateral moves")
+        setData(null)
+      } finally {
+        setLoading(false)
       }
-      if (!res.ok) {
-        throw new Error(body.detail || body.error || `HTTP ${res.status}`)
-      }
-      // Soft failures (overall_timeout, degraded sections) arrive as 200
-      // with error/degraded set — keep the payload so the UI can show a
-      // typed empty instead of inventing "no pivots = safe".
-      setData(body as LateralMovesPayload)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load lateral moves")
-      setData(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    },
+    [limit],
+  )
 
   useEffect(() => {
     if (!target?.identityId || !target.systemName) {
@@ -87,7 +94,12 @@ export function useLateralMoves(target: LateralMovesFetchTarget | null) {
       return
     }
     fetchMoves(target)
-  }, [target?.systemName, target?.identityId, target?.jewelId, fetchMoves])
+  }, [
+    target?.systemName,
+    target?.identityId,
+    target?.jewelId,
+    fetchMoves,
+  ])
 
   return { data, loading, error }
 }

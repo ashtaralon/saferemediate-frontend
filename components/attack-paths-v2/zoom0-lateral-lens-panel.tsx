@@ -1,8 +1,8 @@
 "use client"
 
 /**
- * Zoom0 Lateral details panel — fan-out from the server-ranked path
- * identity (risk_summary.top_risk / identity), not IAP identity-tier nodes.
+ * Zoom0 Lateral details list — blast from the pinned-path identity.
+ * Prefer a shared `lateral-moves` payload from the parent (map + list).
  */
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
@@ -12,6 +12,7 @@ import {
   useLateralMoves,
   type LateralMove,
   type LateralMoveRisk,
+  type LateralMovesPayload,
 } from "./use-lateral-moves"
 import { focusJewelIdFromMove } from "./lateral-moves-summary-card"
 
@@ -47,11 +48,18 @@ export function Zoom0LateralLensPanel({
   jewel,
   identityId,
   identityName,
+  moves: movesProp,
+  loading: loadingProp,
+  error: errorProp,
 }: {
   systemName: string
   jewel: CrownJewelSummary
   identityId: string
   identityName?: string | null
+  /** Shared payload from parent — skips an extra fetch when set. */
+  moves?: LateralMovesPayload | null
+  loading?: boolean
+  error?: string | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -59,11 +67,20 @@ export function Zoom0LateralLensPanel({
   const jewelId =
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null) ?? null
 
-  const { data, loading, error } = useLateralMoves({
-    systemName,
-    identityId,
-    jewelId,
-  })
+  const shared = movesProp !== undefined
+  const fetched = useLateralMoves(
+    shared
+      ? null
+      : {
+          systemName,
+          identityId,
+          jewelId,
+        },
+  )
+
+  const data = shared ? movesProp ?? null : fetched.data
+  const loading = shared ? Boolean(loadingProp) : fetched.loading
+  const error = shared ? errorProp ?? null : fetched.error
 
   const focusJewel = (nextJewelId: string) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "")
