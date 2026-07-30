@@ -13,6 +13,7 @@ import {
   buildPathAuthorityArchitecture,
   pathHasObservedNetworkEvidence,
 } from "@/lib/attack-paths/build-path-authority-architecture";
+import { attachNetworkPosture } from "@/lib/attack-paths/attach-network-posture";
 import {
   countVpceLane,
   vpceCardChrome,
@@ -5938,8 +5939,18 @@ export function UnifiedArchitectureDiagram({
                   do not apply. This is the case that was previously rendered
                   as an amber security finding on missing data. */
             const verified = Boolean(architecture.workloadNetwork)
-            // Undefined networkPosture = non-path-authority caller: keep the
-            // legacy claim rather than silently downgrade other maps.
+            // Every view that has path DTOs now supplies a posture (the shared
+            // `architecture` memo derives it, not just the fan-in builder), so
+            // reaching this default means there are no path DTOs at all — an
+            // estate/dependency map with nothing selected. There the only signal
+            // available is the legacy empty-bucket inference, so it is kept
+            // rather than downgrading every estate map to "not verified".
+            //
+            // What that still does NOT cover: an estate map whose network data
+            // was never collected looks identical to one verified as having
+            // none. Closing that needs a collection-state signal on the
+            // dependency-map payload, which does not exist yet — it is a
+            // backend gap, not something this component can infer.
             const settled = architecture.networkPosture?.settled ?? true
             const unverified = !verified && !settled
             return (
@@ -8509,6 +8520,20 @@ export default function TrafficFlowMap({
         }),
       };
     }
+    // Network posture travels with the PATH DTOs, not with the architecture
+    // object, so attach it wherever path DTOs exist — not only in the
+    // pathAuthorityOnly branch.
+    //
+    // PR #465 derived this inside buildPathAuthorityArchitecture, which only
+    // runs for the Zoom-0 fan-in. Checking production on 2026-07-30 showed the
+    // consequence: the attacker map rendered data-network-banner="path-scoped"
+    // with a NULL reason, i.e. it was falling through to the `?? true` default
+    // rather than reading a derived posture. A path with pending/error hops was
+    // therefore still described as having no network hops in that view.
+    //
+    // Guarded on absence so the fan-in's own (identical) derivation wins and
+    // this can never overwrite it.
+    arch = attachNetworkPosture(arch, spotlightPaths, spotlightPathId ?? null);
     return arch;
   }, [
     baseArchitecture,
