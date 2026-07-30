@@ -237,9 +237,10 @@ export function Zoom0FanInPanel({
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
   const convergenceJewel = crownJewelFromArnName(cjArn, jewel.name)
 
-  // Fan-in model: never pin a single path_id into the detail fetch.
-  // Pinning would load hops for only one sibling (often Lambda) and paint
-  // a false "IAM-only" map over EC2 paths that still have network hops.
+  // Fan-in model: fetch EVERY summary path's hops (fanInAllDetails) so a
+  // Lambda sibling cannot paint a false "IAM-only" map over EC2 paths that
+  // still have subnet/SG/NACL hops. Pass the pin so /detail is pin-first,
+  // then siblings at low concurrency with cold retries.
   const {
     data,
     loading,
@@ -248,7 +249,13 @@ export function Zoom0FanInPanel({
     detailsLoading,
     detailsReady,
     detailFailures,
-  } = useCrownJewelConvergence(systemName, convergenceJewel, null, paths)
+  } = useCrownJewelConvergence(
+    systemName,
+    convergenceJewel,
+    selectedPathId,
+    paths,
+    { fanInAllDetails: true },
+  )
 
   const iapFallback = useMemo(() => {
     if (paths.length === 0) return null
@@ -305,21 +312,29 @@ export function Zoom0FanInPanel({
 
   const pathVerdict = useMemo(() => {
     if (!verdictPath) return null
+    const identityGate = verdictPath.identity_gate ?? null
     return composePathVerdict({
       routeGate: verdictPath.route_gate ?? null,
       // The SPECIFIC verdict wins over route_gate. Shipped reversed: an
       // OPEN_CONFIG gate read as reachable while the verdict said
       // EXECUTION_LOCATION_UNBOUND.
       routeVerdict: extractRouteVerdictToken(verdictPath.route_verdict),
+      // Winning gateway lives on the envelope — needed for structural-open
+      // (OPEN_CONFIG + gateway → network OPEN, not PASS / not UNKNOWN).
+      routeVerdictEnvelope: verdictPath.route_verdict ?? null,
       coverageState: zoom0ServeCoverage(effective.data).coverage_state,
       // ── activity axis ONLY. Never an input to path_state. ───────────
       observedTrafficBound: pathHasObservedNetworkEvidence(
         [verdictPath],
         verdictPath.path_id,
       ),
-      // Without knowing observation coverage existed, "not observed" is
-      // indistinguishable from "never looked", so activity stays UNKNOWN.
+      // Path-bound coverage only. Estate identity_gate OPEN_OBSERVED is
+      // grain-blind (role used somewhere) — wire it as estateIdentityObserved
+      // so Activity UNKNOWN tells the truth, never as observationCoverage.
       observationCoverage: null,
+      identityGate,
+      estateIdentityObserved:
+        (identityGate || "").trim().toUpperCase() === "OPEN_OBSERVED",
       // ── feasibility: server-composed results only. Neither exists yet,
       // so authorization and data access stay UNVERIFIED and most paths are
       // honestly UNVERIFIED rather than locally promoted. ───────────────
@@ -591,12 +606,11 @@ export function Zoom0FanInPanel({
               <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
                 {pathVerdict.activityState.replace(/_/g, " ")}
               </span>
-              <span className="text-[11px] text-muted-foreground">
-                {pathVerdict.activityState === "UNKNOWN"
-                  ? "— no observation coverage for this path"
-                  : pathVerdict.activityState === "NOT_OBSERVED"
-                    ? "— covered, nothing seen on this path"
-                    : "— traffic bound to this path"}
+              <span
+                className="text-[11px] text-muted-foreground"
+                data-testid="zoom0-activity-detail"
+              >
+                — {pathVerdict.activityDetail}
               </span>
             </div>
             <div className="mt-2 divide-y divide-border border-t border-border">
@@ -615,12 +629,14 @@ export function Zoom0FanInPanel({
                     className={`shrink-0 text-[11px] font-semibold uppercase tracking-wide ${
                       c.state === "PASS"
                         ? "text-emerald-700 dark:text-emerald-300"
-                        : c.state === "BLOCKED"
-                          ? "text-sky-700 dark:text-sky-300"
-                          : "text-muted-foreground"
+                        : c.state === "OPEN"
+                          ? "text-foreground"
+                          : c.state === "BLOCKED"
+                            ? "text-sky-700 dark:text-sky-300"
+                            : "text-muted-foreground"
                     }`}
                   >
-                    {c.state}
+                    {c.state === "OPEN" ? "ROUTE OPEN" : c.state}
                   </span>
                 </div>
               ))}

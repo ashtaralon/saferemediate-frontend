@@ -8,8 +8,9 @@
  * sibling path still has subnet/SG/NACL/IGW in Neo4j.
  *
  * Contract:
- *   - Fan-in (no path pin): detail-fetch EVERY summary path_id.
- *   - Single-path pin: detail-fetch that path only.
+ *   - Default / spotlight: pin → that path only; no pin → every path.
+ *   - Fan-in (`fetchAll`): every summary path_id always; pin only
+ *     reorders (pin first) so the dossier settles before siblings.
  *   - Until a path's detail settles, hops must not be treated as an
  *     authoritative empty network spine.
  */
@@ -28,19 +29,32 @@ export interface PathDetailRecord {
   error?: string
 }
 
-/** Which summary paths need a /detail hop fetch for the current view. */
-export function pathIdsNeedingDetail(
-  summary: CrownJewelConvergenceSummary | null | undefined,
+export type PathIdsNeedingDetailOptions = {
+  /**
+   * Fan-in honesty: always every summary path. Pin (when present) is
+   * moved to the front for pin-first fetch ordering — it does not
+   * shrink the set.
+   */
+  fetchAll?: boolean
+}
+
+/** Put the pinned path_id first when it is in the set. */
+export function prioritizePinnedPathId(
+  ids: string[],
   pinnedPathId?: string | null,
 ): string[] {
-  if (!summary?.paths?.length) return []
   const pin = (pinnedPathId ?? "").trim()
-  if (pin) {
-    const hit = summary.paths.find((p) => p.path_id === pin)
-    return hit?.path_id ? [hit.path_id] : [pin]
-  }
-  // Fan-in / union: every path in the summary envelope — including
-  // identity-only rows — so the model never silently drops hop topology.
+  if (!pin) return [...ids]
+  const rest = ids.filter((id) => id !== pin)
+  if (rest.length === ids.length) return [...ids]
+  return [pin, ...rest]
+}
+
+/** Collect unique summary path_ids in summary order. */
+export function allSummaryPathIds(
+  summary: CrownJewelConvergenceSummary | null | undefined,
+): string[] {
+  if (!summary?.paths?.length) return []
   const ids: string[] = []
   const seen = new Set<string>()
   for (const p of summary.paths) {
@@ -50,6 +64,138 @@ export function pathIdsNeedingDetail(
     ids.push(id)
   }
   return ids
+}
+
+/** Which summary paths need a /detail hop fetch for the current view. */
+export function pathIdsNeedingDetail(
+  summary: CrownJewelConvergenceSummary | null | undefined,
+  pinnedPathId?: string | null,
+  options?: PathIdsNeedingDetailOptions,
+): string[] {
+  const all = allSummaryPathIds(summary)
+  if (all.length === 0) return []
+  const pin = (pinnedPathId ?? "").trim()
+  if (options?.fetchAll) {
+    return prioritizePinnedPathId(all, pin)
+  }
+  if (pin) {
+    const hit = all.find((id) => id === pin)
+    return hit ? [hit] : [pin]
+  }
+  return all
+}
+
+/**
+ * True when a failed /detail should be retried (cold / flap), not when
+ * the path is genuinely missing or the request was malformed.
+ */
+export function isRetryableDetailFailure(
+  status: number | null | undefined,
+  errorMessage?: string | null,
+): boolean {
+  if (status === 404 || status === 422 || status === 400) return false
+  if (status != null && (status >= 500 || status === 408 || status === 429)) {
+    return true
+  }
+  const m = (errorMessage || "").toLowerCase()
+  if (!m) return status == null
+  return (
+    m.includes("abort") ||
+    m.includes("timeout") ||
+    m.includes("timed out") ||
+    m.includes("network") ||
+    m.includes("failed to fetch") ||
+    m.includes("backend") ||
+    m.includes("502") ||
+    m.includes("503") ||
+    m.includes("504")
+  )
+}
+
+export type FetchConvergenceDetailResult =
+  | { ok: true; path: ConvergencePath }
+  | { ok: false; error: string; status?: number }
+
+const DEFAULT_DETAIL_TIMEOUT_MS = 30_000
+const DEFAULT_DETAIL_MAX_ATTEMPTS = 3
+const DEFAULT_DETAIL_RETRY_DELAYS_MS = [2000, 5000]
+
+/**
+ * Fetch one /by-crown-jewel/detail with short aborts + cold retries.
+ * Outer `signal` cancels the whole attempt chain (effect cleanup).
+ */
+export async function fetchConvergencePathDetail(params: {
+  url: string
+  timeoutMs?: number
+  maxAttempts?: number
+  retryDelaysMs?: number[]
+  signal?: AbortSignal
+  fetchImpl?: typeof fetch
+  sleep?: (ms: number) => Promise<void>
+}): Promise<FetchConvergenceDetailResult> {
+  const timeoutMs = params.timeoutMs ?? DEFAULT_DETAIL_TIMEOUT_MS
+  const maxAttempts = params.maxAttempts ?? DEFAULT_DETAIL_MAX_ATTEMPTS
+  const delays = params.retryDelaysMs ?? DEFAULT_DETAIL_RETRY_DELAYS_MS
+  const fetchImpl = params.fetchImpl ?? fetch
+  const sleep =
+    params.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+
+  let lastError = "detail fetch failed"
+  let lastStatus: number | undefined
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (params.signal?.aborted) {
+      return { ok: false, error: "detail cancelled", status: lastStatus }
+    }
+    const ctrl = new AbortController()
+    const onOuterAbort = () => ctrl.abort(params.signal?.reason)
+    params.signal?.addEventListener("abort", onOuterAbort)
+    const timer = setTimeout(
+      () =>
+        ctrl.abort(
+          new DOMException("Backend slow — retrying detail…", "TimeoutError"),
+        ),
+      timeoutMs,
+    )
+    try {
+      const res = await fetchImpl(params.url, {
+        cache: "no-store",
+        signal: ctrl.signal,
+      })
+      const body = (await res.json().catch(() => null)) as
+        | { path?: ConvergencePath; error?: string }
+        | null
+      if (res.ok && body?.path) {
+        return { ok: true, path: body.path }
+      }
+      lastStatus = res.status
+      lastError = body?.error ?? `detail ${res.status}`
+      if (!isRetryableDetailFailure(res.status, lastError)) {
+        return { ok: false, error: lastError, status: res.status }
+      }
+    } catch (e) {
+      lastError = (e as Error).message ?? "detail fetch failed"
+      lastStatus = undefined
+      if (!isRetryableDetailFailure(null, lastError)) {
+        return { ok: false, error: lastError }
+      }
+    } finally {
+      clearTimeout(timer)
+      params.signal?.removeEventListener("abort", onOuterAbort)
+    }
+
+    if (attempt < maxAttempts) {
+      const delay = delays[Math.min(attempt - 1, delays.length - 1)] ?? 2000
+      try {
+        await sleep(delay)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  return { ok: false, error: lastError, status: lastStatus }
 }
 
 export function detailsReadyFor(

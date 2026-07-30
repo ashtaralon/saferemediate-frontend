@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   detailFailuresFor,
   detailsReadyFor,
+  fetchConvergencePathDetail,
+  isRetryableDetailFailure,
   mergeSummaryWithPathDetails,
   pathIdsNeedingDetail,
   pathsWithAuthoritativeHops,
+  prioritizePinnedPathId,
   type PathDetailRecord,
 } from "@/lib/attack-paths/convergence-path-details"
 import type {
@@ -71,8 +74,96 @@ describe("pathIdsNeedingDetail", () => {
     ])
   })
 
-  it("pinned path requests only that path_id", () => {
+  it("pinned path requests only that path_id (spotlight default)", () => {
     expect(pathIdsNeedingDetail(summary, "ec2-path")).toEqual(["ec2-path"])
+  })
+
+  it("fetchAll keeps every path and puts the pin first", () => {
+    expect(
+      pathIdsNeedingDetail(summary, "ec2-path", { fetchAll: true }),
+    ).toEqual(["ec2-path", "lambda-path", "orphan-path"])
+    expect(
+      pathIdsNeedingDetail(summary, null, { fetchAll: true }).sort(),
+    ).toEqual(["ec2-path", "lambda-path", "orphan-path"])
+  })
+})
+
+describe("prioritizePinnedPathId", () => {
+  it("moves the pin to the front without dropping siblings", () => {
+    expect(prioritizePinnedPathId(["a", "b", "c"], "b")).toEqual([
+      "b",
+      "a",
+      "c",
+    ])
+    expect(prioritizePinnedPathId(["a", "b"], "missing")).toEqual(["a", "b"])
+  })
+})
+
+describe("isRetryableDetailFailure", () => {
+  it("retries cold / flap, not missing paths", () => {
+    expect(isRetryableDetailFailure(503)).toBe(true)
+    expect(isRetryableDetailFailure(502)).toBe(true)
+    expect(isRetryableDetailFailure(404)).toBe(false)
+    expect(isRetryableDetailFailure(422)).toBe(false)
+    expect(isRetryableDetailFailure(null, "The operation was aborted")).toBe(
+      true,
+    )
+    expect(isRetryableDetailFailure(null, "Backend slow — retrying detail…")).toBe(
+      true,
+    )
+  })
+})
+
+describe("fetchConvergencePathDetail", () => {
+  it("retries abort once then succeeds", async () => {
+    const path = summaryPath({ path_id: "ec2-path", hops: [] })
+    let calls = 0
+    const fetchImpl = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) {
+        throw new DOMException("Backend slow — retrying detail…", "TimeoutError")
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ path }),
+      } as Response
+    })
+    const sleep = vi.fn(async () => {})
+    const result = await fetchConvergencePathDetail({
+      url: "http://example.test/detail",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep,
+      maxAttempts: 3,
+      retryDelaysMs: [1, 1],
+      timeoutMs: 1000,
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.path.path_id).toBe("ec2-path")
+    expect(calls).toBe(2)
+    expect(sleep).toHaveBeenCalled()
+  })
+
+  it("does not retry a genuine 404", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "path_not_found" }),
+    })) as unknown as typeof fetch
+    const sleep = vi.fn(async () => {})
+    const result = await fetchConvergencePathDetail({
+      url: "http://example.test/detail",
+      fetchImpl,
+      sleep,
+      maxAttempts: 3,
+    })
+    expect(result).toEqual({
+      ok: false,
+      error: "path_not_found",
+      status: 404,
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(sleep).not.toHaveBeenCalled()
   })
 })
 
