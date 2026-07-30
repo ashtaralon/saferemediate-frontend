@@ -43,7 +43,10 @@ export async function GET(req: NextRequest) {
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 55000)
+  // Analyzers are ~2–5s warm; cold Render + Neo4j can stretch. Cap well
+  // below Vercel maxDuration so we can serve stale cache instead of hanging
+  // the Resource Risk tab for a full minute.
+  const timeoutId = setTimeout(() => controller.abort(), 25_000)
 
   try {
     const params = new URLSearchParams()

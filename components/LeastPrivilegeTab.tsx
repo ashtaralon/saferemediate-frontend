@@ -707,7 +707,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const url = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`
       // Cold Render regularly 504s the first hit; retry before hard-failing
       // the whole Resource Risk tab (same pattern as Trust Exposure).
-      const retryDelaysMs = [3000, 8000, 15000]
+      // One quick retry only — long backoffs stacked on Render 502 (~40s)
+      // made Resource Risk feel multi-minute. Prefer fail-fast + stale proxy.
+      const retryDelaysMs = [1000, 2500]
       let response: Response | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
@@ -716,7 +718,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
         const retryable =
-          response.status === 502 || response.status === 503 || response.status === 504
+          response.status === 503 || response.status === 504
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }

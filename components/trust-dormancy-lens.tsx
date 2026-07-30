@@ -69,7 +69,8 @@ function evidenceChips(f: RiskFinding): Array<{ k: string; v: string }> {
  * Every value is a graph fact from /api/proxy/resource-risk/{system}. Honest
  * loading / error / empty states — never a fabricated success view.
  */
-const RETRY_DELAYS_MS = [3000, 8000, 15000]
+// Keep short: stacked on a ~40s Render 502, long delays made the tab feel stuck.
+const RETRY_DELAYS_MS = [800, 2000]
 
 export function TrustDormancyLens({ systemName }: { systemName?: string }) {
   const [data, setData] = useState<ResourceRiskResponse | null>(null)
@@ -97,9 +98,9 @@ export function TrustDormancyLens({ systemName }: { systemName?: string }) {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
           const msg = body?.error || `Backend ${res.status}`
-          // Cold Render / Neo4j flap → 502/503/504. Auto-retry instead of
-          // bricking Trust Exposure on the first miss.
-          const retryable = res.status === 502 || res.status === 503 || res.status === 504
+          // Retry only retryable flaps (503/504). Render hard 502 HTML often
+          // takes ~40s — stacking retries made the tab feel multi-minute.
+          const retryable = res.status === 503 || res.status === 504
           if (retryable && attempt <= RETRY_DELAYS_MS.length) {
             if (!cancelled) {
               setError("Backend warming up — retrying…")
