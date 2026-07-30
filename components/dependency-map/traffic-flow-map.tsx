@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Gem, Clock, FileText } from 'lucide-react';
+import { resolveVerbChipY } from '@/lib/attack-paths/verb-chip-placement';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Gem, Clock, FileText, HelpCircle } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { ServiceTypeBadge } from "@/lib/service-type";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
@@ -521,6 +522,27 @@ export interface SystemArchitecture {
   >;
   /** Path-authority: node id → path_ids that include it (DTO hops). */
   pathIdsByNodeId?: Record<string, string[]>;
+  /**
+   * Path-authority: is an EMPTY network lane a settled fact, or detail we
+   * never fetched? Only set by buildPathAuthorityArchitecture.
+   *
+   * The `workloadNetwork` docstring above already says "when undefined/null →
+   * no banner (we didn't query)", but the legacy all-four-arrays-empty fallback
+   * was left in place underneath it, so the ambiguity that field was added to
+   * remove kept shipping: a Lambda path whose hop DTOs had not loaded rendered
+   * an amber "No Network Controls · Network defenses do not apply" finding.
+   * `ConvergencePath.hops_load_state` spells the rule out — "pending: summary
+   * only — do NOT treat empty hops as 'no network'" — and the Current Access
+   * dossier already honours it via `hopsPending`. This carries the same state
+   * to the map so both consumers agree.
+   *
+   * Undefined here means a non-path-authority caller, which keeps the legacy
+   * behaviour untouched.
+   */
+  networkPosture?: {
+    settled: boolean;
+    reason: string;
+  };
   // Attack-path dominance (2026-06-11 design review). Set ONLY by
   // applyPathFilter when a TrafficFlowMapPathFilter is active — its
   // presence is the renderer's gate for the "one dominant path color,
@@ -3069,6 +3091,7 @@ function ServiceDetailsPopup({
 // ANIMATED TRAFFIC LINE
 // ============================================
 function AnimatedTrafficLine({
+  labelExclusion = null,
   x1, y1, x2, y2,
   isActive,
   isHighlighted,
@@ -3091,6 +3114,10 @@ function AnimatedTrafficLine({
   pathDominance,
   pathAuthorityOnly = false,
 }: {
+  /** Container-relative box the verb chip must not cover — a prose block
+   *  sharing the lane, measured from the DOM. Same coordinate space as
+   *  x1/y1/x2/y2 (see getNodeCenter). Null when there is nothing to avoid. */
+  labelExclusion?: { left: number; right: number; top: number; bottom: number } | null;
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
   isHighlighted: boolean;
@@ -3691,6 +3718,14 @@ function AnimatedTrafficLine({
         // Approximate text width from char count (no canvas measurement
         // available in SSR-safe SVG). 6.5px per char at font-size 10.
         const labelW = verbChipLabel.length * 6.5 + 10
+        // Keep the chip off any prose block that shares the lane (today: the
+        // network-posture banner). The chip is deliberately OPAQUE so it masks
+        // lane-card text it covers rather than blending into it — correct for a
+        // small card, ruinous for a paragraph, which it silently cut in half
+        // ("Network defenses do [accesses · Configured] IAM role on the
+        // right…"). Nudge vertically only: x still tracks the edge, so the chip
+        // keeps reading as that edge's label.
+        const chipY = resolveVerbChipY(midX, midY, labelW, labelExclusion)
         return (
           <g
             data-verb-chip="true"
@@ -3699,7 +3734,7 @@ function AnimatedTrafficLine({
           >
             <rect
               x={midX - labelW / 2}
-              y={midY - 8}
+              y={chipY - 8}
               width={labelW}
               height={14}
               rx={4}
@@ -3714,7 +3749,7 @@ function AnimatedTrafficLine({
             />
             <text
               x={midX}
-              y={midY + 2}
+              y={chipY + 2}
               textAnchor="middle"
               fontSize={10}
               fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif"
@@ -4129,6 +4164,13 @@ export function ConnectionLinesSVG({
   /** Zoom0 path-authority — never invent FE route-precedence chips. */
   pathAuthorityOnly?: boolean;
 }) {
+  /* Container-relative box of any prose block sharing the lane, so verb chips
+     can step around it. Measured from the DOM in the same pass and the same
+     coordinate space as the line endpoints — the chip is opaque by design, so
+     without this it masks the paragraph it lands on. */
+  const [labelExclusion, setLabelExclusion] = useState<
+    { left: number; right: number; top: number; bottom: number } | null
+  >(null);
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
     /** Legacy flow-synthesized line. Present when this segment came from
@@ -4178,6 +4220,27 @@ export function ConnectionLinesSVG({
 
     const updateLines = () => {
       if (!container) return;
+
+      // Prose blocks that occupy a lane and must not be covered by a chip.
+      // Keyed off a data attribute so adding another such block is a one-line
+      // change here rather than new plumbing.
+      const proseEl = container.querySelector('[data-network-banner]');
+      if (proseEl && (proseEl as HTMLElement).offsetParent !== null) {
+        const pRect = proseEl.getBoundingClientRect();
+        const cRect = container.getBoundingClientRect();
+        setLabelExclusion(
+          pRect.width === 0 && pRect.height === 0
+            ? null
+            : {
+                left: pRect.left - cRect.left,
+                right: pRect.right - cRect.left,
+                top: pRect.top - cRect.top,
+                bottom: pRect.bottom - cRect.top,
+              },
+        );
+      } else {
+        setLabelExclusion(null);
+      }
 
       const getNodeCenter = (el: Element | null, side: 'left' | 'right'): { x: number; y: number } | null => {
         if (!el) return null;
@@ -4784,6 +4847,7 @@ export function ConnectionLinesSVG({
           return (
             <AnimatedTrafficLine
               key={`line-${i}-${line.sourceId}-${line.targetId}`}
+              labelExclusion={labelExclusion}
               x1={line.x1}
               y1={line.y1}
               x2={line.x2}
@@ -5848,7 +5912,9 @@ export function UnifiedArchitectureDiagram({
                   cited "Non-VPC Workload" banner (real finding).
                 - workloadNetwork.is_vpc_attached === true → no banner
                   (real subnets/SGs render from real edges).
-                - workloadNetwork absent → legacy empty-array fallback. */}
+                - workloadNetwork absent, hops settled → scoped path claim
+                - workloadNetwork absent, hops NOT settled → unverified notice,
+                  never a finding (see networkPosture). */}
           {(() => {
             const wn = architecture.workloadNetwork
             if (wn) return !wn.is_vpc_attached
@@ -5858,34 +5924,88 @@ export function UnifiedArchitectureDiagram({
               architecture.nacls.length === 0 &&
               architecture.egressGateways.length === 0
             )
-          })() ? (
-            <div className="flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5">
+          })() ? (() => {
+            /* Three claims of decreasing strength, so the banner never says
+               more than the data supports:
+
+               1. workloadNetwork present — we queried the workload and it is
+                  not VPC-attached. Strongest claim; cites evidence.
+               2. absent but hop DTOs settled — we know THIS PATH records no
+                  network hop. Real finding, but scoped to the path: it is not
+                  proof about the workload, so the prose says so.
+               3. absent and hops un-hydrated — we know nothing. Not a finding;
+                  neutral styling, no ShieldOff alarm, no claim that defenses
+                  do not apply. This is the case that was previously rendered
+                  as an amber security finding on missing data. */
+            const verified = Boolean(architecture.workloadNetwork)
+            // Undefined networkPosture = non-path-authority caller: keep the
+            // legacy claim rather than silently downgrade other maps.
+            const settled = architecture.networkPosture?.settled ?? true
+            const unverified = !verified && !settled
+            return (
+            <div
+              data-network-banner={
+                verified ? "workload-verified" : settled ? "path-scoped" : "unverified"
+              }
+              data-network-banner-reason={architecture.networkPosture?.reason}
+              className={`flex flex-col items-center justify-center min-h-[180px] px-6 py-8 rounded-xl border-2 border-dashed ${
+                unverified
+                  ? "border-border bg-muted/20"
+                  : "border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-orange-500/5"
+              }`}
+            >
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center">
-                  <ShieldOff className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                  unverified ? "bg-muted" : "bg-amber-500/15"
+                }`}>
+                  {unverified ? (
+                    <HelpCircle className="w-6 h-6 text-muted-foreground" />
+                  ) : (
+                    <ShieldOff className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                  )}
                 </div>
-                <div className="text-amber-600 dark:text-amber-400 text-lg font-bold uppercase tracking-wider">
-                  {architecture.workloadNetwork ? "Non-VPC Workload" : "No Network Controls"}
+                <div className={`text-lg font-bold uppercase tracking-wider ${
+                  unverified
+                    ? "text-muted-foreground"
+                    : "text-amber-600 dark:text-amber-400"
+                }`}>
+                  {verified
+                    ? "Non-VPC Workload"
+                    : settled
+                      ? "No Network Hops On This Path"
+                      : "Network Posture Not Verified"}
                 </div>
               </div>
               <div className="text-foreground text-base font-medium text-center mb-2">
-                IAM is the only gate on this path.
+                {unverified
+                  ? "We can't tell whether network controls apply."
+                  : "IAM is the only gate on this path."}
               </div>
               <div className="text-muted-foreground text-sm text-center max-w-md leading-relaxed">
-                {architecture.workloadNetwork
+                {verified
                   ? "This workload is not VPC-attached. It reaches AWS services via the public API endpoint, so VPC, subnet, Security Group and NACL defenses do not apply. Compromising the IAM role grants its full permissions on the resources below."
-                  : "This workload reaches its target via the public AWS API endpoint — no VPC, no subnet, no Security Group, no NACL is involved. Network defenses do not apply. Compromising the IAM role on the right grants the role's full permissions on the resources below."}
+                  : settled
+                    ? "This path records no VPC, subnet, Security Group or NACL hop, so IAM is the only gate on it. We have not separately queried the workload's own network attachment, so this describes the path rather than the workload."
+                    : "Path detail hasn't loaded, so the network lane being empty proves nothing either way. This is not a finding — reopen the path once detail settles."}
               </div>
-              {architecture.workloadNetwork && (
+              {architecture.workloadNetwork ? (
                 <div className="mt-3 text-amber-700 dark:text-amber-300/80 text-[11px] text-center max-w-md font-mono">
                   Evidence: {architecture.workloadNetwork.evidence}
                   {architecture.workloadNetwork.workload_count_in_sample > 1 && (
                     <> · {architecture.workloadNetwork.workload_count_queried}/{architecture.workloadNetwork.workload_count_in_sample} workloads queried</>
                   )}
                 </div>
-              )}
+              ) : architecture.networkPosture ? (
+                /* Say which state produced this banner. An operator seeing
+                   "not verified" needs to know whether to wait or to chase a
+                   failed fetch. */
+                <div className="mt-3 text-muted-foreground text-[11px] text-center max-w-md font-mono">
+                  Hop detail: {architecture.networkPosture.reason}
+                </div>
+              ) : null}
             </div>
-          ) : (
+            )
+          })() : (
             <>
           {/* SUBNETS — Phase 1 cleanup (2026-05-25 user feedback):
               - VPC card dropped (was redundant with the dashed
