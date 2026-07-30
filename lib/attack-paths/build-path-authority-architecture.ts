@@ -1222,6 +1222,68 @@ export function buildPathAuthorityArchitecture(params: {
     }
   })()
 
+  // VPC-attached Lambdas often lack Subnet/SG hop DTOs (identity spine only)
+  // even when collector SSOT lists subnets/SGs. Mirror exfil-view backfill so
+  // Attack Map columns are not empty when the server already verified VPC.
+  if (workloadNetwork?.is_vpc_attached) {
+    for (const p of lane) {
+      const wn = p.workload_network
+      if (!wn?.is_vpc_attached) continue
+      const computeId =
+        computeServices.find(
+          (c) =>
+            c.id === p.workload_arn ||
+            c.instanceId === (p.workload_arn || "").split("/").pop() ||
+            c.id === p.workload_arn,
+        )?.id || p.workload_arn
+      for (const s of wn.subnets ?? []) {
+        if (!s?.id || seen.subnet.has(s.id)) continue
+        seen.subnet.add(s.id)
+        subnets.push({
+          id: s.id,
+          name: s.name || s.id,
+          shortName: truncate(s.name || s.id),
+          isPublic: typeof s.is_public === "boolean" ? s.is_public : null,
+          connectedComputeIds: computeId ? [computeId] : [],
+        })
+        if (computeId) {
+          pushEdge(
+            edges,
+            edgeSeen,
+            computeId,
+            s.id,
+            "IN_SUBNET",
+            p.path_id,
+            p.evidence || p.confidence || "configured",
+          )
+        }
+      }
+      for (const g of wn.security_groups ?? []) {
+        if (!g?.id || seen.sg.has(g.id)) continue
+        seen.sg.add(g.id)
+        securityGroups.push(
+          emptyCheckpoint(
+            "security_group",
+            g.id,
+            g.name || g.id,
+            p.workload_arn || undefined,
+          ),
+        )
+        if (computeId) {
+          pushEdge(
+            edges,
+            edgeSeen,
+            computeId,
+            g.id,
+            "SECURED_BY",
+            p.path_id,
+            p.evidence || p.confidence || "configured",
+          )
+        }
+      }
+    }
+  }
+
   return {
     networkPosture,
     workloadNetwork,

@@ -141,6 +141,9 @@ export function mergeSummaryWithPathDetails(
       // adding a ConvergencePath field, grep for every place that constructs
       // one rather than trusting a spread that isn't there.
       acquisition: p.acquisition ?? null,
+      // VPC-attachment SSOT for Attack Map honesty banner (#469 / BE #632).
+      // Without this, verified-non-vpc never reaches path-authority TFM.
+      workload_network: p.workload_network ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]
@@ -180,6 +183,8 @@ export function mergeSummaryWithPathDetails(
       hop_count: detail.hop_count ?? base.hop_count,
       // Keep server route verdict on the pinned path — dossier needs it.
       route_verdict: detail.route_verdict ?? base.route_verdict ?? null,
+      workload_network:
+        detail.workload_network ?? base.workload_network ?? null,
     }
   })
 
