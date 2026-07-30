@@ -200,4 +200,51 @@ describe("mergeSummaryWithPathDetails", () => {
     expect(hopTypes).toContain("SecurityGroup")
     expect(hopTypes).toContain("InternetGateway")
   })
+
+  it("forwards workload_network from summary and prefers detail", () => {
+    const summaryWithWn: CrownJewelConvergenceSummary = {
+      ...summary,
+      paths: [
+        summaryPath({
+          path_id: "lambda-path",
+          source: "cyntro-demo-batch-processor",
+          workload_arn: "arn:aws:lambda:eu-west-1:1:function:batch",
+          workload_network: {
+            is_vpc_attached: false,
+            evidence: "summary evidence",
+            verified_at: "2026-07-30T00:00:00Z",
+            route_verdict: "EXECUTION_LOCATION_UNBOUND",
+            workload_count_queried: 1,
+            workload_count_in_sample: 1,
+          },
+        }),
+      ],
+    }
+    const pending = mergeSummaryWithPathDetails(summaryWithWn, {
+      "lambda-path": { state: "pending" },
+    })
+    expect(pending.paths[0].workload_network?.evidence).toBe("summary evidence")
+
+    const ready = mergeSummaryWithPathDetails(summaryWithWn, {
+      "lambda-path": {
+        state: "ready",
+        path: summaryPath({
+          path_id: "lambda-path",
+          hops: [],
+          workload_network: {
+            is_vpc_attached: false,
+            evidence: "Lambda VpcConfig empty (no VpcId), verified at 2026-07-30T12:00:00Z",
+            verified_at: "2026-07-30T12:00:00Z",
+            route_verdict: "EXECUTION_LOCATION_UNBOUND",
+            workload_count_queried: 1,
+            workload_count_in_sample: 1,
+          },
+        }),
+      },
+    })
+    expect(ready.paths[0].workload_network?.verified_at).toBe(
+      "2026-07-30T12:00:00Z",
+    )
+    expect(ready.paths[0].workload_network?.evidence).toContain("VpcConfig empty")
+  })
 })
