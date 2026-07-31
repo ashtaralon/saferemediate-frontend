@@ -44,7 +44,7 @@ const isUnassessed = (r: Row) => r.usageMeasured === false
 /** components/LeastPrivilegeTab.tsx — getSeverityLabel branch selection. */
 function severityLabel(r: Row): string {
   if (isRemediated(r)) return 'Remediated'
-  if (isUnassessed(r)) return 'Not assessed'
+  if (isUnassessed(r)) return 'Unknown'
   return String(r.severity ?? 'LOW').toLowerCase()
 }
 
@@ -71,8 +71,8 @@ const UNMEASURED: Row = { severity: 'LOW', usageMeasured: false, countsTowardSum
 const MEASURED_LOW: Row = { severity: 'LOW', countsTowardSummary: true }
 
 describe('the severity badge', () => {
-  it('reads "Not assessed" for a row nobody could measure', () => {
-    expect(severityLabel(UNMEASURED)).toBe('Not assessed')
+  it('reads "Unknown" for a row nobody could measure', () => {
+    expect(severityLabel(UNMEASURED)).toBe('Unknown')
   })
 
   it('pre-fix it read as a genuine Low', () => {

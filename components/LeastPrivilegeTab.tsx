@@ -1909,7 +1909,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
   const getSeverityLabel = (resource: GapResource) => {
     if (isRemediated(resource)) return 'Remediated'
-    if (isUnassessed(resource)) return 'Not assessed'
+    // "Unknown", not "Not assessed": the chip is narrow (px-2, text-xs) and
+    // the two-word label wrapped onto a second line, making the row taller
+    // than its neighbours. Same length class as "Remediated", which fits.
+    if (isUnassessed(resource)) return 'Unknown'
     return lpSeverityLabel(resource.severity)
   }
   // ── Blast Radius (v1.1) colour + confidence helpers ──
