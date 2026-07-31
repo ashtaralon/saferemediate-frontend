@@ -614,7 +614,9 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
                 </div>
               )}
               
-              {selectedNode.gapCount !== undefined && (
+              {/* `!= null`: null passes `!== undefined` and renders as nothing,
+                  leaving a labelled tile with a blank number. */}
+              {selectedNode.gapCount != null && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-[#22c55e10] rounded-lg p-3 text-center">
                     <div className="text-lg font-bold text-[#22c55e]">{selectedNode.usedCount || 0}</div>

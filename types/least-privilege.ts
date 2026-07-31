@@ -687,11 +687,18 @@ export interface LeastPrivilegeIssuesResponse {
     resourceName: string
     resourceArn: string
     systemName?: string
-    lpScore: number
+    // Nullable: a resource whose usage was never computed has no honest number
+    // here, and null is how that is represented. These were declared
+    // non-nullable while components/LeastPrivilegeTab.tsx already typed them
+    // `number | null` — nothing imports this file today, so it broke no build,
+    // but a type that disagrees with the wire is how the next consumer gets
+    // written wrong. allowedCount stays non-null: the policy IS read even when
+    // usage is not.
+    lpScore: number | null
     allowedCount: number
-    usedCount: number
-    gapCount: number
-    gapPercent: number
+    usedCount: number | null
+    gapCount: number | null
+    gapPercent: number | null
     allowedList: string[]
     usedList: string[]
     unusedList: string[]

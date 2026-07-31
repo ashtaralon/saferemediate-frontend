@@ -914,9 +914,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           .map((r: any, idx: number) => ({
             id: r.resourceArn || r.resourceName || `issue-${idx}`,
             title: `${r.gapCount || r.exposedCount} unused permissions`,
+            // `${null}` interpolates the literal string "null" — this rendered
+            // 'has null unused permissions' in the Critical Issues panel.
             description: r.resourceType === 'IAMRole'
-              ? `IAM Role "${r.resourceName}" has ${r.gapCount} unused permissions that can be removed`
-              : `${r.resourceType} "${r.resourceName}" has ${r.exposedCount || r.gapCount} issues`,
+              ? `IAM Role "${r.resourceName}" has ${r.gapCount ?? 0} unused permissions that can be removed`
+              : `${r.resourceType} "${r.resourceName}" has ${r.exposedCount || r.gapCount || 0} issues`,
             severity: r.severity || (r.gapCount > 10 ? 'critical' : 'high'),
             category: r.resourceType,
             resource: r.resourceName,
