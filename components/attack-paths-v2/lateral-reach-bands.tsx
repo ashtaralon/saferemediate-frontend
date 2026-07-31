@@ -62,7 +62,17 @@ function roleLabel(role: LateralReachRole): string {
   return role.role_name || role.role_arn.split("/").pop() || role.role_arn
 }
 
-function RoleRow({ role, band }: { role: LateralReachRole; band: LateralBand }) {
+function RoleRow({
+  role,
+  band,
+  onPlanCut,
+  isPlanning,
+}: {
+  role: LateralReachRole
+  band: LateralBand
+  onPlanCut?: (roleArn: string) => void
+  isPlanning?: boolean
+}) {
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1 text-[11px]">
       <span className="font-medium text-foreground">{roleLabel(role)}</span>
@@ -96,6 +106,18 @@ function RoleRow({ role, band }: { role: LateralReachRole; band: LateralBand }) 
       ) : (
         <span className="text-muted-foreground">{role.reason ?? "not observed"}</span>
       )}
+
+      {band === "CUTTABLE" && onPlanCut ? (
+        <button
+          type="button"
+          onClick={() => onPlanCut(role.role_arn)}
+          disabled={isPlanning}
+          className="ml-auto rounded border border-border px-1.5 py-px text-[10px] text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          data-testid="plan-cut-button"
+        >
+          {isPlanning ? "planning…" : "Plan a cut"}
+        </button>
+      ) : null}
     </li>
   )
 }
@@ -105,11 +127,17 @@ export function LateralReachBands({
   loading,
   error,
   jewelLabel,
+  onPlanCut,
+  planningRoleArn,
 }: {
   data: LateralReachPayload | null
   loading: boolean
   error: string | null
   jewelLabel: string
+  /** Omitted -> no cut affordance renders at all, so this component stays
+   *  usable as a pure read-only summary. */
+  onPlanCut?: (roleArn: string) => void
+  planningRoleArn?: string | null
 }) {
   if (loading && !data) {
     return (
@@ -194,7 +222,13 @@ export function LateralReachBands({
               </p>
               <ul className="mt-1 divide-y divide-border/50">
                 {roles.map((role) => (
-                  <RoleRow key={`${band}:${role.role_arn}`} role={role} band={band} />
+                  <RoleRow
+                    key={`${band}:${role.role_arn}`}
+                    role={role}
+                    band={band}
+                    onPlanCut={onPlanCut}
+                    isPlanning={planningRoleArn === role.role_arn}
+                  />
                 ))}
               </ul>
             </div>

@@ -5,6 +5,7 @@
  * Prefer a shared `lateral-moves` payload from the parent (map + list).
  */
 
+import { useCallback, useState } from "react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { ArrowUpRight, Loader2, Sliders } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
@@ -16,6 +17,8 @@ import {
 } from "./use-lateral-moves"
 import { focusJewelIdFromMove } from "./lateral-moves-summary-card"
 import { LateralReachBands } from "./lateral-reach-bands"
+import { PermissionCutPlanPanel } from "./permission-cut-plan"
+import { usePermissionCutPlan } from "./use-permission-cut-plan"
 import { normalizeJewelType, useLateralReach } from "./use-lateral-reach"
 
 const RISK_TONE: Record<LateralMoveRisk, string> = {
@@ -111,6 +114,27 @@ export function Zoom0LateralLensPanel({
     error: reachError,
   } = useLateralReach(reachTarget)
 
+  // The cut plan is fetched on an explicit click, never on render — the backend
+  // re-derives the band and resolves carrier policies per call, so firing it per
+  // CUTTABLE row would put that work on a browse surface.
+  const [cutRoleArn, setCutRoleArn] = useState<string | null>(null)
+  const {
+    plan: cutPlan,
+    loading: cutLoading,
+    error: cutError,
+    requestPlan: requestCut,
+    reset: resetCut,
+  } = usePermissionCutPlan(systemName)
+
+  const onPlanCut = useCallback(
+    (roleArn: string) => {
+      if (!reachJewelRef || !reachJewelType) return
+      setCutRoleArn(roleArn)
+      void requestCut(roleArn, reachJewelRef, reachJewelType)
+    },
+    [requestCut, reachJewelRef, reachJewelType],
+  )
+
   const label = identityName || identityId
   const moves = data?.moves ?? []
   const jewelMoves = moves.filter((m) => m.type === "additional_jewel")
@@ -134,7 +158,36 @@ export function Zoom0LateralLensPanel({
         loading={reachLoading}
         error={reachError}
         jewelLabel={jewel.name || "this jewel"}
+        onPlanCut={reachJewelRef && reachJewelType ? onPlanCut : undefined}
+        planningRoleArn={cutLoading ? cutRoleArn : null}
       />
+
+      {cutRoleArn ? (
+        <div className="mt-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Proposed cut · {cutRoleArn.split("/").pop()}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setCutRoleArn(null)
+                resetCut()
+              }}
+              className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+            >
+              dismiss
+            </button>
+          </div>
+          <PermissionCutPlanPanel
+            plan={cutPlan}
+            loading={cutLoading}
+            error={cutError}
+            roleLabel={cutRoleArn.split("/").pop() || cutRoleArn}
+            jewelLabel={jewel.name || "this jewel"}
+          />
+        </div>
+      ) : null}
 
       {/* Fan-OUT — what the pinned identity can reach NEXT. Kept, but demoted:
           it answers a different question and is derived from observed paths. */}
