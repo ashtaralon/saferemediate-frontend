@@ -176,6 +176,12 @@ interface GapResource {
   // rows stay visible during/right after deploy.
   category?: 'removable' | 'coverage' | 'audit'
   countsTowardSummary?: boolean
+  // false = usage was never computed for this row (e.g. the IAM permissions
+  // sync failed). Explicitly NOT the same as "measured and found nothing" —
+  // undefined means the analyzer has not adopted the contract, which is why
+  // every check below is `=== false` and never a truthiness test.
+  usageMeasured?: boolean
+  usageNotComputedReason?: string | null
 }
 
 const LP_SEVERITY_BUCKETS = ['critical', 'high', 'medium', 'low'] as const
@@ -199,7 +205,9 @@ interface LeastPrivilegeSummary {
   totalResources: number
   /** null = backend did not report the count (unknown), distinct from 0 (clean). */
   totalExcessPermissions: number | null
-  avgLPScore: number
+  /** null = nothing was measured, so there is no average to report. Distinct
+   *  from 100, which would claim a perfect estate on zero evidence. */
+  avgLPScore: number | null
   iamIssuesCount: number
   networkIssuesCount: number
   s3IssuesCount: number
@@ -774,7 +782,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             const measured = (result.resources || []).filter(
               (r: any) => typeof r.gapPercent === 'number',
             )
-            if (measured.length === 0) return 100
+            // null, not 100: with nothing measured there is no average, and
+            // 100 would assert a perfect estate on zero evidence.
+            if (measured.length === 0) return null
             return measured.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / measured.length
           })(),
           iamIssuesCount: summaryCount(result.summary, 'iamIssuesCount', 'iamCount'),
@@ -813,6 +823,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             category: r.category,
             findingClass: r.findingClass ?? r.finding_class,
             countsTowardSummary: r.countsTowardSummary ?? r.counts_toward_summary,
+            // The backend's POSITIVE signal that usage was never computed.
+            // It was already on the wire and simply not carried through this
+            // transform, so every consumer below had to INFER "unmeasured"
+            // from counts being null — which silently answers "no" for any
+            // row that has not adopted the null contract yet. Carrying the
+            // field lets the predicates ask the question directly.
+            usageMeasured: r.usageMeasured ?? r.usage_measured,
+            usageNotComputedReason: r.usageNotComputedReason ?? r.usage_not_computed_reason,
             // For Security Groups: lpScore is null, use networkExposure instead
             // `!== undefined` lets null through, and `100 - null` is 100 — so a
             // role whose usage was never measured rendered as a PERFECT LP
@@ -1023,8 +1041,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       resource.remediatedAt ||
       (
         resource.resourceType === 'IAMRole' &&
+        // A role whose usage was never computed is NOT remediated. This guard
+        // is the whole point: `allowedCount === 0` cannot tell "this role has
+        // no permissions left" from "we could not read this role's
+        // permissions". Four live roles (alon-prod-{web,app,lambda,report})
+        // whose sync failed with NoSuchEntity were filed under Remediated with
+        // the badge "Least Privilege" — Cyntro reporting its own blind spot as
+        // its best outcome.
+        //
+        // Checked explicitly rather than relying on the counts now being null,
+        // because that only holds for analyzers that have adopted the null
+        // contract. `=== false` and not `!resource.usageMeasured`: undefined
+        // means "not annotated", which must stay remediable.
+        resource.usageMeasured !== false &&
         resource.allowedCount === 0 &&
-        // Sync-incomplete / never-measured roles normalize null→0 — not remediated.
         // Rows with open posture/escalation violations must stay in active inventory.
         (resource.evidence?.violatedRules?.length ?? 0) === 0
       )
@@ -1044,10 +1074,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       }
     }
 
-    // Usage was never computed for this row — the backend sends null rather
-    // than 0 (see PR #519's usage_not_computed path). Report that as its own
-    // state instead of a 0/0/0% that reads as "measured and clean".
-    if (resource.usedCount === null && resource.gapCount === null) {
+    // Usage was never computed for this row. Report that as its own state
+    // instead of a 0/0/0% that reads as "measured and clean".
+    //
+    // `usageMeasured === false` is the backend's explicit signal and is checked
+    // FIRST; the null-count test below is the fallback for analyzers that emit
+    // nulls without the flag. Inference alone was not enough — before the
+    // counts went null these rows arrived as 0/0/0 and this function happily
+    // reported measured: true, which is how they reached the summary averages.
+    if (
+      resource.usageMeasured === false ||
+      (resource.usedCount === null && resource.gapCount === null)
+    ) {
       return { usedCount: null, unusedCount: null, total: resource.allowedCount || 0, gapPct: null, measured: false }
     }
 
@@ -1207,16 +1245,26 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           return total + (metrics.unusedCount ?? 0)
         }, 0)
 
-    const avgLPScore = resources.length > 0
-      ? resources.reduce((total, resource) => total + (100 - (getUsageMetricsForResource(resource).gapPct ?? 0)), 0) / resources.length
-      : 100
+    // Averaged over MEASURED rows only. `gapPct ?? 0` scores an unmeasured row
+    // 100 - 0 = a PERFECT 100, so the more roles we failed to measure the
+    // healthier the estate looked. The sibling computation in the fetch
+    // transform was fixed in #490; this one recomputes after dismiss/remediate
+    // and was missed, so the average silently improved on user action.
+    const measuredForScore = resources.filter(
+      (resource) => getUsageMetricsForResource(resource).gapPct !== null,
+    )
+    const avgLPScore = measuredForScore.length > 0
+      ? measuredForScore.reduce((total, resource) => total + (100 - (getUsageMetricsForResource(resource).gapPct as number)), 0) / measuredForScore.length
+      : null
 
     const confidenceLevel = resources.length > 0
       ? resources.reduce((total, resource) => total + safeNumber(resource.confidence, 0), 0) / resources.length
       : previousSummary.confidenceLevel
 
-    const attackSurfaceReduction = resources.length > 0
-      ? resources.reduce((total, resource) => total + (getUsageMetricsForResource(resource).gapPct ?? 0), 0) / resources.length
+    // Same correction as avgLPScore: an unmeasured row is not a row with 0%
+    // reducible surface, so it is excluded rather than counted as a clean one.
+    const attackSurfaceReduction = measuredForScore.length > 0
+      ? measuredForScore.reduce((total, resource) => total + (getUsageMetricsForResource(resource).gapPct as number), 0) / measuredForScore.length
       : 0
 
     return {

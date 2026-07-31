@@ -20,7 +20,9 @@ function deriveLpScore(r: { lpScore?: number | null; gapPercent?: number | null 
 /** components/LeastPrivilegeTab.tsx — fleet averages over MEASURED rows only. */
 function avgLpScore(resources: Array<{ gapPercent?: number | null }>) {
   const measured = resources.filter((r) => typeof r.gapPercent === 'number')
-  if (measured.length === 0) return 100
+  // null, not 100 (changed 2026-08-01): with nothing measured there is no
+  // average, and 100 asserts a perfect estate on zero evidence.
+  if (measured.length === 0) return null
   return measured.reduce((acc, r) => acc + (100 - (r.gapPercent as number)), 0) / measured.length
 }
 
@@ -60,9 +62,11 @@ describe('fleet averages exclude unmeasured rows', () => {
     expect(avgLpScore(rows)).toBe(20)
   })
 
-  it('falls back to 100 only when nothing at all was measured', () => {
-    expect(avgLpScore([{ gapPercent: null }])).toBe(100)
-    expect(avgLpScore([])).toBe(100)
+  it('reports no average at all when nothing was measured', () => {
+    // Previously 100. An estate where every row failed to measure is not a
+    // perfect estate — it is an unknown one, and the card must say so.
+    expect(avgLpScore([{ gapPercent: null }])).toBeNull()
+    expect(avgLpScore([])).toBeNull()
   })
 })
 
