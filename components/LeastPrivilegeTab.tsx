@@ -838,8 +838,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             description: r.description || '',
             remediation: r.remediation || '',
             region: r.evidence?.coverage?.regions?.[0] || r.region || null,  // Extract region
-            // Remediable status (for IAM roles)
-            isRemediable: r.isRemediable ?? r.is_remediable ?? true,
+            // Remediable status (for IAM roles).
+            // The list endpoint spells this `remediable` (api/least_privilege.py);
+            // only the per-role gap-analysis payload uses isRemediable/is_remediable.
+            // Reading the camel/snake spellings alone meant every list row missed
+            // the backend signal and fell through to a hardcoded `true` — including
+            // RDS posture rows the backend explicitly marks remediable=false.
+            // Absent stays undefined (unknown), never true: this field's polarity
+            // must match the modal's fail-closed gate, which only trusts === false.
+            isRemediable: r.isRemediable ?? r.is_remediable ?? r.remediable ?? undefined,
             remediableReason: r.remediableReason ?? r.remediable_reason ?? '',
             isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false,
             // Remediation metadata
