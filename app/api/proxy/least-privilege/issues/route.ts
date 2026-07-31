@@ -48,10 +48,25 @@ export async function GET(req: NextRequest) {
   }
 
   const controller = new AbortController()
-  // Analyzers are ~2–5s warm; cold Render + Neo4j can stretch. Cap well
-  // below Vercel maxDuration so we can serve stale cache instead of hanging
-  // the Resource Risk tab for a full minute.
-  const timeoutId = setTimeout(() => controller.abort(), 25_000)
+  // 55s, matching TOPOLOGY_RISK_PROXY_TIMEOUT_MS — the house "full cold-build
+  // budget" for a maxDuration=60 route (abort 5s under, so the catch below
+  // still runs and can serve stale cache rather than letting Vercel kill the
+  // function).
+  //
+  // Was 25s, which was SHORTER THAN THE WORK. Measured 2026-08-01 against
+  // production: this endpoint answers in 0.23s warm and 32.1s on a cold
+  // Render dyno. So the budget cut off every cold start, and because the
+  // caller retries with the same budget each time, the retry could never
+  // succeed either — three attempts, ~78s of spinner, then a hard error, on
+  // a backend that was working fine and just needed 32 seconds.
+  //
+  // The sibling proxies this tab calls stay deliberately short and should not
+  // be "made consistent" with this one: resource-risk/by-system is an indexed
+  // read that is genuinely sub-second (a 55s abort there was tried and
+  // reverted for making Trust Exposure feel hung), and issues-summary is
+  // optional BRSS enrichment that must never pin the tab. The number belongs
+  // to the work behind the endpoint, not to the file.
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const params = new URLSearchParams()
