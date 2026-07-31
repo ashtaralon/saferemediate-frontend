@@ -59,7 +59,10 @@ interface GapResource {
   // Blast Radius Score v1.1 — breach impact (orthogonal to gap%).
   blastRadius?: {
     brs: number
-    band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    // null = the score exists but cannot be classified, because an input it
+    // depends on could not be read (e.g. the IAM permissions sync failed).
+    // Distinct from the whole object being absent, which means no BRS at all.
+    band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
     confidence: 'HIGH' | 'MEDIUM' | 'LOW'
     components: { doc: number; ips: number; nes: number; lms: number }
     amplifier: number
@@ -1880,7 +1883,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return lpSeverityLabel(resource.severity)
   }
   // ── Blast Radius (v1.1) colour + confidence helpers ──
-  const getBRSColor = (band?: string) => {
+  // Accepts null: `band` is nullable on the wire when the score could not be
+  // classified. The `|| ''` below already falls through to the neutral grey,
+  // so this only makes the signature agree with reality.
+  const getBRSColor = (band?: string | null) => {
     switch ((band || '').toUpperCase()) {
       case 'CRITICAL': return '#ef4444'
       case 'HIGH':     return '#f97316'
@@ -2555,8 +2561,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       <div
                         className="flex items-center justify-center gap-1.5"
                         title={
-                          resource.blastRadius
-                            ? `BRS ${resource.blastRadius.brs} ${resource.blastRadius.band} — `
+                          !resource.blastRadius
+                            ? 'Blast Radius not available — backend needs redeploy'
+                            : resource.blastRadius.band == null
+                            // The backend withheld the band: three of the four
+                            // components are derived from this role's
+                            // permissions, and those could not be read, so the
+                            // composite is a floor rather than an estimate.
+                            ? 'Blast Radius cannot be scored — this resource\'s permissions could not be read, '
+                              + 'so the components that depend on them have no input. Re-run the sync to get a real score.'
+                            : `BRS ${resource.blastRadius.brs} ${resource.blastRadius.band} — `
                               + `DOC ${resource.blastRadius.components.doc} / `
                               + `IPS ${resource.blastRadius.components.ips} / `
                               + `NES ${resource.blastRadius.components.nes} / `
@@ -2564,10 +2578,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               + (resource.blastRadius.amplifier > 1 ? ` × ${resource.blastRadius.amplifier} amplifier` : '')
                               + (resource.blastRadius.doc_floor_applied ? ' (DOC floor applied)' : '')
                               + ` · Confidence ${resource.blastRadius.confidence}`
-                            : 'Blast Radius not available — backend needs redeploy'
                         }
                       >
-                        {resource.blastRadius ? (
+                        {/* Three states, not two. A null `band` means the score
+                            exists but cannot be classified — rendering its
+                            number alone would still read as "low risk", which
+                            is the whole defect. Shown as "?" to match the
+                            USED / UNUSED cells on the same row. */}
+                        {resource.blastRadius && resource.blastRadius.band == null ? (
+                          <span className="text-sm" style={{ color: "var(--text-muted)" }} aria-label="Blast radius not scoreable">?</span>
+                        ) : resource.blastRadius ? (
                           <>
                             <span
                               className="text-sm font-bold tabular-nums"
