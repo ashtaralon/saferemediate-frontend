@@ -3042,9 +3042,27 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             Fully Remediated
                           </span>
                         )}
+                        {/* Was: `isRemediable === false` -> "AWS Managed".
+                            "AWS Managed" is a claim about OWNERSHIP, true only of an
+                            IAM service-linked role — and those are filtered out of
+                            this list entirely (see the isServiceLinkedRole filter in
+                            the transform), so the label could never be legitimately
+                            earned here. Meanwhile `remediable: false` means at least
+                            three unrelated things on this endpoint: an RDS instance
+                            that is not publicly accessible (nothing to flip), a
+                            Lambda finding (no remediation engine yet, advisory), and
+                            an IAM role whose permission sync failed. Until this
+                            commit the branch was unreachable because isRemediable was
+                            hardcoded true; reading the backend's `remediable` made it
+                            fire, telling operators their own RDS instance was
+                            Amazon's. State what is actually known instead. */}
                         {resource.isRemediable === false && (
-                          <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#f9731620", color: "#f97316" }}>
-                            AWS Managed
+                          <span
+                            className="px-2 py-0.5 rounded text-xs font-semibold"
+                            style={{ background: "#64748b20", color: "#64748b" }}
+                            title={resource.remediableReason || 'The backend reported no automated remediation path for this finding.'}
+                          >
+                            Not auto-remediable
                           </span>
                         )}
                         {resource.remediatedAt && (
