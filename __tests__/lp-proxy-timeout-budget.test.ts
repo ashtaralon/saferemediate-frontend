@@ -63,20 +63,33 @@ describe('the render-blocking issues proxy', () => {
   })
 })
 
-describe('the deliberately-short siblings stay short', () => {
-  // Pinned so a later "make the timeouts consistent" pass cannot quietly
-  // undo them. Both numbers are load-bearing and were chosen against real
-  // symptoms; consistency across files is not a goal, matching the work is.
+describe('a budget is short only when something visible is waiting on it', () => {
+  // The distinction that matters is NOT "is this fetch optional" — it is
+  // "does a rendered element block on the response". Getting that wrong once
+  // already cost the Blast Radius card (see below).
 
   it('resource-risk/by-system stays fast-fail', () => {
-    // Indexed HAS_RISK read, sub-second warm. A 55s abort here was tried and
-    // reverted for making Trust Exposure feel hung while Render 502'd.
+    // Backs the Trust Exposure panel, which renders its OWN spinner while
+    // waiting. A 55s abort here was tried and reverted for making that panel
+    // feel hung while Render was 502ing. The short budget is load-bearing.
     expect(abortMs(read(BY_SYSTEM))).toBe(12_000)
   })
 
-  it('issues-summary stays fast-fail', () => {
-    // Optional BRSS enrichment — must never pin the tab on a slow backend.
-    expect(abortMs(read(SUMMARY))).toBe(20_000)
+  it('issues-summary gets the full cold budget', () => {
+    // Was 20s, defended as "optional enrichment must not pin the tab". Wrong
+    // reasoning: LeastPrivilegeTab fetches this in a detached async IIFE that
+    // is explicitly independent of the LP list, so it cannot pin anything at
+    // any budget — the card just reads "—" until the score lands.
+    //
+    // The short budget therefore bought nothing and cost the feature: ~21.8s
+    // cold against a 20s cap meant every cold load 504'd and "Blast Radius ·
+    // IAM" silently degraded to "—", observed live in production QA.
+    expect(abortMs(read(SUMMARY))).toBe(55_000)
+  })
+
+  it('issues-summary still aborts before the platform kills it', () => {
+    const src = read(SUMMARY)
+    expect(abortMs(src)).toBeLessThan(maxDurationMs(src))
   })
 })
 

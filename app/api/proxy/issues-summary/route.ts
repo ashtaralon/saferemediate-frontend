@@ -41,8 +41,26 @@ export async function GET(req: NextRequest) {
   }
 
   const controller = new AbortController()
-  // BRSS enrichment only — must not pin the Resource Risk tab for a minute.
-  const timeoutId = setTimeout(() => controller.abort(), 20_000)
+  // 55s, the house cold-build budget for a maxDuration=60 route.
+  //
+  // Was 20s, defended on the grounds that BRSS enrichment "must not pin the
+  // Resource Risk tab for a minute". That reasoning does not survive contact
+  // with the caller: LeastPrivilegeTab fetches this in its own detached async
+  // IIFE, explicitly independent of the LP list ("Fetch BRSS in parallel —
+  // independent from LP data, so failures don't block the main list view").
+  // It cannot pin the tab at ANY budget. Until the score arrives the card
+  // simply reads "—".
+  //
+  // So the short budget bought nothing and cost the feature: measured against
+  // production 2026-08-01 this endpoint takes ~0.7-1.8s warm but ~21.8s cold,
+  // i.e. just over the old cap. Every cold load 504'd and "Blast Radius · IAM"
+  // silently rendered "—" — observed live during E2E QA.
+  //
+  // Contrast resource-risk/by-system, which stays at 12s: that one backs the
+  // Trust Exposure panel, which renders its own spinner while waiting, so a
+  // long budget there really does look hung. The distinction is whether a
+  // visible element waits on the response, not whether the fetch is "optional".
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const backendUrl = systemName
