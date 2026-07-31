@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout for analysis
+    const timeoutId = setTimeout(() => controller.abort(), 55_000) // 60 second timeout for analysis
 
     const backendUrl = `${BACKEND_URL}/api/security-groups/scan-v2`
 

@@ -22,7 +22,7 @@ export async function GET(
 
   const controller = new AbortController()
   // stage-preview calls lambda.get_function per consumer — may be slow.
-  const timeoutId = setTimeout(() => controller.abort(), 60000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
   try {
     const res = await fetch(backendUrl, { cache: "no-store", signal: controller.signal })
     clearTimeout(timeoutId)

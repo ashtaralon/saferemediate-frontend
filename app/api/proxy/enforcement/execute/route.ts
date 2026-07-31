@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 
+// Abort fires at 295s, 5s under this, so the catch
+// block still runs and can degrade honestly instead of the platform
+// returning a raw 504. Above the 60s project default in vercel.json,
+// which this export overrides.
+export const maxDuration = 300
+
 const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
 
@@ -12,7 +18,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 min timeout for enforcement
+    const timeoutId = setTimeout(() => controller.abort(), 295_000) // 5 min timeout for enforcement
 
     const response = await fetch(backendUrl, {
       method: "POST",

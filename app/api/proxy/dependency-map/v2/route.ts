@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     // Create abort controller with longer timeout for cold starts
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 55_000) // 60 second timeout
 
     const res = await fetch(backendUrl, {
       method: "GET",

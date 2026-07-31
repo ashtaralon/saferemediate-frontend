@@ -36,7 +36,7 @@ function dedupeResources(resources: any[]): any[] {
 
 export async function GET(req: NextRequest) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 60000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const roleFilter = req.nextUrl.searchParams.get("role_filter") || ""

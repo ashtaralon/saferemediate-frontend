@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 25_000) // 30 second timeout
 
     const backendUrl = `${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`
 

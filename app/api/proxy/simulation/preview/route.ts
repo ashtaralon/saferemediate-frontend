@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     console.log(`[Simulation Preview Proxy] Previewing removal of ${remove_actions.length} actions from role: ${role_arn}`)
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000)
+    const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
     // First, get current permissions if recommended_permissions not provided
     let recommendedPerms = recommended_permissions

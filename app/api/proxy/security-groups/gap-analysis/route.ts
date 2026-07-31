@@ -5,6 +5,12 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
+// Abort fires at 120s, 5s under this, so the catch
+// block still runs and can degrade honestly instead of the platform
+// returning a raw 504. Above the 60s project default in vercel.json,
+// which this export overrides.
+export const maxDuration = 125
+
 const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
 
