@@ -3,9 +3,14 @@ import {
   backendError,
   fromCaughtError,
 } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
-const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+// Canonical resolver (BACKEND_URL_OVERRIDE → Render prod), same as the sibling
+// resource-risk/by-system proxy this tab also calls. The URL was hardcoded
+// here, so a local backend could not serve the Resource Risk list at all —
+// the one endpoint the tab cannot render without. Prod behaviour is unchanged:
+// with no override set the resolver returns the same Render URL, and it
+// fail-fasts if a Vercel deploy ever resolves to localhost.
 
 export const maxDuration = 60
 
@@ -54,7 +59,7 @@ export async function GET(req: NextRequest) {
     params.set("observationDays", observationDays)
     if (forceRefresh) params.set("force_refresh", "true")
 
-    const res = await fetch(`${BACKEND_URL}/api/least-privilege/issues?${params.toString()}`, {
+    const res = await fetch(`${getBackendBaseUrl()}/api/least-privilege/issues?${params.toString()}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       signal: controller.signal,
