@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     console.log("[proxy] remediation/simulate request:", JSON.stringify(body))
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 55_000) // 60 second timeout
 
     const backendUrl = `${BACKEND_URL}/api/remediation/simulate`
     console.log("[proxy] remediation/simulate -> " + backendUrl)

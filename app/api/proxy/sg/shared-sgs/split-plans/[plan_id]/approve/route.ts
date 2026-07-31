@@ -17,7 +17,7 @@ export async function POST(
   const backendUrl = `${BACKEND_URL}/api/sg/shared-sgs/split-plans/${encodeURIComponent(plan_id)}/approve`
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 60000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
   try {
     const res = await fetch(backendUrl, {
       method: "POST",

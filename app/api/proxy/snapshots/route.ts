@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
     console.log("[proxy] create snapshot for SG:", body.sg_id)
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000)
+    const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
     const response = await fetch(`${BACKEND_URL}/api/remediation/snapshot`, {
       method: "POST",

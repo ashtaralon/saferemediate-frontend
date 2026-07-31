@@ -9,7 +9,7 @@ export async function GET(
   context: { params: Promise<{ systemName: string }> }
 ) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 28000)
+  const timeoutId = setTimeout(() => controller.abort(), 25_000)
 
   try {
     const { systemName } = await context.params

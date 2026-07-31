@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 28000)
+  const timeoutId = setTimeout(() => controller.abort(), 25_000)
 
   try {
     const res = await fetch(

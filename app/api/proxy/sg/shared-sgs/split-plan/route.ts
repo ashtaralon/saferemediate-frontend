@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (body === null) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 60000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
   try {
     const res = await fetch(backendUrl, {
       method: "POST",

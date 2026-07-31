@@ -11,9 +11,10 @@ export async function GET() {
   const backendUrl = "https://saferemediate-backend-f.onrender.com"
 
   try {
-    // Add timeout to prevent hanging - 28 seconds for slow backend (safe under Vercel 30s limit)
+    // 25s, 5s under the 30s maxDuration below. Was 28s, which left only 2s
+    // for the catch block to serialise its fallback response.
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 28000)
+    const timeoutId = setTimeout(() => controller.abort(), 25_000)
 
     const response = await fetch(`${backendUrl}/api/dashboard/metrics`, {
       headers: { "Content-Type": "application/json" },

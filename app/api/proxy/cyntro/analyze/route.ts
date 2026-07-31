@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
 async function handleAnalyze(body: { role_name: string; days?: number }) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 300000)
+  const timeoutId = setTimeout(() => controller.abort(), 295_000)
 
   try {
     const { role_name } = body

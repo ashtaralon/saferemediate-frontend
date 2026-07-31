@@ -22,7 +22,7 @@ export async function GET(
   const url = `${BACKEND_URL}/api/iam/shared-roles/${encodeURIComponent(decoded)}/narrowing-diff`
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 60000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const res = await fetch(url, { cache: "no-store", signal: controller.signal })

@@ -31,7 +31,7 @@ export async function POST(
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 60000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const res = await fetch(backendUrl, {

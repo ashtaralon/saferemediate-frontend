@@ -19,7 +19,7 @@ export async function GET(
   const backendUrl = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/path/${encodeURIComponent(pathId)}/node/${encodeURIComponent(nodeId)}/damage-scope`
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 60_000)
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
     const res = await fetch(backendUrl, {

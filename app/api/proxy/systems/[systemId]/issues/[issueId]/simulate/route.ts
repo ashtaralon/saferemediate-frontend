@@ -115,7 +115,7 @@ export async function POST(
     }
 
     // Call backend /api/simulate endpoint
-    timeoutId = setTimeout(() => controller.abort(), 28000) // 28s timeout (safe under Vercel 30s limit)
+    timeoutId = setTimeout(() => controller.abort(), 25_000) // 28s timeout (safe under Vercel 30s limit)
     
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",

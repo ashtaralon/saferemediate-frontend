@@ -8,7 +8,7 @@ const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(req: NextRequest) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 300000)
+  const timeoutId = setTimeout(() => controller.abort(), 295_000)
 
   try {
     const body = await req.json()
