@@ -197,7 +197,8 @@ const summaryCount = (summary: Record<string, unknown> | undefined, ...keys: str
 
 interface LeastPrivilegeSummary {
   totalResources: number
-  totalExcessPermissions: number
+  /** null = backend did not report the count (unknown), distinct from 0 (clean). */
+  totalExcessPermissions: number | null
   avgLPScore: number
   iamIssuesCount: number
   networkIssuesCount: number
@@ -745,7 +746,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const transformed: LeastPrivilegeResponse = {
         summary: {
           totalResources: result.resources?.length || 0,
-          totalExcessPermissions: result.summary?.totalExcessPermissions || 0,
+          totalExcessPermissions:
+            typeof result.summary?.totalExcessPermissions === 'number'
+              ? result.summary.totalExcessPermissions
+              : null,
           avgLPScore: result.resources?.length > 0 
             ? result.resources.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / result.resources.length
             : 100,
@@ -782,9 +786,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
             allowedCount: r.allowedCount || 0,
-            usedCount: r.usedCount ?? 0,
-            gapCount: r.gapCount ?? 0,
-            gapPercent: r.gapPercent ?? 0,
+            // Preserve null. A role whose usage was never computed and a role
+            // measured as fully-used are different facts; collapsing null→0
+            // renders "0 unused / 0%" for both, which reads as "clean" for a
+            // row we simply never measured. GapResource types these nullable
+            // already; the row cells render "not measured" for null.
+            usedCount: r.usedCount ?? null,
+            gapCount: r.gapCount ?? null,
+            gapPercent: r.gapPercent ?? null,
             blastRadius: r.blastRadius ?? r.blast_radius ?? undefined,
             networkExposure: networkExposure ? {
               score: networkExposure.score || 0,
@@ -985,8 +994,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         usedCount: secureRules,
         unusedCount: exposedRules,
         total: totalRules,
-        gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0
+        gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0,
+        measured: true,
       }
+    }
+
+    // Usage was never computed for this row — the backend sends null rather
+    // than 0 (see PR #519's usage_not_computed path). Report that as its own
+    // state instead of a 0/0/0% that reads as "measured and clean".
+    if (resource.usedCount === null && resource.gapCount === null) {
+      return { usedCount: null, unusedCount: null, total: resource.allowedCount || 0, gapPct: null, measured: false }
     }
 
     const used = resource.usedCount ?? 0
@@ -999,7 +1016,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       usedCount: used,
       unusedCount: unused,
       total,
-      gapPct: Math.round((unused / total) * 100)
+      gapPct: Math.round((unused / total) * 100),
+      measured: true,
     }
   }
 
@@ -1026,8 +1044,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   const getRowMetricDisplay = (
     resource: GapResource,
-    metrics: { gapPct: number; unusedCount: number },
+    metrics: { gapPct: number | null; unusedCount: number | null; measured?: boolean },
   ): RowMetricDisplay => {
+    // Never measured — say so rather than rendering a computed-looking 0%.
+    if (metrics.measured === false) {
+      return {
+        kind: 'na',
+        title:
+          'Usage not computed for this resource — no evidence was collected in the '
+          + 'observation window. This is not the same as "no unused permissions".',
+      }
+    }
     const t = resource.resourceType
     const sev = (resource.severity || '').toUpperCase()
     const violations = resource.evidence?.violatedRules?.length ?? 0
@@ -1090,7 +1117,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       if (sev === 'CRITICAL' || sev === 'HIGH') return { kind: 'na' }
     }
 
-    return { kind: 'percent', pct: metrics.gapPct }
+    return { kind: 'percent', pct: metrics.gapPct ?? 0 }
   }
 
   const isIamEscalationRule = (rule: string | undefined): boolean =>
@@ -1122,13 +1149,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return acc
     }, { critical: 0, high: 0, medium: 0, low: 0 } as Record<LpSeverityBucket, number>)
 
-    const totalExcessPermissions = activeResources.reduce((total, resource) => {
-      const metrics = getUsageMetricsForResource(resource)
-      return total + metrics.unusedCount
-    }, 0)
+    // Unmeasured rows contribute nothing to the excess-permission total — but
+    // they must not let the total read as authoritative either. If every active
+    // row is unmeasured we report null (unknown) rather than a confident 0.
+    const measuredResources = activeResources.filter(
+      (resource) => getUsageMetricsForResource(resource).measured !== false,
+    )
+    const totalExcessPermissions = measuredResources.length === 0 && activeResources.length > 0
+      ? null
+      : measuredResources.reduce((total, resource) => {
+          const metrics = getUsageMetricsForResource(resource)
+          return total + (metrics.unusedCount ?? 0)
+        }, 0)
 
     const avgLPScore = resources.length > 0
-      ? resources.reduce((total, resource) => total + (100 - getUsageMetricsForResource(resource).gapPct), 0) / resources.length
+      ? resources.reduce((total, resource) => total + (100 - (getUsageMetricsForResource(resource).gapPct ?? 0)), 0) / resources.length
       : 100
 
     const confidenceLevel = resources.length > 0
@@ -1136,7 +1171,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       : previousSummary.confidenceLevel
 
     const attackSurfaceReduction = resources.length > 0
-      ? resources.reduce((total, resource) => total + getUsageMetricsForResource(resource).gapPct, 0) / resources.length
+      ? resources.reduce((total, resource) => total + (getUsageMetricsForResource(resource).gapPct ?? 0), 0) / resources.length
       : 0
 
     return {
@@ -1655,7 +1690,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   // (C) Resources exist but all have gap == 0. This IS the clean path.
   // Render before the table so the operator sees the conclusion first.
-  if (data.resources.length > 0 && (data.summary?.totalExcessPermissions ?? 0) === 0) {
+  //
+  // The guard requires POSITIVE evidence of cleanliness, not merely the
+  // absence of a number: `?? 0` turned a backend that omitted the field into
+  // a full-page green "all permissions in scope are observed in use" printed
+  // over real gaps. Claim clean only when the backend actually reported the
+  // count AND no row is unmeasured — an unmeasured row is unknown, not clean.
+  const reportedExcess = data.summary?.totalExcessPermissions
+  const hasUnmeasuredRow = data.resources.some(
+    (r) => r.usedCount === null && r.gapCount === null,
+  )
+  if (
+    data.resources.length > 0 &&
+    typeof reportedExcess === 'number' &&
+    reportedExcess === 0 &&
+    !hasUnmeasuredRow
+  ) {
     return (
       <div className="space-y-6">
         <TrustDormancyLens systemName={systemName} />
@@ -1900,7 +1950,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             <TrendingDown className="w-5 h-5" style={{ color: "#f97316" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Excess Permissions</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{summary.totalExcessPermissions.toLocaleString()}</div>
+          <div
+            className="text-2xl font-bold"
+            style={{ color: summary.totalExcessPermissions === null ? "var(--text-muted)" : "#f97316" }}
+            title={summary.totalExcessPermissions === null ? "Backend did not report this count" : undefined}
+          >
+            {summary.totalExcessPermissions === null ? '—' : summary.totalExcessPermissions.toLocaleString()}
+          </div>
         </div>
         {(() => {
           // BRSS family-scoped score for IAM — replaces the legacy avg-gap "LP Score".
@@ -2326,22 +2382,35 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         })()}
                       </div>
 
-                      {/* Used — IAM permission-gap rows only */}
-                      <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                        {isPermissionGapRow(resource) ? metrics.usedCount : '—'}
+                      {/* Used — IAM permission-gap rows only.
+                          metrics.measured === false means usage was never
+                          computed; render "?" not a number, so an unmeasured
+                          row can't be mistaken for a measured-clean one. */}
+                      <div
+                        className="text-center text-sm font-medium"
+                        style={{ color: metrics.measured === false ? "var(--text-muted)" : "var(--text-primary)" }}
+                        title={metrics.measured === false ? 'Usage not computed — no evidence collected' : undefined}
+                      >
+                        {!isPermissionGapRow(resource) ? '—' : metrics.measured === false ? '?' : metrics.usedCount}
                       </div>
 
                       {/* Unused — IAM permission-gap rows only */}
                       <div
                         className="text-center text-sm font-medium"
                         style={{
-                          color: isPermissionGapRow(resource)
-                            ? (metrics.unusedCount > 0 ? '#ef4444' : '#22c55e')
-                            : 'var(--text-muted)',
+                          color: !isPermissionGapRow(resource) || metrics.measured === false
+                            ? 'var(--text-muted)'
+                            : ((metrics.unusedCount ?? 0) > 0 ? '#ef4444' : '#22c55e'),
                         }}
-                        title={isPermissionGapRow(resource) ? undefined : 'Not a permission-gap row'}
+                        title={
+                          !isPermissionGapRow(resource)
+                            ? 'Not a permission-gap row'
+                            : metrics.measured === false
+                              ? 'Usage not computed — this is unknown, not zero'
+                              : undefined
+                        }
                       >
-                        {isPermissionGapRow(resource) ? metrics.unusedCount : '—'}
+                        {!isPermissionGapRow(resource) ? '—' : metrics.measured === false ? '?' : metrics.unusedCount}
                       </div>
 
                       {/* Blast Radius — breach impact (v1.1). Shows score · band · confidence. */}
@@ -2418,7 +2487,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           </h4>
                           <div className="flex items-center gap-3 mb-2">
                             <span className="text-3xl font-bold" style={{ color: "#10b981" }}>
-                              {metrics.gapPct === 0 ? '100%' : `${100 - metrics.gapPct}%`}
+                              {metrics.gapPct === null ? '—' : metrics.gapPct === 0 ? '100%' : `${100 - metrics.gapPct}%`}
                             </span>
                             <span className="text-xs font-medium" style={{ color: "#10b981" }}>Compliant</span>
                           </div>
@@ -2593,16 +2662,32 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 <span>{(resource.evidence?.violatedRules ?? []).filter(v => v.severity === 'MEDIUM' || v.severity === 'LOW').length} review</span>
                               </div>
                             </>
+                          ) : metrics.measured === false ? (
+                            // Usage was never computed. Rendering the normal
+                            // panel here would print "0% Over-Privileged / All N
+                            // permissions are in active use" over a resource we
+                            // never measured — the exact claim we cannot make.
+                            <>
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className="text-3xl font-bold" style={{ color: "var(--text-muted)" }}>?</span>
+                                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Usage not computed</span>
+                              </div>
+                              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                                {metrics.total} permission{metrics.total === 1 ? '' : 's'} allowed. No usage evidence was
+                                collected for this resource in the observation window, so Cyntro cannot say which are
+                                unused. This is <strong>unknown</strong>, not zero — sync usage evidence before remediating.
+                              </p>
+                            </>
                           ) : (
                             <>
                               <div className="flex items-center gap-3 mb-2">
                                 <span className="text-3xl font-bold" style={{ color: sevColor }}>
-                                  {metrics.gapPct}%
+                                  {metrics.gapPct ?? 0}%
                                 </span>
                                 <span className="text-xs font-medium" style={{ color: sevColor }}>Over-Privileged</span>
                               </div>
                               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                                {metrics.unusedCount > 0
+                                {(metrics.unusedCount ?? 0) > 0
                                   ? (resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence && metrics.usedCount === 0))
                                     ? <>{metrics.unusedCount} of {metrics.total} permissions have <strong style={{ color: "#f97316" }}>no observed usage</strong> — insufficient data to confirm</>
                                     : <>{metrics.unusedCount} of {metrics.total} permissions never used — only <strong style={{ color: "#22c55e" }}>{metrics.usedCount}</strong> needed</>
@@ -2611,17 +2696,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               </p>
                               {/* Visual bar: green (used) vs red (unused) */}
                               <div className="h-3 rounded-full overflow-hidden flex" style={{ background: "var(--bg-primary)" }}>
-                                {metrics.usedCount > 0 && (
+                                {(metrics.usedCount ?? 0) > 0 && (
                                   <div className="h-full rounded-l-full" style={{
-                                    width: `${Math.max(((metrics.usedCount / Math.max(1, metrics.total)) * 100), 4)}%`,
+                                    width: `${Math.max((((metrics.usedCount ?? 0) / Math.max(1, metrics.total)) * 100), 4)}%`,
                                     background: '#22c55e'
                                   }} />
                                 )}
-                                {metrics.unusedCount > 0 && (
+                                {(metrics.unusedCount ?? 0) > 0 && (
                                   <div className="h-full" style={{
-                                    width: `${(metrics.unusedCount / Math.max(1, metrics.total)) * 100}%`,
+                                    width: `${((metrics.unusedCount ?? 0) / Math.max(1, metrics.total)) * 100}%`,
                                     background: '#ef4444',
-                                    borderRadius: metrics.usedCount > 0 ? '0 9999px 9999px 0' : '9999px'
+                                    borderRadius: (metrics.usedCount ?? 0) > 0 ? '0 9999px 9999px 0' : '9999px'
                                   }} />
                                 )}
                               </div>
@@ -2658,7 +2743,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           )}
                           {resource.resourceType === 'IAMRole' && (!resource.highRiskUnused || resource.highRiskUnused.length === 0) && (
                             <div className="space-y-2">
-                              {metrics.unusedCount > 0 ? (
+                              {(metrics.unusedCount ?? 0) > 0 ? (
                                 <>
                                   <div className="text-xs font-medium" style={{ color: sevColor }}>
                                     {metrics.unusedCount} of {metrics.total} permissions unused ({metrics.gapPct}% gap)
@@ -2676,6 +2761,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                     </div>
                                   )}
                                 </>
+                              ) : metrics.measured === false ? (
+                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                  Usage not computed — Cyntro has no evidence for this role in the observation window.
+                                </p>
                               ) : (
                                 <p className="text-xs" style={{ color: "#22c55e" }}>All permissions are in use.</p>
                               )}
