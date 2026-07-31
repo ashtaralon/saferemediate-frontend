@@ -1,4 +1,13 @@
 /// <reference types="vitest/globals" />
+
+// Marks this file a MODULE. Without an import or export, TypeScript
+// treats a .ts file as a SCRIPT and its top-level declarations become
+// GLOBAL — so two test files that both declare a helper named `Row` or
+// `isRemediated` collide, and tsc reports the error against BOTH. These
+// replica-style tests deliberately re-declare small local types, so they
+// must each be scoped.
+export {}
+
 /**
  * Resource Risk remediability / remediated badge contract
  * =======================================================

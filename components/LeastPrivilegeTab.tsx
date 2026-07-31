@@ -1233,7 +1233,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
     const activeResources = resources.filter(resource => !isRemediatedResource(resource))
-    const severityCounts = activeResources.reduce((acc, resource) => {
+    // Honour the aggregator's own visibility flag, matching what the backend
+    // summary already does. An unmeasured row carries a PLACEHOLDER severity
+    // of LOW — set upstream so escalation primitives have a baseline to lift
+    // from, not because anyone assessed it as low risk — together with
+    // countsTowardSummary=false. Counting it would report four roles nobody
+    // could read as four low-severity findings.
+    //
+    // Verified against production: the backend reports lowCount=1 while five
+    // rows carry severity LOW; the four unmeasured ones are excluded there.
+    // This recompute runs after dismiss/remediate, so without the filter the
+    // count silently changed from 1 to 5 on the user's first action.
+    const countableResources = activeResources.filter(
+      (resource) => resource.countsTowardSummary !== false,
+    )
+    const severityCounts = countableResources.reduce((acc, resource) => {
       const bucket = normalizeLpSeverity(resource.severity)
       acc[bucket] += 1
       return acc
@@ -1874,12 +1888,28 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // (case-insensitive). The frontend must not re-derive severity from
   // gapPercent — a bucket flagged CRITICAL for a public-read policy has
   // gapPercent=0 yet must render CRITICAL, not Low.
+  // A row whose usage was never computed carries a PLACEHOLDER severity of
+  // LOW. It is set upstream so escalation primitives have a baseline to lift
+  // from (INFO floors them too low and makes the mapper drop the row) — not
+  // because anything assessed the role as low risk. Rendering it as "Low"
+  // told the operator the opposite of the truth about four roles we could not
+  // read, next to USED / UNUSED / BLAST RADIUS all showing "?".
+  //
+  // Corrected here rather than on the wire: `Severity` is a closed enum
+  // (CRITICAL/HIGH/MEDIUM/LOW) that :LPFinding validates against, so a new
+  // value would fail Pydantic — and normalizeLpSeverity falls back to 'low'
+  // for anything unrecognised, so it would render as Low regardless. The
+  // honest signal already on the wire is `usageMeasured`.
+  const isUnassessed = (resource: GapResource) => resource.usageMeasured === false
+
   const getSeverityColor = (resource: GapResource) => {
     if (isRemediated(resource)) return '#10b981'
+    if (isUnassessed(resource)) return '#6b7280'  // neutral grey, as for an unscoreable blast radius
     return lpSeverityColor(resource.severity)
   }
   const getSeverityLabel = (resource: GapResource) => {
     if (isRemediated(resource)) return 'Remediated'
+    if (isUnassessed(resource)) return 'Not assessed'
     return lpSeverityLabel(resource.severity)
   }
   // ── Blast Radius (v1.1) colour + confidence helpers ──
