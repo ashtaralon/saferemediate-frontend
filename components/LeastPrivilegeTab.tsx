@@ -727,11 +727,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
       const url = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`
-      // Cold Render regularly 504s the first hit; retry before hard-failing
-      // the whole Resource Risk tab (same pattern as Trust Exposure).
-      // One quick retry only — long backoffs stacked on Render 502 (~40s)
-      // made Resource Risk feel multi-minute. Prefer fail-fast + stale proxy.
-      const retryDelaysMs = [1000, 2500]
+      // Retry 503 (Render still booting — it answers instantly, so a retry is
+      // nearly free and usually works). Do NOT retry 504.
+      //
+      // A 504 here means the proxy's own 55s budget was exhausted. Retrying
+      // that with an identical budget cannot succeed: the previous 25s budget
+      // was shorter than a 32s cold start, so all three attempts timed out by
+      // construction — ~78s of spinner and then a hard error on a backend that
+      // was merely cold. The cold path is now covered by the budget itself,
+      // which is where it belongs; retrying is for the fast-failing case only.
+      const retryDelaysMs = [1000]
       let response: Response | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
@@ -739,8 +744,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
-        const retryable =
-          response.status === 503 || response.status === 504
+        const retryable = response.status === 503
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }
