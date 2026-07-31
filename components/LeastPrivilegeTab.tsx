@@ -3037,30 +3037,46 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
                       {/* Badges row */}
                       <div className="flex items-center gap-3 mt-4">
-                        {resource.resourceType === 'IAMRole' && resource.allowedCount === 0 && (
+                        {/* Use the hardened predicate the rest of this file already
+                            uses for row routing, status colour and status label.
+                            The raw `allowedCount === 0` re-implementation missed its
+                            two guards: allowedCount fails open to 0 in the transform,
+                            and a role with open violatedRules is deliberately kept in
+                            active inventory — so a role with unresolved findings could
+                            show a green "Fully Remediated" on the same card. Green
+                            reads as "you're done here", which is a worse false claim
+                            than the orange one removed in #488. */}
+                        {isRemediatedResource(resource) && (
                           <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#10b98120", color: "#10b981" }}>
                             Fully Remediated
                           </span>
                         )}
-                        {/* Was: `isRemediable === false` -> "AWS Managed".
-                            "AWS Managed" is a claim about OWNERSHIP, true only of an
-                            IAM service-linked role — and those are filtered out of
-                            this list entirely (see the isServiceLinkedRole filter in
-                            the transform), so the label could never be legitimately
-                            earned here. Meanwhile `remediable: false` means at least
-                            three unrelated things on this endpoint: an RDS instance
-                            that is not publicly accessible (nothing to flip), a
-                            Lambda finding (no remediation engine yet, advisory), and
-                            an IAM role whose permission sync failed. Until this
-                            commit the branch was unreachable because isRemediable was
-                            hardcoded true; reading the backend's `remediable` made it
-                            fire, telling operators their own RDS instance was
-                            Amazon's. State what is actually known instead. */}
+                        {/* Was: `isRemediable === false` -> "AWS Managed", an
+                            OWNERSHIP claim true only of an IAM service-linked role.
+                            SLRs genuinely cannot reach this list — but note the
+                            exclusion happens in the BACKEND (api/least_privilege.py
+                            skips AWSServiceRoleFor* / /aws-service-role/), NOT in the
+                            frontend: the transform's isServiceLinkedRole filter is a
+                            no-op, because no backend row carries that key, so it
+                            always reads false and removes nothing. An earlier version
+                            of this comment credited that filter, which would have led
+                            the next reader to trust defence-in-depth that does not
+                            exist.
+
+                            `remediable: false` means at least three unrelated things
+                            here — an RDS instance that is not publicly accessible
+                            (nothing to flip), a Lambda finding (no engine yet), and an
+                            IAM role whose permission sync failed — so the chip states
+                            only what is actually known. It carries no backend reason
+                            because `remediableReason` is emitted solely by the
+                            per-role gap-analysis endpoint, never by this list; the
+                            copy below is the honest generic, not a fallback that a
+                            real reason would replace. */}
                         {resource.isRemediable === false && (
                           <span
                             className="px-2 py-0.5 rounded text-xs font-semibold"
-                            style={{ background: "#64748b20", color: "#64748b" }}
-                            title={resource.remediableReason || 'The backend reported no automated remediation path for this finding.'}
+                            style={{ background: "#475569", color: "#f8fafc" }}
+                            title="No automated remediation path for this finding — it needs a manual change."
                           >
                             Not auto-remediable
                           </span>
