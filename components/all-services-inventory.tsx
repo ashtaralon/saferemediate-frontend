@@ -902,13 +902,19 @@ export default function AllServicesInventory({ systemName }: Props) {
                             <dd className="text-slate-900 font-bold">{selectedService.lpScore}%</dd>
                           </div>
                         )}
-                        {selectedService.usedCount !== undefined && (
+                        {/* `!= null` (loose) rather than `!== undefined`: null
+                            passes the strict check, and React renders it as
+                            nothing — so the row appeared with its "Used
+                            Permissions" label and a blank value beside it.
+                            Omitting the row is the honest render for a count
+                            that was never measured. */}
+                        {selectedService.usedCount != null && (
                           <div className="flex justify-between">
                             <dt className="text-slate-500">Used Permissions</dt>
                             <dd className="text-[#22c55e]">{selectedService.usedCount}</dd>
                           </div>
                         )}
-                        {selectedService.gapCount !== undefined && (
+                        {selectedService.gapCount != null && (
                           <div className="flex justify-between">
                             <dt className="text-slate-500">Unused Permissions</dt>
                             <dd className="text-[#ef4444]">{selectedService.gapCount}</dd>

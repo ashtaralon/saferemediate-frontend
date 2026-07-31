@@ -767,9 +767,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             typeof result.summary?.totalExcessPermissions === 'number'
               ? result.summary.totalExcessPermissions
               : null,
-          avgLPScore: result.resources?.length > 0 
-            ? result.resources.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / result.resources.length
-            : 100,
+          // Averaged over MEASURED rows only. `100 - null` is 100, so an
+          // unmeasured row used to drag the fleet average toward perfect —
+          // the more roles we failed to measure, the healthier we looked.
+          avgLPScore: (() => {
+            const measured = (result.resources || []).filter(
+              (r: any) => typeof r.gapPercent === 'number',
+            )
+            if (measured.length === 0) return 100
+            return measured.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / measured.length
+          })(),
           iamIssuesCount: summaryCount(result.summary, 'iamIssuesCount', 'iamCount'),
           networkIssuesCount: summaryCount(result.summary, 'networkIssuesCount', 'sgCount'),
           s3IssuesCount: summaryCount(result.summary, 's3IssuesCount', 's3Count'),
@@ -779,9 +786,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           lowCount: summaryCount(result.summary, 'lowCount', 'low'),
           confidenceLevel: result.summary?.confidenceLevel || 0,
           observationDays: result.observationDays || 90,
-          attackSurfaceReduction: result.resources?.length > 0
-            ? result.resources.reduce((acc: number, r: any) => acc + r.gapPercent, 0) / result.resources.length
-            : 0
+          // Same treatment: `+ null` is `+ 0`, which silently diluted the mean
+          // with rows that were never measured rather than measured at zero.
+          attackSurfaceReduction: (() => {
+            const measured = (result.resources || []).filter(
+              (r: any) => typeof r.gapPercent === 'number',
+            )
+            if (measured.length === 0) return 0
+            return measured.reduce((acc: number, r: any) => acc + r.gapPercent, 0) / measured.length
+          })()
         },
         resources: (result.resources || []).map((r: any) => {
           // For Security Groups, use networkExposure instead of lpScore
@@ -801,7 +814,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             findingClass: r.findingClass ?? r.finding_class,
             countsTowardSummary: r.countsTowardSummary ?? r.counts_toward_summary,
             // For Security Groups: lpScore is null, use networkExposure instead
-            lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
+            // `!== undefined` lets null through, and `100 - null` is 100 — so a
+            // role whose usage was never measured rendered as a PERFECT LP
+            // score. That is the precise green-checkmark lie the unknown-vs-zero
+            // work exists to remove. Unmeasured must stay null all the way to
+            // the cell, which already renders it as "not measured".
+            lpScore: r.lpScore ?? (typeof r.gapPercent === 'number' ? 100 - r.gapPercent : null),
             allowedCount: r.allowedCount || 0,
             // Preserve null. A role whose usage was never computed and a role
             // measured as fully-used are different facts; collapsing null→0
@@ -4248,7 +4266,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         )}
         <p className="text-sm text-[var(--foreground,#374151)]">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
-          In <strong>{resource.evidence?.observationDays || 0} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
+          In <strong>{resource.evidence?.observationDays || 0} days</strong> of observation, only <strong>{resource.usedCount ?? 0} were used</strong>.
           The other <strong>{resource.gapCount ?? 0} ({(resource.gapPercent ?? 0).toFixed(0)}%)</strong> are your attack surface.
         </p>
       </div>

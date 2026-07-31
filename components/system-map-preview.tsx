@@ -168,9 +168,14 @@ export default function SystemMapPreview({ systemName }: { systemName: string })
       buckets[classifyColumn(n.type)].push(n)
     }
 
-    // Sort each column: highest severity first, then by gapCount desc
+    // Sort each column: highest severity first, then by gapCount desc.
+    // `b.gapCount - a.gapCount` coerces null to 0, so a resource whose usage
+    // was never measured sorted as though it were clean — buried at the bottom
+    // of the column, which is the one place an operator will not look for it.
+    // Unmeasured sorts adjacent to its severity peers instead of below them.
+    const gapOf = (n: GraphNode) => (typeof n.gapCount === 'number' ? n.gapCount : -1)
     const sort = (arr: GraphNode[]) =>
-      arr.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || b.gapCount - a.gapCount)
+      arr.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || gapOf(b) - gapOf(a))
 
     sort(buckets.identity)
     sort(buckets.network)
