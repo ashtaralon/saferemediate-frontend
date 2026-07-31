@@ -218,12 +218,18 @@ interface LeastPrivilegeResponse {
   timestamp: string
   fromCache?: boolean
   cacheAge?: number
+  /** Proxy fell back to the last good response after a live-fetch failure. */
+  fromStaleCache?: boolean
+  /** Why the stale fallback happened, e.g. "timeout" / "backend_502". */
+  staleReason?: string
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
   const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** Progress note shown on the loading screen (e.g. retry-in-progress). */
+  const [loadingNote, setLoadingNote] = useState<string | null>(null)
   const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [simulating, setSimulating] = useState(false)
@@ -653,7 +659,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   useEffect(() => {
-    fetchGaps()
+    // systemName resolves after mount, so this effect runs twice (unscoped,
+    // then scoped) and both fetches used to run to completion against the
+    // expensive analyzer endpoint — two full backend computations per visit,
+    // with the loser's response still able to land in state. Abort the
+    // superseded run on cleanup.
+    const controller = new AbortController()
+    fetchGaps(false, false, controller.signal)
     // Cross-component refresh: when a remediation/rollback fires from
     // anywhere (Timeline, IAM modal, SG modal, Trust Boundary modal,
     // etc.), refetch with force_refresh=true so the proxy's 2-min
@@ -680,6 +692,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       }
     })()
     return () => {
+      controller.abort()
       unsubscribe()
     }
   }, [systemName])
@@ -688,7 +701,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
   // The /api/least-privilege/issues endpoint provides all needed data for the list view
 
-  const fetchGaps = async (showRefreshing = false, forceRefresh = false) => {
+  const fetchGaps = async (showRefreshing = false, forceRefresh = false, signal?: AbortSignal) => {
     try {
       if (showRefreshing) {
         setRefreshing(true)
@@ -714,7 +727,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       let response: Response | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
-        response = await fetch(url, { cache: 'no-store' })
+        response = await fetch(url, { cache: 'no-store', signal })
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
@@ -723,9 +736,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }
-        setError(`Backend warming up — retrying…`)
+        // Surface the retry on the LOADING screen. Setting `error` here was
+        // dead copy: `loading` is still true, and its guard returns first, so
+        // the operator saw an undifferentiated spinner through both retries.
+        setLoadingNote('Backend warming up — retrying…')
         await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]))
       }
+      setLoadingNote(null)
       if (!response?.ok) {
         throw new Error(`Backend ${response?.status}: ${lastDetail}`)
       }
@@ -901,6 +918,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         timestamp: result.timestamp || new Date().toISOString(),
         fromCache: !!result.fromCache,
         cacheAge: safeNumber(result.cacheAge, 0),
+        fromStaleCache: !!result.fromStaleCache,
+        staleReason: typeof result.staleReason === 'string' ? result.staleReason : undefined,
       }
 
       // Merge: preserve local remediation metadata (remediatedAt, snapshotId, etc.)
@@ -962,10 +981,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }
       })
     } catch (err) {
+      // A superseded fetch (systemName changed / unmount) is not a failure —
+      // rendering its abort as an error card would replace good data with
+      // "Error Loading Data" whenever the operator switches system quickly.
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      if (signal?.aborted) return
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (!signal?.aborted) {
+        setLoading(false)
+        setRefreshing(false)
+        setLoadingNote(null)
+      }
     }
   }
   
@@ -1599,6 +1626,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           <div className="text-center">
             <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
             <p style={{ color: "var(--text-secondary)" }}>Loading resource risk findings...</p>
+            {loadingNote && (
+              <p className="text-xs mt-2" style={{ color: "#f59e0b" }}>{loadingNote}</p>
+            )}
           </div>
         </div>
       </div>
@@ -1606,16 +1636,38 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   if (error) {
+    // A 504 here is usually a cold backend, not a broken one. Without a retry
+    // control the only recovery was re-navigating to the tab — the operator had
+    // to know that. Offer the retry inline and name the likely cause.
+    const isTimeout = /504|timed out|timeout/i.test(error)
     return (
       <div className="space-y-6">
         <TrustDormancyLens systemName={systemName} />
         <div className="rounded-lg border p-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
-            <div>
-              <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-6 h-6 shrink-0" style={{ color: "#ef4444" }} />
+              <div>
+                <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+                {isTimeout && (
+                  <p className="text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>
+                    The analyzer did not respond in time — usually a cold backend. Retrying often
+                    succeeds once it has warmed up. No findings are shown because none were loaded,
+                    not because none exist.
+                  </p>
+                )}
+              </div>
             </div>
+            <button
+              onClick={() => fetchGaps(false, false)}
+              disabled={refreshing}
+              className="shrink-0 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+              style={{ background: "#ef4444", color: "#fff" }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Retrying…' : 'Retry'}
+            </button>
           </div>
         </div>
       </div>
@@ -1897,11 +1949,27 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Resource Risk</h2>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               Permission gaps, posture exposure, and network rule findings
-              {data?.fromCache && (
+              {/* The proxy distinguishes a warm cache hit from a stale-serve it
+                  fell back to after the backend timed out or errored. Both used
+                  to render the same neutral "(cached Ns ago)"; a stale serve is
+                  a degraded state and has to say so. */}
+              {data?.fromStaleCache ? (
+                <span
+                  className="ml-2 text-xs font-medium"
+                  style={{ color: "#f59e0b" }}
+                  title={
+                    `Showing the last successful result because the live fetch failed`
+                    + `${data.staleReason ? ` (${data.staleReason})` : ''}. `
+                    + `Findings may have changed since. Use Refresh to retry.`
+                  }
+                >
+                  ⚠ stale{data.cacheAge ? ` — last good ${data.cacheAge}s ago` : ''}
+                </span>
+              ) : data?.fromCache ? (
                 <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
                   (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
                 </span>
-              )}
+              ) : null}
             </p>
           </div>
         </div>
