@@ -25,6 +25,7 @@ import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
+import { deriveSummaryIntegrity } from "@/lib/summary-integrity"
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -724,7 +725,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         const res = await fetch(`/api/proxy/issues-summary${sysParam}`)
         if (!res.ok) return
         const payload = await res.json()
-        if (payload?.blast_radius_score && !payload.blast_radius_score.error) {
+        // A held sweep now returns blast_radius_score with analysis_complete
+        // false and score null — and NO `error` key, so the old check passed it
+        // straight through and the card rendered a posture number composed from
+        // an unknown subset of resources. Gate on integrity, not on the absence
+        // of an error string.
+        const summaryIntegrity = deriveSummaryIntegrity(payload)
+        if (
+          summaryIntegrity.canRenderScores &&
+          payload?.blast_radius_score &&
+          !payload.blast_radius_score.error &&
+          payload.blast_radius_score.analysis_complete !== false
+        ) {
           setBrss(payload.blast_radius_score as BlastRadiusScore)
         } else {
           setBrss(null)

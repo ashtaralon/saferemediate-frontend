@@ -177,3 +177,51 @@ describe("cache gate", () => {
     expect(isCacheableSummary({ success: true, serve_state: "READY", total: 0 })).toBe(false)
   })
 })
+
+describe("score consumers — BRSS and health must be withheld when held", () => {
+  // The exact shape the backend now sends for a held sweep. Note there is NO
+  // `error` key: the old guards were `!blast_radius_score.error`, which passed
+  // this straight through and rendered a posture number composed from an
+  // unknown subset of resources.
+  const HELD_WITH_BRSS = {
+    success: true,
+    serve_state: "INTEGRITY_HELD",
+    analysis_complete: false,
+    total: null,
+    avg_health_score: null,
+    blast_radius_score: {
+      score: null,
+      analysis_complete: false,
+      serve_state: "INTEGRITY_HELD",
+      held_reason: "1 analyzer(s) did not complete (iam_role)",
+    },
+  }
+
+  it("canRenderScores is false, which is what gates both setters", () => {
+    expect(deriveSummaryIntegrity(HELD_WITH_BRSS).canRenderScores).toBe(false)
+  })
+
+  it("the held BRSS object carries no `error` key — the old guard's blind spot", () => {
+    expect(HELD_WITH_BRSS.blast_radius_score).not.toHaveProperty("error")
+    // ...so `!bs.error` is true and would have admitted it. The new condition
+    // is the one that actually excludes it.
+    expect(HELD_WITH_BRSS.blast_radius_score.analysis_complete).toBe(false)
+  })
+
+  it("Number(avg_health_score) must not be reached — null coerces to 0", () => {
+    // system-detail-dashboard guarded with `!== undefined`. null passes that,
+    // and Number(null) === 0, so "we don't know" rendered as a health score.
+    expect(HELD_WITH_BRSS.avg_health_score).toBeNull()
+    expect(HELD_WITH_BRSS.avg_health_score !== undefined).toBe(true)
+    expect(Number(HELD_WITH_BRSS.avg_health_score)).toBe(0)
+    expect(typeof HELD_WITH_BRSS.avg_health_score === "number").toBe(false)
+  })
+
+  it("a READY payload still yields its scores", () => {
+    const ok = deriveSummaryIntegrity({
+      success: true, serve_state: "READY", analysis_complete: true,
+      total: 17, avg_health_score: 71,
+    })
+    expect(ok.canRenderScores).toBe(true)
+  })
+})

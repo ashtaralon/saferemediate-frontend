@@ -66,6 +66,7 @@ import {
 } from "recharts"
 import { CoveragePill } from "@/components/brss/coverage-pill"
 import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
+import { deriveSummaryIntegrity } from "@/lib/summary-integrity"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -877,13 +878,29 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           })
           const checksCount = Number(data.resources?.total || data.total || 0)
           setTotalChecks(checksCount)
-          if (checksCount > 0 && data.avg_health_score !== undefined) {
+          // A held sweep sends avg_health_score: null. `null !== undefined` is
+          // TRUE, and `Number(null)` is 0 — so the old guard fabricated a health
+          // score of 0 out of "we don't know". Require integrity, and require
+          // the value to actually be a number.
+          const summaryIntegrity = deriveSummaryIntegrity(data)
+          if (
+            summaryIntegrity.canRenderScores &&
+            checksCount > 0 &&
+            typeof data.avg_health_score === "number"
+          ) {
             setHealthScore(Number(data.avg_health_score))
           } else {
             setHealthScore(null)
           }
-          // Blast Radius Score — only set when backend composed it successfully.
-          if (data.blast_radius_score && !data.blast_radius_score.error) {
+          // Blast Radius Score — only when the backend composed it AND the sweep
+          // that fed it was complete. A held payload carries no `error` key, so
+          // the error check alone let a partial-subset score through.
+          if (
+            summaryIntegrity.canRenderScores &&
+            data.blast_radius_score &&
+            !data.blast_radius_score.error &&
+            data.blast_radius_score.analysis_complete !== false
+          ) {
             setBrss(data.blast_radius_score as BlastRadiusScore)
           } else {
             setBrss(null)
