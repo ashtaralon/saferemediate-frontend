@@ -296,3 +296,58 @@ describe("cache recovery — a NOT_READY payload must not stick", () => {
     expect(src).toMatch(/onClick=\{retry\}/)
   })
 })
+
+describe("cached READY must not survive a failed refresh", () => {
+  // The reverse of the stuck-unavailable bug, and the more dangerous half:
+  //   cached READY exists -> refresh 502/503/504 -> useCachedFetch keeps the
+  //   cached value -> card renders 18 findings as CURRENT.
+  // The hook's error branches only act when data === null, so with cached data
+  // showing there is no error, no staleness flag, and nothing for the card to
+  // react to. Caching only READY payloads is precisely what makes this unsafe:
+  // the retained value is one that claims to be current and complete.
+  const readySrc = () =>
+    require("node:fs").readFileSync("lib/use-cached-fetch.ts", "utf8")
+  const cardSrc = () =>
+    require("node:fs").readFileSync("components/dashboard/v3/severity-donut-card.tsx", "utf8")
+
+  it("the hook offers a fail-closed mode and the card opts in", () => {
+    expect(readySrc()).toContain("failClosedOnError")
+    expect(cardSrc()).toContain("failClosedOnError: true")
+  })
+
+  it("BOTH failure branches honour it — non-2xx and thrown", () => {
+    const src = readySrc()
+    // non-2xx branch must check it BEFORE the `data === null` guard, or the
+    // guard returns first and the cached value survives.
+    const notOk = src.indexOf("if (!res.ok) {")
+    const notOkGuard = src.indexOf("if (failClosedOnError) {", notOk)
+    const notOkDataNull = src.indexOf("if (data === null) {", notOk)
+    expect(notOkGuard).toBeGreaterThan(-1)
+    expect(notOkGuard).toBeLessThan(notOkDataNull)
+
+    // thrown/network branch, same ordering. Covering only one moves the hole.
+    const caught = src.indexOf("} catch (err) {")
+    const caughtGuard = src.indexOf("if (failClosedOnError) {", caught)
+    const caughtDataNull = src.indexOf("if (data === null) {", caught)
+    expect(caughtGuard).toBeGreaterThan(-1)
+    expect(caughtGuard).toBeLessThan(caughtDataNull)
+  })
+
+  it("fail-closed clears the entry rather than only blanking state", () => {
+    // Leaving the localStorage entry would resurrect the stale READY on the
+    // next mount — the bug would come back one navigation later.
+    const src = readySrc()
+    const idx = src.indexOf("if (failClosedOnError) {")
+    const block = src.slice(idx, idx + 400)
+    expect(block).toContain("clearCachedFetch(cacheKey)")
+    expect(block).toContain("setData(null)")
+  })
+
+  it("with data null the card renders unavailable, not 18", () => {
+    // data:null -> the card's `if (!data) return null` / error path, never the
+    // READY branch. Proven at the derivation: nothing about a cached payload
+    // can make a null-data render authoritative.
+    expect(deriveSummaryIntegrity(null).canRenderAllClear).toBe(false)
+    expect(deriveSummaryIntegrity(null).canRenderScores).toBe(false)
+  })
+})

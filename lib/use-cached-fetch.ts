@@ -58,6 +58,23 @@ export interface UseCachedFetchOptions {
    * Attack Paths /jewels returning [] during a freeze).
    */
   isCacheable?: (data: unknown) => boolean
+  /**
+   * When true, an EXHAUSTED refresh discards the cached value instead of
+   * silently keeping it.
+   *
+   * Default false, which is right for most surfaces: showing 6h-old data under
+   * an "as of 6h ago" pill beats blocking the operator on a 504.
+   *
+   * It is wrong for any surface whose cached value carries AUTHORITY. The LP
+   * severity card caches a payload only when serve_state is READY — so the
+   * retained value is one that says "these counts are current and complete".
+   * A refresh that 502s does not make that less true-looking; the card would go
+   * on presenting a stale READY as authoritative with no error and no
+   * staleness signal, because this hook only surfaces errors when data is null.
+   *
+   * Opt in where a wrong-but-confident answer is worse than no answer.
+   */
+  failClosedOnError?: boolean
 }
 
 export interface UseCachedFetchResult<T> {
@@ -246,6 +263,7 @@ export function useCachedFetch<T = unknown>(
     fetchInit,
     transientRetries = 0,
     isCacheable,
+    failClosedOnError = false,
   } = options
 
   // Synchronous initial read so the first paint renders cached data
@@ -338,6 +356,19 @@ export function useCachedFetch<T = unknown>(
       }
       if (!res) return
       if (!res.ok) {
+        // Fail-closed callers discard the cached value rather than keep
+        // presenting it. The branch below only acts when data === null, so
+        // without this a cached READY survives an exhausted refresh with no
+        // error and no staleness signal — still rendering as current.
+        if (failClosedOnError) {
+          clearCachedFetch(cacheKey)
+          setData(null)
+          setIsStale(false)
+          setCachedAt(null)
+          setError(`HTTP ${res.status}`)
+          setLoading(false)
+          return
+        }
         // Only surface error when we have no cached fallback to show
         // — including older-than-maxStaleMs cache, which we can use as
         // last-resort fallback. Better to show 6h-old data with a
@@ -427,6 +458,19 @@ export function useCachedFetch<T = unknown>(
       setLoading(false)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
+      // Network/abort/parse failure. Same authority argument as the !res.ok
+      // branch above — a thrown error is no better evidence that the cached
+      // READY is still current than a 502 is. Both branches, or the hole just
+      // moves.
+      if (failClosedOnError) {
+        clearCachedFetch(cacheKey)
+        setData(null)
+        setIsStale(false)
+        setCachedAt(null)
+        setError(err instanceof Error ? err.message : String(err))
+        setLoading(false)
+        return
+      }
       if (data === null) {
         // Same fallback as the !res.ok path — try last-resort cache
         // first before erroring. Keeps the operator's screen populated
@@ -445,7 +489,7 @@ export function useCachedFetch<T = unknown>(
       // If we have cached data, swallow the error — keep showing stale.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, cacheKey, fetchInit, transientRetries, isCacheable])
+  }, [url, cacheKey, fetchInit, transientRetries, isCacheable, failClosedOnError])
 
   useEffect(() => {
     if (!url) return

@@ -65,6 +65,13 @@ export function SeverityDonutCard() {
       // A Render cold-start answers 502/503/504 for the first request and is
       // warm by the second. Without this the card needed a human to reload.
       transientRetries: 2,
+      // Cached READY + failed refresh must NOT keep presenting the cached
+      // counts as current. Without this the hook silently retains them: its
+      // error branches only act when data is null, so a stale READY survives a
+      // 502 with no error and no staleness signal. The whole point of caching
+      // only READY payloads is that the cached value carries authority — which
+      // is exactly why it cannot outlive its refresh.
+      failClosedOnError: true,
     }
   )
 
