@@ -271,3 +271,28 @@ describe("review fixtures — two holes found in the first cut", () => {
     }
   })
 })
+
+describe("cache recovery — a NOT_READY payload must not stick", () => {
+  it("isCacheableSummary is the predicate that both blocks the write and evicts on read", () => {
+    // useCachedFetch treats an existing entry as a MISS when isCacheable fails
+    // (lib/use-cached-fetch.ts). So passing this one predicate does two jobs:
+    // it stops NOT_READY being persisted, and it discards an entry written
+    // before the predicate existed. That is the recovery path — the card had
+    // no isCacheable at all, so a NOT_READY response served during a backend
+    // restart kept rendering "Analysis unavailable" after the backend returned
+    // READY with 18 findings.
+    const during_restart = { serve_state: "NOT_READY", analysis_complete: false, total: null }
+    const after_recovery = { success: true, serve_state: "READY", analysis_complete: true, total: 18 }
+    expect(isCacheableSummary(during_restart)).toBe(false)  // not written, and evicted on read
+    expect(isCacheableSummary(after_recovery)).toBe(true)   // replaces it
+  })
+
+  it("the card's own source wires the predicate and a transient retry", async () => {
+    const src = await import("node:fs").then((fs) =>
+      fs.readFileSync("components/dashboard/v3/severity-donut-card.tsx", "utf8"))
+    expect(src).toContain("isCacheable: isCacheableSummary")
+    expect(src).toContain("transientRetries")
+    // and an escape hatch from the unavailable state
+    expect(src).toMatch(/onClick=\{retry\}/)
+  })
+})

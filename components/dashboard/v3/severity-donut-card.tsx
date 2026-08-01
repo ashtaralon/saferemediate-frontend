@@ -4,7 +4,7 @@ import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, heroNumberClass } from "./styles"
-import { deriveSummaryIntegrity, summaryIntegrityCopy } from "@/lib/summary-integrity"
+import { deriveSummaryIntegrity, isCacheableSummary, summaryIntegrityCopy } from "@/lib/summary-integrity"
 
 /**
  * Issues by severity — donut chart.
@@ -52,7 +52,20 @@ const SEVERITY_COLORS = {
 export function SeverityDonutCard() {
   const { data, loading, error, retry } = useCachedFetch<IssuesSummary>(
     "/api/proxy/issues/summary",
-    { cacheKey: "issues-summary", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "issues-summary",
+      fetchInit: { cache: "no-store" },
+      // Never persist a payload we cannot vouch for, and treat any EXISTING
+      // non-READY entry as a miss on read. Without this, the NOT_READY response
+      // served during a backend restart was written to localStorage and kept
+      // rendering "Analysis unavailable" long after the backend came back
+      // READY with real counts — fail-closed, but stuck closed. The hook
+      // already evicts on a failed predicate; the card simply never passed one.
+      isCacheable: isCacheableSummary,
+      // A Render cold-start answers 502/503/504 for the first request and is
+      // warm by the second. Without this the card needed a human to reload.
+      transientRetries: 2,
+    }
   )
 
   if (loading && !data) return <LoadingCard label="LP findings by severity" />
@@ -77,6 +90,15 @@ export function SeverityDonutCard() {
           <span className="text-sm text-slate-500">not available</span>
         </div>
         <p className="text-xs text-slate-500 leading-snug">{body}</p>
+        {/* An unavailable state with no way out is a dead end: the backend
+            usually recovers on its own, but the card had no affordance to ask
+            again. */}
+        <button
+          onClick={retry}
+          className="mt-2 self-start rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Retry
+        </button>
       </Section>
     )
   }
