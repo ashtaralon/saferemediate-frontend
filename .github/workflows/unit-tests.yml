@@ -25,3 +25,12 @@ jobs:
       # resolution; regenerating it is a separate cleanup.
       - run: pnpm install --no-frozen-lockfile
       - run: npx vitest run __tests__
+
+      # Type-error ratchet. next.config.js sets ignoreBuildErrors, so the
+      # Vercel build ships regardless of type errors and nothing else stops
+      # the count growing. The two largest classes are exactly the
+      # null-safety family that caused a run of Resource Risk defects the
+      # compiler already knew about. May fall, never rise.
+      - name: tsc-ratchet
+        if: ${{ !cancelled() }}
+        run: ./scripts/check_tsc_ratchet.sh
