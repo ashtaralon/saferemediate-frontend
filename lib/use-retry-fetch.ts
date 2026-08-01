@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
 
 /**
  * useRetryFetch — fetch a JSON endpoint with exponential backoff on
@@ -33,7 +34,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
  * leak fetches).
  */
 
-const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 429, 502, 503, 504, 522, 524])
+// Canonical set — shared with useCachedFetch and the imperative Overview
+// loaders (lib/transient-retry.ts). This was a byte-identical local copy; three
+// definitions of "retryable" that drift is a bug waiting to happen.
+const TRANSIENT_HTTP_STATUSES = TRANSIENT_STATUSES
 
 export interface UseRetryFetchOptions {
   /** Maximum number of retries AFTER the initial attempt. Default 0.

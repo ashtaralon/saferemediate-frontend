@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
 
 /**
  * useCachedFetch — fetch with localStorage stale-while-revalidate (SWR).
@@ -340,7 +341,9 @@ export function useCachedFetch<T = unknown>(
     epochRef.current += 1
     const myEpoch = epochRef.current
 
-    const TRANSIENT = new Set([408, 425, 429, 502, 503, 504, 522, 524])
+    // Canonical set — shared with useRetryFetch and the imperative Overview
+    // loaders (lib/transient-retry.ts).
+    const TRANSIENT = TRANSIENT_STATUSES
     const maxAttempts = 1 + Math.max(0, transientRetries)
 
     try {
