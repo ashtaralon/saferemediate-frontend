@@ -709,6 +709,17 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     medium: 0,
     passing: 0,
   })
+  // Authority for Overview KPI cards. Initial zeros must not render as
+  // "all clear" when the proxy 5xx'd — that was the e7647ad Home QA failure.
+  type OverviewCardAuthority = "loading" | "ready" | "unavailable"
+  const [findingsPressureAuthority, setFindingsPressureAuthority] =
+    useState<OverviewCardAuthority>("loading")
+  const [accessExposureAuthority, setAccessExposureAuthority] =
+    useState<OverviewCardAuthority>("loading")
+  const [brssEmptyReason, setBrssEmptyReason] = useState<
+    "awaiting_scan" | "unavailable"
+  >("awaiting_scan")
+  const [overviewFetchError, setOverviewFetchError] = useState<string | null>(null)
 
   // Enforcement score from issues summary API (legacy, preserved during migration)
   const [healthScoreFromApi, setHealthScore] = useState<number | null>(null)
@@ -819,6 +830,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   // Fetch issues summary for severity counts
   // =============================================================================
   const fetchIssuesSummary = async () => {
+    setFindingsPressureAuthority("loading")
+    setAccessExposureAuthority("loading")
+    setOverviewFetchError(null)
+    setLoadingGap(true)
+    setGapError(null)
+
     try {
       // Fetch summary, detailed issues, AND the canonical severity-summary
       // in parallel. severity-summary reads from the SecurityFinding store
@@ -842,7 +859,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       if (severityRes.ok) {
         try {
           const sd = await severityRes.json()
-          if (!sd?.error && typeof sd?.total === "number") {
+          if (!sd?.error && typeof sd?.total === "number" && Number.isFinite(sd.total)) {
             canonicalSeverity = {
               critical: Number(sd.critical) || 0,
               high: Number(sd.high) || 0,
@@ -855,59 +872,109 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         }
       }
 
+      let summaryData: any = null
+      let summaryIntegrity = deriveSummaryIntegrity(null)
       if (summaryRes.ok) {
-        const data = await summaryRes.json()
-        console.log("[v0] Issues summary:", data)
-
-        if (data.success !== false) {
-          // Prefer canonical SecurityFinding-derived counts when present
-          const sev = canonicalSeverity ?? {
-            critical: Number(data.critical) || 0,
-            high: Number(data.high) || 0,
-            medium: Number(data.medium) || 0,
-            total:
-              (Number(data.critical) || 0) +
-              (Number(data.high) || 0) +
-              (Number(data.medium) || 0),
-          }
-          setSeverityCounts({
-            critical: sev.critical,
-            high: sev.high,
-            medium: sev.medium,
-            passing: Math.max(0, 100 - sev.critical - sev.high - sev.medium),
-          })
-          const checksCount = Number(data.resources?.total || data.total || 0)
-          setTotalChecks(checksCount)
-          // A held sweep sends avg_health_score: null. `null !== undefined` is
-          // TRUE, and `Number(null)` is 0 — so the old guard fabricated a health
-          // score of 0 out of "we don't know". Require integrity, and require
-          // the value to actually be a number.
-          const summaryIntegrity = deriveSummaryIntegrity(data)
-          if (
-            summaryIntegrity.canRenderScores &&
-            checksCount > 0 &&
-            typeof data.avg_health_score === "number"
-          ) {
-            setHealthScore(Number(data.avg_health_score))
-          } else {
-            setHealthScore(null)
-          }
-          // Blast Radius Score — only when the backend composed it AND the sweep
-          // that fed it was complete. A held payload carries no `error` key, so
-          // the error check alone let a partial-subset score through.
-          if (
-            summaryIntegrity.canRenderScores &&
-            data.blast_radius_score &&
-            !data.blast_radius_score.error &&
-            data.blast_radius_score.analysis_complete !== false
-          ) {
-            setBrss(data.blast_radius_score as BlastRadiusScore)
-          } else {
-            setBrss(null)
-          }
-          // Same payload drives the gap card — avoid a second issues-summary hit.
-          applyGapAnalysisFromIssuesSummary(data)
+        try {
+          summaryData = await summaryRes.json()
+          summaryIntegrity = deriveSummaryIntegrity(summaryData)
+          console.log("[v0] Issues summary:", summaryData)
+        } catch (parseErr) {
+          console.error("[v0] Issues summary JSON parse failed:", parseErr)
+          summaryData = null
+          summaryIntegrity = deriveSummaryIntegrity(null)
         }
+      }
+
+      // ── Findings Pressure ─────────────────────────────────────────────
+      // Prefer canonical severity. Else READY summary counts. Else
+      // unavailable — NEVER leave the initial zeros painted as "0 open".
+      if (canonicalSeverity) {
+        setSeverityCounts({
+          critical: canonicalSeverity.critical,
+          high: canonicalSeverity.high,
+          medium: canonicalSeverity.medium,
+          passing: Math.max(
+            0,
+            100 -
+              canonicalSeverity.critical -
+              canonicalSeverity.high -
+              canonicalSeverity.medium,
+          ),
+        })
+        setFindingsPressureAuthority("ready")
+      } else if (summaryIntegrity.canRenderScores && summaryData) {
+        const sev = {
+          critical: Number(summaryData.critical) || 0,
+          high: Number(summaryData.high) || 0,
+          medium: Number(summaryData.medium) || 0,
+        }
+        setSeverityCounts({
+          critical: sev.critical,
+          high: sev.high,
+          medium: sev.medium,
+          passing: Math.max(0, 100 - sev.critical - sev.high - sev.medium),
+        })
+        setFindingsPressureAuthority("ready")
+      } else {
+        setFindingsPressureAuthority("unavailable")
+        setSeverityCounts({ critical: 0, high: 0, medium: 0, passing: 0 })
+      }
+
+      // ── BRSS / health / Access Exposure (issues-summary integrity) ────
+      if (summaryIntegrity.canRenderScores && summaryData) {
+        const checksCount = Number(
+          summaryData.resources?.total || summaryData.total || 0,
+        )
+        setTotalChecks(checksCount)
+        if (checksCount > 0 && typeof summaryData.avg_health_score === "number") {
+          setHealthScore(Number(summaryData.avg_health_score))
+        } else {
+          setHealthScore(null)
+        }
+        if (
+          summaryData.blast_radius_score &&
+          !summaryData.blast_radius_score.error &&
+          summaryData.blast_radius_score.analysis_complete !== false
+        ) {
+          setBrss(summaryData.blast_radius_score as BlastRadiusScore)
+          setBrssEmptyReason("awaiting_scan")
+        } else {
+          setBrss(null)
+          setBrssEmptyReason("awaiting_scan")
+        }
+        applyGapAnalysisFromIssuesSummary(summaryData)
+        setAccessExposureAuthority("ready")
+        setLoadingGap(false)
+      } else {
+        setHealthScore(null)
+        setBrss(null)
+        // Proxy/integrity failure is not "never scanned".
+        setBrssEmptyReason(
+          !summaryRes.ok || summaryData == null ? "unavailable" : "awaiting_scan",
+        )
+        setAccessExposureAuthority("unavailable")
+        setGapAnalysis({
+          allowed: 0,
+          actual: 0,
+          gap: 0,
+          gapPercent: 0,
+          confidence: 0,
+        })
+        setLoadingGap(false)
+        setGapError(
+          summaryIntegrity.reason ??
+            (!summaryRes.ok
+              ? `issues-summary HTTP ${summaryRes.status}`
+              : "Analysis unavailable"),
+        )
+      }
+
+      if (!summaryRes.ok || !severityRes.ok) {
+        const parts: string[] = []
+        if (!summaryRes.ok) parts.push(`issues-summary ${summaryRes.status}`)
+        if (!severityRes.ok) parts.push(`severity-summary ${severityRes.status}`)
+        setOverviewFetchError(parts.join(" · "))
       }
 
       // Populate issues list for the Critical Issues panel AND the Issues tab
@@ -969,9 +1036,30 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
         setSecurityFindings(securityFindingsFromLP)
         setLoadingFindings(false)
+      } else {
+        setLoadingFindings(false)
       }
     } catch (error) {
       console.error("[v0] Error fetching issues summary:", error)
+      setFindingsPressureAuthority("unavailable")
+      setAccessExposureAuthority("unavailable")
+      setBrss(null)
+      setBrssEmptyReason("unavailable")
+      setHealthScore(null)
+      setSeverityCounts({ critical: 0, high: 0, medium: 0, passing: 0 })
+      setGapAnalysis({
+        allowed: 0,
+        actual: 0,
+        gap: 0,
+        gapPercent: 0,
+        confidence: 0,
+      })
+      setLoadingGap(false)
+      setGapError(error instanceof Error ? error.message : "Overview fetch failed")
+      setOverviewFetchError(
+        error instanceof Error ? error.message : "Overview fetch failed",
+      )
+      setLoadingFindings(false)
     }
   }
 
@@ -1956,14 +2044,52 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
               brssHistory={brssHistory}
               systemName={systemName}
               resourceCount={totalResourcesCount}
+              emptyReason={brss ? "awaiting_scan" : brssEmptyReason}
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
+              <div
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full"
+                data-testid="findings-pressure-card"
+                data-authority={findingsPressureAuthority}
+              >
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
-                  <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
+                  <AlertTriangle className={`w-4 h-4 ${findingsPressureAuthority === "unavailable" ? "text-amber-500" : "text-[#ef4444]"}`} />
                 </div>
+                {findingsPressureAuthority === "unavailable" ? (
+                  <>
+                    <div className="flex items-end gap-2">
+                      <span className="text-4xl font-bold text-slate-400">—</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">not available</span>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500 leading-snug">
+                      {overviewFetchError
+                        ? `Counts unavailable (${overviewFetchError}). This is not zero findings.`
+                        : "Counts unavailable. This is not zero findings."}
+                    </p>
+                    <button
+                      onClick={() => void fetchIssuesSummary()}
+                      className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                    >
+                      Retry →
+                    </button>
+                  </>
+                ) : findingsPressureAuthority === "loading" ? (
+                  <>
+                    <div className="flex items-end gap-2">
+                      <span className="text-4xl font-bold text-slate-300">…</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">loading</span>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab("vulnerabilities")}
+                      className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                    >
+                      Review findings →
+                    </button>
+                  </>
+                ) : (
+                  <>
                 <div className="flex items-end gap-2">
                   <span className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalFindings}</span>
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">open findings</span>
@@ -2032,9 +2158,15 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 >
                   Review findings →
                 </button>
+                  </>
+                )}
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
+              <div
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full"
+                data-testid="access-exposure-card"
+                data-authority={accessExposureAuthority}
+              >
                 <div className="flex items-center justify-between mb-5">
                   <div className="flex flex-col">
                     <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">
@@ -2045,7 +2177,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                         the proxy's SYSTEM_TO_ROLE_MAP), not the system's
                         full IAM surface. Surfacing the role name keeps
                         the card from reading as a system-wide claim. */}
-                    {gapAnalysis.roleName ? (
+                    {accessExposureAuthority === "ready" && gapAnalysis.roleName ? (
                       <p
                         className="mt-0.5 text-[10px] text-[var(--muted-foreground,#9ca3af)] truncate"
                         title={`Numbers below are for IAM role ${gapAnalysis.roleName}, not the full system`}
@@ -2056,6 +2188,38 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                   </div>
                   <Zap className="w-4 h-4 text-[#8b5cf6]" />
                 </div>
+                {accessExposureAuthority === "unavailable" ? (
+                  <>
+                    <div className="flex items-end gap-2">
+                      <span className="text-4xl font-bold text-slate-400">—</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">not available</span>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500 leading-snug">
+                      {gapError ||
+                        "Unused-permission counts unavailable. This is not zero unused permissions."}
+                    </p>
+                    <button
+                      onClick={() => void fetchIssuesSummary()}
+                      className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                    >
+                      Retry →
+                    </button>
+                  </>
+                ) : accessExposureAuthority === "loading" ? (
+                  <>
+                    <div className="flex items-end gap-2">
+                      <span className="text-4xl font-bold text-slate-300">…</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">loading</span>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab("least-privilege")}
+                      className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                    >
+                      Open access workflow →
+                    </button>
+                  </>
+                ) : (
+                  <>
                 <div className="flex items-end gap-2">
                   <span className="text-4xl font-bold text-[#8b5cf6]">{gapAnalysis.gap}</span>
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">unused permissions</span>
@@ -2122,6 +2286,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 >
                   Open access workflow →
                 </button>
+                  </>
+                )}
               </div>
 
               <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">

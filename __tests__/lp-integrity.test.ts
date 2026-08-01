@@ -10,7 +10,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { deriveLPIntegrity, type LPIntegrityFields } from '@/lib/lp-integrity'
+import {
+  deriveLPIntegrity,
+  isStaleAnalysisReason,
+  lpIntegrityCopy,
+  type LPIntegrityFields,
+} from '@/lib/lp-integrity'
 
 describe('deriveLPIntegrity — mutationBlocked is veto only', () => {
   it('READY + analysis_complete clears the veto', () => {
@@ -70,5 +75,36 @@ describe('deriveLPIntegrity — mutationBlocked is veto only', () => {
     })
     expect(i.state).toBe('NOT_READY')
     expect(i.mutationBlocked).toBe(true)
+  })
+})
+
+describe('lpIntegrityCopy — stale vs never-ran', () => {
+  it('stale/timeout reason does not claim Analysis did not run', () => {
+    const reason =
+      'Showing the last complete analysis (42s old) — the live analysis timed out. Remediation is unavailable until it succeeds.'
+    expect(isStaleAnalysisReason(reason)).toBe(true)
+    const copy = lpIntegrityCopy({
+      state: 'NOT_READY',
+      analysisComplete: false,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason,
+    })
+    expect(copy.title).toBe('Live analysis unavailable')
+    expect(copy.body).toContain('timed out')
+    expect(copy.title.toLowerCase()).not.toContain('did not run')
+  })
+
+  it('true never-ran keeps Analysis did not run', () => {
+    const copy = lpIntegrityCopy({
+      state: 'NOT_READY',
+      analysisComplete: false,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: null,
+    })
+    expect(copy.title).toBe('Analysis did not run')
   })
 })

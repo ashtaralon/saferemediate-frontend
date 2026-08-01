@@ -84,11 +84,14 @@ export function SystemBlastRadiusHero({
   brssHistory,
   systemName,
   resourceCount,
+  emptyReason = "awaiting_scan",
 }: {
   brss: BlastRadiusScore | null
   brssHistory: HistoryPoint[]
   systemName: string
   resourceCount: number
+  /** Distinguishes proxy/integrity failure from a never-scanned system. */
+  emptyReason?: "awaiting_scan" | "unavailable"
 }) {
   // Editorial layout mirrors the global Blast Radius hero
   // (components/dashboard/v3/hero-brss-card.tsx + family-strip.tsx),
@@ -100,12 +103,15 @@ export function SystemBlastRadiusHero({
       <section
         className={`rounded-[14px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${accentByCategory.brss}`}
         data-testid="system-blast-radius-hero-empty"
+        data-empty-reason={emptyReason}
       >
         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           Blast Radius Score
         </div>
         <div className="mt-3 text-sm text-slate-500">
-          Awaiting first scan for {systemName}.
+          {emptyReason === "unavailable"
+            ? `Blast radius score unavailable for ${systemName}. This is not a clean score of 0.`
+            : `Awaiting first scan for ${systemName}.`}
         </div>
       </section>
     )
