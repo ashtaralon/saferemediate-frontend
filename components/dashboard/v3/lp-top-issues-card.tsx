@@ -64,8 +64,9 @@ function gapPillClass(pct: number): string {
 }
 
 export function LPTopIssuesCard() {
-  // Action-driving — strict 10-min staleness. LP issues feed remediation
-  // decisions; stale data could route the operator to already-fixed roles.
+  // Action-driving — 60-min staleness bound. LP issues feed remediation
+  // decisions; stale data could route the operator to already-fixed roles, so
+  // anything older renders behind a StaleIndicator rather than as authoritative.
   const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<IssuesResp>(
     "/api/proxy/least-privilege/issues",
     {
