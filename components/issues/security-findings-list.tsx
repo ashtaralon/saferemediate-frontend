@@ -7,6 +7,7 @@ import { CheckCircle2 } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { FindingCard } from "@/components/FindingCard"
+import { severityRank } from "@/lib/security-finding-normalize"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
@@ -85,9 +86,9 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
     if (a.isRemediated !== b.isRemediated) {
       return a.isRemediated ? 1 : -1
     }
-    const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
-    return (severityOrder[a.severity as keyof typeof severityOrder] || 4) -
-           (severityOrder[b.severity as keyof typeof severityOrder] || 4)
+    // `??`, not `||`. CRITICAL ranks 0, and `0 || 4` is 4 — so CRITICAL used to
+    // sort BEHIND LOW on the one list where order carries the most meaning.
+    return severityRank(a.severity) - severityRank(b.severity)
   })
 
   return (
