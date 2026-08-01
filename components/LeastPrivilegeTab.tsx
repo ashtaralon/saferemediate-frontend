@@ -25,6 +25,7 @@ import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
+import { deriveSummaryIntegrity } from "@/lib/summary-integrity"
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -724,7 +725,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         const res = await fetch(`/api/proxy/issues-summary${sysParam}`)
         if (!res.ok) return
         const payload = await res.json()
-        if (payload?.blast_radius_score && !payload.blast_radius_score.error) {
+        // A held sweep now returns blast_radius_score with analysis_complete
+        // false and score null — and NO `error` key, so the old check passed it
+        // straight through and the card rendered a posture number composed from
+        // an unknown subset of resources. Gate on integrity, not on the absence
+        // of an error string.
+        const summaryIntegrity = deriveSummaryIntegrity(payload)
+        if (
+          summaryIntegrity.canRenderScores &&
+          payload?.blast_radius_score &&
+          !payload.blast_radius_score.error &&
+          payload.blast_radius_score.analysis_complete !== false
+        ) {
           setBrss(payload.blast_radius_score as BlastRadiusScore)
         } else {
           setBrss(null)
@@ -778,7 +790,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
-        const retryable = response.status === 503
+        // 503 AND 504. Excluding 504 was defended as "retrying an identical
+        // budget cannot succeed" — true only if nothing changes between
+        // attempts, and something does: the first request WAKES the backend.
+        // A cold Render dyno answers in ~95s, so the attempt that times out is
+        // the same attempt that warms it.
+        //
+        // Observed in production during this session's QA: least-privilege/issues
+        // returned 504 and the tab hard-failed, while its own error card read
+        // "Retrying often succeeds once it has warmed up" — and clicking Retry
+        // loaded it. The loop should not need a human to do what it was already
+        // telling the human to do.
+        const retryable = response.status === 503 || response.status === 504
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }

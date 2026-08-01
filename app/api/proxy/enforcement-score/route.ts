@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { isCacheableSummary as summaryIsAuthoritative } from "@/lib/summary-integrity"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -220,7 +221,23 @@ export async function GET(request: NextRequest) {
       scoreData = await scoreResp.value.json()
     }
     if (issuesResp.status === 'fulfilled' && issuesResp.value.ok) {
-      issuesData = await issuesResp.value.json()
+      const raw = await issuesResp.value.json()
+      // Compose the enforcement score ONLY from an authoritative summary. A
+      // held sweep returns null counts and a null health score; feeding those
+      // into the permission-ratio arithmetic below yields `null - null` and
+      // `x || 0` fallbacks, i.e. a confident enforcement number derived from an
+      // unknown subset. The score is not "roughly right" when held — it is
+      // unsourced.
+      if (summaryIsAuthoritative(raw)) {
+        issuesData = raw
+      } else {
+        console.warn(
+          `[enforcement-score] summary not authoritative ` +
+          `(serve_state=${raw?.serve_state ?? 'absent'}, ` +
+          `analysis_complete=${raw?.analysis_complete ?? 'absent'}) — ` +
+          `permission ratio withheld`,
+        )
+      }
     }
     if (lpResp.status === 'fulfilled' && lpResp.value.ok) {
       const lpData = await lpResp.value.json()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { isCacheableSummary } from "@/lib/summary-integrity"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -77,7 +78,21 @@ export async function GET(req: NextRequest) {
     if (!res.ok) {
       if (cached) {
         return NextResponse.json(
-          { ...cached.data, fromStaleCache: true, staleReason: `backend_${res.status}` },
+          {
+            ...cached.data,
+            fromStaleCache: true,
+            staleReason: `backend_${res.status}`,
+            // A cached payload was READY when captured; it cannot vouch for NOW.
+            // Replaying its serve_state would re-grant authority the live
+            // backend just failed to provide, and the card would render the
+            // stale counts as current. Rows may still be shown — as stale.
+            serve_state: "NOT_READY",
+            analysis_complete: false,
+            counts_are_partial: true,
+            integrityReason:
+              `Showing the last complete summary — the live request failed (${res.status}). ` +
+              `These counts are stale, not current.`,
+          },
           { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
         )
       }
@@ -91,7 +106,19 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json()
-    cache.set(cacheKey, { data, timestamp: now })
+    // Cache ONLY an authoritative response: success !== false, serve_state
+    // READY, analysis_complete true. A held or failed payload stored here is
+    // how one transient analyzer failure becomes five minutes of confidently
+    // wrong answers served to every subsequent request — the same defect the
+    // backend already refuses to commit at its own cache.
+    if (isCacheableSummary(data)) {
+      cache.set(cacheKey, { data, timestamp: now })
+    } else {
+      console.warn(
+        `[issues-summary proxy] not caching — serve_state=${data?.serve_state ?? "absent"} ` +
+        `analysis_complete=${data?.analysis_complete ?? "absent"} success=${data?.success ?? "absent"}`,
+      )
+    }
 
     if (cache.size > 100) {
       const cutoff = now - CACHE_TTL * 2
@@ -118,7 +145,17 @@ export async function GET(req: NextRequest) {
       cached
     ) {
       return NextResponse.json(
-        { ...cached.data, fromStaleCache: true, staleReason: "timeout" },
+        {
+          ...cached.data,
+          fromStaleCache: true,
+          staleReason: "timeout",
+          serve_state: "NOT_READY",
+          analysis_complete: false,
+          counts_are_partial: true,
+          integrityReason:
+            "Showing the last complete summary — the live request timed out. " +
+            "These counts are stale, not current.",
+        },
         { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
       )
     }
