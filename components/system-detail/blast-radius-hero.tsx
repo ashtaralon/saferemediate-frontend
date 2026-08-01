@@ -90,8 +90,13 @@ export function SystemBlastRadiusHero({
   brssHistory: HistoryPoint[]
   systemName: string
   resourceCount: number
-  /** Distinguishes proxy/integrity failure from a never-scanned system. */
-  emptyReason?: "awaiting_scan" | "unavailable"
+  /**
+   * Why there is no score. `unavailable` = the read failed or the backend
+   * will not vouch; `incomplete` = the sweep ran but did not finish
+   * (INTEGRITY_HELD); `awaiting_scan` = genuinely never run. Only the last of
+   * those may say "awaiting first scan".
+   */
+  emptyReason?: "awaiting_scan" | "unavailable" | "incomplete"
 }) {
   // Editorial layout mirrors the global Blast Radius hero
   // (components/dashboard/v3/hero-brss-card.tsx + family-strip.tsx),
@@ -111,7 +116,9 @@ export function SystemBlastRadiusHero({
         <div className="mt-3 text-sm text-slate-500">
           {emptyReason === "unavailable"
             ? `Blast radius score unavailable for ${systemName}. This is not a clean score of 0.`
-            : `Awaiting first scan for ${systemName}.`}
+            : emptyReason === "incomplete"
+              ? `Analysis for ${systemName} did not complete, so no blast radius score was produced. This is not a clean score of 0, and not a system awaiting its first scan.`
+              : `Awaiting first scan for ${systemName}.`}
         </div>
       </section>
     )

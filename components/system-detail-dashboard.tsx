@@ -66,7 +66,8 @@ import {
 } from "recharts"
 import { CoveragePill } from "@/components/brss/coverage-pill"
 import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
-import { deriveSummaryIntegrity } from "@/lib/summary-integrity"
+import { deriveSummaryIntegrity, brssEmptyReasonFor } from "@/lib/summary-integrity"
+import { fetchWithTransientRetry } from "@/lib/transient-retry"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -716,8 +717,15 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     useState<OverviewCardAuthority>("loading")
   const [accessExposureAuthority, setAccessExposureAuthority] =
     useState<OverviewCardAuthority>("loading")
+  // Why the hero has no score. Three genuinely different claims:
+  //   awaiting_scan — nothing has ever run for this system
+  //   unavailable   — the read failed, or the backend will not vouch (NOT_READY)
+  //   incomplete    — the sweep RAN but did not finish (INTEGRITY_HELD)
+  // A held analysis is not a new system. Collapsing it into awaiting_scan tells
+  // an operator their estate is unscanned when it was in fact scanned badly,
+  // which is the reassuring reading of a bad outcome.
   const [brssEmptyReason, setBrssEmptyReason] = useState<
-    "awaiting_scan" | "unavailable"
+    "awaiting_scan" | "unavailable" | "incomplete"
   >("awaiting_scan")
   const [overviewFetchError, setOverviewFetchError] = useState<string | null>(null)
 
@@ -846,10 +854,19 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       // issues-summary for BRSS / avg_health_score / infrastructure
       // counts, but Findings Pressure now reads severity-summary so it
       // matches Decision Routing on the same page.
+      // Give a transient proxy failure ONE more attempt before believing it.
+      // A Render cold-start 502/503/504 says nothing about this system's
+      // posture, and the wake usually lands on the retry — so the operator
+      // never sees the "unavailable" state for a hiccup that self-heals.
+      //
+      // One extra attempt, not more: these routes abort at 55s, so two
+      // attempts is already a ~110s worst case. A third would push a cold
+      // start toward three minutes of spinner, which is worse than showing
+      // the honest unavailable state below.
       const [summaryRes, issuesRes, severityRes] = await Promise.all([
-        fetch(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`),
-        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`),
-        fetch(`/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`)
+        fetchWithTransientRetry(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`),
+        fetchWithTransientRetry(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`),
+        fetchWithTransientRetry(`/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`)
       ])
 
       // SecurityFinding-derived severity counts win — issues-summary's
@@ -941,7 +958,16 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           setBrssEmptyReason("awaiting_scan")
         } else {
           setBrss(null)
-          setBrssEmptyReason("awaiting_scan")
+          // The sweep was READY overall, so reaching here means the score
+          // itself was withheld. If the BRSS payload says it is incomplete or
+          // carries an error, that is a held/partial computation — not a
+          // system nobody has scanned yet.
+          const brssPayload = summaryData.blast_radius_score
+          setBrssEmptyReason(
+            brssPayload && (brssPayload.error || brssPayload.analysis_complete === false)
+              ? "incomplete"
+              : "awaiting_scan",
+          )
         }
         applyGapAnalysisFromIssuesSummary(summaryData)
         setAccessExposureAuthority("ready")
@@ -950,8 +976,18 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         setHealthScore(null)
         setBrss(null)
         // Proxy/integrity failure is not "never scanned".
+        //
+        // This branch is reached whenever the payload cannot carry scores, and
+        // an HTTP-200 INTEGRITY_HELD lands here with `summaryRes.ok === true`
+        // and non-null data — so a plain ok/null check fell through to
+        // "awaiting_scan" and told the operator the system had never been
+        // scanned. It had been; the sweep just did not finish.
         setBrssEmptyReason(
-          !summaryRes.ok || summaryData == null ? "unavailable" : "awaiting_scan",
+          brssEmptyReasonFor({
+            responseOk: summaryRes.ok,
+            hasData: summaryData != null,
+            state: summaryIntegrity.state,
+          }),
         )
         setAccessExposureAuthority("unavailable")
         setGapAnalysis({

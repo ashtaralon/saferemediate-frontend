@@ -152,3 +152,32 @@ export function summaryIntegrityCopy(integrity: SummaryIntegrity): { title: stri
       "These counts could not be computed. This is not an empty result set — it is an absence of one.",
   }
 }
+
+/** Why the Blast Radius hero has no score. Three genuinely different claims. */
+export type BrssEmptyReason = "awaiting_scan" | "unavailable" | "incomplete"
+
+/**
+ * Decide which empty state the hero should render.
+ *
+ * Extracted as a pure function because the distinction is the whole point and
+ * it must be testable without mounting the 3.4k-line dashboard.
+ *
+ * The trap: an INTEGRITY_HELD payload arrives over HTTP 200 with non-null data,
+ * so `!res.ok || data == null ? "unavailable" : "awaiting_scan"` sends a held
+ * sweep to "awaiting_scan" — telling the operator a scanned-but-incomplete
+ * estate has never been scanned. Held is not new; it is scanned badly, and the
+ * two must not read the same.
+ *
+ * NOT_READY maps to `unavailable` rather than `incomplete`: the backend is
+ * declining to vouch at all, so we cannot claim a sweep ran.
+ */
+export function brssEmptyReasonFor(args: {
+  responseOk: boolean
+  hasData: boolean
+  state: SummaryServeState
+}): BrssEmptyReason {
+  if (!args.responseOk || !args.hasData) return "unavailable"
+  if (args.state === "INTEGRITY_HELD") return "incomplete"
+  if (args.state === "NOT_READY") return "unavailable"
+  return "awaiting_scan"
+}
