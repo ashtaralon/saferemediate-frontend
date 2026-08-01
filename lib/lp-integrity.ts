@@ -85,12 +85,28 @@ export function deriveLPIntegrity(
   }
 }
 
+/** True when NOT_READY is a stale/timeout fallback, not "never analyzed". */
+export function isStaleAnalysisReason(reason: string | null | undefined): boolean {
+  if (!reason) return false
+  return /timed out|stale|last complete analysis|warming/i.test(reason)
+}
+
 /** Copy for the banner. Kept here so every surface says the same thing. */
 export function lpIntegrityCopy(integrity: LPIntegrity): {
   title: string
   body: string
 } {
   if (integrity.state === "NOT_READY") {
+    // Stale-cache / timeout paths still show rows; "did not run" is a lie when
+    // the proxy forced NOT_READY over a previous complete payload.
+    if (isStaleAnalysisReason(integrity.reason)) {
+      return {
+        title: "Live analysis unavailable",
+        body:
+          integrity.reason ??
+          "Showing the last complete analysis. Remediation stays blocked until a fresh sweep succeeds.",
+      }
+    }
     return {
       title: "Analysis did not run",
       body:
