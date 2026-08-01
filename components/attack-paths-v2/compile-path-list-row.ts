@@ -286,25 +286,22 @@ function compileImpactBuckets(path: IdentityAttackPath): ImpactBucket[] {
   return Array.from(mapped).sort()
 }
 
-function compileImpactHeadline(path: IdentityAttackPath): HeadlineTag {
+function compileImpactHeadline(path: IdentityAttackPath): HeadlineTag | null {
   const fromBackend = path.impact_headline
   if (fromBackend && VALID_HEADLINES.has(fromBackend as HeadlineTag)) {
     return fromBackend as HeadlineTag
   }
-  // Legacy fallback — derive a conservative headline from the buckets.
-  // Never invents CATASTROPHIC / TAKEOVER / etc. — those need backend
-  // evidence (the per-verb reasons predicate).
-  return "CONFIGURED RISK"
+  // Missing → unavailable. Never invent "CONFIGURED RISK".
+  return null
 }
 
-function compileImpactConfidence(path: IdentityAttackPath): ImpactConfidence {
+function compileImpactConfidence(path: IdentityAttackPath): ImpactConfidence | null {
   const fromBackend = path.impact_confidence
   if (fromBackend === "HIGH" || fromBackend === "MEDIUM" || fromBackend === "LOW") {
     return fromBackend
   }
-  // Legacy fallback — paths without the new taxonomy carry no confidence
-  // signal. Default to LOW (safer; doesn't claim trust we don't have).
-  return "LOW"
+  // Missing → unavailable. Never invent "LOW".
+  return null
 }
 
 function compileImpactReasons(path: IdentityAttackPath): ImpactReason[] {
@@ -332,16 +329,23 @@ function compileImpactReasons(path: IdentityAttackPath): ImpactReason[] {
 export function compilePathListRow(
   path: IdentityAttackPath,
   jewel: CrownJewelSummary | null,
-  /** Optional fallback when the backend hasn't classified initial-access
-   *  yet (`path.initial_access` absent). The list component computes its
-   *  legacy inline category and passes it in; we narrow + use. */
-  fallbackInitialAccessCategory?: InitialAccessCategory,
+  /**
+   * Backend category only (or UNKNOWN). Callers must not pass a
+   * locally derived ATT&CK class — delete-not-fallback (#480 shape).
+   */
+  backendInitialAccessCategory?: InitialAccessCategory,
 ): PathListRow {
   const start = compileStartNode(path)
   const target = compileTargetNode(path, jewel)
   const fromBackend = narrowCategory(path.initial_access?.category)
-  const fromFallback = narrowCategory(fallbackInitialAccessCategory)
+  const fromArg = narrowCategory(backendInitialAccessCategory)
   const zoom0 = compileZoom0Projection(path, jewel)
+  const severityLabel = path.severity?.severity?.toUpperCase() ?? null
+  const severityScore =
+    typeof path.severity?.overall_score === "number" &&
+    Number.isFinite(path.severity.overall_score)
+      ? path.severity.overall_score
+      : null
   return {
     id: path.id,
     source_label: compileSourceLabel(path),
@@ -349,13 +353,20 @@ export function compilePathListRow(
     start_label: start?.name ?? start?.id ?? null,
     target_label: target?.name ?? null,
     crown_jewel_id: path.crown_jewel_id,
-    severity_label: path.severity?.severity?.toUpperCase() ?? null,
-    severity_score: path.severity?.overall_score ?? null,
+    severity_label: severityLabel === "UNKNOWN" ? null : severityLabel,
+    severity_score: severityScore,
     observed_hits: compileObservedHits(path),
-    hop_count: path.hop_count ?? path.nodes?.length ?? 0,
+    hop_count:
+      typeof path.hop_count === "number" && Number.isFinite(path.hop_count)
+        ? path.hop_count
+        : Array.isArray(path.nodes) && path.nodes.length > 0
+          ? path.nodes.length
+          : 0,
     has_observed_edge: compileHasObservedEdge(path),
-    evidence_type: path.evidence_type ?? "configured",
-    initial_access_category: fromBackend ?? fromFallback ?? "UNKNOWN",
+    // Absent evidence_type stays null — never invent "configured".
+    evidence_type: path.evidence_type ?? null,
+    // Backend category only; never a FE-derived fallback class.
+    initial_access_category: fromBackend ?? fromArg ?? "UNKNOWN",
     acquisition: path.acquisition ?? null,
     observed_e2e_class: compileObservedE2EClass(path),
     is_materialized_stale: path.materialized_stale === true,

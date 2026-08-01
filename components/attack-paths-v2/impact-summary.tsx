@@ -76,21 +76,23 @@ export function ImpactSummary({
   /** compact mode for tight list rows — hides chip text, shows dot+abbreviation only. */
   compact?: boolean
 }) {
-  const headlineStyle = HEADLINE_STYLE[row.impact_headline] ?? HEADLINE_STYLE["CONFIGURED RISK"]
   const buckets = row.impact_buckets ?? ["UNKNOWN"]
   const conf = row.impact_confidence
+  const headline = row.impact_headline
 
   return (
     <div className="flex items-center gap-2 flex-wrap" data-testid="impact-summary">
-      {/* Headline badge */}
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${headlineStyle.badge}`}
-        title={`Headline: ${row.impact_headline}${conf ? ` · confidence ${conf}` : ""}`}
-        data-testid="impact-headline"
-      >
-        {row.impact_headline}
-        <ConfidenceDot conf={conf} />
-      </span>
+      {/* Headline badge — omit when backend did not supply one */}
+      {headline ? (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${(HEADLINE_STYLE[headline] ?? HEADLINE_STYLE["CONFIGURED RISK"]).badge}`}
+          title={`Headline: ${headline}${conf ? ` · confidence ${conf}` : ""}`}
+          data-testid="impact-headline"
+        >
+          {headline}
+          {conf ? <ConfidenceDot conf={conf} /> : null}
+        </span>
+      ) : null}
 
       {/* Chips */}
       {!compact && (
@@ -99,7 +101,11 @@ export function ImpactSummary({
             <span
               key={bucket}
               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide border ${BUCKET_STYLE[bucket] ?? BUCKET_STYLE.UNKNOWN}`}
-              title={`${BUCKET_LABEL[bucket]} · ${CONFIDENCE_TITLE[conf]}`}
+              title={
+                conf
+                  ? `${BUCKET_LABEL[bucket]} · ${CONFIDENCE_TITLE[conf]}`
+                  : BUCKET_LABEL[bucket]
+              }
               data-testid={`impact-chip-${bucket}`}
             >
               {BUCKET_LABEL[bucket]}

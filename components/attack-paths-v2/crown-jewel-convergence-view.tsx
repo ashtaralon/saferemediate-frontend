@@ -60,6 +60,17 @@ export function CrownJewelConvergenceView({
   }
 
   if (!data || !topo) {
+    if (source === "fallback") {
+      return (
+        <div
+          className="m-6 flex min-h-[360px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-800 dark:text-amber-300"
+          data-testid="convergence-fallback-map-blocked"
+        >
+          Convergence API unreachable — refusing to draw a synthetic map.
+          Retry when SERVE hop DTOs are available.
+        </div>
+      )
+    }
     return (
       <div className="p-6 text-sm text-muted-foreground">
         No paths reach this crown jewel — pick another jewel on the left.
