@@ -373,6 +373,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
   const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
 
+  // Demo / debug graph writers — never show in production builds.
+  // Local `next dev` keeps the controls; Vercel production NODE_ENV=production hides them.
+  // Proxy + backend still refuse writes even if this flag is bypassed.
+  const demoDebugUiEnabled = process.env.NODE_ENV !== "production"
+
   // Traffic Simulator state
   const [showTrafficSimulator, setShowTrafficSimulator] = useState(false)
   const [isSimulatingTraffic, setIsSimulatingTraffic] = useState(false)
@@ -2152,14 +2157,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={openTrafficSimulator}
-            className="px-3 py-1.5 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors hover:opacity-90"
-            style={{ background: "#8b5cf6" }}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            Simulate Traffic
-          </button>
+          {demoDebugUiEnabled ? (
+            <button
+              type="button"
+              onClick={openTrafficSimulator}
+              className="px-3 py-1.5 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors hover:opacity-90"
+              style={{ background: "#8b5cf6" }}
+              data-testid="lp-demo-simulate-traffic"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Simulate Traffic
+            </button>
+          ) : null}
           <button
             onClick={handleRefreshAll}
             disabled={analyzing || refreshing || loading}
@@ -3828,7 +3837,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       />
 
       {/* Traffic Simulator Modal */}
-      {showTrafficSimulator && (
+      {demoDebugUiEnabled && showTrafficSimulator && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowTrafficSimulator(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[650px] max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
