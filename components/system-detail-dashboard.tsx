@@ -68,6 +68,7 @@ import { CoveragePill } from "@/components/brss/coverage-pill"
 import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
 import { deriveSummaryIntegrity, brssEmptyReasonFor } from "@/lib/summary-integrity"
 import { fetchWithTransientRetry } from "@/lib/transient-retry"
+import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -704,11 +705,24 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   })
 
   // Initialize severityCounts with default values
-  const [severityCounts, setSeverityCounts] = useState({
+  // `apiTotal` is the severity endpoint's own validated open-findings total.
+  // The card said "open findings" while summing critical+high+medium only, so
+  // low/info/unknown findings were open, counted by the backend, and invisible
+  // here. Prefer the backend's total; fall back to summing what we were given.
+  const [severityCounts, setSeverityCounts] = useState<{
+    critical: number
+    high: number
+    medium: number
+    low: number
+    passing: number
+    apiTotal: number | null
+  }>({
     critical: 0,
     high: 0,
     medium: 0,
+    low: 0,
     passing: 0,
+    apiTotal: null,
   })
   // Authority for Overview KPI cards. Initial zeros must not render as
   // "all clear" when the proxy 5xx'd — that was the e7647ad Home QA failure.
@@ -872,7 +886,9 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       // SecurityFinding-derived severity counts win — issues-summary's
       // resource-property counts are kept only as a fallback when the
       // canonical endpoint errors.
-      let canonicalSeverity: { critical: number; high: number; medium: number; total: number } | null = null
+      let canonicalSeverity:
+        | { critical: number; high: number; medium: number; low: number; total: number | null }
+        | null = null
       if (severityRes.ok) {
         try {
           const sd = await severityRes.json()
@@ -881,7 +897,10 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
               critical: Number(sd.critical) || 0,
               high: Number(sd.high) || 0,
               medium: Number(sd.medium) || 0,
-              total: Number(sd.total) || 0,
+              low: Number(sd.low) || 0,
+              // `?? null`, not `|| 0`: a total the backend did not send must not
+              // masquerade as a validated zero.
+              total: asCount(sd.total),
             }
           }
         } catch {
@@ -911,6 +930,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           critical: canonicalSeverity.critical,
           high: canonicalSeverity.high,
           medium: canonicalSeverity.medium,
+          low: canonicalSeverity.low,
+          apiTotal: canonicalSeverity.total,
           passing: Math.max(
             0,
             100 -
@@ -930,12 +951,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           critical: sev.critical,
           high: sev.high,
           medium: sev.medium,
+          low: Number((summaryData as any)?.low) || 0,
+          apiTotal: null,
           passing: Math.max(0, 100 - sev.critical - sev.high - sev.medium),
         })
         setFindingsPressureAuthority("ready")
       } else {
         setFindingsPressureAuthority("unavailable")
-        setSeverityCounts({ critical: 0, high: 0, medium: 0, passing: 0 })
+        setSeverityCounts({ critical: 0, high: 0, medium: 0, low: 0, passing: 0, apiTotal: null })
       }
 
       // ── BRSS / health / Access Exposure (issues-summary integrity) ────
@@ -1051,24 +1074,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
         // Also populate securityFindings for the Issues tab
         const filteredResources = resources.filter(lpRowCountsTowardSummary)
-        const securityFindingsFromLP: SecurityFinding[] = filteredResources
-          .map((r: any) => ({
-            id: r.resourceArn || r.id || r.resourceName,
-            finding_id: r.resourceArn || r.id,
-            title: r.title || `${r.resourceType}: ${r.resourceName}`,
-            severity: (r.severity || 'MEDIUM').toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-            description: r.description || `${r.gapCount || r.exposedCount} unused permissions can be removed`,
-            resource: r.resourceName || r.resourceId,
-            resourceType: r.resourceType || 'IAMRole',
-            resourceId: r.resourceArn || r.resourceId,
-            category: r.resourceType === 'IAMRole' ? 'IAM' : r.resourceType,
-            discoveredAt: r.evidence?.lastUpdated || new Date().toISOString(),
-            status: 'open' as const,
-            remediation: r.remediation || `Remove ${r.gapCount || r.exposedCount} unused permissions to reduce attack surface`,
-            role_name: r.resourceType === 'IAMRole' ? r.resourceName : undefined,
-            unused_actions_count: r.gapCount || 0,
-            allowed_actions_count: r.allowedCount || 0,
-          }))
+        // One typed translation (lib/security-finding-normalize.ts) rather than a
+        // hand-rolled object literal. The literal emitted `unused_actions_count`
+        // while FindingCard read `unusedCount`, so every real count fell through
+        // a chain of `||` to 0 — and dropping `type` made the card render every
+        // finding, S3 and NACL included, as an IAM unused-permission finding.
+        const securityFindingsFromLP: SecurityFinding[] =
+          filteredResources.map((r: any) => normalizeSecurityFinding(r))
 
         setSecurityFindings(securityFindingsFromLP)
         setLoadingFindings(false)
@@ -1082,7 +1094,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       setBrss(null)
       setBrssEmptyReason("unavailable")
       setHealthScore(null)
-      setSeverityCounts({ critical: 0, high: 0, medium: 0, passing: 0 })
+      setSeverityCounts({ critical: 0, high: 0, medium: 0, low: 0, passing: 0, apiTotal: null })
       setGapAnalysis({
         allowed: 0,
         actual: 0,
@@ -1794,7 +1806,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   //   passing: 0,
   // }
 
-  const totalFindings = severityCounts.critical + severityCounts.high + severityCounts.medium
+  // The card is labelled "open findings", so it must count every open finding.
+  // Prefer the severity endpoint's validated total; when it did not supply one,
+  // sum every severity we were given rather than silently dropping LOW.
+  const totalFindings =
+    severityCounts.apiTotal ??
+    severityCounts.critical + severityCounts.high + severityCounts.medium + severityCounts.low
   // Legacy enforcement-score scaffolding — retained for non-Overview consumers
   // until we audit each usage site. The Overview card below is now BRSS-driven.
   const hasEnforcementTelemetry = totalChecks > 0 && healthScoreFromApi !== null

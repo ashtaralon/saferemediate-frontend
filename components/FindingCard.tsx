@@ -96,8 +96,16 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
   const [isExpanded, setIsExpanded] = useState(false)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   
-  const findingType = (finding as any).type || "unused_permission"
-  const severity = finding.severity || "medium"
+  // No `|| "unused_permission"`. A finding whose type the normalizer could not
+  // establish rendered here as an IAM unused-permission card — wrong wording,
+  // wrong layout, wrong claim about a resource that may not be IAM at all.
+  const findingType = (finding as any).type ?? "unknown"
+  // Lower-cased once. `SecurityFinding.severity` is typed (and emitted) UPPERCASE
+  // while every comparison below tests "critical"/"high"/"medium" — so the whole
+  // severity colour scheme was dead code and every card rendered the default
+  // border regardless of how severe the finding was. tsc had been reporting all
+  // nine comparisons as no-overlap; they sat in the 253-error backlog.
+  const severity = String(finding.severity ?? "MEDIUM").toLowerCase()
   
   const handleSimulate = () => {
     if (onSimulate) {
@@ -110,13 +118,18 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
   if (findingType === "iam_unused_permissions" || findingType === "unused_permission") {
     const iamData = finding as any
     // Try multiple field names for backward compatibility
-    const unusedActions = iamData.unusedActions || iamData.unused_actions || iamData.unused_permissions || iamData.details?.unusedActions || []
-    const allowedActions = iamData.allowed_actions || iamData.details?.allowedActions || []
-    const usedActions = iamData.used_actions || iamData.details?.usedActions || []
-    // Get counts - prefer direct count fields, fallback to array length
-    const allowedCount = iamData.allowedCount || iamData.details?.allowedCount || allowedActions.length || 0
-    const usedCount = iamData.usedCount || iamData.details?.usedCount || usedActions.length || 0
-    const unusedCount = iamData.unusedCount || iamData.details?.unusedCount || unusedActions.length || 0
+    const unusedActions: string[] = iamData.unusedActions ?? iamData.details?.unusedActions ?? []
+    const allowedActions: string[] = iamData.allowed_actions ?? iamData.details?.allowedActions ?? []
+    const usedActions: string[] = iamData.used_actions ?? iamData.details?.usedActions ?? []
+    // `??` throughout, and NO array-length substitution: an empty list is not a
+    // measurement of zero. A count we do not have stays null and renders as
+    // "unknown" below — on this surface "0 unused permissions" reads as "this
+    // resource is clean", which is a claim a missing field cannot make.
+    const allowedCount: number | null = iamData.allowedCount ?? iamData.details?.allowedCount ?? null
+    const usedCount: number | null = iamData.usedCount ?? iamData.details?.usedCount ?? null
+    const unusedCount: number | null = iamData.unusedCount ?? iamData.details?.unusedCount ?? null
+    const confidence: number | null = iamData.confidence ?? null
+    const isRemediable: boolean = iamData.isRemediable !== false
     const roleName = iamData.role_name || finding.resourceId
 
     return (
@@ -167,9 +180,9 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                         </Badge>
                       )
                     })()}
-                    {iamData.confidence && (
+                    {confidence !== null && (
                       <Badge variant="outline" className="text-xs">
-                        {iamData.confidence}% confidence
+                        {confidence}% confidence
                       </Badge>
                     )}
                     {(() => {
@@ -189,6 +202,10 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsExpanded(!isExpanded)}
+                // Icon-only control: without a name it is unreachable to a
+                // screen reader and unaddressable in a test.
+                aria-label={isExpanded ? "Collapse finding details" : "Expand finding details"}
+                aria-expanded={isExpanded}
                 className="ml-2"
               >
                 {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -229,7 +246,9 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                     <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Actually Used</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-[#ef4444]">{unusedCount}</div>
+                    <div className="text-2xl font-bold text-[#ef4444]" data-testid="unused-count">
+                      {unusedCount ?? "unknown"}
+                    </div>
                     <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Unused</div>
                   </div>
                 </div>
@@ -272,7 +291,15 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 <p className="text-sm text-[var(--foreground,#374151)] mb-3">{finding.remediation || "Remove unused permissions to follow least privilege principle"}</p>
                 <Button
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  // Withheld when the normalizer found no backend finding id or
+                  // no measured evidence — simulating against nothing is worse
+                  // than offering no button.
+                  disabled={isSimulating || !isRemediable}
+                  title={
+                    isRemediable
+                      ? undefined
+                      : `Remediation unavailable: ${iamData.notRemediableReason ?? "insufficient evidence"}`
+                  }
                   className="w-full bg-green-600 hover:bg-green-700"
                 >
                   {isSimulating ? (
@@ -358,6 +385,10 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsExpanded(!isExpanded)}
+                // Icon-only control: without a name it is unreachable to a
+                // screen reader and unaddressable in a test.
+                aria-label={isExpanded ? "Collapse finding details" : "Expand finding details"}
+                aria-expanded={isExpanded}
                 className="ml-2"
               >
                 {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -543,6 +574,10 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsExpanded(!isExpanded)}
+                // Icon-only control: without a name it is unreachable to a
+                // screen reader and unaddressable in a test.
+                aria-label={isExpanded ? "Collapse finding details" : "Expand finding details"}
+                aria-expanded={isExpanded}
                 className="ml-2"
               >
                 {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -746,7 +781,14 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 variant="outline"
                 size="sm"
                 onClick={handleSimulate}
-                disabled={isSimulating}
+                // Same gate as the IAM card: a finding the normalizer could not
+                // type, or one with no backend id, has nothing to simulate against.
+                disabled={isSimulating || (finding as any).isRemediable === false}
+                title={
+                  (finding as any).isRemediable === false
+                    ? `Remediation unavailable: ${(finding as any).notRemediableReason ?? "insufficient evidence"}`
+                    : undefined
+                }
               >
                 <Zap className="w-4 h-4 mr-2" />
                 Simulate
