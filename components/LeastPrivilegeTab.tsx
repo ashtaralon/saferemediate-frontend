@@ -10,6 +10,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity } from '@/lib/lp-integrity'
+import {
+  mergeLpResourcesAfterFetch,
+  markResourceVerifying,
+  normalizeLPResponse,
+  normalizeLPSeverityBucket,
+} from '@/lib/lp-normalize'
 import { AnalysisIntegrityBanner, PartialCountMarker } from '@/components/analysis-integrity-banner'
 import {
   RESOURCE_RISK_OPEN_EVENT,
@@ -94,6 +100,8 @@ interface GapResource {
     riskLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM'
     reason: string
   }>
+  /** Post-apply: waiting for backend re-read. Never invents clean scores. */
+  verificationState?: 'applied_verifying' | 'verify_failed' | null
   // S3 Bucket traffic data
   accessorCount?: number
   totalHits?: number
@@ -101,12 +109,12 @@ interface GapResource {
   findingClass?: 'permission_gap' | 'posture' | 'rule_gap'
   evidence: {
     dataSources: string[]
-    observationDays: number
-    confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+    observationDays: number | null
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW' | null
     lastUsed?: string
     coverage: {
       regions: string[]
-      complete: boolean
+      complete: boolean | null
     }
     rule_states?: Array<{
       port: number | string
@@ -164,22 +172,17 @@ interface GapResource {
       detector_version?: string
     }>
   }
-  // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Historic fallbacks
-  // in this file still write lowercase. Severity rendering goes through
-  // lib/lp-severity.ts which normalises case before mapping.
-  severity: string
+  // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Missing stays null —
+  // never invent 'low'. Rendering uses lib/lp-severity (Unknown when absent).
+  severity: string | null
   confidence: number
-  observationDays: number
+  observationDays: number | null
   title: string
   description: string
   remediation: string
-  region?: string  // For Security Groups
+  region?: string | null  // For Security Groups
   // Operator-facing subtab routing — backend is source of truth.
-  // 'removable' = action available (remove/tighten)
-  // 'coverage'  = no observation data; enable upstream data source
-  // 'audit'     = well-utilized; periodic review only
-  // Older backend responses may omit this — treated as 'removable' so
-  // rows stay visible during/right after deploy.
+  // Absent category must NOT default to removable (that invents actionability).
   category?: 'removable' | 'coverage' | 'audit'
   countsTowardSummary?: boolean
   // false = usage was never computed for this row (e.g. the IAM permissions
@@ -190,22 +193,10 @@ interface GapResource {
   usageNotComputedReason?: string | null
 }
 
-const LP_SEVERITY_BUCKETS = ['critical', 'high', 'medium', 'low'] as const
-type LpSeverityBucket = (typeof LP_SEVERITY_BUCKETS)[number]
-
-const normalizeLpSeverity = (severity: string | undefined | null): LpSeverityBucket => {
-  const key = String(severity || 'low').toLowerCase()
-  return (LP_SEVERITY_BUCKETS as readonly string[]).includes(key) ? (key as LpSeverityBucket) : 'low'
-}
-
-const summaryCount = (summary: Record<string, unknown> | undefined, ...keys: string[]): number => {
-  if (!summary) return 0
-  for (const key of keys) {
-    const value = summary[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-  return 0
-}
+/** Filter helper — unknown/missing severity is not a bucket (never invent 'low'). */
+const normalizeLpSeverity = (
+  severity: string | undefined | null,
+): 'critical' | 'high' | 'medium' | 'low' | null => normalizeLPSeverityBucket(severity)
 
 interface LeastPrivilegeSummary {
   totalResources: number
@@ -222,7 +213,7 @@ interface LeastPrivilegeSummary {
   mediumCount: number
   lowCount: number
   confidenceLevel: number
-  observationDays: number
+  observationDays: number | null
   attackSurfaceReduction: number
 }
 
@@ -828,243 +819,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         summary: result.summary
       })
       
-      // Transform to new format
-      const transformed: LeastPrivilegeResponse = {
-        summary: {
-          totalResources: result.resources?.length || 0,
-          totalExcessPermissions:
-            typeof result.summary?.totalExcessPermissions === 'number'
-              ? result.summary.totalExcessPermissions
-              : null,
-          // Averaged over MEASURED rows only. `100 - null` is 100, so an
-          // unmeasured row used to drag the fleet average toward perfect —
-          // the more roles we failed to measure, the healthier we looked.
-          avgLPScore: (() => {
-            const measured = (result.resources || []).filter(
-              (r: any) => typeof r.gapPercent === 'number',
-            )
-            // null, not 100: with nothing measured there is no average, and
-            // 100 would assert a perfect estate on zero evidence.
-            if (measured.length === 0) return null
-            return measured.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / measured.length
-          })(),
-          iamIssuesCount: summaryCount(result.summary, 'iamIssuesCount', 'iamCount'),
-          networkIssuesCount: summaryCount(result.summary, 'networkIssuesCount', 'sgCount'),
-          s3IssuesCount: summaryCount(result.summary, 's3IssuesCount', 's3Count'),
-          criticalCount: summaryCount(result.summary, 'criticalCount', 'critical'),
-          highCount: summaryCount(result.summary, 'highCount', 'high'),
-          mediumCount: summaryCount(result.summary, 'mediumCount', 'medium'),
-          lowCount: summaryCount(result.summary, 'lowCount', 'low'),
-          confidenceLevel: result.summary?.confidenceLevel || 0,
-          observationDays: result.observationDays || 90,
-          // Same treatment: `+ null` is `+ 0`, which silently diluted the mean
-          // with rows that were never measured rather than measured at zero.
-          attackSurfaceReduction: (() => {
-            const measured = (result.resources || []).filter(
-              (r: any) => typeof r.gapPercent === 'number',
-            )
-            if (measured.length === 0) return 0
-            return measured.reduce((acc: number, r: any) => acc + r.gapPercent, 0) / measured.length
-          })()
-        },
-        resources: (result.resources || []).map((r: any) => {
-          // For Security Groups, use networkExposure instead of lpScore
-          const isSecurityGroup = r.resourceType === 'SecurityGroup'
-          const networkExposure = r.networkExposure || null
-          
-          return {
-            id: r.id,
-            resourceType: r.resourceType,
-            resourceName: r.resourceName,
-            resourceArn: r.resourceArn,
-            systemName: r.systemName,
-            // Backend-driven subtab routing — must be carried through the
-            // transform, otherwise every row falls back to 'removable' and
-            // the Coverage/Audit subtabs render empty.
-            category: r.category,
-            findingClass: r.findingClass ?? r.finding_class,
-            countsTowardSummary: r.countsTowardSummary ?? r.counts_toward_summary,
-            // The backend's POSITIVE signal that usage was never computed.
-            // It was already on the wire and simply not carried through this
-            // transform, so every consumer below had to INFER "unmeasured"
-            // from counts being null — which silently answers "no" for any
-            // row that has not adopted the null contract yet. Carrying the
-            // field lets the predicates ask the question directly.
-            usageMeasured: r.usageMeasured ?? r.usage_measured,
-            usageNotComputedReason: r.usageNotComputedReason ?? r.usage_not_computed_reason,
-            // For Security Groups: lpScore is null, use networkExposure instead
-            // `!== undefined` lets null through, and `100 - null` is 100 — so a
-            // role whose usage was never measured rendered as a PERFECT LP
-            // score. That is the precise green-checkmark lie the unknown-vs-zero
-            // work exists to remove. Unmeasured must stay null all the way to
-            // the cell, which already renders it as "not measured".
-            lpScore: r.lpScore ?? (typeof r.gapPercent === 'number' ? 100 - r.gapPercent : null),
-            allowedCount: r.allowedCount || 0,
-            // Preserve null. A role whose usage was never computed and a role
-            // measured as fully-used are different facts; collapsing null→0
-            // renders "0 unused / 0%" for both, which reads as "clean" for a
-            // row we simply never measured. GapResource types these nullable
-            // already; the row cells render "not measured" for null.
-            usedCount: r.usedCount ?? null,
-            gapCount: r.gapCount ?? null,
-            gapPercent: r.gapPercent ?? null,
-            blastRadius: r.blastRadius ?? r.blast_radius ?? undefined,
-            networkExposure: networkExposure ? {
-              score: networkExposure.score || 0,
-              severity: networkExposure.severity || 'MEDIUM',
-              totalRules: networkExposure.totalRules || 0,
-              internetExposedRules: networkExposure.internetExposedRules || 0,
-              highRiskPorts: networkExposure.highRiskPorts || [],
-              details: networkExposure.details || {
-                totalIngressRules: networkExposure.totalRules || 0,
-                totalEgressRules: 0,
-                findingsCount: 0,
-                criticalFindings: 0,
-                highFindings: 0
-              }
-            } : undefined,
-            allowedList: r.allowedList || [],
-            usedList: r.usedList || [],
-            unusedList: r.unusedList || [],
-            highRiskUnused: (r.unusedList || []).slice(0, 5).map((perm: any) => {
-              // Handle both string permissions (IAM) and object permissions (SG rules)
-              const permStr = typeof perm === 'string' ? perm : (perm?.permission || perm?.port || String(perm))
-              return {
-                permission: permStr,
-                riskLevel: (permStr?.includes?.('PassRole') || permStr?.includes?.('Delete') || permStr?.includes?.('Admin')) ? 'CRITICAL' as const : 'HIGH' as const,
-                reason: permStr?.includes?.('PassRole') ? 'Privilege escalation risk' : 
-                       permStr?.includes?.('Delete') ? 'Destructive action' : 'High-risk permission'
-              }
-            }),
-            evidence: {
-              dataSources: r.evidence?.dataSources || ['Identity Graph'],
-              observationDays: r.observationDays || r.evidence?.observationDays || 90,
-              confidence: r.evidence?.confidence || (r.confidence >= 85 ? 'HIGH' as const : r.confidence >= 60 ? 'MEDIUM' as const : r.usedCount > 0 ? 'MEDIUM' as const : 'LOW' as const),
-              lastUsed: r.lastUsed || r.evidence?.lastUsed,
-              coverage: {
-                regions: r.evidence?.coverage?.regions || ['us-east-1'],
-                complete: r.evidence?.coverage?.complete !== false
-              },
-              flowlogs: r.evidence?.flowlogs || null,
-              resourcePolicies: r.evidence?.resourcePolicies || null,
-              confidence_breakdown: r.evidence?.confidence_breakdown || null,
-              rule_states: r.evidence?.rule_states || null,  // Security Group rule states
-              // Posture findings (RDS / Lambda / EC2) carry violatedRules in API evidence.
-              violatedRules: r.evidence?.violatedRules || undefined
-            },
-            severity: normalizeLpSeverity(r.severity),
-            confidence: r.confidence || 0,
-            observationDays: r.observationDays || 90,
-            title: r.title || (isSecurityGroup
-              ? `${r.resourceName} has network exposure risk`
-              : `${r.resourceName} has ${r.gapCount || 0} unused permissions`),
-            description: r.description || '',
-            remediation: r.remediation || '',
-            region: r.evidence?.coverage?.regions?.[0] || r.region || null,  // Extract region
-            // Remediable status (for IAM roles).
-            // The list endpoint spells this `remediable` (api/least_privilege.py);
-            // only the per-role gap-analysis payload uses isRemediable/is_remediable.
-            // Reading the camel/snake spellings alone meant every list row missed
-            // the backend signal and fell through to a hardcoded `true` — including
-            // RDS posture rows the backend explicitly marks remediable=false.
-            // Absent stays undefined (unknown), never true: this field's polarity
-            // must match the modal's fail-closed gate, which only trusts === false.
-            isRemediable: r.isRemediable ?? r.is_remediable ?? r.remediable ?? undefined,
-            remediableReason: r.remediableReason ?? r.remediable_reason ?? '',
-            isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false,
-            // Remediation metadata
-            remediatedAt: r.remediatedAt ?? r.remediated_at ?? null,
-            remediatedBy: r.remediatedBy ?? r.remediated_by ?? null,
-            snapshotId: r.snapshotId ?? r.snapshot_id ?? null,
-            eventId: r.eventId ?? r.event_id ?? null,
-            rollbackAvailable: r.rollbackAvailable ?? r.rollback_available ?? false,
-            // Orphan status (for Security Groups)
-            isOrphan: r.isOrphan ?? r.is_orphan ?? false,
-            attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0,
-            // S3 Bucket traffic data
-            accessorCount: r.accessorCount ?? r.accessor_count ?? 0,
-            totalHits: r.totalHits ?? r.total_hits ?? 0,
-            principals: r.principals || []
-          }
-        })
-        // Filter out service linked roles and already remediated roles
-        .filter((r: any) => {
-          // Always filter out service linked roles (cannot be modified)
-          if (r.isServiceLinkedRole) {
-            console.log('[Filter] Removing service-linked role:', r.resourceName)
-            return false
-          }
+      // Honest normalize — preserve integrity fields; never invent evidence.
+      const transformed = normalizeLPResponse(result) as LeastPrivilegeResponse
 
-          // NOTE: Disabled localStorage filtering - show all roles regardless of remediation history
-          // Users can use "Restore dismissed" button to bring back dismissed items
-          // try {
-          //   const remediatedKey = `remediated_roles_${systemName}`
-          //   const remediatedRoles = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-          //   if (remediatedRoles.includes(r.resourceName) || remediatedRoles.includes(r.id)) {
-          //     console.log('[Filter] Removing remediated role:', r.resourceName)
-          //     return false
-          //   }
-          // } catch (e) {
-          //   // Ignore localStorage errors
-          // }
-
-          // Don't filter out IAM roles based on gapCount - show all of them
-          // The user can see which ones need remediation
-          return true
-        }),
-        timestamp: result.timestamp || new Date().toISOString(),
-        fromCache: !!result.fromCache,
-        cacheAge: safeNumber(result.cacheAge, 0),
-        fromStaleCache: !!result.fromStaleCache,
-        staleReason: typeof result.staleReason === 'string' ? result.staleReason : undefined,
-      }
-
-      // Merge: preserve local remediation metadata (remediatedAt, snapshotId, etc.)
-      // that was set by handleRemediationSuccess but not yet persisted in the backend.
-      // Without this, the background re-fetch overwrites local SG/S3 remediation state.
       setData(prev => {
-        if (!prev) return transformed
-
-        const prevRemedMap = new Map<string, Partial<GapResource>>()
-        for (const r of prev.resources) {
-          if (r.remediatedAt) {
-            const key = r.id || r.resourceName
-            prevRemedMap.set(key, {
-              remediatedAt: r.remediatedAt,
-              remediatedBy: r.remediatedBy,
-              snapshotId: r.snapshotId,
-              eventId: r.eventId,
-              rollbackAvailable: r.rollbackAvailable,
-              gapCount: r.gapCount,
-              gapPercent: r.gapPercent,
-              lpScore: r.lpScore,
-              severity: r.severity,
-              allowedCount: r.allowedCount,
-              usedCount: r.usedCount,
-            })
-          }
-        }
-
-        if (prevRemedMap.size === 0) return transformed
-
+        const mergedResources = mergeLpResourcesAfterFetch(
+          prev?.resources as any,
+          transformed.resources as any,
+        ) as GapResource[]
         return {
           ...transformed,
-          resources: transformed.resources.map(r => {
-            const key = r.id || r.resourceName
-            const prevRemed = prevRemedMap.get(key)
-            if (prevRemed && !r.remediatedAt) {
-              return { ...r, ...prevRemed }
-            }
-            return r
-          }),
-          summary: recalculateSummary(
-            transformed.resources.map(r => {
-              const key = r.id || r.resourceName
-              const prevRemed = prevRemedMap.get(key)
-              return (prevRemed && !r.remediatedAt) ? { ...r, ...prevRemed } : r
-            }),
-            transformed.summary
-          ),
+          resources: mergedResources,
+          summary: recalculateSummary(mergedResources, transformed.summary),
         }
       })
 
@@ -1097,29 +863,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     await fetchGaps(true, true) // Force cache refresh
   }
 
-  const isRemediatedResource = (resource: GapResource) =>
-    !!(
+  const isRemediatedResource = (resource: GapResource) => {
+    // VERIFYING is not remediated — stay on the active list with an honest badge
+    // until the backend re-read confirms post-state (never invent clean scores).
+    if (
+      resource.verificationState === 'applied_verifying' ||
+      resource.verificationState === 'verify_failed'
+    ) {
+      return false
+    }
+    return !!(
       resource.remediatedAt ||
       (
         resource.resourceType === 'IAMRole' &&
-        // A role whose usage was never computed is NOT remediated. This guard
-        // is the whole point: `allowedCount === 0` cannot tell "this role has
-        // no permissions left" from "we could not read this role's
-        // permissions". Four live roles (alon-prod-{web,app,lambda,report})
-        // whose sync failed with NoSuchEntity were filed under Remediated with
-        // the badge "Least Privilege" — Cyntro reporting its own blind spot as
-        // its best outcome.
-        //
-        // Checked explicitly rather than relying on the counts now being null,
-        // because that only holds for analyzers that have adopted the null
-        // contract. `=== false` and not `!resource.usageMeasured`: undefined
-        // means "not annotated", which must stay remediable.
         resource.usageMeasured !== false &&
         resource.allowedCount === 0 &&
-        // Rows with open posture/escalation violations must stay in active inventory.
         (resource.evidence?.violatedRules?.length ?? 0) === 0
       )
     )
+  }
 
   const getUsageMetricsForResource = (resource: GapResource) => {
     if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
@@ -1301,11 +1063,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const countableResources = activeResources.filter(
       (resource) => resource.countsTowardSummary !== false,
     )
-    const severityCounts = countableResources.reduce((acc, resource) => {
-      const bucket = normalizeLpSeverity(resource.severity)
-      acc[bucket] += 1
-      return acc
-    }, { critical: 0, high: 0, medium: 0, low: 0 } as Record<LpSeverityBucket, number>)
+    const severityCounts = countableResources.reduce(
+      (acc, resource) => {
+        const bucket = normalizeLpSeverity(resource.severity)
+        if (bucket) acc[bucket] += 1
+        return acc
+      },
+      { critical: 0, high: 0, medium: 0, low: 0 } as Record<
+        'critical' | 'high' | 'medium' | 'low',
+        number
+      >,
+    )
 
     // Unmeasured rows contribute nothing to the excess-permission total — but
     // they must not let the total read as authoritative either. If every active
@@ -1394,95 +1162,55 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const resourceIdentifier = resource.resourceName || resource.id
     console.log('[LeastPrivilegeTab] Remediation successful for:', resourceIdentifier, metadata)
 
+    // Receipt only — never invent clean scores. Backend re-read is authority.
     setData(prev => {
       if (!prev) return prev
-
       const remediatedAt = new Date().toISOString()
-      const nextResources = prev.resources.map<GapResource>(existing => {
-        const matches = existing.id === resource.id || existing.resourceName === resource.resourceName
+      const nextResources = prev.resources.map<GapResource>((existing) => {
+        const matches =
+          existing.id === resource.id || existing.resourceName === resource.resourceName
         if (!matches) return existing
-
-        if (existing.resourceType === 'SecurityGroup') {
-          const totalRules = existing.networkExposure?.totalRules || existing.allowedCount || 0
-          return {
-            ...existing,
-            remediatedAt,
-            remediatedBy: metadata?.remediatedBy || 'user@cyntro.io',
-            snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
-            eventId: metadata?.eventId ?? existing.eventId ?? null,
-            rollbackAvailable: metadata?.rollbackAvailable ?? !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
-            allowedCount: totalRules,
-            usedCount: totalRules,
-            gapCount: 0,
-            gapPercent: 0,
-            lpScore: 100,
-            severity: 'low',
-            networkExposure: existing.networkExposure ? {
-              ...existing.networkExposure,
-              score: 100,
-              severity: 'LOW' as const,
-              internetExposedRules: 0,
-              highRiskPorts: [] as number[],
-              details: {
-                ...existing.networkExposure.details,
-                findingsCount: 0,
-                criticalFindings: 0,
-                highFindings: 0,
-              }
-            } : existing.networkExposure,
-          }
-        }
-
-        const currentUsed = existing.usedCount ?? 0
-        const currentAllowed = existing.allowedCount || currentUsed
-        const afterTotal = metadata?.afterTotal ?? currentUsed
-        const nextAllowed = Math.max(0, safeNumber(afterTotal, currentUsed))
-        const removedCount = metadata?.removedCount ?? Math.max(0, currentAllowed - nextAllowed)
-
-        return {
-          ...existing,
+        return markResourceVerifying(existing as any, {
           remediatedAt,
-          remediatedBy: metadata?.remediatedBy || 'user@cyntro.io',
+          remediatedBy: metadata?.remediatedBy,
           snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
           eventId: metadata?.eventId ?? existing.eventId ?? null,
-          rollbackAvailable: metadata?.rollbackAvailable ?? !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
-          allowedCount: nextAllowed,
-          usedCount: nextAllowed,
-          gapCount: 0,
-          gapPercent: 0,
-          lpScore: 100,
-          severity: 'low',
-          unusedList: [],
-          highRiskUnused: [],
-          title: `${existing.resourceName} remediated`,
-          description: removedCount > 0
-            ? `Removed ${removedCount} unused permissions from ${existing.resourceName}.`
-            : existing.description,
+          rollbackAvailable:
+            metadata?.rollbackAvailable ??
+            !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
+        }) as GapResource
+      })
+      return { ...prev, resources: nextResources }
+    })
+
+    setIamGapAnalysisCache((prev) => {
+      const next = { ...prev }
+      delete next[resource.resourceName]
+      if (resource.id) delete next[resource.id]
+      return next
+    })
+
+    setSgGapAnalysisCache((prev) => {
+      const next = { ...prev }
+      delete next[resource.resourceName]
+      if (resource.id) delete next[resource.id]
+      return next
+    })
+
+    // Force revalidation — do not keep a local "perfect" post-state.
+    void fetchGaps(true, true).catch(() => {
+      setData((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          resources: prev.resources.map((r) =>
+            r.id === resource.id || r.resourceName === resource.resourceName
+              ? { ...r, verificationState: 'verify_failed' as const }
+              : r,
+          ),
         }
       })
-
-      return {
-        ...prev,
-        resources: nextResources,
-        summary: recalculateSummary(nextResources, prev.summary),
-      }
     })
-
-    setIamGapAnalysisCache(prev => {
-      const next = { ...prev }
-      delete next[resource.resourceName]
-      if (resource.id) delete next[resource.id]
-      return next
-    })
-
-    setSgGapAnalysisCache(prev => {
-      const next = { ...prev }
-      delete next[resource.resourceName]
-      if (resource.id) delete next[resource.id]
-      return next
-    })
-
-    void fetchGaps(false, false)
   }
 
   const handleRollbackSuccess = (resourceName: string) => {
@@ -1962,6 +1690,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return lpSeverityColor(resource.severity)
   }
   const getSeverityLabel = (resource: GapResource) => {
+    if (resource.verificationState === 'applied_verifying') return 'Verifying'
+    if (resource.verificationState === 'verify_failed') return 'Verify failed'
     if (isRemediated(resource)) return 'Remediated'
     // "Unknown", not "Not assessed": the chip is narrow (px-2, text-xs) and
     // the two-word label wrapped onto a second line, making the row taller
@@ -2036,14 +1766,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const activeResources = nonDeletedResources.filter(r => !isRemediated(r))
   const remediatedResources = nonDeletedResources.filter(r => isRemediated(r))
 
-  // Subtab partition. Rows missing `category` (older backend response shape
-  // during deploy) fall into 'removable' to match prior behaviour where every
-  // active row was shown.
-  const categoryOf = (r: GapResource): 'removable' | 'coverage' | 'audit' =>
-    r.category ?? 'removable'
-  const removableResources = activeResources.filter(r => categoryOf(r) === 'removable')
-  const coverageResources = activeResources.filter(r => categoryOf(r) === 'coverage')
-  const auditResources = activeResources.filter(r => categoryOf(r) === 'audit')
+  // Subtab partition — backend category only. Missing category is not
+  // inventively treated as removable (that falsely implies actionability).
+  const removableResources = activeResources.filter((r) => r.category === 'removable')
+  const coverageResources = activeResources.filter((r) => r.category === 'coverage')
+  const auditResources = activeResources.filter((r) => r.category === 'audit')
 
   const tabResources: GapResource[] =
     activeTab === 'remediated' ? remediatedResources
@@ -2067,7 +1794,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       if (activeTab !== 'removable') return true
       if (r.countsTowardSummary === false) return false
       if ((r.gapCount ?? 0) > 0 || (r.networkExposure?.internetExposedRules ?? 0) > 0) return true
-      return ['critical', 'high', 'medium'].includes(normalizeLpSeverity(r.severity))
+      const bucket = normalizeLpSeverity(r.severity)
+      return bucket != null && ['critical', 'high', 'medium'].includes(bucket)
     })
     .filter(r => {
       if (activeTab !== 'removable') return true
@@ -3176,22 +2904,29 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           <div className="space-y-2 text-xs" style={{ color: "var(--text-secondary)" }}>
                             <div className="flex justify-between">
                               <span>Observation</span>
-                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.evidence?.observationDays || resource.observationDays || 0} days</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                                {typeof resource.evidence?.observationDays === 'number'
+                                  ? `${resource.evidence.observationDays} days`
+                                  : typeof resource.observationDays === 'number'
+                                    ? `${resource.observationDays} days`
+                                    : 'NOT_COLLECTED'}
+                              </span>
                             </div>
                             <div className="flex justify-between">
                               <span>Confidence</span>
                               <span className="font-semibold" style={{
-                                color: (resource.evidence?.confidence || 'LOW') === 'HIGH' ? '#22c55e'
-                                     : (resource.evidence?.confidence || 'LOW') === 'MEDIUM' ? '#f97316'
-                                     : '#ef4444'
+                                color: resource.evidence?.confidence === 'HIGH' ? '#22c55e'
+                                     : resource.evidence?.confidence === 'MEDIUM' ? '#f97316'
+                                     : resource.evidence?.confidence === 'LOW' ? '#ef4444'
+                                     : '#6b7280'
                               }}>
-                                {resource.evidence?.confidence || 'LOW'}
+                                {resource.evidence?.confidence ?? 'UNKNOWN'}
                               </span>
                             </div>
-                            {(resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence)) && (resource.gapCount ?? 0) > 0 && (
+                            {resource.evidence?.confidence == null && (resource.gapCount ?? 0) > 0 && (
                               <div className="mt-2 p-2 rounded text-xs" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
                                 <span style={{ color: "#991b1b" }}>
-                                  No usage data collected — permissions may be used by services not tracked by CloudTrail. Enable data events before remediating.
+                                  Evidence confidence not provided by the server — do not treat unused as proven excess.
                                 </span>
                               </div>
                             )}
@@ -3200,6 +2935,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               <span className="font-medium" style={{ color: "var(--text-primary)" }}>
                                 {(() => {
                                   const sources = resource.evidence?.dataSources || []
+                                  if (sources.length === 0) return 'NOT_COLLECTED'
                                   const labels = sources.map((s: string) => {
                                     const sl = s.toLowerCase()
                                     if (sl.includes('neo4j') || sl.includes('graph')) return 'Identity Graph'
@@ -3209,8 +2945,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                     if (sl.includes('s3') || sl.includes('access')) return 'Access Logs'
                                     return s
                                   })
-                                  return [...new Set(labels)].join(', ') || 'Identity Graph'
+                                  return [...new Set(labels)].join(', ')
                                 })()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Coverage</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                                {resource.evidence?.coverage?.complete === true
+                                  ? 'complete'
+                                  : resource.evidence?.coverage?.complete === false
+                                    ? 'incomplete'
+                                    : 'UNKNOWN'}
                               </span>
                             </div>
                             <div className="flex justify-between">
@@ -3238,6 +2984,24 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             show a green "Fully Remediated" on the same card. Green
                             reads as "you're done here", which is a worse false claim
                             than the orange one removed in #488. */}
+                        {resource.verificationState === 'applied_verifying' && (
+                          <span
+                            className="px-2 py-0.5 rounded text-xs font-semibold"
+                            style={{ background: "#f59e0b20", color: "#d97706" }}
+                            data-testid="lp-applied-verifying"
+                          >
+                            APPLIED · VERIFYING
+                          </span>
+                        )}
+                        {resource.verificationState === 'verify_failed' && (
+                          <span
+                            className="px-2 py-0.5 rounded text-xs font-semibold"
+                            style={{ background: "#ef444420", color: "#ef4444" }}
+                            data-testid="lp-verify-failed"
+                          >
+                            APPLIED · VERIFY FAILED
+                          </span>
+                        )}
                         {isRemediatedResource(resource) && (
                           <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#10b98120", color: "#10b981" }}>
                             Fully Remediated
@@ -4326,12 +4090,18 @@ function RemediationDrawer({
             <Send className="w-4 h-4" />
             Request Approval
           </button>
-          {resource.evidence?.confidence === 'HIGH' && (
-            <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              Auto-Apply
-            </button>
-          )}
+          {/* APPLY stays disabled — analyzer integrity can only veto, never
+              authorize. No FE Auto-Apply from evidence.confidence. */}
+          <button
+            type="button"
+            disabled
+            title="Apply is disabled — mutation requires a signed backend plan"
+            className="px-4 py-2 bg-slate-300 text-slate-500 rounded-lg text-sm font-medium flex items-center gap-2 cursor-not-allowed opacity-70"
+            data-testid="lp-apply-disabled"
+          >
+            <Zap className="w-4 h-4" />
+            Apply (disabled)
+          </button>
         </div>
       </div>
     </div>
@@ -4482,7 +4252,7 @@ type RuleAnalysis = {
   is_public: boolean
   status: 'USED' | 'UNUSED' | 'OVERLY_BROAD'
   traffic: { connection_count: number; unique_sources: number }
-  recommendation: { action: string; reason: string; confidence: number; suggested_cidrs?: string[] }
+  recommendation: { action: string; reason: string; confidence: number | null; suggested_cidrs?: string[] }
 }
 
 function RulesTab({ 
@@ -4536,25 +4306,38 @@ function RulesTab({
           const sources = rule.sources || []
           const firstSource = sources[0] || {}
           const sourceDisplay = firstSource.cidr || firstSource.sgId || firstSource.prefixListId || 'Unknown'
-          
+          // Backend owns KEEP/RESTRICT/DELETE + confidence. Never invent 95/80.
+          const rec = rule.recommendation && typeof rule.recommendation === 'object'
+            ? rule.recommendation
+            : null
+          const action =
+            typeof rec?.action === 'string'
+              ? rec.action
+              : typeof rule.recommendation === 'string'
+                ? rule.recommendation
+                : 'UNKNOWN'
+          const confidence =
+            typeof rec?.confidence === 'number'
+              ? rec.confidence
+              : typeof rule.confidence === 'number'
+                ? rule.confidence
+                : null
+
           return {
             rule_id: `rule_${idx}`,
-            direction: 'ingress' as const,
+            direction: (rule.direction === 'egress' ? 'egress' : 'ingress') as 'ingress' | 'egress',
             protocol: rule.protocol || 'TCP',
-            port_range: String(rule.port || 'All'),
+            port_range: String(rule.port ?? rule.port_range ?? 'All'),
             source: sourceDisplay,
             source_type: (firstSource.cidr ? 'cidr' : firstSource.sgId ? 'security_group' : 'prefix_list') as 'cidr' | 'security_group' | 'prefix_list',
             is_public: rule.isPublic || false,
-            status: (rule.status === 'USED' ? 'USED' : rule.status === 'UNUSED' ? 'UNUSED' : 'OVERLY_BROAD') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
+            status: (rule.status === 'USED' ? 'USED' : rule.status === 'UNUSED' ? 'UNUSED' : rule.status === 'OVERLY_BROAD' ? 'OVERLY_BROAD' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
             traffic: rule.traffic || { connection_count: 0, unique_sources: sources.length },
-            recommendation: { 
-              action: rule.status === 'USED' ? 'KEEP' : rule.isPublic ? 'RESTRICT' : 'DELETE', 
-              reason: rule.isPublic 
-                ? (rule.status === 'USED' ? 'Public access with active traffic' : 'Public internet access - restrict to specific CIDRs')
-                : (rule.status === 'USED' ? 'Active traffic observed' : 'No traffic observed'),
-              confidence: rule.status === 'USED' ? 95 : 80
+            recommendation: {
+              action,
+              reason: typeof rec?.reason === 'string' ? rec.reason : (typeof rule.note === 'string' ? rule.note : ''),
+              confidence: confidence as number,
             },
-            // Store the full sources array for detailed display
             all_sources: sources
           }
         })
@@ -4567,22 +4350,39 @@ function RulesTab({
       // SECOND: Try to use rule_states from evidence (legacy format)
       if (resource.evidence?.rule_states?.length) {
         console.log('[RulesTab] Using rule_states from evidence:', resource.evidence.rule_states.length)
-        const fallbackRules = resource.evidence.rule_states.map((rule: any, idx: number) => ({
-          rule_id: "rule_" + idx,
-          direction: 'ingress' as const,
-          protocol: rule.protocol || 'TCP',
-          port_range: String(rule.port || 'All'),
-          source: rule.cidr || rule.source || '0.0.0.0/0',
-          source_type: 'cidr' as const,
-          is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || rule.source?.includes('0.0.0.0/0') || false,
-          status: (rule.observed_usage || rule.status === 'USED' ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
-          traffic: { connection_count: rule.connections || 0, unique_sources: rule.unique_sources || 0 },
-          recommendation: { 
-            action: rule.observed_usage || rule.status === 'USED' ? 'KEEP' : 'DELETE', 
-            reason: rule.recommendation || (rule.observed_usage ? 'Active traffic observed' : 'No traffic observed'),
-            confidence: rule.confidence || 80
+        const fallbackRules = resource.evidence.rule_states.map((rule: any, idx: number) => {
+          const rec = rule.recommendation && typeof rule.recommendation === 'object'
+            ? rule.recommendation
+            : null
+          const action =
+            typeof rec?.action === 'string'
+              ? rec.action
+              : typeof rule.recommendation === 'string'
+                ? rule.recommendation
+                : 'UNKNOWN'
+          const confidence =
+            typeof rec?.confidence === 'number'
+              ? rec.confidence
+              : typeof rule.confidence === 'number'
+                ? rule.confidence
+                : null
+          return {
+            rule_id: "rule_" + idx,
+            direction: (rule.direction === 'egress' ? 'egress' : 'ingress') as 'ingress' | 'egress',
+            protocol: rule.protocol || 'TCP',
+            port_range: String(rule.port || 'All'),
+            source: rule.cidr || rule.source || 'UNKNOWN',
+            source_type: 'cidr' as const,
+            is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || rule.source?.includes('0.0.0.0/0') || false,
+            status: (rule.observed_usage || rule.status === 'USED' ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
+            traffic: { connection_count: rule.connections || 0, unique_sources: rule.unique_sources || 0 },
+            recommendation: {
+              action,
+              reason: typeof rec?.reason === 'string' ? rec.reason : '',
+              confidence: confidence as number,
+            },
           }
-        }))
+        })
         setRulesAnalysis(fallbackRules)
         return
       }
@@ -4805,10 +4605,14 @@ function RulesTab({
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         rule.recommendation.action === 'KEEP' ? 'bg-[#22c55e20] text-[#22c55e]' :
-                        rule.recommendation.action === 'TIGHTEN' ? 'bg-[#f9731620] text-[#f97316]' :
+                        rule.recommendation.action === 'TIGHTEN' || rule.recommendation.action === 'RESTRICT' ? 'bg-[#f9731620] text-[#f97316]' :
+                        rule.recommendation.action === 'UNKNOWN' || !rule.recommendation.action ? 'bg-slate-200 text-slate-600' :
                         'bg-[#ef444420] text-[#ef4444]'
                       }`}>
-                        {rule.recommendation.action}
+                        {rule.recommendation.action || 'UNKNOWN'}
+                        {typeof rule.recommendation.confidence === 'number'
+                          ? ` · ${rule.recommendation.confidence}%`
+                          : ''}
                       </span>
                     </td>
                   </tr>
