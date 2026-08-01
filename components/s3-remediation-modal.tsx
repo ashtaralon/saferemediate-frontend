@@ -27,7 +27,9 @@ interface Props {
   resourceData?: any
   onApplyFix?: (data?: any) => void
   /** Called after a successful apply for parent-side refresh. */
-  onRemediationSuccess?: () => void
+  onRemediationSuccess?: (...args: any[]) => void
+  /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 export function S3RemediationModal({
@@ -36,6 +38,7 @@ export function S3RemediationModal({
   bucketName,
   systemName,
   onRemediationSuccess,
+  applyDisabled = false,
 }: Props) {
   useEffect(() => {
     if (!isOpen) return
@@ -69,6 +72,7 @@ export function S3RemediationModal({
         </button>
         <S3RemediationCard
           bucketName={bucketName}
+          applyDisabled={applyDisabled}
           onApplied={() => {
             onRemediationSuccess?.()
           }}

@@ -235,6 +235,8 @@ interface IAMPermissionAnalysisModalProps {
   onSuccess?: () => void
   onRemediationSuccess?: (roleName: string) => void
   onRollbackSuccess?: (roleName: string) => void
+  /** When true, hide/disable all Apply mutation controls (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 // Service role analysis from backend (trust policy based)
@@ -288,7 +290,8 @@ export function IAMPermissionAnalysisModal({
   onApplyFix,
   onSuccess,
   onRemediationSuccess,
-  onRollbackSuccess
+  onRollbackSuccess,
+  applyDisabled = false,
 }: IAMPermissionAnalysisModalProps) {
   // Fail-loud guard: refuse to render if system context is missing
   if (!systemName) {
@@ -798,6 +801,15 @@ export function IAMPermissionAnalysisModal({
     skipAutoClose: boolean = false,
   ): Promise<string | undefined> => {
     if (!gapData) return undefined
+
+    if (applyDisabled) {
+      toast({
+        title: 'Apply disabled',
+        description:
+          'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+      })
+      return undefined
+    }
 
     // Fail-closed (defense in depth): the backend marked this role not-remediable
     // — no attached policy data, or usage was never measured (data_confidence
@@ -2888,7 +2900,19 @@ export function IAMPermissionAnalysisModal({
                   .filter(p => autoRemediableSet.has(p)).length
                 const selectedOverrideCount = selectedTotalCount - selectedAutoRemediableCount
 
-                if (blocked) {
+                if (applyDisabled) {
+                  return (
+                    <button
+                      disabled
+                      data-testid="iam-apply-disabled"
+                      className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                      title="Apply is disabled — mutation requires a signed backend plan"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Apply (disabled)
+                    </button>
+                  )
+                } else if (blocked) {
                   return (
                     <button
                       disabled

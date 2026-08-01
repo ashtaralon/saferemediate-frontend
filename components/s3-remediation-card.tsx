@@ -97,6 +97,8 @@ interface S3RemediationCardProps {
     bucketName: string,
     summary: { removed: number; snapshot_id: string | null },
   ) => void
+  /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 // ── Action partition + ceilings (mirrors SG card) ─────────────────
@@ -321,6 +323,7 @@ const INITIAL_OVERRIDE: OverrideState = {
 export function S3RemediationCard({
   bucketName,
   onApplied,
+  applyDisabled = false,
 }: S3RemediationCardProps) {
   const [data, setData] = useState<S3GapResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -497,6 +500,7 @@ export function S3RemediationCard({
   }
 
   const handleApply = async () => {
+    if (applyDisabled) return
     if (selected.size === 0) return
     const selectedStatements = Array.from(selected)
 
@@ -1017,14 +1021,24 @@ export function S3RemediationCard({
           )}
           <button
             disabled={
+              applyDisabled ||
               selected.size === 0 ||
               overrideState.phase === "applying"
             }
             onClick={handleApply}
+            data-testid="s3-apply-disabled"
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8b5cf6] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c3aed] transition-colors"
-            title="Apply the selected statement removals (override modal opens if backend blocks)"
+            title={
+              applyDisabled
+                ? "Apply is disabled — mutation requires a signed backend plan"
+                : "Apply the selected statement removals (override modal opens if backend blocks)"
+            }
           >
-            {overrideState.phase === "applying" ? "Applying…" : "Apply selected"}
+            {applyDisabled
+              ? "Apply (disabled)"
+              : overrideState.phase === "applying"
+                ? "Applying…"
+                : "Apply selected"}
           </button>
         </div>
       </div>

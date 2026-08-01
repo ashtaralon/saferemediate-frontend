@@ -111,6 +111,8 @@ interface SGRemediationCardProps {
    * so the parent's only job here is to refresh dependent state.
    */
   onApplied?: (sgId: string, summary: { removed: number; snapshot_id: string | null }) => void
+  /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 // ── Override modal — shared component handles UI + identity capture
@@ -311,6 +313,7 @@ export function SGRemediationCard({
   sgId,
   onSimulate,
   onApplied,
+  applyDisabled = false,
 }: SGRemediationCardProps) {
   const [data, setData] = useState<SGGapResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -789,6 +792,7 @@ export function SGRemediationCard({
   }
 
   const handleApply = async () => {
+    if (applyDisabled) return
     if (selected.size === 0) return
     const selectedRuleIds = Array.from(selected)
     setApplyError(null)
@@ -1677,21 +1681,29 @@ export function SGRemediationCard({
           )}
           <button
             disabled={
+              applyDisabled ||
               selected.size === 0 ||
               preflight.kind === "checking" ||
               overrideState.phase === "applying"
             }
             onClick={handleApply}
+            data-testid="sg-apply-disabled"
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8b5cf6] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c3aed] transition-colors"
             title={
-              preflight.kind === "blocked"
-                ? "Preflight raised warnings — click Apply to review and override with acknowledgment"
-                : preflight.kind === "checking"
-                  ? "Preflight in progress…"
-                  : "Apply the selected rule removals (override modal opens if backend blocks)"
+              applyDisabled
+                ? "Apply is disabled — mutation requires a signed backend plan"
+                : preflight.kind === "blocked"
+                  ? "Preflight raised warnings — click Apply to review and override with acknowledgment"
+                  : preflight.kind === "checking"
+                    ? "Preflight in progress…"
+                    : "Apply the selected rule removals (override modal opens if backend blocks)"
             }
           >
-            {overrideState.phase === "applying" ? "Applying…" : "Apply selected"}
+            {applyDisabled
+              ? "Apply (disabled)"
+              : overrideState.phase === "applying"
+                ? "Applying…"
+                : "Apply selected"}
           </button>
         </div>
       </div>

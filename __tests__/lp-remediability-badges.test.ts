@@ -42,19 +42,21 @@ function readRemediable(row: Record<string, unknown>): boolean | undefined {
     undefined) as boolean | undefined
 }
 
-/** Mirrors isRemediatedResource in components/LeastPrivilegeTab.tsx. */
+/** Mirrors isRemediatedResource in components/LeastPrivilegeTab.tsx (receipt-only). */
 function isRemediatedResource(r: {
   remediatedAt?: string | null
   resourceType?: string
-  allowedCount?: number
+  allowedCount?: number | null
+  verificationState?: 'applied_verifying' | 'verify_failed' | null
   evidence?: { violatedRules?: unknown[] }
 }): boolean {
-  return !!(
-    r.remediatedAt ||
-    (r.resourceType === 'IAMRole' &&
-      r.allowedCount === 0 &&
-      (r.evidence?.violatedRules?.length ?? 0) === 0)
-  )
+  if (
+    r.verificationState === 'applied_verifying' ||
+    r.verificationState === 'verify_failed'
+  ) {
+    return false
+  }
+  return !!r.remediatedAt
 }
 
 describe('remediability is read from the payload, never assumed', () => {
@@ -94,28 +96,21 @@ describe('the "Not auto-remediable" chip', () => {
   })
 })
 
-describe('"Fully Remediated" requires the hardened predicate', () => {
-  it('does not fire for a role with open violations', () => {
-    // allowedCount fails open to 0 in the transform; without the violatedRules
-    // guard this row would show a green "you're done here" while still being
-    // listed as an active finding.
-    expect(
-      isRemediatedResource({
-        resourceType: 'IAMRole',
-        allowedCount: 0,
-        evidence: { violatedRules: [{ rule: 'iam.escalation.x' }] },
-      }),
-    ).toBe(false)
-  })
-
-  it('fires for a genuinely emptied role', () => {
+describe('"Fully Remediated" requires backend remediatedAt only', () => {
+  it('does not fire for zero / null counts without a receipt', () => {
     expect(
       isRemediatedResource({
         resourceType: 'IAMRole',
         allowedCount: 0,
         evidence: { violatedRules: [] },
       }),
-    ).toBe(true)
+    ).toBe(false)
+    expect(
+      isRemediatedResource({
+        resourceType: 'IAMRole',
+        allowedCount: null,
+      }),
+    ).toBe(false)
   })
 
   it('fires on an explicit remediatedAt regardless of type', () => {
@@ -125,10 +120,18 @@ describe('"Fully Remediated" requires the hardened predicate', () => {
   })
 
   it('does not fire for a non-IAM row that merely has no permissions', () => {
-    // Posture rows (RDS/SG/S3) carry allowedCount 0 by nature; the raw
-    // predicate would have called every one of them "Fully Remediated".
     expect(
       isRemediatedResource({ resourceType: 'RDSInstance', allowedCount: 0 }),
+    ).toBe(false)
+  })
+
+  it('VERIFYING is never Fully Remediated', () => {
+    expect(
+      isRemediatedResource({
+        resourceType: 'IAMRole',
+        remediatedAt: '2026-05-24',
+        verificationState: 'applied_verifying',
+      }),
     ).toBe(false)
   })
 })
