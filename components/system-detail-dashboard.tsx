@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
 import {
   ArrowLeft,
@@ -69,6 +69,7 @@ import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-h
 import { deriveSummaryIntegrity, brssEmptyReasonFor } from "@/lib/summary-integrity"
 import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
+import { RequestEpoch } from "@/lib/request-epoch"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -743,6 +744,17 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   >("awaiting_scan")
   const [overviewFetchError, setOverviewFetchError] = useState<string | null>(null)
 
+  // Request identity for the Overview loader.
+  //
+  // `fetchIssuesSummary` writes ~15 pieces of state from an imperative
+  // Promise.all, and nothing tied a response back to the request that asked for
+  // it. Switching systems, or a manual Retry overlapping the 5-minute poll,
+  // could apply system A's counts to system B — plausible, correctly formatted
+  // numbers attached to the wrong system. `useCachedFetch` already solves this
+  // with an epoch counter; the Overview bypasses the hook (hooks cannot be
+  // called inside fetchAllData's Promise.all) and inherited none of it.
+  const issuesEpoch = useRef(new RequestEpoch()).current
+
   // Enforcement score from issues summary API (legacy, preserved during migration)
   const [healthScoreFromApi, setHealthScore] = useState<number | null>(null)
 
@@ -852,6 +864,16 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   // Fetch issues summary for severity counts
   // =============================================================================
   const fetchIssuesSummary = async () => {
+    // Supersede whatever is in flight. useCachedFetch deliberately does NOT
+    // abort (15+ cards re-running on incidental re-renders filled DevTools with
+    // red "(canceled)" rows and operators read it as broken proxies). That
+    // rationale does not transfer here: this is ONE loader whose effect deps are
+    // [systemName, activeTab], so it re-runs on deliberate navigation only — at
+    // most one canceled row per switch, and the request being cancelled is one
+    // whose answer can no longer be used. With retries a request can live ~110s,
+    // so not cancelling leaves it running long after the operator moved on.
+    const request = issuesEpoch.begin()
+
     setFindingsPressureAuthority("loading")
     setAccessExposureAuthority("loading")
     setOverviewFetchError(null)
@@ -878,10 +900,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       // start toward three minutes of spinner, which is worse than showing
       // the honest unavailable state below.
       const [summaryRes, issuesRes, severityRes] = await Promise.all([
-        fetchWithTransientRetry(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`),
-        fetchWithTransientRetry(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`),
-        fetchWithTransientRetry(`/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`)
+        fetchWithTransientRetry(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`, { init: { signal: request.signal } }),
+        fetchWithTransientRetry(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, { init: { signal: request.signal } }),
+        fetchWithTransientRetry(`/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`, { init: { signal: request.signal } })
       ])
+
+      // Choke point: every state write below belongs to THIS request.
+      if (!request.isCurrent()) return
 
       // SecurityFinding-derived severity counts win — issues-summary's
       // resource-property counts are kept only as a fallback when the
@@ -1088,6 +1113,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         setLoadingFindings(false)
       }
     } catch (error) {
+      // A cancelled request is not a failed one. Without this, navigating away
+      // mid-flight paints "unavailable" over the system the operator just
+      // arrived at — the abort we added to protect them would itself become the
+      // false signal. Same for a superseded response: it may not write at all.
+      if (request.wasAborted() || !request.isCurrent()) return
+
       console.error("[v0] Error fetching issues summary:", error)
       setFindingsPressureAuthority("unavailable")
       setAccessExposureAuthority("unavailable")
@@ -1442,7 +1473,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     if (activeTab !== "overview") return
     fetchAllData()
     const interval = setInterval(fetchAllData, 300_000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      // Cancel whatever is still in flight for the system being left. Bumping
+      // the epoch as well means even a response that lands before the abort
+      // takes effect is discarded rather than applied to the next system.
+      issuesEpoch.cancel()
+    }
   }, [systemName, activeTab])
 
   // NOTE: Security findings are now loaded from fetchIssuesSummary() which uses /api/least-privilege/issues
