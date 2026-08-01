@@ -64,9 +64,10 @@ function gapPillClass(pct: number): string {
 }
 
 export function LPTopIssuesCard() {
-  // Action-driving — 60-min staleness bound. LP issues feed remediation
-  // decisions; stale data could route the operator to already-fixed roles, so
-  // anything older renders behind a StaleIndicator rather than as authoritative.
+  // Action-driving — 60-min freshness bound. LP issues feed remediation
+  // decisions; stale data could route the operator to already-fixed roles.
+  // Past 60 min the cache stops being authoritative: it is read back only if a
+  // live fetch fails, shown with a stale pill, and never past a 7-day hard cap.
   const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<IssuesResp>(
     "/api/proxy/least-privilege/issues",
     {
