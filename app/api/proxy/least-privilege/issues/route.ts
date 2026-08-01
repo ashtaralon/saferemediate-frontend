@@ -99,9 +99,17 @@ export async function GET(req: NextRequest) {
     const sgCount = (data.resources || []).filter((r: any) => r.resourceType === "SecurityGroup").length
     console.log(`[LP Proxy] Backend OK — ${data.resources?.length || 0} resources (${sgCount} SG)`)
 
-    // Cache the successful response only.
-    cachedData = { cacheKey, data }
-    cacheTimestamp = now
+    // Cache a COMPLETE analysis only. The backend already refuses to cache a
+    // partial analyzer sweep (unified/lp/endpoint.py); caching one here would
+    // reinstate the same defect a layer up — one transient failure becoming
+    // minutes of confidently incomplete answers, with the integrity banner
+    // shown but the underlying rows quietly frozen.
+    if (data?.serve_state === "READY") {
+      cachedData = { cacheKey, data }
+      cacheTimestamp = now
+    } else {
+      console.warn(`[LP Proxy] Not caching — serve_state=${data?.serve_state ?? "absent"}`)
+    }
 
     return NextResponse.json({
       ...data,
@@ -133,6 +141,16 @@ export async function GET(req: NextRequest) {
           fromStaleCache: true,
           staleReason: "timeout",
           cacheAge,
+          // A stale payload cannot vouch for the CURRENT analysis, however
+          // complete it was when captured. Serving it with its original
+          // serve_state=READY would clear the banner and re-enable Apply on
+          // evidence of unknown age — laundering a live outage into a clean
+          // sweep. The rows are still worth showing; the authority is not.
+          serve_state: "NOT_READY",
+          analysis_complete: false,
+          integrityReason:
+            `Showing the last complete analysis (${cacheAge}s old) — the live ` +
+            `analysis timed out. Remediation is unavailable until it succeeds.`,
         },
         {
           headers: {

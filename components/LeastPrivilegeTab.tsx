@@ -9,6 +9,8 @@ import type { SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
+import { deriveLPIntegrity } from '@/lib/lp-integrity'
+import { AnalysisIntegrityBanner, PartialCountMarker } from '@/components/analysis-integrity-banner'
 import {
   RESOURCE_RISK_OPEN_EVENT,
   type ResourceRiskOpenDetail,
@@ -23,7 +25,6 @@ import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
-import { EvidenceCoverageBanner } from '@/components/evidence-coverage-banner'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -234,12 +235,33 @@ interface LeastPrivilegeResponse {
   fromStaleCache?: boolean
   /** Why the stale fallback happened, e.g. "timeout" / "backend_502". */
   staleReason?: string
+  // --- Analysis integrity (unified/lp/endpoint.py) ---------------------------
+  // Describes whether the analyzer sweep behind this payload completed. It says
+  // nothing about whether anything may be MUTATED — there is deliberately no
+  // `mutations_allowed`, because analyzer integrity can veto a cut but can never
+  // authorize one. See lib/lp-integrity.ts.
+  /** READY | INTEGRITY_HELD | NOT_READY. Absent on pre-change payloads. */
+  serve_state?: string
+  /** True only when every analyzer returned. */
+  analysis_complete?: boolean
+  /** Names of analyzers that raised; "graph_unavailable" when none ran. */
+  failedAnalyzers?: string[]
+  /** Operator-readable explanation of the hold. */
+  integrityReason?: string
+  /** Counts in this payload are a subset of unknown size. */
+  counts_are_partial?: boolean
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
   const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Analysis integrity for THIS payload. Derived once so the banner, the count
+  // markers and the remediation gate can never disagree with each other.
+  // `mutationBlocked` is a veto, not a grant — the apply endpoint enforces
+  // coverage and plan-token independently, and must keep doing so: disabling a
+  // button is a courtesy to an honest operator, not a security boundary.
+  const integrity = deriveLPIntegrity(data)
   /** Progress note shown on the loading screen (e.g. retry-in-progress). */
   const [loadingNote, setLoadingNote] = useState<string | null>(null)
   const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
@@ -292,6 +314,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         (r.resourceName === detail.resourceName || r.id === detail.resourceName),
     )
     if (!match) return false
+    // Same gate as handleResourceClick — a deep link must not be a second door
+    // into the remediation modals when the analysis is held. Two entry points
+    // to the same destructive surface means the gate has to be on both.
+    if (integrity.mutationBlocked) {
+      setSelectedResource(match)
+      setDrawerOpen(true)
+      return true
+    }
     if (detail.resourceType === 'IAMRole') {
       setSelectedIAMRole(match.resourceName)
       setIamModalOpen(true)
@@ -734,25 +764,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // Retry 503 (Render still booting — it answers instantly, so a retry is
       // nearly free and usually works). Do NOT retry 504.
       //
-      // Retry 503 AND 504.
-      //
-      // Dropping 504 was wrong. The argument was "retrying an identical budget
-      // cannot succeed" — true only if nothing changes between attempts, and
-      // here something does: the first request WAKES the backend. A cold
-      // Render dyno answers /health in ~95s; the attempt that times out is
-      // also the attempt that warms it, so the retry usually lands.
-      //
-      // Observed in production 2026-08-01: the tab hard-failed with
-      // "Backend 504" while its own error card read "Retrying often succeeds
-      // once it has warmed up" — copy describing behaviour the code no longer
-      // had. Clicking Retry then loaded it. That manual click is exactly what
-      // this loop should have done.
-      //
-      // Two attempts, not the old three: with a 55s budget the worst case is
-      // ~111s, and the sibling Trust Exposure lens already retries both codes
-      // on the same surface (RETRY_DELAYS_MS there), so this also stops the
-      // two panels disagreeing about whether a cold backend is fatal.
-      const retryDelaysMs = [1500]
+      // A 504 here means the proxy's own 55s budget was exhausted. Retrying
+      // that with an identical budget cannot succeed: the previous 25s budget
+      // was shorter than a 32s cold start, so all three attempts timed out by
+      // construction — ~78s of spinner and then a hard error on a backend that
+      // was merely cold. The cold path is now covered by the budget itself,
+      // which is where it belongs; retrying is for the fast-failing case only.
+      const retryDelaysMs = [1000]
       let response: Response | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
@@ -760,7 +778,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
-        const retryable = response.status === 503 || response.status === 504
+        const retryable = response.status === 503
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }
@@ -1951,6 +1969,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
+    // The three typed modals below are the remediation surfaces — they carry
+    // Apply. When the analyzer sweep did not complete, route to the read-only
+    // drawer instead: a permission the failed analyzer would have shown as
+    // in-use is simply absent from this payload, so "unused" here is not a
+    // finding, it is a gap. Inspection stays open; the cut does not.
+    if (integrity.mutationBlocked) {
+      setSelectedResource(resource)
+      setDrawerOpen(true)
+      return
+    }
     if (resource.resourceType === 'IAMRole') {
       setSelectedIAMRole(resource.resourceName)
       setIamModalOpen(true)
@@ -2031,6 +2059,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   return (
     <div className="space-y-6">
+      {/* Renders nothing on READY. Not dismissible: the list below is a subset
+          of unknown size, so letting it be closed and then acted on recreates
+          the failure it exists to prevent. */}
+      <AnalysisIntegrityBanner integrity={integrity} />
+
       {/* Confirmation Modal */}
       <Dialog open={confirmationModalOpen} onOpenChange={setConfirmationModalOpen}>
         <DialogContent className="sm:max-w-[500px]">
@@ -2118,12 +2151,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       {/* Trust & Dormancy — net-new HAS_RISK findings (broad trust + dormant roles) */}
       <TrustDormancyLens systemName={systemName} />
-
-      {/* How much OBSERVED evidence the numbers below rest on. Placed here on
-          purpose: it qualifies the stat cards and the table, so it has to be
-          read before them, not tucked underneath. Renders nothing when
-          coverage is complete or the lookup fails. */}
-      <EvidenceCoverageBanner systemName={systemName} />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
