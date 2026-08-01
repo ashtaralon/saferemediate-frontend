@@ -34,6 +34,8 @@ interface Props {
     sgId: string,
     summary?: { removed: number; snapshot_id: string | null },
   ) => void
+  /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 export function SGRemediationModal({
@@ -43,6 +45,7 @@ export function SGRemediationModal({
   sgName,
   systemName,
   onRemediate,
+  applyDisabled = false,
 }: Props) {
   // Lock body scroll while open, restore on close.
   useEffect(() => {
@@ -78,6 +81,7 @@ export function SGRemediationModal({
         </button>
         <SGRemediationCard
           sgId={sgId}
+          applyDisabled={applyDisabled}
           onApplied={(applied_sgId, summary) => {
             onRemediate?.(applied_sgId, summary)
           }}

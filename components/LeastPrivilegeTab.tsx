@@ -43,7 +43,7 @@ const safeNumber = (v: unknown, fallback = 0): number => {
 // Types
 interface GapResource {
   id: string
-  resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance'
+  resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
   systemName?: string
@@ -2741,13 +2741,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               <div className="h-3 rounded-full overflow-hidden flex" style={{ background: "var(--bg-primary)" }}>
                                 {(metrics.usedCount ?? 0) > 0 && (
                                   <div className="h-full rounded-l-full" style={{
-                                    width: `${Math.max((((metrics.usedCount ?? 0) / Math.max(1, metrics.total)) * 100), 4)}%`,
+                                    width: `${Math.max((((metrics.usedCount ?? 0) / Math.max(1, metrics.total ?? 0)) * 100), 4)}%`,
                                     background: '#22c55e'
                                   }} />
                                 )}
                                 {(metrics.unusedCount ?? 0) > 0 && (
                                   <div className="h-full" style={{
-                                    width: `${((metrics.unusedCount ?? 0) / Math.max(1, metrics.total)) * 100}%`,
+                                    width: `${((metrics.unusedCount ?? 0) / Math.max(1, metrics.total ?? 0)) * 100}%`,
                                     background: '#ef4444',
                                     borderRadius: (metrics.usedCount ?? 0) > 0 ? '0 9999px 9999px 0' : '9999px'
                                   }} />
@@ -2821,12 +2821,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 <>
                                   <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                     <span>Exposure Score</span>
-                                    <span className="font-medium" style={{ color: riskLabel(resource.networkExposure.score).color }}>{riskLabel(resource.networkExposure.score).label}</span>
+                                    <span className="font-medium" style={{
+                                      color: resource.networkExposure.score === null
+                                        ? 'var(--text-muted)'
+                                        : riskLabel(resource.networkExposure.score).color,
+                                    }}>
+                                      {resource.networkExposure.score === null
+                                        ? '—'
+                                        : riskLabel(resource.networkExposure.score).label}
+                                    </span>
                                   </div>
                                   <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                     <span>Internet Exposed Rules</span>
-                                    <span className="font-medium" style={{ color: resource.networkExposure.internetExposedRules > 0 ? '#ef4444' : '#22c55e' }}>
-                                      {resource.networkExposure.internetExposedRules}
+                                    <span className="font-medium" style={{
+                                      color: (resource.networkExposure.internetExposedRules ?? 0) > 0 ? '#ef4444' : '#22c55e',
+                                    }}>
+                                      {resource.networkExposure.internetExposedRules ?? '—'}
                                     </span>
                                   </div>
                                 </>
@@ -3669,8 +3679,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         sgName={selectedSGName || undefined}
         systemName={systemName || ''}
         applyDisabled={LP_MUTATION_APPLY_DISABLED}
-        onRemediate={(sgId, rules, result) => {
-          console.log('[SG] Remediate requested:', sgId, rules, result)
+        onRemediate={(sgId, summary) => {
+          console.log('[SG] Remediate requested:', sgId, summary)
           const sgResource = data?.resources.find(resource =>
             resource.resourceType === 'SecurityGroup' &&
             (resource.id === sgId || resource.resourceName === sgId || resource.resourceName === selectedSGName || resource.id === selectedSGId)
@@ -3678,11 +3688,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
           if (sgResource) {
             handleRemediationSuccess(sgResource, {
-              snapshotId: result?.snapshotId ?? null,
-              eventId: result?.eventId ?? null,
-              ...(typeof result?.rollbackAvailable === 'boolean'
-                ? { rollbackAvailable: result.rollbackAvailable }
-                : {}),
+              snapshotId: summary?.snapshot_id ?? null,
             })
           } else {
             void fetchGaps(false, false)
@@ -4225,14 +4231,25 @@ function SummaryTab({ resource }: { resource: GapResource }) {
           <>
             <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
               <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Network Exposure Score</div>
-              <div className="text-3xl font-bold" style={{ color: riskLabel(resource.networkExposure.score).color }}>{riskLabel(resource.networkExposure.score).label}</div>
+              <div
+                className="text-3xl font-bold"
+                style={{
+                  color: resource.networkExposure.score === null
+                    ? 'var(--muted-foreground,#9ca3af)'
+                    : riskLabel(resource.networkExposure.score).color,
+                }}
+              >
+                {resource.networkExposure.score === null
+                  ? '—'
+                  : riskLabel(resource.networkExposure.score).label}
+              </div>
               <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                {resource.networkExposure.internetExposedRules} internet-exposed rules
+                {resource.networkExposure.internetExposedRules ?? '—'} internet-exposed rules
               </div>
             </div>
             <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
               <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Total Rules</div>
-              <div className="text-3xl font-bold text-[#3b82f6]">{resource.networkExposure.totalRules}</div>
+              <div className="text-3xl font-bold text-[#3b82f6]">{resource.networkExposure.totalRules ?? '—'}</div>
               <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.networkExposure.highRiskPorts.length > 0 
                   ? `${resource.networkExposure.highRiskPorts.length} high-risk ports`
@@ -4286,37 +4303,46 @@ function SummaryTab({ resource }: { resource: GapResource }) {
           <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
             <div
               className="bg-[#ef444410]0 h-full flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${(resource.networkExposure.internetExposedRules / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
+              style={{
+                width: `${((resource.networkExposure.internetExposedRules ?? 0) / Math.max(1, resource.networkExposure.totalRules ?? 0)) * 100}%`,
+              }}
             >
-              Internet Exposed ({resource.networkExposure.internetExposedRules})
+              Internet Exposed ({resource.networkExposure.internetExposedRules ?? '—'})
             </div>
             <div
               className="bg-[#22c55e10]0 h-full flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${((resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules) / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
+              style={{
+                width: `${(((resource.networkExposure.totalRules ?? 0) - (resource.networkExposure.internetExposedRules ?? 0)) / Math.max(1, resource.networkExposure.totalRules ?? 0)) * 100}%`,
+              }}
             >
-              Secure ({resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules})
+              Secure ({
+                resource.networkExposure.totalRules === null ||
+                resource.networkExposure.internetExposedRules === null
+                  ? '—'
+                  : resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules
+              })
             </div>
           </div>
         ) : (
           <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
             <div
               className="bg-[#22c55e10]0 h-full flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
+              style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount ?? 0)) * 100}%` }}
             >
               Used ({(resource.usedCount ?? 0)})
             </div>
             <div
               className="bg-[#ef444410]0 h-full flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
+              style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount ?? 0)) * 100}%` }}
             >
               Unused ({(resource.gapCount ?? 0)})
             </div>
           </div>
         )}
         <p className="text-sm text-[var(--foreground,#374151)]">
-          <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
-          In <strong>{resource.evidence?.observationDays || 0} days</strong> of observation, only <strong>{resource.usedCount ?? 0} were used</strong>.
-          The other <strong>{resource.gapCount ?? 0} ({(resource.gapPercent ?? 0).toFixed(0)}%)</strong> are your attack surface.
+          <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount ?? '—'} allowed permissions</strong>.
+          In <strong>{resource.evidence?.observationDays ?? '—'} days</strong> of observation, only <strong>{resource.usedCount ?? '—'} were used</strong>.
+          The other <strong>{resource.gapCount ?? '—'} ({resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : '—'})</strong> are your attack surface.
         </p>
       </div>
 
