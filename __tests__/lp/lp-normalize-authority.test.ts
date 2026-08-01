@@ -17,6 +17,7 @@ import {
   normalizeLPResponse,
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
+  LP_VERIFYING_TTL_MS,
   type NormalizedGapResource,
 } from '@/lib/lp-normalize'
 
@@ -305,8 +306,47 @@ describe('normalizeLPResponse — service-linked filter', () => {
   })
 })
 
+describe('normalizeLPResponse / normalizeGapResource — no fabricated zeros/now/IAMRole', () => {
+  it('missing summary counts / confidence / attackSurface / timestamp stay null', () => {
+    const normalized = normalizeLPResponse({
+      resources: [],
+      summary: {},
+    })
+    expect(normalized.summary.criticalCount).toBeNull()
+    expect(normalized.summary.iamIssuesCount).toBeNull()
+    expect(normalized.summary.networkIssuesCount).toBeNull()
+    expect(normalized.summary.s3IssuesCount).toBeNull()
+    expect(normalized.summary.confidenceLevel).toBeNull()
+    expect(normalized.summary.attackSurfaceReduction).toBeNull()
+    expect(normalized.timestamp).toBeNull()
+  })
+
+  it('missing allowedCount / confidence / network metrics stay null', () => {
+    const r = normalizeGapResource({
+      id: 'x',
+      resourceName: 'x',
+      // no resourceType, allowedCount, confidence, networkExposure counts
+    })
+    expect(r.resourceType).toBe('')
+    expect(r.resourceType).not.toBe('IAMRole')
+    expect(r.allowedCount).toBeNull()
+    expect(r.confidence).toBeNull()
+    expect(r.networkExposure).toBeUndefined()
+
+    const sg = normalizeGapResource({
+      id: 'sg',
+      resourceType: 'SecurityGroup',
+      resourceName: 'sg',
+      networkExposure: { severity: 'HIGH' },
+    })
+    expect(sg.networkExposure?.score).toBeNull()
+    expect(sg.networkExposure?.totalRules).toBeNull()
+    expect(sg.networkExposure?.internetExposedRules).toBeNull()
+  })
+})
+
 describe('markResourceVerifying', () => {
-  it('sets verificationState + receipt metadata without changing scores/lists/severity', () => {
+  it('sets verificationState + clientAppliedAt without inventing remediatedAt/identity', () => {
     const before = normalizeGapResource(
       baseRole({
         severity: 'HIGH',
@@ -320,17 +360,21 @@ describe('markResourceVerifying', () => {
       }),
     )
 
-    const after = markResourceVerifying(before, {
-      remediatedAt: '2026-08-01T12:00:00.000Z',
-      remediatedBy: 'alon@cyntro.io',
-      snapshotId: 'snap-1',
-      eventId: 'evt-1',
-      rollbackAvailable: true,
-    })
+    const after = markResourceVerifying(
+      before,
+      {
+        snapshotId: 'snap-1',
+        eventId: 'evt-1',
+        rollbackAvailable: true,
+      },
+      '2026-08-01T12:00:00.000Z',
+    )
 
     expect(after.verificationState).toBe('applied_verifying')
-    expect(after.remediatedAt).toBe('2026-08-01T12:00:00.000Z')
-    expect(after.remediatedBy).toBe('alon@cyntro.io')
+    expect(after.clientAppliedAt).toBe('2026-08-01T12:00:00.000Z')
+    // No invented mutation receipt
+    expect(after.remediatedAt).toBeNull()
+    expect(after.remediatedBy).toBeNull()
     expect(after.snapshotId).toBe('snap-1')
     expect(after.eventId).toBe('evt-1')
     expect(after.rollbackAvailable).toBe(true)
@@ -344,10 +388,19 @@ describe('markResourceVerifying', () => {
     expect(after.unusedList).toEqual(['iam:PassRole'])
     expect(after.highRiskUnused).toHaveLength(1)
   })
+
+  it('does not invent remediatedAt from the browser clock when metadata omits it', () => {
+    const before = normalizeGapResource(baseRole())
+    const after = markResourceVerifying(before, {}, '2026-08-01T12:00:00.000Z')
+    expect(after.clientAppliedAt).toBe('2026-08-01T12:00:00.000Z')
+    expect(after.remediatedAt).toBeNull()
+    expect(after.remediatedBy).toBeNull()
+    expect(after.rollbackAvailable).toBeUndefined()
+  })
 })
 
 describe('mergeLpResourcesAfterFetch', () => {
-  it('does not preserve invented clean scores over backend gaps', () => {
+  it('does not preserve invented clean scores or forever-VERIFYING over backend', () => {
     const backend = normalizeGapResource(
       baseRole({
         gapCount: 4,
@@ -365,8 +418,9 @@ describe('mergeLpResourcesAfterFetch', () => {
     const prevOptimistic: NormalizedGapResource = {
       ...backend,
       verificationState: 'applied_verifying',
+      clientAppliedAt: '2026-08-01T12:00:00.000Z',
       remediatedAt: '2026-08-01T12:00:00.000Z',
-      remediatedBy: 'alon@cyntro.io',
+      remediatedBy: 'user@cyntro.io',
       snapshotId: 'snap-1',
       eventId: 'evt-1',
       rollbackAvailable: true,
@@ -392,7 +446,11 @@ describe('mergeLpResourcesAfterFetch', () => {
       }),
     )
 
-    const merged = mergeLpResourcesAfterFetch([prevOptimistic], [backendStillGappy])
+    const merged = mergeLpResourcesAfterFetch(
+      [prevOptimistic],
+      [backendStillGappy],
+      Date.parse('2026-08-01T12:00:30.000Z'),
+    )
     expect(merged).toHaveLength(1)
     expect(merged[0].gapCount).toBe(4)
     expect(merged[0].gapPercent).toBe(40)
@@ -401,17 +459,32 @@ describe('mergeLpResourcesAfterFetch', () => {
     expect(merged[0].unusedList).toEqual(['iam:PassRole'])
     expect(merged[0].highRiskUnused).toHaveLength(1)
 
-    // Receipt / verifying state may be kept while backend lacks remediatedAt.
-    expect(merged[0].verificationState).toBe('applied_verifying')
-    expect(merged[0].remediatedAt).toBe('2026-08-01T12:00:00.000Z')
-    expect(merged[0].snapshotId).toBe('snap-1')
+    // Successful backend read without remediatedAt drops VERIFYING (contradiction).
+    expect(merged[0].verificationState).not.toBe('applied_verifying')
+    expect(merged[0].remediatedAt).toBeNull()
+    expect(merged[0].remediatedBy).toBeNull()
+  })
+
+  it('marks verify_failed when VERIFYING TTL expires without backend receipt', () => {
+    const prev: NormalizedGapResource = {
+      ...normalizeGapResource(baseRole({ gapCount: 2 })),
+      verificationState: 'applied_verifying',
+      clientAppliedAt: '2026-08-01T12:00:00.000Z',
+    }
+    const backend = normalizeGapResource(baseRole({ gapCount: 2, remediatedAt: null }))
+    const merged = mergeLpResourcesAfterFetch(
+      [prev],
+      [backend],
+      Date.parse('2026-08-01T12:00:00.000Z') + LP_VERIFYING_TTL_MS + 1,
+    )
+    expect(merged[0].verificationState).toBe('verify_failed')
   })
 
   it('prefers backend when it returns contradictory remediation state', () => {
     const prev: NormalizedGapResource = {
       ...normalizeGapResource(baseRole({ gapCount: 0, gapPercent: 0, lpScore: 100 })),
       verificationState: 'applied_verifying',
-      remediatedAt: '2026-08-01T12:00:00.000Z',
+      clientAppliedAt: '2026-08-01T12:00:00.000Z',
       snapshotId: 'snap-old',
     }
 

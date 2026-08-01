@@ -51,17 +51,19 @@ interface GapResource {
   isRemediable?: boolean
   remediableReason?: string
   isServiceLinkedRole?: boolean
-  // Remediation metadata
-  remediatedAt?: string
-  remediatedBy?: string
+  // Remediation metadata — backend receipt only (never browser clock / invented identity)
+  remediatedAt?: string | null
+  remediatedBy?: string | null
   snapshotId?: string | null
   eventId?: string | null
   rollbackAvailable?: boolean
+  /** Client-only VERIFYING TTL clock — never render as mutation evidence. */
+  clientAppliedAt?: string | null
   // Orphan status for Security Groups
   isOrphan?: boolean
   attachmentCount?: number
   lpScore: number | null  // null for Security Groups (use networkExposure instead)
-  allowedCount: number
+  allowedCount: number | null
   usedCount: number | null  // null for Security Groups
   gapCount: number | null  // null for Security Groups
   gapPercent: number | null  // null for Security Groups
@@ -79,17 +81,17 @@ interface GapResource {
     rationale: string[]
   }
   networkExposure?: {
-    score: number
-    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
-    totalRules: number
-    internetExposedRules: number
+    score: number | null
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
+    totalRules: number | null
+    internetExposedRules: number | null
     highRiskPorts: number[]
     details: {
-      totalIngressRules: number
-      totalEgressRules: number
-      findingsCount: number
-      criticalFindings: number
-      highFindings: number
+      totalIngressRules: number | null
+      totalEgressRules: number | null
+      findingsCount: number | null
+      criticalFindings: number | null
+      highFindings: number | null
     }
   }
   allowedList: string[]
@@ -175,7 +177,7 @@ interface GapResource {
   // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Missing stays null —
   // never invent 'low'. Rendering uses lib/lp-severity (Unknown when absent).
   severity: string | null
-  confidence: number
+  confidence: number | null
   observationDays: number | null
   title: string
   description: string
@@ -193,6 +195,14 @@ interface GapResource {
   usageNotComputedReason?: string | null
 }
 
+/** Mutation boundary not shipped — Apply stays off on every LP surface. */
+const LP_MUTATION_APPLY_DISABLED = true
+
+export type FetchGapsResult =
+  | { status: 'ok' }
+  | { status: 'aborted' }
+  | { status: 'error'; message: string }
+
 /** Filter helper — unknown/missing severity is not a bucket (never invent 'low'). */
 const normalizeLpSeverity = (
   severity: string | undefined | null,
@@ -205,22 +215,22 @@ interface LeastPrivilegeSummary {
   /** null = nothing was measured, so there is no average to report. Distinct
    *  from 100, which would claim a perfect estate on zero evidence. */
   avgLPScore: number | null
-  iamIssuesCount: number
-  networkIssuesCount: number
-  s3IssuesCount: number
-  criticalCount: number
-  highCount: number
-  mediumCount: number
-  lowCount: number
-  confidenceLevel: number
+  iamIssuesCount: number | null
+  networkIssuesCount: number | null
+  s3IssuesCount: number | null
+  criticalCount: number | null
+  highCount: number | null
+  mediumCount: number | null
+  lowCount: number | null
+  confidenceLevel: number | null
   observationDays: number | null
-  attackSurfaceReduction: number
+  attackSurfaceReduction: number | null
 }
 
 interface LeastPrivilegeResponse {
   summary: LeastPrivilegeSummary
   resources: GapResource[]
-  timestamp: string
+  timestamp: string | null
   fromCache?: boolean
   cacheAge?: number
   /** Proxy fell back to the last good response after a live-fetch failure. */
@@ -746,7 +756,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
   // The /api/least-privilege/issues endpoint provides all needed data for the list view
 
-  const fetchGaps = async (showRefreshing = false, forceRefresh = false, signal?: AbortSignal) => {
+  const fetchGaps = async (
+    showRefreshing = false,
+    forceRefresh = false,
+    signal?: AbortSignal,
+  ): Promise<FetchGapsResult> => {
     try {
       if (showRefreshing) {
         setRefreshing(true)
@@ -843,13 +857,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           S3Bucket: transformed.resources.filter(r => r.resourceType === 'S3Bucket').length
         }
       })
+      return { status: 'ok' }
     } catch (err) {
       // A superseded fetch (systemName changed / unmount) is not a failure —
       // rendering its abort as an error card would replace good data with
       // "Error Loading Data" whenever the operator switches system quickly.
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      if (signal?.aborted) return
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { status: 'aborted' }
+      }
+      if (signal?.aborted) return { status: 'aborted' }
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      setError(message)
+      // Re-surface so callers (VERIFYING → verify_failed) are not swallowed
+      // by an internal catch that resolves void.
+      return { status: 'error', message }
     } finally {
       if (!signal?.aborted) {
         setLoading(false)
@@ -864,29 +885,31 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   const isRemediatedResource = (resource: GapResource) => {
-    // VERIFYING is not remediated — stay on the active list with an honest badge
-    // until the backend re-read confirms post-state (never invent clean scores).
+    // VERIFYING / verify_failed are not remediated. Fully Remediated requires
+    // an explicit backend receipt (remediatedAt) — never infer from zero counts
+    // or missing usageMeasured (allowedCount defaulting/null must not go green).
     if (
       resource.verificationState === 'applied_verifying' ||
       resource.verificationState === 'verify_failed'
     ) {
       return false
     }
-    return !!(
-      resource.remediatedAt ||
-      (
-        resource.resourceType === 'IAMRole' &&
-        resource.usageMeasured !== false &&
-        resource.allowedCount === 0 &&
-        (resource.evidence?.violatedRules?.length ?? 0) === 0
-      )
-    )
+    return !!resource.remediatedAt
   }
 
   const getUsageMetricsForResource = (resource: GapResource) => {
     if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
-      const totalRules = resource.networkExposure.totalRules || 0
-      const exposedRules = resource.networkExposure.internetExposedRules || 0
+      const totalRules = resource.networkExposure.totalRules
+      const exposedRules = resource.networkExposure.internetExposedRules
+      if (totalRules === null || exposedRules === null) {
+        return {
+          usedCount: null,
+          unusedCount: null,
+          total: totalRules,
+          gapPct: null,
+          measured: false,
+        }
+      }
       const secureRules = totalRules - exposedRules
       return {
         usedCount: secureRules,
@@ -909,7 +932,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       resource.usageMeasured === false ||
       (resource.usedCount === null && resource.gapCount === null)
     ) {
-      return { usedCount: null, unusedCount: null, total: resource.allowedCount || 0, gapPct: null, measured: false }
+      return {
+        usedCount: null,
+        unusedCount: null,
+        total: resource.allowedCount,
+        gapPct: null,
+        measured: false,
+      }
     }
 
     const used = resource.usedCount ?? 0
@@ -1100,15 +1129,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       ? measuredForScore.reduce((total, resource) => total + (100 - (getUsageMetricsForResource(resource).gapPct as number)), 0) / measuredForScore.length
       : null
 
-    const confidenceLevel = resources.length > 0
-      ? resources.reduce((total, resource) => total + safeNumber(resource.confidence, 0), 0) / resources.length
-      : previousSummary.confidenceLevel
+    const withConfidence = resources.filter(
+      (resource) => typeof resource.confidence === 'number' && Number.isFinite(resource.confidence),
+    )
+    const confidenceLevel = withConfidence.length > 0
+      ? withConfidence.reduce((total, resource) => total + (resource.confidence as number), 0) / withConfidence.length
+      : null
 
     // Same correction as avgLPScore: an unmeasured row is not a row with 0%
-    // reducible surface, so it is excluded rather than counted as a clean one.
+    // reducible surface — null when nothing measured, never invent 0.
     const attackSurfaceReduction = measuredForScore.length > 0
       ? measuredForScore.reduce((total, resource) => total + (getUsageMetricsForResource(resource).gapPct as number), 0) / measuredForScore.length
-      : 0
+      : null
 
     return {
       ...previousSummary,
@@ -1153,8 +1185,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     metadata?: {
       snapshotId?: string | null
       eventId?: string | null
+      /** Only when backend declares it — never inferred from snapshotId. */
       rollbackAvailable?: boolean
-      remediatedBy?: string
+      /** Only when backend supplies operator identity — never user@cyntro.io. */
+      remediatedBy?: string | null
+      /** Only when backend supplies remediatedAt — never browser clock. */
+      remediatedAt?: string | null
       afterTotal?: number | null
       removedCount?: number | null
     }
@@ -1162,23 +1198,30 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const resourceIdentifier = resource.resourceName || resource.id
     console.log('[LeastPrivilegeTab] Remediation successful for:', resourceIdentifier, metadata)
 
-    // Receipt only — never invent clean scores. Backend re-read is authority.
+    // VERIFYING only — never invent clean scores or mutation receipts.
+    // remediatedAt / remediatedBy / rollbackAvailable are carried only when
+    // the backend supplied them in metadata.
     setData(prev => {
       if (!prev) return prev
-      const remediatedAt = new Date().toISOString()
       const nextResources = prev.resources.map<GapResource>((existing) => {
         const matches =
           existing.id === resource.id || existing.resourceName === resource.resourceName
         if (!matches) return existing
-        return markResourceVerifying(existing as any, {
-          remediatedAt,
-          remediatedBy: metadata?.remediatedBy,
-          snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
-          eventId: metadata?.eventId ?? existing.eventId ?? null,
-          rollbackAvailable:
-            metadata?.rollbackAvailable ??
-            !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
-        }) as GapResource
+        const receipt: {
+          remediatedAt?: string | null
+          remediatedBy?: string | null
+          snapshotId?: string | null
+          eventId?: string | null
+          rollbackAvailable?: boolean
+        } = {}
+        if (metadata?.remediatedAt !== undefined) receipt.remediatedAt = metadata.remediatedAt
+        if (metadata?.remediatedBy !== undefined) receipt.remediatedBy = metadata.remediatedBy
+        if (metadata?.snapshotId !== undefined) receipt.snapshotId = metadata.snapshotId
+        if (metadata?.eventId !== undefined) receipt.eventId = metadata.eventId
+        if (typeof metadata?.rollbackAvailable === 'boolean') {
+          receipt.rollbackAvailable = metadata.rollbackAvailable
+        }
+        return markResourceVerifying(existing as any, receipt) as GapResource
       })
       return { ...prev, resources: nextResources }
     })
@@ -1197,8 +1240,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return next
     })
 
-    // Force revalidation — do not keep a local "perfect" post-state.
-    void fetchGaps(true, true).catch(() => {
+    const markVerifyFailed = () => {
       setData((prev) => {
         if (!prev) return prev
         return {
@@ -1210,7 +1252,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           ),
         }
       })
-    })
+    }
+
+    // Force revalidation — fetchGaps returns a typed result (internal catch
+    // must not swallow verification failure).
+    void (async () => {
+      const result = await fetchGaps(true, true)
+      if (result.status === 'error') markVerifyFailed()
+    })()
   }
 
   const handleRollbackSuccess = (resourceName: string) => {
@@ -1917,7 +1966,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Critical Issues</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{summary.criticalCount}</div>
+          <div
+            className="text-2xl font-bold"
+            style={{ color: summary.criticalCount === null ? "var(--text-muted)" : "#ef4444" }}
+            title={summary.criticalCount === null ? "Backend did not report this count" : undefined}
+          >
+            {summary.criticalCount === null ? '—' : summary.criticalCount}
+          </div>
         </div>
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
@@ -2977,7 +3032,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       <div className="flex items-center gap-3 mt-4">
                         {/* Use the hardened predicate the rest of this file already
                             uses for row routing, status colour and status label.
-                            The raw `allowedCount === 0` re-implementation missed its
+                            The old count-based Fully Remediated path (allowedCount zero) missed its
                             two guards: allowedCount fails open to 0 in the transform,
                             and a role with open violatedRules is deliberately kept in
                             active inventory — so a role with unresolved findings could
@@ -3195,7 +3250,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             }}
             result={simulationResult}
             isExecuting={isExecuting}
+            applyDisabled={LP_MUTATION_APPLY_DISABLED}
             onExecute={async () => {
+              if (LP_MUTATION_APPLY_DISABLED) {
+                toast({
+                  title: 'Apply disabled',
+                  description: 'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+                })
+                return
+              }
               // Execute remediation with snapshot
               setIsExecuting(true)
               
@@ -3259,8 +3322,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   handleRemediationSuccess(selectedResource, {
                     snapshotId: result.snapshot?.snapshot_id || result.snapshot_id || null,
                     eventId: result.event_id || null,
-                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot?.snapshot_id || result.snapshot_id || result.event_id),
-                    remediatedBy: 'user@cyntro.io',
+                    ...(typeof result.rollback_available === 'boolean'
+                      ? { rollbackAvailable: result.rollback_available }
+                      : {}),
+                    ...(typeof result.remediated_at === 'string'
+                      ? { remediatedAt: result.remediated_at }
+                      : {}),
+                    ...(typeof result.remediated_by === 'string'
+                      ? { remediatedBy: result.remediated_by }
+                      : {}),
                   })
 
                   // Close the drawer if open
@@ -3305,7 +3375,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           systemName={systemName}
           result={simulationResult}
           isExecuting={isExecuting}
+          applyDisabled={LP_MUTATION_APPLY_DISABLED}
           onExecute={async (dryRun: boolean) => {
+            if (LP_MUTATION_APPLY_DISABLED && !dryRun) {
+              toast({
+                title: 'Apply disabled',
+                description: 'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+              })
+              return
+            }
             setIsExecuting(true)
             try {
               // Get role name from resource
@@ -3353,8 +3431,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   handleRemediationSuccess(selectedResource, {
                     snapshotId: result.snapshot_id || null,
                     eventId: result.event_id || null,
-                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
-                    remediatedBy: 'user@cyntro.io',
+                    ...(typeof result.rollback_available === 'boolean'
+                      ? { rollbackAvailable: result.rollback_available }
+                      : {}),
+                    ...(typeof result.remediated_at === 'string'
+                      ? { remediatedAt: result.remediated_at }
+                      : {}),
+                    ...(typeof result.remediated_by === 'string'
+                      ? { remediatedBy: result.remediated_by }
+                      : {}),
                     afterTotal: result.summary?.after_total ?? null,
                     removedCount: removedPermissions,
                   })
@@ -3392,7 +3477,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           result={iamSimulateFixResult}
           resourceName={selectedResource.resourceName}
           isExecuting={isExecuting}
+          applyDisabled={LP_MUTATION_APPLY_DISABLED}
           onExecute={async (dryRun: boolean) => {
+            if (LP_MUTATION_APPLY_DISABLED && !dryRun) {
+              toast({
+                title: 'Apply disabled',
+                description: 'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+              })
+              return
+            }
             setIsExecuting(true)
             try {
               // Get role name from resource
@@ -3464,8 +3557,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   handleRemediationSuccess(selectedResource, {
                     snapshotId: result.snapshot_id || null,
                     eventId: result.event_id || null,
-                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
-                    remediatedBy: 'user@cyntro.io',
+                    ...(typeof result.rollback_available === 'boolean'
+                      ? { rollbackAvailable: result.rollback_available }
+                      : {}),
+                    ...(typeof result.remediated_at === 'string'
+                      ? { remediatedAt: result.remediated_at }
+                      : {}),
+                    ...(typeof result.remediated_by === 'string'
+                      ? { remediatedBy: result.remediated_by }
+                      : {}),
                     afterTotal: result.summary?.after_total ?? null,
                     removedCount: removedPermissions,
                   })
@@ -3500,6 +3600,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }}
         roleName={selectedIAMRole || ''}
         systemName={systemName}
+        applyDisabled={LP_MUTATION_APPLY_DISABLED}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}
@@ -3510,7 +3611,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           )
 
           if (resource) {
-            handleRemediationSuccess(resource, { remediatedBy: 'user@cyntro.io' })
+            handleRemediationSuccess(resource)
           } else {
             void fetchGaps(false, false)
           }
@@ -3529,11 +3630,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         bucketName={selectedS3Bucket || ''}
         systemName={systemName || ''}
         resourceData={selectedS3Resource}
+        applyDisabled={LP_MUTATION_APPLY_DISABLED}
         onApplyFix={(data) => {
           console.log('[S3] Apply fix requested:', data)
         }}
-        onRemediationSuccess={(result) => {
-          const bucketName = result.bucketName
+        onRemediationSuccess={(result: any) => {
+          const bucketName = result?.bucketName
           const resource = data?.resources.find(candidate =>
             candidate.resourceType === 'S3Bucket' &&
             (candidate.resourceName === bucketName || candidate.id === bucketName)
@@ -3541,12 +3643,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
           if (resource) {
             handleRemediationSuccess(resource, {
-              remediatedBy: 'user@cyntro.io',
-              snapshotId: result.snapshotId ?? null,
-              eventId: result.eventId ?? null,
-              rollbackAvailable: result.rollbackAvailable,
-              afterTotal: result.afterTotal ?? null,
-              removedCount: result.removedCount ?? null,
+              snapshotId: result?.snapshotId ?? null,
+              eventId: result?.eventId ?? null,
+              ...(typeof result?.rollbackAvailable === 'boolean'
+                ? { rollbackAvailable: result.rollbackAvailable }
+                : {}),
+              afterTotal: result?.afterTotal ?? null,
+              removedCount: result?.removedCount ?? null,
             })
           } else {
             void fetchGaps(false, false)
@@ -3565,6 +3668,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         sgId={selectedSGId || ''}
         sgName={selectedSGName || undefined}
         systemName={systemName || ''}
+        applyDisabled={LP_MUTATION_APPLY_DISABLED}
         onRemediate={(sgId, rules, result) => {
           console.log('[SG] Remediate requested:', sgId, rules, result)
           const sgResource = data?.resources.find(resource =>
@@ -3574,10 +3678,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
           if (sgResource) {
             handleRemediationSuccess(sgResource, {
-              remediatedBy: 'user@cyntro.io',
               snapshotId: result?.snapshotId ?? null,
               eventId: result?.eventId ?? null,
-              rollbackAvailable: result?.rollbackAvailable ?? false,
+              ...(typeof result?.rollbackAvailable === 'boolean'
+                ? { rollbackAvailable: result.rollbackAvailable }
+                : {}),
             })
           } else {
             void fetchGaps(false, false)
@@ -5157,13 +5262,15 @@ function SGSimulationResultsModal({
   onClose, 
   result, 
   onExecute,
-  isExecuting = false
+  isExecuting = false,
+  applyDisabled = false,
 }: { 
   isOpen: boolean
   onClose: () => void
   result: any
   onExecute: () => void
   isExecuting?: boolean
+  applyDisabled?: boolean
 }) {
   if (!isOpen || !result) return null
 
@@ -5326,7 +5433,15 @@ function SGSimulationResultsModal({
             >
               Cancel
             </button>
-            {result?.can_proceed ? (
+            {applyDisabled ? (
+              <button
+                disabled
+                className="px-4 py-2 bg-gray-400 text-white rounded-lg text-sm font-medium cursor-not-allowed"
+                title="Apply is disabled — mutation requires a signed backend plan"
+              >
+                Apply (disabled)
+              </button>
+            ) : result?.can_proceed ? (
               <button 
                 onClick={onExecute}
                 disabled={isExecuting}

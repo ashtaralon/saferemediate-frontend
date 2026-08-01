@@ -68,6 +68,8 @@ interface IAMSimulateFixModalProps {
   resourceName?: string
   onExecute?: (dryRun: boolean) => Promise<void>
   isExecuting?: boolean
+  /** When true, live Apply is disabled (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 // =============================================================================
@@ -128,10 +130,12 @@ export function IAMSimulateFixModal({
   result,
   resourceName,
   onExecute,
-  isExecuting = false
+  isExecuting = false,
+  applyDisabled = false,
 }: IAMSimulateFixModalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'impact'>('overview')
   const [dryRun, setDryRun] = useState(true) // Default to dry-run for safety
+  const effectiveDryRun = applyDisabled ? true : dryRun
 
   if (!isOpen) return null
 
@@ -544,29 +548,35 @@ export function IAMSimulateFixModal({
         <div className="px-6 py-4 border-t border-slate-700">
           {/* Dry-run toggle */}
           <div className="flex items-center justify-between mb-4">
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label className={`flex items-center gap-3 ${applyDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
               <div
-                onClick={() => setDryRun(!dryRun)}
+                onClick={() => {
+                  if (!applyDisabled) setDryRun(!dryRun)
+                }}
                 className={`relative w-11 h-6 rounded-full transition-colors ${
-                  dryRun ? 'bg-blue-600' : 'bg-slate-600'
+                  effectiveDryRun ? 'bg-blue-600' : 'bg-slate-600'
                 }`}
               >
                 <div
                   className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                    dryRun ? 'translate-x-5' : 'translate-x-0'
+                    effectiveDryRun ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </div>
               <div>
                 <span className="text-sm font-medium text-white">
-                  {dryRun ? 'Preview Mode' : 'Live Mode'}
+                  {effectiveDryRun ? 'Preview Mode' : 'Live Mode'}
                 </span>
                 <span className="block text-xs text-slate-400">
-                  {dryRun ? 'No changes will be made' : 'Changes will be applied to AWS'}
+                  {applyDisabled
+                    ? 'Live Apply disabled until mutation boundary ships'
+                    : effectiveDryRun
+                      ? 'No changes will be made'
+                      : 'Changes will be applied to AWS'}
                 </span>
               </div>
             </label>
-            {!dryRun && (
+            {!effectiveDryRun && (
               <span className="text-xs text-amber-400 flex items-center gap-1">
                 <span>⚠</span> Live changes enabled
               </span>
@@ -588,12 +598,21 @@ export function IAMSimulateFixModal({
               >
                 Blocked - Manual Review Required
               </button>
+            ) : applyDisabled ? (
+              <button
+                disabled
+                data-testid="iam-simulate-apply-disabled"
+                className="px-6 py-2 rounded-lg text-sm font-bold bg-gray-500 text-white cursor-not-allowed"
+                title="Apply is disabled — mutation requires a signed backend plan"
+              >
+                Apply (disabled)
+              </button>
             ) : (
               <button
-                onClick={() => onExecute?.(dryRun)}
+                onClick={() => onExecute?.(effectiveDryRun)}
                 disabled={isExecuting}
                 className={`px-6 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50 ${
-                  dryRun
+                  effectiveDryRun
                     ? 'bg-blue-600 hover:bg-blue-700'
                     : safety.decision === 'approval_required'
                     ? 'bg-amber-600 hover:bg-amber-700'
@@ -601,8 +620,8 @@ export function IAMSimulateFixModal({
                 }`}
               >
                 {isExecuting
-                  ? (dryRun ? 'Previewing...' : 'Applying...')
-                  : (dryRun ? 'Preview Changes' : (safety.decision === 'approval_required' ? 'Request Approval' : 'Apply Fix'))
+                  ? (effectiveDryRun ? 'Previewing...' : 'Applying...')
+                  : (effectiveDryRun ? 'Preview Changes' : (safety.decision === 'approval_required' ? 'Request Approval' : 'Apply Fix'))
                 }
               </button>
             )}

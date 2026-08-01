@@ -63,6 +63,8 @@ interface SimulationResultsModalProps {
   result?: SimulationResult
   onExecute?: (dryRun: boolean) => Promise<void>
   isExecuting?: boolean
+  /** When true, live Apply/Execute is disabled (mutation boundary not shipped). */
+  applyDisabled?: boolean
 }
 
 // =============================================================================
@@ -179,7 +181,8 @@ export default function SimulationResultsModal({
   systemName,
   result: initialResult,
   onExecute,
-  isExecuting = false
+  isExecuting = false,
+  applyDisabled = false,
 }: SimulationResultsModalProps) {
   const [result, setResult] = useState<SimulationResult | null>(initialResult || null)
   const [loading, setLoading] = useState(false)
@@ -690,7 +693,15 @@ export default function SimulationResultsModal({
                   Preview Changes
                 </button>
 
-                {(result.status === 'EXECUTE' || confidence >= 90) && (
+                {applyDisabled ? (
+                  <button
+                    disabled
+                    className="px-4 py-2 text-sm font-medium bg-gray-400 text-white rounded-lg cursor-not-allowed"
+                    title="Apply is disabled — mutation requires a signed backend plan"
+                  >
+                    Apply (disabled)
+                  </button>
+                ) : (result.status === 'EXECUTE' || confidence >= 90) ? (
                   <button
                     onClick={() => onExecute(false)}
                     disabled={isExecuting}
@@ -699,7 +710,7 @@ export default function SimulationResultsModal({
                     {isExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                     Execute Live
                   </button>
-                )}
+                ) : null}
               </>
             )}
 

@@ -45,4 +45,30 @@ describe("LeastPrivilegeTab authority wiring", () => {
     expect(src).toMatch(/if \(integrity\.mutationBlocked\)/)
     expect(src).toContain("lp-apply-disabled")
   })
+
+  it("Fully Remediated is receipt-only — no allowedCount === 0 inference", () => {
+    const src = read(TAB)
+    expect(src).toContain("return !!resource.remediatedAt")
+    expect(src).not.toMatch(/allowedCount === 0/)
+  })
+
+  it("Apply is disabled on IAM/SG/S3 mutation surfaces via applyDisabled", () => {
+    const src = read(TAB)
+    expect(src).toContain("LP_MUTATION_APPLY_DISABLED")
+    expect(src).toMatch(/applyDisabled=\{LP_MUTATION_APPLY_DISABLED\}/)
+    // Must appear on all three modal call sites
+    const matches = src.match(/applyDisabled=\{LP_MUTATION_APPLY_DISABLED\}/g) || []
+    expect(matches.length).toBeGreaterThanOrEqual(3)
+    expect(src).not.toMatch(/remediatedBy:\s*'user@cyntro\.io'/)
+    expect(src).not.toMatch(/remediatedAt\s*=\s*new Date\(\)/)
+  })
+
+  it("fetchGaps returns a typed result so verify_failed can activate", () => {
+    const src = read(TAB)
+    expect(src).toContain("FetchGapsResult")
+    expect(src).toContain("return { status: 'ok' }")
+    expect(src).toContain("return { status: 'error', message }")
+    expect(src).toContain("result.status === 'error'")
+    expect(src).toContain("verify_failed")
+  })
 })

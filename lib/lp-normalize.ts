@@ -1,16 +1,14 @@
 /**
  * Honest Resource Risk / LP payload normalization (P0 authority).
  *
- * Replaces the dishonest transform historically inlined in LeastPrivilegeTab:
- * inventing Identity Graph / us-east-1 / 90-day windows, synthesizing
- * highRiskUnused from unusedList, defaulting severity to 'low' / network
- * severity to MEDIUM, and dropping analyzer-integrity fields.
- *
  * Rules:
- *   - Backend is the only authority for scores, lists, severity, evidence.
- *   - Missing evidence stays null/empty — never a fabricated "complete" story.
+ *   - Backend is the only authority for scores, lists, severity, evidence,
+ *     remediation receipts, and summary counts.
+ *   - Missing facts stay null/absent — never 0, "now", IAMRole, or invented
+ *     identity / rollback capability.
  *   - Integrity fields are copied literally so deriveLPIntegrity can veto.
- *   - Optimistic merge may keep receipt metadata while verifying; never scores.
+ *   - Post-apply VERIFYING is client UI state only; it never invents scores
+ *     and is not preserved over a successful backend read without receipt.
  */
 
 import { normalizeLPSeverity } from '@/lib/lp-severity'
@@ -28,6 +26,9 @@ const SEVERITY_BUCKETS: ReadonlySet<LPSeverityBucket> = new Set([
 const CONFIDENCE_LEVELS = new Set(['HIGH', 'MEDIUM', 'LOW'] as const)
 const CATEGORIES = new Set(['removable', 'coverage', 'audit'] as const)
 
+/** Max time a local APPLIED · VERIFYING badge may linger without backend receipt. */
+export const LP_VERIFYING_TTL_MS = 90_000
+
 export type LPCategory = 'removable' | 'coverage' | 'audit'
 export type LPEvidenceConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
 export type LPVerificationState = 'applied_verifying' | 'verify_failed' | null
@@ -44,6 +45,7 @@ export type HighRiskUnusedItem = {
  */
 export interface NormalizedGapResource {
   id: string
+  /** Absent/unknown when backend omitted type — never defaulted to IAMRole. */
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | string
   resourceName: string
   resourceArn: string
@@ -51,33 +53,40 @@ export interface NormalizedGapResource {
   isRemediable?: boolean
   remediableReason?: string
   isServiceLinkedRole?: boolean
+  /** Backend remediation receipt only — never a browser clock. */
   remediatedAt?: string | null
   remediatedBy?: string | null
   snapshotId?: string | null
   eventId?: string | null
+  /** Backend-declared capability only — never inferred from snapshotId. */
   rollbackAvailable?: boolean
-  /** Optimistic post-apply state. Never invents clean scores. */
+  /** Optimistic post-apply UI state. Never invents clean scores. */
   verificationState?: LPVerificationState
+  /**
+   * Client-only clock for VERIFYING TTL. Must never be rendered as
+   * mutation evidence / remediatedAt.
+   */
+  clientAppliedAt?: string | null
   isOrphan?: boolean
   attachmentCount?: number
   lpScore: number | null
-  allowedCount: number
+  allowedCount: number | null
   usedCount: number | null
   gapCount: number | null
   gapPercent: number | null
   blastRadius?: unknown
   networkExposure?: {
-    score: number
+    score: number | null
     severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
-    totalRules: number
-    internetExposedRules: number
+    totalRules: number | null
+    internetExposedRules: number | null
     highRiskPorts: number[]
     details: {
-      totalIngressRules: number
-      totalEgressRules: number
-      findingsCount: number
-      criticalFindings: number
-      highFindings: number
+      totalIngressRules: number | null
+      totalEgressRules: number | null
+      findingsCount: number | null
+      criticalFindings: number | null
+      highFindings: number | null
     }
   }
   allowedList: string[]
@@ -105,7 +114,7 @@ export interface NormalizedGapResource {
   }
   /** Bucket lowercase, known raw (e.g. INFO), or null when unknown. */
   severity: string | null
-  confidence: number
+  confidence: number | null
   observationDays: number | null
   title: string
   description: string
@@ -121,22 +130,23 @@ export interface NormalizedLPSummary {
   totalResources: number
   totalExcessPermissions: number | null
   avgLPScore: number | null
-  iamIssuesCount: number
-  networkIssuesCount: number
-  s3IssuesCount: number
-  criticalCount: number
-  highCount: number
-  mediumCount: number
-  lowCount: number
-  confidenceLevel: number
+  iamIssuesCount: number | null
+  networkIssuesCount: number | null
+  s3IssuesCount: number | null
+  criticalCount: number | null
+  highCount: number | null
+  mediumCount: number | null
+  lowCount: number | null
+  confidenceLevel: number | null
   observationDays: number | null
-  attackSurfaceReduction: number
+  attackSurfaceReduction: number | null
 }
 
 export interface NormalizedLPResponse extends LPIntegrityFields {
   summary: NormalizedLPSummary
   resources: NormalizedGapResource[]
-  timestamp: string
+  /** Null when backend omitted — never browser "now". */
+  timestamp: string | null
   fromCache?: boolean
   cacheAge?: number
   fromStaleCache?: boolean
@@ -162,7 +172,6 @@ export function normalizeLPSeverityBucket(severity: unknown): LPSeverityBucket |
 function normalizeSeverityField(raw: unknown): string | null {
   const bucket = normalizeLPSeverityBucket(raw)
   if (bucket) return bucket
-  // Known but non-bucket (INFO) — keep the backend string, not invent a bucket.
   if (normalizeLPSeverity(raw) && typeof raw === 'string') {
     return raw.trim()
   }
@@ -173,13 +182,17 @@ function asFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function summaryCount(summary: Record<string, unknown> | undefined, ...keys: string[]): number {
-  if (!summary) return 0
+/** Missing summary counts stay null — never invent 0. */
+function summaryCount(
+  summary: Record<string, unknown> | undefined,
+  ...keys: string[]
+): number | null {
+  if (!summary) return null
   for (const key of keys) {
     const value = summary[key]
     if (typeof value === 'number' && Number.isFinite(value)) return value
   }
-  return 0
+  return null
 }
 
 function normalizeEvidenceConfidence(raw: unknown): LPEvidenceConfidence | null {
@@ -245,13 +258,12 @@ function normalizeNetworkExposure(
       : null
 
   return {
-    score: asFiniteNumber(ne.score) ?? 0,
+    score: asFiniteNumber(ne.score),
     severity,
-    totalRules: asFiniteNumber(ne.totalRules) ?? asFiniteNumber(ne.total_rules) ?? 0,
+    totalRules: asFiniteNumber(ne.totalRules) ?? asFiniteNumber(ne.total_rules),
     internetExposedRules:
       asFiniteNumber(ne.internetExposedRules) ??
-      asFiniteNumber(ne.internet_exposed_rules) ??
-      0,
+      asFiniteNumber(ne.internet_exposed_rules),
     highRiskPorts: Array.isArray(ne.highRiskPorts)
       ? (ne.highRiskPorts as number[])
       : Array.isArray(ne.high_risk_ports)
@@ -260,18 +272,28 @@ function normalizeNetworkExposure(
     details: {
       totalIngressRules:
         asFiniteNumber(detailsRaw?.totalIngressRules) ??
-        asFiniteNumber(ne.totalRules) ??
-        0,
-      totalEgressRules: asFiniteNumber(detailsRaw?.totalEgressRules) ?? 0,
-      findingsCount: asFiniteNumber(detailsRaw?.findingsCount) ?? 0,
-      criticalFindings: asFiniteNumber(detailsRaw?.criticalFindings) ?? 0,
-      highFindings: asFiniteNumber(detailsRaw?.highFindings) ?? 0,
+        asFiniteNumber(ne.totalRules),
+      totalEgressRules: asFiniteNumber(detailsRaw?.totalEgressRules),
+      findingsCount: asFiniteNumber(detailsRaw?.findingsCount),
+      criticalFindings: asFiniteNumber(detailsRaw?.criticalFindings),
+      highFindings: asFiniteNumber(detailsRaw?.highFindings),
     },
   }
 }
 
 function isServiceLinkedRole(raw: Record<string, unknown>): boolean {
   return raw.isServiceLinkedRole === true || raw.is_service_linked_role === true
+}
+
+function normalizeResourceType(raw: Record<string, unknown>): string {
+  if (typeof raw.resourceType === 'string' && raw.resourceType.trim()) {
+    return raw.resourceType.trim()
+  }
+  if (typeof raw.resource_type === 'string' && raw.resource_type.trim()) {
+    return raw.resource_type.trim()
+  }
+  // Absent — never invent IAMRole.
+  return ''
 }
 
 export function normalizeGapResource(raw: any): NormalizedGapResource {
@@ -322,7 +344,7 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
 
   return {
     id: typeof r.id === 'string' ? r.id : String(r.id ?? resourceName ?? ''),
-    resourceType: (r.resourceType ?? r.resource_type ?? 'IAMRole') as NormalizedGapResource['resourceType'],
+    resourceType: normalizeResourceType(r),
     resourceName,
     resourceArn: typeof r.resourceArn === 'string'
       ? r.resourceArn
@@ -348,7 +370,7 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
     usageNotComputedReason:
       (r.usageNotComputedReason ?? r.usage_not_computed_reason ?? null) as string | null,
     lpScore,
-    allowedCount: asFiniteNumber(r.allowedCount) ?? asFiniteNumber(r.allowed_count) ?? 0,
+    allowedCount: asFiniteNumber(r.allowedCount) ?? asFiniteNumber(r.allowed_count),
     usedCount: asFiniteNumber(r.usedCount) ?? asFiniteNumber(r.used_count),
     gapCount: asFiniteNumber(r.gapCount) ?? asFiniteNumber(r.gap_count),
     gapPercent,
@@ -380,7 +402,7 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
       violatedRules: evidenceIn.violatedRules ?? undefined,
     },
     severity: normalizeSeverityField(r.severity),
-    confidence: asFiniteNumber(r.confidence) ?? 0,
+    confidence: asFiniteNumber(r.confidence),
     observationDays: resourceObsDays,
     title,
     description: typeof r.description === 'string' ? r.description : '',
@@ -423,6 +445,8 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
         : r.verificationState === null
           ? null
           : undefined,
+    clientAppliedAt:
+      typeof r.clientAppliedAt === 'string' ? r.clientAppliedAt : undefined,
     isOrphan:
       typeof r.isOrphan === 'boolean'
         ? r.isOrphan
@@ -467,9 +491,10 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
           return acc + (100 - gp)
         }, 0) as number) / measured.length
 
+  // Missing measured rows → null (unknown), never invent 0% reduction.
   const attackSurfaceReduction =
     measured.length === 0
-      ? 0
+      ? null
       : (measured.reduce((acc: number, row) => {
           const r = row as Record<string, unknown>
           const gp =
@@ -502,14 +527,12 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
       highCount: summaryCount(summaryIn, 'highCount', 'high'),
       mediumCount: summaryCount(summaryIn, 'mediumCount', 'medium'),
       lowCount: summaryCount(summaryIn, 'lowCount', 'low'),
-      confidenceLevel:
-        typeof summaryIn?.confidenceLevel === 'number' ? summaryIn.confidenceLevel : 0,
+      confidenceLevel: asFiniteNumber(summaryIn?.confidenceLevel),
       observationDays,
       attackSurfaceReduction,
     },
     resources,
-    timestamp:
-      typeof input.timestamp === 'string' ? input.timestamp : new Date().toISOString(),
+    timestamp: typeof input.timestamp === 'string' ? input.timestamp : null,
     fromCache: !!input.fromCache,
     cacheAge: asFiniteNumber(input.cacheAge) ?? undefined,
     fromStaleCache: !!input.fromStaleCache,
@@ -528,9 +551,13 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
   return normalized
 }
 
+/**
+ * Backend-supplied receipt fields only. Callers must not invent
+ * remediatedAt / remediatedBy / rollbackAvailable.
+ */
 export type VerifyingMetadata = {
-  remediatedAt?: string
-  remediatedBy?: string
+  remediatedAt?: string | null
+  remediatedBy?: string | null
   snapshotId?: string | null
   eventId?: string | null
   rollbackAvailable?: boolean
@@ -538,24 +565,32 @@ export type VerifyingMetadata = {
 
 /**
  * Marks a resource as applied and awaiting backend confirmation.
- * Sets verification + receipt metadata only — never mutates scores/lists/severity.
+ * Sets verification + clientAppliedAt only — never mutates scores/lists/severity
+ * and never invents remediatedAt / identity / rollback capability.
  */
 export function markResourceVerifying<T extends NormalizedGapResource>(
   resource: T,
   metadata: VerifyingMetadata = {},
+  nowIso: string = new Date().toISOString(),
 ): T {
   return {
     ...resource,
     verificationState: 'applied_verifying',
-    remediatedAt: metadata.remediatedAt ?? resource.remediatedAt ?? new Date().toISOString(),
-    remediatedBy: metadata.remediatedBy ?? resource.remediatedBy ?? undefined,
-    snapshotId:
-      metadata.snapshotId !== undefined ? metadata.snapshotId : resource.snapshotId ?? null,
-    eventId: metadata.eventId !== undefined ? metadata.eventId : resource.eventId ?? null,
-    rollbackAvailable:
-      metadata.rollbackAvailable !== undefined
-        ? metadata.rollbackAvailable
-        : resource.rollbackAvailable,
+    clientAppliedAt: nowIso,
+    // Carry receipt fields only when the caller supplied backend values.
+    ...(metadata.remediatedAt !== undefined
+      ? { remediatedAt: metadata.remediatedAt }
+      : {}),
+    ...(metadata.remediatedBy !== undefined
+      ? { remediatedBy: metadata.remediatedBy }
+      : {}),
+    ...(metadata.snapshotId !== undefined
+      ? { snapshotId: metadata.snapshotId }
+      : {}),
+    ...(metadata.eventId !== undefined ? { eventId: metadata.eventId } : {}),
+    ...(typeof metadata.rollbackAvailable === 'boolean'
+      ? { rollbackAvailable: metadata.rollbackAvailable }
+      : {}),
   }
 }
 
@@ -565,13 +600,15 @@ export function markResourceVerifying<T extends NormalizedGapResource>(
  * Does NOT overlay gapCount / gapPercent / lpScore / severity / unusedList /
  * highRiskUnused / networkExposure scores from prev.
  *
- * MAY keep verificationState + receipt metadata while prev is
- * `applied_verifying` and the backend row still lacks remediatedAt.
- * Contradictory backend remediation state wins (drop optimistic overlay).
+ * VERIFYING is NOT preserved across a successful backend read that lacks
+ * remediatedAt (that was the forever-VERIFYING bug). Bounded TTL marks
+ * verify_failed when a stale verifying row is still present in prev with no
+ * backend confirmation (e.g. resource dropped from payload).
  */
 export function mergeLpResourcesAfterFetch(
   prev: NormalizedGapResource[] | null | undefined,
   transformed: NormalizedGapResource[],
+  nowMs: number = Date.now(),
 ): NormalizedGapResource[] {
   if (!prev || prev.length === 0) return transformed
 
@@ -586,20 +623,27 @@ export function mergeLpResourcesAfterFetch(
     const prior = key ? prevByKey.get(key) : undefined
     if (!prior) return backend
 
-    // Backend already has remediation receipt — prefer backend entirely.
+    // Backend remediation receipt wins entirely.
     if (backend.remediatedAt) return backend
 
-    // Only preserve verifying receipt metadata; never invented clean scores.
-    if (prior.verificationState === 'applied_verifying' && !backend.remediatedAt) {
-      return {
-        ...backend,
-        verificationState: prior.verificationState,
-        remediatedAt: prior.remediatedAt ?? backend.remediatedAt,
-        remediatedBy: prior.remediatedBy ?? backend.remediatedBy,
-        snapshotId: prior.snapshotId ?? backend.snapshotId,
-        eventId: prior.eventId ?? backend.eventId,
-        rollbackAvailable: prior.rollbackAvailable ?? backend.rollbackAvailable,
+    if (prior.verificationState === 'applied_verifying') {
+      const appliedMs = prior.clientAppliedAt
+        ? Date.parse(prior.clientAppliedAt)
+        : NaN
+      const expired =
+        !Number.isFinite(appliedMs) || nowMs - appliedMs > LP_VERIFYING_TTL_MS
+
+      if (expired) {
+        return {
+          ...backend,
+          verificationState: 'verify_failed' as const,
+          clientAppliedAt: prior.clientAppliedAt ?? null,
+        }
       }
+
+      // Successful backend response without remediatedAt contradicts the
+      // optimistic "applied" claim — drop VERIFYING; do not preserve forever.
+      return backend
     }
 
     return backend

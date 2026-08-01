@@ -211,6 +211,8 @@ interface SGLeastPrivilegeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRemediate?: (sgId: string, rules: RuleAnalysis[], result?: { snapshotId?: string; eventId?: string; rollbackAvailable?: boolean }) => void;
+  /** When true, hide/disable all Apply mutation controls (mutation boundary not shipped). */
+  applyDisabled?: boolean;
 }
 
 // =============================================================================
@@ -280,6 +282,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   isOpen,
   onClose,
   onRemediate,
+  applyDisabled = false,
 }) => {
   const { toast } = useToast();
   const [analysis, setAnalysis] = useState<SGAnalysis | null>(null);
@@ -474,6 +477,14 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
 
   const handleApplyFix = async () => {
     if (!analysis) return;
+    if (applyDisabled) {
+      toast({
+        title: 'Apply disabled',
+        description:
+          'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+      });
+      return;
+    }
     setApplying(true);
 
     try {
@@ -521,7 +532,11 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       onRemediate?.(sgId, selectedRules, {
         snapshotId: result.snapshot_id || null,
         eventId: result.timeline_event_id || null,
-        rollbackAvailable: !!(result.snapshot_id || result.rollback?.available),
+        ...(typeof result.rollback_available === 'boolean'
+          ? { rollbackAvailable: result.rollback_available }
+          : typeof result.rollback?.available === 'boolean'
+            ? { rollbackAvailable: result.rollback.available }
+            : {}),
       });
       toast({
         title: 'Security Group Updated',
@@ -1230,6 +1245,18 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                 Terraform
               </button>
               {(() => {
+                if (applyDisabled) {
+                  return (
+                    <button
+                      disabled
+                      data-testid="sg-apply-disabled"
+                      className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                      title="Apply is disabled — mutation requires a signed backend plan"
+                    >
+                      Apply (disabled)
+                    </button>
+                  );
+                }
                 const lowConfidence = safetyScore < 50;
                 if (lowConfidence) {
                   return (
