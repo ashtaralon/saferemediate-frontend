@@ -7,15 +7,8 @@
 // ATT&CK Cloud Matrix's Initial Access tactic mapped to AWS surfaces.
 //
 // Source-of-truth: the backend INITIAL_ACCESS_VIA edge per AttackPath,
-// surfaced as path.initial_access.category. Until the backend
-// classifier (BE-A.2) ships, the FE derives the category inline from
-// signals already present on PathNodeDetail (is_internet_exposed,
-// subnet_is_public, has_console_access, has_mfa, ARN structure).
-//
-// Path rows still show the workload as the "source" line (option a per
-// 2026-06-20 design) — what changes is the GROUP HEADER, which now
-// answers "how does the attacker get in?" instead of "what kind of
-// workload is this?".
+// surfaced as path.initial_access.category. Missing category → UNKNOWN
+// (unavailable). Never derive from node signals on the FE.
 
 import { useMemo, useState } from "react"
 import {
@@ -26,14 +19,13 @@ import type {
   IdentityAttackPath,
   CrownJewelSummary,
   InitialAccessCategory,
-  PathNodeDetail,
 } from "@/components/identity-attack-paths/types"
-import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
 import {
   acquisitionChrome,
   isAcquisitionNoteworthy,
 } from "@/lib/attack-paths/acquisition-chrome"
+import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
 import { MaterializedScopeBadge } from "./materialized-scope-badge"
 import { PathComparisonTable } from "./path-comparison-table"
 import type {
@@ -76,121 +68,7 @@ const INITIAL_ACCESS_BUCKETS: Record<
   COGNITO_OR_FEDERATED_IDP: { label: "FROM FEDERATED IDP", icon: ShieldCheck, tone: "text-violet-600 dark:text-violet-400" },
   CONSOLE_OR_CLOUDSHELL: { label: "FROM CONSOLE / CLOUDSHELL", icon: Terminal, tone: "text-amber-600 dark:text-amber-400" },
   CROSS_ACCOUNT_TRUST: { label: "FROM EXTERNAL ACCOUNT", icon: Globe, tone: "text-red-600 dark:text-red-400" },
-  UNKNOWN: { label: "FROM UNKNOWN ENTRY", icon: HelpCircle, tone: "text-muted-foreground" },
-}
-
-const ARN_PRINCIPAL_RE = /^arn:aws:[^:]+:[^:]*:(\d+):/
-
-/** Find the path's ARN reference account by walking from node 1 onward.
- *  Used to detect cross-account paths without a hardcoded customer id —
- *  the path's own target chip provides the reference. */
-function pathRefAccount(nodes: PathNodeDetail[]): string | null {
-  for (let i = 1; i < nodes.length; i++) {
-    const m = (nodes[i].id || "").match(ARN_PRINCIPAL_RE)
-    if (m) return m[1]
-  }
-  return null
-}
-
-/** Classify a path into an ATT&CK Initial Access category.
- *
- *  Single source of truth lives in the graph as
- *  (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->() — exposed on the path as
- *  `path.initial_access.category`. When the backend has computed it,
- *  we cite it directly. Otherwise we fall back to inline derivation
- *  from per-node signals the FE already has (is_internet_exposed,
- *  subnet_is_public, has_console_access, has_mfa, ARN structure).
- *
- *  The fallback only fires during the migration window (before BE-A.2
- *  ships). Once the backend writes the edge, every path gets a
- *  category from the same source and the FE stops re-deriving.
- */
-function classifyInitialAccess(path: IdentityAttackPath): InitialAccessCategory {
-  // Backend wrote it — single source of truth wins.
-  const fromBackend = path.initial_access?.category
-  if (fromBackend) return fromBackend
-
-  const nodes = path.nodes ?? []
-  if (nodes.length === 0) return "UNKNOWN"
-  const principal = nodes[0]
-  const workload = nodes[1]
-  const jewel = nodes.find((n) => n.tier === "crown_jewel") ?? nodes[nodes.length - 1]
-
-  // CROSS_ACCOUNT_TRUST — principal ARN account differs from the
-  // reference account derived from the path's downstream chips.
-  if (isPrincipalNodeType(principal.type)) {
-    const m = (principal.id || "").match(ARN_PRINCIPAL_RE)
-    if (m) {
-      const acct = m[1]
-      const ref = pathRefAccount(nodes)
-      if (acct && ref && acct !== ref) return "CROSS_ACCOUNT_TRUST"
-    }
-  }
-
-  // COGNITO_OR_FEDERATED_IDP — principal id matches OIDC / SAML / Cognito pattern.
-  const pid = (principal.id || "").toLowerCase()
-  if (/oidc|saml|cognito|federated/.test(pid)) return "COGNITO_OR_FEDERATED_IDP"
-
-  // CONSOLE_OR_CLOUDSHELL — IAM user with console access enabled.
-  const pType = (principal.type || "").toLowerCase()
-  if ((pType.includes("user") || pType === "humanidentity") &&
-      principal.has_console_access === true) {
-    return "CONSOLE_OR_CLOUDSHELL"
-  }
-
-  // LEAKED_ACCESS_KEY — IAM user with no MFA AND path is observed
-  // (real CloudTrail evidence the key is in use).
-  if ((pType.includes("user") || pType === "iamuser") &&
-      principal.has_mfa === false &&
-      path.evidence_type === "observed") {
-    return "LEAKED_ACCESS_KEY"
-  }
-
-  // EXPOSED_S3_BUCKET — crown jewel itself is internet-exposed and is S3.
-  // 1-hop path where the bucket is the entry.
-  const jewelType = (jewel?.type || "").toLowerCase()
-  if (jewelType.includes("s3") && jewel?.is_internet_exposed === true) {
-    return "EXPOSED_S3_BUCKET"
-  }
-
-  // EXPOSED_RDS_SNAPSHOT — crown jewel is RDS/EBS and reachable.
-  if ((jewelType.includes("rds") || jewelType.includes("aurora") ||
-       jewelType.includes("ebs") || jewelType.includes("snapshot")) &&
-      jewel?.is_internet_exposed === true) {
-    return "EXPOSED_RDS_SNAPSHOT"
-  }
-
-  // IMDS_CREDENTIAL_THEFT — EC2 workload reachable from the internet.
-  // BE-A.1 (2026-06-20) added subnet_ingress_class as the typed signal
-  // sourced from HAS_INGRESS_CLASS edges. We prefer it because it
-  // distinguishes PUBLIC_INGRESS (real triple match: IGW + public IP +
-  // open SG) from a subnet that merely routes via an IGW but has no
-  // actual ingress posture. Falls back to is_internet_exposed /
-  // subnet_is_public on responses that pre-date the BE-A.1 deploy.
-  const wType = (workload?.type || "").toLowerCase()
-  const subnetIngress = workload?.subnet_ingress_class
-  const reachable =
-    subnetIngress === "PUBLIC_INGRESS" ||
-    subnetIngress === "ELB_FACING" ||
-    workload?.is_internet_exposed === true ||
-    workload?.subnet_is_public === true
-  if (wType.includes("ec2") && reachable) {
-    return "IMDS_CREDENTIAL_THEFT"
-  }
-
-  // EXPOSED_K8S_WORKLOAD — EKS / Fargate / ECS container reachable.
-  if ((wType.includes("eks") || wType.includes("fargate") ||
-       wType.includes("ecs") || wType.includes("container")) &&
-      reachable) {
-    return "EXPOSED_K8S_WORKLOAD"
-  }
-
-  // EXPOSED_WORKLOAD_RCE — any other workload (Lambda URL, etc.)
-  // reachable from the internet.
-  if (reachable) return "EXPOSED_WORKLOAD_RCE"
-
-  // No identified initial access in current graph state — honest.
-  return "UNKNOWN"
+  UNKNOWN: { label: "INITIAL ACCESS UNAVAILABLE", icon: HelpCircle, tone: "text-muted-foreground" },
 }
 
 // Severity → tone for the secondary severity label on Zoom 0 rows.
@@ -236,7 +114,7 @@ export function PathListGrouped({
   // path because that's the real "biggest door".
   const rows = useMemo<PathListRow[]>(() => {
     return paths.map((p) =>
-      compilePathListRow(p, jewel, classifyInitialAccess(p)),
+      compilePathListRow(p, jewel, initialAccessCategoryFromBackend(p)),
     )
   }, [paths, jewel])
 

@@ -75,10 +75,7 @@ import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { Zoom0FanInPanel } from "./zoom0-fan-in-panel"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
-import {
-  iapPathsToConvergence,
-  matchConvergencePathId,
-} from "@/lib/attack-paths/iap-to-convergence"
+import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
@@ -571,22 +568,20 @@ export function AttackPathsV2({
     cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}`,
   })
 
-  const iapConvergenceFallback = useMemo(() => {
-    if (!systemName || !selectedJewel || jewelPaths.length === 0) return null
-    return iapPathsToConvergence(systemName, selectedJewel, jewelPaths)
-  }, [systemName, selectedJewel, jewelPaths])
-
   const convergenceSource = useMemo((): "live" | "fallback" => {
     if (convergenceData?.paths?.length) return "live"
     if (jewelSummaryConvergence?.paths?.length) return "live"
     return "fallback"
   }, [convergenceData, jewelSummaryConvergence])
 
+  // Live SERVE / summary only. Never paint IAP-synthesized topology —
+  // Zoom0 already refuse-draws on fallback; convergence view must match
+  // that delete-not-fallback contract.
   const effectiveConvergenceData = useMemo((): CrownJewelConvergence | null => {
     if (convergenceData?.paths?.length) return convergenceData
     if (jewelSummaryConvergence?.paths?.length) return jewelSummaryConvergence
-    return iapConvergenceFallback
-  }, [convergenceData, jewelSummaryConvergence, iapConvergenceFallback])
+    return null
+  }, [convergenceData, jewelSummaryConvergence])
 
   const convergencePathId = useMemo(
     () =>

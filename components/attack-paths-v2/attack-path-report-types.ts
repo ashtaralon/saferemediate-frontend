@@ -418,16 +418,14 @@ export interface PathListRow {
   /** True iff at least one edge is is_observed=true (regardless of hits). */
   has_observed_edge: boolean
 
-  /** PR 1 / IAP `evidence_type` — observed vs configured. Kept for the
-   *  "observed (no hit count)" badge case. */
-  evidence_type: "observed" | "configured"
+  /** PR 1 / IAP `evidence_type` — observed vs configured. Null when the
+   *  backend did not declare one (never invent "configured"). */
+  evidence_type: "observed" | "configured" | null
 
   // ---- Classifications ------------------------------------------------------
 
-  /** ATT&CK Initial Access bucket. Uses the backend-emitted category when
-   *  present (`path.initial_access.category`), falls back to the legacy
-   *  inline derivation otherwise. The fallback path is shrinking — once
-   *  the backend writes the edge for every system we delete it. */
+  /** ATT&CK Initial Access bucket from backend only.
+   *  UNKNOWN = explicit unavailable — never a FE-derived class. */
   initial_access_category: InitialAccessCategoryLite
 
   /** ACQUISITION chip source — who can take this principal once already
@@ -470,15 +468,13 @@ export interface PathListRow {
   impact_buckets: ImpactBucket[]
 
   /** Composite one-tag headline ("CATASTROPHIC", "DESTRUCTIVE ACCESS", etc.).
-   *  See spec §3 for the priority rules. Falls back to "CONFIGURED RISK"
-   *  when the backend hasn't written impact_headline. */
-  impact_headline: HeadlineTag
+   *  Null when the backend hasn't written impact_headline — never invent
+   *  "CONFIGURED RISK". */
+  impact_headline: HeadlineTag | null
 
-  /** Path-level confidence = min of chip confidences. HIGH = literal-ARN
-   *  policy scope + no conditions. MEDIUM = wildcards or conditions.
-   *  LOW = service skips scope filter (KMS/DDB today) or wildcard
-   *  Resource. */
-  impact_confidence: ImpactConfidence
+  /** Path-level confidence = min of chip confidences. Null when absent —
+   *  never invent "LOW". */
+  impact_confidence: ImpactConfidence | null
 
   /** Per-verb evidence breakdown — present when backend wrote it. Sprint 0
    *  does not render this (drawer is PR 3 follow-up). Kept on the row so

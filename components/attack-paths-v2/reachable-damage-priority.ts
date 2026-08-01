@@ -120,7 +120,8 @@ export function jewelServiceLabel(path: IdentityAttackPath, jewel?: CrownJewelSu
   if (/secret/.test(t)) return "secret"
   if (/rds/.test(t)) return "RDS instance"
   if (/s3|bucket/.test(t)) return "S3 bucket"
-  return jewel?.name || path.target || "crown jewel"
+  // No invented path.target — jewel name, else honest unavailable label.
+  return jewel?.name || "crown jewel"
 }
 
 function hasAnyObserved(path: IdentityAttackPath): boolean {
@@ -143,13 +144,11 @@ export function compilePathLayers(path: IdentityAttackPath): PathLayerChips {
     network = normGate(mp.route_gate)
     data = normGate(mp.data_plane_gate)
   } else {
-    permissions = hasAnyObserved(path) ? "observed" : "config-open"
-    network = "config-open"
-    data = hasObservedDataPlane(path)
-      ? "observed"
-      : hasAnyObserved(path)
-        ? "config-open"
-        : "config-open"
+    // No materialized gates → unknown on every layer. Never invent
+    // config-open / observed from edge heuristics alone.
+    permissions = "unknown"
+    network = "unknown"
+    data = "unknown"
   }
 
   // Never fake green: IAM-only / standing access → Network N/A when no real OPEN/CLOSED.

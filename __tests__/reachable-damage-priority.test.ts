@@ -14,6 +14,25 @@ function basePath(over: Record<string, unknown> = {}): IdentityAttackPath {
     id: "p1",
     crown_jewel_id: "arn:aws:s3:::customer-data-s3",
     hop_count: 3,
+    path_kind: "materialized",
+    severity: {
+      overall_score: 70,
+      severity: "HIGH",
+      impact: Number.NaN,
+      internet_exposure: Number.NaN,
+      permission_breadth: Number.NaN,
+      data_sensitivity: Number.NaN,
+      identity_chain: Number.NaN,
+      network_controls: Number.NaN,
+      weights: {
+        impact: Number.NaN,
+        internet_exposure: Number.NaN,
+        permission_breadth: Number.NaN,
+        data_sensitivity: Number.NaN,
+        identity_chain: Number.NaN,
+        network_controls: Number.NaN,
+      },
+    },
     nodes: [
       {
         id: "i-abc",
@@ -45,7 +64,7 @@ function basePath(over: Record<string, unknown> = {}): IdentityAttackPath {
     ],
     edges: [],
     ...over,
-  } as IdentityAttackPath
+  } as unknown as IdentityAttackPath
 }
 
 const jewel = {
@@ -71,6 +90,26 @@ describe("compilePathLayers", () => {
     expect(layers.permissions).toBe("observed")
     expect(layers.network).toBe("config-open")
     expect(layers.data).toBe("observed")
+  })
+
+  it("MUTATION: without materialized_path, layers stay unknown (no invent)", () => {
+    const layers = compilePathLayers(
+      basePath({
+        materialized_path: undefined,
+        evidence_type: "observed",
+        edges: [
+          {
+            source: "role-1",
+            target: "arn:aws:s3:::customer-data-s3",
+            type: "ACTUAL_S3_ACCESS",
+            is_observed: true,
+          },
+        ],
+      }),
+    )
+    expect(layers.permissions).toBe("unknown")
+    expect(layers.network).toBe("unknown")
+    expect(layers.data).toBe("unknown")
   })
 
   it("sets network to N/A — standing access on assume-chain with unknown route", () => {

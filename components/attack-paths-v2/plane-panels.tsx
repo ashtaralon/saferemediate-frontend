@@ -417,7 +417,7 @@ export function IdentityPlanePanel({ path }: { path: IdentityAttackPath }) {
                   <span className="text-xs font-mono text-pink-700 dark:text-pink-300 truncate flex-1 min-w-0">
                     {r.name}
                   </span>
-                  {(r as any).gap_count !== undefined && r.gap_count > 0 && (
+                  {typeof r.gap_count === "number" && r.gap_count > 0 && (
                     <span className="text-[9px] font-semibold uppercase tracking-wider rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">
                       {r.gap_count} gaps
                     </span>

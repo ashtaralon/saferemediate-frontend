@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { convergenceToTargetTopology } from "@/lib/attack-paths/convergence-to-target-topology"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { iapPathsToConvergence } from "@/lib/attack-paths/iap-to-convergence"
 import type { CrownJewelSummary, IdentityAttackPath } from "@/components/identity-attack-paths/types"
+
+const ROOT = join(__dirname, "..", "..")
 
 const jewel: CrownJewelSummary = {
   id: "arn:aws:s3:::demo-bucket",
@@ -29,8 +32,6 @@ const path: IdentityAttackPath = {
       is_internet_exposed: true,
       lp_score: null,
       gap_count: 0,
-      remediation: null,
-      internet_exposure_alert: null,
       subnet_is_public: true,
     },
     {
@@ -41,8 +42,6 @@ const path: IdentityAttackPath = {
       is_internet_exposed: false,
       lp_score: null,
       gap_count: 0,
-      remediation: null,
-      internet_exposure_alert: null,
     },
     {
       id: jewel.id,
@@ -52,8 +51,6 @@ const path: IdentityAttackPath = {
       is_internet_exposed: false,
       lp_score: null,
       gap_count: 0,
-      remediation: null,
-      internet_exposure_alert: null,
     },
   ],
   edges: [],
@@ -80,18 +77,38 @@ const path: IdentityAttackPath = {
   hop_count: 3,
 }
 
-describe("iapPathsToConvergence", () => {
-  it("builds hops and renders a non-empty topology", () => {
+describe("iapPathsToConvergence — helper may exist, must not paint maps", () => {
+  it("still builds a convergence-shaped object for id matching (non-map)", () => {
     const conv = iapPathsToConvergence("alon-prod", jewel, [path])
     expect(conv.paths_total).toBe(1)
-    const topo = convergenceToTargetTopology(conv, null)
-    expect(topo.nodes.length).toBeGreaterThanOrEqual(3)
-    expect(topo.edges.length).toBeGreaterThanOrEqual(2)
+    expect(conv.paths[0]?.hops_load_state).toBe("fallback")
   })
 
-  it("falls back to all paths when selected id is an IAP id", () => {
-    const conv = iapPathsToConvergence("alon-prod", jewel, [path])
-    const topo = convergenceToTargetTopology(conv, "iap-path-1")
-    expect(topo.nodes.length).toBeGreaterThan(0)
+  it("MUTATION: Attack Paths v2 must not assign iapPathsToConvergence into drawable data", () => {
+    const src = readFileSync(
+      join(ROOT, "components/attack-paths-v2/attack-paths-v2.tsx"),
+      "utf8",
+    )
+    expect(src).not.toContain("iapPathsToConvergence")
+    expect(src).toContain("Never paint IAP-synthesized topology")
+  })
+
+  it("MUTATION: convergence view refuse-draws on fallback (same Zoom0 contract)", () => {
+    const src = readFileSync(
+      join(ROOT, "components/attack-paths-v2/crown-jewel-convergence-view.tsx"),
+      "utf8",
+    )
+    expect(src).toContain("convergence-fallback-map-blocked")
+    expect(src).toContain("refusing to draw a synthetic map")
+  })
+
+  it("MUTATION: convergence-map-loader must block fallback paint", () => {
+    const src = readFileSync(
+      join(ROOT, "components/attack-paths-v2/convergence-map-loader.tsx"),
+      "utf8",
+    )
+    expect(src).toContain("convergence-fallback-map-blocked")
+    expect(src).not.toMatch(/return iapPathsToConvergence/)
+    expect(src).not.toMatch(/source: "fallback" as const\}\s*\n\s*if \(iapFallback/)
   })
 })

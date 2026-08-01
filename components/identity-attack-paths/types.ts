@@ -364,11 +364,16 @@ export interface PathNodeDetail {
   type: string
   tier: "entry" | "identity" | "network_control" | "crown_jewel"
   lane?: "entry" | "compute" | "security_group" | "nacl" | "subnet" | "vpc" | "iam" | "pivot" | "crown_jewel"
-  is_internet_exposed: boolean
+  /**
+   * Absent / null = unknown. Never treat missing as `false` (that invents
+   * "not exposed" and feeds FE Initial Access classifiers).
+   */
+  is_internet_exposed?: boolean | null
   lp_score: number | null
-  gap_count: number
-  remediation: NodeRemediation | null
-  internet_exposure_alert: InternetExposureAlert | null
+  /** Absent / null = unknown — never invent 0 as a measured gap. */
+  gap_count?: number | null
+  remediation?: NodeRemediation | null
+  internet_exposure_alert?: InternetExposureAlert | null
   // Tier-1: identity-protection three-state on IAMUser / IAMRole
   // nodes — `true` = MFA enabled, `false` = explicitly disabled,
   // `null` / undefined = unknown (collector hasn't observed this user).
@@ -585,7 +590,8 @@ export interface PathEdgeDetail {
   label: string
   port: number | null
   protocol: string | null
-  is_observed: boolean
+  /** Absent / null = unknown — never invent `false` as "not observed". */
+  is_observed?: boolean | null
   traffic_bytes?: number
   hit_count?: number
 }
@@ -658,17 +664,16 @@ export interface IdentityAttackPath {
   edges: PathEdgeDetail[]
   severity: SeverityBreakdown
   path_kind: string
-  evidence_type: "observed" | "configured"
+  /** Absent when the backend did not declare observed vs configured. */
+  evidence_type?: "observed" | "configured"
   hop_count: number
   // Enriched fields (optional for backward compat)
   lanes?: LaneDefinition[]
   risk_reduction?: RiskReduction | null
   target_blast_radius?: TargetBlastRadius | null
-  /** ATT&CK Initial Access classification (alon@2026-06-20). Backend
-   *  authoritative source: classifiers/initial_access_classifier.py
-   *  writes (ap:AttackPath)-[:INITIAL_ACCESS_VIA]->(). Optional —
-   *  FE falls back to inline derivation from node enrichment until
-   *  the backend classifier ships. */
+  /** ATT&CK Initial Access classification. Backend authoritative —
+   *  classifiers/initial_access_classifier.py. Optional; when absent
+   *  the UI shows unavailable — never FE-derived. */
   initial_access?: InitialAccess | null
   /** ACQUISITION — who can take THIS principal once already inside the
    *  account. A DIFFERENT question from initial_access, which is ATT&CK

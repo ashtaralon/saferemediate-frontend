@@ -11,10 +11,7 @@ import {
   crownJewelFromArnName,
   useCrownJewelConvergence,
 } from "@/lib/attack-paths/use-crown-jewel-convergence"
-import {
-  iapPathsToConvergence,
-  matchConvergencePathId,
-} from "@/lib/attack-paths/iap-to-convergence"
+import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 
 export function ConvergenceMapLoader({
   systemName,
@@ -43,20 +40,13 @@ export function ConvergenceMapLoader({
     initialSelectedPathId,
   )
 
-  const iapFallback = useMemo(() => {
-    if (!fallbackJewel || fallbackPaths.length === 0) return null
-    return iapPathsToConvergence(systemName, fallbackJewel, fallbackPaths)
-  }, [systemName, fallbackJewel, fallbackPaths])
-
+  // Live convergence only — never draw IAP-synthesized fallback topology.
   const effective = useMemo(() => {
     if (data?.paths?.length) {
       return { data, source: "live" as const }
     }
-    if (iapFallback?.paths?.length) {
-      return { data: iapFallback, source: "fallback" as const }
-    }
-    return { data: data ?? null, source: "live" as const }
-  }, [data, iapFallback])
+    return { data: null, source: "fallback" as const }
+  }, [data])
 
   const resolvedPathId = useMemo(() => {
     if (!effective.data?.paths.length) return null
@@ -107,6 +97,17 @@ export function ConvergenceMapLoader({
   }
 
   if (!effective.data || effective.data.paths.length === 0) {
+    if (effective.source === "fallback") {
+      return (
+        <div
+          className="flex min-h-[400px] items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-6 text-center text-[12px] text-amber-800 dark:text-amber-300"
+          data-testid="convergence-fallback-map-blocked"
+        >
+          Convergence API unreachable — refusing to draw a synthetic map.
+          Retry when SERVE hop DTOs are available.
+        </div>
+      )
+    }
     return (
       <div className="flex min-h-[400px] items-center justify-center text-[12px] text-muted-foreground">
         No attack paths to this crown jewel today.
