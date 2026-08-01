@@ -117,8 +117,11 @@ export function deriveSummaryIntegrity(
  * of confidently wrong answers — and a cached `serve_state: READY` replayed
  * later carries authority it no longer has.
  */
-export function isCacheableSummary(payload: SummaryIntegrityFields | null | undefined): boolean {
-  if (!payload) return false
+export function isCacheableSummary(raw: unknown): boolean {
+  // `unknown` on purpose: useCachedFetch hands this arbitrary decoded JSON, and
+  // a narrower parameter type would be a claim about data we have not checked.
+  const payload = raw as SummaryIntegrityFields | null | undefined
+  if (!payload || typeof payload !== "object") return false
   if (payload.success === false) return false
   if (payload.serve_state !== "READY") return false
   if (payload.analysis_complete !== true) return false
