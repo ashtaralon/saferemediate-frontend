@@ -93,17 +93,34 @@ describe('a budget is short only when something visible is waiting on it', () =>
   })
 })
 
-describe('the caller does not retry its own exhausted budget', () => {
+describe('the caller retries what a cold backend recovers from', () => {
   const src = read(TAB)
 
-  it('retries 503 but not 504', () => {
+  it('retries both 503 and 504', () => {
+    // 504 was briefly excluded on the reasoning that "retrying an identical
+    // budget cannot succeed". That holds only if nothing changes between
+    // attempts — and here something does: the first request WAKES the
+    // backend. A cold dyno answers /health in ~95s, so the attempt that times
+    // out is also the attempt that warms it.
+    //
+    // Observed in production: the tab hard-failed with "Backend 504" while its
+    // own error card read "Retrying often succeeds once it has warmed up", and
+    // clicking Retry loaded it. The loop should not need a human for that.
     const m = src.match(/const retryable\s*=\s*([^\n]+)/)
     expect(m).not.toBeNull()
     const expr = (m as RegExpMatchArray)[1]
     expect(expr).toContain('503')
-    // 504 = our own 55s budget ran out. The backend is not going to answer a
-    // second identical request any faster, and retrying multiplies the wait.
-    expect(expr).not.toContain('504')
+    expect(expr).toContain('504')
+  })
+
+  it('agrees with the Trust Exposure lens on the same surface', () => {
+    // Both panels render on the Resource Risk tab and both hit a cold
+    // backend at the same moment. Disagreeing about whether that is fatal is
+    // how one panel shows an error next to another that recovered.
+    const lens = read('components/trust-dormancy-lens.tsx')
+    const lensExpr = (lens.match(/const retryable\s*=\s*([^\n]+)/) as RegExpMatchArray)[1]
+    expect(lensExpr).toContain('503')
+    expect(lensExpr).toContain('504')
   })
 
   it('keeps the worst-case wait bounded', () => {

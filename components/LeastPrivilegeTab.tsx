@@ -23,6 +23,7 @@ import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
+import { EvidenceCoverageBanner } from '@/components/evidence-coverage-banner'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -733,13 +734,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // Retry 503 (Render still booting — it answers instantly, so a retry is
       // nearly free and usually works). Do NOT retry 504.
       //
-      // A 504 here means the proxy's own 55s budget was exhausted. Retrying
-      // that with an identical budget cannot succeed: the previous 25s budget
-      // was shorter than a 32s cold start, so all three attempts timed out by
-      // construction — ~78s of spinner and then a hard error on a backend that
-      // was merely cold. The cold path is now covered by the budget itself,
-      // which is where it belongs; retrying is for the fast-failing case only.
-      const retryDelaysMs = [1000]
+      // Retry 503 AND 504.
+      //
+      // Dropping 504 was wrong. The argument was "retrying an identical budget
+      // cannot succeed" — true only if nothing changes between attempts, and
+      // here something does: the first request WAKES the backend. A cold
+      // Render dyno answers /health in ~95s; the attempt that times out is
+      // also the attempt that warms it, so the retry usually lands.
+      //
+      // Observed in production 2026-08-01: the tab hard-failed with
+      // "Backend 504" while its own error card read "Retrying often succeeds
+      // once it has warmed up" — copy describing behaviour the code no longer
+      // had. Clicking Retry then loaded it. That manual click is exactly what
+      // this loop should have done.
+      //
+      // Two attempts, not the old three: with a 55s budget the worst case is
+      // ~111s, and the sibling Trust Exposure lens already retries both codes
+      // on the same surface (RETRY_DELAYS_MS there), so this also stops the
+      // two panels disagreeing about whether a cold backend is fatal.
+      const retryDelaysMs = [1500]
       let response: Response | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
@@ -747,7 +760,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
-        const retryable = response.status === 503
+        const retryable = response.status === 503 || response.status === 504
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }
@@ -2105,6 +2118,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       {/* Trust & Dormancy — net-new HAS_RISK findings (broad trust + dormant roles) */}
       <TrustDormancyLens systemName={systemName} />
+
+      {/* How much OBSERVED evidence the numbers below rest on. Placed here on
+          purpose: it qualifies the stat cards and the table, so it has to be
+          read before them, not tucked underneath. Renders nothing when
+          coverage is complete or the lookup fails. */}
+      <EvidenceCoverageBanner systemName={systemName} />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
