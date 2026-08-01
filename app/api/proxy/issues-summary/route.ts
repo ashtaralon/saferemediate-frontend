@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 import { isCacheableSummary } from "@/lib/summary-integrity"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -8,8 +9,13 @@ export const fetchCache = "force-no-store"
 export const revalidate = 0
 export const maxDuration = 60
 
-const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+// NOTE: the backend URL is resolved per-request inside the handler via
+// getBackendBaseUrl(), matching the sibling least-privilege/issues route.
+// It used to be a module-scope hardcoded Render URL, so a local run pointed at
+// a local backend silently kept hitting production for this one endpoint —
+// which also made the Overview's failure path untestable locally. Resolves to
+// the identical URL in Vercel prod (no override set), and additionally fails
+// loud if a deploy is ever pointed at localhost.
 
 // In-memory cache with 5-minute TTL — only stores SUCCESSFUL responses.
 // Backend errors no longer return 200-with-empty (which masked the
@@ -64,9 +70,10 @@ export async function GET(req: NextRequest) {
   const timeoutId = setTimeout(() => controller.abort(), 55_000)
 
   try {
+    const base = getBackendBaseUrl()
     const backendUrl = systemName
-      ? `${BACKEND_URL}/api/issues/summary?systemName=${encodeURIComponent(systemName)}`
-      : `${BACKEND_URL}/api/issues/summary`
+      ? `${base}/api/issues/summary?systemName=${encodeURIComponent(systemName)}`
+      : `${base}/api/issues/summary`
 
     const res = await fetch(backendUrl, {
       headers: { "Content-Type": "application/json" },
