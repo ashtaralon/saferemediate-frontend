@@ -790,7 +790,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
-        const retryable = response.status === 503
+        // 503 AND 504. Excluding 504 was defended as "retrying an identical
+        // budget cannot succeed" — true only if nothing changes between
+        // attempts, and something does: the first request WAKES the backend.
+        // A cold Render dyno answers in ~95s, so the attempt that times out is
+        // the same attempt that warms it.
+        //
+        // Observed in production during this session's QA: least-privilege/issues
+        // returned 504 and the tab hard-failed, while its own error card read
+        // "Retrying often succeeds once it has warmed up" — and clicking Retry
+        // loaded it. The loop should not need a human to do what it was already
+        // telling the human to do.
+        const retryable = response.status === 503 || response.status === 504
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }

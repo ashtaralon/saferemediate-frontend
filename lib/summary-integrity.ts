@@ -33,6 +33,10 @@ export interface SummaryIntegrityFields {
   fromStaleCache?: boolean
   cacheAge?: number
   staleReason?: string
+  /** Nullable — held sweeps send null, and `Number(null)` is 0. */
+  avg_health_score?: number | null
+  /** Present but score-less when held; carries no `error` key in that state. */
+  blast_radius_score?: { score?: number | null; analysis_complete?: boolean; error?: string } | null
 }
 
 export interface SummaryIntegrity {
@@ -82,13 +86,21 @@ export function deriveSummaryIntegrity(
     state = "NOT_READY"
   }
 
-  const ready = state === "READY"
-  // `typeof === "number"` and not NaN. `total > 0` would read null as false and
+  // `typeof === "number"` and finite. `total > 0` would read null as false and
   // land straight back in the all-clear branch.
-  const totalIsReal = typeof payload?.total === "number" && !Number.isNaN(payload.total)
+  const totalIsReal = Number.isFinite(payload?.total as number)
+
+  // A FINITE TOTAL IS PART OF READY, not just of all-clear.
+  //
+  // `READY + analysis_complete:true + total:null` used to derive READY, which
+  // meant it was cacheable, and the enforcement score would compose from it.
+  // The all-clear guard alone was not enough — that only covered the green
+  // state, while scores and the cache took the same payload as authoritative.
+  // If the backend cannot give a number, it cannot give authority either.
+  const ready = state === "READY" && totalIsReal
 
   return {
-    state,
+    state: ready ? "READY" : state === "READY" ? "NOT_READY" : state,
     countsArePartial: !ready || payload?.counts_are_partial === true,
     canRenderAllClear: ready && totalIsReal && payload!.total === 0,
     canRenderScores: ready,
@@ -110,6 +122,10 @@ export function isCacheableSummary(payload: SummaryIntegrityFields | null | unde
   if (payload.success === false) return false
   if (payload.serve_state !== "READY") return false
   if (payload.analysis_complete !== true) return false
+  // A null total is not a cacheable answer. Caching it would let the enforcement
+  // score and every later reader treat "READY but no number" as authoritative
+  // for the full TTL.
+  if (!Number.isFinite(payload.total as number)) return false
   return true
 }
 

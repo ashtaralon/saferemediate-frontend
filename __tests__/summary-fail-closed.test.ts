@@ -225,3 +225,49 @@ describe("score consumers — BRSS and health must be withheld when held", () =>
     expect(ok.canRenderScores).toBe(true)
   })
 })
+
+describe("review fixtures — two holes found in the first cut", () => {
+  it("READY + analysis_complete + total:null is NOT authoritative", () => {
+    // It derived READY, so isCacheableSummary() cached it and the enforcement
+    // score composed from it. The all-clear guard alone did not cover that:
+    // it only gated the green state, while scores and the cache took the same
+    // payload as trustworthy. A finite total is now part of READY itself.
+    const p = { success: true, serve_state: "READY", analysis_complete: true, total: null }
+    const i = deriveSummaryIntegrity(p)
+    expect(i.state).toBe("NOT_READY")
+    expect(i.canRenderScores).toBe(false)
+    expect(i.canRenderAllClear).toBe(false)
+    expect(isCacheableSummary(p)).toBe(false)
+  })
+
+  it("READY + positive total + missing severity breakdown is never all-clear", () => {
+    // The card had `canRenderAllClear || chartData.length === 0`. A response
+    // with total:17 and no severity split produces an empty chartData, and the
+    // OR sent it to the green "0 active findings — all clear" state.
+    // Seventeen findings, rendered as none.
+    const i = deriveSummaryIntegrity({
+      success: true, serve_state: "READY", analysis_complete: true,
+      total: 17, // no critical/high/medium/low, no by_severity
+    })
+    expect(i.state).toBe("READY")
+    expect(i.canRenderAllClear).toBe(false)
+  })
+
+  it("a finite zero is still all-clear — this is a gate, not a mute", () => {
+    const i = deriveSummaryIntegrity({
+      success: true, serve_state: "READY", analysis_complete: true, total: 0,
+    })
+    expect(i.canRenderAllClear).toBe(true)
+    expect(isCacheableSummary({
+      success: true, serve_state: "READY", analysis_complete: true, total: 0,
+    })).toBe(true)
+  })
+
+  it("NaN and undefined totals are not finite either", () => {
+    for (const total of [NaN, undefined]) {
+      const p = { success: true, serve_state: "READY", analysis_complete: true, total }
+      expect(deriveSummaryIntegrity(p).state).toBe("NOT_READY")
+      expect(isCacheableSummary(p)).toBe(false)
+    }
+  })
+})

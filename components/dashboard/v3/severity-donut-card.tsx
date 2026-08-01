@@ -98,8 +98,12 @@ export function SeverityDonutCard() {
     { name: "Low", value: sev.low, color: SEVERITY_COLORS.low },
   ].filter((d) => (d.value ?? 0) > 0)
 
-  // Only an EXPLICIT ready + complete + numeric zero earns the green state.
-  if (integrity.canRenderAllClear || chartData.length === 0) {
+  // ONLY canRenderAllClear. The `|| chartData.length === 0` that used to be
+  // here reintroduced the whole bug through the back door: a READY response
+  // with total:17 but a missing or malformed severity breakdown produces an
+  // empty chartData, and the OR sent it straight to the green "0 active
+  // findings — all clear" state. Seventeen findings, rendered as none.
+  if (integrity.canRenderAllClear) {
     return (
       <Section
         label="LP findings by severity"
@@ -110,6 +114,28 @@ export function SeverityDonutCard() {
           <span className={`${heroNumberClass} text-emerald-700`}>0</span>
           <span className="text-sm text-slate-500">active findings</span>
         </div>
+      </Section>
+    )
+  }
+
+  // READY with a positive total but nothing to plot — the severity breakdown is
+  // missing or does not sum. Say so; do not draw an empty donut and do not fall
+  // through to green.
+  if (chartData.length === 0) {
+    return (
+      <Section
+        label="LP findings by severity"
+        descriptor="Severity breakdown unavailable"
+        className="border-l-[3px] border-l-amber-500 h-full flex flex-col"
+      >
+        <div className="flex items-center gap-3 py-2">
+          <span className={`${heroNumberClass} text-slate-700`}>{total}</span>
+          <span className="text-sm text-slate-500">active findings</span>
+        </div>
+        <p className="text-xs text-slate-500 leading-snug">
+          {total} finding{total === 1 ? "" : "s"} reported, but no severity
+          breakdown came back — the split cannot be shown.
+        </p>
       </Section>
     )
   }
