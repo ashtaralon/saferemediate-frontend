@@ -57,6 +57,14 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
 
   const setView = (v: DashboardView) => {
     setViewState(v)
+    // Readiness describes the EXECUTIVE reading. Leaving that view makes it
+    // stale immediately, and a report drawer showing the previous view's
+    // reading is exactly the kind of quiet inconsistency the report exists
+    // to prevent. Drop it; the cockpit repopulates on return.
+    if (v !== "executive") {
+      setReportOpen(false)
+      setReadiness({ scope: "reading…", sources: [], generation: null })
+    }
     const next = new URLSearchParams(Array.from(searchParams.entries()))
     if (v === "executive") next.delete("view")
     else next.set("view", v)
@@ -95,13 +103,18 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
           </button>
-          <button
-            onClick={() => setReportOpen(true)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Management report
-          </button>
+          {/* Executive-only. In Operations the executive feeds are not read,
+              so the drawer would have reported "0 of 0 feeds ready" — a
+              readiness claim about a reading that never happened. */}
+          {view === "executive" && (
+            <button
+              onClick={() => setReportOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              Management report
+            </button>
+          )}
         </div>
       </div>
 

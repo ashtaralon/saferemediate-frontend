@@ -1,6 +1,7 @@
 "use client"
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
@@ -36,7 +37,7 @@ type Candidate = {
   safety?: Safety
 }
 
-type CandidatesResponse = {
+export type CandidatesResponse = {
   candidates?: Candidate[]
   summary?: {
     total_candidates?: number
@@ -46,23 +47,43 @@ type CandidatesResponse = {
   error?: string
 }
 
-export function SafeRemediationsQueueCard({ limit = 5 }: { limit?: number } = {}) {
+export function SafeRemediationsQueueCard({
+  limit = 5,
+  /** Lifted read from the cockpit — one endpoint, one reading per page. */
+  shared,
+}: {
+  limit?: number
+  shared?: { data: CandidatesResponse | null; loading: boolean; error: string | null; retry: () => void }
+} = {}) {
   // Action queue — strict 10-min staleness. Showing yesterday's "ready
   // to apply" list could include items already remediated.
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<CandidatesResponse>(
-    "/api/proxy/remediation-candidates?limit=10",
+  const own = useCachedFetch<CandidatesResponse>(
+    shared ? null : "/api/proxy/remediation-candidates?limit=50",
     {
-      cacheKey: "remediation-candidates",
+      cacheKey: "ciso-brief-remediations",
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
+      isCacheable: isCacheableCandidates,
     }
   )
+  const { data, loading, error, retry } = shared ?? own
+  const { isStale, cachedAt } = own
 
   if (loading && !data) return <LoadingCard label="Proposed changes" />
-  // Endpoint may return 200 with body.error to signal upstream failure.
-  const bodyError = data?.error ? data.error : null
-  if ((error || bodyError) && !data) {
-    return <ErrorCard label="Proposed changes" error={error || bodyError || ""} onRetry={retry} />
+  // The proxy answers an upstream failure with HTTP 200 and a fully-formed
+  // EMPTY body carrying `error`. The previous guard was
+  // `if ((error || bodyError) && !data)` — `data` IS that object, so `!data`
+  // was false and the branch was unreachable. The card rendered "0 ready"
+  // for a dead upstream: a false zero on the queue that drives remediation.
+  const integrity = deriveCandidatesIntegrity(data)
+  if (error || integrity.state !== "READY") {
+    return (
+      <ErrorCard
+        label="Proposed changes"
+        error={error || integrity.reason || "Unavailable"}
+        onRetry={retry}
+      />
+    )
   }
   if (!data) return null
 
@@ -131,9 +152,9 @@ export function SafeRemediationsQueueCard({ limit = 5 }: { limit?: number } = {}
         </ul>
       )}
 
-      {ready.length > 5 && (
+      {ready.length > limit && (
         <div className={`${descriptorClass} mt-3`}>
-          + {ready.length - 5} more ready · view all in Remediations
+          + {ready.length - limit} more ready · view all in Remediations
         </div>
       )}
     </Section>

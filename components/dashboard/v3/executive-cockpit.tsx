@@ -5,12 +5,16 @@ import { Crown, GitBranch, Layers3, ShieldCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
-import { AttackPathsCard } from "./attack-paths-card"
+import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
+import { AttackPathsCard, type PathsResponse } from "./attack-paths-card"
 import { ExecutiveViewContext, StaleIndicator } from "./card-shell"
 import { DivergenceBanner } from "./divergence-banner"
 import { EvidenceHealthCardV3 } from "./evidence-health-card"
 import { NarrowingSummaryCard } from "./narrowing-summary-card"
-import { SafeRemediationsQueueCard } from "./safe-remediations-queue-card"
+import {
+  SafeRemediationsQueueCard,
+  type CandidatesResponse,
+} from "./safe-remediations-queue-card"
 import { TopSystemsCard } from "./top-systems-card"
 import type { ReportReadiness, SourceReadiness } from "./management-report-drawer"
 
@@ -41,15 +45,9 @@ import type { ReportReadiness, SourceReadiness } from "./management-report-drawe
  */
 
 type SystemsResponse = { systems?: Array<{ name?: string; SystemName?: string }> }
-type PathsResponse = {
-  total_jewels?: number | null
-  total_paths?: number | null
-  exposed_jewels?: number | null
-  crown_jewels?: Array<{ system_name?: string }>
-}
-type RemediationsResponse = {
-  summary?: { auto_applicable?: number | null; blocked?: number | null }
-}
+// PathsResponse / CandidatesResponse are imported from the cards that own
+// them. Declaring a second local shape per endpoint is how two readings of
+// one payload drift apart.
 
 function num(v: unknown): number | null {
   return Number.isFinite(v as number) ? (v as number) : null
@@ -148,7 +146,7 @@ export function ExecutiveCockpit({
     failClosedOnError: true,
     isCacheable: isCacheablePaths,
   })
-  const remediations = useCachedFetch<RemediationsResponse>(
+  const remediations = useCachedFetch<CandidatesResponse>(
     "/api/proxy/remediation-candidates?limit=50",
     {
       cacheKey: "ciso-brief-remediations",
@@ -156,12 +154,33 @@ export function ExecutiveCockpit({
       fetchInit: { cache: "no-store" },
       transientRetries: 2,
       failClosedOnError: true,
+      isCacheable: isCacheableCandidates,
+    },
+  )
+
+  // Every panel the cockpit RENDERS is read here, so the management report
+  // can vouch for all of them. Tracking only three while rendering five let
+  // the drawer say "3 of 3 feeds ready" with a panel unavailable on screen.
+  const evidence = useCachedFetch<any>("/api/proxy/evidence/coverage", {
+    cacheKey: "evidence-coverage",
+    fetchInit: { cache: "no-store" },
+    transientRetries: 2,
+    failClosedOnError: true,
+  })
+  const outcomes = useCachedFetch<any>(
+    "/api/proxy/remediation-history/narrowing-summary?days=7",
+    {
+      cacheKey: "narrowing-summary-7d",
+      fetchInit: { cache: "no-store" },
+      transientRetries: 2,
+      failClosedOnError: true,
     },
   )
 
   const pathsIntegrity = derivePathsIntegrity(paths.data)
+  const remIntegrity = deriveCandidatesIntegrity(remediations.data)
   const pathsDown = !paths.data || pathsIntegrity.state !== "READY"
-  const remDown = !remediations.data
+  const remDown = remIntegrity.state !== "READY"
 
   const jewelSystems =
     paths.data?.crown_jewels && pathsIntegrity.state === "READY"
@@ -194,12 +213,24 @@ export function ExecutiveCockpit({
     },
     {
       label: "Proposed changes",
-      state: remediations.data ? "READY" : "UNAVAILABLE",
+      state: remIntegrity.state,
+      detail: remIntegrity.reason,
       cachedAt: remediations.cachedAt,
+    },
+    {
+      label: "Evidence health",
+      state: evidence.data ? "READY" : "UNAVAILABLE",
+      cachedAt: evidence.cachedAt,
+    },
+    {
+      label: "Verified outcomes",
+      state: outcomes.data ? "READY" : "UNAVAILABLE",
+      cachedAt: outcomes.cachedAt,
     },
   ], [systems.data, systems.cachedAt, paths.data, paths.cachedAt,
       remediations.data, remediations.cachedAt, pathsIntegrity.state,
-      pathsIntegrity.reason])
+      pathsIntegrity.reason, remIntegrity.state, remIntegrity.reason,
+      evidence.data, evidence.cachedAt, outcomes.data, outcomes.cachedAt])
 
   const scope = systems.data
     ? `${(systems.data.systems ?? []).length} discovered business systems`
@@ -293,18 +324,18 @@ export function ExecutiveCockpit({
             <TopSystemsCard limit={5} shared={systems} />
           </div>
           <div className="flex flex-col gap-5 lg:col-span-4">
-            <SafeRemediationsQueueCard limit={3} />
-            <EvidenceHealthCardV3 />
+            <SafeRemediationsQueueCard limit={3} shared={remediations} />
+            <EvidenceHealthCardV3 shared={evidence} />
           </div>
         </div>
 
         {/* Highest-impact path beside verified outcomes. */}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
           <div className="lg:col-span-8">
-            <AttackPathsCard onNavigateToSection={onNavigateToSection} limit={1} />
+            <AttackPathsCard onNavigateToSection={onNavigateToSection} limit={1} shared={paths} />
           </div>
           <div className="lg:col-span-4">
-            <NarrowingSummaryCard />
+            <NarrowingSummaryCard shared={outcomes} />
           </div>
         </div>
       </div>

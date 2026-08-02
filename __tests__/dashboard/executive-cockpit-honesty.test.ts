@@ -86,7 +86,14 @@ describe("ExecutiveCockpit — Neo4j-backed honesty", () => {
     // A cached value whose refresh failed keeps rendering as current unless the
     // hook is told otherwise — useCachedFetch only surfaces errors when data is
     // null. Three fetches, three opt-ins.
-    expect(BRIEF.match(/failClosedOnError:\s*true/g) ?? []).toHaveLength(3)
+    // Assert the CONTRACT — every source fails closed — not a source count.
+    // This pinned 3, so adding Evidence health and Verified outcomes to the
+    // cockpit (so the management report could vouch for them) failed a test
+    // that the additions strictly improved.
+    const fetches = (BRIEF.match(/useCachedFetch</g) ?? []).length
+    const failClosed = (BRIEF.match(/failClosedOnError:\s*true/g) ?? []).length
+    expect(fetches).toBeGreaterThanOrEqual(3)
+    expect(failClosed).toBe(fetches)
   })
 
   it("home dashboard mounts the cockpit, and the brief is gone for good", () => {

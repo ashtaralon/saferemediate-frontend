@@ -65,15 +65,22 @@ function MiniSparkline({ days }: { days: ByDay[] }) {
   )
 }
 
-export function NarrowingSummaryCard() {
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<NarrowingResp>(
-    "/api/proxy/remediation-history/narrowing-summary?days=7",
+export function NarrowingSummaryCard({ shared }: {
+  /** Lifted read from the cockpit, so the management report can vouch for
+   *  this panel too. Untracked executive feeds let the report claim
+   *  "3 of 3 ready" while a rendered panel was unavailable. */
+  shared?: { data: NarrowingResp | null; loading: boolean; error: string | null; retry: () => void }
+} = {}) {
+  const own = useCachedFetch<NarrowingResp>(
+    shared ? null : "/api/proxy/remediation-history/narrowing-summary?days=7",
     {
       cacheKey: "narrowing-summary-7d",
       maxStaleMs: 60 * 60 * 1000, // 1h freshness; falls back to older cache on failure
       fetchInit: { cache: "no-store" },
     },
   )
+  const { data, loading, error, retry } = shared ?? own
+  const { isStale, cachedAt } = own
 
   if (loading && !data) return <LoadingCard label="This week's narrowing" />
   if (error && !data) return <ErrorCard label="This week's narrowing" error={error} onRetry={retry} />

@@ -45,7 +45,7 @@ type CrownJewel = {
   system_name?: string
 }
 
-type PathsResponse = {
+export type PathsResponse = {
   crown_jewels?: CrownJewel[]
   /** Null whenever the fan-out did not complete — never coerce. */
   total_jewels?: number | null
@@ -90,9 +90,11 @@ interface AttackPathsCardProps {
   onNavigateToSection?: (id: string) => void
   /** Executive view shows the single highest-impact path, not a list. */
   limit?: number
+  /** Lifted read from the cockpit — one endpoint, one reading per page. */
+  shared?: { data: PathsResponse | null; loading: boolean; error: string | null; retry: () => void }
 }
 
-export function AttackPathsCard({ onNavigateToSection, limit = 8 }: AttackPathsCardProps = {}) {
+export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: AttackPathsCardProps = {}) {
   const router = useRouter()
 
   // Primary: Attack Map v2 spine (?map=cyntro). Orphan-only jewels fall back
@@ -114,10 +116,10 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8 }: AttackPathsC
   // back to the loading skeleton instead of showing stale "top attack
   // path" data, because acting on a 12h-old top path could mean
   // remediating something that was already fixed.
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<PathsResponse>(
-    "/api/proxy/identity-attack-paths/all",
+  const own = useCachedFetch<PathsResponse>(
+    shared ? null : "/api/proxy/identity-attack-paths/all",
     {
-      cacheKey: "identity-attack-paths-all",
+      cacheKey: "ciso-brief-paths",
       // 1h "fresh" window. Beyond that, refresh runs in background.
       // If the refresh fails, the hook's last-resort fallback shows
       // older-but-still-readable cache (up to 7d) rather than a 504.
@@ -130,6 +132,8 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8 }: AttackPathsC
       failClosedOnError: true,
     }
   )
+  const { data, loading, error, retry } = shared ?? own
+  const { isStale, cachedAt } = own
 
   if (loading && !data) return <LoadingCard label="Top damage paths" />
   if (error && !data) return <ErrorCard label="Top damage paths" error={error} onRetry={retry} />

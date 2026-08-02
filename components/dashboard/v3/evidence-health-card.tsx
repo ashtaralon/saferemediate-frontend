@@ -1,8 +1,15 @@
 "use client"
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { useContext } from "react"
 import { RefreshCw } from "lucide-react"
-import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
+import {
+  ErrorCard,
+  ExecutiveViewContext,
+  LoadingCard,
+  Section,
+  StaleIndicator,
+} from "./card-shell"
 import {
   accentByCategory,
   descriptorClass,
@@ -60,26 +67,38 @@ const SOURCE_LABELS: Record<string, string> = {
   RDS_QUERY_LOGS: "RDS query logs",
 }
 
-export function EvidenceHealthCardV3() {
+export function EvidenceHealthCardV3({ shared }: {
+  /** Lifted read from the cockpit, so the management report can vouch for
+   *  this panel too. Untracked executive feeds let the report claim
+   *  "3 of 3 ready" while a rendered panel was unavailable. */
+  shared?: { data: CoverageResponse | null; loading: boolean; error: string | null; retry: () => void }
+} = {}) {
   // Coverage drives operator action ("turn on CloudTrail data events"),
   // so 15-min staleness max — short enough that newly-enabled sources
   // show up reasonably fast.
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<CoverageResponse>(
-    "/api/proxy/evidence/coverage",
+  const own = useCachedFetch<CoverageResponse>(
+    shared ? null : "/api/proxy/evidence/coverage",
     {
       cacheKey: "evidence-coverage",
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
     }
   )
+  const { data, loading, error, retry } = shared ?? own
+  const { isStale, cachedAt } = own
+  const executive = useContext(ExecutiveViewContext)
 
   if (loading && !data) return <LoadingCard label="Evidence health" />
   if (error && !data) return <ErrorCard label="Evidence health" error={error} onRetry={retry} />
   if (!data) return null
 
+  // Executive view promises ONE refresh for the page. A second control here
+  // is both a broken promise and a way to refresh one panel out of step with
+  // the other four, which is how a "single reading" stops being single.
   const refreshButton = (
     <span className="flex items-center gap-2">
       <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+      {!executive && (
       <button
         onClick={retry}
         disabled={loading}
@@ -88,6 +107,7 @@ export function EvidenceHealthCardV3() {
       >
         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
       </button>
+      )}
     </span>
   )
 
