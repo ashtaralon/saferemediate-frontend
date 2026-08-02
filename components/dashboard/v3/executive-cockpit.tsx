@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
 import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
+import { deriveEvidenceIntegrity, isCacheableEvidence } from "@/lib/evidence-integrity"
 import { AttackPathsCard, type PathsResponse } from "./attack-paths-card"
 import { ExecutiveViewContext, StaleIndicator } from "./card-shell"
 import { DivergenceBanner } from "./divergence-banner"
@@ -166,6 +167,7 @@ export function ExecutiveCockpit({
     fetchInit: { cache: "no-store" },
     transientRetries: 2,
     failClosedOnError: true,
+    isCacheable: isCacheableEvidence,
   })
   const outcomes = useCachedFetch<any>(
     "/api/proxy/remediation-history/narrowing-summary?days=7",
@@ -179,6 +181,7 @@ export function ExecutiveCockpit({
 
   const pathsIntegrity = derivePathsIntegrity(paths.data)
   const remIntegrity = deriveCandidatesIntegrity(remediations.data)
+  const evidenceIntegrity = deriveEvidenceIntegrity(evidence.data)
   const pathsDown = !paths.data || pathsIntegrity.state !== "READY"
   const remDown = remIntegrity.state !== "READY"
 
@@ -218,8 +221,12 @@ export function ExecutiveCockpit({
       cachedAt: remediations.cachedAt,
     },
     {
+      // errors[] means accounts we could not read. Their evidence is absent
+      // from every downstream number, so coverage is PARTIAL, not complete —
+      // the report said "5 of 5 ready" while the card said a fetch failed.
       label: "Evidence health",
-      state: evidence.data ? "READY" : "UNAVAILABLE",
+      state: evidenceIntegrity.state,
+      detail: evidenceIntegrity.reason,
       cachedAt: evidence.cachedAt,
     },
     {
@@ -230,7 +237,8 @@ export function ExecutiveCockpit({
   ], [systems.data, systems.cachedAt, paths.data, paths.cachedAt,
       remediations.data, remediations.cachedAt, pathsIntegrity.state,
       pathsIntegrity.reason, remIntegrity.state, remIntegrity.reason,
-      evidence.data, evidence.cachedAt, outcomes.data, outcomes.cachedAt])
+      evidence.data, evidence.cachedAt, evidenceIntegrity.state,
+      evidenceIntegrity.reason, outcomes.data, outcomes.cachedAt])
 
   const scope = systems.data
     ? `${(systems.data.systems ?? []).length} discovered business systems`

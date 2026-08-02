@@ -1,6 +1,9 @@
 "use client"
 
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
 import { useContext } from "react"
 import { RefreshCw } from "lucide-react"
 import {
@@ -71,7 +74,7 @@ export function EvidenceHealthCardV3({ shared }: {
   /** Lifted read from the cockpit, so the management report can vouch for
    *  this panel too. Untracked executive feeds let the report claim
    *  "3 of 3 ready" while a rendered panel was unavailable. */
-  shared?: { data: CoverageResponse | null; loading: boolean; error: string | null; retry: () => void }
+  shared?: UseCachedFetchResult<CoverageResponse>
 } = {}) {
   // Coverage drives operator action ("turn on CloudTrail data events"),
   // so 15-min staleness max — short enough that newly-enabled sources
@@ -84,8 +87,13 @@ export function EvidenceHealthCardV3({ shared }: {
       fetchInit: { cache: "no-store" },
     }
   )
-  const { data, loading, error, retry } = shared ?? own
-  const { isStale, cachedAt } = own
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
+  const { data, loading, error, retry, isStale, cachedAt } = shared ?? own
   const executive = useContext(ExecutiveViewContext)
 
   if (loading && !data) return <LoadingCard label="Evidence health" />

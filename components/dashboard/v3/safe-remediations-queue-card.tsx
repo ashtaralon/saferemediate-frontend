@@ -1,6 +1,9 @@
 "use client"
 
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
 import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
@@ -37,6 +40,9 @@ type Candidate = {
   safety?: Safety
 }
 
+/** One constant so the request and the pagination claim cannot drift. */
+const REQUEST_LIMIT = 50
+
 export type CandidatesResponse = {
   candidates?: Candidate[]
   summary?: {
@@ -53,12 +59,12 @@ export function SafeRemediationsQueueCard({
   shared,
 }: {
   limit?: number
-  shared?: { data: CandidatesResponse | null; loading: boolean; error: string | null; retry: () => void }
+  shared?: UseCachedFetchResult<CandidatesResponse>
 } = {}) {
   // Action queue — strict 10-min staleness. Showing yesterday's "ready
   // to apply" list could include items already remediated.
   const own = useCachedFetch<CandidatesResponse>(
-    shared ? null : "/api/proxy/remediation-candidates?limit=50",
+    shared ? null : `/api/proxy/remediation-candidates?limit=${REQUEST_LIMIT}`,
     {
       cacheKey: "ciso-brief-remediations",
       maxStaleMs: 60 * 60 * 1000,
@@ -66,8 +72,13 @@ export function SafeRemediationsQueueCard({
       isCacheable: isCacheableCandidates,
     }
   )
-  const { data, loading, error, retry } = shared ?? own
-  const { isStale, cachedAt } = own
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
+  const { data, loading, error, retry, isStale, cachedAt } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="Proposed changes" />
   // The proxy answers an upstream failure with HTTP 200 and a fully-formed
@@ -102,7 +113,11 @@ export function SafeRemediationsQueueCard({
   // which is why the two disagreed: the brief refused to publish a number it
   // could not source, and this card published one it could not source either.
   const pageSize = data.candidates?.length ?? 0
-  const sawFullPage = pageSize >= 10
+  // Threshold must follow the REQUEST. It stayed at 10 after the request
+  // moved to ?limit=50, so ten legitimate candidates claimed "more may
+  // exist" from a page that was 40 rows short of full — an invented
+  // truncation, the mirror image of the silent one it was added to stop.
+  const sawFullPage = pageSize >= REQUEST_LIMIT
   const countLabel = sawFullPage
     ? `${ready.length} ready and ${blocked.length} held on this page · more may exist`
     : `${ready.length} ready · ${blocked.length} held`

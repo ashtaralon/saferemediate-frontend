@@ -1,7 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
 
@@ -122,7 +125,7 @@ export function TopSystemsCard({
   shared,
 }: {
   limit?: number
-  shared?: { data: SystemsResponse | null; loading: boolean; error: string | null; retry: () => void }
+  shared?: UseCachedFetchResult<SystemsResponse>
 } = {}) {
   // SWR via localStorage — N+1 fan-out endpoint, slow on cold start.
   // Skipped entirely when the parent supplies its copy (see `shared`).
@@ -132,6 +135,12 @@ export function TopSystemsCard({
     shared ? null : "/api/proxy/systems/with-families",
     { cacheKey: "ciso-brief-systems", fetchInit: { cache: "no-store" } },
   )
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
   const { data, loading, error, retry } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="Business systems by potential damage" />

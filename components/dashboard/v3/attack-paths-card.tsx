@@ -9,7 +9,10 @@ import { Crown, Globe } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
 import {
   buildTfmSpotlightUrl,
   navigateCrownJewelClick,
@@ -91,7 +94,7 @@ interface AttackPathsCardProps {
   /** Executive view shows the single highest-impact path, not a list. */
   limit?: number
   /** Lifted read from the cockpit — one endpoint, one reading per page. */
-  shared?: { data: PathsResponse | null; loading: boolean; error: string | null; retry: () => void }
+  shared?: UseCachedFetchResult<PathsResponse>
 }
 
 export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: AttackPathsCardProps = {}) {
@@ -132,8 +135,13 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: Atta
       failClosedOnError: true,
     }
   )
-  const { data, loading, error, retry } = shared ?? own
-  const { isStale, cachedAt } = own
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
+  const { data, loading, error, retry, isStale, cachedAt } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="Top damage paths" />
   if (error && !data) return <ErrorCard label="Top damage paths" error={error} onRetry={retry} />
