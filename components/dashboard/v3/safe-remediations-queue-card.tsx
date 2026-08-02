@@ -62,7 +62,7 @@ export function SafeRemediationsQueueCard() {
   // Endpoint may return 200 with body.error to signal upstream failure.
   const bodyError = data?.error ? data.error : null
   if ((error || bodyError) && !data) {
-    return <ErrorCard label="Ready-to-execute queue" error={error || bodyError || ""} onRetry={retry} />
+    return <ErrorCard label="Proposed changes" error={error || bodyError || ""} onRetry={retry} />
   }
   if (!data) return null
 
@@ -88,7 +88,7 @@ export function SafeRemediationsQueueCard() {
 
   return (
     <Section
-      label="Ready-to-execute queue"
+      label="Proposed changes"
       descriptor={`Changes Cyntro would make, with the evidence behind each · ${countLabel}`}
       className={accentByCategory.queue}
       right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
