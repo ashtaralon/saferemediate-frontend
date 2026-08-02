@@ -58,7 +58,7 @@ export function SafeRemediationsQueueCard() {
     }
   )
 
-  if (loading && !data) return <LoadingCard label="Ready-to-execute queue" />
+  if (loading && !data) return <LoadingCard label="Proposed changes" />
   // Endpoint may return 200 with body.error to signal upstream failure.
   const bodyError = data?.error ? data.error : null
   if ((error || bodyError) && !data) {
@@ -69,10 +69,27 @@ export function SafeRemediationsQueueCard() {
   const ready = (data.candidates ?? []).filter((c) => c.safety?.can_auto_apply === true)
   const blocked = (data.candidates ?? []).filter((c) => c.safety?.can_auto_apply === false)
 
+  // These are PAGE counts, not totals. The fetch is ?limit=10, so "10 ready"
+  // has always meant "all ten rows on page one were applicable" — it says
+  // nothing about how many exist. The backend
+  // (api/remediation_candidates.py:385) returns no summary block at all, so
+  // an authoritative total is not available to any consumer today.
+  //
+  // Two honest options: label the page, or say unavailable. Labelling wins here
+  // because the rows themselves are real and useful; it is only the COUNT that
+  // was overclaiming. The estate brief takes the other option and renders "—",
+  // which is why the two disagreed: the brief refused to publish a number it
+  // could not source, and this card published one it could not source either.
+  const pageSize = data.candidates?.length ?? 0
+  const sawFullPage = pageSize >= 10
+  const countLabel = sawFullPage
+    ? `${ready.length} ready and ${blocked.length} held on this page · more may exist`
+    : `${ready.length} ready · ${blocked.length} held`
+
   return (
     <Section
       label="Ready-to-execute queue"
-      descriptor={`Evidence-backed actions, simulated against AWS, with rollback snapshot stored · ${ready.length} ready · ${blocked.length} awaiting more evidence`}
+      descriptor={`Changes Cyntro would make, with the evidence behind each · ${countLabel}`}
       className={accentByCategory.queue}
       right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >

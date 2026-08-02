@@ -120,15 +120,32 @@ export function TopSystemsCard() {
   if (error && !data) return <ErrorCard label="Business systems by potential damage" error={error} onRetry={retry} />
   if (!data) return null
 
-  const systems = (data.systems ?? [])
-    .filter((s) => typeof rowScore(s) === "number")
-    .sort((a, b) => (rowScore(a)! - rowScore(b)!))
-    .slice(0, 5)
+  // EVERY system the backend returned stays visible.
+  //
+  // The previous filter dropped systems without a score, which emptied the
+  // table entirely while the header claimed 4 of 8 systems needed attention:
+  // "I found your estate" and "I can't show you any of it" in one viewport.
+  // Worse, an unscored system is not a low-risk one — it is one we failed to
+  // measure, which is often exactly the one worth opening. Absence of a score
+  // was rendering as absence from the estate.
+  const all = data.systems ?? []
+  const scored = all.filter((s) => typeof rowScore(s) === "number")
+  const unscored = all.filter((s) => typeof rowScore(s) !== "number")
 
-  if (systems.length === 0) {
+  // Lowest BRSS first among scored; unscored pinned ABOVE them, because
+  // "unknown" outranks "known and merely bad" when you are triaging.
+  const systems = [
+    ...unscored,
+    ...scored.sort((a, b) => rowScore(a)! - rowScore(b)!),
+  ].slice(0, 8)
+
+  if (all.length === 0) {
     return (
       <Section label="Business systems by potential damage">
-        <div className={descriptorClass}>No systems with computed scores yet.</div>
+        <div className={descriptorClass}>
+          The backend returned no business systems. This is an absence of data, not an
+          absence of risk — discovery may not have run yet.
+        </div>
       </Section>
     )
   }
@@ -136,7 +153,7 @@ export function TopSystemsCard() {
   return (
     <Section
       label="Business systems by potential damage"
-      descriptor="Prioritized across identity, network, and data exposure · lowest BRSS = highest risk"
+      descriptor="Unmeasured systems first, then lowest BRSS · unmeasured is not low risk"
     >
       <table className="w-full text-sm">
         <thead>
@@ -151,7 +168,8 @@ export function TopSystemsCard() {
         </thead>
         <tbody>
           {systems.map((s, i) => {
-            const score = rowScore(s)!
+            const score = rowScore(s)
+            const unmeasured = score === null
             return (
               <tr
                 key={`${rowName(s)}-${i}`}
@@ -167,9 +185,18 @@ export function TopSystemsCard() {
                 </td>
                 <td className="py-2.5 text-slate-500">{s.environment ?? "—"}</td>
                 <td className="py-2.5 text-right">
-                  <span className={`font-semibold tabular-nums ${scorePillClass(score)}`}>
-                    {score.toFixed(0)}
-                  </span>
+                  {unmeasured ? (
+                    <span
+                      title="No blast-radius score could be computed for this system. Unmeasured is not low risk."
+                      className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
+                    >
+                      unmeasured
+                    </span>
+                  ) : (
+                    <span className={`font-semibold tabular-nums ${scorePillClass(score!)}`}>
+                      {score!.toFixed(0)}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2.5 pr-4">
                   <MixBar layers={s.layers} />
