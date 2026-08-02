@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
@@ -115,27 +116,44 @@ export function TopSystemsCard() {
     { cacheKey: "systems-with-families", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Top systems by blast radius" />
-  if (error && !data) return <ErrorCard label="Top systems by blast radius" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Business systems by potential damage" />
+  if (error && !data) return <ErrorCard label="Business systems by potential damage" error={error} onRetry={retry} />
   if (!data) return null
 
-  const systems = (data.systems ?? [])
-    .filter((s) => typeof rowScore(s) === "number")
-    .sort((a, b) => (rowScore(a)! - rowScore(b)!))
-    .slice(0, 5)
+  // EVERY system the backend returned stays visible.
+  //
+  // The previous filter dropped systems without a score, which emptied the
+  // table entirely while the header claimed 4 of 8 systems needed attention:
+  // "I found your estate" and "I can't show you any of it" in one viewport.
+  // Worse, an unscored system is not a low-risk one — it is one we failed to
+  // measure, which is often exactly the one worth opening. Absence of a score
+  // was rendering as absence from the estate.
+  const all = data.systems ?? []
+  const scored = all.filter((s) => typeof rowScore(s) === "number")
+  const unscored = all.filter((s) => typeof rowScore(s) !== "number")
 
-  if (systems.length === 0) {
+  // Lowest BRSS first among scored; unscored pinned ABOVE them, because
+  // "unknown" outranks "known and merely bad" when you are triaging.
+  const systems = [
+    ...unscored,
+    ...scored.sort((a, b) => rowScore(a)! - rowScore(b)!),
+  ].slice(0, 8)
+
+  if (all.length === 0) {
     return (
-      <Section label="Top systems by blast radius">
-        <div className={descriptorClass}>No systems with computed scores yet.</div>
+      <Section label="Business systems by potential damage">
+        <div className={descriptorClass}>
+          The backend returned no business systems. This is an absence of data, not an
+          absence of risk — discovery may not have run yet.
+        </div>
       </Section>
     )
   }
 
   return (
     <Section
-      label="Top 5 systems by blast radius"
-      descriptor="Lowest score = highest risk · mix bar shows per-system family allocation"
+      label="Business systems by potential damage"
+      descriptor="Unmeasured systems first, then lowest BRSS · unmeasured is not low risk"
     >
       <table className="w-full text-sm">
         <thead>
@@ -150,18 +168,35 @@ export function TopSystemsCard() {
         </thead>
         <tbody>
           {systems.map((s, i) => {
-            const score = rowScore(s)!
+            const score = rowScore(s)
+            const unmeasured = score === null
             return (
               <tr
                 key={`${rowName(s)}-${i}`}
                 className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50"
               >
-                <td className="py-2.5 font-medium text-slate-900">{rowName(s)}</td>
+                <td className="py-2.5 font-medium text-slate-900">
+                  <Link
+                    href={`/systems?systemName=${encodeURIComponent(rowName(s))}`}
+                    className="underline-offset-4 hover:text-violet-700 hover:underline"
+                  >
+                    {rowName(s)}
+                  </Link>
+                </td>
                 <td className="py-2.5 text-slate-500">{s.environment ?? "—"}</td>
                 <td className="py-2.5 text-right">
-                  <span className={`font-semibold tabular-nums ${scorePillClass(score)}`}>
-                    {score.toFixed(0)}
-                  </span>
+                  {unmeasured ? (
+                    <span
+                      title="No blast-radius score could be computed for this system. Unmeasured is not low risk."
+                      className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
+                    >
+                      unmeasured
+                    </span>
+                  ) : (
+                    <span className={`font-semibold tabular-nums ${scorePillClass(score!)}`}>
+                      {score!.toFixed(0)}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2.5 pr-4">
                   <MixBar layers={s.layers} />

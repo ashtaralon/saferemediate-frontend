@@ -14,6 +14,7 @@ import {
   buildTfmSpotlightUrl,
   navigateCrownJewelClick,
 } from "@/lib/attack-paths/crown-jewel-v2-navigation"
+import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
 
 /**
  * Top Attack Paths to Crown Jewels.
@@ -46,10 +47,18 @@ type CrownJewel = {
 
 type PathsResponse = {
   crown_jewels?: CrownJewel[]
-  total_jewels?: number
-  total_paths?: number
-  exposed_jewels?: number
-  systems_scanned?: number
+  /** Null whenever the fan-out did not complete — never coerce. */
+  total_jewels?: number | null
+  total_paths?: number | null
+  exposed_jewels?: number | null
+  serve_state?: string
+  analysis_complete?: boolean
+  not_ready_reason?: string | null
+  crown_jewels_partial?: boolean
+  systems_discovered?: number | null
+  systems_scanned?: number | null
+  systems_uncomputed?: number | null
+  uncomputed?: string[]
   errors?: string[]
   error?: string
 }
@@ -112,6 +121,11 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
       // older-but-still-readable cache (up to 7d) rather than a 504.
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
+      // A non-READY payload never enters localStorage — and is evicted on
+      // read if an older build put one there. Without this, a cold-start
+      // zero survives the outage that produced it for up to 7 days.
+      isCacheable: isCacheablePaths,
+      failClosedOnError: true,
     }
   )
 
@@ -119,34 +133,51 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
   if (error && !data) return <ErrorCard label="Top damage paths" error={error} onRetry={retry} />
   if (!data) return null
 
+  const integrity = derivePathsIntegrity(data)
   const jewels = (data.crown_jewels ?? []).slice(0, 8)
+  // `?? 0` here rendered "0 jewels · 0 paths · 0 internet-exposed" while the
+  // backend was returning 502s — a clean bill of health composed entirely of
+  // nulls, on the card that answers "can anyone reach our crown jewels".
+  // A count is only a count when it is a finite number.
+  const n = (v: unknown) => (Number.isFinite(v as number) ? String(v as number) : "—")
   const summary = (
     <span className="text-xs text-slate-500">
-      <span className="font-semibold text-slate-700">{data.total_jewels ?? 0}</span> jewels ·{" "}
-      <span className="font-semibold text-slate-700">{data.total_paths ?? 0}</span> paths ·{" "}
-      <span className="font-semibold text-rose-700">{data.exposed_jewels ?? 0}</span> internet-exposed
+      <span className="font-semibold text-slate-700">{n(data.total_jewels)}</span> jewels ·{" "}
+      <span className="font-semibold text-slate-700">{n(data.total_paths)}</span> paths ·{" "}
+      <span className="font-semibold text-rose-700">{n(data.exposed_jewels)}</span> internet-exposed
     </span>
   )
 
   if (jewels.length === 0) {
-    // Distinguish "no jewels because everything is clean" from "no
-    // jewels because per-system fetches failed". Previously we always
-    // showed "0 systems scanned. None surfaced reachable jewels" which
-    // is wrong when ALL systems failed — the proxy fan-out errored and
-    // we'd never surface that to the operator. Now: if errors[] is
-    // populated, we say so AND list what failed (truncated).
-    const errs = data.errors ?? []
+    // THREE outcomes, not two. The old branch had only "errors" vs
+    // "clean" — so an estate the backend never finished scanning landed
+    // in "clean" and rendered "8 systems scanned. None surfaced
+    // reachable jewels." while 30 jewels and 236 paths existed.
+    //
+    // An empty list is only an all-clear when the producer says READY
+    // *and* analysis_complete. Anything else is "not computed yet".
+    const errs = integrity.errors
     const hasErrors = errs.length > 0
-    const scanned = data.systems_scanned ?? 0
+    const notComputed = !integrity.canRenderNoneFound
+    const scanned = integrity.systemsScanned
+    const discovered = integrity.systemsDiscovered
+    const coverage =
+      scanned === null || discovered === null
+        ? "coverage unknown"
+        : `${scanned} of ${discovered} systems scanned`
     return (
       <Section
         label="Top damage paths"
         descriptor={
           hasErrors
             ? "Per-system fan-out failed — see details below"
-            : "No crown jewels currently have inbound attack paths"
+            : notComputed
+              ? "Not computed yet — this is not an all-clear"
+              : "No crown jewels currently have inbound attack paths"
         }
-        className={`border-l-[3px] ${hasErrors ? "border-l-amber-500" : "border-l-rose-500"}`}
+        className={`border-l-[3px] ${
+          hasErrors || notComputed ? "border-l-amber-500" : "border-l-rose-500"
+        }`}
         icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
         right={
           <span className="flex items-center gap-2">
@@ -155,29 +186,34 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
           </span>
         }
       >
-        {hasErrors ? (
-          <div className="space-y-2">
-            <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs">
-              <div className="font-semibold text-amber-800">
-                {scanned} system(s) scanned · {errs.length} fan-out error(s)
-              </div>
-              <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-amber-700">
-                {errs.slice(0, 4).map((e, i) => (
-                  <li key={i} className="truncate">
-                    · {e}
-                  </li>
-                ))}
-                {errs.length > 4 && (
-                  <li className="text-amber-600">
-                    + {errs.length - 4} more
-                  </li>
-                )}
-              </ul>
+        {hasErrors || notComputed ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs">
+            <div className="font-semibold text-amber-800">
+              {coverage}
+              {integrity.systemsUncomputed ? ` · ${integrity.systemsUncomputed} not computed` : ""}
+              {hasErrors ? ` · ${errs.length} fan-out error(s)` : ""}
             </div>
+            <p className="mt-1 text-amber-700">
+              Reachability was not established for every system, so an empty list
+              here does not mean nothing is reachable. Reload once the analysis
+              completes.
+            </p>
+            <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-amber-700">
+              {[...errs, ...integrity.uncomputed].slice(0, 4).map((e, i) => (
+                <li key={i} className="truncate">
+                  · {e}
+                </li>
+              ))}
+              {errs.length + integrity.uncomputed.length > 4 && (
+                <li className="text-amber-600">
+                  + {errs.length + integrity.uncomputed.length - 4} more
+                </li>
+              )}
+            </ul>
           </div>
         ) : (
           <div className={descriptorClass}>
-            {scanned} systems scanned. None surfaced reachable jewels.
+            {coverage}. None surfaced reachable jewels.
           </div>
         )}
       </Section>
@@ -187,7 +223,13 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
   return (
     <Section
       label="Top damage paths"
-      descriptor="Sorted by priority_score · click to drill into the path graph"
+      descriptor={
+        integrity.listIsPartial
+          ? `Ranked by priority_score · partial scan (${
+              integrity.systemsScanned ?? "?"
+            } of ${integrity.systemsDiscovered ?? "?"} systems) — more may exist`
+          : "Crown jewels ranked by priority_score across all inbound paths · click to open the path graph"
+      }
       className="border-l-[3px] border-l-rose-500"
       icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
       right={
@@ -238,6 +280,7 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
                   <div className="mt-0.5 truncate text-xs text-slate-500">
                     {j.system_name ?? "—"} · {j.path_count ?? 0} path
                     {j.path_count === 1 ? "" : "s"}
+                    {j.data_classification ? ` · ${j.data_classification}` : ""}
                   </div>
                 </div>
                 <span
