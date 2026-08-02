@@ -16,6 +16,7 @@ import { EvidenceHealthCardV3 } from "@/components/dashboard/v3/evidence-health-
 import { SafeRemediationsQueueCard } from "@/components/dashboard/v3/safe-remediations-queue-card"
 import { ManagementReportDrawer } from "@/components/dashboard/v3/management-report-drawer"
 import { deriveEvidenceIntegrity } from "@/lib/evidence-integrity"
+import { deriveSystemsIntegrity, isCacheableSystems } from "@/lib/systems-integrity"
 import type { UseCachedFetchResult } from "@/lib/use-cached-fetch"
 
 afterEach(cleanup)
@@ -222,5 +223,93 @@ describe("the report refuses to call a partial estate complete", () => {
     )
     expect(src).toContain("state: evidenceIntegrity.state")
     expect(src).not.toMatch(/state: evidence\.data \? "READY"/)
+  })
+})
+
+// ── partial business systems ─────────────────────────────────────────────
+
+describe("partial business systems", () => {
+  const PARTIAL_SYSTEMS = {
+    systems: [{ name: "alon-prod" }, { name: "cyntro-demo" }],
+    errors: ["payment-production: 504", "default: 502"],
+  }
+
+  it("classifies fan-out errors[] as PARTIAL", () => {
+    const i = deriveSystemsIntegrity(PARTIAL_SYSTEMS)
+    expect(i.state).toBe("PARTIAL")
+    expect(i.failedSystems).toBe(2)
+    expect(i.countIsPartial).toBe(true)
+    expect(i.reason).toContain("2 system fan-out calls failed")
+  })
+
+  it("complete is READY; the 502 envelope and junk are UNAVAILABLE", () => {
+    expect(deriveSystemsIntegrity({ systems: [], errors: [] }).state).toBe("READY")
+    expect(deriveSystemsIntegrity({ systems: [{ name: "a" }] }).countIsPartial).toBe(false)
+    expect(
+      deriveSystemsIntegrity({
+        error: "all_systems_endpoint_unavailable",
+        systems: [],
+        errors: ["backend 502"],
+      }).state,
+    ).toBe("UNAVAILABLE")
+    expect(deriveSystemsIntegrity({ errors: [] }).state).toBe("UNAVAILABLE")
+    expect(deriveSystemsIntegrity(null).state).toBe("UNAVAILABLE")
+  })
+
+  it("a partial estate is never cached as a complete reading", () => {
+    expect(isCacheableSystems(PARTIAL_SYSTEMS)).toBe(false)
+    expect(isCacheableSystems({ systems: [{ name: "a" }], errors: [] })).toBe(true)
+  })
+
+  it("RENDERS as 4 of 5 feeds ready, not 5 of 5", () => {
+    render(
+      <ManagementReportDrawer
+        open
+        onClose={() => {}}
+        readiness={{
+          scope: "at least 2 discovered business systems (partial)",
+          generation: null,
+          sources: [
+            {
+              label: "Business systems",
+              state: "PARTIAL",
+              detail: "2 system fan-out calls failed",
+              cachedAt: null,
+            },
+            { label: "Attack paths", state: "READY", cachedAt: null },
+            { label: "Proposed changes", state: "READY", cachedAt: null },
+            { label: "Evidence health", state: "READY", cachedAt: null },
+            { label: "Verified outcomes", state: "READY", cachedAt: null },
+          ],
+        }}
+      />,
+    )
+    const text = document.body.textContent ?? ""
+    expect(text).toMatch(/4 of 5 feeds ready/i)
+    expect(text).not.toMatch(/5 of 5 feeds ready/i)
+    expect(text).toMatch(/Board-ready:\s*No/i)
+    expect(text).toMatch(/Business systems is PARTIAL/i)
+    expect(text).toMatch(/2 system fan-out calls failed/i)
+  })
+
+  it("the cockpit derives systems state and qualifies the count", () => {
+    const src = readFileSync(
+      join(__dirname, "..", "..", "components/dashboard/v3/executive-cockpit.tsx"),
+      "utf8",
+    )
+    expect(src).toContain("state: systemsIntegrity.state")
+    expect(src).not.toMatch(/state: systems\.data \? "READY"/)
+    // "of N discovered" is a floor on a partial estate, not a total.
+    expect(src).toContain("systemsIntegrity.countIsPartial")
+    expect(src).toContain("of at least ${")
+  })
+
+  it("the request limit has one owner", () => {
+    const src = readFileSync(
+      join(__dirname, "..", "..", "components/dashboard/v3/executive-cockpit.tsx"),
+      "utf8",
+    )
+    expect(src).toContain("CANDIDATES_REQUEST_LIMIT")
+    expect(src).not.toContain("remediation-candidates?limit=50")
   })
 })

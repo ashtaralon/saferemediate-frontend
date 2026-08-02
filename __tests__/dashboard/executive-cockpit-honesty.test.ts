@@ -78,7 +78,13 @@ describe("ExecutiveCockpit — Neo4j-backed honesty", () => {
     // The remediation fetch is ?limit=50. Counting the returned candidates and
     // presenting that as the total under-reports silently past 50, which is a
     // fabricated number wearing a real one's label.
-    expect(BRIEF).toContain("limit=50")
+    // Was `toContain("limit=50")` — a literal. Replacing the hardcoded
+    // number with CANDIDATES_REQUEST_LIMIT, so the request and the
+    // pagination claim have ONE owner, failed a guard whose actual
+    // contract is "the request is bounded and counts don't come from the
+    // truncated array". Third time in this PR a pinned literal blocked
+    // the improvement it existed to protect.
+    expect(BRIEF).toMatch(/remediation-candidates\?limit=(\d+|\$\{[A-Z_]+\})/)
     expect(BRIEF).not.toMatch(/candidates\s*\.\s*filter\([^)]*\)\.length/)
   })
 

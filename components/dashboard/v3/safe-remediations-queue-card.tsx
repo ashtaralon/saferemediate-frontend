@@ -40,8 +40,10 @@ type Candidate = {
   safety?: Safety
 }
 
-/** One constant so the request and the pagination claim cannot drift. */
-const REQUEST_LIMIT = 50
+/** One constant so the request and the pagination claim cannot drift —
+ *  exported so the cockpit's lifted fetch uses it too rather than
+ *  hardcoding a number that happens to match today. */
+export const CANDIDATES_REQUEST_LIMIT = 50
 
 export type CandidatesResponse = {
   candidates?: Candidate[]
@@ -64,7 +66,7 @@ export function SafeRemediationsQueueCard({
   // Action queue — strict 10-min staleness. Showing yesterday's "ready
   // to apply" list could include items already remediated.
   const own = useCachedFetch<CandidatesResponse>(
-    shared ? null : `/api/proxy/remediation-candidates?limit=${REQUEST_LIMIT}`,
+    shared ? null : `/api/proxy/remediation-candidates?limit=${CANDIDATES_REQUEST_LIMIT}`,
     {
       cacheKey: "ciso-brief-remediations",
       maxStaleMs: 60 * 60 * 1000,
@@ -117,7 +119,7 @@ export function SafeRemediationsQueueCard({
   // moved to ?limit=50, so ten legitimate candidates claimed "more may
   // exist" from a page that was 40 rows short of full — an invented
   // truncation, the mirror image of the silent one it was added to stop.
-  const sawFullPage = pageSize >= REQUEST_LIMIT
+  const sawFullPage = pageSize >= CANDIDATES_REQUEST_LIMIT
   const countLabel = sawFullPage
     ? `${ready.length} ready and ${blocked.length} held on this page · more may exist`
     : `${ready.length} ready · ${blocked.length} held`

@@ -7,12 +7,14 @@ import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
 import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { deriveEvidenceIntegrity, isCacheableEvidence } from "@/lib/evidence-integrity"
+import { deriveSystemsIntegrity, isCacheableSystems } from "@/lib/systems-integrity"
 import { AttackPathsCard, type PathsResponse } from "./attack-paths-card"
 import { ExecutiveViewContext, StaleIndicator } from "./card-shell"
 import { DivergenceBanner } from "./divergence-banner"
 import { EvidenceHealthCardV3 } from "./evidence-health-card"
 import { NarrowingSummaryCard } from "./narrowing-summary-card"
 import {
+  CANDIDATES_REQUEST_LIMIT,
   SafeRemediationsQueueCard,
   type CandidatesResponse,
 } from "./safe-remediations-queue-card"
@@ -45,7 +47,13 @@ import type { ReportReadiness, SourceReadiness } from "./management-report-drawe
  * governed snapshot first.
  */
 
-type SystemsResponse = { systems?: Array<{ name?: string; SystemName?: string }> }
+type SystemsResponse = {
+  systems?: Array<{ name?: string; SystemName?: string }>
+  /** Preserved by the proxy for fan-out calls that failed. Omitting it
+   *  here is what let a partial estate read as complete. */
+  errors?: string[]
+  error?: string
+}
 // PathsResponse / CandidatesResponse are imported from the cards that own
 // them. Declaring a second local shape per endpoint is how two readings of
 // one payload drift apart.
@@ -138,6 +146,7 @@ export function ExecutiveCockpit({
     fetchInit: { cache: "no-store" },
     transientRetries: 2,
     failClosedOnError: true,
+    isCacheable: isCacheableSystems,
   })
   const paths = useCachedFetch<PathsResponse>("/api/proxy/identity-attack-paths/all", {
     cacheKey: "ciso-brief-paths",
@@ -148,7 +157,7 @@ export function ExecutiveCockpit({
     isCacheable: isCacheablePaths,
   })
   const remediations = useCachedFetch<CandidatesResponse>(
-    "/api/proxy/remediation-candidates?limit=50",
+    `/api/proxy/remediation-candidates?limit=${CANDIDATES_REQUEST_LIMIT}`,
     {
       cacheKey: "ciso-brief-remediations",
       maxStaleMs: 60 * 60 * 1000,
@@ -182,6 +191,7 @@ export function ExecutiveCockpit({
   const pathsIntegrity = derivePathsIntegrity(paths.data)
   const remIntegrity = deriveCandidatesIntegrity(remediations.data)
   const evidenceIntegrity = deriveEvidenceIntegrity(evidence.data)
+  const systemsIntegrity = deriveSystemsIntegrity(systems.data)
   const pathsDown = !paths.data || pathsIntegrity.state !== "READY"
   const remDown = remIntegrity.state !== "READY"
 
@@ -199,7 +209,8 @@ export function ExecutiveCockpit({
   const sources: SourceReadiness[] = useMemo(() => [
     {
       label: "Business systems",
-      state: systems.data ? "READY" : "UNAVAILABLE",
+      state: systemsIntegrity.state,
+      detail: systemsIntegrity.reason,
       cachedAt: systems.cachedAt,
     },
     {
@@ -234,15 +245,18 @@ export function ExecutiveCockpit({
       state: outcomes.data ? "READY" : "UNAVAILABLE",
       cachedAt: outcomes.cachedAt,
     },
-  ], [systems.data, systems.cachedAt, paths.data, paths.cachedAt,
+  ], [systems.data, systems.cachedAt, systemsIntegrity.state,
+      systemsIntegrity.reason, paths.data, paths.cachedAt,
       remediations.data, remediations.cachedAt, pathsIntegrity.state,
       pathsIntegrity.reason, remIntegrity.state, remIntegrity.reason,
       evidence.data, evidence.cachedAt, evidenceIntegrity.state,
       evidenceIntegrity.reason, outcomes.data, outcomes.cachedAt])
 
-  const scope = systems.data
-    ? `${(systems.data.systems ?? []).length} discovered business systems`
-    : "scope unavailable"
+  const scope = !systems.data
+    ? "scope unavailable"
+    : systemsIntegrity.countIsPartial
+      ? `at least ${(systems.data.systems ?? []).length} discovered business systems (partial)`
+      : `${(systems.data.systems ?? []).length} discovered business systems`
 
   // The report drawer must describe THIS reading, not fetch its own copies —
   // a drawer with independent fetches would report a different reading of the
@@ -256,9 +270,11 @@ export function ExecutiveCockpit({
     {
       label: "Systems requiring attention",
       value: jewelSystems,
-      sub: systems.data
-        ? `of ${(systems.data.systems ?? []).length} discovered business systems`
-        : "Behaviorally discovered boundaries",
+      sub: !systems.data
+        ? "Behaviorally discovered boundaries"
+        : systemsIntegrity.countIsPartial
+          ? `of at least ${(systems.data.systems ?? []).length} discovered — ${systemsIntegrity.reason}`
+          : `of ${(systems.data.systems ?? []).length} discovered business systems`,
       icon: Layers3,
       tone: "bg-violet-100 text-violet-700",
       unavailable: pathsDown,
