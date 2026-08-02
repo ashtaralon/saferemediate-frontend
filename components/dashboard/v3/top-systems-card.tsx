@@ -109,12 +109,30 @@ function MixBar({ layers }: { layers: LayerMap | null | undefined }) {
   )
 }
 
-export function TopSystemsCard() {
+export function TopSystemsCard({
+  limit = 8,
+  /**
+   * Optional lifted fetch. The executive cockpit already reads
+   * /api/proxy/systems/with-families for its KPI row; letting this card
+   * fetch it AGAIN under a different cache key produced a page that
+   * contradicted itself — the status banner said "Business systems:
+   * unavailable" while this table rendered systems, because one copy
+   * succeeded and the other did not. One page, one reading.
+   */
+  shared,
+}: {
+  limit?: number
+  shared?: { data: SystemsResponse | null; loading: boolean; error: string | null; retry: () => void }
+} = {}) {
   // SWR via localStorage — N+1 fan-out endpoint, slow on cold start.
-  const { data, loading, error, retry } = useCachedFetch<SystemsResponse>(
-    "/api/proxy/systems/with-families",
-    { cacheKey: "systems-with-families", fetchInit: { cache: "no-store" } }
+  // Skipped entirely when the parent supplies its copy (see `shared`).
+  // url=null is the hook's existing skip — no second request to a slow
+  // N+1 endpoint when the parent already read it.
+  const own = useCachedFetch<SystemsResponse>(
+    shared ? null : "/api/proxy/systems/with-families",
+    { cacheKey: "ciso-brief-systems", fetchInit: { cache: "no-store" } },
   )
+  const { data, loading, error, retry } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="Business systems by potential damage" />
   if (error && !data) return <ErrorCard label="Business systems by potential damage" error={error} onRetry={retry} />
@@ -137,7 +155,7 @@ export function TopSystemsCard() {
   const systems = [
     ...unscored,
     ...scored.sort((a, b) => rowScore(a)! - rowScore(b)!),
-  ].slice(0, 8)
+  ].slice(0, limit)
 
   if (all.length === 0) {
     return (

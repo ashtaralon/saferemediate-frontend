@@ -144,7 +144,7 @@ describe("consumers wire the contract", () => {
     readFileSync(join(ROOT, "components/dashboard/v3/attack-paths-card.tsx"), "utf8"),
   )
   const BRIEF = code(
-    readFileSync(join(ROOT, "components/dashboard/v3/estate-risk-brief.tsx"), "utf8"),
+    readFileSync(join(ROOT, "components/dashboard/v3/executive-cockpit.tsx"), "utf8"),
   )
 
   it("both /all consumers gate the cache", () => {
@@ -160,7 +160,7 @@ describe("consumers wire the contract", () => {
     expect(CARD).not.toMatch(/\{scanned\} systems scanned\. None surfaced/)
   })
 
-  it("the brief will not count systems from a partial sweep", () => {
+  it("the cockpit will not count systems from a partial sweep", () => {
     expect(BRIEF).toContain('pathsIntegrity.state === "READY"')
     expect(BRIEF).toContain('pathsIntegrity.state !== "READY"')
   })

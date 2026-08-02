@@ -1,6 +1,16 @@
 /**
- * Integrity guard for the V3 estate risk brief.
+ * Integrity guard for the V3 executive cockpit.
+ *
  * Re-introducing unknown→0 or hardcoded systems must fail these tests.
+ *
+ * These assertions were written for `estate-risk-brief.tsx`. The cockpit
+ * replaced it — same four KPIs, same fail-closed rules, now inside the
+ * bento. The component was DELETED rather than left beside its successor:
+ * an unmounted duplicate is how this repo accumulated V2 sprawl, and an
+ * honesty guard pointing at dead code protects nothing.
+ *
+ * The contract moves with the code. Every assertion below survived the
+ * move unchanged except the mount check at the bottom.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -18,7 +28,7 @@ function code(raw: string): string {
 }
 
 const BRIEF = code(readFileSync(
-  join(ROOT, "components/dashboard/v3/estate-risk-brief.tsx"),
+  join(ROOT, "components/dashboard/v3/executive-cockpit.tsx"),
   "utf8",
 ))
 const HOME = code(readFileSync(
@@ -26,7 +36,7 @@ const HOME = code(readFileSync(
   "utf8",
 ))
 
-describe("EstateRiskBrief — Neo4j-backed honesty", () => {
+describe("ExecutiveCockpit — Neo4j-backed honesty", () => {
   it("wires only real proxy endpoints (no hardcoded systems)", () => {
     expect(BRIEF).toContain('/api/proxy/systems/with-families')
     expect(BRIEF).toContain('/api/proxy/identity-attack-paths/all')
@@ -44,7 +54,7 @@ describe("EstateRiskBrief — Neo4j-backed honesty", () => {
     // "Reachable crown jewels 18" directly above "Not established — this is
     // not a zero": a number and its own disclaimer in one cell.
     expect(BRIEF).toMatch(/\?\?\s*"—"/)
-    expect(BRIEF).toMatch(/metric\.unavailable\s*\?\s*null\s*:\s*metric\.value/)
+    expect(BRIEF).toMatch(/kpi\.unavailable\s*\?\s*null\s*:\s*kpi\.value/)
     expect(BRIEF).not.toMatch(/\?\?\s*0/)
     expect(BRIEF).not.toMatch(/\|\|\s*0\b/)
   })
@@ -79,8 +89,9 @@ describe("EstateRiskBrief — Neo4j-backed honesty", () => {
     expect(BRIEF.match(/failClosedOnError:\s*true/g) ?? []).toHaveLength(3)
   })
 
-  it("home dashboard mounts the brief as the first viewport", () => {
-    expect(HOME).toContain("EstateRiskBrief")
-    expect(HOME).toContain("<EstateRiskBrief")
+  it("home dashboard mounts the cockpit, and the brief is gone for good", () => {
+    expect(HOME).toContain("<ExecutiveCockpit")
+    // Deleted, not orphaned beside its replacement.
+    expect(HOME).not.toContain("EstateRiskBrief")
   })
 })

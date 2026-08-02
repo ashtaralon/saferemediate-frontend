@@ -88,9 +88,11 @@ function priorityToneClass(score: number): string {
 
 interface AttackPathsCardProps {
   onNavigateToSection?: (id: string) => void
+  /** Executive view shows the single highest-impact path, not a list. */
+  limit?: number
 }
 
-export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = {}) {
+export function AttackPathsCard({ onNavigateToSection, limit = 8 }: AttackPathsCardProps = {}) {
   const router = useRouter()
 
   // Primary: Attack Map v2 spine (?map=cyntro). Orphan-only jewels fall back
@@ -134,7 +136,7 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
   if (!data) return null
 
   const integrity = derivePathsIntegrity(data)
-  const jewels = (data.crown_jewels ?? []).slice(0, 8)
+  const jewels = (data.crown_jewels ?? []).slice(0, limit)
   // `?? 0` here rendered "0 jewels · 0 paths · 0 internet-exposed" while the
   // backend was returning 502s — a clean bill of health composed entirely of
   // nulls, on the card that answers "can anyone reach our crown jewels".

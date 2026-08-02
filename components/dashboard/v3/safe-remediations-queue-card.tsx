@@ -46,7 +46,7 @@ type CandidatesResponse = {
   error?: string
 }
 
-export function SafeRemediationsQueueCard() {
+export function SafeRemediationsQueueCard({ limit = 5 }: { limit?: number } = {}) {
   // Action queue — strict 10-min staleness. Showing yesterday's "ready
   // to apply" list could include items already remediated.
   const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<CandidatesResponse>(
@@ -100,7 +100,7 @@ export function SafeRemediationsQueueCard() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {ready.slice(0, 5).map((c, i) => (
+          {ready.slice(0, limit).map((c, i) => (
             <li
               key={`${c.resource_type}-${c.resource_id}-${i}`}
               className="flex items-center justify-between gap-3 rounded-md border border-slate-100 bg-slate-50/40 px-3 py-2 text-sm"
