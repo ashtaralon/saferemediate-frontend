@@ -1,6 +1,10 @@
 "use client"
 
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
+import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
@@ -36,7 +40,12 @@ type Candidate = {
   safety?: Safety
 }
 
-type CandidatesResponse = {
+/** One constant so the request and the pagination claim cannot drift —
+ *  exported so the cockpit's lifted fetch uses it too rather than
+ *  hardcoding a number that happens to match today. */
+export const CANDIDATES_REQUEST_LIMIT = 50
+
+export type CandidatesResponse = {
   candidates?: Candidate[]
   summary?: {
     total_candidates?: number
@@ -46,23 +55,48 @@ type CandidatesResponse = {
   error?: string
 }
 
-export function SafeRemediationsQueueCard() {
+export function SafeRemediationsQueueCard({
+  limit = 5,
+  /** Lifted read from the cockpit — one endpoint, one reading per page. */
+  shared,
+}: {
+  limit?: number
+  shared?: UseCachedFetchResult<CandidatesResponse>
+} = {}) {
   // Action queue — strict 10-min staleness. Showing yesterday's "ready
   // to apply" list could include items already remediated.
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<CandidatesResponse>(
-    "/api/proxy/remediation-candidates?limit=10",
+  const own = useCachedFetch<CandidatesResponse>(
+    shared ? null : `/api/proxy/remediation-candidates?limit=${CANDIDATES_REQUEST_LIMIT}`,
     {
-      cacheKey: "remediation-candidates",
+      cacheKey: "ciso-brief-remediations",
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
+      isCacheable: isCacheableCandidates,
     }
   )
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
+  const { data, loading, error, retry, isStale, cachedAt } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="Proposed changes" />
-  // Endpoint may return 200 with body.error to signal upstream failure.
-  const bodyError = data?.error ? data.error : null
-  if ((error || bodyError) && !data) {
-    return <ErrorCard label="Proposed changes" error={error || bodyError || ""} onRetry={retry} />
+  // The proxy answers an upstream failure with HTTP 200 and a fully-formed
+  // EMPTY body carrying `error`. The previous guard was
+  // `if ((error || bodyError) && !data)` — `data` IS that object, so `!data`
+  // was false and the branch was unreachable. The card rendered "0 ready"
+  // for a dead upstream: a false zero on the queue that drives remediation.
+  const integrity = deriveCandidatesIntegrity(data)
+  if (error || integrity.state !== "READY") {
+    return (
+      <ErrorCard
+        label="Proposed changes"
+        error={error || integrity.reason || "Unavailable"}
+        onRetry={retry}
+      />
+    )
   }
   if (!data) return null
 
@@ -81,7 +115,11 @@ export function SafeRemediationsQueueCard() {
   // which is why the two disagreed: the brief refused to publish a number it
   // could not source, and this card published one it could not source either.
   const pageSize = data.candidates?.length ?? 0
-  const sawFullPage = pageSize >= 10
+  // Threshold must follow the REQUEST. It stayed at 10 after the request
+  // moved to ?limit=50, so ten legitimate candidates claimed "more may
+  // exist" from a page that was 40 rows short of full — an invented
+  // truncation, the mirror image of the silent one it was added to stop.
+  const sawFullPage = pageSize >= CANDIDATES_REQUEST_LIMIT
   const countLabel = sawFullPage
     ? `${ready.length} ready and ${blocked.length} held on this page · more may exist`
     : `${ready.length} ready · ${blocked.length} held`
@@ -100,7 +138,7 @@ export function SafeRemediationsQueueCard() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {ready.slice(0, 5).map((c, i) => (
+          {ready.slice(0, limit).map((c, i) => (
             <li
               key={`${c.resource_type}-${c.resource_id}-${i}`}
               className="flex items-center justify-between gap-3 rounded-md border border-slate-100 bg-slate-50/40 px-3 py-2 text-sm"
@@ -131,9 +169,9 @@ export function SafeRemediationsQueueCard() {
         </ul>
       )}
 
-      {ready.length > 5 && (
+      {ready.length > limit && (
         <div className={`${descriptorClass} mt-3`}>
-          + {ready.length - 5} more ready · view all in Remediations
+          + {ready.length - limit} more ready · view all in Remediations
         </div>
       )}
     </Section>

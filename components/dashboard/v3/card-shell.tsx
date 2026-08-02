@@ -1,6 +1,6 @@
 "use client"
 
-import { ReactNode } from "react"
+import { ReactNode, createContext, useContext } from "react"
 import { dottedNotWiredClass, descriptorClass, labelClass, sectionClass } from "./styles"
 
 /**
@@ -155,6 +155,20 @@ export function StaleIndicator({
  * ErrorCard — renders when fetch fails. Shows the actual error so the
  * operator can act, not a generic "something went wrong."
  */
+/**
+ * Executive view suppresses per-card transport detail.
+ *
+ * "HTTP 502" on three cards at once is an operations reading, not an
+ * executive one — observed live on 2026-08-02 with two cards showing it
+ * simultaneously. The failure is not hidden: it is consolidated into the
+ * page-level data-status banner, and Operations view still shows the raw
+ * string and a per-card retry.
+ *
+ * A context rather than a prop so this is ONE change here instead of five
+ * edits across cards that each render ErrorCard internally.
+ */
+export const ExecutiveViewContext = createContext(false)
+
 export function ErrorCard({
   label,
   error,
@@ -164,6 +178,22 @@ export function ErrorCard({
   error: string
   onRetry?: () => void
 }) {
+  const executive = useContext(ExecutiveViewContext)
+
+  if (executive) {
+    return (
+      <div className="rounded-[14px] border border-slate-200 bg-slate-50/60 p-5">
+        <div className={labelClass}>{label}</div>
+        <div className="mt-2 text-sm text-slate-600">
+          Unavailable — this is not a zero.
+        </div>
+        <div className="mt-1 text-xs text-slate-500">
+          See the data-status banner above; use Refresh to retry every source.
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-[14px] border border-rose-200 bg-rose-50/50 p-5">
       <div className={labelClass}>{label}</div>

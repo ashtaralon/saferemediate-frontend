@@ -9,7 +9,10 @@ import { Crown, Globe } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
 import {
   buildTfmSpotlightUrl,
   navigateCrownJewelClick,
@@ -45,7 +48,7 @@ type CrownJewel = {
   system_name?: string
 }
 
-type PathsResponse = {
+export type PathsResponse = {
   crown_jewels?: CrownJewel[]
   /** Null whenever the fan-out did not complete — never coerce. */
   total_jewels?: number | null
@@ -88,9 +91,13 @@ function priorityToneClass(score: number): string {
 
 interface AttackPathsCardProps {
   onNavigateToSection?: (id: string) => void
+  /** Executive view shows the single highest-impact path, not a list. */
+  limit?: number
+  /** Lifted read from the cockpit — one endpoint, one reading per page. */
+  shared?: UseCachedFetchResult<PathsResponse>
 }
 
-export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = {}) {
+export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: AttackPathsCardProps = {}) {
   const router = useRouter()
 
   // Primary: Attack Map v2 spine (?map=cyntro). Orphan-only jewels fall back
@@ -112,10 +119,10 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
   // back to the loading skeleton instead of showing stale "top attack
   // path" data, because acting on a 12h-old top path could mean
   // remediating something that was already fixed.
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<PathsResponse>(
-    "/api/proxy/identity-attack-paths/all",
+  const own = useCachedFetch<PathsResponse>(
+    shared ? null : "/api/proxy/identity-attack-paths/all",
     {
-      cacheKey: "identity-attack-paths-all",
+      cacheKey: "ciso-brief-paths",
       // 1h "fresh" window. Beyond that, refresh runs in background.
       // If the refresh fails, the hook's last-resort fallback shows
       // older-but-still-readable cache (up to 7d) rather than a 504.
@@ -128,13 +135,20 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
       failClosedOnError: true,
     }
   )
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
+  const { data, loading, error, retry, isStale, cachedAt } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="Top damage paths" />
   if (error && !data) return <ErrorCard label="Top damage paths" error={error} onRetry={retry} />
   if (!data) return null
 
   const integrity = derivePathsIntegrity(data)
-  const jewels = (data.crown_jewels ?? []).slice(0, 8)
+  const jewels = (data.crown_jewels ?? []).slice(0, limit)
   // `?? 0` here rendered "0 jewels · 0 paths · 0 internet-exposed" while the
   // backend was returning 502s — a clean bill of health composed entirely of
   // nulls, on the card that answers "can anyone reach our crown jewels".

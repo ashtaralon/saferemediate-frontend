@@ -1,7 +1,10 @@
 "use client"
 
 import { TrendingDown } from "lucide-react"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  useCachedFetch,
+  type UseCachedFetchResult,
+} from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, heroNumberClass, unitClass } from "./styles"
 
@@ -65,15 +68,27 @@ function MiniSparkline({ days }: { days: ByDay[] }) {
   )
 }
 
-export function NarrowingSummaryCard() {
-  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<NarrowingResp>(
-    "/api/proxy/remediation-history/narrowing-summary?days=7",
+export function NarrowingSummaryCard({ shared }: {
+  /** Lifted read from the cockpit, so the management report can vouch for
+   *  this panel too. Untracked executive feeds let the report claim
+   *  "3 of 3 ready" while a rendered panel was unavailable. */
+  shared?: UseCachedFetchResult<NarrowingResp>
+} = {}) {
+  const own = useCachedFetch<NarrowingResp>(
+    shared ? null : "/api/proxy/remediation-history/narrowing-summary?days=7",
     {
       cacheKey: "narrowing-summary-7d",
       maxStaleMs: 60 * 60 * 1000, // 1h freshness; falls back to older cache on failure
       fetchInit: { cache: "no-store" },
     },
   )
+  // ONE reading, metadata included. Selecting `data` from `shared` but
+  // `isStale`/`cachedAt` from `own` split the reading in half: in Executive
+  // `own` has url=null and never refreshes, so a card hydrated from stale
+  // cache kept rendering "as of N ago, refreshing" forever while the
+  // parent's fresh payload was already on screen. Freshness metadata IS
+  // part of the reading.
+  const { data, loading, error, retry, isStale, cachedAt } = shared ?? own
 
   if (loading && !data) return <LoadingCard label="This week's narrowing" />
   if (error && !data) return <ErrorCard label="This week's narrowing" error={error} onRetry={retry} />
