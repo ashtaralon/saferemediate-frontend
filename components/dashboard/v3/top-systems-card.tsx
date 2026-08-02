@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
@@ -115,8 +116,8 @@ export function TopSystemsCard() {
     { cacheKey: "systems-with-families", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Top systems by blast radius" />
-  if (error && !data) return <ErrorCard label="Top systems by blast radius" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Business systems by potential damage" />
+  if (error && !data) return <ErrorCard label="Business systems by potential damage" error={error} onRetry={retry} />
   if (!data) return null
 
   const systems = (data.systems ?? [])
@@ -126,7 +127,7 @@ export function TopSystemsCard() {
 
   if (systems.length === 0) {
     return (
-      <Section label="Top systems by blast radius">
+      <Section label="Business systems by potential damage">
         <div className={descriptorClass}>No systems with computed scores yet.</div>
       </Section>
     )
@@ -134,8 +135,8 @@ export function TopSystemsCard() {
 
   return (
     <Section
-      label="Top 5 systems by blast radius"
-      descriptor="Lowest score = highest risk · mix bar shows per-system family allocation"
+      label="Business systems by potential damage"
+      descriptor="Prioritized across identity, network, and data exposure · lowest BRSS = highest risk"
     >
       <table className="w-full text-sm">
         <thead>
@@ -156,7 +157,14 @@ export function TopSystemsCard() {
                 key={`${rowName(s)}-${i}`}
                 className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50"
               >
-                <td className="py-2.5 font-medium text-slate-900">{rowName(s)}</td>
+                <td className="py-2.5 font-medium text-slate-900">
+                  <Link
+                    href={`/systems?systemName=${encodeURIComponent(rowName(s))}`}
+                    className="underline-offset-4 hover:text-violet-700 hover:underline"
+                  >
+                    {rowName(s)}
+                  </Link>
+                </td>
                 <td className="py-2.5 text-slate-500">{s.environment ?? "—"}</td>
                 <td className="py-2.5 text-right">
                   <span className={`font-semibold tabular-nums ${scorePillClass(score)}`}>

@@ -238,6 +238,7 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
                   <div className="mt-0.5 truncate text-xs text-slate-500">
                     {j.system_name ?? "—"} · {j.path_count ?? 0} path
                     {j.path_count === 1 ? "" : "s"}
+                    {j.data_classification ? ` · ${j.data_classification}` : ""}
                   </div>
                 </div>
                 <span
