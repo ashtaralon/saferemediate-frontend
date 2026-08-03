@@ -13,6 +13,7 @@
 
 import { normalizeLPSeverity } from '@/lib/lp-severity'
 import type { LPIntegrityFields } from '@/lib/lp-integrity'
+import type { DecisionOutcomeCanonical } from '@/lib/types'
 
 export type LPSeverityBucket = 'critical' | 'high' | 'medium' | 'low'
 
@@ -32,6 +33,7 @@ export const LP_VERIFYING_TTL_MS = 90_000
 export type LPCategory = 'removable' | 'coverage' | 'audit'
 export type LPEvidenceConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
 export type LPVerificationState = 'applied_verifying' | 'verify_failed' | null
+export type LPCoverageState = 'COMPLETE' | 'PARTIAL' | 'MISSING' | 'UNKNOWN'
 
 export type HighRiskUnusedItem = {
   permission: string
@@ -122,6 +124,9 @@ export interface NormalizedGapResource {
   region?: string | null
   category?: LPCategory
   countsTowardSummary?: boolean
+  decisionCanonical?: DecisionOutcomeCanonical | null
+  decisionReason?: string
+  coverageState?: LPCoverageState
   usageMeasured?: boolean
   usageNotComputedReason?: string | null
 }
@@ -140,6 +145,21 @@ export interface NormalizedLPSummary {
   confidenceLevel: number | null
   observationDays: number | null
   attackSurfaceReduction: number | null
+  openRiskCount: number | null
+  evidenceBlockedCount: number | null
+  manualReviewCount: number | null
+  safetyReviewPendingCount: number | null
+}
+
+export type ResourceRiskCapability = {
+  resource_type: string
+  display_name: string
+  family: string
+  analyzers: string[]
+  required_evidence: string[]
+  preview_supported: boolean
+  apply_supported: boolean
+  rollback_supported: boolean
 }
 
 export interface NormalizedLPResponse extends LPIntegrityFields {
@@ -153,6 +173,7 @@ export interface NormalizedLPResponse extends LPIntegrityFields {
   staleReason?: string
   /** Snake_case alias — copied literally when present on the wire. */
   failed_analyzers?: string[]
+  capabilities: ResourceRiskCapability[]
 }
 
 /**
@@ -206,6 +227,30 @@ function normalizeEvidenceConfidence(raw: unknown): LPEvidenceConfidence | null 
 function normalizeCategory(raw: unknown): LPCategory | undefined {
   if (typeof raw !== 'string') return undefined
   return CATEGORIES.has(raw as LPCategory) ? (raw as LPCategory) : undefined
+}
+
+const CANONICAL_DECISIONS = new Set<DecisionOutcomeCanonical>([
+  'AUTO_EXECUTE',
+  'REQUIRE_APPROVAL',
+  'MANUAL_REVIEW',
+  'BLOCK',
+  'CANARY_FIRST',
+  'EXCLUDE',
+])
+
+function normalizeDecision(raw: unknown): DecisionOutcomeCanonical | null | undefined {
+  if (raw === null) return null
+  if (typeof raw !== 'string') return undefined
+  return CANONICAL_DECISIONS.has(raw as DecisionOutcomeCanonical)
+    ? (raw as DecisionOutcomeCanonical)
+    : undefined
+}
+
+function normalizeCoverageState(raw: unknown): LPCoverageState | undefined {
+  if (raw === 'COMPLETE' || raw === 'PARTIAL' || raw === 'MISSING' || raw === 'UNKNOWN') {
+    return raw
+  }
+  return undefined
 }
 
 /**
@@ -353,6 +398,14 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
         : '',
     systemName: typeof r.systemName === 'string' ? r.systemName : undefined,
     category: normalizeCategory(r.category),
+    decisionCanonical: normalizeDecision(r.decision_canonical ?? r.decisionCanonical),
+    decisionReason:
+      typeof r.decisionReason === 'string'
+        ? r.decisionReason
+        : typeof r.decision_reason === 'string'
+          ? (r.decision_reason as string)
+          : undefined,
+    coverageState: normalizeCoverageState(r.coverageState ?? r.coverage_state),
     findingClass: (r.findingClass ?? r.finding_class) as NormalizedGapResource['findingClass'],
     countsTowardSummary:
       typeof r.countsTowardSummary === 'boolean'
@@ -530,8 +583,15 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
       confidenceLevel: asFiniteNumber(summaryIn?.confidenceLevel),
       observationDays,
       attackSurfaceReduction,
+      openRiskCount: summaryCount(summaryIn, 'openRiskCount'),
+      evidenceBlockedCount: summaryCount(summaryIn, 'evidenceBlockedCount'),
+      manualReviewCount: summaryCount(summaryIn, 'manualReviewCount'),
+      safetyReviewPendingCount: summaryCount(summaryIn, 'safetyReviewPendingCount'),
     },
     resources,
+    capabilities: Array.isArray(input.capabilities)
+      ? (input.capabilities as ResourceRiskCapability[])
+      : [],
     timestamp: typeof input.timestamp === 'string' ? input.timestamp : null,
     fromCache: !!input.fromCache,
     cacheAge: asFiniteNumber(input.cacheAge) ?? undefined,

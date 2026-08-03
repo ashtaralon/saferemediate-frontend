@@ -76,7 +76,9 @@ export function TrustDormancyLens({ systemName }: { systemName?: string }) {
   const [data, setData] = useState<ResourceRiskResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(true)
+  // Keep the high/medium counts visible without pushing the prioritized risk
+  // queue below the fold. Operators can expand the evidence in one click.
+  const [expanded, setExpanded] = useState(false)
   const [retrying, setRetrying] = useState(false)
 
   useEffect(() => {

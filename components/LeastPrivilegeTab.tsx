@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { riskLabel } from '@/lib/utils'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
-import type { SimulateFixResponse } from '@/lib/types'
+import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
@@ -26,12 +26,15 @@ import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis
 // preserve existing JSX without further changes at the call sites.
 import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-remediation-modal'
 import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-remediation-modal'
-import type { BlastRadiusScore } from '@/lib/types'
-import { CoveragePill } from '@/components/brss/coverage-pill'
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
-import { deriveSummaryIntegrity } from "@/lib/summary-integrity"
+import {
+  belongsInOpenRiskQueue,
+  resourceRiskDecision,
+  resourceRiskDecisionLabel,
+  type ResourceRiskDecision,
+} from '@/lib/resource-risk-decision'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -187,6 +190,9 @@ interface GapResource {
   // Absent category must NOT default to removable (that invents actionability).
   category?: 'removable' | 'coverage' | 'audit'
   countsTowardSummary?: boolean
+  decisionCanonical?: DecisionOutcomeCanonical | null
+  decisionReason?: string
+  coverageState?: 'COMPLETE' | 'PARTIAL' | 'MISSING' | 'UNKNOWN'
   // false = usage was never computed for this row (e.g. the IAM permissions
   // sync failed). Explicitly NOT the same as "measured and found nothing" —
   // undefined means the analyzer has not adopted the contract, which is why
@@ -208,6 +214,21 @@ const normalizeLpSeverity = (
   severity: string | undefined | null,
 ): 'critical' | 'high' | 'medium' | 'low' | null => normalizeLPSeverityBucket(severity)
 
+const decisionTone = (decision: ResourceRiskDecision) => {
+  if (decision === 'AUTO_EXECUTE') return { color: '#16a34a', background: '#16a34a20' }
+  if (decision === 'BLOCK' || decision === 'EXCLUDE') return { color: '#dc2626', background: '#dc262620' }
+  if (decision === 'MANUAL_REVIEW') return { color: '#f97316', background: '#f9731620' }
+  if (decision === 'CANARY_FIRST' || decision === 'REQUIRE_APPROVAL') return { color: '#d97706', background: '#d9770620' }
+  return { color: '#8b5cf6', background: '#8b5cf620' }
+}
+
+const decisionActionLabel = (decision: ResourceRiskDecision) => {
+  if (decision === 'BLOCK') return 'View evidence'
+  if (decision === 'MANUAL_REVIEW' || decision === 'EXCLUDE') return 'Review'
+  if (decision === 'PENDING') return 'Preview'
+  return 'View decision'
+}
+
 interface LeastPrivilegeSummary {
   totalResources: number
   /** null = backend did not report the count (unknown), distinct from 0 (clean). */
@@ -225,6 +246,10 @@ interface LeastPrivilegeSummary {
   confidenceLevel: number | null
   observationDays: number | null
   attackSurfaceReduction: number | null
+  openRiskCount: number | null
+  evidenceBlockedCount: number | null
+  manualReviewCount: number | null
+  safetyReviewPendingCount: number | null
 }
 
 interface LeastPrivilegeResponse {
@@ -289,21 +314,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [sgModalOpen, setSgModalOpen] = useState(false)
   const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
-  const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
-  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
-  // Subtab routing — was 'active' | 'remediated' (a single catch-all "active" tab
-  // mixed three operator-facing categories). Backend now tags rows with
-  // category = 'removable' | 'coverage' | 'audit'; we route to one tab each.
-  const [activeTab, setActiveTab] = useState<'removable' | 'coverage' | 'audit' | 'remediated'>('removable')
+  const [resourceTypeFilter, setResourceTypeFilter] = useState<string>('all')
+  const [decisionFilter, setDecisionFilter] = useState<ResourceRiskDecision | 'all'>('all')
+  // Risk priority owns the default queue. Readiness and evidence are filters,
+  // not tabs that can hide a critical manual-review finding.
+  const [activeTab, setActiveTab] = useState<'open' | 'remediated'>('open')
   const [syncingFlowLogs, setSyncingFlowLogs] = useState(false)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
-  // Blast Radius Score — replaces the per-gap-average "LP Score" with the
-  // family-scoped BRSS for IAM. Fetched from /api/proxy/issues-summary in
-  // parallel with the main LP data.
-  const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
   const { toast } = useToast()
   const pendingResourceRiskOpen = useRef<ResourceRiskOpenDetail | null>(null)
   const lpDataRef = useRef(data)
@@ -718,34 +738,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const unsubscribe = onRemediationChanged(() => {
       void fetchGaps(true, true)
     })
-    // Fetch BRSS in parallel — independent from LP data, so failures don't
-    // block the main list view.
-    ;(async () => {
-      try {
-        const sysParam = systemName ? `?systemName=${encodeURIComponent(systemName)}` : ''
-        const res = await fetch(`/api/proxy/issues-summary${sysParam}`)
-        if (!res.ok) return
-        const payload = await res.json()
-        // A held sweep now returns blast_radius_score with analysis_complete
-        // false and score null — and NO `error` key, so the old check passed it
-        // straight through and the card rendered a posture number composed from
-        // an unknown subset of resources. Gate on integrity, not on the absence
-        // of an error string.
-        const summaryIntegrity = deriveSummaryIntegrity(payload)
-        if (
-          summaryIntegrity.canRenderScores &&
-          payload?.blast_radius_score &&
-          !payload.blast_radius_score.error &&
-          payload.blast_radius_score.analysis_complete !== false
-        ) {
-          setBrss(payload.blast_radius_score as BlastRadiusScore)
-        } else {
-          setBrss(null)
-        }
-      } catch {
-        setBrss(null)
-      }
-    })()
     return () => {
       controller.abort()
       unsubscribe()
@@ -1666,14 +1658,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // a full-page green "all permissions in scope are observed in use" printed
   // over real gaps. Claim clean only when the backend actually reported the
   // count AND no row is unmeasured — an unmeasured row is unknown, not clean.
-  const reportedExcess = data.summary?.totalExcessPermissions
   const hasUnmeasuredRow = data.resources.some(
     (r) => r.usedCount === null && r.gapCount === null,
   )
+  const hasOpenRisk = data.resources.some(belongsInOpenRiskQueue)
   if (
     data.resources.length > 0 &&
-    typeof reportedExcess === 'number' &&
-    reportedExcess === 0 &&
+    !hasOpenRisk &&
     !hasUnmeasuredRow
   ) {
     return (
@@ -1682,11 +1673,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         <div className="text-center py-12">
           <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
           <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-            No LP gaps detected
+            No open resource risks detected
           </p>
           <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
             Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
-            all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
+            no evidence-backed findings require attention. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
           </p>
         </div>
       </div>
@@ -1701,18 +1692,30 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (type === 'IAMRole') return '#8b5cf6'
     if (type === 'SecurityGroup') return '#3b82f6'
     if (type === 'S3Bucket') return '#22c55e'
+    if (type === 'RDSInstance') return '#06b6d4'
+    if (type === 'LambdaFunction') return '#f59e0b'
+    if (type === 'EC2Instance') return '#6366f1'
+    if (type === 'NetworkACL') return '#0ea5e9'
     return '#6b7280'
   }
   const getResourceTypeLabel = (type: string) => {
     if (type === 'IAMRole') return 'IAM Role'
     if (type === 'SecurityGroup') return 'Security Group'
     if (type === 'S3Bucket') return 'S3 Bucket'
+    if (type === 'RDSInstance') return 'RDS Instance'
+    if (type === 'LambdaFunction') return 'Lambda Function'
+    if (type === 'EC2Instance') return 'EC2 Workload'
+    if (type === 'NetworkACL') return 'Network ACL'
     return type
   }
   const getResourceTypeIcon = (type: string) => {
     if (type === 'IAMRole') return Shield
     if (type === 'SecurityGroup') return Network
     if (type === 'S3Bucket') return Database
+    if (type === 'RDSInstance') return Database
+    if (type === 'LambdaFunction') return Zap
+    if (type === 'EC2Instance') return Activity
+    if (type === 'NetworkACL') return Network
     return AlertTriangle
   }
   // Severity badge mirrors the backend `severity` field verbatim
@@ -1815,17 +1818,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const activeResources = nonDeletedResources.filter(r => !isRemediated(r))
   const remediatedResources = nonDeletedResources.filter(r => isRemediated(r))
 
-  // Subtab partition — backend category only. Missing category is not
-  // inventively treated as removable (that falsely implies actionability).
-  const removableResources = activeResources.filter((r) => r.category === 'removable')
-  const coverageResources = activeResources.filter((r) => r.category === 'coverage')
-  const auditResources = activeResources.filter((r) => r.category === 'audit')
-
-  const tabResources: GapResource[] =
-    activeTab === 'remediated' ? remediatedResources
-      : activeTab === 'coverage' ? coverageResources
-        : activeTab === 'audit' ? auditResources
-          : removableResources
+  const openRiskResources = activeResources.filter(belongsInOpenRiskQueue)
+  const tabResources: GapResource[] = activeTab === 'remediated'
+    ? remediatedResources
+    : openRiskResources
+  const resourceTypes = Array.from(
+    new Set(tabResources.map((r) => r.resourceType).filter(Boolean)),
+  ).sort((a, b) => getResourceTypeLabel(a).localeCompare(getResourceTypeLabel(b)))
+  const availableDecisions = Array.from(
+    new Set(openRiskResources.map((r) => resourceRiskDecision(r))),
+  )
 
   const filteredResources = tabResources
     .filter(r => {
@@ -1833,25 +1835,27 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return r.resourceType === resourceTypeFilter
     })
     .filter(r => {
+      if (activeTab === 'remediated' || decisionFilter === 'all') return true
+      return resourceRiskDecision(r) === decisionFilter
+    })
+    .filter(r => {
       if (!searchTerm) return true
       const s = searchTerm.toLowerCase()
       return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
     })
-    .filter(r => {
-      // Removable tab: honour aggregator visibility — posture findings often
-      // have gapCount=0 but still count toward summary (S3/NACL bug class).
-      if (activeTab !== 'removable') return true
-      if (r.countsTowardSummary === false) return false
-      if ((r.gapCount ?? 0) > 0 || (r.networkExposure?.internetExposedRules ?? 0) > 0) return true
-      const bucket = normalizeLpSeverity(r.severity)
-      return bucket != null && ['critical', 'high', 'medium'].includes(bucket)
-    })
-    .filter(r => {
-      if (activeTab !== 'removable') return true
-      if (r.resourceType !== 'IAMRole') return true
-      if (!showRemediableOnly) return true
-      return r.isRemediable !== false
-    })
+  const criticalHighCount = openRiskResources.filter((r) => {
+    const severity = normalizeLpSeverity(r.severity)
+    return severity === 'critical' || severity === 'high'
+  }).length
+  const evidenceBlockedCount = openRiskResources.filter(
+    (r) => resourceRiskDecision(r) === 'BLOCK',
+  ).length
+  const manualReviewCount = openRiskResources.filter(
+    (r) => resourceRiskDecision(r) === 'MANUAL_REVIEW',
+  ).length
+  const pendingSafetyCount = openRiskResources.filter(
+    (r) => resourceRiskDecision(r) === 'PENDING',
+  ).length
 
   const iamCount = activeResources.filter(r => r.resourceType === 'IAMRole').length
   const sgCount = activeResources.filter(r => r.resourceType === 'SecurityGroup').length
@@ -1901,9 +1905,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         <div className="flex items-center gap-3">
           <BackToDashboard />
           <div>
-            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Resource Risk</h2>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Risk Inventory</h2>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Permission gaps, posture exposure, and network rule findings
+              Prioritized cloud risks backed by configuration, behavior, and dependency evidence
               {/* The proxy distinguishes a warm cache hit from a stale-serve it
                   fell back to after the backend timed out or errored. Both used
                   to render the same neutral "(cached Ns ago)"; a stale serve is
@@ -1952,118 +1956,57 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       {/* Trust & Dormancy — net-new HAS_RISK findings (broad trust + dormant roles) */}
       <TrustDormancyLens systemName={systemName} />
 
-      {/* Stats Cards */}
+      {/* Decision-oriented summary. Inventory totals and IAM-only metrics live
+          in their family views; this row answers what needs attention now. */}
       <div className="grid grid-cols-4 gap-4">
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
-            <Shield className="w-5 h-5" style={{ color: "#3b82f6" }} />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Resources</span>
-          </div>
-          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{summary.totalResources}</div>
-        </div>
-        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-          <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Critical Issues</span>
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Critical / High</span>
           </div>
-          <div
-            className="text-2xl font-bold"
-            style={{ color: summary.criticalCount === null ? "var(--text-muted)" : "#ef4444" }}
-            title={summary.criticalCount === null ? "Backend did not report this count" : undefined}
-          >
-            {summary.criticalCount === null ? '—' : summary.criticalCount}
-          </div>
+          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{criticalHighCount}</div>
+          <div className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>Open risks, regardless of readiness</div>
         </div>
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
-            <TrendingDown className="w-5 h-5" style={{ color: "#f97316" }} />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Excess Permissions</span>
+            <Shield className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Safety Review Pending</span>
           </div>
-          <div
-            className="text-2xl font-bold"
-            style={{ color: summary.totalExcessPermissions === null ? "var(--text-muted)" : "#f97316" }}
-            title={summary.totalExcessPermissions === null ? "Backend did not report this count" : undefined}
-          >
-            {summary.totalExcessPermissions === null ? '—' : summary.totalExcessPermissions.toLocaleString()}
-          </div>
+          <div className="text-2xl font-bold" style={{ color: "#8b5cf6" }}>{pendingSafetyCount}</div>
+          <div className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>Preview required before a decision tier exists</div>
         </div>
-        {(() => {
-          // BRSS family-scoped score for IAM — replaces the legacy avg-gap "LP Score".
-          // Falls back to '—' until the backend snapshot lands.
-          const iamScore = brss?.per_family?.iam
-          const color = iamScore === undefined || iamScore === null
-            ? '#94A3B8'
-            : iamScore < 50 ? '#ef4444'
-              : iamScore < 75 ? '#f97316'
-                : '#22c55e'
-          return (
-            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="brss-iam-score">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity className="w-5 h-5" style={{ color }} />
-                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Blast Radius · IAM</span>
-              </div>
-              <div className="text-2xl font-bold" style={{ color }}>
-                {iamScore === undefined || iamScore === null ? '—' : iamScore}
-              </div>
-              {brss && (
-                <div className="mt-1">
-                  <CoveragePill
-                    brss={brss}
-                    testId="coverage-pill-lp"
-                    className="inline-flex items-center gap-1 text-[10px] cursor-help focus:outline-none focus:ring-1 focus:ring-slate-400 rounded"
-                  />
-                </div>
-              )}
-            </div>
-          )
-        })()}
+        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <Eye className="w-5 h-5" style={{ color: "#f59e0b" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Evidence Blocked</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: "#f59e0b" }}>{evidenceBlockedCount}</div>
+          <div className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>No change allowed until coverage is restored</div>
+        </div>
+        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <BarChart3 className="w-5 h-5" style={{ color: "#f97316" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Manual Review</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{manualReviewCount}</div>
+          <div className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>Risk visible; automated plan not supported</div>
+        </div>
       </div>
 
-      {/* Subtabs: Removable / Coverage Gaps / Audit / Remediated.
-          Replaces the catch-all "Active Issues" tab. Each subtab corresponds to a
-          backend-assigned category so operators see one role at a time:
-          fix, fix-the-pipeline, or just review. */}
+      {/* Risk stays unified by default. Readiness is a filter so a critical
+          manual-review finding cannot disappear into a secondary tab. */}
       <div className="flex gap-1 border-b" style={{ borderColor: "var(--border-subtle)" }}>
         <button
-          onClick={() => { setActiveTab('removable'); setResourceTypeFilter('all') }}
+          onClick={() => { setActiveTab('open'); setResourceTypeFilter('all'); setDecisionFilter('all') }}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'removable' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+            activeTab === 'open' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
           }`}
-          style={activeTab !== 'removable' ? { color: "var(--text-secondary)" } : undefined}
-          title="Resources where an action is available right now — remove unused permissions, tighten rules, fix a public policy."
+          style={activeTab !== 'open' ? { color: "var(--text-secondary)" } : undefined}
         >
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
-            Removable
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{removableResources.length}</span>
-          </span>
-        </button>
-        <button
-          onClick={() => { setActiveTab('coverage'); setResourceTypeFilter('all') }}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'coverage' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
-          }`}
-          style={activeTab !== 'coverage' ? { color: "var(--text-secondary)" } : undefined}
-          title="Resources we cannot analyse because observation data is missing — enable VPC Flow Logs, S3 Data Events, or CloudTrail."
-        >
-          <span className="flex items-center gap-2">
-            <Eye className="w-4 h-4" />
-            Coverage Gaps
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#f59e0b20] text-[#f59e0b]">{coverageResources.length}</span>
-          </span>
-        </button>
-        <button
-          onClick={() => { setActiveTab('audit'); setResourceTypeFilter('all') }}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'audit' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
-          }`}
-          style={activeTab !== 'audit' ? { color: "var(--text-secondary)" } : undefined}
-          title="Fully-utilised resources surfaced for periodic review. No action required today."
-        >
-          <span className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" />
-            Audit
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">{auditResources.length}</span>
+            Open Risks
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{openRiskResources.length}</span>
           </span>
         </button>
         <button
@@ -2102,20 +2045,26 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           >
             <option value="all">All Types ({tabResources.length})</option>
-            <option value="IAMRole">IAM Roles ({tabResources.filter(r => r.resourceType === 'IAMRole').length})</option>
-            <option value="SecurityGroup">Security Groups ({tabResources.filter(r => r.resourceType === 'SecurityGroup').length})</option>
-            <option value="S3Bucket">S3 Buckets ({tabResources.filter(r => r.resourceType === 'S3Bucket').length})</option>
+            {resourceTypes.map((resourceType) => (
+              <option key={resourceType} value={resourceType}>
+                {getResourceTypeLabel(resourceType)} ({tabResources.filter((r) => r.resourceType === resourceType).length})
+              </option>
+            ))}
           </select>
-          {activeTab === 'removable' && (
-            <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-              <input
-                type="checkbox"
-                checked={showRemediableOnly}
-                onChange={(e) => setShowRemediableOnly(e.target.checked)}
-                className="rounded"
-              />
-              Remediable only
-            </label>
+          {activeTab === 'open' && (
+            <select
+              value={decisionFilter}
+              onChange={(e) => setDecisionFilter(e.target.value as ResourceRiskDecision | 'all')}
+              className="px-3 py-2 rounded-lg border text-sm"
+              style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            >
+              <option value="all">All Decisions</option>
+              {availableDecisions.map((decision) => (
+                <option key={decision} value={decision}>
+                  {resourceRiskDecisionLabel({ decisionCanonical: decision === 'PENDING' ? null : decision })}
+                </option>
+              ))}
+            </select>
           )}
           {deletedResources.size > 0 && (
             <button
@@ -2136,11 +2085,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         </div>
       </div>
 
-      {/* Coverage Gaps explanatory banner — only on the Coverage tab.
-          Rows here are NOT problems with the resource; they're problems
-          with our observability. The CTA triggers the same flow-logs sync
-          that the SG remediation flow uses. */}
-      {activeTab === 'coverage' && (
+      {/* Coverage is a visible state inside the unified risk queue. */}
+      {activeTab === 'open' && evidenceBlockedCount > 0 && (
         <div
           className="rounded-lg border p-4 flex items-start gap-3"
           style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
@@ -2151,11 +2097,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               These resources don't have enough observation data to analyse
             </div>
             <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              Cyntro decides what's removable from observed traffic and API calls.
+              Cyntro decides what can change from observed traffic and API calls.
               When VPC Flow Logs, S3 Data Events, or CloudTrail Data Events are
-              missing for a resource, we surface it here instead of guessing.
-              Enable the upstream source and re-sync to move these rows to
-              Removable or Audit.
+              missing for a resource, it stays in this queue as Blocked instead
+              of being hidden or treated as safe.
             </div>
           </div>
           <button
@@ -2168,7 +2113,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 if (res.ok) {
                   toast({
                     title: 'Flow logs sync started',
-                    description: 'Re-run LP analysis in a few minutes to see resources move out of Coverage Gaps.',
+                    description: 'Re-run Resource Risk in a few minutes to refresh blocked evidence states.',
                   })
                 } else {
                   toast({
@@ -2197,22 +2142,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         </div>
       )}
 
-      {/* Audit subtab subtitle — softer treatment than Removable/Coverage.
-          No red badges, no CTA — these rows are info, not work. */}
-      {activeTab === 'audit' && (
-        <div
-          className="rounded-lg border p-4 flex items-start gap-3"
-          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
-        >
-          <BarChart3 className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: "#64748b" }} />
-          <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Periodic review.</span>
-            {" "}These resources are fully utilised — every permission or rule has been used in the observation window.
-            Listed for awareness; no action required today.
-          </div>
-        </div>
-      )}
-
       {/* Resources Table */}
       <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         {/* Table Header */}
@@ -2230,7 +2159,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
         ) : (
           <div
-            className="grid grid-cols-[2fr_110px_110px_60px_60px_130px_90px_80px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            className="grid grid-cols-[2fr_110px_110px_80px_80px_130px_90px_80px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
             style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
           >
             <span>Resource</span>
@@ -2241,18 +2170,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             >
               Signal <span className="text-[10px] opacity-60">ⓘ</span>
             </span>
-            <span
-              className="text-center"
-              title="Permissions observed in the window — meaningful for IAM permission-gap rows only"
-            >
-              Used
-            </span>
-            <span
-              className="text-center"
-              title="Unused granted permissions — meaningful for IAM permission-gap rows only"
-            >
-              Unused
-            </span>
+            <span className="text-center col-span-2">Decision</span>
             <span
               className="text-center inline-flex items-center justify-center gap-1 cursor-help"
               title="Blast Radius Score (BRS v1.1) — breach impact IF this resource is compromised right now. Combines Damage-on-Compromise, Identity Privilege, Network Exposure, Lateral Movement. Shown with confidence (HIGH/MED/LOW) based on observation evidence."
@@ -2300,7 +2218,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         </div>
                         <div className="min-w-0">
                           <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
-                          <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                          <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={resource.description}>
+                            {resource.description || resource.title || 'Risk details available'}
+                          </div>
+                          <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
                             {resource.systemName || systemName}
                           </div>
                         </div>
@@ -2345,7 +2266,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   ) : (
                     /* ===== ACTIVE ROW — original layout ===== */
                     <div
-                      className="grid grid-cols-[2fr_110px_110px_60px_60px_130px_90px_80px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      className="grid grid-cols-[2fr_110px_110px_80px_80px_130px_90px_80px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
                       onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
                     >
                       {/* Resource */}
@@ -2359,7 +2280,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         </div>
                         <div className="min-w-0">
                           <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
-                          <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                          <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={resource.description}>
+                            {resource.description || resource.title || 'Risk details available'}
+                          </div>
+                          <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
                             {resource.systemName || systemName}
                           </div>
                         </div>
@@ -2411,36 +2335,28 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         })()}
                       </div>
 
-                      {/* Used — IAM permission-gap rows only.
-                          metrics.measured === false means usage was never
-                          computed; render "?" not a number, so an unmeasured
-                          row can't be mistaken for a measured-clean one. */}
-                      <div
-                        className="text-center text-sm font-medium"
-                        style={{ color: metrics.measured === false ? "var(--text-muted)" : "var(--text-primary)" }}
-                        title={metrics.measured === false ? 'Usage not computed — no evidence collected' : undefined}
-                      >
-                        {!isPermissionGapRow(resource) ? '—' : metrics.measured === false ? '?' : metrics.usedCount}
-                      </div>
-
-                      {/* Unused — IAM permission-gap rows only */}
-                      <div
-                        className="text-center text-sm font-medium"
-                        style={{
-                          color: !isPermissionGapRow(resource) || metrics.measured === false
-                            ? 'var(--text-muted)'
-                            : ((metrics.unusedCount ?? 0) > 0 ? '#ef4444' : '#22c55e'),
-                        }}
-                        title={
-                          !isPermissionGapRow(resource)
-                            ? 'Not a permission-gap row'
-                            : metrics.measured === false
-                              ? 'Usage not computed — this is unknown, not zero'
-                              : undefined
-                        }
-                      >
-                        {!isPermissionGapRow(resource) ? '—' : metrics.measured === false ? '?' : metrics.unusedCount}
-                      </div>
+                      {/* Canonical decision tier. Null is rendered as pending;
+                          the list never fabricates an execution verdict before
+                          a concrete plan has passed SafetyVector. */}
+                      {(() => {
+                        const decision = resourceRiskDecision(resource)
+                        const tone = decisionTone(decision)
+                        return (
+                          <div className="col-span-2 text-center min-w-0" title={resource.decisionReason}>
+                            <span
+                              className="inline-flex max-w-full items-center px-2 py-0.5 rounded text-xs font-semibold truncate"
+                              style={{ background: tone.background, color: tone.color }}
+                            >
+                              {resourceRiskDecisionLabel(resource)}
+                            </span>
+                            {resource.coverageState && resource.coverageState !== 'UNKNOWN' && (
+                              <div className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                                Evidence {resource.coverageState.toLowerCase()}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
 
                       {/* Blast Radius — breach impact (v1.1). Shows score · band · confidence. */}
                       <div
@@ -2511,7 +2427,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90 transition-all"
                           style={{ background: "#8b5cf6" }}
                         >
-                          Review
+                          {decisionActionLabel(resourceRiskDecision(resource))}
                         </button>
                       </div>
                     </div>
