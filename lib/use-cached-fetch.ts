@@ -566,14 +566,11 @@ export function useCachedFetch<T = unknown>(
         setLoading(false)
         return
       }
-      // (#4) `isCacheable` is the caller's "may this stand as a reading".
-      // Evaluate it BEFORE promoting into current state, not only before
-      // persisting. Previously a 200 carrying an error envelope was assigned
-      // to `data` and rendered as current — it just wasn't written to
-      // localStorage, so the contract said "discarded" while the screen said
-      // otherwise. Prefer a valid cached reading, clearly marked stale; fall
-      // through to rendering the rejected payload only when we have nothing
-      // else, so honest NOT_READY / "analysis unavailable" states still show.
+      // `isCacheable` is the caller's "may this stand as a reading". Evaluate
+      // it BEFORE promoting into current state, not only before persisting —
+      // a 200 carrying an error envelope used to be assigned to `data` and
+      // rendered as current while merely being kept out of localStorage, so
+      // the contract said "discarded" and the screen said otherwise.
       if (isCacheable && !isCacheable(sanitized)) {
         // SEMANTIC failure fails CLOSED — including against our own cache.
         //

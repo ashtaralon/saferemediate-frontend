@@ -234,7 +234,11 @@ describe("semantic failure still discards — fail-closed is not weakened", () =
       }),
     )
 
-    await waitFor(() => expect(result.current.loading).toBe(false))
+    // Wait on something only true AFTER the response settles. `loading` is
+    // false from the first render here — the cache is seeded, so there is no
+    // loading phase — which made an earlier version of this test race the
+    // fetch and fail ~1 run in 3.
+    await waitFor(() => expect(result.current.data).toEqual(held))
 
     // The old READY is gone from the screen...
     expect(result.current.data).not.toEqual(GOOD)
