@@ -1,8 +1,12 @@
 "use client"
 
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  RECOVERY_POLL_MS,
+  STALE_BACKEND_RECOVERING,
+  useCachedFetch,
+} from "@/lib/use-cached-fetch"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, heroNumberClass } from "./styles"
 import { deriveSummaryIntegrity, isCacheableSummary, summaryIntegrityCopy } from "@/lib/summary-integrity"
 
@@ -49,11 +53,40 @@ const SEVERITY_COLORS = {
   low: "#94a3b8",
 }
 
+/**
+ * The card retains cached counts through a backend outage (see
+ * `failClosedOnError` scope, 2026-08-03). Retaining them is only honest if the
+ * card SAYS so — otherwise a cached "18 findings" renders pixel-identical to a
+ * live one, which is the failure the retention change was meant to avoid.
+ */
+function StaleNote({
+  isStale,
+  cachedAt,
+  staleReason,
+}: {
+  isStale: boolean
+  cachedAt: number | null
+  staleReason: string | null
+}) {
+  if (!isStale) return null
+  if (staleReason === STALE_BACKEND_RECOVERING) {
+    return (
+      <p className="mt-1 text-[11px] font-medium text-sky-700">
+        Backend recovering — last verified reading, not live. Retrying.
+      </p>
+    )
+  }
+  return <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+}
+
 export function SeverityDonutCard() {
-  const { data, loading, error, retry } = useCachedFetch<IssuesSummary>(
+  const { data, loading, error, retry, isStale, cachedAt, staleReason } =
+    useCachedFetch<IssuesSummary>(
     "/api/proxy/issues/summary",
     {
       cacheKey: "issues-summary",
+      // The stale note promises "Retrying." Without this it never would.
+      autoRetryMs: RECOVERY_POLL_MS,
       fetchInit: { cache: "no-store" },
       // Never persist a payload we cannot vouch for, and treat any EXISTING
       // non-READY entry as a miss on read. Without this, the NOT_READY response
@@ -96,6 +129,7 @@ export function SeverityDonutCard() {
           <span className={`${heroNumberClass} text-slate-400`}>—</span>
           <span className="text-sm text-slate-500">not available</span>
         </div>
+        <StaleNote isStale={isStale} cachedAt={cachedAt} staleReason={staleReason} />
         <p className="text-xs text-slate-500 leading-snug">{body}</p>
         {/* An unavailable state with no way out is a dead end: the backend
             usually recovers on its own, but the card had no affordance to ask
@@ -143,6 +177,7 @@ export function SeverityDonutCard() {
           <span className={`${heroNumberClass} text-emerald-700`}>0</span>
           <span className="text-sm text-slate-500">active findings</span>
         </div>
+        <StaleNote isStale={isStale} cachedAt={cachedAt} staleReason={staleReason} />
       </Section>
     )
   }
@@ -161,6 +196,7 @@ export function SeverityDonutCard() {
           <span className={`${heroNumberClass} text-slate-700`}>{total}</span>
           <span className="text-sm text-slate-500">active findings</span>
         </div>
+        <StaleNote isStale={isStale} cachedAt={cachedAt} staleReason={staleReason} />
         <p className="text-xs text-slate-500 leading-snug">
           {total} finding{total === 1 ? "" : "s"} reported, but no severity
           breakdown came back — the split cannot be shown.
@@ -175,6 +211,10 @@ export function SeverityDonutCard() {
       descriptor="Active least-privilege findings by severity"
       className="border-l-[3px] border-l-rose-500 h-full flex flex-col"
     >
+      {/* The authoritative branch. If these counts are retained from cache
+          through a backend outage, this is the only thing standing between
+          the operator and a stale number that looks live. */}
+      <StaleNote isStale={isStale} cachedAt={cachedAt} staleReason={staleReason} />
       <div className="flex items-center gap-5">
         <div className="relative h-[140px] w-[140px] shrink-0">
           <ResponsiveContainer width="100%" height="100%">
