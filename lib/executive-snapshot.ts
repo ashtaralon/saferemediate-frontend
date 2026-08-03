@@ -21,6 +21,7 @@ export type ExecutiveCandidate = {
   total_permissions?: number | null
   can_auto_apply?: boolean
   block_reason?: string | null
+  remediation_id?: string | null
 }
 
 export type ExecutiveSnapshot = {
@@ -53,7 +54,7 @@ export type ExecutiveSnapshot = {
   remediation: {
     serve_state: SnapshotServeState
     analysis_complete: boolean
-    count_scope?: "returned_page"
+    count_scope?: "returned_page" | "classified_risk_findings"
     page_limit?: number | null
     returned_count?: number | null
     ready_on_page?: number | null

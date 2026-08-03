@@ -5,6 +5,10 @@ import {
   isCacheableSystemExecutiveSnapshot,
   isSystemExecutiveSnapshot,
 } from "@/lib/system-executive-snapshot"
+import {
+  proposedChangeCount,
+  shouldShowGlobalStateBanner,
+} from "@/components/system-detail/system-executive-overview"
 
 const root = join(__dirname, "..", "..")
 const dashboard = readFileSync(join(root, "components/system-detail-dashboard.tsx"), "utf8")
@@ -59,5 +63,35 @@ describe("system executive overview", () => {
     expect(overview).toContain("Recommended changes")
     expect(overview).toContain("Evidence readiness")
     expect(overview).not.toContain("Neo4j graph snapshot")
+  })
+
+  it("keeps a remediation-only hold local instead of alarming the whole system", () => {
+    const data = fixture({
+      serve_state: "PARTIAL",
+      analysis_complete: false,
+      remediation: {
+        serve_state: "PARTIAL",
+        analysis_complete: false,
+        returned_count: 2,
+        ready_on_page: 0,
+        held_on_page: 2,
+        top_candidates: [{ resource_id: "role-1" }, { resource_id: "role-2" }],
+      },
+    })
+    expect(shouldShowGlobalStateBanner(data as never, false)).toBe(false)
+    expect(proposedChangeCount((data as never as { remediation: never }).remediation)).toBe(2)
+  })
+
+  it("still shows the global warning when a core risk section is incomplete", () => {
+    const data = fixture({
+      serve_state: "PARTIAL",
+      material_risk: { serve_state: "NOT_READY", analysis_complete: false },
+      remediation: {
+        serve_state: "PARTIAL",
+        analysis_complete: false,
+        top_candidates: [{ resource_id: "role-1" }],
+      },
+    })
+    expect(shouldShowGlobalStateBanner(data as never, false)).toBe(true)
   })
 })
