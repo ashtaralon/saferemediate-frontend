@@ -1,132 +1,110 @@
-/**
- * Renders the COCKPIT with the fetch layer mocked, so the assertion is
- * "a partial payload produces a PARTIAL source", not "the source file
- * contains a string".
- *
- * Two prior rounds shipped defects because a source-string assertion or a
- * card-level render stood in for the decision under test. The management
- * report consumes the cockpit's readiness; this exercises that path.
- */
-import { cleanup, render } from "@testing-library/react"
+import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
-const responses = new Map<string, unknown>()
+let payload: unknown
+let staleReason: string | null = null
 
 vi.mock("@/lib/use-cached-fetch", () => ({
-  // Re-exported because the cockpit imports it to tell "backend recovering"
-  // apart from "unavailable". A mock that omits a real export fails loudly
-  // rather than silently rendering the wrong banner.
   STALE_BACKEND_RECOVERING: "backend recovering",
-  STALE_AGED_OUT: "cached reading",
   RECOVERY_POLL_MS: 12000,
-  useCachedFetch: (url: string | null) => ({
-    data: url ? (responses.get(url) ?? null) : null,
-    isStale: false,
-    cachedAt: null,
-    staleReason: null,
+  useCachedFetch: () => ({
+    data: payload,
+    isStale: staleReason !== null,
+    cachedAt: staleReason ? Date.now() - 60_000 : null,
+    staleReason,
     loading: false,
     error: null,
-    isComputing: false,
     retry: vi.fn(),
   }),
 }))
 
 import { ExecutiveCockpit } from "@/components/dashboard/v3/executive-cockpit"
 
-const HEALTHY = {
-  "/api/proxy/systems/with-families": { systems: [{ name: "alon-prod" }], errors: [] },
-  "/api/proxy/identity-attack-paths/all": {
-    serve_state: "READY",
-    analysis_complete: true,
-    crown_jewels: [],
-    total_jewels: 3,
-    total_paths: 9,
-    exposed_jewels: 0,
-    systems_discovered: 1,
-    systems_scanned: 1,
-    systems_uncomputed: 0,
-    uncomputed: [],
-    errors: [],
-  },
-  "/api/proxy/remediation-candidates?limit=50": {
-    candidates: [],
-    summary: { total_candidates: 0, by_type: {}, auto_applicable: 0, blocked: 0 },
-  },
-  "/api/proxy/evidence/coverage": {
-    accounts: [],
-    aggregate_confidence: 90,
-    health: { healthy: 1, degraded: 0, missing: 0, total: 1 },
-    errors: [],
-  },
-  "/api/proxy/remediation-history/narrowing-summary?days=7": {
-    window_days: 7,
-    permissions_removed: 0,
-    events_count: 0,
-    rollbacks_count: 0,
-    by_day: [],
-  },
+function snapshot(state: "READY" | "PARTIAL" = "READY") {
+  const lower = state === "PARTIAL"
+  return {
+    schema_version: 1,
+    source: "neo4j",
+    computed_at: "2026-08-03T00:00:00Z",
+    serve_state: state,
+    analysis_complete: !lower,
+    counts_are_partial: lower,
+    narrative: {
+      tone: "action_required",
+      title: "Action required",
+      body: `Cyntro identified ${lower ? "at least " : ""}170 attack paths to ${lower ? "at least " : ""}18 crown jewels across 1 of 8 systems analyzed.`,
+    },
+    material_risk: {
+      serve_state: state,
+      analysis_complete: !lower,
+      counts_are_lower_bounds: lower,
+      systems_discovered: 8,
+      systems_scanned: lower ? 1 : 8,
+      systems_uncomputed: lower ? 7 : 0,
+      attack_paths: 170,
+      crown_jewels: 18,
+      high_risk_targets: 7,
+      externally_exposed_jewels: 0,
+      top_risks: [],
+    },
+    remediation: {
+      serve_state: "READY",
+      analysis_complete: true,
+      ready_on_page: 2,
+      held_on_page: 3,
+      top_candidates: [],
+    },
+    evidence: {
+      serve_state: "READY",
+      analysis_complete: true,
+      healthy: 5,
+      degraded: 6,
+      missing: 89,
+      total: 100,
+      top_blockers: [],
+    },
+    outcomes: {
+      serve_state: "READY",
+      analysis_complete: true,
+      window_days: 7,
+      permissions_removed: 0,
+      events_count: 0,
+      rollbacks_count: 0,
+      by_day: [],
+    },
+  }
 }
 
 beforeEach(() => {
-  responses.clear()
-  for (const [k, v] of Object.entries(HEALTHY)) responses.set(k, v)
+  payload = snapshot()
+  staleReason = null
 })
 afterEach(cleanup)
 
-describe("cockpit readiness, rendered", () => {
-  it("a complete estate shows no partial-data banner", () => {
+describe("governed executive snapshot, rendered", () => {
+  it("renders one coherent graph-backed reading", () => {
     render(<ExecutiveCockpit />)
-    expect(document.body.textContent).not.toMatch(/Partial data/i)
+    expect(screen.getByText("170")).toBeInTheDocument()
+    expect(screen.getByText("18")).toBeInTheDocument()
+    expect(screen.getByText("7")).toBeInTheDocument()
+    expect(screen.getByText(/No verified narrowing in the last 7 days/i)).toBeInTheDocument()
   })
 
-  it("REGRESSION: systems errors[] produce a PARTIAL feed, not READY", () => {
-    // The proxy preserves fan-out errors and returns 200 with the systems
-    // it did get. The cockpit's local type did not declare `errors`, so a
-    // partial estate read as complete and could be cached that way.
-    responses.set("/api/proxy/systems/with-families", {
-      systems: [{ name: "alon-prod" }, { name: "cyntro-demo" }],
-      errors: ["payment-production: 504", "default: 502"],
-    })
+  it("keeps lower-bound numbers visible under PARTIAL", () => {
+    payload = snapshot("PARTIAL")
     render(<ExecutiveCockpit />)
-    const text = document.body.textContent ?? ""
-    expect(text).toMatch(/Partial data/i)
-    expect(text).toMatch(/Business systems: partial/i)
-    expect(text).toMatch(/2 system fan-out calls failed/i)
+    expect(screen.getByText(/Analysis in progress/i)).toBeInTheDocument()
+    expect(screen.getByText("≥170")).toBeInTheDocument()
+    expect(screen.getByText("≥18")).toBeInTheDocument()
+    expect(screen.getByText(/1\/8 systems/i)).toBeInTheDocument()
   })
 
-  it("REGRESSION: the discovered count is a floor, not a total", () => {
-    responses.set("/api/proxy/systems/with-families", {
-      systems: [{ name: "alon-prod" }, { name: "cyntro-demo" }],
-      errors: ["payment-production: 504"],
-    })
+  it("labels a cached reading while transport recovers", () => {
+    staleReason = "backend recovering"
     render(<ExecutiveCockpit />)
-    const text = document.body.textContent ?? ""
-    expect(text).toMatch(/of at least 2 discovered/i)
-    expect(text).not.toMatch(/of 2 discovered business systems/i)
-  })
-
-  it("evidence errors[] also surface in the banner", () => {
-    responses.set("/api/proxy/evidence/coverage", {
-      accounts: [],
-      aggregate_confidence: 50,
-      health: { healthy: 0, degraded: 1, missing: 0, total: 1 },
-      errors: ["222233334444: AccessDenied"],
-    })
-    render(<ExecutiveCockpit />)
-    expect(document.body.textContent).toMatch(/Evidence health: partial/i)
-  })
-
-  it("a remediation failure envelope surfaces as unavailable", () => {
-    responses.set("/api/proxy/remediation-candidates?limit=50", {
-      candidates: [],
-      summary: { total_candidates: 0, by_type: {}, auto_applicable: 0, blocked: 0 },
-      error: "Failed to load remediation candidates",
-    })
-    render(<ExecutiveCockpit />)
-    const text = document.body.textContent ?? ""
-    expect(text).toMatch(/Proposed changes: unavailable/i)
-    expect(text).toMatch(/Failed to load remediation candidates/i)
+    expect(screen.getByText(/Backend recovering — showing the last verified snapshot/i)).toBeInTheDocument()
+    expect(screen.getByText(/mutations stay disabled/i)).toBeInTheDocument()
   })
 })

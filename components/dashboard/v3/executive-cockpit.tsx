@@ -1,194 +1,285 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
-import { Crown, GitBranch, Layers3, ShieldCheck } from "lucide-react"
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Crown,
+  GitBranch,
+  Radar,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import {
   RECOVERY_POLL_MS,
   STALE_BACKEND_RECOVERING,
   useCachedFetch,
 } from "@/lib/use-cached-fetch"
-import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
-import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
-import { deriveEvidenceIntegrity, isCacheableEvidence } from "@/lib/evidence-integrity"
-import { deriveSystemsIntegrity, isCacheableSystems } from "@/lib/systems-integrity"
-import { AttackPathsCard, type PathsResponse } from "./attack-paths-card"
-import { ExecutiveViewContext, StaleIndicator } from "./card-shell"
-import { DivergenceBanner } from "./divergence-banner"
-import { EvidenceHealthCardV3 } from "./evidence-health-card"
-import { NarrowingSummaryCard } from "./narrowing-summary-card"
 import {
-  CANDIDATES_REQUEST_LIMIT,
-  SafeRemediationsQueueCard,
-  type CandidatesResponse,
-} from "./safe-remediations-queue-card"
-import { TopSystemsCard } from "./top-systems-card"
+  isCacheableExecutiveSnapshot,
+  type ExecutiveCandidate,
+  type ExecutiveRisk,
+  type ExecutiveSnapshot,
+  type SnapshotServeState,
+} from "@/lib/executive-snapshot"
+import { ErrorCard, LoadingCard, StaleIndicator } from "./card-shell"
 import type { ReportReadiness, SourceReadiness } from "./management-report-drawer"
 
-/**
- * Executive cockpit — a parallel bento, not a vertical stack.
- *
- * The stacked layout gave every dataset equal weight and made a long
- * predictable scroll. This composes related views side by side so the page
- * has hierarchy: largest is material business risk, second is the decisions
- * to make, smaller is evidence confidence and progress, and technical
- * investigation lives in Operations.
- *
- * This is NOT pure layout. A prettier arrangement of broken cards is not an
- * improvement, and on 2026-08-02 this page served two simultaneous 502s. So
- * the cockpit also owns a presentation contract:
- *
- *   - ONE page-level data-status banner; per-card transport detail is
- *     suppressed via ExecutiveViewContext.
- *   - ONE refresh action, not a retry button per card.
- *   - Fixed row limits — five systems, three decisions, one path narrative.
- *   - Page-qualified counts are labelled as such, never as fleet totals.
- *
- * What it deliberately does NOT do is compose a cross-source narrative
- * sentence. Each feed is read independently and can be READY from a
- * different graph generation at a different time, so a combined claim can
- * be false while every input is individually honest. That needs the
- * governed snapshot first.
- */
-
-type SystemsResponse = {
-  systems?: Array<{ name?: string; SystemName?: string }>
-  /** Preserved by the proxy for fan-out calls that failed. Omitting it
-   *  here is what let a partial estate read as complete. */
-  errors?: string[]
-  error?: string
-}
-// PathsResponse / CandidatesResponse are imported from the cards that own
-// them. Declaring a second local shape per endpoint is how two readings of
-// one payload drift apart.
-
-function num(v: unknown): number | null {
-  return Number.isFinite(v as number) ? (v as number) : null
+function integer(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
-type Kpi = {
-  label: string
-  value: number | null
-  sub: string
-  icon: typeof Layers3
-  tone: string
-  unavailable: boolean
-  onClick?: () => void
+function lowerBound(value: number | null, lower: boolean): string {
+  if (value === null) return "—"
+  return `${lower ? "≥" : ""}${value.toLocaleString()}`
 }
 
-function KpiCell({ kpi }: { kpi: Kpi }) {
-  const Icon = kpi.icon
-  // A cell may not print a number and disclaim it in the same breath.
-  const shown = kpi.unavailable ? null : kpi.value
-  const body = (
-    <>
-      <span className={`grid h-8 w-8 place-items-center rounded-lg ${kpi.tone}`}>
-        <Icon className="h-4 w-4" strokeWidth={2.2} />
-      </span>
-      <div
-        className={`mt-3 text-3xl font-semibold tracking-[-0.04em] tabular-nums ${
-          shown === null ? "text-slate-300" : "text-slate-950"
-        }`}
-      >
-        {shown ?? "—"}
-      </div>
-      <div className="mt-1 text-sm font-semibold text-slate-800">{kpi.label}</div>
-      <div className="mt-0.5 text-xs leading-5 text-slate-500">
-        {kpi.unavailable ? "Not established — this is not a zero." : kpi.sub}
-      </div>
-    </>
-  )
-  if (!kpi.onClick) return <div className="min-w-0 px-4 py-4">{body}</div>
+function stateLabel(state: SnapshotServeState): "READY" | "PARTIAL" | "UNAVAILABLE" {
+  if (state === "READY") return "READY"
+  if (state === "PARTIAL") return "PARTIAL"
+  return "UNAVAILABLE"
+}
+
+function SnapshotStatus({ data, recovering }: { data: ExecutiveSnapshot; recovering: boolean }) {
+  const material = data.material_risk
+  const scanned = integer(material.systems_scanned)
+  const discovered = integer(material.systems_discovered)
+  const coverage = scanned !== null && discovered !== null && discovered > 0
+    ? Math.min(100, Math.round((scanned / discovered) * 100))
+    : null
+
+  if (data.serve_state === "READY" && !recovering) return null
+
   return (
-    <button
-      type="button"
-      onClick={kpi.onClick}
-      className="min-w-0 px-4 py-4 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500"
-    >
-      {body}
-    </button>
-  )
-}
-
-function DataStatusBanner({
-  sources,
-  recovering,
-}: {
-  sources: SourceReadiness[]
-  /** Any feed is re-presenting its last verified reading because the backend
-   *  is unreachable (deploy restart, cold start, 5xx). Distinct from a feed
-   *  that genuinely has nothing. */
-  recovering?: boolean
-}) {
-  const bad = sources.filter((s) => s.state !== "READY")
-  // The primary recovery scenario is EVERY feed holding a cached READY while
-  // the backend 504s. `bad` is then empty, so an early return on that alone
-  // silently showed old numbers with no warning at all — strictly worse than
-  // the blank page it replaced, because it looks current. Only bail when
-  // there is nothing to report on EITHER axis.
-  if (bad.length === 0 && !recovering) return null
-
-  // "Recovering" and "unavailable" are different facts and reading them as
-  // the same one is what made the 2026-08-03 deploy window look like data
-  // loss. Recovering means: we have a verified reading, the backend is
-  // briefly unreachable, a retry is already in flight, and this heals itself.
-  // They can also be true AT ONCE — one feed 504ing while another is
-  // semantically PARTIAL — so the recovering line never replaces the
-  // per-feed list, it precedes it.
-  return (
-    <div
-      className={
-        recovering
-          ? "rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-3"
-          : "rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3"
-      }
-    >
-      <div
-        className={
-          recovering
-            ? "text-sm font-semibold text-sky-900"
-            : "text-sm font-semibold text-amber-900"
-        }
-      >
-        {recovering
-          ? "Backend recovering — showing the last verified reading"
-          : `Partial data — ${bad.length} of ${sources.length} feeds are not current`}
-      </div>
-      {/* A recovering feed must not hide a simultaneous semantic PARTIAL:
-          different causes, different remedies. Both get said. */}
-      {recovering && bad.length > 0 ? (
-        <div className="mt-1 text-xs font-medium text-sky-900">
-          Separately, {bad.length} of {sources.length} feed
-          {bad.length === 1 ? "" : "s"} {bad.length === 1 ? "is" : "are"} not
-          current for its own reason:
+    <div className={`rounded-xl border px-4 py-3 ${
+      recovering
+        ? "border-sky-200 bg-sky-50 text-sky-900"
+        : "border-amber-200 bg-amber-50 text-amber-950"
+    }`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <AlertTriangle className="h-4 w-4" />
+          {recovering
+            ? "Backend recovering — showing the last verified snapshot"
+            : data.serve_state === "PARTIAL"
+              ? "Analysis in progress — figures are lower bounds"
+              : "Executive risk reading is not ready"}
         </div>
-      ) : null}
-      <ul
-        className={
-          recovering
-            ? "mt-1 space-y-0.5 text-xs leading-5 text-sky-800"
-            : "mt-1 space-y-0.5 text-xs leading-5 text-amber-800"
-        }
-      >
-        {bad.map((s) => (
-          <li key={s.label}>
-            · {s.label}: {s.state.toLowerCase()}
-            {s.detail ? ` — ${s.detail}` : ""}
-          </li>
-        ))}
-      </ul>
-      <p
-        className={
-          recovering
-            ? "mt-1.5 text-xs text-sky-800"
-            : "mt-1.5 text-xs text-amber-800"
-        }
-      >
+        {coverage !== null ? (
+          <div className="flex items-center gap-2 text-xs font-semibold tabular-nums">
+            <div className="h-1.5 w-28 overflow-hidden rounded-full bg-black/10">
+              <div className="h-full rounded-full bg-current" style={{ width: `${coverage}%` }} />
+            </div>
+            {scanned}/{discovered} systems
+          </div>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs opacity-80">
         {recovering
-          ? "Retrying automatically. Values shown were verified earlier — they are not live. Actions stay disabled until the reading is current."
-          : "Figures below cover only what was read. Absent values render as “—”, never as zero."}
+          ? "The reading remains useful but is not current. All mutations stay disabled until the backend responds."
+          : material.reason || "Cyntro will update this brief as graph-backed sections finish."}
       </p>
     </div>
+  )
+}
+
+function Kpi({
+  icon: Icon,
+  value,
+  label,
+  detail,
+  tone,
+  lower,
+  onClick,
+}: {
+  icon: typeof Crown
+  value: number | null
+  label: string
+  detail: string
+  tone: string
+  lower?: boolean
+  onClick?: () => void
+}) {
+  const content = (
+    <>
+      <div className={`grid h-9 w-9 place-items-center rounded-xl ${tone}`}>
+        <Icon className="h-[18px] w-[18px]" strokeWidth={2.2} />
+      </div>
+      <div className="mt-4 text-[34px] font-semibold leading-none tracking-[-0.055em] text-slate-950 tabular-nums">
+        {lowerBound(value, lower === true)}
+      </div>
+      <div className="mt-2 text-sm font-semibold text-slate-900">{label}</div>
+      <div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div>
+    </>
+  )
+  const className = "min-w-0 px-5 py-5 text-left"
+  return onClick ? (
+    <button type="button" onClick={onClick} className={`${className} transition hover:bg-slate-50`}>
+      {content}
+    </button>
+  ) : <div className={className}>{content}</div>
+}
+
+function RiskTable({ risks }: { risks: ExecutiveRisk[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_38px_rgba(15,23,42,0.05)]">
+      <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-400">Top material risks</div>
+          <p className="mt-1 text-sm text-slate-600">Crown jewels with the highest graph-backed path priority</p>
+        </div>
+        <Radar className="h-5 w-5 text-rose-500" />
+      </header>
+      {risks.length === 0 ? (
+        <div className="px-5 py-8 text-sm text-slate-600">
+          No ranked targets are available in this snapshot. This is not an all-clear.
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {risks.map((risk, index) => (
+            <div key={risk.id || `${risk.name}-${index}`} className="grid grid-cols-[32px_minmax(0,1fr)_90px_80px] items-center gap-3 px-5 py-3.5">
+              <div className="text-xs font-semibold text-slate-400">{String(index + 1).padStart(2, "0")}</div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-900">{risk.name || "Unnamed target"}</div>
+                <div className="mt-0.5 truncate text-xs text-slate-500">
+                  {risk.system_name || risk.system_names?.join(", ") || "System attribution unavailable"} · {risk.resource_type || "resource"}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-semibold tabular-nums text-slate-900">{integer(risk.path_count)?.toLocaleString() ?? "—"}</div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">paths</div>
+              </div>
+              <div className="text-right">
+                <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                  risk.severity === "CRITICAL"
+                    ? "bg-rose-100 text-rose-700"
+                    : risk.severity === "HIGH"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-slate-100 text-slate-600"
+                }`}>
+                  {risk.severity || "unrated"}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CandidateList({ candidates, held }: { candidates: ExecutiveCandidate[]; held: number | null }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_38px_rgba(15,23,42,0.05)]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-400">What Cyntro recommends</div>
+          <p className="mt-1 text-sm text-slate-600">Prioritized changes; execution remains gated</p>
+        </div>
+        <Sparkles className="h-5 w-5 text-violet-500" />
+      </div>
+      <div className="mt-4 space-y-2.5">
+        {candidates.length === 0 ? (
+          <div className="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-600">
+            No candidate rows are available in the current snapshot.
+          </div>
+        ) : candidates.slice(0, 4).map((candidate, index) => (
+          <div key={`${candidate.resource_type}-${candidate.resource_id}-${index}`} className="rounded-xl border border-slate-100 px-3.5 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-900">{candidate.resource_id || "Unnamed resource"}</div>
+                <div className="mt-0.5 text-xs text-slate-500">{candidate.resource_type || "Resource"} · {candidate.system || "System unknown"}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                candidate.can_auto_apply ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+              }`}>
+                {candidate.can_auto_apply ? "ready" : "held"}
+              </span>
+            </div>
+            {candidate.unused_count !== null && candidate.unused_count !== undefined ? (
+              <div className="mt-2 text-xs text-slate-600">
+                {candidate.unused_count} unused of {candidate.total_permissions ?? "—"} permissions
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {held !== null && held > 0 ? (
+        <p className="mt-3 text-xs text-slate-500">{held} additional candidate{held === 1 ? " is" : "s are"} held by evidence or safety gates.</p>
+      ) : null}
+    </section>
+  )
+}
+
+function EvidencePanel({ evidence }: { evidence: ExecutiveSnapshot["evidence"] }) {
+  const healthy = integer(evidence.healthy)
+  const degraded = integer(evidence.degraded)
+  const missing = integer(evidence.missing)
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_38px_rgba(15,23,42,0.05)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-400">Evidence readiness</div>
+          <p className="mt-1 text-sm text-slate-600">What strengthens or blocks a decision</p>
+        </div>
+        <ShieldCheck className="h-5 w-5 text-sky-500" />
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        {[
+          ["Healthy", healthy, "text-emerald-700 bg-emerald-50"],
+          ["Degraded", degraded, "text-amber-700 bg-amber-50"],
+          ["Missing", missing, "text-rose-700 bg-rose-50"],
+        ].map(([label, value, tone]) => (
+          <div key={String(label)} className={`rounded-xl px-3 py-3 ${tone}`}>
+            <div className="text-xl font-semibold tabular-nums">{typeof value === "number" ? value : "—"}</div>
+            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide">{label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 space-y-2">
+        {(evidence.top_blockers || []).slice(0, 3).map((blocker) => (
+          <div key={`${blocker.source_type}-${blocker.reason}`} className="flex items-center justify-between gap-3 text-xs">
+            <div className="min-w-0 truncate text-slate-600">{blocker.source_type.replaceAll("_", " ")} · {blocker.reason.replaceAll("_", " ")}</div>
+            <div className="font-semibold tabular-nums text-slate-900">{blocker.count}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function OutcomePanel({ outcomes }: { outcomes: ExecutiveSnapshot["outcomes"] }) {
+  const windowDays = integer(outcomes.window_days)
+  const removed = integer(outcomes.permissions_removed)
+  const events = integer(outcomes.events_count)
+  const rollbacks = integer(outcomes.rollbacks_count)
+  const hasProgress = removed !== null && events !== null && (removed > 0 || events > 0)
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_38px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-400">Verified improvement</div>
+          <p className="mt-1 text-sm text-slate-600">Graph-recorded remediation outcomes</p>
+        </div>
+        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+      </div>
+      {windowDays === null || removed === null || events === null ? (
+        <div className="mt-5 text-sm text-slate-600">Outcome history is not available in this snapshot.</div>
+      ) : hasProgress ? (
+        <div className="mt-5">
+          <div className="text-3xl font-semibold tracking-[-0.05em] text-slate-950 tabular-nums">−{removed}</div>
+          <div className="mt-1 text-sm text-slate-600">permissions removed across {events} verified action{events === 1 ? "" : "s"}</div>
+          {rollbacks ? <div className="mt-2 text-xs text-amber-700">{rollbacks} rollback{rollbacks === 1 ? "" : "s"} in the same window</div> : null}
+        </div>
+      ) : (
+        <div className="mt-5 rounded-xl bg-slate-50 px-4 py-4">
+          <div className="text-sm font-semibold text-slate-800">No verified narrowing in the last {windowDays} days</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">This is a measured zero from remediation history, not a missing reading.</div>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -197,247 +288,103 @@ export function ExecutiveCockpit({
   onReadiness,
 }: {
   onNavigateToSection?: (id: string) => void
-  /** Lifts source readiness to the shell so the report drawer describes the
-   *  SAME reading that is on screen, rather than fetching its own copies. */
   onReadiness?: (r: ReportReadiness) => void
 }) {
   const router = useRouter()
-
-  const systems = useCachedFetch<SystemsResponse>("/api/proxy/systems/with-families", {
-    cacheKey: "ciso-brief-systems",
-    fetchInit: { cache: "no-store" },
-    transientRetries: 2,
-    failClosedOnError: true,
-    autoRetryMs: RECOVERY_POLL_MS,
-    isCacheable: isCacheableSystems,
-  })
-  const paths = useCachedFetch<PathsResponse>("/api/proxy/identity-attack-paths/all", {
-    cacheKey: "ciso-brief-paths",
-    maxStaleMs: 60 * 60 * 1000,
-    fetchInit: { cache: "no-store" },
-    transientRetries: 2,
-    failClosedOnError: true,
-    autoRetryMs: RECOVERY_POLL_MS,
-    isCacheable: isCacheablePaths,
-  })
-  const remediations = useCachedFetch<CandidatesResponse>(
-    `/api/proxy/remediation-candidates?limit=${CANDIDATES_REQUEST_LIMIT}`,
+  const snapshot = useCachedFetch<ExecutiveSnapshot>(
+    "/api/proxy/dashboard/executive-snapshot",
     {
-      cacheKey: "ciso-brief-remediations",
+      cacheKey: "dashboard-executive-snapshot-v1",
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
       transientRetries: 2,
       failClosedOnError: true,
-    autoRetryMs: RECOVERY_POLL_MS,
-      isCacheable: isCacheableCandidates,
+      autoRetryMs: RECOVERY_POLL_MS,
+      isCacheable: isCacheableExecutiveSnapshot,
     },
   )
 
-  // Every panel the cockpit RENDERS is read here, so the management report
-  // can vouch for all of them. Tracking only three while rendering five let
-  // the drawer say "3 of 3 feeds ready" with a panel unavailable on screen.
-  const evidence = useCachedFetch<any>("/api/proxy/evidence/coverage", {
-    cacheKey: "evidence-coverage",
-    fetchInit: { cache: "no-store" },
-    transientRetries: 2,
-    failClosedOnError: true,
-    autoRetryMs: RECOVERY_POLL_MS,
-    isCacheable: isCacheableEvidence,
-  })
-  const outcomes = useCachedFetch<any>(
-    "/api/proxy/remediation-history/narrowing-summary?days=7",
-    {
-      cacheKey: "narrowing-summary-7d",
-      fetchInit: { cache: "no-store" },
-      transientRetries: 2,
-      failClosedOnError: true,
-    autoRetryMs: RECOVERY_POLL_MS,
-    },
-  )
+  const data = snapshot.data
+  const sources: SourceReadiness[] = useMemo(() => data ? [
+    { label: "Material risk", state: stateLabel(data.material_risk.serve_state), detail: data.material_risk.reason || null, cachedAt: snapshot.cachedAt },
+    { label: "Proposed changes", state: stateLabel(data.remediation.serve_state), cachedAt: snapshot.cachedAt },
+    { label: "Evidence readiness", state: stateLabel(data.evidence.serve_state), detail: data.evidence.reason || null, cachedAt: snapshot.cachedAt },
+    { label: "Verified outcomes", state: stateLabel(data.outcomes.serve_state), cachedAt: snapshot.cachedAt },
+  ] : [], [data, snapshot.cachedAt])
 
-  const pathsIntegrity = derivePathsIntegrity(paths.data)
-  const remIntegrity = deriveCandidatesIntegrity(remediations.data)
-  // True when ANY feed is re-presenting a verified reading because the backend
-  // is unreachable. Drives the banner's recovering vs unavailable wording —
-  // and only that. It must never re-enable an action: staleness still gates
-  // mutations exactly as before.
-  const backendRecovering = [systems, paths, remediations, evidence, outcomes].some(
-    (f) => f.staleReason === STALE_BACKEND_RECOVERING,
-  )
-
-  const evidenceIntegrity = deriveEvidenceIntegrity(evidence.data)
-  const systemsIntegrity = deriveSystemsIntegrity(systems.data)
-  const pathsDown = !paths.data || pathsIntegrity.state !== "READY"
-  const remDown = remIntegrity.state !== "READY"
-
-  const jewelSystems =
-    paths.data?.crown_jewels && pathsIntegrity.state === "READY"
-      ? new Set(paths.data.crown_jewels.map((j) => j.system_name).filter(Boolean)).size
-      : null
-
-  const ready = num(remediations.data?.summary?.auto_applicable)
-  const held = num(remediations.data?.summary?.blocked)
-  const jewels = num(paths.data?.total_jewels)
-  const exposed = num(paths.data?.exposed_jewels)
-  const totalPaths = num(paths.data?.total_paths)
-
-  const sources: SourceReadiness[] = useMemo(() => [
-    {
-      label: "Business systems",
-      state: systemsIntegrity.state,
-      detail: systemsIntegrity.reason,
-      cachedAt: systems.cachedAt,
-    },
-    {
-      label: "Attack paths",
-      state: !paths.data
-        ? "UNAVAILABLE"
-        : pathsIntegrity.state === "READY"
-          ? "READY"
-          : pathsIntegrity.state === "PARTIAL"
-            ? "PARTIAL"
-            : "UNAVAILABLE",
-      detail: pathsIntegrity.state === "READY" ? null : pathsIntegrity.reason,
-      cachedAt: paths.cachedAt,
-    },
-    {
-      label: "Proposed changes",
-      state: remIntegrity.state,
-      detail: remIntegrity.reason,
-      cachedAt: remediations.cachedAt,
-    },
-    {
-      // errors[] means accounts we could not read. Their evidence is absent
-      // from every downstream number, so coverage is PARTIAL, not complete —
-      // the report said "5 of 5 ready" while the card said a fetch failed.
-      label: "Evidence health",
-      state: evidenceIntegrity.state,
-      detail: evidenceIntegrity.reason,
-      cachedAt: evidence.cachedAt,
-    },
-    {
-      label: "Verified outcomes",
-      state: outcomes.data ? "READY" : "UNAVAILABLE",
-      cachedAt: outcomes.cachedAt,
-    },
-  ], [systems.data, systems.cachedAt, systemsIntegrity.state,
-      systemsIntegrity.reason, paths.data, paths.cachedAt,
-      remediations.data, remediations.cachedAt, pathsIntegrity.state,
-      pathsIntegrity.reason, remIntegrity.state, remIntegrity.reason,
-      evidence.data, evidence.cachedAt, evidenceIntegrity.state,
-      evidenceIntegrity.reason, outcomes.data, outcomes.cachedAt])
-
-  const scope = !systems.data
-    ? "scope unavailable"
-    : systemsIntegrity.countIsPartial
-      ? `at least ${(systems.data.systems ?? []).length} discovered business systems (partial)`
-      : `${(systems.data.systems ?? []).length} discovered business systems`
-
-  // The report drawer must describe THIS reading, not fetch its own copies —
-  // a drawer with independent fetches would report a different reading of the
-  // estate than the one on screen. Lifted in an effect: calling the parent's
-  // setter during render re-renders the parent mid-render and loops.
   useEffect(() => {
-    onReadiness?.({ scope, sources, generation: null })
-  }, [onReadiness, scope, sources])
+    if (!data) return
+    const discovered = integer(data.material_risk.systems_discovered)
+    const scanned = integer(data.material_risk.systems_scanned)
+    onReadiness?.({
+      scope: discovered === null
+        ? "scope unavailable"
+        : scanned === null
+          ? `analysis coverage unavailable across ${discovered} business systems`
+          : `${scanned} of ${discovered} business systems analyzed`,
+      sources,
+      generation: null,
+    })
+  }, [data, onReadiness, sources])
 
-  const kpis: Kpi[] = [
-    {
-      label: "Systems requiring attention",
-      value: jewelSystems,
-      sub: !systems.data
-        ? "Behaviorally discovered boundaries"
-        : systemsIntegrity.countIsPartial
-          ? `of at least ${(systems.data.systems ?? []).length} discovered — ${systemsIntegrity.reason}`
-          : `of ${(systems.data.systems ?? []).length} discovered business systems`,
-      icon: Layers3,
-      tone: "bg-violet-100 text-violet-700",
-      unavailable: pathsDown,
-      onClick: () => router.push("/business-systems"),
-    },
-    {
-      label: "Reachable crown jewels",
-      value: jewels,
-      sub:
-        exposed === null
-          ? "Internet exposure unknown"
-          : `${exposed} reachable from an external entry point`,
-      icon: Crown,
-      tone: "bg-amber-100 text-amber-700",
-      unavailable: pathsDown,
-      onClick: () => onNavigateToSection?.("attack-paths"),
-    },
-    {
-      label: "Viable attack paths",
-      value: totalPaths,
-      sub: "Materially distinct attacker routes",
-      icon: GitBranch,
-      tone: "bg-rose-100 text-rose-700",
-      unavailable: pathsDown,
-      onClick: () => onNavigateToSection?.("attack-paths"),
-    },
-    {
-      label: "Proposed changes",
-      value: ready,
-      sub:
-        held === null
-          ? "Held count unavailable"
-          : `${held} held by an evidence or safety gate · execution disabled`,
-      icon: ShieldCheck,
-      tone: "bg-emerald-100 text-emerald-700",
-      unavailable: remDown,
-      onClick: () => onNavigateToSection?.("least-privilege"),
-    },
-  ]
+  if (snapshot.loading && !data) return <LoadingCard label="Cloud risk and remediation overview" />
+  if ((snapshot.error || !data) && !data) {
+    return <ErrorCard label="Cloud risk and remediation overview" error={snapshot.error || "Executive snapshot unavailable"} onRetry={snapshot.retry} />
+  }
+  if (!data) return null
 
-  const staleSources = [systems, paths, remediations].filter((s) => s.isStale)
-  const oldestCache = staleSources.reduce<number | null>((oldest, s) => {
-    if (s.cachedAt === null) return oldest
-    return oldest === null ? s.cachedAt : Math.min(oldest, s.cachedAt)
-  }, null)
+  const recovering = snapshot.staleReason === STALE_BACKEND_RECOVERING
+  const material = data.material_risk
+  const lower = material.counts_are_lower_bounds === true
+  const ready = integer(data.remediation.ready_on_page)
+  const held = integer(data.remediation.held_on_page)
 
   return (
-    <ExecutiveViewContext.Provider value={true}>
-      <div className="flex flex-col gap-5">
-        <DataStatusBanner sources={sources} recovering={backendRecovering} />
-        <DivergenceBanner />
+    <div className="flex flex-col gap-5">
+      <SnapshotStatus data={data} recovering={recovering} />
 
-        {/* KPI row — four across, one row. */}
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_45px_rgba(15,23,42,0.06)]">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Material risk
-            </span>
-            <StaleIndicator cachedAt={oldestCache} isStale={staleSources.length > 0} />
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 px-6 py-7 text-white shadow-[0_22px_60px_rgba(15,23,42,0.18)] sm:px-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_10%,rgba(139,92,246,0.28),transparent_36%),radial-gradient(circle_at_10%_90%,rgba(14,165,233,0.18),transparent_32%)]" />
+        <div className="relative max-w-4xl">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-200">
+            <Sparkles className="h-3.5 w-3.5" /> Executive risk brief
           </div>
-          <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
-            {kpis.map((k) => (
-              <KpiCell key={k.label} kpi={k} />
-            ))}
-          </div>
-        </section>
-
-        {/* Bento: services table two-thirds, decisions + trust stacked beside. */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-          <div className="lg:col-span-8">
-            <TopSystemsCard limit={5} shared={systems} />
-          </div>
-          <div className="flex flex-col gap-5 lg:col-span-4">
-            <SafeRemediationsQueueCard limit={3} shared={remediations} />
-            <EvidenceHealthCardV3 shared={evidence} />
+          <h2 className="mt-3 text-2xl font-semibold tracking-[-0.035em] sm:text-3xl">{data.narrative.title}</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300 sm:text-base">{data.narrative.body}</p>
+          <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+            <span>Neo4j graph snapshot</span><span>·</span>
+            <span>{new Date(data.computed_at).toLocaleString()}</span>
+            <StaleIndicator cachedAt={snapshot.cachedAt} isStale={snapshot.isStale} />
           </div>
         </div>
+      </section>
 
-        {/* Highest-impact path beside verified outcomes. */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-          <div className="lg:col-span-8">
-            <AttackPathsCard onNavigateToSection={onNavigateToSection} limit={1} shared={paths} />
-          </div>
-          <div className="lg:col-span-4">
-            <NarrowingSummaryCard shared={outcomes} />
-          </div>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_38px_rgba(15,23,42,0.05)]">
+        <div className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+          <Kpi icon={GitBranch} value={integer(material.attack_paths)} lower={lower} label="Attack paths" detail={lower ? "Confirmed in analyzed systems" : "Across the analyzed estate"} tone="bg-rose-100 text-rose-700" onClick={() => onNavigateToSection?.("attack-paths")} />
+          <Kpi icon={Crown} value={integer(material.crown_jewels)} lower={lower} label="Crown jewels reached" detail={`${integer(material.externally_exposed_jewels) ?? "—"} externally exposed`} tone="bg-amber-100 text-amber-700" onClick={() => onNavigateToSection?.("attack-paths")} />
+          <Kpi icon={AlertTriangle} value={integer(material.high_risk_targets)} lower={lower} label="High-risk targets" detail="Targets whose highest path is high risk" tone="bg-violet-100 text-violet-700" onClick={() => router.push("/resource-risk")} />
+          <Kpi icon={ShieldCheck} value={ready} label="Proposed changes" detail={ready === null ? "Candidate analysis unavailable" : held === null ? "Held count unavailable · execution disabled" : `${held} held on the reviewed page · execution disabled`} tone="bg-emerald-100 text-emerald-700" onClick={() => onNavigateToSection?.("least-privilege")} />
         </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <div className="lg:col-span-8"><RiskTable risks={material.top_risks || []} /></div>
+        <div className="lg:col-span-4"><CandidateList candidates={data.remediation.top_candidates || []} held={held} /></div>
       </div>
-    </ExecutiveViewContext.Provider>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <EvidencePanel evidence={data.evidence} />
+        <OutcomePanel outcomes={data.outcomes} />
+      </div>
+
+      <button type="button" onClick={() => onNavigateToSection?.("attack-paths")} className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left transition hover:border-slate-300 hover:shadow-sm">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Investigate the attacker story</div>
+          <div className="mt-0.5 text-xs text-slate-500">Open Current Access, Lateral Movement and Exfiltration evidence for a selected path.</div>
+        </div>
+        <ArrowRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700" />
+      </button>
+    </div>
   )
 }
