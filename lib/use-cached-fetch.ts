@@ -96,7 +96,16 @@ export interface UseCachedFetchOptions {
   /**
    * Poll interval (ms) while the last attempt failed on TRANSPORT. Lets a
    * page recover on its own once the backend comes back, instead of sitting
-   * on "unavailable" until someone hits Refresh or remounts. 0 disables.
+   * on "unavailable" until someone hits Refresh or remounts.
+   *
+   * DEFAULT 0 — OFF. This hook has ~52 call sites; defaulting it on would
+   * turn every outage into a synchronised retry storm from every mounted
+   * card against the one backend that is already struggling. Opt in per
+   * surface, and only where a human is actually watching the screen.
+   *
+   * Jitter is applied so N cards enabling it do not align into a thundering
+   * herd, and polling suspends while the tab is hidden or the browser is
+   * offline — nobody is reading it, and an offline retry cannot succeed.
    */
   autoRetryMs?: number
 }
@@ -143,9 +152,10 @@ export const STALE_BACKEND_RECOVERING = "backend recovering"
 /** The cached reading is simply older than `maxStaleMs`. */
 export const STALE_AGED_OUT = "cached reading"
 
-/** Default auto-retry cadence while transport is failing. Deploy windows are
- *  tens of seconds; 12s recovers promptly without hammering a cold instance. */
-const DEFAULT_AUTO_RETRY_MS = 12_000
+/** Suggested cadence for surfaces that opt in. Deploy windows are tens of
+ *  seconds; 12s recovers promptly without hammering a cold instance. Exported
+ *  so the handful of opted-in surfaces share one number instead of drifting. */
+export const RECOVERY_POLL_MS = 12_000
 
 // Defensive render-time filter against the specific phantom-edge class
 // surfaced by the backend verify-gate (2026-05-29 dep_map_full step-10
@@ -305,7 +315,7 @@ export function useCachedFetch<T = unknown>(
     transientRetries = 0,
     isCacheable,
     failClosedOnError = false,
-    autoRetryMs = DEFAULT_AUTO_RETRY_MS,
+    autoRetryMs = 0,
   } = options
 
   // Synchronous initial read so the first paint renders cached data
@@ -353,11 +363,25 @@ export function useCachedFetch<T = unknown>(
   const scheduleAutoRetry = useCallback(() => {
     if (!autoRetryMs || autoRetryMs <= 0) return
     if (retryTimerRef.current !== null) return // one timer in flight, not N
+    // ±25% jitter so several opted-in cards do not align into a herd that
+    // hits a recovering backend in lockstep every N seconds.
+    const jittered = autoRetryMs * (0.75 + Math.random() * 0.5)
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null
+      // Nobody is looking at a hidden tab, and an offline retry cannot
+      // succeed — reschedule instead of spending the request.
+      if (
+        (typeof document !== "undefined" && document.visibilityState === "hidden") ||
+        (typeof navigator !== "undefined" && navigator.onLine === false)
+      ) {
+        scheduleAutoRetryRef.current?.()
+        return
+      }
       fetchFreshRef.current?.()
-    }, autoRetryMs)
+    }, jittered)
   }, [autoRetryMs])
+  const scheduleAutoRetryRef = useRef<(() => void) | null>(null)
+  scheduleAutoRetryRef.current = scheduleAutoRetry
 
   // Re-sync rendered state when `cacheKey` changes mid-mount — e.g. the
   // estate map's VPC scope picker swaps to a different scoped key, or a
@@ -541,6 +565,32 @@ export function useCachedFetch<T = unknown>(
         setError(null)
         setLoading(false)
         return
+      }
+      // (#4) `isCacheable` is the caller's "may this stand as a reading".
+      // Evaluate it BEFORE promoting into current state, not only before
+      // persisting. Previously a 200 carrying an error envelope was assigned
+      // to `data` and rendered as current — it just wasn't written to
+      // localStorage, so the contract said "discarded" while the screen said
+      // otherwise. Prefer a valid cached reading, clearly marked stale; fall
+      // through to rendering the rejected payload only when we have nothing
+      // else, so honest NOT_READY / "analysis unavailable" states still show.
+      if (isCacheable && !isCacheable(sanitized)) {
+        const kept =
+          (data != null && isCacheable(data)
+            ? { data, ts: cachedAt ?? Date.now() }
+            : null) ?? readCacheAny<T>(cacheKey, isCacheable)
+        clearCachedFetch(cacheKey)
+        if (kept?.data) {
+          setData(kept.data)
+          setIsStale(true)
+          setCachedAt(kept.ts)
+          setStaleReason(STALE_AGED_OUT)
+          setIsComputing(false)
+          setError(null)
+          setLoading(false)
+          clearAutoRetry()
+          return
+        }
       }
       setData(sanitized)
       setIsComputing(false)

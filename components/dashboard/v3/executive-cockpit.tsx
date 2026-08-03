@@ -3,7 +3,11 @@
 import { useEffect, useMemo } from "react"
 import { Crown, GitBranch, Layers3, ShieldCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { STALE_BACKEND_RECOVERING, useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  RECOVERY_POLL_MS,
+  STALE_BACKEND_RECOVERING,
+  useCachedFetch,
+} from "@/lib/use-cached-fetch"
 import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
 import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { deriveEvidenceIntegrity, isCacheableEvidence } from "@/lib/evidence-integrity"
@@ -117,12 +121,20 @@ function DataStatusBanner({
   recovering?: boolean
 }) {
   const bad = sources.filter((s) => s.state !== "READY")
-  if (bad.length === 0) return null
+  // The primary recovery scenario is EVERY feed holding a cached READY while
+  // the backend 504s. `bad` is then empty, so an early return on that alone
+  // silently showed old numbers with no warning at all — strictly worse than
+  // the blank page it replaced, because it looks current. Only bail when
+  // there is nothing to report on EITHER axis.
+  if (bad.length === 0 && !recovering) return null
 
   // "Recovering" and "unavailable" are different facts and reading them as
   // the same one is what made the 2026-08-03 deploy window look like data
   // loss. Recovering means: we have a verified reading, the backend is
   // briefly unreachable, a retry is already in flight, and this heals itself.
+  // They can also be true AT ONCE — one feed 504ing while another is
+  // semantically PARTIAL — so the recovering line never replaces the
+  // per-feed list, it precedes it.
   return (
     <div
       className={
@@ -142,6 +154,15 @@ function DataStatusBanner({
           ? "Backend recovering — showing the last verified reading"
           : `Partial data — ${bad.length} of ${sources.length} feeds are not current`}
       </div>
+      {/* A recovering feed must not hide a simultaneous semantic PARTIAL:
+          different causes, different remedies. Both get said. */}
+      {recovering && bad.length > 0 ? (
+        <div className="mt-1 text-xs font-medium text-sky-900">
+          Separately, {bad.length} of {sources.length} feed
+          {bad.length === 1 ? "" : "s"} {bad.length === 1 ? "is" : "are"} not
+          current for its own reason:
+        </div>
+      ) : null}
       <ul
         className={
           recovering
@@ -187,6 +208,7 @@ export function ExecutiveCockpit({
     fetchInit: { cache: "no-store" },
     transientRetries: 2,
     failClosedOnError: true,
+    autoRetryMs: RECOVERY_POLL_MS,
     isCacheable: isCacheableSystems,
   })
   const paths = useCachedFetch<PathsResponse>("/api/proxy/identity-attack-paths/all", {
@@ -195,6 +217,7 @@ export function ExecutiveCockpit({
     fetchInit: { cache: "no-store" },
     transientRetries: 2,
     failClosedOnError: true,
+    autoRetryMs: RECOVERY_POLL_MS,
     isCacheable: isCacheablePaths,
   })
   const remediations = useCachedFetch<CandidatesResponse>(
@@ -205,6 +228,7 @@ export function ExecutiveCockpit({
       fetchInit: { cache: "no-store" },
       transientRetries: 2,
       failClosedOnError: true,
+    autoRetryMs: RECOVERY_POLL_MS,
       isCacheable: isCacheableCandidates,
     },
   )
@@ -217,6 +241,7 @@ export function ExecutiveCockpit({
     fetchInit: { cache: "no-store" },
     transientRetries: 2,
     failClosedOnError: true,
+    autoRetryMs: RECOVERY_POLL_MS,
     isCacheable: isCacheableEvidence,
   })
   const outcomes = useCachedFetch<any>(
@@ -226,6 +251,7 @@ export function ExecutiveCockpit({
       fetchInit: { cache: "no-store" },
       transientRetries: 2,
       failClosedOnError: true,
+    autoRetryMs: RECOVERY_POLL_MS,
     },
   )
 

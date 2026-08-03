@@ -20,6 +20,7 @@ vi.mock("@/lib/use-cached-fetch", () => ({
   // rather than silently rendering the wrong banner.
   STALE_BACKEND_RECOVERING: "backend recovering",
   STALE_AGED_OUT: "cached reading",
+  RECOVERY_POLL_MS: 12000,
   useCachedFetch: (url: string | null) => ({
     data: url ? (responses.get(url) ?? null) : null,
     isStale: false,
