@@ -37,8 +37,40 @@ function severityTone(value?: string | null): string {
   return "bg-slate-100 text-slate-600"
 }
 
+export function shouldShowGlobalStateBanner(
+  data: SystemExecutiveSnapshot,
+  recovering: boolean,
+): boolean {
+  if (recovering) return true
+  if (data.serve_state === "READY") return false
+
+  const coreSectionsReady = [
+    data.material_risk,
+    data.resource_risk,
+    data.evidence,
+    data.outcomes,
+    data.context,
+  ].every((section) => section.serve_state === "READY")
+  const remediationReviewOnly =
+    data.serve_state === "PARTIAL" &&
+    data.remediation.serve_state === "PARTIAL" &&
+    (data.remediation.top_candidates?.length || 0) > 0
+
+  return !(coreSectionsReady && remediationReviewOnly)
+}
+
+export function proposedChangeCount(
+  remediation: SystemExecutiveSnapshot["remediation"],
+): number | null {
+  const returned = finite(remediation.returned_count)
+  if (returned !== null) return returned
+  const ready = finite(remediation.ready_on_page)
+  const held = finite(remediation.held_on_page)
+  return ready !== null && held !== null ? ready + held : null
+}
+
 function StateBanner({ data, recovering }: { data: SystemExecutiveSnapshot; recovering: boolean }) {
-  if (data.serve_state === "READY" && !recovering) return null
+  if (!shouldShowGlobalStateBanner(data, recovering)) return null
   return (
     <div className={`rounded-xl border px-4 py-3 ${recovering ? "border-sky-200 bg-sky-50 text-sky-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
       <div className="flex items-center gap-2 text-sm font-semibold">
@@ -212,6 +244,9 @@ export function SystemExecutiveOverview({
   const paths = material.top_paths || []
   const candidates = remediation.top_candidates || []
   const families = Object.entries(context.resource_families || {})
+  const changes = proposedChangeCount(remediation)
+  const readyChanges = finite(remediation.ready_on_page)
+  const heldChanges = finite(remediation.held_on_page)
 
   return (
     <div className="mx-auto flex max-w-[1800px] flex-col gap-5 px-8 py-6" data-testid="system-executive-overview">
@@ -236,7 +271,7 @@ export function SystemExecutiveOverview({
           <Metric icon={GitBranch} value={finite(material.attack_paths)} label="Attack paths" detail="Verified routes in this system" tone="bg-rose-100 text-rose-700" onClick={() => onNavigate("attack-paths")} />
           <Metric icon={Crown} value={finite(material.crown_jewels)} label="Crown jewels reached" detail={`${finite(material.externally_exposed_jewels) ?? "—"} externally exposed`} tone="bg-amber-100 text-amber-700" onClick={() => onNavigate("crown-jewels")} />
           <Metric icon={AlertTriangle} value={finite(risks.total)} label="Resource risks" detail="Classified weaknesses requiring review" tone="bg-violet-100 text-violet-700" onClick={() => onNavigate("vulnerabilities")} />
-          <Metric icon={ShieldCheck} value={finite(remediation.ready_on_page)} label="Proposed changes" detail={`${finite(remediation.held_on_page) ?? "—"} held by evidence or safety gates`} tone="bg-emerald-100 text-emerald-700" onClick={() => onNavigate("least-privilege")} />
+          <Metric icon={ShieldCheck} value={changes} label="Proposed changes" detail={`${readyChanges ?? "—"} ready · ${heldChanges ?? "—"} held for safety review`} tone="bg-emerald-100 text-emerald-700" onClick={() => onNavigate("least-privilege")} />
         </div>
       </section>
 
@@ -249,10 +284,15 @@ export function SystemExecutiveOverview({
             <div><div className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-400">Recommended changes</div><p className="mt-1 text-sm text-slate-600">Prioritized actions; execution remains gated</p></div>
             <CheckCircle2 className="h-5 w-5 text-emerald-500" />
           </div>
+          {remediation.serve_state === "PARTIAL" && candidates.length > 0 ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-5 text-amber-900">
+              Safety readiness is still being verified. These actions are visible for review but cannot execute.
+            </div>
+          ) : null}
           <div className="mt-4 space-y-2.5">
             {candidates.length === 0 ? <div className="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-600">No candidate rows are available in this reading.</div> : candidates.slice(0, 5).map((candidate, index) => (
               <div key={`${candidate.resource_id}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3.5 py-3">
-                <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{candidate.resource_id || "Unnamed resource"}</div><div className="text-xs text-slate-500">{candidate.resource_type || "Resource"} · {candidate.unused_count ?? "—"} unused permissions</div></div>
+                <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{candidate.resource_id || "Unnamed resource"}</div><div className="text-xs text-slate-500">{candidate.resource_type || "Resource"}{typeof candidate.unused_count === "number" ? ` · ${candidate.unused_count} unused permissions` : candidate.remediation_id ? ` · ${candidate.remediation_id.replaceAll("_", " ").toLowerCase()}` : " · review required"}</div></div>
                 <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${candidate.can_auto_apply ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{candidate.can_auto_apply ? "ready" : "held"}</span>
               </div>
             ))}
