@@ -71,4 +71,10 @@ describe("LeastPrivilegeTab authority wiring", () => {
     expect(src).toContain("result.status === 'error'")
     expect(src).toContain("verify_failed")
   })
+
+  it("does not blame a missing blast-radius score on deployment state", () => {
+    const src = read(TAB)
+    expect(src).toContain("No blast-radius score was returned for this finding.")
+    expect(src).not.toContain("backend needs redeploy")
+  })
 })

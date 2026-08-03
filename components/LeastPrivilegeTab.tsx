@@ -2363,7 +2363,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         className="flex items-center justify-center gap-1.5"
                         title={
                           !resource.blastRadius
-                            ? 'Blast Radius not available — backend needs redeploy'
+                            ? 'No blast-radius score was returned for this finding.'
                             : resource.blastRadius.band == null
                             // The backend withheld the band: three of the four
                             // components are derived from this role's
