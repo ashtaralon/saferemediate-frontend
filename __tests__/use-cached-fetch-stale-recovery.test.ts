@@ -213,6 +213,41 @@ describe("semantic failure still discards — fail-closed is not weakened", () =
     expect(cacheEntry()).toBeNull()
   })
 
+  it("REGRESSION: a rejected 200 must not be beaten by a cached READY", async () => {
+    // The inversion caught in review of de52ed5c. A 200 NOT_READY/HELD is the
+    // backend answering authoritatively about RIGHT NOW. Preferring an older
+    // READY presented a stale all-clear as current and discarded the live held
+    // reason — semantic failure failing OPEN, the exact bug failClosedOnError
+    // exists to prevent.
+    seedCache(GOOD) // a cached READY-shaped reading
+    const held = { systems: [], total: 0, serve_state: "NOT_READY", error: "held" }
+    const isCacheable = (d: unknown) =>
+      !!d && typeof d === "object" && !("error" in (d as object))
+
+    vi.stubGlobal("fetch", vi.fn(() => respond(200, held)))
+
+    const { result } = renderHook(() =>
+      useCachedFetch<typeof held>(URL, {
+        cacheKey: KEY,
+        failClosedOnError: true,
+        isCacheable,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    // The old READY is gone from the screen...
+    expect(result.current.data).not.toEqual(GOOD)
+    // ...and from storage, so it cannot return on the next mount.
+    expect(cacheEntry()).toBeNull()
+    // The current held envelope is what renders — the card shows its honest
+    // NOT_READY state rather than blanking.
+    expect(result.current.data).toEqual(held)
+    // And it is never dressed up as a retained reading.
+    expect(result.current.isStale).toBe(false)
+    expect(result.current.staleReason).toBeNull()
+  })
+
   it("a transport failure never resurrects a payload that fails isCacheable", async () => {
     // Seed a poisoned entry, then 504. isCacheable must gate the fallback
     // read too, or the recovery path becomes a way to serve rejected data.

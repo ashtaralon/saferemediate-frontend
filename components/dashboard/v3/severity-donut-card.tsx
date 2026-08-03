@@ -1,6 +1,10 @@
 "use client"
 
-import { STALE_BACKEND_RECOVERING, useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  RECOVERY_POLL_MS,
+  STALE_BACKEND_RECOVERING,
+  useCachedFetch,
+} from "@/lib/use-cached-fetch"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, heroNumberClass } from "./styles"
@@ -81,6 +85,8 @@ export function SeverityDonutCard() {
     "/api/proxy/issues/summary",
     {
       cacheKey: "issues-summary",
+      // The stale note promises "Retrying." Without this it never would.
+      autoRetryMs: RECOVERY_POLL_MS,
       fetchInit: { cache: "no-store" },
       // Never persist a payload we cannot vouch for, and treat any EXISTING
       // non-READY entry as a miss on read. Without this, the NOT_READY response

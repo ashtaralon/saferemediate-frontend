@@ -575,22 +575,28 @@ export function useCachedFetch<T = unknown>(
       // through to rendering the rejected payload only when we have nothing
       // else, so honest NOT_READY / "analysis unavailable" states still show.
       if (isCacheable && !isCacheable(sanitized)) {
-        const kept =
-          (data != null && isCacheable(data)
-            ? { data, ts: cachedAt ?? Date.now() }
-            : null) ?? readCacheAny<T>(cacheKey, isCacheable)
+        // SEMANTIC failure fails CLOSED — including against our own cache.
+        //
+        // The first attempt at this preferred a cached READY over the rejected
+        // payload, which inverted the rule: a 200 NOT_READY/HELD is the backend
+        // answering authoritatively about RIGHT NOW, and an older READY is not
+        // more true for being older. Retaining it presented a stale all-clear
+        // as current and threw away the live held reason — precisely the bug
+        // `failClosedOnError` exists to prevent.
+        //
+        // So: drop the cached entry, and surface the current envelope. The card
+        // renders its honest NOT_READY / "analysis unavailable" state, and no
+        // stale READY can reach readiness reporting.
         clearCachedFetch(cacheKey)
-        if (kept?.data) {
-          setData(kept.data)
-          setIsStale(true)
-          setCachedAt(kept.ts)
-          setStaleReason(STALE_AGED_OUT)
-          setIsComputing(false)
-          setError(null)
-          setLoading(false)
-          clearAutoRetry()
-          return
-        }
+        setData(sanitized)
+        setIsStale(false)
+        setCachedAt(null)
+        setStaleReason(null)
+        setIsComputing(false)
+        setError(null)
+        setLoading(false)
+        clearAutoRetry()
+        return
       }
       setData(sanitized)
       setIsComputing(false)
