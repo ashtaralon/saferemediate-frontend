@@ -47,6 +47,7 @@ export type HighRiskUnusedItem = {
  */
 export interface NormalizedGapResource {
   id: string
+  findingId?: string
   /** Absent/unknown when backend omitted type — never defaulted to IAMRole. */
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | string
   resourceName: string
@@ -389,6 +390,12 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
 
   return {
     id: typeof r.id === 'string' ? r.id : String(r.id ?? resourceName ?? ''),
+    findingId:
+      typeof r.findingId === 'string'
+        ? r.findingId
+        : typeof r.finding_id === 'string'
+          ? (r.finding_id as string)
+          : undefined,
     resourceType: normalizeResourceType(r),
     resourceName,
     resourceArn: typeof r.resourceArn === 'string'

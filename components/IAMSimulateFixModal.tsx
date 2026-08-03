@@ -15,7 +15,7 @@
 
 import { useState } from 'react'
 import { X, Shield, AlertTriangle, CheckCircle2, XCircle, Clock, Eye, Users, TrendingDown, Info } from 'lucide-react'
-import type { SimulateFixResponse, SimulateFixSafetyDecision } from '@/lib/types'
+import type { DecisionOutcomeCanonical, SimulateFixResponse, SimulateFixSafetyDecision } from '@/lib/types'
 
 // =============================================================================
 // STYLE CONSTANTS
@@ -40,6 +40,15 @@ const SAFETY_STYLE: Record<SimulateFixSafetyDecision, { label: string; color: st
     bg: 'rgba(239, 68, 68, 0.15)',
     icon: '🚫'
   }
+}
+
+const CANONICAL_SAFETY_STYLE: Record<DecisionOutcomeCanonical, { label: string; color: string; bg: string; icon: string }> = {
+  AUTO_EXECUTE: { label: 'Auto-Execute', color: '#10B981', bg: 'rgba(16, 185, 129, 0.15)', icon: '✅' },
+  CANARY_FIRST: { label: 'Canary First', color: '#3B82F6', bg: 'rgba(59, 130, 246, 0.15)', icon: '🧪' },
+  REQUIRE_APPROVAL: { label: 'Approval Required', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.15)', icon: '⚠️' },
+  MANUAL_REVIEW: { label: 'Manual Review', color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.15)', icon: '👤' },
+  BLOCK: { label: 'Blocked', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.15)', icon: '🚫' },
+  EXCLUDE: { label: 'Excluded', color: '#64748B', bg: 'rgba(100, 116, 139, 0.15)', icon: '⊘' },
 }
 
 const SEVERITY_STYLE: Record<string, { color: string; bg: string }> = {
@@ -140,7 +149,9 @@ export function IAMSimulateFixModal({
   if (!isOpen) return null
 
   const { resource, problem, evidence, simulation, projected_effect, safety } = result
-  const safetyStyle = SAFETY_STYLE[safety.decision]
+  const safetyStyle = safety.decision_canonical
+    ? CANONICAL_SAFETY_STYLE[safety.decision_canonical]
+    : SAFETY_STYLE[safety.decision]
   const severityStyle = SEVERITY_STYLE[resource.severity] || SEVERITY_STYLE.INFO
   const confidenceStyle = CONFIDENCE_STYLE[evidence.confidence] || CONFIDENCE_STYLE.unknown
 
@@ -194,6 +205,12 @@ export function IAMSimulateFixModal({
                   {safety.unsafe_reasons[0]}
                 </div>
               )}
+              {safety.engine_decision && (
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  SafetyVector {safety.engine_decision}
+                  {safety.engine_version ? ` · engine ${safety.engine_version}` : ''}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4 text-xs">
@@ -201,6 +218,12 @@ export function IAMSimulateFixModal({
               <span className="text-slate-400">Rollback:</span>
               <span style={{ color: safety.rollback_available ? '#10B981' : '#EF4444' }}>
                 {safety.rollback_available ? 'Available' : 'Not Available'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-slate-400">Queue:</span>
+              <span style={{ color: result.decision_persistence?.persisted ? '#10B981' : '#F59E0B' }}>
+                {result.decision_persistence?.persisted ? 'Decision saved' : 'Not saved'}
               </span>
             </div>
             <div className="flex items-center gap-1">
