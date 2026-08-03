@@ -216,13 +216,14 @@ describe("the report refuses to call a partial estate complete", () => {
     expect(text).not.toMatch(/5 of 5 feeds ready/i)
   })
 
-  it("the cockpit derives evidence state rather than truthiness", () => {
+  it("the cockpit derives evidence readiness from the governed snapshot", () => {
     const src = readFileSync(
       join(__dirname, "..", "..", "components/dashboard/v3/executive-cockpit.tsx"),
       "utf8",
     )
-    expect(src).toContain("state: evidenceIntegrity.state")
-    expect(src).not.toMatch(/state: evidence\.data \? "READY"/)
+    expect(src).toContain('label: "Evidence readiness"')
+    expect(src).toContain("stateLabel(data.evidence.serve_state)")
+    expect(src).not.toMatch(/state: data\.evidence \? "READY"/)
   })
 })
 
@@ -292,24 +293,23 @@ describe("partial business systems", () => {
     expect(text).toMatch(/2 system fan-out calls failed/i)
   })
 
-  it("the cockpit derives systems state and qualifies the count", () => {
+  it("the cockpit uses the snapshot's server-owned material-risk coverage", () => {
     const src = readFileSync(
       join(__dirname, "..", "..", "components/dashboard/v3/executive-cockpit.tsx"),
       "utf8",
     )
-    expect(src).toContain("state: systemsIntegrity.state")
-    expect(src).not.toMatch(/state: systems\.data \? "READY"/)
-    // "of N discovered" is a floor on a partial estate, not a total.
-    expect(src).toContain("systemsIntegrity.countIsPartial")
-    expect(src).toContain("of at least ${")
+    expect(src).toContain("data.material_risk.systems_discovered")
+    expect(src).toContain("data.material_risk.systems_scanned")
+    expect(src).toContain("counts_are_lower_bounds")
+    expect(src).not.toContain("deriveSystemsIntegrity")
   })
 
-  it("the request limit has one owner", () => {
+  it("the candidate page scope is owned by the snapshot contract", () => {
     const src = readFileSync(
-      join(__dirname, "..", "..", "components/dashboard/v3/executive-cockpit.tsx"),
+      join(__dirname, "..", "..", "lib/executive-snapshot.ts"),
       "utf8",
     )
-    expect(src).toContain("CANDIDATES_REQUEST_LIMIT")
-    expect(src).not.toContain("remediation-candidates?limit=50")
+    expect(src).toContain('count_scope?: "returned_page"')
+    expect(src).toContain("page_limit?: number")
   })
 })

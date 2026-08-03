@@ -146,10 +146,20 @@ describe("consumers wire the contract", () => {
   const BRIEF = code(
     readFileSync(join(ROOT, "components/dashboard/v3/executive-cockpit.tsx"), "utf8"),
   )
+  const EXECUTIVE_CONTRACT = code(
+    readFileSync(join(ROOT, "lib/executive-snapshot.ts"), "utf8"),
+  )
 
-  it("both /all consumers gate the cache", () => {
+  it("the direct /all consumer and executive snapshot both gate their cache", () => {
     expect(CARD).toContain("isCacheable: isCacheablePaths")
-    expect(BRIEF).toContain("isCacheable: isCacheablePaths")
+    expect(BRIEF).toContain("isCacheable: isCacheableExecutiveSnapshot")
+    expect(EXECUTIVE_CONTRACT).toContain('raw.serve_state === "READY"')
+    expect(EXECUTIVE_CONTRACT).toContain(
+      'typeof raw.material_risk.attack_paths === "number"',
+    )
+    expect(EXECUTIVE_CONTRACT).toContain(
+      'typeof raw.material_risk.crown_jewels === "number"',
+    )
   })
 
   it("the card's empty state branches on integrity, not on errors alone", () => {
@@ -160,8 +170,9 @@ describe("consumers wire the contract", () => {
     expect(CARD).not.toMatch(/\{scanned\} systems scanned\. None surfaced/)
   })
 
-  it("the cockpit will not count systems from a partial sweep", () => {
-    expect(BRIEF).toContain('pathsIntegrity.state === "READY"')
-    expect(BRIEF).toContain('pathsIntegrity.state !== "READY"')
+  it("the cockpit labels server-declared lower bounds rather than inflating them", () => {
+    expect(BRIEF).toContain("material.counts_are_lower_bounds === true")
+    expect(BRIEF).toContain("lowerBound(value, lower === true)")
+    expect(BRIEF).not.toContain("crown_jewels.length")
   })
 })
