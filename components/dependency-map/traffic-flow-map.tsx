@@ -5961,6 +5961,16 @@ export function UnifiedArchitectureDiagram({
                   never a finding (see networkPosture). */}
           {(() => {
             const wn = architecture.workloadNetwork
+            const hasConcreteCheckpoint =
+              (architecture.subnets?.length ?? 0) > 0 ||
+              architecture.securityGroups.length > 0 ||
+              architecture.nacls.length > 0 ||
+              architecture.egressGateways.length > 0
+            // Concrete route/subnet/SG evidence wins over an older or
+            // incomplete workload-attachment verdict. Showing a "no network
+            // checkpoints" banner beside a routed IGW is self-contradictory
+            // and hides the exact control the operator needs to harden.
+            if (hasConcreteCheckpoint) return false
             if (wn) return !wn.is_vpc_attached
             return (
               (architecture.subnets?.length ?? 0) === 0 &&

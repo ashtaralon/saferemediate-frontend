@@ -54,6 +54,8 @@ const CHANNEL_LABELS: Record<string, string> = {
   serverless_direct: "Serverless · Direct",
   ec2_no_egress: "EC2 · No Egress",
   direct_api: "Direct API",
+  identity_egress: "Identity · Cross-account",
+  data_propagation: "Data · Replication / Sharing",
 }
 
 // Channel color dot — must match dotFor() in exfil-view-v3.tsx so the
@@ -63,6 +65,8 @@ const CHANNEL_DOT: Record<string, string> = {
   serverless_direct: "bg-violet-400",
   ec2_no_egress: "bg-muted-foreground",
   direct_api: "bg-rose-400",
+  identity_egress: "bg-cyan-400",
+  data_propagation: "bg-fuchsia-400",
 }
 
 // Section accent border-left color (matches the dot for that channel).
@@ -72,6 +76,8 @@ const CHANNEL_BORDER: Record<string, string> = {
   serverless_direct: "border-l-violet-400/40",
   ec2_no_egress: "border-l-border",
   direct_api: "border-l-rose-400/40",
+  identity_egress: "border-l-cyan-400/40",
+  data_propagation: "border-l-fuchsia-400/40",
 }
 
 // Channel render order — the four currently-emitted channels, plus a
@@ -84,6 +90,8 @@ const CHANNEL_ORDER = [
   "direct_api",
   "serverless_direct",
   "ec2_no_egress",
+  "identity_egress",
+  "data_propagation",
 ] as const
 
 function channelLabel(channel: string): string {
@@ -253,17 +261,23 @@ export function ExfilPathListColumn({
                           {compactNumber(p.jewel_hits)}
                         </span>
                       </div>
-                      <div className="text-[9px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                        <span>
-                          {p.workload_count} wkld
-                          {p.workload_count === 1 ? "" : "s"}
-                        </span>
-                        <span className="text-muted-foreground/60">·</span>
-                        <span>
-                          {p.gateway_count} gw
-                          {p.gateway_count === 1 ? "" : "s"}
-                        </span>
-                      </div>
+                      {p.evidence_item ? (
+                        <div className="mt-0.5 truncate text-[9px] text-muted-foreground" title={p.evidence_item.destination.label}>
+                          → {p.evidence_item.destination.label}
+                        </div>
+                      ) : (
+                        <div className="text-[9px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                          <span>
+                            {p.workload_count} wkld
+                            {p.workload_count === 1 ? "" : "s"}
+                          </span>
+                          <span className="text-muted-foreground/60">·</span>
+                          <span>
+                            {p.gateway_count} gw
+                            {p.gateway_count === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      )}
                     </button>
                   )
                 })}

@@ -1,13 +1,13 @@
-/**
- * Wiring guard — Lateral attacker lens uses pinned-path identity + TFM.
- */
+/** Wiring guard — Lateral runs ATLAS from any selected compute foothold. */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const ROOT = join(__dirname, "..", "..")
 const PANEL = "components/attack-paths-v2/zoom0-fan-in-panel.tsx"
-const IDENTITY = "lib/attack-paths/zoom0-lateral-identity.ts"
+const HOOK = "components/attack-paths-v2/use-atlas-lateral.ts"
+const FULL_VIEW = "components/attack-paths-v2/atlas-lateral-view.tsx"
+const SHELL = "components/attack-paths-v2/attack-paths-v2.tsx"
 
 const read = (p: string) =>
   readFileSync(join(ROOT, p), "utf8")
@@ -15,40 +15,37 @@ const read = (p: string) =>
     .replace(/^\s*\/\/.*$/gm, "")
 
 describe("Zoom0 Lateral wiring", () => {
-  it("resolves identity via resolveZoom0LateralIdentity — not risk_summary hub", () => {
+  it("uses the ATLAS foothold lens rather than a pinned current-access path", () => {
     const src = read(PANEL)
-    expect(src).toContain("resolveZoom0LateralIdentity")
-    expect(src).toContain("TrafficFlowMap")
-    expect(src).toContain("mapSpotlightPaths")
-    expect(src).toContain('data-testid={')
-    expect(src).toContain('"zoom0-lateral-tfm"')
-    expect(src).not.toContain("Zoom0LateralAttackMap")
-    expect(src).not.toMatch(
-      /lateralIdentityId\s*=\s*useMemo\(\s*\(\)\s*=>\s*\(\s*riskSummary/,
-    )
-    expect(src).not.toMatch(
-      /riskSummary\?\.top_risk\?\.identity\s*\?\?/,
-    )
+    expect(src).toContain("useAtlasLateral")
+    expect(src).toContain("AtlasLateralLensPanel")
+    expect(src).toContain("AtlasLateralChainCanvas")
+    expect(src).not.toContain("resolveZoom0LateralIdentity")
+    expect(src).not.toContain('"zoom0-lateral-tfm"')
   })
 
-  it("never falls back to risk_summary inside the identity helper", () => {
-    const raw = readFileSync(join(ROOT, IDENTITY), "utf8")
-    // Doc may name the anti-pattern; code must not read those fields.
-    expect(raw).toMatch(/must NEVER be used as a silent fallback/i)
-    expect(raw).not.toMatch(/riskSummary|top_risk\?\.identity|current_state\?\.identity/)
-    expect(raw).not.toContain("zoom0RiskSummary")
+  it("enumerates graph compute then invokes canonical ATLAS", () => {
+    const src = read(HOOK)
+    expect(src).toContain("jewel-footholds")
+    expect(src).toContain("/api/proxy/atlas/search/")
+    expect(src).toContain("start_node_id: selectedFootholdId")
+    expect(src).toContain("target_node_id: jewelRef")
   })
 
-  it("keeps Lateral tab when pin changes (coordinated #451–453)", () => {
+  it("does not require a pinned current-access path", () => {
     const src = read(PANEL)
     expect(src).toContain('detailsPanel === "lateral"')
-    expect(src).toMatch(/if \(detailsPanel === "lateral"\) return/)
+    expect(src).not.toContain("lateralIdentity.status")
+    expect(src).not.toContain("Pin a path to choose the initial breach")
   })
 
-  it("Lateral and Current Access share pathAuthorityOnly TrafficFlowMap", () => {
-    const src = read(PANEL)
-    expect(src).toContain("pathAuthorityOnly")
-    expect(src).toMatch(/detailsPanel === "lateral"/)
-    expect(src).toContain('"Attacker lens · pinned path"')
+  it("uses the same foothold-first ATLAS model in the full Lateral tab", () => {
+    const view = read(FULL_VIEW)
+    const shell = read(SHELL)
+    expect(view).toContain("useAtlasLateral")
+    expect(view).toContain("AtlasLateralLensPanel")
+    expect(view).toContain("AtlasLateralChainCanvas")
+    expect(shell).toContain("<AtlasLateralView")
+    expect(shell).not.toContain("<LateralMovementPanel")
   })
 })
