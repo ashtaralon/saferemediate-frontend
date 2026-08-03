@@ -352,8 +352,7 @@ export function ExecutiveCockpit({
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.035em] sm:text-3xl">{data.narrative.title}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300 sm:text-base">{data.narrative.body}</p>
           <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-            <span>Neo4j graph snapshot</span><span>·</span>
-            <span>{new Date(data.computed_at).toLocaleString()}</span>
+            <span>Last verified {new Date(data.computed_at).toLocaleString()}</span>
             <StaleIndicator cachedAt={snapshot.cachedAt} isStale={snapshot.isStale} />
           </div>
         </div>
