@@ -350,6 +350,7 @@ export function ExfilViewV4({ systemName, jewel }: ExfilViewV4Props) {
         include_observed: true,
         max_destinations: 50,
         include_atlas: false,
+        include_details: false,
       }),
     [systemName, jewel?.id],
   )

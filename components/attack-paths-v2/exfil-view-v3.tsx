@@ -35,7 +35,7 @@
 import { useCallback, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Crown, AlertTriangle, RefreshCw, Loader2, ExternalLink, Globe, ShieldCheck } from "lucide-react"
+import { ArrowRight, Crown, AlertTriangle, RefreshCw, Loader2, ExternalLink, Globe, ShieldCheck, KeyRound, Share2 } from "lucide-react"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import { postSplitPlan } from "@/lib/api-client"
 import { RoleDetailPanel } from "./exfil-role-detail-panel"
@@ -206,7 +206,45 @@ interface ExfilNetworkEgressItem {
     outbound_rule_count?: number | null
     has_public_ingress?: boolean | null
   }>
-  provenance: "capable" | "observed"
+  provenance: "capable" | "configured" | "observed"
+}
+
+export interface ExfilEvidenceItem {
+  id: string
+  mechanism: string
+  label: string
+  provenance: "configured" | "observed"
+  destination: {
+    kind: "external_account" | "external_region" | "aws_resource"
+    id: string
+    label: string
+    account_id?: string | null
+    principal_arn?: string | null
+    resource_arn?: string | null
+    region?: string | null
+  }
+  evidence?: string[]
+  supporting_control_only?: boolean
+  via_accessor?: { id: string; name: string }
+  access_hit_count?: number
+  trust_has_conditions?: boolean | null
+  observed_assumers?: string[]
+  rule_id?: string | null
+  status?: string | null
+  replication_role_arn?: string | null
+  prerequisites?: string[]
+  attacker_requirements?: string[]
+}
+
+export interface ExfilEvidenceLane {
+  items: ExfilEvidenceItem[]
+  evaluated?: boolean
+  coverage_state?: "ready" | "ready_zero" | "partial" | "not_ready" | "not_applicable" | string
+  coverage_reason?: string | null
+  evidence_sources?: string[]
+  /** Rolling-deploy compatibility with the former Phase-A response. */
+  not_wired?: boolean
+  not_wired_reason?: string | null
 }
 
 interface WorkloadNetworkPayload {
@@ -348,6 +386,13 @@ export interface ExfilPath {
     routed?: boolean
     route_destination_cidr?: string | null
     route_target_service?: string | null
+    route_table?: {
+      id: string
+      name: string
+      route_count?: number | null
+      is_main?: boolean | null
+    } | null
+    subnet?: { id?: string | null; name?: string | null } | null
   }>
   workload_network: WorkloadNetworkPayload | null
   // ATLAS chain enrichment — present when backend computed it, null
@@ -362,17 +407,21 @@ export interface ExfilPath {
   // why u dont fetch data from neo4j? why templates?" — replaces the
   // earlier templated panel. Every list inside is a Cypher row diff.
   remediation?: RemediationPayload
+  path_kind?: "identity" | "data_propagation" | string
+  evidence_item?: ExfilEvidenceItem
+  destination_id?: string
+  destination_label?: string
 }
 
 interface ExfilDestination {
-  kind: "internet" | "external_account" | "external_region"
+  kind: "internet" | "external_account" | "external_region" | "aws_resource"
   id: string
   label: string
   capable_route_count: number
   observed_route_count: number
   observed_bytes_24h: number
   icon: string
-  provenance: "capable" | "observed"
+  provenance: "capable" | "configured" | "observed"
 }
 
 export interface ExfilPayload {
@@ -385,8 +434,8 @@ export interface ExfilPayload {
   paths?: ExfilPath[]
   egress_lanes: {
     network: ExfilNetworkEgressItem[]
-    identity: { items: unknown[]; not_wired: true; not_wired_reason: string }
-    data_propagation: { items: unknown[]; not_wired: true; not_wired_reason: string }
+    identity: ExfilEvidenceLane
+    data_propagation: ExfilEvidenceLane
   }
   destinations: ExfilDestination[]
   // Layer B (2026-05-27) — both fields are non-null only when the
@@ -395,7 +444,7 @@ export interface ExfilPayload {
   // null atlas_summary means ATLAS was skipped entirely.
   atlas_summary?: AtlasSummary | null
   keystones?: ExfilKeystone[]
-  observed_exfil: { available: boolean; not_wired_reason: string }
+  observed_exfil: { available: boolean; coverage_state?: string; not_wired_reason: string }
   /** Present when observed transport collectors are unwired (PRD Exfil lens). */
   coverage_badge?: string | null
   coverage_badge_text?: string | null
@@ -456,7 +505,9 @@ export function ExfilViewV3({
 
   const architecture = useMemo<SystemArchitecture | null>(() => {
     if (!data || !data.ok) return null
-    return buildExfilArchitecture(data, selectedPath)
+    return selectedPath?.evidence_item
+      ? buildEvidenceLaneArchitecture(data, selectedPath)
+      : buildExfilArchitecture(data, selectedPath)
   }, [data, selectedPath])
 
   if (!enabled) {
@@ -524,8 +575,10 @@ export function ExfilViewV3({
     ? `${paths.length} exfil path${paths.length === 1 ? "" : "s"} · ${observedCount} observed reader${observedCount === 1 ? "" : "s"} · ${capableCount} capable reader${capableCount === 1 ? "" : "s"} · ${data.destinations.length} destination${data.destinations.length === 1 ? "" : "s"}`
     : "No accessors or paths resolved for this jewel"
 
-  const innerSubtitle = selectedPath
-    ? `${selectedPath.channel_label} via ${friendlyAccessorName(selectedPath.accessor_name)} · ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"}`
+  const innerSubtitle = selectedPath?.evidence_item
+    ? `${selectedPath.evidence_item.label} · ${selectedPath.evidence_item.provenance} evidence · destination ${selectedPath.evidence_item.destination.label}`
+    : selectedPath
+      ? `${selectedPath.channel_label} via ${friendlyAccessorName(selectedPath.accessor_name)} · ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"}`
     : data.observed_exfil.available
       ? "Data exit paths — capable (amber) vs observed (red)"
       : "Capable data-exit paths — observed-exfil layer pending"
@@ -541,6 +594,7 @@ export function ExfilViewV3({
         atlasSummary={data.atlas_summary}
         keystones={data.keystones ?? []}
       />
+      <EvidenceLaneStrip data={data} />
       <div className="relative" style={{ minHeight: "640px" }}>
         <TrafficFlowMap
           systemName={systemName}
@@ -554,7 +608,9 @@ export function ExfilViewV3({
           }
           innerSubtitleOverride={innerSubtitle}
           pathBadgeOverride={
-            selectedPath
+            selectedPath?.evidence_item
+              ? `${data.jewel.name} → ${selectedPath.evidence_item.destination.label}`
+              : selectedPath
               ? `${friendlyAccessorName(selectedPath.accessor_name)} → ${data.jewel.name}`
               : `Exfil → ${data.jewel.name}`
           }
@@ -644,7 +700,17 @@ function DamageRemediationPanel({
   const observed = accessor?.provenance === "observed"
   const lateralJewels = accessor?.also_reaches?.length ?? 0
   const sharedWorkloads = accessor?.shared_with?.length ?? 0
-  const isNonVpc = !selectedPath.workload_network?.is_vpc_attached
+  const routedInternetExit = selectedPath.gateway_sample?.find(
+    (gateway) =>
+      gateway.routed === true &&
+      ["InternetGateway", "NATGateway", "EgressOnlyInternetGateway"].includes(
+        gateway.kind,
+      ) &&
+      ["0.0.0.0/0", "::/0"].includes(gateway.route_destination_cidr ?? ""),
+  )
+  const isNonVpc =
+    selectedPath.workload_network?.is_vpc_attached === false &&
+    !routedInternetExit
   const sgList = selectedPath.workload_network?.security_groups ?? []
   const subnetList = selectedPath.workload_network?.subnets ?? []
   const hasPublicSubnet = subnetList.some((s) => s.is_public === true)
@@ -674,6 +740,11 @@ function DamageRemediationPanel({
   if (isNonVpc) {
     damageSentences.push(
       `The workload is not VPC-attached, so VPC Flow Logs / SG egress / NACLs do not gate this path. IAM is the only line of defense.`,
+    )
+  } else if (routedInternetExit) {
+    const routeTable = routedInternetExit.route_table
+    damageSentences.push(
+      `${routeTable?.name || routeTable?.id || "The subnet route table"} sends ${routedInternetExit.route_destination_cidr} through ${routedInternetExit.name || routedInternetExit.id}; this is a concrete Internet exfiltration route, not merely an attached gateway.`,
     )
   } else if (hasPublicSubnet) {
     damageSentences.push(
@@ -1334,6 +1405,65 @@ function Header({ jewel, subtitle }: { jewel: CrownJewelSummary | null; subtitle
   )
 }
 
+function EvidenceLaneStrip({ data }: { data: ExfilPayload }) {
+  const lanes = [
+    {
+      id: "network",
+      label: "Network exit",
+      count: data.egress_lanes.network.length,
+      state: "ready",
+      detail: "route, subnet, SG and gateway evidence",
+      icon: Globe,
+    },
+    {
+      id: "identity",
+      label: "Cross-account identity",
+      count: data.egress_lanes.identity.items.length,
+      state: data.egress_lanes.identity.coverage_state || (data.egress_lanes.identity.not_wired ? "not_ready" : "partial"),
+      detail: data.egress_lanes.identity.coverage_reason || data.egress_lanes.identity.not_wired_reason || "trust, effective access and resource grants",
+      icon: KeyRound,
+    },
+    {
+      id: "propagation",
+      label: "Data propagation",
+      count: data.egress_lanes.data_propagation.items.length,
+      state: data.egress_lanes.data_propagation.coverage_state || (data.egress_lanes.data_propagation.not_wired ? "not_ready" : "partial"),
+      detail: data.egress_lanes.data_propagation.coverage_reason || data.egress_lanes.data_propagation.not_wired_reason || "replication and snapshot-share destinations",
+      icon: Share2,
+    },
+  ]
+  return (
+    <div
+      className="grid grid-cols-3 border-b border-border bg-card"
+      data-testid="exfil-evidence-lanes"
+    >
+      {lanes.map((lane) => {
+        const ready = lane.state === "ready" || lane.state === "ready_zero" || lane.state === "not_applicable"
+        const Icon = lane.icon
+        return (
+          <div key={lane.id} className="min-w-0 border-r border-border px-4 py-2 last:border-r-0">
+            <div className="flex items-center gap-1.5">
+              <Icon className={`h-3.5 w-3.5 ${ready ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300"}`} />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground">
+                {lane.label}
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-foreground">
+                {lane.count}
+              </span>
+              <span className={`ml-auto text-[9px] font-semibold uppercase tracking-wide ${ready ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>
+                {lane.state.replaceAll("_", " ")}
+              </span>
+            </div>
+            <div className="mt-1 truncate text-[10px] text-muted-foreground" title={lane.detail}>
+              {lane.detail}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Keystone strip ──────────────────────────────────────────────
 // Layer B (2026-05-27). Horizontal chip strip beneath the Header
 // showing the top N keystone nodes — graph nodes whose removal would
@@ -1623,6 +1753,139 @@ function AtlasPill({
 // "+N more" placeholder so the count stays honest without exploding
 // the visual.
 const EXFIL_COMPUTE_VISIBLE_CAP = 5
+
+function buildEvidenceLaneArchitecture(
+  payload: ExfilPayload,
+  selectedPath: ExfilPath,
+): SystemArchitecture {
+  const item = selectedPath.evidence_item!
+  const jewelId = payload.jewel.id
+  const destinationId = `external:${item.destination.id}`
+  const gateId = `exfil-gate:${selectedPath.path_id}`
+  const role = item.via_accessor
+  const roleId = role?.id ?? null
+  const isPropagation = selectedPath.path_kind === "data_propagation"
+  const isSnapshot = item.mechanism.includes("snapshot")
+  const gateKind: ExfilGateNode["kind"] = isPropagation
+    ? isSnapshot
+      ? "SnapshotShare"
+      : item.mechanism.includes("replication")
+        ? "CRRRule"
+        : "AWSServicePlane"
+    : "AWSServicePlane"
+  const gateHint = [
+    item.rule_id ? `rule ${item.rule_id}` : null,
+    item.status ?? null,
+    item.trust_has_conditions === true ? "trust conditions present" : null,
+    item.trust_has_conditions === false ? "trust has no conditions" : null,
+  ].filter(Boolean).join(" · ")
+
+  const entryPoints: ServiceNode[] = [{
+    id: jewelId,
+    name: payload.jewel.name,
+    shortName: shortName(payload.jewel.name),
+    type: jewelToNodeType(payload.jewel.type),
+    instanceId: jewelId.slice(-12),
+    isCrownJewel: true,
+  }]
+  const iamRoles: SecurityCheckpoint[] = role
+    ? [{
+        id: role.id,
+        type: "iam_role",
+        name: friendlyAccessorName(role.name),
+        shortName: shortName(friendlyAccessorName(role.name), 30),
+        usedCount: item.access_hit_count ?? 0,
+        totalCount: null,
+        gapCount: 0,
+        connectedSources: [jewelId],
+        connectedTargets: [gateId],
+      }]
+    : []
+  const resources: ServiceNode[] = [{
+    id: destinationId,
+    name: item.destination.label,
+    shortName: shortName(item.destination.label, 30),
+    type: item.destination.kind === "external_account" ? "principal" : "storage",
+    instanceId: item.destination.account_id ?? item.destination.region ?? undefined,
+  }]
+  const exfilGate: ExfilGateNode[] = [{
+    id: gateId,
+    kind: gateKind,
+    kindLabel: isPropagation ? "Propagation control" : "Identity control",
+    name: item.label,
+    shortName: shortName(item.label, 28),
+    gateStrength:
+      item.provenance === "observed"
+        ? "weak_observable"
+        : item.trust_has_conditions === true
+          ? "strong"
+          : "weak_unobservable",
+    hint: gateHint || (item.evidence ?? []).join(" · ") || undefined,
+  }]
+
+  const edges: CanvasEdge[] = []
+  const addEdge = (
+    source: string,
+    target: string,
+    relationship: string,
+    observed: boolean,
+  ) => edges.push({
+    id: `${source}|${relationship}|${target}`,
+    source_aws_id: source,
+    target_aws_id: target,
+    relationship: relationship as CanvasRelationshipType,
+    observed,
+    hit_count: item.access_hit_count ?? null,
+    bytes: null,
+    first_seen: null,
+    last_seen: null,
+    port: null,
+    protocol: "aws-api",
+  })
+
+  if (roleId) {
+    addEdge(jewelId, roleId, "ACCESSES_RESOURCE", item.provenance === "observed")
+    addEdge(roleId, gateId, "TRUSTED_BY", item.provenance === "observed")
+  } else {
+    addEdge(
+      jewelId,
+      gateId,
+      isPropagation ? "CONFIGURED_PROPAGATION" : "RESOURCE_POLICY_GRANT",
+      item.provenance === "observed",
+    )
+  }
+  addEdge(
+    gateId,
+    destinationId,
+    isPropagation
+      ? item.mechanism.includes("replication")
+        ? "REPLICATES_TO"
+        : "SHARED_WITH"
+      : "GRANTS_EXTERNAL_ACCESS",
+    item.provenance === "observed",
+  )
+
+  return {
+    computeServices: [],
+    entryPoints,
+    entryLaneLabel: "Source",
+    metricsBasis: "cloudtrail",
+    resources,
+    subnets: [],
+    securityGroups: [],
+    nacls: [],
+    iamRoles,
+    vpcEndpoints: [],
+    egressGateways: [],
+    exfilGate,
+    flows: [],
+    edges,
+    totalBytes: 0,
+    totalConnections: item.access_hit_count ?? 0,
+    totalGaps: 0,
+    workloadNetwork: null,
+  }
+}
 
 function buildExfilArchitecture(
   payload: ExfilPayload,
