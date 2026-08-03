@@ -74,8 +74,31 @@ export interface UseCachedFetchOptions {
    * staleness signal, because this hook only surfaces errors when data is null.
    *
    * Opt in where a wrong-but-confident answer is worse than no answer.
+   *
+   * SCOPE (2026-08-03): this discards on SEMANTIC failure only — a response
+   * that is authoritative and says the data is bad (4xx, or a payload that
+   * fails `isCacheable`). It does NOT discard on TRANSPORT failure
+   * (502/503/504/522/524, network throw, timeout).
+   *
+   * The distinction was missing and it cost us the dashboard. Four backend
+   * deploys in a row restarted Render; every feed 504'd; this option wiped
+   * localStorage and nulled the data, so a read-only executive page erased
+   * its own last-known-good view and showed "unavailable" in every section
+   * with no auto-recovery. The data was in Neo4j the whole time.
+   *
+   * A 504 is evidence the backend is unreachable. It is NOT evidence the
+   * cached reading became false. The correct behaviour is to keep showing it,
+   * clearly marked STALE, and retry — while refusing to let anything stale
+   * authorize a mutation. Fail-closed belongs on the write path, not on a
+   * reporting surface.
    */
   failClosedOnError?: boolean
+  /**
+   * Poll interval (ms) while the last attempt failed on TRANSPORT. Lets a
+   * page recover on its own once the backend comes back, instead of sitting
+   * on "unavailable" until someone hits Refresh or remounts. 0 disables.
+   */
+  autoRetryMs?: number
 }
 
 export interface UseCachedFetchResult<T> {
@@ -89,6 +112,12 @@ export interface UseCachedFetchResult<T> {
    *  feedback_no_mock_numbers_in_ui.md — the user must see when they're
    *  looking at cached data. */
   cachedAt: number | null
+  /**
+   * Why `data` is stale, when it is. Lets the UI say "backend recovering"
+   * rather than a bare "as of 12 min ago" that reads like neglect. Null
+   * whenever `isStale` is false.
+   */
+  staleReason: string | null
   /** True only on the first ever load with no cache available. */
   loading: boolean
   /**
@@ -106,6 +135,17 @@ export interface UseCachedFetchResult<T> {
 
 const CACHE_PREFIX = "cyntro:swr:"
 const DEFAULT_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h
+
+/** Shown while the backend is unreachable and we are re-presenting the last
+ *  verified reading. Distinct from ordinary age — "recovering" tells the
+ *  operator a retry is in flight, not that nobody has looked in a while. */
+export const STALE_BACKEND_RECOVERING = "backend recovering"
+/** The cached reading is simply older than `maxStaleMs`. */
+export const STALE_AGED_OUT = "cached reading"
+
+/** Default auto-retry cadence while transport is failing. Deploy windows are
+ *  tens of seconds; 12s recovers promptly without hammering a cold instance. */
+const DEFAULT_AUTO_RETRY_MS = 12_000
 
 // Defensive render-time filter against the specific phantom-edge class
 // surfaced by the backend verify-gate (2026-05-29 dep_map_full step-10
@@ -265,6 +305,7 @@ export function useCachedFetch<T = unknown>(
     transientRetries = 0,
     isCacheable,
     failClosedOnError = false,
+    autoRetryMs = DEFAULT_AUTO_RETRY_MS,
   } = options
 
   // Synchronous initial read so the first paint renders cached data
@@ -291,6 +332,32 @@ export function useCachedFetch<T = unknown>(
   const [loading, setLoading] = useState<boolean>(initial === null && !!url)
   const [isComputing, setIsComputing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [staleReason, setStaleReason] = useState<string | null>(
+    initial !== null && fresh === null ? STALE_AGED_OUT : null,
+  )
+
+  // Auto-retry while the backend is unreachable, so a deploy window heals
+  // itself. Single timer per hook; cleared on success and on unmount.
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearAutoRetry = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current)
+      retryTimerRef.current = null
+    }
+  }, [])
+
+  // fetchFresh is defined below and schedules retries of itself, so it is
+  // reached through a ref rather than a direct reference (which would be a
+  // use-before-declaration and would also re-create the callback every render).
+  const fetchFreshRef = useRef<(() => void) | null>(null)
+  const scheduleAutoRetry = useCallback(() => {
+    if (!autoRetryMs || autoRetryMs <= 0) return
+    if (retryTimerRef.current !== null) return // one timer in flight, not N
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null
+      fetchFreshRef.current?.()
+    }, autoRetryMs)
+  }, [autoRetryMs])
 
   // Re-sync rendered state when `cacheKey` changes mid-mount — e.g. the
   // estate map's VPC scope picker swaps to a different scoped key, or a
@@ -320,9 +387,15 @@ export function useCachedFetch<T = unknown>(
     setData(nextInitial?.data ?? null)
     setIsStale(nextInitial !== null && nextFresh === null)
     setCachedAt(nextInitial?.ts ?? null)
+    setStaleReason(
+      nextInitial !== null && nextFresh === null ? STALE_AGED_OUT : null,
+    )
     setLoading(nextInitial === null && !!url)
     setIsComputing(false)
     setError(null)
+    // The new key is a different question; any retry pending for the old one
+    // must not fire against it.
+    clearAutoRetry()
   }
 
   // Why no AbortController on cleanup: 15+ dashboard cards each call this
@@ -359,17 +432,47 @@ export function useCachedFetch<T = unknown>(
       }
       if (!res) return
       if (!res.ok) {
-        // Fail-closed callers discard the cached value rather than keep
-        // presenting it. The branch below only acts when data === null, so
-        // without this a cached READY survives an exhausted refresh with no
-        // error and no staleness signal — still rendering as current.
-        if (failClosedOnError) {
+        // TRANSPORT vs SEMANTIC. A 502/504 says the backend is unreachable;
+        // it says nothing about whether the cached reading is still true. A
+        // 4xx is the backend answering authoritatively that it is not.
+        // Only the second justifies discarding what we already had.
+        const transport = TRANSIENT.has(res.status)
+
+        // Fail-closed callers discard on SEMANTIC failure rather than keep
+        // presenting a value that carries authority. The branch below only
+        // acts when data === null, so without this a cached READY survives an
+        // exhausted refresh with no error and no staleness signal.
+        if (failClosedOnError && !transport) {
           clearCachedFetch(cacheKey)
           setData(null)
           setIsStale(false)
           setCachedAt(null)
+          setStaleReason(null)
           setError(`HTTP ${res.status}`)
           setLoading(false)
+          return
+        }
+
+        if (transport) {
+          // Keep the cache. Keep the data. Say why it's stale, and schedule a
+          // retry so the page heals itself when the deploy finishes.
+          const kept =
+            (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+            readCacheAny<T>(cacheKey, isCacheable)
+          if (kept) {
+            setData(kept.data)
+            setIsStale(true)
+            setCachedAt(kept.ts)
+            setStaleReason(STALE_BACKEND_RECOVERING)
+            setError(null)
+            setLoading(false)
+            scheduleAutoRetry()
+            return
+          }
+          // Nothing cached to preserve — this is a genuine cold empty.
+          setError(`HTTP ${res.status}`)
+          setLoading(false)
+          scheduleAutoRetry()
           return
         }
         // Only surface error when we have no cached fallback to show
@@ -447,6 +550,7 @@ export function useCachedFetch<T = unknown>(
       } else {
         setIsStale(false)
         setCachedAt(null)
+        setStaleReason(null)
         if (!isCacheable || isCacheable(sanitized)) {
           writeCache(cacheKey, sanitized)
         } else {
@@ -457,21 +561,38 @@ export function useCachedFetch<T = unknown>(
           clearCachedFetch(cacheKey)
         }
       }
+      // A live response arrived: the backend is back. Stop polling.
+      clearAutoRetry()
       setError(null)
       setLoading(false)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
-      // Network/abort/parse failure. Same authority argument as the !res.ok
-      // branch above — a thrown error is no better evidence that the cached
-      // READY is still current than a 502 is. Both branches, or the hole just
-      // moves.
+      // A thrown fetch is network/abort/timeout — TRANSPORT, by definition.
+      // We never reached an origin that could tell us the data is wrong, so
+      // this is the case that most clearly must not erase the last-known-good.
+      // (A JSON parse failure also lands here; treating it as transport costs
+      // one extra retry cycle, versus wiping a good reading if we guess wrong.)
+      const kept =
+        (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+        readCacheAny<T>(cacheKey, isCacheable)
+      if (kept) {
+        setData(kept.data)
+        setIsStale(true)
+        setCachedAt(kept.ts)
+        setStaleReason(STALE_BACKEND_RECOVERING)
+        setError(null)
+        setLoading(false)
+        scheduleAutoRetry()
+        return
+      }
       if (failClosedOnError) {
-        clearCachedFetch(cacheKey)
         setData(null)
         setIsStale(false)
         setCachedAt(null)
+        setStaleReason(null)
         setError(err instanceof Error ? err.message : String(err))
         setLoading(false)
+        scheduleAutoRetry()
         return
       }
       if (data === null) {
@@ -483,16 +604,22 @@ export function useCachedFetch<T = unknown>(
           setData(fallback.data)
           setIsStale(true)
           setCachedAt(fallback.ts)
+          setStaleReason(STALE_BACKEND_RECOVERING)
           setLoading(false)
+          scheduleAutoRetry()
           return
         }
         setError(err instanceof Error ? err.message : String(err))
         setLoading(false)
+        scheduleAutoRetry()
       }
       // If we have cached data, swallow the error — keep showing stale.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, cacheKey, fetchInit, transientRetries, isCacheable, failClosedOnError])
+
+  // Keep the ref current so scheduleAutoRetry always fires the latest closure.
+  fetchFreshRef.current = fetchFresh
 
   useEffect(() => {
     if (!url) return
@@ -503,10 +630,15 @@ export function useCachedFetch<T = unknown>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
+  // Cancel any pending auto-retry when the component goes away, so a
+  // unmounted dashboard does not keep polling a recovering backend.
+  useEffect(() => clearAutoRetry, [clearAutoRetry])
+
   const retry = useCallback(() => {
+    clearAutoRetry()
     setError(null)
     fetchFresh()
-  }, [fetchFresh])
+  }, [fetchFresh, clearAutoRetry])
 
-  return { data, isStale, cachedAt, loading, isComputing, error, retry }
+  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, retry }
 }

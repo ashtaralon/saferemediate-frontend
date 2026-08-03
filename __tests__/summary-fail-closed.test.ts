@@ -14,11 +14,41 @@
  * zero may render all-clear.
  */
 
-import { describe, expect, it } from "vitest"
+import { renderHook, waitFor } from "@testing-library/react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   deriveSummaryIntegrity,
   isCacheableSummary,
 } from "@/lib/summary-integrity"
+import {
+  STALE_BACKEND_RECOVERING,
+  useCachedFetch,
+} from "@/lib/use-cached-fetch"
+
+const SUMMARY_KEY = "summary-fail-closed-test"
+const SUMMARY_URL = "/api/proxy/summary"
+
+/** A cached payload that CLAIMS to be current and complete — the value whose
+ *  survival past a failed refresh is the whole concern here. */
+function seedReady() {
+  window.localStorage.setItem(
+    `cyntro:swr:${SUMMARY_KEY}`,
+    JSON.stringify({
+      data: {
+        success: true,
+        serve_state: "READY",
+        analysis_complete: true,
+        total: 18,
+      },
+      ts: Date.now(),
+    }),
+  )
+}
+
+beforeEach(() => {
+  window.localStorage.clear()
+  vi.restoreAllMocks()
+})
 
 const READY_WITH_FINDINGS = {
   success: true, serve_state: "READY", analysis_complete: true,
@@ -315,32 +345,72 @@ describe("cached READY must not survive a failed refresh", () => {
     expect(cardSrc()).toContain("failClosedOnError: true")
   })
 
-  it("BOTH failure branches honour it — non-2xx and thrown", () => {
-    const src = readySrc()
-    // non-2xx branch must check it BEFORE the `data === null` guard, or the
-    // guard returns first and the cached value survives.
-    const notOk = src.indexOf("if (!res.ok) {")
-    const notOkGuard = src.indexOf("if (failClosedOnError) {", notOk)
-    const notOkDataNull = src.indexOf("if (data === null) {", notOk)
-    expect(notOkGuard).toBeGreaterThan(-1)
-    expect(notOkGuard).toBeLessThan(notOkDataNull)
+  // ─────────────────────────────────────────────────────────────────────
+  // The two tests that were here asserted on SOURCE TEXT — the byte offset
+  // of `if (failClosedOnError) {` relative to `if (data === null) {`, and
+  // that the block contained `clearCachedFetch(cacheKey)`. They passed for
+  // the right reason at the time and stopped meaning anything the moment
+  // the implementation changed shape, which is exactly the failure mode
+  // this repo keeps hitting (PR #684: nine source-inspection tests survived
+  // deleting the line under test).
+  //
+  // The REQUIREMENT they protected is real and unchanged: a cached READY
+  // must never be presented as current after a failed refresh. What changed
+  // on 2026-08-03 is HOW that is satisfied.
+  //
+  // Deleting the reading satisfied it, and cost us the dashboard: four
+  // backend deploys restarted Render, every feed 504'd, and a read-only
+  // executive page erased its own last-known-good view and showed
+  // "unavailable" everywhere with no auto-recovery. The data was in Neo4j
+  // the whole time.
+  //
+  // Marking the reading stale satisfies it too, and keeps the screen useful.
+  // So: SEMANTIC failure still discards; TRANSPORT failure retains but can
+  // never render as current. Both asserted behaviourally below.
+  // ─────────────────────────────────────────────────────────────────────
 
-    // thrown/network branch, same ordering. Covering only one moves the hole.
-    const caught = src.indexOf("} catch (err) {")
-    const caughtGuard = src.indexOf("if (failClosedOnError) {", caught)
-    const caughtDataNull = src.indexOf("if (data === null) {", caught)
-    expect(caughtGuard).toBeGreaterThan(-1)
-    expect(caughtGuard).toBeLessThan(caughtDataNull)
+  it("semantic failure (4xx) still discards the cached READY", async () => {
+    seedReady()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: false, status: 422, json: () => Promise.resolve({}) } as Response),
+      ),
+    )
+    const { result } = renderHook(() =>
+      useCachedFetch<unknown>(SUMMARY_URL, {
+        cacheKey: SUMMARY_KEY,
+        failClosedOnError: true,
+      }),
+    )
+    await waitFor(() => expect(result.current.error).toBe("HTTP 422"))
+    expect(result.current.data).toBeNull()
+    // Entry cleared, or the stale READY resurrects on the next mount.
+    expect(window.localStorage.getItem(`cyntro:swr:${SUMMARY_KEY}`)).toBeNull()
   })
 
-  it("fail-closed clears the entry rather than only blanking state", () => {
-    // Leaving the localStorage entry would resurrect the stale READY on the
-    // next mount — the bug would come back one navigation later.
-    const src = readySrc()
-    const idx = src.indexOf("if (failClosedOnError) {")
-    const block = src.slice(idx, idx + 400)
-    expect(block).toContain("clearCachedFetch(cacheKey)")
-    expect(block).toContain("setData(null)")
+  it("transport failure retains the reading but marks it stale — never current", async () => {
+    seedReady()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: false, status: 504, json: () => Promise.resolve({}) } as Response),
+      ),
+    )
+    const { result } = renderHook(() =>
+      useCachedFetch<unknown>(SUMMARY_URL, {
+        cacheKey: SUMMARY_KEY,
+        failClosedOnError: true,
+      }),
+    )
+    await waitFor(() => expect(result.current.isStale).toBe(true))
+
+    // Retained — this is the fix.
+    expect(result.current.data).not.toBeNull()
+    // But it carries an explicit staleness signal, so no consumer can treat
+    // it as a current reading. THIS is what replaces deletion as the guard.
+    expect(result.current.staleReason).toBe(STALE_BACKEND_RECOVERING)
+    expect(result.current.isStale).toBe(true)
   })
 
   it("with data null the card renders unavailable, not 18", () => {

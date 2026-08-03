@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from "react"
 import { Crown, GitBranch, Layers3, ShieldCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { STALE_BACKEND_RECOVERING, useCachedFetch } from "@/lib/use-cached-fetch"
 import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
 import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { deriveEvidenceIntegrity, isCacheableEvidence } from "@/lib/evidence-integrity"
@@ -106,15 +106,49 @@ function KpiCell({ kpi }: { kpi: Kpi }) {
   )
 }
 
-function DataStatusBanner({ sources }: { sources: SourceReadiness[] }) {
+function DataStatusBanner({
+  sources,
+  recovering,
+}: {
+  sources: SourceReadiness[]
+  /** Any feed is re-presenting its last verified reading because the backend
+   *  is unreachable (deploy restart, cold start, 5xx). Distinct from a feed
+   *  that genuinely has nothing. */
+  recovering?: boolean
+}) {
   const bad = sources.filter((s) => s.state !== "READY")
   if (bad.length === 0) return null
+
+  // "Recovering" and "unavailable" are different facts and reading them as
+  // the same one is what made the 2026-08-03 deploy window look like data
+  // loss. Recovering means: we have a verified reading, the backend is
+  // briefly unreachable, a retry is already in flight, and this heals itself.
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3">
-      <div className="text-sm font-semibold text-amber-900">
-        Partial data — {bad.length} of {sources.length} feeds are not current
+    <div
+      className={
+        recovering
+          ? "rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-3"
+          : "rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3"
+      }
+    >
+      <div
+        className={
+          recovering
+            ? "text-sm font-semibold text-sky-900"
+            : "text-sm font-semibold text-amber-900"
+        }
+      >
+        {recovering
+          ? "Backend recovering — showing the last verified reading"
+          : `Partial data — ${bad.length} of ${sources.length} feeds are not current`}
       </div>
-      <ul className="mt-1 space-y-0.5 text-xs leading-5 text-amber-800">
+      <ul
+        className={
+          recovering
+            ? "mt-1 space-y-0.5 text-xs leading-5 text-sky-800"
+            : "mt-1 space-y-0.5 text-xs leading-5 text-amber-800"
+        }
+      >
         {bad.map((s) => (
           <li key={s.label}>
             · {s.label}: {s.state.toLowerCase()}
@@ -122,9 +156,16 @@ function DataStatusBanner({ sources }: { sources: SourceReadiness[] }) {
           </li>
         ))}
       </ul>
-      <p className="mt-1.5 text-xs text-amber-800">
-        Figures below cover only what was read. Absent values render as
-        &ldquo;—&rdquo;, never as zero.
+      <p
+        className={
+          recovering
+            ? "mt-1.5 text-xs text-sky-800"
+            : "mt-1.5 text-xs text-amber-800"
+        }
+      >
+        {recovering
+          ? "Retrying automatically. Values shown were verified earlier — they are not live. Actions stay disabled until the reading is current."
+          : "Figures below cover only what was read. Absent values render as “—”, never as zero."}
       </p>
     </div>
   )
@@ -190,6 +231,14 @@ export function ExecutiveCockpit({
 
   const pathsIntegrity = derivePathsIntegrity(paths.data)
   const remIntegrity = deriveCandidatesIntegrity(remediations.data)
+  // True when ANY feed is re-presenting a verified reading because the backend
+  // is unreachable. Drives the banner's recovering vs unavailable wording —
+  // and only that. It must never re-enable an action: staleness still gates
+  // mutations exactly as before.
+  const backendRecovering = [systems, paths, remediations, evidence, outcomes].some(
+    (f) => f.staleReason === STALE_BACKEND_RECOVERING,
+  )
+
   const evidenceIntegrity = deriveEvidenceIntegrity(evidence.data)
   const systemsIntegrity = deriveSystemsIntegrity(systems.data)
   const pathsDown = !paths.data || pathsIntegrity.state !== "READY"
@@ -324,7 +373,7 @@ export function ExecutiveCockpit({
   return (
     <ExecutiveViewContext.Provider value={true}>
       <div className="flex flex-col gap-5">
-        <DataStatusBanner sources={sources} />
+        <DataStatusBanner sources={sources} recovering={backendRecovering} />
         <DivergenceBanner />
 
         {/* KPI row — four across, one row. */}
