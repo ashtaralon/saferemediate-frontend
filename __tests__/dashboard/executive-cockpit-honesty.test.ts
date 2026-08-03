@@ -6,10 +6,11 @@ const root = join(__dirname, "..", "..")
 const cockpit = readFileSync(join(root, "components/dashboard/v3/executive-cockpit.tsx"), "utf8")
 const contract = readFileSync(join(root, "lib/executive-snapshot.ts"), "utf8")
 
-describe("ExecutiveCockpit — Neo4j-backed honesty", () => {
-  it("declares Neo4j as the snapshot source", () => {
+describe("ExecutiveCockpit — graph-backed honesty", () => {
+  it("keeps graph provenance in the contract, not in CISO-facing copy", () => {
     expect(contract).toContain('source: "neo4j"')
-    expect(cockpit).toContain("Neo4j graph snapshot")
+    expect(cockpit).not.toContain("Neo4j graph snapshot")
+    expect(cockpit).toContain("Last verified")
   })
 
   it("does not contain customer-specific or mock values", () => {

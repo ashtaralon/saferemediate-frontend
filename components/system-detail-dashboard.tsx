@@ -70,6 +70,7 @@ import { deriveSummaryIntegrity, brssEmptyReasonFor } from "@/lib/summary-integr
 import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 import { RequestEpoch } from "@/lib/request-epoch"
+import { SystemExecutiveOverview } from "@/components/system-detail/system-executive-overview"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -653,6 +654,7 @@ const ENVIRONMENT_OPTIONS = [
 export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
   // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
   const resolvedInitialTab = initialTab === "attacker-map" ? "attack-paths" : (initialTab ?? "overview")
+  const showLegacyOverview: boolean = false
   const [activeTab, setActiveTab] = useState(resolvedInitialTab)
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
@@ -1467,20 +1469,9 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     fetchSystemMeta()
   }, [systemName])
 
-  // Overview-only polling — 5 min (was 2 min / 30s). Heavy parallel fetches
-  // on a short interval contributed to Render 502 stampedes.
-  useEffect(() => {
-    if (activeTab !== "overview") return
-    fetchAllData()
-    const interval = setInterval(fetchAllData, 300_000)
-    return () => {
-      clearInterval(interval)
-      // Cancel whatever is still in flight for the system being left. Bumping
-      // the epoch as well means even a response that lands before the abort
-      // takes effect is discarded rather than applied to the next system.
-      issuesEpoch.cancel()
-    }
-  }, [systemName, activeTab])
+  // The executive Overview reads one bounded, server-composed snapshot.
+  // Legacy fetchAllData remains for old helpers while they are retired, but
+  // opening a system must not launch its former multi-endpoint waterfall.
 
   // NOTE: Security findings are now loaded from fetchIssuesSummary() which uses /api/least-privilege/issues
   // The old /api/findings endpoint is empty, so we disabled this useEffect.
@@ -2110,6 +2101,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       </div>
 
       {activeTab === "overview" && (
+        <ErrorBoundary componentName="System executive overview">
+          <SystemExecutiveOverview systemName={systemName} onNavigate={setActiveTab} />
+        </ErrorBoundary>
+      )}
+
+      {showLegacyOverview && activeTab === "overview" && (
         <ErrorBoundary componentName="Overview">
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
@@ -3692,4 +3689,3 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     </div>
   )
 }
-
