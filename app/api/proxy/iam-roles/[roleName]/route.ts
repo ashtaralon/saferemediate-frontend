@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 // Pass-through for DELETE /api/iam-roles/{role_name} — hardened endpoint
 // from Phase 2. Forwards force= query param + body (override_lineage).

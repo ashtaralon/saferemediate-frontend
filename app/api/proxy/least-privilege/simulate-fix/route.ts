@@ -1,5 +1,6 @@
 // app/api/proxy/least-privilege/simulate-fix/route.ts
 import { NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -11,12 +12,7 @@ export const revalidate = 0
 // raises in-flight, surfacing as 500 to the caller.
 export const maxDuration = 30
 
-const RAW_BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
-
-function getBackendBase() {
-  return RAW_BACKEND_URL.replace(/\/+$/, "").replace(/\/backend$/, "")
-}
+const BACKEND_URL = getBackendBaseUrl().replace(/\/+$/, "").replace(/\/backend$/, "")
 
 // POST /api/proxy/least-privilege/simulate-fix
 // body: { resource_type: string, resource_id: string, system_name: string }
@@ -31,8 +27,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const base = getBackendBase()
-  const backendUrl = base + "/api/least-privilege/simulate-fix"
+  const backendUrl = BACKEND_URL + "/api/least-privilege/simulate-fix"
 
   try {
     const res = await fetch(backendUrl, {

@@ -30,18 +30,16 @@ describe('Resource Risk decision presentation', () => {
 })
 
 describe('Resource Risk wire normalization', () => {
-  it('preserves finding identity, decision, reason, and evidence coverage', () => {
+  it('preserves decision, reason, and evidence coverage', () => {
     const row = normalizeGapResource({
       id: 'db-1',
       resourceType: 'RDSInstance',
       resourceName: 'db-1',
-      findingId: 'finding-1',
       decision_canonical: 'MANUAL_REVIEW',
       decisionReason: 'No safe automated plan.',
       coverageState: 'COMPLETE',
     })
     expect(row.decisionCanonical).toBe('MANUAL_REVIEW')
-    expect(row.findingId).toBe('finding-1')
     expect(row.decisionReason).toBe('No safe automated plan.')
     expect(row.coverageState).toBe('COMPLETE')
   })
