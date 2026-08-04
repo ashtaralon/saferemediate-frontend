@@ -73,7 +73,7 @@ export function AtlasLateralLensPanel({
         </div>
         {response ? (
           <span className="text-[10px] font-mono text-muted-foreground">
-            {response.catalog_version} · replay validated · {response.elapsed_ms}ms
+            {response.catalog_version} · evidence {response.evidence_bundle?.content_hash.slice(7, 19) ?? "unavailable"} · {response.elapsed_ms}ms
           </span>
         ) : null}
       </div>
@@ -180,6 +180,11 @@ export function AtlasLateralLensPanel({
                   : "No chain found within modeled scope"}
               </span>
               <span className="text-muted-foreground">{response.dead_ends.length} dead ends explored</span>
+              {response.chains[0]?.reachable_damage ? (
+                <span className="font-semibold text-red-700 dark:text-red-300">
+                  top damage {response.chains[0].reachable_damage.priority_score}/100 · {response.chains[0].reachable_damage.severity}
+                </span>
+              ) : null}
               <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
                 <ShieldCheck className="h-3 w-3" /> deterministic
               </span>
