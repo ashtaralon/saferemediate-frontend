@@ -28,6 +28,10 @@ import type {
   DecisionOutcomeCanonical,
 } from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
+import {
+  automationReadiness,
+  previewEvidenceNeeds,
+} from "@/lib/resource-risk-preview-summary"
 
 interface PermissionAnalysis {
   permission: string
@@ -1976,7 +1980,6 @@ export function IAMPermissionAnalysisModal({
   const lpScore = gapData?.summary?.lp_score ?? (totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0)
   const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
-  const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
   const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
   const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
   const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
@@ -1996,6 +1999,90 @@ export function IAMPermissionAnalysisModal({
   const warnPerms = unusedPermissions.filter(p => warnSet.has(p.permission))
   const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
   const removableCount = unusedCount - protectedPerms.length - warnPerms.length
+
+  const renderSimpleDecisionSummary = () => {
+    if (!safetyContext) return null
+
+    const readiness = automationReadiness(safetyContext.decision_canonical)
+    const needs = previewEvidenceNeeds(safetyContext)
+    const readinessStyle = {
+      ready: { border: '#bbf7d0', bg: '#f0fdf4', color: '#166534', Icon: CheckCircle },
+      review: { border: '#fde68a', bg: '#fffbeb', color: '#92400e', Icon: AlertTriangle },
+      paused: { border: '#fecaca', bg: '#fef2f2', color: '#991b1b', Icon: Shield },
+    }[readiness.tone]
+
+    return (
+      <div className="space-y-3" data-testid="resource-risk-simple-summary">
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+            Over-permission summary
+          </div>
+          <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-2xl font-bold text-slate-950">
+                {unusedCount} of {totalPermissions} permissions were not used
+              </div>
+              <p className="mt-1 text-sm text-slate-600">
+                {usedCount} permission{usedCount === 1 ? ' was' : 's were'} observed in use and will be kept.
+              </p>
+            </div>
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-right">
+              <div className="text-2xl font-bold tabular-nums text-red-600">{unusedPercent}%</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-red-700">potential reduction</div>
+            </div>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-500">
+            <div className="h-full bg-red-500" style={{ width: `${unusedPercent}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            “Not used” is the risk finding. Cyntro checks additional evidence before deciding whether removal is safe.
+          </p>
+        </section>
+
+        <section
+          className="rounded-xl border-2 p-4"
+          style={{ borderColor: readinessStyle.border, backgroundColor: readinessStyle.bg }}
+          data-testid="automation-readiness"
+        >
+          <div className="flex items-start gap-3">
+            <readinessStyle.Icon className="mt-0.5 h-6 w-6 shrink-0" style={{ color: readinessStyle.color }} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: readinessStyle.color }}>
+                  Automation readiness
+                </div>
+                <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold" style={{ color: readinessStyle.color, borderColor: readinessStyle.border }}>
+                  {readiness.label}
+                </span>
+              </div>
+              <h3 className="mt-1 text-lg font-bold" style={{ color: readinessStyle.color }}>{readiness.headline}</h3>
+              <p className="mt-1 text-sm" style={{ color: readinessStyle.color }}>{readiness.detail}</p>
+            </div>
+          </div>
+
+          {needs.length > 0 && (
+            <div className="mt-4 border-t pt-4" style={{ borderColor: readinessStyle.border }}>
+              <div className="text-sm font-bold" style={{ color: readinessStyle.color }}>What Cyntro still needs</div>
+              <ul className="mt-2 space-y-2">
+                {needs.map((need) => (
+                  <li key={need.id} className="flex items-start gap-2 text-sm">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: readinessStyle.color }} />
+                    <div>
+                      <div className="font-semibold text-slate-900">{need.label}</div>
+                      <div className="text-xs text-slate-600">{need.action}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs font-medium" style={{ color: readinessStyle.color }}>
+                After these checks complete, run Preview again. Cyntro will reassess the change automatically.
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+    )
+  }
   
   // Calculate dates
   const endDate = new Date()
@@ -3336,174 +3423,7 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
           )}
-          {analysisTab === 'summary' && safetyContext && (() => {
-            // v5 verdict layout — replaces the old Pipeline Decision +
-            // Agent 5 Confidence Scorer + Visibility Signals stack that
-            // showed a 100/100 score next to a BLOCKED verdict
-            // (operator-visible contradiction). Per
-            // Cyntro_Architecture_v5_PR001_Transition.md §6, customer-
-            // facing posture is a typed state, not a number.
-            //
-            // Generic source labels in the Evidence panel — demo-safe,
-            // no AWS service names exposed.
-            const d = safetyContext.decision_canonical ?? null
-            const obs = safetyContext.observation_days ?? observationDays
-            const tel = safetyContext.telemetry_coverage
-            const consumers = safetyContext.consumer_count ?? 0
-            const reasons = safetyContext.unsafe_reasons ?? []
-            const coveragePct = typeof tel === 'number' ? Math.round(tel * 100) : 100
-
-            type Tone = 'block' | 'review' | 'approve' | 'auto'
-            const tone: Tone =
-              d === 'BLOCK' || d === 'EXCLUDE' ? 'block'
-              : d === 'MANUAL_REVIEW' ? 'review'
-              : d === 'REQUIRE_APPROVAL' || d === 'CANARY_FIRST' ? 'approve'
-              : d === 'AUTO_EXECUTE' ? 'auto'
-              : 'review'
-
-            const VERDICT: Record<Tone, {
-              label: string
-              border: string
-              bg: string
-              color: string
-              IconClass: typeof Shield
-              showReasons: boolean
-            }> = {
-              block:   { label: 'Paused — review required',  border: '#fde68a', bg: '#fffbeb', color: '#92400e', IconClass: Shield, showReasons: true },
-              review:  { label: 'Manual review required',     border: '#fed7aa', bg: '#fff7ed', color: '#9a3412', IconClass: AlertTriangle, showReasons: true },
-              approve: { label: 'Approval required',          border: '#bfdbfe', bg: '#eff6ff', color: '#1e40af', IconClass: Shield, showReasons: true },
-              auto:    { label: 'Ready to apply',             border: '#bbf7d0', bg: '#f0fdf4', color: '#15803d', IconClass: CheckCircle, showReasons: false },
-            }
-            const v = VERDICT[tone]
-            const primaryReason = reasons[0]
-              ?? (tone === 'auto'
-                ? 'All safety checks passed. Cyntro will create a rollback snapshot before mutation.'
-                : 'Required evidence is incomplete in this account.')
-
-            // Build why-we-paused gates (binary, fixable).
-            const gates: Array<{ label: string; hint: string }> = []
-            if (coveragePct < 100) {
-              gates.push({
-                label: `Telemetry coverage is ${coveragePct}%`,
-                hint: 'Enable the missing sources in this account to reach 100%.',
-              })
-            }
-            if (typeof obs === 'number' && obs < 21) {
-              gates.push({
-                label: `Observation window is ${obs} days`,
-                hint: 'Cyntro needs ≥21 days of observation before automating production changes.',
-              })
-            }
-            if (consumers > 0 && tone !== 'auto') {
-              gates.push({
-                label: `${consumers} system${consumers === 1 ? '' : 's'} depend on this role`,
-                hint: 'Verify each consumer does not use the proposed-removed permissions.',
-              })
-            }
-            // Tail of the unsafe_reasons (after the primary one shown in the verdict header).
-            for (const r of reasons.slice(1)) gates.push({ label: r, hint: '' })
-
-            // Generic vendor-neutral evidence labels — see
-            // Cyntro_Architecture_v5 §8 for the canonical SafetyVector
-            // dimensions this maps to. Demo-safe.
-            const TOTAL_EVIDENCE_SOURCES = 6
-            const sourcesActive = Math.max(
-              0,
-              Math.min(TOTAL_EVIDENCE_SOURCES, Math.round((coveragePct / 100) * TOTAL_EVIDENCE_SOURCES)),
-            )
-            const EVIDENCE_LABELS = [
-              'Activity history',
-              'Permission usage',
-              'Identity graph',
-              'Network behavior',
-              'Configuration baseline',
-              'Application traces',
-            ]
-
-            return (
-              <div className="space-y-3">
-                {/* v4.4 §11E confidence-score header — replaces typed-posture
-                    verdict with numeric score + 4-state mapping. The legacy
-                    typed-verdict block below is left as dead code via false
-                    guard for diff readability. */}
-                {renderSafetyVectorDecision()}
-                {renderConfidenceCard()}
-                {false && (
-                <div className="p-4 rounded-xl border-2" style={{ backgroundColor: v.bg, borderColor: v.border }}>
-                  <div className="flex items-start gap-3">
-                    <v.IconClass className="w-7 h-7 shrink-0 mt-0.5" style={{ color: v.color }} />
-                    <div className="min-w-0">
-                      <div className="text-lg font-bold" style={{ color: v.color }}>{v.label}</div>
-                      <div className="text-sm mt-1" style={{ color: v.color }}>{primaryReason}</div>
-                    </div>
-                  </div>
-                </div>
-                )}
-
-                {/* Safety scoring breakdown — replaces the old "Why we paused"
-                    + "Evidence used" pair with a single per-dimension panel
-                    that shows EVERY safety dimension the engine evaluated,
-                    its score, and which one drove the verdict. The legacy
-                    inline render is left below as dead code via a false
-                    guard (kept temporarily for diff-readability; will be
-                    deleted next pass). */}
-                {renderSafetyBreakdown()}
-
-                {false && v.showReasons && gates.length > 0 && (
-                  <div className="p-4 rounded-xl border" style={{ backgroundColor: v.bg, borderColor: v.border }}>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: v.color }}>Why we paused</div>
-                    <ul className="space-y-2">
-                      {gates.map((g, i) => (
-                        <li key={`gate-${i}`} className="text-sm">
-                          <div className="flex items-start gap-2">
-                            <span className="shrink-0 mt-0.5" style={{ color: v.color }}>✗</span>
-                            <div>
-                              <div className="font-semibold" style={{ color: v.color }}>{g.label}</div>
-                              {g.hint && (
-                                <div className="text-xs mt-0.5" style={{ color: v.color, opacity: 0.85 }}>{g.hint}</div>
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {false && (
-                <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
-                    <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                      {obs} days · {cloudtrailEvents.toLocaleString()} events
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                    {EVIDENCE_LABELS.map((name, i) => {
-                      const present = i < sourcesActive
-                      return (
-                        <div key={name} className="flex items-center gap-2">
-                          <span className="shrink-0 font-bold" style={{ color: present ? '#15803d' : '#9ca3af' }}>{present ? '✓' : '✗'}</span>
-                          <span style={{ color: present ? 'var(--foreground, #111827)' : 'var(--muted-foreground, #9ca3af)' }}>{name}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                    {sourcesActive} of {TOTAL_EVIDENCE_SOURCES} sources active.
-                  </div>
-                </div>
-                )}
-              </div>
-            )
-          })()}
-
-          {/* Removed: Agent 5 · Confidence Scorer panel + ConfidenceExplanation.
-              The 100/100 score next to a BLOCKED verdict was the source of
-              the operator-visible contradiction. The verdict above IS the
-              safety signal; no second opinion needed. Re-add later if
-              there's a v5-aligned way to show it without contradicting
-              the verdict (e.g. only when AUTO_EXECUTE). */}
+          {analysisTab === 'summary' && safetyContext && renderSimpleDecisionSummary()}
 
           {/* Service Role Warning - Only show for CRITICAL severity
               (destructive hard-block — DO NOT MODIFY). Medium/high
@@ -3632,73 +3552,6 @@ export function IAMPermissionAnalysisModal({
               )}
             </div>
           )}
-
-          {/* Over-Privileged Summary — single merged card (replaces banner + 3-card grid) */}
-          {analysisTab === 'summary' && totalPermissions > 0 && (() => {
-            const accent =
-              unusedPercent >= 75 ? '#ef4444' :
-              unusedPercent >= 50 ? '#f97316' :
-              unusedPercent >= 25 ? '#eab308' : '#22c55e'
-            const borderTint =
-              unusedPercent >= 75 ? '#ef444440' :
-              unusedPercent >= 50 ? '#f9731640' :
-              unusedPercent >= 25 ? '#eab30840' : '#22c55e40'
-            const bgTint =
-              unusedPercent >= 75 ? '#ef444408' :
-              unusedPercent >= 50 ? '#f9731608' :
-              unusedPercent >= 25 ? '#eab30808' : '#22c55e08'
-            return (
-              <div className="rounded-md border p-3" style={{ borderColor: borderTint, background: bgTint }}>
-                <div className="flex items-center gap-4">
-                  <div className="flex flex-col items-center shrink-0 w-16">
-                    <span className="text-2xl font-semibold tabular-nums leading-none" style={{ color: accent }}>
-                      {unusedPercent}%
-                    </span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide mt-1" style={{ color: accent }}>
-                      Over-privileged
-                    </span>
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="text-xs" style={{ color: "var(--foreground, #111827)" }}>
-                        <span className="font-semibold tabular-nums">{unusedCount}</span> of <span className="font-semibold tabular-nums">{totalPermissions}</span> never used · <span className="font-semibold tabular-nums" style={{ color: '#16a34a' }}>{usedCount}</span> needed
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-0.5 mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
-                      <div className="h-full transition-all" style={{
-                        width: `${usedPercent}%`, background: '#22c55e',
-                        minWidth: usedCount > 0 ? '3px' : '0',
-                      }} />
-                      <div className="h-full transition-all" style={{
-                        width: `${unusedPercent}%`, background: accent,
-                      }} />
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px]">
-                      <span className="flex items-center gap-1" style={{ color: '#16a34a' }}>
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span className="tabular-nums">{usedCount}</span> used ({usedPercent}%)
-                      </span>
-                      <span className="flex items-center gap-1" style={{ color: accent }}>
-                        <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
-                        <span className="tabular-nums">{unusedCount}</span> to remove ({unusedPercent}%)
-                      </span>
-                      <span className="ml-auto text-slate-400 tabular-nums">{totalPermissions} total</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Removed: legacy "Least-privilege finding" amber card.
-              The same fact ({unusedPercent}% over-privileged) is now in
-              the verdict header + the over-privileged summary card
-              above; rendering it three times was the source of the
-              "modal looks like five things failed" complaint. Risk
-              badge moved to the over-privileged summary card so the
-              CRITICAL / HIGH / MEDIUM signal is preserved without
-              the duplicate prose. */}
 
           {/* Permission Usage Breakdown - Only show if not remediated */}
           {analysisTab === 'permissions' && totalPermissions > 0 && (
@@ -3871,11 +3724,25 @@ export function IAMPermissionAnalysisModal({
 
           {analysisTab === 'context' && (
             <div className="space-y-4">
+              {safetyContext && (
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                    Technical decision details
+                  </summary>
+                  <p className="mb-3 mt-2 text-xs text-slate-600">
+                    Audit metadata and scoring factors for security engineers. These explain automation safety—not whether the role is over-permissioned.
+                  </p>
+                  <div className="space-y-3">
+                    {renderSafetyVectorDecision()}
+                    {renderSafetyBreakdown()}
+                  </div>
+                </details>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Safety Score</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Automated-change evidence</div>
                   <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{safetyScore}%</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">current remediation confidence</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">evidence for safe automation, not confidence in the finding</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
                   <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Observation</div>
