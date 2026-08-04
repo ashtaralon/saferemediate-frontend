@@ -773,16 +773,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
       const url = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`
-      // Retry 503 (Render still booting — it answers instantly, so a retry is
-      // nearly free and usually works). Do NOT retry 504.
-      //
-      // A 504 here means the proxy's own 55s budget was exhausted. Retrying
-      // that with an identical budget cannot succeed: the previous 25s budget
-      // was shorter than a 32s cold start, so all three attempts timed out by
-      // construction — ~78s of spinner and then a hard error on a backend that
-      // was merely cold. The cold path is now covered by the budget itself,
-      // which is where it belongs; retrying is for the fast-failing case only.
-      const retryDelaysMs = [1000]
+      // One retry only. A 503 is a fast boot failure, so retry after 1s. A 504
+      // means our 55s proxy budget elapsed while the backend request may still
+      // be completing server-side. Wait before retrying so that request can
+      // populate the backend cache; an immediate retry overlaps the analyzer
+      // sweep and was observed to amplify the cold-load timeout.
+      const retryDelaysMs = [20000]
       let response: Response | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
@@ -808,8 +804,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         // Surface the retry on the LOADING screen. Setting `error` here was
         // dead copy: `loading` is still true, and its guard returns first, so
         // the operator saw an undifferentiated spinner through both retries.
-        setLoadingNote('Backend warming up — retrying…')
-        await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]))
+        const retryDelayMs = response.status === 504 ? retryDelaysMs[attempt] : 1000
+        setLoadingNote(
+          response.status === 504
+            ? 'Resource analysis is still completing — retrying shortly…'
+            : 'Backend warming up — retrying…',
+        )
+        await new Promise((r) => setTimeout(r, retryDelayMs))
       }
       setLoadingNote(null)
       if (!response?.ok) {
