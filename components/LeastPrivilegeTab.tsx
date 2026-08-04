@@ -46,6 +46,7 @@ const safeNumber = (v: unknown, fallback = 0): number => {
 // Types
 interface GapResource {
   id: string
+  findingId?: string
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
@@ -3134,7 +3135,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   body: JSON.stringify({
                     resource_type: 'IAMRole',
                     resource_id: selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || selectedResource.id,
-                    system_name: effectiveSystemName
+                    system_name: effectiveSystemName,
+                    finding_id: selectedResource.findingId,
                   })
                 })
 
@@ -3149,6 +3151,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 // Use the new IAM Simulate Fix modal
                 setIamSimulateFixResult(simulateFixData)
                 setIamSimulateFixModalOpen(true)
+                if (simulateFixData.decision_persistence?.persisted) {
+                  // Preview changed only the decision overlay, but both the
+                  // frontend proxy and backend list projection are cached.
+                  // Force one background refresh so the row keeps the exact
+                  // persisted canonical tier after the modal closes.
+                  void fetchGaps(true, true)
+                } else if (simulateFixData.decision_persistence?.warning) {
+                  toast({
+                    title: 'Preview evaluated, queue not updated',
+                    description: simulateFixData.decision_persistence.warning,
+                    variant: 'destructive',
+                  })
+                }
               }
             } catch (err) {
               console.error('Simulation error:', err)

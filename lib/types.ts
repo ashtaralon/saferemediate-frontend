@@ -482,6 +482,21 @@ export interface SimulateFixSafety {
   // to fields the modal already reads.
   block_reason?: string | null
   message?: string | null
+  engine_decision?: string | null
+  would_be_decision_if_active?: string | null
+  engine_version?: string | null
+  policy_pack_versions?: string[]
+  decision_bundle_hash?: string | null
+  decision_envelope_hashes?: string[]
+  decision_reason_codes?: string[]
+}
+
+export interface SimulateFixDecisionPersistence {
+  persisted: boolean
+  decision_key: string
+  evaluated_at: string
+  expires_at: string
+  warning?: string | null
 }
 
 export interface SimulateFixResponse {
@@ -491,6 +506,7 @@ export interface SimulateFixResponse {
   simulation: SimulateFixSimulation
   projected_effect: SimulateFixProjectedEffect
   safety: SimulateFixSafety
+  decision_persistence: SimulateFixDecisionPersistence
 }
 
 // ============================================================================
