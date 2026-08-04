@@ -4,6 +4,7 @@ import {
   automationReadiness,
   previewEvidenceNeeds,
   previewPermissionCounts,
+  simulationPlanCounts,
 } from '@/lib/resource-risk-preview-summary'
 import type { SimulateFixSafety } from '@/lib/types'
 
@@ -46,6 +47,25 @@ describe('Resource Risk Preview plain-language summary', () => {
       unusedCount: 6,
       totalCount: 10,
       unusedPercent: 60,
+    })
+  })
+
+  it('separates the proposed removal plan from observed permission usage', () => {
+    expect(simulationPlanCounts({
+      summary: '22 unused permissions',
+      gap_percent: 82,
+      unused_count: 22,
+      used_count: 5,
+      top_risk_reasons: [],
+    }, 13, {
+      usedCount: 4,
+      unusedCount: 23,
+      totalCount: 27,
+    })).toEqual({
+      removeCount: 13,
+      remainCount: 14,
+      observedUsedCount: 5,
+      totalCount: 27,
     })
   })
 
