@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { createPortal } from "react-dom"
 import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, ShieldCheck, Sparkles, Check,
@@ -34,6 +34,22 @@ import {
   previewEvidenceNeeds,
   previewPermissionCounts,
 } from "@/lib/resource-risk-preview-summary"
+import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
+import {
+  ApprovalActionModal,
+  buildApprovalActionInitialState,
+  type ApprovalActionMode,
+} from "@/components/iam-lp/ApprovalActionModal"
+import { ChangeSetCard } from "@/components/iam-lp/ChangeSetCard"
+import { ExecutionPlan } from "@/components/iam-lp/ExecutionPlan"
+import { VerdictHero } from "@/components/iam-lp/VerdictHero"
+import { EvidenceTable } from "@/components/iam-lp/EvidenceTable"
+import { buildDecisionSplit } from "@/components/iam-lp/resolvers/decisionSplit"
+import type {
+  ApprovalRequestSummary,
+  ExecutionState,
+  IamGapAnalysis,
+} from "@/components/iam-lp/types"
 
 interface PermissionAnalysis {
   permission: string
@@ -57,6 +73,36 @@ interface DependencyContext {
   dependencies?: DependencyInfo[]
   has_critical_dependencies?: boolean
   error?: string
+}
+
+function extractErrorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload === "string" && payload.trim().length > 0) {
+    return payload
+  }
+
+  if (payload && typeof payload === "object") {
+    const candidate = payload as {
+      message?: unknown
+      error?: unknown
+      detail?: unknown
+      reason_code?: unknown
+    }
+
+    const nested =
+      extractErrorMessage(candidate.detail, "") ||
+      extractErrorMessage(candidate.error, "") ||
+      extractErrorMessage(candidate.message, "")
+
+    if (nested) {
+      const reasonCode =
+        typeof candidate.reason_code === "string" && candidate.reason_code.trim().length > 0
+          ? candidate.reason_code.trim()
+          : null
+      return reasonCode ? `${nested} (${reasonCode})` : nested
+    }
+  }
+
+  return fallback
 }
 
 interface GapAnalysisData {
@@ -292,6 +338,145 @@ function fallbackAnalyzeRole(roleName: string, cloudtrailEvents: number, unusedC
   return null
 }
 
+function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | null {
+  if (!gapData) return null
+
+  const rawGap = gapData as any
+  const normalizeAction = (
+    action: string | undefined,
+  ): IamGapAnalysis["confidence_groups"]["groups"][number]["action"] => {
+    switch (action) {
+      case "safe_to_remove":
+      case "verify_first":
+      case "investigate_first":
+      case "warn_before_removing":
+      case "protected":
+      case "reserved":
+        return action
+      default:
+        return "investigate_first"
+    }
+  }
+
+  const mappedDependencies: IamGapAnalysis["dependency_context"]["dependencies"] = (
+    gapData.dependency_context?.dependencies || []
+  ).map((dependency) => ({
+    ...dependency,
+    criticality: dependency.environment,
+  }))
+
+  const mappedConfidenceGroups: IamGapAnalysis["confidence_groups"] = gapData.confidence_groups
+    ? {
+        groups: gapData.confidence_groups.groups.map((group) => {
+          const action = normalizeAction(group.action)
+
+          return {
+            group_id: group.group_id,
+            label: group.label,
+            action,
+            confidence_score: group.confidence_score,
+            evidence_confidence_score: group.evidence_confidence_score,
+            permission_count: group.permission_count,
+            permissions: (group.permissions || []).map((permission) => ({
+              ...permission,
+              _action: permission.protected
+                ? "protected"
+                : permission.reserved
+                  ? "reserved"
+                  : permission.warn
+                    ? "warn_before_removing"
+                    : action,
+              service_prefix: permission.permission?.includes(":")
+                ? permission.permission.split(":")[0]
+                : undefined,
+            })),
+            protected: !!group.protected,
+            warn: !!group.warn,
+            auto_remediable: group.auto_remediable === true,
+            block_reason_code: group.block_reason_code ?? null,
+            block_reason_human: group.block_reason_human ?? null,
+            explanation: group.explanation,
+            color: group.color,
+          }
+        }),
+        overall_confidence: gapData.confidence_groups.overall_confidence,
+        evidence_overall_confidence: gapData.confidence_groups.evidence_overall_confidence,
+        summary: {
+          safe_to_remove: gapData.confidence_groups.summary.safe_to_remove,
+          verify_first: gapData.confidence_groups.summary.verify_first,
+          investigate_first: gapData.confidence_groups.summary.investigate_first,
+          protected: gapData.confidence_groups.summary.protected ?? 0,
+          warn_before_removing: gapData.confidence_groups.summary.warn_before_removing ?? 0,
+          reserved: gapData.confidence_groups.summary.reserved ?? 0,
+        },
+        total_permissions: gapData.confidence_groups.total_permissions,
+        total_permissions_all:
+          (gapData.confidence_groups as any).total_permissions_all ??
+          gapData.confidence_groups.total_permissions,
+      }
+    : {
+        groups: [],
+        overall_confidence: 0,
+        summary: {
+          safe_to_remove: 0,
+          verify_first: 0,
+          investigate_first: 0,
+          protected: 0,
+        },
+        total_permissions: gapData.summary.total_permissions,
+        total_permissions_all: gapData.summary.total_permissions,
+      }
+
+  return {
+    role_name: gapData.role_name,
+    role_arn: gapData.role_arn || "",
+    observation_days: gapData.observation_days,
+    data_source: rawGap.data_source || "real",
+    confidence_mode: rawGap.confidence_mode || "observed",
+    summary: {
+      total_permissions: gapData.summary.total_permissions,
+      used_count: gapData.summary.used_count,
+      unused_count: gapData.summary.unused_count,
+      lp_score: gapData.summary.lp_score ?? null,
+      overall_risk: gapData.summary.overall_risk,
+      data_confidence: gapData.summary.data_confidence || "UNKNOWN",
+      cloudtrail_events: gapData.summary.cloudtrail_events,
+      high_risk_unused_count: gapData.summary.high_risk_unused_count || 0,
+      api_relationships: rawGap.summary?.api_relationships || 0,
+      traffic_relationships: rawGap.summary?.traffic_relationships || 0,
+      total_evidence: rawGap.summary?.total_evidence || 0,
+    },
+    behavioral_authority: rawGap.behavioral_authority,
+    permissions_analysis: (gapData.permissions_analysis || []).map((permission) => ({
+      ...permission,
+      service_prefix: permission.permission?.includes(":")
+        ? permission.permission.split(":")[0]
+        : undefined,
+    })),
+    used_permissions: gapData.used_permissions || [],
+    unused_permissions: gapData.unused_permissions || [],
+    high_risk_unused: gapData.high_risk_unused || [],
+    confidence:
+      typeof gapData.confidence === "string"
+        ? { level: gapData.confidence }
+        : ((gapData.confidence as unknown as Record<string, unknown>) || {}),
+    confidence_groups: mappedConfidenceGroups,
+    safety_vector: gapData.safety_vector || null,
+    evidence_breakdown: rawGap.evidence_breakdown || {},
+    is_remediable: gapData.is_remediable !== false,
+    remediable_reason: gapData.remediable_reason || "",
+    reason: gapData.reason ?? null,
+    dependency_context: {
+      status: gapData.dependency_context?.status || "ok",
+      system: gapData.dependency_context?.system || null,
+      dependencies: mappedDependencies,
+      has_critical_dependencies: !!gapData.dependency_context?.has_critical_dependencies,
+    },
+    service_role_analysis: gapData.service_role_analysis,
+    timestamp: rawGap.timestamp || new Date().toISOString(),
+  }
+}
+
 export function IAMPermissionAnalysisModal({
   isOpen,
   onClose,
@@ -330,6 +515,15 @@ export function IAMPermissionAnalysisModal({
   const [analysisTab, setAnalysisTab] = useState<'summary' | 'permissions' | 'context'>('summary')
   const [simulating, setSimulating] = useState(false)
   const [applying, setApplying] = useState(false)
+  const [iamLpChangeSetExpanded, setIamLpChangeSetExpanded] = useState(false)
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequestSummary[]>([])
+  const [approvalLoading, setApprovalLoading] = useState(false)
+  const [approvalActionBusy, setApprovalActionBusy] = useState(false)
+  const [approvalActionMode, setApprovalActionMode] = useState<ApprovalActionMode | null>(null)
+  const [approvalActionRequestId, setApprovalActionRequestId] = useState<string | null>(null)
+  const [approvalActionPermissions, setApprovalActionPermissions] = useState<string[]>([])
+  const [approvalActionError, setApprovalActionError] = useState<string | null>(null)
+  const [approvalActionState, setApprovalActionState] = useState(buildApprovalActionInitialState)
   const [createSnapshot, setCreateSnapshot] = useState(true)
   // Containment (P0-A): both managed-policy detach controls default OFF.
   // Detaching a managed policy is a coarse, high-consequence IAM mutation;
@@ -430,6 +624,55 @@ export function IAMPermissionAnalysisModal({
     })()
     return () => { cancelled = true }
   }, [isOpen, roleName, findingId])
+
+  const fetchApprovalRequests = async () => {
+    if (!roleName) return
+    setApprovalLoading(true)
+    try {
+      const query = new URLSearchParams({
+        role_name: roleName,
+        limit: "10",
+      })
+      if (systemName) query.set("system_name", systemName)
+      const response = await fetch(`/api/proxy/iam-roles/approval-requests?${query.toString()}`, {
+        cache: "no-store",
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || `Approval requests failed: ${response.status}`)
+      }
+      setApprovalRequests(Array.isArray(data.requests) ? data.requests : [])
+    } catch (error) {
+      console.warn("[IAM-Modal] Failed to fetch approval requests:", error)
+      setApprovalRequests([])
+    } finally {
+      setApprovalLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen || !roleName) return
+    void fetchApprovalRequests()
+  }, [isOpen, roleName, systemName])
+
+  const openApprovalAction = (
+    mode: ApprovalActionMode,
+    options?: { requestId?: string | null; permissions?: string[] },
+  ) => {
+    setApprovalActionMode(mode)
+    setApprovalActionRequestId(options?.requestId ?? null)
+    setApprovalActionPermissions(options?.permissions ?? [])
+    setApprovalActionError(null)
+    setApprovalActionState(buildApprovalActionInitialState())
+  }
+
+  const closeApprovalAction = () => {
+    setApprovalActionMode(null)
+    setApprovalActionRequestId(null)
+    setApprovalActionPermissions([])
+    setApprovalActionError(null)
+    setApprovalActionState(buildApprovalActionInitialState())
+  }
 
   // Prefer the backend-signed plan's frozen set as the default selection once
   // it arrives: it IS the SAFE_TO_STAGE set, and defaulting to it means the
@@ -822,6 +1065,7 @@ export function IAMPermissionAnalysisModal({
     force: boolean = false,
     prebuiltLineage?: Record<string, any>,
     skipAutoClose: boolean = false,
+    explicitPermissions?: string[],
   ): Promise<string | undefined> => {
     if (!gapData) return undefined
 
@@ -867,7 +1111,9 @@ export function IAMPermissionAnalysisModal({
     // promote to force=true. With the new in-app override flow these
     // also route through the override modal -- no native dialogs.
     const autoRemediable = getAutoRemediablePermissions()
-    const allSelected = Array.from(selectedPermissionsToRemove)
+    const allSelected = explicitPermissions
+      ? Array.from(new Set(explicitPermissions))
+      : Array.from(selectedPermissionsToRemove)
     const nonAutoSelected = allSelected.filter(p => !autoRemediable.has(p))
     let effectiveForce = force
     if (nonAutoSelected.length > 0 && !force) {
@@ -1160,7 +1406,49 @@ export function IAMPermissionAnalysisModal({
     return undefined
   }
 
-  if (!isOpen) return null
+  const handleIAMLpSimulate = async (permissions: string[]) => {
+    setSelectedPermissionsToRemove(new Set(permissions))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await handleSimulate()
+  }
+
+  const handleIAMLpApplySafeSet = async (permissions: string[]) => {
+    await handleApplyFix(false, undefined, false, permissions)
+  }
+
+  const handleIAMLpRequestApproval = async (permissions: string[]) => {
+    if (verdictBucket === "blocked") {
+      toast({
+        title: "Approval unavailable",
+        description:
+          (safetyContext?.unsafe_reasons?.[0] || "This role is blocked by the mutation boundary. Resolve the evidence issue and re-simulate first."),
+        variant: "destructive",
+      })
+      return
+    }
+    openApprovalAction("request", { permissions })
+  }
+
+  const handleIAMLpApproveRequest = async (requestId: string) => {
+    openApprovalAction("approve", { requestId })
+  }
+
+  const handleIAMLpRejectRequest = async (requestId: string) => {
+    openApprovalAction("reject", { requestId })
+  }
+
+  const handleIAMLpExecuteApprovedRequest = async (requestId: string) => {
+    if (verdictBucket === "blocked") {
+      toast({
+        title: "Execution blocked",
+        description:
+          (safetyContext?.unsafe_reasons?.[0] || "The approved request cannot execute until the safety hold is cleared."),
+        variant: "destructive",
+      })
+      return
+    }
+    openApprovalAction("execute", { requestId })
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // overrideModalUI — extracted so it renders REGARDLESS of which
@@ -1988,6 +2276,7 @@ export function IAMPermissionAnalysisModal({
   const lpScore = gapData?.summary?.lp_score ?? (totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0)
   const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
+  const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
   const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
   const previewCounts = previewPermissionCounts(previewProblem, {
     usedCount,
@@ -2095,6 +2384,164 @@ export function IAMPermissionAnalysisModal({
         </section>
       </div>
     )
+  }
+
+  const iamLpGap = useMemo(() => mapGapDataToIAMLp(gapData), [gapData])
+  const iamLpSplit = useMemo(
+    () => buildDecisionSplit(iamLpGap?.confidence_groups),
+    [iamLpGap],
+  )
+  const latestApprovalRequest = useMemo<ApprovalRequestSummary | null>(() => {
+    if (!approvalRequests.length) return null
+    return (
+      approvalRequests.find((request) => request.status === "PENDING_APPROVAL") ||
+      approvalRequests.find((request) => request.status === "APPROVED") ||
+      approvalRequests.find((request) => request.status === "EXECUTED") ||
+      approvalRequests[0] ||
+      null
+    )
+  }, [approvalRequests])
+  const iamLpExecution = useMemo<ExecutionState>(
+    () => ({
+      approval: latestApprovalRequest,
+      rollback: {
+        available: !!gapData?.remediated_at,
+        status: gapData?.remediated_at ? "ready" : "idle",
+      },
+    }),
+    [gapData?.remediated_at, latestApprovalRequest],
+  )
+  const showLegacySummaryScaffolding = analysisTab === 'summary' && !iamLpGap
+
+  const handleSubmitApprovalAction = async ({
+    actorIdentifier,
+    note,
+  }: {
+    actorIdentifier: string
+    note: string
+  }) => {
+    if (!approvalActionMode) return
+
+    setApprovalActionBusy(true)
+    setApprovalActionError(null)
+
+    try {
+      if (approvalActionMode === "request") {
+        if (!approvalActionPermissions.length) {
+          throw new Error("No permissions selected for approval")
+        }
+
+        const response = await fetch("/api/proxy/iam-roles/approval-requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role_name: roleName,
+            system_name: systemName,
+            permissions_to_remove: approvalActionPermissions,
+            create_snapshot: createSnapshot,
+            detach_managed_policies: detachManagedPolicies,
+            detach_all_managed_policies: detachAllManagedPolicies,
+            plan_token: planToken || undefined,
+            requested_by: actorIdentifier,
+            requester_note: note,
+            summary: {
+              total_permissions: totalPermissions,
+              used_count: usedCount,
+              unused_count: unusedCount,
+              observation_days: observationDays,
+              cloudtrail_events: cloudtrailEvents,
+              auto_apply_count: iamLpSplit.autoApplyCount,
+              needs_approval_count: iamLpSplit.needsApprovalCount,
+              protected_count: iamLpSplit.protectedCount,
+              selected_permissions_count: approvalActionPermissions.length,
+              data_confidence: gapData?.summary?.data_confidence ?? null,
+            },
+          }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || data.success === false) {
+          throw new Error(
+            extractErrorMessage(data, "Failed to create approval request"),
+          )
+        }
+
+        toast({
+          title: "Approval request created",
+          description: `${data.request?.request_id || "Request"} is now pending approval.`,
+        })
+        await fetchApprovalRequests()
+        closeApprovalAction()
+        return
+      }
+
+      if (!approvalActionRequestId) {
+        throw new Error("No approval request selected")
+      }
+
+      const endpoint =
+        approvalActionMode === "approve"
+          ? `/api/proxy/iam-roles/approval-requests/${encodeURIComponent(approvalActionRequestId)}/approve`
+          : approvalActionMode === "reject"
+            ? `/api/proxy/iam-roles/approval-requests/${encodeURIComponent(approvalActionRequestId)}/reject`
+            : `/api/proxy/iam-roles/approval-requests/${encodeURIComponent(approvalActionRequestId)}/execute`
+
+      const body =
+        approvalActionMode === "approve"
+          ? { approved_by: actorIdentifier, note }
+          : approvalActionMode === "reject"
+            ? { rejected_by: actorIdentifier, note }
+            : { executed_by: actorIdentifier, note }
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.success === false) {
+        throw new Error(
+          extractErrorMessage(data, "Approval workflow action failed"),
+        )
+      }
+
+      if (approvalActionMode === "approve") {
+        toast({
+          title: "Request approved",
+          description: `${approvalActionRequestId} is ready for execution.`,
+        })
+      } else if (approvalActionMode === "reject") {
+        toast({
+          title: "Request rejected",
+          description: `${approvalActionRequestId} was rejected and will not mutate AWS.`,
+        })
+      } else {
+        const executionResult = data.result || {}
+        const removed = executionResult.permissions_removed ?? "the stored"
+        toast({
+          title: "Approved request executed",
+          description:
+            typeof removed === "number"
+              ? `Applied the approved change set and removed ${removed} permissions.`
+              : "Applied the approved change set from the stored request.",
+        })
+        dispatchRemediationChanged({
+          action: "remediate",
+          resource_type: "IAMRole",
+          resource_id: roleName,
+        })
+        onRemediationSuccess?.(roleName)
+        onSuccess?.()
+        await fetchGapAnalysis(true)
+      }
+
+      await fetchApprovalRequests()
+      closeApprovalAction()
+    } catch (error: any) {
+      setApprovalActionError(error?.message || "Approval workflow action failed")
+      throw error
+    } finally {
+      setApprovalActionBusy(false)
+    }
   }
   
   // Calculate dates
@@ -2235,6 +2682,13 @@ export function IAMPermissionAnalysisModal({
       ? `The pipeline math takes precedence over the AI reviewer here -- ${firstReason}.`
       : `The pipeline math takes precedence over the AI reviewer here for safety.`
   })()
+
+  const blockedReason =
+    safetyContext?.unsafe_reasons?.[0]
+      || gapData?.remediable_reason
+      || null
+
+  if (!isOpen) return null
 
   // Loading state
   if (loading) {
@@ -3314,6 +3768,19 @@ export function IAMPermissionAnalysisModal({
       </div>
     )}
 
+    <ApprovalActionModal
+      isOpen={approvalActionMode !== null}
+      mode={approvalActionMode || "request"}
+      actorName={approvalActionState.actorName}
+      actorEmail={approvalActionState.actorEmail}
+      note={approvalActionState.note}
+      busy={approvalActionBusy}
+      error={approvalActionError}
+      onChange={setApprovalActionState}
+      onClose={closeApprovalAction}
+      onSubmit={handleSubmitApprovalAction}
+    />
+
     {/* Original IAM modal — kept inside its z-50 wrapper so close-on-
         backdrop-click still works. The override modal above renders on
         top via inline z-index 99999. */}
@@ -3407,6 +3874,65 @@ export function IAMPermissionAnalysisModal({
             ))}
           </div>
 
+          {analysisTab === 'summary' && iamLpGap && (
+            <div className="space-y-3">
+              <VerdictHero
+                gap={iamLpGap}
+                split={iamLpSplit}
+                execution={iamLpExecution}
+                verdictBucket={verdictBucket}
+                blockedReason={blockedReason}
+              />
+              <EvidenceTable gap={iamLpGap} />
+              <ChangeSetCard
+                gap={iamLpGap}
+                split={iamLpSplit}
+                expanded={iamLpChangeSetExpanded}
+                onToggleExpanded={() => setIamLpChangeSetExpanded((value) => !value)}
+              />
+              <ExecutionPlan
+                gap={iamLpGap}
+                split={iamLpSplit}
+                execution={iamLpExecution}
+                verdictBucket={verdictBucket}
+                blockedReason={blockedReason}
+                onSimulate={handleIAMLpSimulate}
+                onApplySafeSet={handleIAMLpApplySafeSet}
+                onRequestApproval={handleIAMLpRequestApproval}
+                onRollback={async () => {
+                  if (roleName) {
+                    await fetch("/api/proxy/iam-roles/rollback", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ role_name: roleName }),
+                    }).then(async (response) => {
+                      const result = await response.json().catch(() => ({}))
+                      if (!response.ok) {
+                        throw new Error(result.detail || result.error || "Rollback failed")
+                      }
+                      toast({
+                        title: "Rollback Successful",
+                        description: `Restored ${roleName} to pre-remediation state.`,
+                      })
+                      await fetchGapAnalysis(true)
+                      await fetchApprovalRequests()
+                      onRollbackSuccess?.(roleName)
+                      dispatchRemediationChanged({
+                        action: "rollback",
+                        resource_type: "IAMRole",
+                        resource_id: roleName,
+                      })
+                    })
+                  }
+                }}
+                onApproveRequest={handleIAMLpApproveRequest}
+                onRejectRequest={handleIAMLpRejectRequest}
+                onExecuteApprovedRequest={handleIAMLpExecuteApprovedRequest}
+              />
+              <AdvancedDrawer gap={iamLpGap} />
+            </div>
+          )}
+
           {/* ── Pipeline Decision banner (Summary tab) ────────────────────
               The unified pipeline is the AUTHORITATIVE decision source.
               We render it above the Agent 5 panel so the verdict order
@@ -3415,13 +3941,13 @@ export function IAMPermissionAnalysisModal({
               Fail-closed: if simulate-fix returned no safety object, we
               don't show a green "Safe to apply" — we surface the
               fail-closed warning so the user can investigate why. */}
-          {analysisTab === 'summary' && safetyLoading && (
+          {showLegacySummaryScaffolding && safetyLoading && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
               <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
               Reading unified pipeline decision…
             </div>
           )}
-          {analysisTab === 'summary' && !safetyLoading && !safetyContext && (
+          {showLegacySummaryScaffolding && !safetyLoading && !safetyContext && (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4">
               <div className="flex items-start gap-3">
                 <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
@@ -3436,7 +3962,174 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
           )}
-          {analysisTab === 'summary' && safetyContext && renderSimpleDecisionSummary()}
+          {showLegacySummaryScaffolding && safetyContext && renderSimpleDecisionSummary()}
+          {showLegacySummaryScaffolding && safetyContext && (() => {
+            // v5 verdict layout — replaces the old Pipeline Decision +
+            // Agent 5 Confidence Scorer + Visibility Signals stack that
+            // showed a 100/100 score next to a BLOCKED verdict
+            // (operator-visible contradiction). Per
+            // Cyntro_Architecture_v5_PR001_Transition.md §6, customer-
+            // facing posture is a typed state, not a number.
+            //
+            // Generic source labels in the Evidence panel — demo-safe,
+            // no AWS service names exposed.
+            const d = safetyContext.decision_canonical ?? null
+            const obs = safetyContext.observation_days ?? observationDays
+            const tel = safetyContext.telemetry_coverage
+            const consumers = safetyContext.consumer_count ?? 0
+            const reasons = safetyContext.unsafe_reasons ?? []
+            const coveragePct = typeof tel === 'number' ? Math.round(tel * 100) : 100
+
+            type Tone = 'block' | 'review' | 'approve' | 'auto'
+            const tone: Tone =
+              d === 'BLOCK' || d === 'EXCLUDE' ? 'block'
+              : d === 'MANUAL_REVIEW' ? 'review'
+              : d === 'REQUIRE_APPROVAL' || d === 'CANARY_FIRST' ? 'approve'
+              : d === 'AUTO_EXECUTE' ? 'auto'
+              : 'review'
+
+            const VERDICT: Record<Tone, {
+              label: string
+              border: string
+              bg: string
+              color: string
+              IconClass: typeof Shield
+              showReasons: boolean
+            }> = {
+              block:   { label: 'Paused — review required',  border: '#fde68a', bg: '#fffbeb', color: '#92400e', IconClass: Shield, showReasons: true },
+              review:  { label: 'Manual review required',     border: '#fed7aa', bg: '#fff7ed', color: '#9a3412', IconClass: AlertTriangle, showReasons: true },
+              approve: { label: 'Approval required',          border: '#bfdbfe', bg: '#eff6ff', color: '#1e40af', IconClass: Shield, showReasons: true },
+              auto:    { label: 'Ready to apply',             border: '#bbf7d0', bg: '#f0fdf4', color: '#15803d', IconClass: CheckCircle, showReasons: false },
+            }
+            const v = VERDICT[tone]
+            const primaryReason = reasons[0]
+              ?? (tone === 'auto'
+                ? 'All safety checks passed. Cyntro will create a rollback snapshot before mutation.'
+                : 'Required evidence is incomplete in this account.')
+
+            // Build why-we-paused gates (binary, fixable).
+            const gates: Array<{ label: string; hint: string }> = []
+            if (coveragePct < 100) {
+              gates.push({
+                label: `Telemetry coverage is ${coveragePct}%`,
+                hint: 'Enable the missing sources in this account to reach 100%.',
+              })
+            }
+            if (typeof obs === 'number' && obs < 21) {
+              gates.push({
+                label: `Observation window is ${obs} days`,
+                hint: 'Cyntro needs ≥21 days of observation before automating production changes.',
+              })
+            }
+            if (consumers > 0 && tone !== 'auto') {
+              gates.push({
+                label: `${consumers} system${consumers === 1 ? '' : 's'} depend on this role`,
+                hint: 'Verify each consumer does not use the proposed-removed permissions.',
+              })
+            }
+            // Tail of the unsafe_reasons (after the primary one shown in the verdict header).
+            for (const r of reasons.slice(1)) gates.push({ label: r, hint: '' })
+
+            // Generic vendor-neutral evidence labels — see
+            // Cyntro_Architecture_v5 §8 for the canonical SafetyVector
+            // dimensions this maps to. Demo-safe.
+            const TOTAL_EVIDENCE_SOURCES = 6
+            const sourcesActive = Math.max(
+              0,
+              Math.min(TOTAL_EVIDENCE_SOURCES, Math.round((coveragePct / 100) * TOTAL_EVIDENCE_SOURCES)),
+            )
+            const EVIDENCE_LABELS = [
+              'Activity history',
+              'Permission usage',
+              'Identity graph',
+              'Network behavior',
+              'Configuration baseline',
+              'Application traces',
+            ]
+
+            return (
+              <div className="space-y-3">
+                {/* v4.4 §11E confidence-score header — replaces typed-posture
+                    verdict with numeric score + 4-state mapping. The legacy
+                    typed-verdict block below is left as dead code via false
+                    guard for diff readability. */}
+                {renderConfidenceCard()}
+                {false && (
+                <div className="p-4 rounded-xl border-2" style={{ backgroundColor: v.bg, borderColor: v.border }}>
+                  <div className="flex items-start gap-3">
+                    <v.IconClass className="w-7 h-7 shrink-0 mt-0.5" style={{ color: v.color }} />
+                    <div className="min-w-0">
+                      <div className="text-lg font-bold" style={{ color: v.color }}>{v.label}</div>
+                      <div className="text-sm mt-1" style={{ color: v.color }}>{primaryReason}</div>
+                    </div>
+                  </div>
+                </div>
+                )}
+
+                {/* Safety scoring breakdown — replaces the old "Why we paused"
+                    + "Evidence used" pair with a single per-dimension panel
+                    that shows EVERY safety dimension the engine evaluated,
+                    its score, and which one drove the verdict. The legacy
+                    inline render is left below as dead code via a false
+                    guard (kept temporarily for diff-readability; will be
+                    deleted next pass). */}
+                {renderSafetyBreakdown()}
+
+                {false && v.showReasons && gates.length > 0 && (
+                  <div className="p-4 rounded-xl border" style={{ backgroundColor: v.bg, borderColor: v.border }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: v.color }}>Why we paused</div>
+                    <ul className="space-y-2">
+                      {gates.map((g, i) => (
+                        <li key={`gate-${i}`} className="text-sm">
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0 mt-0.5" style={{ color: v.color }}>✗</span>
+                            <div>
+                              <div className="font-semibold" style={{ color: v.color }}>{g.label}</div>
+                              {g.hint && (
+                                <div className="text-xs mt-0.5" style={{ color: v.color, opacity: 0.85 }}>{g.hint}</div>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {false && (
+                <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
+                    <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                      {obs} days · {cloudtrailEvents.toLocaleString()} events
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                    {EVIDENCE_LABELS.map((name, i) => {
+                      const present = i < sourcesActive
+                      return (
+                        <div key={name} className="flex items-center gap-2">
+                          <span className="shrink-0 font-bold" style={{ color: present ? '#15803d' : '#9ca3af' }}>{present ? '✓' : '✗'}</span>
+                          <span style={{ color: present ? 'var(--foreground, #111827)' : 'var(--muted-foreground, #9ca3af)' }}>{name}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                    {sourcesActive} of {TOTAL_EVIDENCE_SOURCES} sources active.
+                  </div>
+                </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Removed: Agent 5 · Confidence Scorer panel + ConfidenceExplanation.
+              The 100/100 score next to a BLOCKED verdict was the source of
+              the operator-visible contradiction. The verdict above IS the
+              safety signal; no second opinion needed. Re-add later if
+              there's a v5-aligned way to show it without contradicting
+              the verdict (e.g. only when AUTO_EXECUTE). */}
 
           {/* Service Role Warning - Only show for CRITICAL severity
               (destructive hard-block — DO NOT MODIFY). Medium/high
@@ -3450,7 +4143,7 @@ export function IAMPermissionAnalysisModal({
               they ARE a different kind of warning — destructive hard-
               block, not a noisy duplicate — and the trust-principal
               line is still suppressed below for demo safety. */}
-          {analysisTab === 'summary' && (() => {
+          {showLegacySummaryScaffolding && (() => {
             if (!serviceAnalysis) return null
             const severity = serviceAnalysis.severity || 'medium'
             // Skip non-critical severity entirely — top verdict covers it
@@ -3539,7 +4232,7 @@ export function IAMPermissionAnalysisModal({
           })()}
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
-          {analysisTab === 'summary' && totalPermissions === 0 && (
+          {showLegacySummaryScaffolding && totalPermissions === 0 && (
             <div className="rounded-md border border-[#86efac] bg-[#f0fdf4] p-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-[#10b98120] rounded-full flex items-center justify-center shrink-0">
@@ -3565,6 +4258,73 @@ export function IAMPermissionAnalysisModal({
               )}
             </div>
           )}
+
+          {/* Over-Privileged Summary — single merged card (replaces banner + 3-card grid) */}
+          {false && analysisTab === 'summary' && totalPermissions > 0 && (() => {
+            const accent =
+              unusedPercent >= 75 ? '#ef4444' :
+              unusedPercent >= 50 ? '#f97316' :
+              unusedPercent >= 25 ? '#eab308' : '#22c55e'
+            const borderTint =
+              unusedPercent >= 75 ? '#ef444440' :
+              unusedPercent >= 50 ? '#f9731640' :
+              unusedPercent >= 25 ? '#eab30840' : '#22c55e40'
+            const bgTint =
+              unusedPercent >= 75 ? '#ef444408' :
+              unusedPercent >= 50 ? '#f9731608' :
+              unusedPercent >= 25 ? '#eab30808' : '#22c55e08'
+            return (
+              <div className="rounded-md border p-3" style={{ borderColor: borderTint, background: bgTint }}>
+                <div className="flex items-center gap-4">
+                  <div className="flex flex-col items-center shrink-0 w-16">
+                    <span className="text-2xl font-semibold tabular-nums leading-none" style={{ color: accent }}>
+                      {unusedPercent}%
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide mt-1" style={{ color: accent }}>
+                      Over-privileged
+                    </span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="text-xs" style={{ color: "var(--foreground, #111827)" }}>
+                        <span className="font-semibold tabular-nums">{unusedCount}</span> of <span className="font-semibold tabular-nums">{totalPermissions}</span> never used · <span className="font-semibold tabular-nums" style={{ color: '#16a34a' }}>{usedCount}</span> needed
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-0.5 mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+                      <div className="h-full transition-all" style={{
+                        width: `${usedPercent}%`, background: '#22c55e',
+                        minWidth: usedCount > 0 ? '3px' : '0',
+                      }} />
+                      <div className="h-full transition-all" style={{
+                        width: `${unusedPercent}%`, background: accent,
+                      }} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 text-[10px]">
+                      <span className="flex items-center gap-1" style={{ color: '#16a34a' }}>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span className="tabular-nums">{usedCount}</span> used ({usedPercent}%)
+                      </span>
+                      <span className="flex items-center gap-1" style={{ color: accent }}>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
+                        <span className="tabular-nums">{unusedCount}</span> to remove ({unusedPercent}%)
+                      </span>
+                      <span className="ml-auto text-slate-400 tabular-nums">{totalPermissions} total</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Removed: legacy "Least-privilege finding" amber card.
+              The same fact ({unusedPercent}% over-privileged) is now in
+              the verdict header + the over-privileged summary card
+              above; rendering it three times was the source of the
+              "modal looks like five things failed" complaint. Risk
+              badge moved to the over-privileged summary card so the
+              CRITICAL / HIGH / MEDIUM signal is preserved without
+              the duplicate prose. */}
 
           {/* Permission Usage Breakdown - Only show if not remediated */}
           {analysisTab === 'permissions' && totalPermissions > 0 && (
@@ -4013,7 +4773,7 @@ export function IAMPermissionAnalysisModal({
           >
             Close
           </button>
-          {!gapData?.remediated_at && <button
+          {!iamLpGap && !gapData?.remediated_at && <button
             onClick={async () => {
               setSimulating(true)
               try {

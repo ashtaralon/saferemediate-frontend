@@ -40,8 +40,11 @@ const nextConfig = {
   poweredByHeader: false,
   compress: false,
 
-  // Turbopack config (Next.js 16 uses Turbopack by default)
-  turbopack: {},
+  // Keep Next from selecting an unrelated parent lockfile as the workspace
+  // root. Production and local builds must resolve dependencies from this app.
+  turbopack: {
+    root: __dirname,
+  },
 
   webpack: (config) => {
     config.devtool = "source-map";
