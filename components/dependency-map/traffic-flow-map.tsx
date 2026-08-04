@@ -73,6 +73,18 @@ export interface ServiceNode {
   awsServiceType?: string;
 }
 
+/** A replay-validated attacker transition. Unlike a cloud resource, this is
+ * a modeled action between two states and must never be placed in the
+ * full-width Resources lane. TrafficFlowMap renders these as an ordered,
+ * compact sequence while preserving the shared shell and interactions. */
+export interface ModeledMoveNode extends ServiceNode {
+  moveIndex: number;
+  primitiveId: string;
+  category: 'identity' | 'movement' | 'data';
+  outcome: string;
+  evidenceIds: string[];
+}
+
 export interface SGRule {
   direction: 'ingress' | 'egress';
   protocol: string;
@@ -420,6 +432,7 @@ export interface SystemArchitecture {
    *  Optional; back-compat default is "vpc_flow_logs". */
   metricsBasis?: "vpc_flow_logs" | "cloudtrail";
   resources: ServiceNode[];
+  modeledMoves?: ModeledMoveNode[];
   subnets: SubnetNode[];
   securityGroups: SecurityCheckpoint[];
   nacls: SecurityCheckpoint[];
@@ -4332,6 +4345,7 @@ export function ConnectionLinesSVG({
             'data-gateway-id',
             'data-vpce-id',
             'data-api-id',
+            'data-modeled-move-id',
             'data-subnet-id',
             'data-entry-id',
             'data-canvas-node-id',
@@ -5089,6 +5103,7 @@ export function UnifiedArchitectureDiagram({
   // clicked "details" and the full role/profile/policy card stack
   // renders. No-op outside spine mode (pathFilterActive false).
   const [identityDetailOpen, setIdentityDetailOpen] = useState(false);
+  const [selectedModeledMoveId, setSelectedModeledMoveId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const lanesRef = useRef<HTMLDivElement>(null);
   /** Scale the kill-chain row so COMPUTE→…→RESOURCES fits one viewport. */
@@ -5530,11 +5545,16 @@ export function UnifiedArchitectureDiagram({
   const isNodeHighlighted = (nodeId: string): boolean => {
     if (!effectiveHoveredId) return false;
     if (nodeId === effectiveHoveredId) return true;
-    return architecture.flows.some(f =>
+    const flowConnected = architecture.flows.some(f =>
       (f.sourceId === effectiveHoveredId && (f.targetId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
       (f.targetId === effectiveHoveredId && (f.sourceId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
       (f.sgId === effectiveHoveredId && (f.sourceId === nodeId || f.targetId === nodeId)) ||
       (f.roleId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId))
+    );
+    if (flowConnected) return true;
+    return (architecture.edges ?? []).some((edge) =>
+      (edge.source_aws_id === effectiveHoveredId && edge.target_aws_id === nodeId) ||
+      (edge.target_aws_id === effectiveHoveredId && edge.source_aws_id === nodeId)
     );
   };
 
@@ -5567,7 +5587,12 @@ export function UnifiedArchitectureDiagram({
         <div className="flex items-center gap-4 text-sm">
           {/* Path-authority (Zoom0): hide Traffic/Connections/Live Traffic
               unless selected-path observed network evidence is bound. */}
-          {pathAuthorityOnly && !showObservedTrafficMetrics ? (
+          {architecture.modeledMoves?.length ? (
+            <div className="text-right px-3" data-modeled-path-metrics="true">
+              <div className="text-xs font-semibold text-fuchsia-300">Replay-validated model</div>
+              <div className="text-[10px] text-muted-foreground">Not observed traffic</div>
+            </div>
+          ) : pathAuthorityOnly && !showObservedTrafficMetrics ? (
             <div className="text-center px-3" data-path-metrics="not-bound">
               <div className="text-[10px] text-muted-foreground">
                 Network volume not bound to this path
@@ -5608,7 +5633,9 @@ export function UnifiedArchitectureDiagram({
 
       {architecture.structuralFallbackUsed && (
         <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-          Structural topology only — no observed traffic edges. Lines are inactive and labeled &quot;structural, not observed&quot;.
+          {architecture.modeledMoves?.length
+            ? "Replay-validated modeled path — no observed traffic is claimed. Network checkpoints are not present in this ATLAS response."
+            : <>Structural topology only — no observed traffic edges. Lines are inactive and labeled &quot;structural, not observed&quot;.</>}
         </div>
       )}
 
@@ -5722,6 +5749,106 @@ export function UnifiedArchitectureDiagram({
             UI. The 3-col template gives COMPUTE and IAM ROLES room to
             breathe; API CALLS / RESOURCES on the row below adapt to
             whichever column count is active. */}
+        {architecture.modeledMoves?.length ? (
+          <div
+            ref={lanesRef}
+            className="relative overflow-x-auto px-3 py-6"
+            data-modeled-sequence="true"
+            style={{ zIndex: 2 }}
+          >
+            <div className="flex min-w-max items-stretch gap-12">
+              {architecture.computeServices[0] ? (
+                <div className="w-[240px] shrink-0" data-compute-id={architecture.computeServices[0].id}>
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-blue-300">Initial foothold</div>
+                  <ServiceNodeBox
+                    node={architecture.computeServices[0]}
+                    position="left"
+                    flowInfo={computeFlowInfo.get(architecture.computeServices[0].id)}
+                    isHighlighted={isNodeHighlighted(architecture.computeServices[0].id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(architecture.computeServices[0], 'compute')}
+                  />
+                </div>
+              ) : null}
+
+              {architecture.modeledMoves.map((move) => {
+                const palette = move.category === 'identity'
+                  ? 'border-fuchsia-500/55 bg-fuchsia-500/10 text-fuchsia-200'
+                  : move.category === 'data'
+                    ? 'border-orange-500/55 bg-orange-500/10 text-orange-200'
+                    : 'border-cyan-500/55 bg-cyan-500/10 text-cyan-200'
+                const MoveIcon = move.category === 'identity' ? KeyRound : move.category === 'data' ? Database : GitBranch
+                const outcomeLabel = move.outcome.split(/[/:]/).filter(Boolean).at(-1) || move.outcome
+                return (
+                  <div key={move.id} className="w-[260px] shrink-0">
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Move {move.moveIndex}</div>
+                    <button
+                      type="button"
+                      data-modeled-move-id={move.id}
+                      className={`h-[116px] w-full rounded-xl border-2 px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${palette}`}
+                      onMouseEnter={() => setHoveredId(move.id)}
+                      onMouseLeave={() => setHoveredId(null)}
+                      onClick={() => setSelectedModeledMoveId((current) => current === move.id ? null : move.id)}
+                      aria-expanded={selectedModeledMoveId === move.id}
+                      title={`${move.name}\nOutcome: ${move.outcome}${move.evidenceIds.length ? `\nEvidence: ${move.evidenceIds.join(', ')}` : ''}`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <span className="rounded-lg bg-black/15 p-2"><MoveIcon className="h-4 w-4" /></span>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold leading-snug text-foreground">{move.name}</div>
+                          <div className="mt-2 truncate font-mono text-[10px] text-current/80">{outcomeLabel}</div>
+                          <div className="mt-1 text-[9px] uppercase tracking-wider opacity-70">{move.category} transition · modeled</div>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                )
+              })}
+
+              {architecture.resources.find((node) => node.isCrownJewel) ? (() => {
+                const target = architecture.resources.find((node) => node.isCrownJewel)!
+                return (
+                  <div className="w-[330px] shrink-0" data-resource-id={target.id}>
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Crown jewel reached</div>
+                    <ServiceNodeBox
+                      node={target}
+                      position="right"
+                      flowInfo={resourceFlowInfo.get(target.id)}
+                      isHighlighted={isNodeHighlighted(target.id)}
+                      onHover={setHoveredId}
+                      onClick={() => onSelectService(target, 'resource')}
+                      isCrownJewel
+                    />
+                  </div>
+                )
+              })() : null}
+            </div>
+            {architecture.modeledMoves.find((move) => move.id === selectedModeledMoveId) ? (() => {
+              const move = architecture.modeledMoves.find((item) => item.id === selectedModeledMoveId)!
+              return (
+                <div
+                  className="mt-5 rounded-xl border border-border/70 bg-card/80 p-4"
+                  role="region"
+                  aria-label={`Modeled move ${move.moveIndex} details`}
+                  data-modeled-move-details={move.id}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Move {move.moveIndex} · {move.category} transition</div>
+                      <div className="mt-1 text-sm font-bold text-foreground">{move.name}</div>
+                    </div>
+                    <button type="button" onClick={() => setSelectedModeledMoveId(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close modeled move details"><X className="h-4 w-4" /></button>
+                  </div>
+                  <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
+                    <div><dt className="text-muted-foreground">Primitive</dt><dd className="mt-1 font-mono text-foreground">{move.primitiveId}</dd></div>
+                    <div><dt className="text-muted-foreground">State added</dt><dd className="mt-1 break-all font-mono text-foreground">{move.outcome}</dd></div>
+                    <div><dt className="text-muted-foreground">Evidence</dt><dd className="mt-1 break-all font-mono text-foreground">{move.evidenceIds.length ? move.evidenceIds.join(', ') : 'No edge evidence returned'}</dd></div>
+                  </dl>
+                </div>
+              )
+            })() : null}
+          </div>
+        ) : (
         <div
           // 2026-06-25: switched from CSS Grid to flex-row so every
           // lane (COMPUTE, SUBNETS, ROUTE-TABLES, SG, NACL, EGRESS-GW,
@@ -7135,6 +7262,7 @@ export function UnifiedArchitectureDiagram({
             ))}
           </div>
         </div>
+        )}
       </div>
 
       {/* Connection details on hover — path-authority uses DTO edges (not flows). */}
