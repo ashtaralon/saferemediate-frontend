@@ -3884,6 +3884,14 @@ export function IAMPermissionAnalysisModal({
 
           {/* Recommended Action */}
           {analysisTab === 'summary' && (() => {
+            // The plain-language Preview summary above is authoritative once
+            // the state-bound SafetyVector response arrives. Do not append the
+            // legacy score-derived recommendation: it can use an older gap
+            // snapshot and previously contradicted the headline ("All 27"
+            // below "22 of 27"), while also recreating the clutter this
+            // summary was designed to remove.
+            if (safetyContext) return null
+
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
             const isRemediated = totalPermissions === 0 || !!gapData?.remediated_at

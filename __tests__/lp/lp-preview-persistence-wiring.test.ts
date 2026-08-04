@@ -36,5 +36,6 @@ describe('Resource Risk Preview persistence wiring', () => {
     expect(analysisModalSource).toContain('What Cyntro still needs')
     expect(analysisModalSource).toContain('Technical decision details')
     expect(analysisModalSource).toContain('not confidence in the finding')
+    expect(analysisModalSource).toContain('if (safetyContext) return null')
   })
 })
