@@ -309,6 +309,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [executionResult, setExecutionResult] = useState<any>(null)
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
+  const [selectedIAMFindingId, setSelectedIAMFindingId] = useState<string | null>(null)
   const [s3ModalOpen, setS3ModalOpen] = useState(false)
   const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
   const [selectedS3Resource, setSelectedS3Resource] = useState<GapResource | null>(null)
@@ -347,6 +348,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
     if (detail.resourceType === 'IAMRole') {
       setSelectedIAMRole(match.resourceName)
+      setSelectedIAMFindingId(match.findingId || null)
       setIamModalOpen(true)
     } else if (detail.resourceType === 'S3Bucket') {
       setSelectedS3Bucket(match.resourceName)
@@ -1787,6 +1789,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
     if (resource.resourceType === 'IAMRole') {
       setSelectedIAMRole(resource.resourceName)
+      setSelectedIAMFindingId(resource.findingId || null)
       setIamModalOpen(true)
     } else if (resource.resourceType === 'S3Bucket') {
       setSelectedS3Bucket(resource.resourceName)
@@ -3538,8 +3541,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         onClose={() => {
           setIamModalOpen(false)
           setSelectedIAMRole(null)
+          setSelectedIAMFindingId(null)
         }}
         roleName={selectedIAMRole || ''}
+        findingId={selectedIAMFindingId || undefined}
         systemName={systemName}
         applyDisabled={LP_MUTATION_APPLY_DISABLED}
         onApplyFix={(data) => {
