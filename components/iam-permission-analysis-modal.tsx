@@ -21,7 +21,12 @@ import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPa
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
-import type { ConfidenceScore, SimulateFixSafety, DecisionOutcomeCanonical } from "@/lib/types"
+import type {
+  ConfidenceScore,
+  SimulateFixDecisionPersistence,
+  SimulateFixSafety,
+  DecisionOutcomeCanonical,
+} from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 
 interface PermissionAnalysis {
@@ -223,6 +228,7 @@ interface IAMPermissionAnalysisModalProps {
   isOpen: boolean
   onClose: () => void
   roleName: string
+  findingId?: string
   systemName?: string
   identityType?: string
   // When the modal was reached by clicking an InstanceProfile, this
@@ -284,6 +290,7 @@ export function IAMPermissionAnalysisModal({
   isOpen,
   onClose,
   roleName,
+  findingId,
   systemName,
   identityType,
   viaInstanceProfile,
@@ -380,6 +387,7 @@ export function IAMPermissionAnalysisModal({
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
   const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
+  const [decisionPersistence, setDecisionPersistence] = useState<SimulateFixDecisionPersistence | null>(null)
   // Signed remediation plan from simulate-fix (exact-change binding). The
   // plan_token binds a FROZEN permission set; the backend, when it receives the
   // token, executes plan.permissions_to_remove AS-IS. planPermissions is that
@@ -411,7 +419,7 @@ export function IAMPermissionAnalysisModal({
       fetchConfidenceScore(safety)
     })()
     return () => { cancelled = true }
-  }, [isOpen, roleName])
+  }, [isOpen, roleName, findingId])
 
   // Prefer the backend-signed plan's frozen set as the default selection once
   // it arrives: it IS the SAFE_TO_STAGE set, and defaulting to it means the
@@ -429,6 +437,7 @@ export function IAMPermissionAnalysisModal({
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
     setSafetyContext(null)
+    setDecisionPersistence(null)
     setPlanToken(null)
     setPlanPermissions(null)
     try {
@@ -439,6 +448,7 @@ export function IAMPermissionAnalysisModal({
           resource_type: 'IAMRole',
           resource_id: roleName,
           system_name: systemName,
+          finding_id: findingId,
         }),
       })
       if (!res.ok) {
@@ -446,6 +456,7 @@ export function IAMPermissionAnalysisModal({
         return null
       }
       const data = await res.json()
+      setDecisionPersistence(data?.decision_persistence ?? null)
       // Capture the signed plan (issued by simulate-fix when there is a
       // safely-removable set). plan.permissions_to_remove is the bound safe set.
       const plan = data?.plan
@@ -1204,6 +1215,90 @@ export function IAMPermissionAnalysisModal({
   // when SG / S3 modal variants land, parameterize the threshold table
   // by resource type.
   // ─────────────────────────────────────────────────────────────────
+  const renderSafetyVectorDecision = () => {
+    if (!safetyContext) return null
+
+    const canonical = safetyContext.decision_canonical
+      ?? (safetyContext.decision === 'blocked'
+        ? 'BLOCK'
+        : safetyContext.decision === 'approval_required'
+          ? 'REQUIRE_APPROVAL'
+          : 'AUTO_EXECUTE')
+    const presentation: Record<DecisionOutcomeCanonical, {
+      label: string
+      color: string
+      background: string
+      border: string
+    }> = {
+      AUTO_EXECUTE: { label: 'Auto-execute', color: '#166534', background: '#f0fdf4', border: '#bbf7d0' },
+      CANARY_FIRST: { label: 'Canary first', color: '#1d4ed8', background: '#eff6ff', border: '#bfdbfe' },
+      REQUIRE_APPROVAL: { label: 'Approval required', color: '#92400e', background: '#fffbeb', border: '#fde68a' },
+      MANUAL_REVIEW: { label: 'Manual review', color: '#6b21a8', background: '#faf5ff', border: '#e9d5ff' },
+      BLOCK: { label: 'Blocked', color: '#991b1b', background: '#fef2f2', border: '#fecaca' },
+      EXCLUDE: { label: 'Excluded', color: '#475569', background: '#f8fafc', border: '#cbd5e1' },
+    }
+    const style = presentation[canonical]
+    const evaluatedAt = decisionPersistence?.evaluated_at
+    const expiresAt = decisionPersistence?.expires_at
+    const bundleHash = safetyContext.decision_bundle_hash
+
+    return (
+      <div
+        className="rounded-xl border-2 p-4"
+        style={{ backgroundColor: style.background, borderColor: style.border }}
+        data-testid="safetyvector-decision"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: style.color }}>
+              SafetyVector decision
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="text-xl font-bold" style={{ color: style.color }}>{style.label}</span>
+              <span className="rounded border px-1.5 py-0.5 font-mono text-[10px]" style={{ color: style.color, borderColor: style.border }}>
+                {canonical}
+              </span>
+            </div>
+            <div className="mt-1 text-sm" style={{ color: style.color }}>
+              {safetyContext.unsafe_reasons?.[0] || 'The shared safety engine evaluated this proposed change.'}
+            </div>
+          </div>
+          <div className="text-right text-xs" style={{ color: style.color }}>
+            <div className="font-semibold">
+              Queue: {decisionPersistence?.persisted ? 'Decision saved' : 'Not saved'}
+            </div>
+            {expiresAt && <div className="mt-0.5 opacity-80">Expires {expiresAt}</div>}
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-1 border-t pt-3 text-xs sm:grid-cols-2" style={{ borderColor: style.border, color: style.color }}>
+          <div>
+            <span className="font-semibold">Engine:</span>{' '}
+            {safetyContext.engine_decision || 'pipeline decision'}
+            {safetyContext.engine_version ? ` · v${safetyContext.engine_version}` : ''}
+          </div>
+          <div>
+            <span className="font-semibold">Policy pack:</span>{' '}
+            {safetyContext.policy_pack_versions?.join(', ') || '—'}
+          </div>
+          <div className="break-all">
+            <span className="font-semibold">Reason codes:</span>{' '}
+            {safetyContext.decision_reason_codes?.join(', ') || '—'}
+          </div>
+          <div className="font-mono" title={bundleHash || undefined}>
+            <span className="font-sans font-semibold">Bundle:</span>{' '}
+            {bundleHash ? `${bundleHash.slice(0, 12)}…` : '—'}
+          </div>
+          {evaluatedAt && (
+            <div className="sm:col-span-2 opacity-80">
+              Evaluated {evaluatedAt}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderConfidenceCard = () => {
     if (!gapData) return null
     // calculateSafetyScore returns 0-100 already, with same-source
@@ -1272,12 +1367,46 @@ export function IAMPermissionAnalysisModal({
       stateColor = '#9a3412'; stateBg = '#fff7ed'; stateBorder = '#fed7aa'; stateIcon = '⚠'
     }
 
+    // When the shared pipeline returned a canonical decision, it owns the
+    // action vocabulary. The numeric analyzer score remains visible as a
+    // supporting signal, but it must not introduce a contradictory routing
+    // tier such as INSUFFICIENT_DATA beside a canonical BLOCK.
+    const canonical = safetyContext?.decision_canonical
+    if (canonical) {
+      const canonicalPresentation: Record<DecisionOutcomeCanonical, {
+        label: string
+        blurb: string
+        color: string
+        background: string
+        border: string
+        icon: string
+      }> = {
+        AUTO_EXECUTE: { label: 'Auto-execute', blurb: 'SafetyVector cleared this proposed change for automatic execution.', color: '#15803d', background: '#f0fdf4', border: '#bbf7d0', icon: '✓' },
+        CANARY_FIRST: { label: 'Canary first', blurb: 'SafetyVector requires a canary before broader rollout.', color: '#1d4ed8', background: '#eff6ff', border: '#bfdbfe', icon: '◐' },
+        REQUIRE_APPROVAL: { label: 'Approval required', blurb: 'SafetyVector requires explicit human approval.', color: '#92400e', background: '#fffbeb', border: '#fde68a', icon: '⚠' },
+        MANUAL_REVIEW: { label: 'Manual review', blurb: 'SafetyVector requires an operator to review the evidence.', color: '#6b21a8', background: '#faf5ff', border: '#e9d5ff', icon: '⚠' },
+        BLOCK: { label: 'Blocked', blurb: safetyContext.unsafe_reasons?.[0] || 'SafetyVector blocked this proposed change.', color: '#991b1b', background: '#fef2f2', border: '#fecaca', icon: '⊘' },
+        EXCLUDE: { label: 'Excluded', blurb: 'SafetyVector excluded this proposed change from remediation.', color: '#475569', background: '#f8fafc', border: '#cbd5e1', icon: '⊘' },
+      }
+      const p = canonicalPresentation[canonical]
+      stateName = canonical
+      stateLabel = p.label
+      stateBlurb = p.blurb
+      stateColor = p.color
+      stateBg = p.background
+      stateBorder = p.border
+      stateIcon = p.icon
+      distance = 'Supporting confidence only — SafetyVector decides action readiness'
+    }
+
     return (
       <div className="p-4 rounded-xl border-2" style={{ backgroundColor: stateBg, borderColor: stateBorder }}>
         <div className="flex items-start justify-between gap-4">
           {/* Score */}
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>Confidence</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>
+              {canonical ? 'Supporting confidence' : 'Confidence'}
+            </div>
             <div className="flex items-baseline gap-2 mt-0.5">
               <span className="text-5xl font-bold tabular-nums leading-none" style={{ color: stateColor }}>{Math.round(score)}</span>
               <span className="text-base" style={{ color: stateColor, opacity: 0.7 }}>/ 100</span>
@@ -1294,7 +1423,9 @@ export function IAMPermissionAnalysisModal({
               unified pipeline and surface as errors at click-Apply
               time, not as header state. */}
           <div className="text-right shrink-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>Routing</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>
+              {canonical ? 'Decision' : 'Routing'}
+            </div>
             <div className="flex items-center justify-end gap-2 mt-0.5">
               <span className="text-2xl" style={{ color: stateColor }}>{stateIcon}</span>
               <span className="text-lg font-bold tabular-nums" style={{ color: stateColor, fontFamily: 'ui-monospace, monospace' }}>{stateName}</span>
@@ -2261,6 +2392,7 @@ export function IAMPermissionAnalysisModal({
                       / SUGGEST / INSUFFICIENT_DATA). The cfg.label / cfg.bg
                       typed-verdict styling is no longer applied; the
                       confidence card has its own per-state styling. */}
+                  {renderSafetyVectorDecision()}
                   {renderConfidenceCard()}
                   {false && (
                   <div
@@ -3294,6 +3426,7 @@ export function IAMPermissionAnalysisModal({
                     verdict with numeric score + 4-state mapping. The legacy
                     typed-verdict block below is left as dead code via false
                     guard for diff readability. */}
+                {renderSafetyVectorDecision()}
                 {renderConfidenceCard()}
                 {false && (
                 <div className="p-4 rounded-xl border-2" style={{ backgroundColor: v.bg, borderColor: v.border }}>
