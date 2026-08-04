@@ -61,6 +61,102 @@ interface PermissionAnalysis {
   last_used?: string
 }
 
+interface PermissionRemovalSafety {
+  permission: string
+  disposition: "USED" | "PROTECTED" | "INSUFFICIENT_EVIDENCE" | "REMOVAL_CANDIDATE"
+  score: number | null
+  band: "STRONG" | "REVIEW" | "LOW" | null
+  consequence_class: "ROUTINE" | "OPERATIONAL" | "CRITICAL" | "CONTINGENCY"
+  reason: string
+  limiting_factors: string[]
+}
+
+export interface RemovalSafetyBundle {
+  scorer_version: string
+  plan_score: number | null
+  scored_candidate_count: number
+  used_count: number
+  protected_count: number
+  insufficient_evidence_count: number
+  groups: Array<{ band: "STRONG" | "REVIEW" | "LOW" | "CANNOT_ASSESS"; count: number; permissions: string[] }>
+  permissions: PermissionRemovalSafety[]
+  shadow_only: boolean
+}
+
+export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
+  const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
+  const styles: Record<string, { label: string; bg: string; border: string; text: string }> = {
+    STRONG: { label: "Strong evidence · 90–99", bg: "#f0fdf4", border: "#bbf7d0", text: "#166534" },
+    REVIEW: { label: "Review · 75–89", bg: "#fffbeb", border: "#fde68a", text: "#92400e" },
+    LOW: { label: "Low confidence · 60–74", bg: "#fff7ed", border: "#fed7aa", text: "#9a3412" },
+    CANNOT_ASSESS: { label: "Cannot assess yet", bg: "#f8fafc", border: "#cbd5e1", text: "#475569" },
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4" data-testid="removal-safety-panel">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Removal safety</div>
+          <h3 className="mt-1 text-lg font-bold text-slate-900">
+            {bundle.scored_candidate_count} to remove · {bundle.used_count} in use · {bundle.protected_count} protected
+          </h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Each score measures how strong the evidence is that removing that permission will not break expected use.
+          </p>
+        </div>
+        {bundle.plan_score !== null && (
+          <div className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-center text-white">
+            <div className="text-[10px] uppercase tracking-wide text-slate-300">Change score</div>
+            <div className="text-2xl font-bold tabular-nums">{bundle.plan_score}</div>
+            <div className="text-[10px] text-slate-300">lowest selected</div>
+          </div>
+        )}
+      </div>
+
+      {bundle.insufficient_evidence_count > 0 && (
+        <div className="mt-3 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <strong>{bundle.insufficient_evidence_count} cannot be assessed.</strong>{" "}
+          Cyntro will not assign a made-up score when action-level evidence is missing or stale.
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {bundle.groups.map(group => {
+          const style = styles[group.band]
+          return (
+            <details key={group.band} className="overflow-hidden rounded-lg border" style={{ borderColor: style.border }} open={group.band === "STRONG"}>
+              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2" style={{ background: style.bg, color: style.text }}>
+                <span className="font-semibold">{style.label}</span>
+                <span className="text-sm font-bold tabular-nums">{group.count}</span>
+              </summary>
+              <div className="divide-y divide-slate-100 bg-white">
+                {group.permissions.map(permission => {
+                  const item = byPermission.get(permission)
+                  const candidate = item?.disposition === "REMOVAL_CANDIDATE"
+                  return (
+                    <div key={permission} className="flex items-start gap-3 px-3 py-2">
+                      {candidate
+                        ? <CheckSquare className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                        : <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+                      <div className="min-w-0 flex-1">
+                        <div className={`truncate font-mono text-xs ${candidate ? "text-red-700" : "text-slate-700"}`}>{permission}</div>
+                        {item?.reason && <div className="mt-0.5 text-xs text-slate-500">{item.reason}</div>}
+                      </div>
+                      {item?.score !== null && item?.score !== undefined && (
+                        <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs font-bold tabular-nums text-slate-700">{item.score}/100</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </details>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 interface DependencyInfo {
   arn?: string
   type?: string
@@ -588,6 +684,7 @@ export function IAMPermissionAnalysisModal({
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
   const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
+  const [removalSafety, setRemovalSafety] = useState<RemovalSafetyBundle | null>(null)
   // Counts from the same state-bound Preview response as SafetyVector. This
   // prevents the headline from disagreeing with the Resource Risk row when an
   // older gap-analysis snapshot is still cached.
@@ -691,6 +788,7 @@ export function IAMPermissionAnalysisModal({
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
     setSafetyContext(null)
+    setRemovalSafety(null)
     setPreviewProblem(null)
     setDecisionPersistence(null)
     setPlanToken(null)
@@ -711,6 +809,11 @@ export function IAMPermissionAnalysisModal({
         return null
       }
       const data = await res.json()
+      setRemovalSafety(
+        data?.removal_safety?.shadow_only && Array.isArray(data.removal_safety.permissions)
+          ? data.removal_safety as RemovalSafetyBundle
+          : null,
+      )
       setPreviewProblem(data?.problem ?? null)
       setDecisionPersistence(data?.decision_persistence ?? null)
       // Capture the signed plan (issued by simulate-fix when there is a
@@ -2387,7 +2490,7 @@ export function IAMPermissionAnalysisModal({
           </p>
         </section>
 
-        {renderChangeStatusCard()}
+        {removalSafety ? <RemovalSafetyPanel bundle={removalSafety} /> : renderChangeStatusCard()}
       </div>
     )
   }
@@ -2966,7 +3069,7 @@ export function IAMPermissionAnalysisModal({
                       / SUGGEST / INSUFFICIENT_DATA). The cfg.label / cfg.bg
                       typed-verdict styling is no longer applied; the
                       confidence card has its own per-state styling. */}
-                  {renderChangeStatusCard()}
+                  {removalSafety ? <RemovalSafetyPanel bundle={removalSafety} /> : renderChangeStatusCard()}
                   {false && (
                   <div
                     className="p-4 rounded-xl border-2"
@@ -3942,6 +4045,7 @@ export function IAMPermissionAnalysisModal({
 
           {analysisTab === 'summary' && iamLpGap && (
             <div className="space-y-3">
+              {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
               <VerdictHero
                 gap={iamLpGap}
                 split={iamLpSplit}
@@ -4119,7 +4223,7 @@ export function IAMPermissionAnalysisModal({
                     verdict with numeric score + 4-state mapping. The legacy
                     typed-verdict block below is left as dead code via false
                     guard for diff readability. */}
-                {renderConfidenceCard()}
+                {!removalSafety && renderConfidenceCard()}
                 {false && (
                 <div className="p-4 rounded-xl border-2" style={{ backgroundColor: v.bg, borderColor: v.border }}>
                   <div className="flex items-start gap-3">
@@ -4139,7 +4243,7 @@ export function IAMPermissionAnalysisModal({
                     inline render is left below as dead code via a false
                     guard (kept temporarily for diff-readability; will be
                     deleted next pass). */}
-                {renderSafetyBreakdown()}
+                {!removalSafety && renderSafetyBreakdown()}
 
                 {false && v.showReasons && gates.length > 0 && (
                   <div className="p-4 rounded-xl border" style={{ backgroundColor: v.bg, borderColor: v.border }}>
