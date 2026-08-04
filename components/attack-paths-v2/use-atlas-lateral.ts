@@ -18,6 +18,17 @@ export interface AtlasFootholdCandidate {
   observed_access_to_jewel: boolean
   access_last_seen: string | null
   security_group_ids: string[]
+  atlas_rank?: number
+  atlas_evaluation?: {
+    state: "REACHABLE" | "DEAD_END" | "ERROR" | "NOT_EVALUATED"
+    chain_count: number
+    dead_end_count: number
+    best_chain_id?: string | null
+    best_feasibility_score?: number | null
+    best_total_cost?: number | null
+    coverage_warning_count?: number
+    error?: string
+  }
 }
 
 export interface AtlasStateDelta {
@@ -56,10 +67,40 @@ export interface AtlasLateralResponse {
   elapsed_ms: number
 }
 
-interface FootholdPayload {
+export interface AtlasFootholdEvaluation {
+  coverage_state: "READY" | "PARTIAL" | "ERROR"
+  eligible_count: number
+  evaluated_count: number
+  reachable_count: number
+  dead_end_count: number
+  error_count: number
+  not_evaluated_count: number
+  budget_ms?: number
+  elapsed_ms?: number
+  catalog_version?: string
+  assumption_set_version?: string
+  graph_snapshot_id?: string
+}
+
+export interface FootholdPayload {
   candidates: AtlasFootholdCandidate[]
   candidate_count: number
   coverage?: Record<string, unknown>
+  recommended_candidate_id?: string | null
+  recommended_basis?: string
+  recommended_simulation?: AtlasLateralResponse | null
+  evaluation?: AtlasFootholdEvaluation
+}
+
+export function selectRecommendedFootholdId(
+  payload: FootholdPayload,
+): string | null {
+  const candidates = payload.candidates ?? []
+  const recommended = payload.recommended_candidate_id
+  if (recommended && candidates.some((item) => item.workload_id === recommended)) {
+    return recommended
+  }
+  return candidates[0]?.workload_id ?? null
 }
 
 export interface UseAtlasLateralResult {
@@ -68,6 +109,7 @@ export interface UseAtlasLateralResult {
   selectFoothold: (id: string) => void
   selectedFoothold: AtlasFootholdCandidate | null
   response: AtlasLateralResponse | null
+  evaluation: AtlasFootholdEvaluation | null
   candidatesLoading: boolean
   simulationLoading: boolean
   error: string | null
@@ -86,6 +128,8 @@ export function useAtlasLateral({
   const [candidates, setCandidates] = useState<AtlasFootholdCandidate[]>([])
   const [selectedFootholdId, setSelectedFootholdId] = useState<string | null>(null)
   const [response, setResponse] = useState<AtlasLateralResponse | null>(null)
+  const [evaluation, setEvaluation] = useState<AtlasFootholdEvaluation | null>(null)
+  const [resolvedSearchKey, setResolvedSearchKey] = useState<string | null>(null)
   const [loadedScope, setLoadedScope] = useState<string | null>(null)
   const [candidatesLoading, setCandidatesLoading] = useState(false)
   const [simulationLoading, setSimulationLoading] = useState(false)
@@ -99,6 +143,8 @@ export function useAtlasLateral({
       setCandidates([])
       setSelectedFootholdId(null)
       setResponse(null)
+      setEvaluation(null)
+      setResolvedSearchKey(null)
       setLoadedScope(null)
       setError(null)
       return
@@ -106,10 +152,14 @@ export function useAtlasLateral({
     let cancelled = false
     setCandidatesLoading(true)
     setLoadedScope(null)
+    setResponse(null)
+    setEvaluation(null)
+    setResolvedSearchKey(null)
     setError(null)
     fetch(
       `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds` +
-        `?jewel_ref=${encodeURIComponent(jewelRef)}`,
+        `?jewel_ref=${encodeURIComponent(jewelRef)}` +
+        `&evaluate=true&evaluation_limit=30&evaluation_budget_ms=8000&max_hops=8`,
       { cache: "no-store" },
     )
       .then(async (r) => {
@@ -120,18 +170,22 @@ export function useAtlasLateral({
       .then((body) => {
         if (cancelled) return
         const next = body.candidates ?? []
+        const recommendedId = selectRecommendedFootholdId(body)
         setCandidates(next)
+        setEvaluation(body.evaluation ?? null)
         setLoadedScope(scopeKey)
-        setSelectedFootholdId((current) =>
-          current && next.some((c) => c.workload_id === current)
-            ? current
-            : next[0]?.workload_id ?? null,
-        )
+        setSelectedFootholdId(recommendedId)
+        if (recommendedId && body.recommended_simulation) {
+          setResponse(body.recommended_simulation)
+          setResolvedSearchKey(`${scopeKey}\u0000${recommendedId}`)
+        }
       })
       .catch((e: unknown) => {
         if (cancelled) return
         setCandidates([])
         setSelectedFootholdId(null)
+        setEvaluation(null)
+        setResolvedSearchKey(null)
         setLoadedScope(null)
         setError(e instanceof Error ? e.message : "jewel_footholds_failed")
       })
@@ -160,6 +214,11 @@ export function useAtlasLateral({
       setSimulationLoading(false)
       return
     }
+    const searchKey = `${scopeKey}\u0000${selectedFootholdId}`
+    if (resolvedSearchKey === searchKey) {
+      setSimulationLoading(false)
+      return
+    }
     let cancelled = false
     setSimulationLoading(true)
     setResponse(null)
@@ -179,11 +238,15 @@ export function useAtlasLateral({
         return body as AtlasLateralResponse
       })
       .then((body) => {
-        if (!cancelled) setResponse(body)
+        if (!cancelled) {
+          setResponse(body)
+          setResolvedSearchKey(searchKey)
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) {
           setResponse(null)
+          setResolvedSearchKey(null)
           setError(e instanceof Error ? e.message : "atlas_search_failed")
         }
       })
@@ -200,7 +263,7 @@ export function useAtlasLateral({
     selectedFootholdId,
     loadedScope,
     scopeKey,
-    nonce,
+    resolvedSearchKey,
   ])
 
   return {
@@ -209,6 +272,7 @@ export function useAtlasLateral({
     selectFoothold: setSelectedFootholdId,
     selectedFoothold,
     response,
+    evaluation,
     candidatesLoading,
     simulationLoading,
     error,

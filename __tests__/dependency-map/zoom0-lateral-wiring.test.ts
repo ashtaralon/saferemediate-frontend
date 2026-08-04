@@ -8,6 +8,7 @@ const PANEL = "components/attack-paths-v2/zoom0-fan-in-panel.tsx"
 const HOOK = "components/attack-paths-v2/use-atlas-lateral.ts"
 const FULL_VIEW = "components/attack-paths-v2/atlas-lateral-view.tsx"
 const SHELL = "components/attack-paths-v2/attack-paths-v2.tsx"
+const PROXY = "app/api/proxy/attack-paths/[systemName]/jewel-footholds/route.ts"
 
 const read = (p: string) =>
   readFileSync(join(ROOT, p), "utf8")
@@ -27,9 +28,21 @@ describe("Zoom0 Lateral wiring", () => {
   it("enumerates graph compute then invokes canonical ATLAS", () => {
     const src = read(HOOK)
     expect(src).toContain("jewel-footholds")
+    expect(src).toContain("evaluate=true")
+    expect(src).toContain("recommended_candidate_id")
+    expect(src).toContain("recommended_simulation")
     expect(src).toContain("/api/proxy/atlas/search/")
     expect(src).toContain("start_node_id: selectedFootholdId")
     expect(src).toContain("target_node_id: jewelRef")
+  })
+
+  it("forwards bounded evaluation controls through the Next proxy", () => {
+    const src = read(PROXY)
+    expect(src).toContain('"evaluate"')
+    expect(src).toContain('"evaluation_limit"')
+    expect(src).toContain('"evaluation_budget_ms"')
+    expect(src).toContain('"max_hops"')
+    expect(src).toContain("backendParams.set")
   })
 
   it("does not require a pinned current-access path", () => {
