@@ -1,4 +1,32 @@
-import type { DecisionOutcomeCanonical, SimulateFixSafety } from "@/lib/types"
+import type { DecisionOutcomeCanonical, SimulateFixProblem, SimulateFixSafety } from "@/lib/types"
+
+export interface PreviewPermissionCounts {
+  usedCount: number
+  unusedCount: number
+  totalCount: number
+  unusedPercent: number
+}
+
+export function previewPermissionCounts(
+  problem: SimulateFixProblem | null | undefined,
+  fallback: Omit<PreviewPermissionCounts, "unusedPercent">,
+): PreviewPermissionCounts {
+  const hasPreviewCounts = Number.isFinite(problem?.used_count)
+    && Number.isFinite(problem?.unused_count)
+    && (problem?.used_count ?? -1) >= 0
+    && (problem?.unused_count ?? -1) >= 0
+
+  const usedCount = hasPreviewCounts ? problem!.used_count : fallback.usedCount
+  const unusedCount = hasPreviewCounts ? problem!.unused_count : fallback.unusedCount
+  const totalCount = hasPreviewCounts ? usedCount + unusedCount : fallback.totalCount
+  const unusedPercent = hasPreviewCounts && Number.isFinite(problem?.gap_percent)
+    ? Math.max(0, Math.min(100, Math.round(problem!.gap_percent)))
+    : totalCount > 0
+      ? Math.round((unusedCount / totalCount) * 100)
+      : 0
+
+  return { usedCount, unusedCount, totalCount, unusedPercent }
+}
 
 export interface PreviewNeed {
   id: string

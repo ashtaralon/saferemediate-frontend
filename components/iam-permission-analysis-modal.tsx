@@ -24,6 +24,7 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type {
   ConfidenceScore,
   SimulateFixDecisionPersistence,
+  SimulateFixProblem,
   SimulateFixSafety,
   DecisionOutcomeCanonical,
 } from "@/lib/types"
@@ -31,6 +32,7 @@ import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 import {
   automationReadiness,
   previewEvidenceNeeds,
+  previewPermissionCounts,
 } from "@/lib/resource-risk-preview-summary"
 
 interface PermissionAnalysis {
@@ -391,6 +393,10 @@ export function IAMPermissionAnalysisModal({
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
   const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
+  // Counts from the same state-bound Preview response as SafetyVector. This
+  // prevents the headline from disagreeing with the Resource Risk row when an
+  // older gap-analysis snapshot is still cached.
+  const [previewProblem, setPreviewProblem] = useState<SimulateFixProblem | null>(null)
   const [decisionPersistence, setDecisionPersistence] = useState<SimulateFixDecisionPersistence | null>(null)
   // Signed remediation plan from simulate-fix (exact-change binding). The
   // plan_token binds a FROZEN permission set; the backend, when it receives the
@@ -441,6 +447,7 @@ export function IAMPermissionAnalysisModal({
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
     setSafetyContext(null)
+    setPreviewProblem(null)
     setDecisionPersistence(null)
     setPlanToken(null)
     setPlanPermissions(null)
@@ -460,6 +467,7 @@ export function IAMPermissionAnalysisModal({
         return null
       }
       const data = await res.json()
+      setPreviewProblem(data?.problem ?? null)
       setDecisionPersistence(data?.decision_persistence ?? null)
       // Capture the signed plan (issued by simulate-fix when there is a
       // safely-removable set). plan.permissions_to_remove is the bound safe set.
@@ -1981,6 +1989,11 @@ export function IAMPermissionAnalysisModal({
   const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
   const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
+  const previewCounts = previewPermissionCounts(previewProblem, {
+    usedCount,
+    unusedCount,
+    totalCount: totalPermissions,
+  })
   const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
   const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
   const confidenceGroups = gapData?.confidence_groups
@@ -2020,19 +2033,19 @@ export function IAMPermissionAnalysisModal({
           <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="text-2xl font-bold text-slate-950">
-                {unusedCount} of {totalPermissions} permissions were not used
+                {previewCounts.unusedCount} of {previewCounts.totalCount} permissions were not used
               </div>
               <p className="mt-1 text-sm text-slate-600">
-                {usedCount} permission{usedCount === 1 ? ' was' : 's were'} observed in use and will be kept.
+                {previewCounts.usedCount} permission{previewCounts.usedCount === 1 ? ' was' : 's were'} observed in use and will be kept.
               </p>
             </div>
             <div className="rounded-lg bg-red-50 px-3 py-2 text-right">
-              <div className="text-2xl font-bold tabular-nums text-red-600">{unusedPercent}%</div>
+              <div className="text-2xl font-bold tabular-nums text-red-600">{previewCounts.unusedPercent}%</div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-red-700">potential reduction</div>
             </div>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-500">
-            <div className="h-full bg-red-500" style={{ width: `${unusedPercent}%` }} />
+            <div className="h-full bg-red-500" style={{ width: `${previewCounts.unusedPercent}%` }} />
           </div>
           <p className="mt-2 text-xs text-slate-500">
             “Not used” is the risk finding. Cyntro checks additional evidence before deciding whether removal is safe.
