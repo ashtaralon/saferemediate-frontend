@@ -478,6 +478,10 @@ export interface SimulateFixSafety {
   shared?: boolean | null            // null = couldn't measure
   shared_confidence?: "high" | "medium" | "unknown" | null
   completeness?: "complete" | "partial" | "unknown" | null
+  missing_evidence_sources?: string[]
+  telemetry_planes_active?: string[]
+  telemetry_planes_required?: string[]
+  telemetry_planes_missing?: string[]
   // Populated on rollback / BLOCK responses (backend 95d3e5e). Type catches up
   // to fields the modal already reads.
   block_reason?: string | null

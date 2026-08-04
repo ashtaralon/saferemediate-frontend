@@ -20,12 +20,21 @@ describe('Resource Risk Preview persistence wiring', () => {
     expect(source).toContain('simulateFixData.decision_persistence.warning')
   })
 
-  it('keeps the evidence-modal Preview bound to the same finding and shows the canonical engine result', () => {
+  it('keeps the evidence-modal Preview bound to the same finding and preserves technical audit details', () => {
     expect(source).toContain('findingId={selectedIAMFindingId || undefined}')
     expect(analysisModalSource).toContain('finding_id: findingId')
     expect(analysisModalSource).toContain('data-testid="safetyvector-decision"')
     expect(analysisModalSource).toContain('SafetyVector decision')
     expect(analysisModalSource).toContain("decisionPersistence?.persisted ? 'Decision saved' : 'Not saved'")
     expect(analysisModalSource).toContain("stateName = canonical")
+  })
+
+  it('keeps the default CISO summary focused on finding, readiness, and exact missing evidence', () => {
+    expect(analysisModalSource).toContain('data-testid="resource-risk-simple-summary"')
+    expect(analysisModalSource).toContain('Over-permission summary')
+    expect(analysisModalSource).toContain('Automation readiness')
+    expect(analysisModalSource).toContain('What Cyntro still needs')
+    expect(analysisModalSource).toContain('Technical decision details')
+    expect(analysisModalSource).toContain('not confidence in the finding')
   })
 })
