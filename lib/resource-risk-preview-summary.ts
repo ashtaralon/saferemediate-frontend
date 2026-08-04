@@ -28,6 +28,26 @@ export function previewPermissionCounts(
   return { usedCount, unusedCount, totalCount, unusedPercent }
 }
 
+export function simulationPlanCounts(
+  problem: SimulateFixProblem | null | undefined,
+  requestedRemovalCount: number,
+  fallback: Omit<PreviewPermissionCounts, "unusedPercent">,
+): {
+  removeCount: number
+  remainCount: number
+  observedUsedCount: number
+  totalCount: number
+} {
+  const counts = previewPermissionCounts(problem, fallback)
+  const removeCount = Math.max(0, Math.min(counts.totalCount, requestedRemovalCount))
+  return {
+    removeCount,
+    remainCount: counts.totalCount - removeCount,
+    observedUsedCount: counts.usedCount,
+    totalCount: counts.totalCount,
+  }
+}
+
 export interface PreviewNeed {
   id: string
   label: string

@@ -33,6 +33,7 @@ import {
   automationReadiness,
   previewEvidenceNeeds,
   previewPermissionCounts,
+  simulationPlanCounts,
 } from "@/lib/resource-risk-preview-summary"
 
 interface PermissionAnalysis {
@@ -2433,7 +2434,15 @@ export function IAMPermissionAnalysisModal({
               const removalCount = selectedPermissionsToRemove.size > 0
                 ? selectedPermissionsToRemove.size
                 : unusedCount
-              const removeExamples = unusedPermissions.slice(0, 3).map(p => p.permission)
+              const planCounts = simulationPlanCounts(previewProblem, removalCount, {
+                usedCount,
+                unusedCount,
+                totalCount: totalPermissions,
+              })
+              const removeExamples = unusedPermissions
+                .filter(p => selectedPermissionsToRemove.size === 0 || selectedPermissionsToRemove.has(p.permission))
+                .slice(0, 3)
+                .map(p => p.permission)
               const keepExamples = usedPermissions.slice(0, 3).map(p => p.permission)
 
               // Why-paused gates — each is a binary check the operator
@@ -2517,7 +2526,9 @@ export function IAMPermissionAnalysisModal({
                   <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Proposed change</div>
                     <div className="text-sm" style={{ color: 'var(--foreground, #111827)' }}>
-                      Remove <strong>{removalCount}</strong> unused permission{removalCount === 1 ? '' : 's'}, keep <strong>{usedCount}</strong> in use.
+                      Remove <strong>{planCounts.removeCount}</strong> permission{planCounts.removeCount === 1 ? '' : 's'}.{' '}
+                      <strong>{planCounts.remainCount}</strong> remain unchanged, including all{' '}
+                      <strong>{planCounts.observedUsedCount}</strong> observed in use.
                     </div>
                     {(removeExamples.length > 0 || keepExamples.length > 0) && (
                       <div className="mt-2 grid grid-cols-2 gap-3 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
@@ -2526,8 +2537,8 @@ export function IAMPermissionAnalysisModal({
                             <div className="font-semibold mb-1">Examples removed</div>
                             <div className="space-y-0.5">
                               {removeExamples.map(p => <div key={`rm-${p}`} className="font-mono truncate">{p}</div>)}
-                              {unusedPermissions.length > removeExamples.length && (
-                                <div>… +{unusedPermissions.length - removeExamples.length} more</div>
+                              {planCounts.removeCount > removeExamples.length && (
+                                <div>… +{planCounts.removeCount - removeExamples.length} more</div>
                               )}
                             </div>
                           </div>
@@ -4057,16 +4068,17 @@ export function IAMPermissionAnalysisModal({
                   decision === 'blocked'       ? 'Safety hold' :
                   'Approval required'
                 const rollback = result.safety?.rollback_available ? 'available' : 'unavailable'
-                // Use the SAME counts the verdict block above shows
-                // (gapData-derived). The simulate-fix response carries
-                // its own removed/kept tallies but they're computed
-                // against a different filter and produce a different
-                // number for the same role -- which makes the customer
-                // ask "wait, is it 18 or 25?". Pin the toast to the
-                // modal's authoritative counts so they always match.
+                const responseRemovalCount = Array.isArray(result.plan?.permissions_to_remove)
+                  ? result.plan.permissions_to_remove.length
+                  : selectedPermissionsToRemove.size
+                const responsePlanCounts = simulationPlanCounts(
+                  result.problem,
+                  responseRemovalCount,
+                  { usedCount, unusedCount, totalCount: totalPermissions },
+                )
                 toast({
                   title: `Simulation complete · ${decisionLabel}`,
-                  description: `Would remove ${unusedCount} of ${totalPermissions} permissions (${unusedPercent}% unused). Rollback: ${rollback}.`,
+                  description: `Plan: remove ${responsePlanCounts.removeCount}; ${responsePlanCounts.remainCount} remain unchanged, including all ${responsePlanCounts.observedUsedCount} observed in use. Rollback: ${rollback}.`,
                   variant: 'default',
                 })
 
