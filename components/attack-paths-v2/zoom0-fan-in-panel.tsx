@@ -7,7 +7,8 @@
  * spotlightPaths from by-crown-jewel convergence. Adaptations for Zoom 0:
  *   - choke tiles when paths > threshold (filter spotlightPaths, no hairball)
  *   - no path URL yet — left list owns Zoom 1 drill-in
- *   - Current Access draws observed path-authority traffic only
+ *   - Current Access draws authoritative path topology and preserves each
+ *     path's observed/configured evidence instead of hiding configured paths
  *   - Lateral runs ATLAS from an operator-selected compute foothold
  *   - Exfiltration explains the accessor-to-effective-exit chain
  */
@@ -144,6 +145,21 @@ export function observedCurrentAccessPaths(
       activity.startsWith("OBSERVED")
     )
   })
+}
+
+/**
+ * The Attack Path / Attack Map canvas is a topology surface, not an activity
+ * classifier. Keep every authoritative, drawable SERVE path on the canvas and
+ * let the path evidence/verdict chrome say whether it is observed, configured,
+ * or unverified. Filtering the canvas to activity_state=OBSERVED made valid
+ * configured paths disappear entirely for jewels whose execution location is
+ * unbound.
+ */
+export function zoom0MapSpotlightPaths(
+  paths: ConvergencePath[],
+  detailsPanel: Zoom0DetailsPanel,
+): ConvergencePath[] {
+  return detailsPanel === "current_access" ? paths : []
 }
 
 /** Server risk_summary only — never synthesize from paths[0]. */
@@ -362,12 +378,18 @@ export function Zoom0FanInPanel({
     enabled: detailsPanel === "lateral",
   })
 
-  /** Current Access is observed behavior only. Configured and simulated
-   * paths belong in Lateral, even when they terminate at the same jewel. */
   const mapSpotlightPaths = useMemo(() => {
-    if (detailsPanel !== "current_access") return []
-    return observedCurrentAccessPaths(spotlightPaths)
+    return zoom0MapSpotlightPaths(spotlightPaths, detailsPanel)
   }, [detailsPanel, spotlightPaths])
+
+  const mapObservedPathCount = useMemo(
+    () => observedCurrentAccessPaths(mapSpotlightPaths).length,
+    [mapSpotlightPaths],
+  )
+  const mapConfiguredPathCount =
+    mapSpotlightPaths.length - mapObservedPathCount
+  const mapIsObservedOnly =
+    mapSpotlightPaths.length > 0 && mapConfiguredPathCount === 0
 
   const mapSpotlightPathId =
     mapSpotlightPaths.some((path) => path.path_id === pinPathId)
@@ -905,9 +927,10 @@ export function Zoom0FanInPanel({
                     systemName={systemName}
                     spotlightPaths={mapSpotlightPaths}
                     spotlightPathId={mapSpotlightPathId}
-                    // Path-authority honesty: Current Access draws only
-                    // observed selected-path DTO hops/edges — no dep-map estate
-                    // merge, no same-VPC IGW invention, no unbound traffic.
+                    // Path-authority honesty: draw only selected SERVE DTO
+                    // hops/edges — no dep-map estate merge, same-VPC IGW
+                    // invention, or inferred topology. Evidence remains on the
+                    // individual path and is never promoted to "observed" here.
                     pathAuthorityOnly
                     pathEligibleTotal={
                       convergenceData.cardinality?.eligible_total ?? null
@@ -919,19 +942,23 @@ export function Zoom0FanInPanel({
                       type: jewel.type,
                     }}
                     titleOverride="Attack Map"
-                    innerTitleOverride={mapSpotlightPathId ? "Pinned path" : "Observed access"}
+                    innerTitleOverride={mapSpotlightPathId ? "Pinned path" : "Authoritative paths"}
                     innerSubtitleOverride={
                       mapSpotlightPathId
                         ? (() => {
                             const card = convergenceData.cardinality
+                            const evidence = mapIsObservedOnly
+                              ? "observed"
+                              : "configured / unverified"
                             return card
-                              ? `Compressed evidence view · investigating 1 · ${zoom0NofMLine(card)}`
-                              : "Compressed evidence view · investigating 1 path"
+                              ? `${evidence} path evidence · investigating 1 · ${zoom0NofMLine(card)}`
+                              : `${evidence} path evidence · investigating 1 path`
                           })()
                         : (() => {
                             const card = convergenceData.cardinality
+                            const evidenceLine = `${mapObservedPathCount} observed · ${mapConfiguredPathCount} configured / unverified`
                             if (card) {
-                              return `Observed business access · ${mapSpotlightPaths.length} paths shown`
+                              return `Authoritative path topology · ${mapSpotlightPaths.length} shown · ${evidenceLine}`
                             }
                             const classes = jewel.class_counts ?? {}
                             const outOfScope =
@@ -939,16 +966,16 @@ export function Zoom0FanInPanel({
                               (classes.service_linked ?? 0) +
                               (classes.external_pivot ?? 0)
                             return outOfScope > 0
-                              ? `Observed business access · ${mapSpotlightPaths.length} shown · ${outOfScope} platform/out-of-scope not shown`
-                              : `Observed business access · ${mapSpotlightPaths.length} paths shown`
+                              ? `Authoritative path topology · ${mapSpotlightPaths.length} shown · ${evidenceLine} · ${outOfScope} platform/out-of-scope not shown`
+                              : `Authoritative path topology · ${mapSpotlightPaths.length} shown · ${evidenceLine}`
                           })()
                     }
                     pathBadgeOverride={
                       mapSpotlightPathId
                         ? `1 pinned → ${jewel.name}`
-                        : `${mapSpotlightPaths.length} observed → ${jewel.name}`
+                        : `${mapSpotlightPaths.length} paths → ${jewel.name}`
                     }
-                    observedMode
+                    observedMode={mapIsObservedOnly}
                     canvasV2
                     jewelEmphasis
                     fullscreenHeaderSlot={renderDetailsTabs("fullscreen")}

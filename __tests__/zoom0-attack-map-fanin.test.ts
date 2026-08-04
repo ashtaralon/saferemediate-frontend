@@ -7,6 +7,7 @@ import {
   zoom0EmptyCanvasMessage,
   zoom0NofMLine,
   zoom0RiskSummary,
+  zoom0MapSpotlightPaths,
   zoom0SpotlightPaths,
 } from "@/components/attack-paths-v2/zoom0-fan-in-panel"
 import type {
@@ -102,6 +103,27 @@ describe("observedCurrentAccessPaths", () => {
       "observed-evidence",
       "observed-activity",
     ])
+  })
+})
+
+describe("zoom0MapSpotlightPaths", () => {
+  it("keeps configured authoritative paths visible on the map", () => {
+    const paths = [
+      path({ path_id: "observed", evidence: "observed" }),
+      path({
+        path_id: "configured",
+        evidence: "configured",
+        feasibility: { activity_state: "UNKNOWN" } as never,
+      }),
+    ]
+
+    expect(
+      zoom0MapSpotlightPaths(paths, "current_access").map(
+        (item) => item.path_id,
+      ),
+    ).toEqual(["observed", "configured"])
+    expect(zoom0MapSpotlightPaths(paths, "lateral")).toEqual([])
+    expect(zoom0MapSpotlightPaths(paths, "exfiltration")).toEqual([])
   })
 })
 
