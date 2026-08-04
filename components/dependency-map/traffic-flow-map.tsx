@@ -3131,6 +3131,7 @@ function AnimatedTrafficLine({
   waypoint = null,
   pathDominance,
   pathAuthorityOnly = false,
+  forceModeledMotion = false,
 }: {
   /** Arrowhead def id owned by the parent map instance. Undefined on the
    *  labels pass, where no marker is drawn. */
@@ -3203,6 +3204,9 @@ function AnimatedTrafficLine({
   routePrecedence?: RoutePrecedence | null;
   /** Zoom0 path-authority: dash configured edges; evidence cues on chips. */
   pathAuthorityOnly?: boolean;
+  /** ATLAS replay transitions are modeled rather than observed traffic, but
+   *  still need directional motion so operators can follow attacker progress. */
+  forceModeledMotion?: boolean;
   /** Canvas v3 Slice B — waypoint that the edge must geometrically
    *  pass through (the resolved egress gateway's center). When set,
    *  the source→target line becomes piecewise: source → waypoint →
@@ -3963,6 +3967,28 @@ function AnimatedTrafficLine({
         </path>
       )}
 
+      {forceModeledMotion && animate && renderMode === 'lines' && (
+        <path
+          d={pathD}
+          fill="none"
+          stroke={planeColor ?? "var(--canvas-danger)"}
+          strokeWidth={4}
+          strokeLinecap="round"
+          strokeDasharray="4 14"
+          opacity={0.9}
+          pointerEvents="none"
+          data-modeled-flow-motion="true"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from="0"
+            to="-36"
+            dur="1.1s"
+            repeatCount="indefinite"
+          />
+        </path>
+      )}
+
       {/* V2-4 (2026-05-31): verb chip at edge midpoint, on-path
        *  edges only. Reads like a sentence when the operator scans
        *  left-to-right: "root assumes alon-demo-ec2-role accesses
@@ -3995,8 +4021,8 @@ function AnimatedTrafficLine({
        *  lateral edges with OBSERVED live traffic keep their green
        *  particles (live evidence must visibly flow). Inferred edges
        *  still never animate. */}
-      {((animate && !isLockedFlow && !edgeData?.inferred && lateralState === 'on-path' && !pathSuppressAnimation) ||
-        (animate && !edgeData?.inferred && (spineDominant || spineLiveObserved))) && (
+      {((animate && !isLockedFlow && (!edgeData?.inferred || forceModeledMotion) && lateralState === 'on-path' && !pathSuppressAnimation) ||
+        (animate && (!edgeData?.inferred || forceModeledMotion) && (spineDominant || spineLiveObserved))) && (
         <>
           {/* Define the path for animation — same shape as the visible
            *  line so the particles follow the curve. */}
@@ -4908,6 +4934,7 @@ export function ConnectionLinesSVG({
               routePrecedence={linePrecedence}
               waypoint={lineWaypoint}
               pathDominance={dominanceForLine(line.sourceId, line.targetId)}
+              forceModeledMotion={!!architecture.modeledMoves?.length && !!line.edge?.inferred}
               pathAuthorityOnly={pathAuthorityOnly}
               renderMode={renderMode}
             />
@@ -5580,7 +5607,7 @@ export function UnifiedArchitectureDiagram({
               and slow backend sync windows it could read LIVE when the
               graph was 30+ minutes stale. The outer TrafficFlowMap
               header already shows "Last sync: HH:MM:SS PM" and
-              PAUSED/AUTO state, which conveys freshness honestly.
+              MANUAL SYNC/AUTO SYNC state, which conveys refresh mode honestly.
               Adding a separate inner "LIVE" badge with no freshness
               gating was misleading visual noise. */}
         </div>
@@ -11299,7 +11326,7 @@ export default function TrafficFlowMap({
           <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/10 rounded-full">
             <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
             <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-              {autoRefresh ? 'LIVE' : 'PAUSED'}
+              {autoRefresh ? 'AUTO SYNC' : 'MANUAL SYNC'}
             </span>
           </div>
 

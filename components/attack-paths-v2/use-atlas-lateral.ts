@@ -100,7 +100,11 @@ export function selectRecommendedFootholdId(
   if (recommended && candidates.some((item) => item.workload_id === recommended)) {
     return recommended
   }
-  return candidates[0]?.workload_id ?? null
+  return (
+    candidates.find((item) => item.atlas_evaluation?.state === "REACHABLE")?.workload_id ??
+    candidates[0]?.workload_id ??
+    null
+  )
 }
 
 export interface UseAtlasLateralResult {
