@@ -133,7 +133,17 @@ describe('the caller retries what a cold backend recovers from', () => {
     // Pre-fix: 3 attempts x 25s + 3.5s = 78.5s, and GUARANTEED to fail on a
     // cold backend. The point is not that this number is small, but that the
     // success path is now reachable well before it.
-    expect(worstCase).toBeLessThanOrEqual(120_000)
+    expect(worstCase).toBeLessThanOrEqual(135_000)
     expect(attempts).toBeLessThanOrEqual(2)
+  })
+
+  it('does not immediately overlap a timed-out analyzer sweep', () => {
+    const m = src.match(/const retryDelaysMs\s*=\s*\[([^\]]*)\]/)
+    expect(m).not.toBeNull()
+    const timeoutDelay = Number((m as RegExpMatchArray)[1].trim())
+    // Production evidence: the upstream completed about 20s after the proxy's
+    // 55s timeout. Waiting lets that request fill the backend cache instead of
+    // starting another eight-analyzer sweep while the first is still running.
+    expect(timeoutDelay).toBeGreaterThanOrEqual(20_000)
   })
 })
