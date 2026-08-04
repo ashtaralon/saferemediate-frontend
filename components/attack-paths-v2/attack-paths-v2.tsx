@@ -59,7 +59,7 @@ import { ExfilViewV3 } from "./exfil-view-v3"
 import { AttackerCanvasV2 } from "./attacker-canvas-v2"
 import TopologyView from "./topology-view"
 import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
-import { LateralMovementPanel } from "./lateral-movement-panel"
+import { AtlasLateralView } from "./atlas-lateral-view"
 import { ZoomMinus1Landing } from "./zoom-minus1-landing"
 import {
   buildModeBarTabs,
@@ -524,7 +524,12 @@ export function AttackPathsV2({
         include_capable: true,
         include_observed: true,
         max_destinations: 50,
-        include_atlas: true,
+        // Exfil starts after compromise of the crown jewel; the ATLAS
+        // ingress simulation belongs to the Lateral tab. Keeping it out of
+        // this first render prevents N path-engine calls from blocking the
+        // destination map.
+        include_atlas: false,
+        include_details: false,
         atlas_max_hops: 6,
       }),
     [systemName, selectedJewelId],
@@ -677,6 +682,7 @@ export function AttackPathsV2({
   useEffect(() => {
     if (viewMode === "convergence") return
     if (viewMode === "attack-path") return
+    if (viewMode === "lateral") return
     if (!selectedJewelId) return
     if (selectedPathId) return
     if (jewelPaths.length === 0) return
@@ -990,7 +996,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -1209,24 +1215,20 @@ export function AttackPathsV2({
                 />
               )
             ) : viewMode === "lateral" ? (
-              // Lateral Movement — light blast-radius view: for each role on
-              // the selected path, the OTHER resources it can also reach. The
-              // panel fetches the per-path facade so it has the graph-view
-              // canvas (real lateral fan-out), then derives the reach groups.
-              !selectedPath || !selectedJewelId ? (
+              // Jewel-scoped attacker model. The operator picks the initial
+              // compromised service; observed access to the jewel is not an
+              // eligibility gate. ATLAS owns chain enumeration and replay.
+              !selectedJewelId || !selectedJewel ? (
                 <EmptyState
-                  title="Select a path"
-                  subtitle="Lateral movement shows where this path's identity can pivot next — sibling resources each role on the path can also touch. Pick a path on the left."
+                  title="Select a crown jewel"
+                  subtitle="Then choose the service where the attacker first lands and simulate every modeled route to the jewel."
                   large
                 />
               ) : (
-                <LateralMovementPanel
+                <AtlasLateralView
                   systemName={systemName}
                   jewelId={selectedJewelId}
-                  pathId={selectedPath.id}
-                  pathFromPage={selectedPath}
-                  jewelFromPage={selectedJewel}
-                  siblingPathsFromPage={jewelPaths}
+                  jewelName={selectedJewel.name}
                 />
               )
             ) : viewMode === "convergence" ? (

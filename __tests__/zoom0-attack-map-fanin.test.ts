@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  observedCurrentAccessPaths,
   resolveZoom0Effective,
   resolveZoom0PinPathId,
   zoom0CardinalityLine,
@@ -15,17 +16,19 @@ import type {
 
 function path(partial: Partial<ConvergencePath> & { path_id: string }): ConvergencePath {
   return {
+    ...partial,
     path_id: partial.path_id,
     hops: partial.hops ?? [],
     confidence: partial.confidence ?? "observed",
     severity: partial.severity ?? "HIGH",
     hop_count: partial.hop_count ?? 3,
     source: partial.source ?? "ec2",
-    workload_arn: partial.workload_arn ?? `arn:aws:ec2:us-east-1:1:instance/${partial.path_id}`,
+    workload_arn:
+      partial.workload_arn ??
+      `arn:aws:ec2:us-east-1:1:instance/${partial.path_id}`,
     identity: partial.identity ?? "role-a",
     identity_name: partial.identity_name ?? "role-a",
-    ...partial,
-  } as ConvergencePath
+  } as unknown as ConvergencePath
 }
 
 function data(paths: ConvergencePath[]): CrownJewelConvergence {
@@ -38,7 +41,7 @@ function data(paths: ConvergencePath[]): CrownJewelConvergence {
     paths_total: paths.length,
     observed_paths: paths.filter((p) => p.confidence === "observed").length,
     choke_points: {},
-  } as CrownJewelConvergence
+  } as unknown as CrownJewelConvergence
 }
 
 describe("zoom0SpotlightPaths", () => {
@@ -76,6 +79,29 @@ describe("zoom0SpotlightPaths", () => {
       "p2",
     )
     expect(out.map((p) => p.path_id)).toEqual(["p2"])
+  })
+})
+
+describe("observedCurrentAccessPaths", () => {
+  it("keeps observed behavior and excludes configured capability", () => {
+    const out = observedCurrentAccessPaths([
+      path({ path_id: "observed-evidence", evidence: "observed" }),
+      path({
+        path_id: "observed-activity",
+        evidence: "configured",
+        feasibility: { activity_state: "OBSERVED_RECENT" } as never,
+      }),
+      path({
+        path_id: "configured-only",
+        evidence: "configured",
+        feasibility: { activity_state: "CONFIGURED_ONLY" } as never,
+      }),
+    ])
+
+    expect(out.map((item) => item.path_id)).toEqual([
+      "observed-evidence",
+      "observed-activity",
+    ])
   })
 })
 
