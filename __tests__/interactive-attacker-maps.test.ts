@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { buildAtlasLateralFlowGraph } from "@/components/attack-paths-v2/atlas-lateral-flow-map"
+import { buildAtlasLateralArchitecture } from "@/components/attack-paths-v2/atlas-lateral-flow-map"
 import type {
   AtlasFootholdCandidate,
   AtlasLateralChain,
@@ -59,24 +59,25 @@ const chain: AtlasLateralChain = {
 }
 
 describe("interactive attacker maps", () => {
-  it("projects exact ATLAS transitions into an interactive semantic flow", () => {
-    const graph = buildAtlasLateralFlowGraph(chain, foothold, "jewel")
-
-    expect(graph.nodes.map((node) => node.id)).toEqual([
-      "foothold",
-      "step-0",
-      "step-1",
+  it("projects exact ATLAS transitions into the canonical TrafficFlowMap contract", () => {
+    const architecture = buildAtlasLateralArchitecture(
+      chain,
+      foothold,
       "jewel",
+      "arn:aws:s3:::jewel",
+      "S3Bucket",
+    )
+
+    expect(architecture.computeServices[0]?.id).toBe("i-123")
+    expect(architecture.iamRoles[0]?.id).toBe("arn:aws:iam::123:role/web-role")
+    expect(architecture.resources.filter((node) => node.type === "api_call").map((node) => node.name)).toEqual([
+      "HAS INSTANCE PROFILE CAPTURE",
+      "S3 GETOBJECT DATA ACCESS",
     ])
-    expect(graph.nodes[1]?.data.kind).toBe("identity")
-    expect(graph.nodes[1]?.data.result).toBe("arn:aws:iam::123:role/web-role")
-    expect(graph.nodes[2]?.data.kind).toBe("data")
-    expect(graph.edges.map((edge) => edge.label)).toEqual([
-      "identity",
-      "data access",
-      undefined,
-    ])
-    expect(graph.edges.every((edge) => edge.animated)).toBe(true)
+    expect(architecture.resources.at(-1)?.isCrownJewel).toBe(true)
+    expect(architecture.edges?.some((edge) => edge.relationship === "HAS_INSTANCE_PROFILE")).toBe(true)
+    expect(architecture.edges?.every((edge) => edge.inferred && edge.observed === false)).toBe(true)
+    expect(architecture.networkPosture?.settled).toBe(false)
   })
 
   it("wires both Zoom0 attacker lenses to interactive map engines", () => {
@@ -89,9 +90,10 @@ describe("interactive attacker maps", () => {
       "utf8",
     )
 
-    expect(lateral).toContain("<ReactFlow")
-    expect(lateral).toContain("<Controls")
-    expect(lateral).toContain("<MiniMap")
+    expect(lateral).toContain("<TrafficFlowMap")
+    expect(lateral).toContain("architectureOverride={architecture}")
+    expect(lateral).toContain('titleOverride="Lateral Movement Map"')
+    expect(zoom0).toContain("overflow-y-auto overscroll-contain")
     expect(zoom0).toContain('data-testid="zoom0-exfil-interactive-map"')
     expect(zoom0).toContain("architectureOverride={exfilArchitecture}")
     expect(zoom0).not.toContain("zoom0-lens-map-unavailable")

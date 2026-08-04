@@ -518,7 +518,13 @@ export function Zoom0FanInPanel({
 
   return (
     <div
-      className={`flex flex-col min-h-0 ${isExpanded ? "flex-1 h-full overflow-hidden" : "h-full"}`}
+      className={`flex flex-col min-h-0 ${
+        isExpanded
+          ? detailsPanel === "current_access"
+            ? "flex-1 h-full overflow-hidden"
+            : "flex-1 h-full overflow-y-auto overscroll-contain"
+          : "h-full"
+      }`}
       data-testid="zoom0-fan-in"
       data-expanded={isExpanded ? "true" : "false"}
     >
@@ -854,8 +860,8 @@ export function Zoom0FanInPanel({
           )
         })()
       ) : detailsPanel === "lateral" ? (
-        <div className="flex flex-1 min-h-0 flex-col">
-          <div className="flex-1 min-h-0 relative px-2 pb-2">
+        <div className={`flex flex-1 flex-col ${isExpanded ? "min-h-[680px]" : "min-h-0"}`}>
+          <div className="flex-1 min-h-[640px] relative px-2 pb-2">
             <AtlasLateralChainCanvas
               selectedFoothold={atlasLateral.selectedFoothold}
               response={atlasLateral.response}
@@ -863,6 +869,9 @@ export function Zoom0FanInPanel({
                 atlasLateral.candidatesLoading || atlasLateral.simulationLoading
               }
               jewelName={jewel.name}
+              jewelId={jewel.canonical_id ?? jewel.id}
+              jewelType={jewel.type}
+              systemName={systemName}
               evaluation={atlasLateral.evaluation}
               recommendedFoothold={atlasLateral.candidates.find((candidate) => candidate.atlas_evaluation?.state === "REACHABLE") ?? null}
               onSelectFoothold={atlasLateral.selectFoothold}
@@ -885,7 +894,7 @@ export function Zoom0FanInPanel({
               No accessor-to-exit path is available to draw. Review the coverage statement above before treating this jewel as contained.
             </div>
           ) : (
-            <div className={`h-full overflow-hidden ${isExpanded ? "min-h-0" : "min-h-[520px]"}`} data-testid="zoom0-exfil-interactive-map">
+            <div className={`h-full overflow-hidden ${isExpanded ? "min-h-[640px]" : "min-h-[520px]"}`} data-testid="zoom0-exfil-interactive-map">
               <TrafficFlowMap
                 key={`zoom0-exfil-${selectedExfilPath.path_id}`}
                 systemName={systemName}
