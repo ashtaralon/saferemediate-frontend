@@ -2013,7 +2013,7 @@ export function IAMPermissionAnalysisModal({
   const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
   const removableCount = unusedCount - protectedPerms.length - warnPerms.length
 
-  const renderSimpleDecisionSummary = () => {
+  const renderChangeStatusCard = () => {
     if (!safetyContext) return null
 
     const readiness = automationReadiness(safetyContext.decision_canonical)
@@ -2023,6 +2023,51 @@ export function IAMPermissionAnalysisModal({
       review: { border: '#fde68a', bg: '#fffbeb', color: '#92400e', Icon: AlertTriangle },
       paused: { border: '#fecaca', bg: '#fef2f2', color: '#991b1b', Icon: Shield },
     }[readiness.tone]
+
+    return (
+      <section
+        className="rounded-xl border-2 p-4"
+        style={{ borderColor: readinessStyle.border, backgroundColor: readinessStyle.bg }}
+        data-testid="change-status-card"
+      >
+        <div className="flex items-start gap-3">
+          <readinessStyle.Icon className="mt-0.5 h-5 w-5 shrink-0" style={{ color: readinessStyle.color }} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: readinessStyle.color }}>
+                Change status
+              </div>
+              <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold" style={{ color: readinessStyle.color, borderColor: readinessStyle.border }}>
+                {readiness.label}
+              </span>
+            </div>
+            <h3 className="mt-1 text-lg font-bold" style={{ color: readinessStyle.color }}>{readiness.headline}</h3>
+
+            {needs.length === 0 ? (
+              <p className="mt-1 text-sm" style={{ color: readinessStyle.color }}>{readiness.detail}</p>
+            ) : (
+              <div className="mt-3 border-t pt-3" style={{ borderColor: readinessStyle.border }}>
+                <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: readinessStyle.color }}>
+                  Why Cyntro is waiting
+                </div>
+                <ul className="mt-2 space-y-2">
+                  {needs.map((need) => (
+                    <li key={need.id} className="text-sm text-slate-800">
+                      <div className="font-semibold">{need.label}</div>
+                      <div className="mt-0.5 text-xs text-slate-600"><span className="font-semibold">Next:</span> {need.action}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  const renderSimpleDecisionSummary = () => {
+    if (!safetyContext) return null
 
     return (
       <div className="space-y-3" data-testid="resource-risk-simple-summary">
@@ -2052,47 +2097,7 @@ export function IAMPermissionAnalysisModal({
           </p>
         </section>
 
-        <section
-          className="rounded-xl border-2 p-4"
-          style={{ borderColor: readinessStyle.border, backgroundColor: readinessStyle.bg }}
-          data-testid="automation-readiness"
-        >
-          <div className="flex items-start gap-3">
-            <readinessStyle.Icon className="mt-0.5 h-6 w-6 shrink-0" style={{ color: readinessStyle.color }} />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: readinessStyle.color }}>
-                  Automation readiness
-                </div>
-                <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold" style={{ color: readinessStyle.color, borderColor: readinessStyle.border }}>
-                  {readiness.label}
-                </span>
-              </div>
-              <h3 className="mt-1 text-lg font-bold" style={{ color: readinessStyle.color }}>{readiness.headline}</h3>
-              <p className="mt-1 text-sm" style={{ color: readinessStyle.color }}>{readiness.detail}</p>
-            </div>
-          </div>
-
-          {needs.length > 0 && (
-            <div className="mt-4 border-t pt-4" style={{ borderColor: readinessStyle.border }}>
-              <div className="text-sm font-bold" style={{ color: readinessStyle.color }}>What Cyntro still needs</div>
-              <ul className="mt-2 space-y-2">
-                {needs.map((need) => (
-                  <li key={need.id} className="flex items-start gap-2 text-sm">
-                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: readinessStyle.color }} />
-                    <div>
-                      <div className="font-semibold text-slate-900">{need.label}</div>
-                      <div className="text-xs text-slate-600">{need.action}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 text-xs font-medium" style={{ color: readinessStyle.color }}>
-                After these checks complete, run Preview again. Cyntro will reassess the change automatically.
-              </p>
-            </div>
-          )}
-        </section>
+        {renderChangeStatusCard()}
       </div>
     )
   }
@@ -2492,8 +2497,7 @@ export function IAMPermissionAnalysisModal({
                       / SUGGEST / INSUFFICIENT_DATA). The cfg.label / cfg.bg
                       typed-verdict styling is no longer applied; the
                       confidence card has its own per-state styling. */}
-                  {renderSafetyVectorDecision()}
-                  {renderConfidenceCard()}
+                  {renderChangeStatusCard()}
                   {false && (
                   <div
                     className="p-4 rounded-xl border-2"
@@ -2546,12 +2550,22 @@ export function IAMPermissionAnalysisModal({
                     </div>
                   </div>
 
-                  {/* Safety scoring breakdown — replaces the old "Why we paused"
-                      + "Evidence used" pair with a single per-dimension panel
-                      that shows EVERY safety dimension the engine evaluated,
-                      its score, and which one drove the verdict. Honest about
-                      what the engine doesn't yet compute (⊘ Phase 2). */}
-                  {renderSafetyBreakdown()}
+                  <details
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    data-testid="simulation-technical-details"
+                  >
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                      Technical details
+                    </summary>
+                    <p className="mb-3 mt-2 text-xs text-slate-600">
+                      Engine metadata and scoring for audit or troubleshooting.
+                    </p>
+                    <div className="space-y-3">
+                      {renderSafetyVectorDecision()}
+                      {renderConfidenceCard()}
+                      {renderSafetyBreakdown()}
+                    </div>
+                  </details>
                 </div>
               )
 
@@ -3367,7 +3381,7 @@ export function IAMPermissionAnalysisModal({
         )}
         {provenance && (
           <div className="px-5 py-2 border-b" style={{ borderColor: "var(--border, #e5e7eb)" }}>
-            <TrustEnvelopeBadge provenance={provenance} />
+            <TrustEnvelopeBadge provenance={provenance} surface="light" />
           </div>
         )}
 

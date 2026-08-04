@@ -126,11 +126,13 @@ function genericizeSourceList(raws: string[]): string[] {
 interface Props {
   provenance: Provenance
   compact?: boolean
+  surface?: "default" | "light"
 }
 
-export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
+export function TrustEnvelopeBadge({ provenance, compact = false, surface = "default" }: Props) {
   const [expanded, setExpanded] = useState(false)
   const c = confidenceStyles(provenance.confidence)
+  const lightSurface = surface === "light"
 
   const freshnessEntries = Object.entries(provenance.freshness)
   const hasMissing = provenance.completeness.missing_sources.length > 0
@@ -144,23 +146,23 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
 
   return (
     <div
-      className={`rounded-lg border ${c.border} ${c.bg} text-xs transition-all`}
+      className={`rounded-lg border text-xs transition-all ${lightSurface ? "border-slate-200 bg-slate-50" : `${c.border} ${c.bg}`}`}
       data-trust-envelope
     >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-white/5"
+        className={`w-full flex items-center gap-3 px-3 py-2 ${lightSurface ? "hover:bg-slate-100" : "hover:bg-white/5"}`}
         aria-expanded={expanded}
       >
         <div className="flex items-center gap-2">
           <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-          <span className={`font-medium ${c.text}`}>
+          <span className={`font-medium ${lightSurface ? "text-slate-900" : c.text}`}>
             Confidence: {provenance.confidence}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 text-slate-400">
+        <div className={`flex items-center gap-1.5 ${lightSurface ? "text-slate-600" : "text-slate-400"}`}>
           <Clock className="w-3 h-3" />
           <span>as of {formatAge(headlineAge)}</span>
         </div>
@@ -168,7 +170,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
         {provenance.evidence_sources.length > 0 && (() => {
           const generic = genericizeSourceList(provenance.evidence_sources)
           return (
-            <div className="flex items-center gap-1.5 text-slate-400 min-w-0">
+            <div className={`flex items-center gap-1.5 min-w-0 ${lightSurface ? "text-slate-600" : "text-slate-400"}`}>
               <Database className="w-3 h-3 flex-shrink-0" />
               <span className="truncate">
                 {generic.slice(0, 3).join(" + ")}
@@ -179,7 +181,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
         })()}
 
         {(hasMissing || hasStale) && (
-          <div className="flex items-center gap-1 text-amber-400">
+          <div className={`flex items-center gap-1 font-medium ${lightSurface ? "text-amber-700" : "text-amber-400"}`}>
             <AlertCircle className="w-3 h-3" />
             <span>{hasMissing ? "partial" : "stale"}</span>
           </div>

@@ -32,8 +32,10 @@ describe('Resource Risk Preview persistence wiring', () => {
   it('keeps the default CISO summary focused on finding, readiness, and exact missing evidence', () => {
     expect(analysisModalSource).toContain('data-testid="resource-risk-simple-summary"')
     expect(analysisModalSource).toContain('Over-permission summary')
-    expect(analysisModalSource).toContain('Automation readiness')
-    expect(analysisModalSource).toContain('What Cyntro still needs')
+    expect(analysisModalSource).toContain('Change status')
+    expect(analysisModalSource).toContain('Why Cyntro is waiting')
+    expect(analysisModalSource).toContain('surface="light"')
+    expect(analysisModalSource).toContain('data-testid="simulation-technical-details"')
     expect(analysisModalSource).toContain('Technical decision details')
     expect(analysisModalSource).toContain('not confidence in the finding')
     expect(analysisModalSource).toContain('if (safetyContext) return null')

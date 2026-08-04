@@ -104,21 +104,21 @@ export function previewEvidenceNeeds(safety: SimulateFixSafety): PreviewNeed[] {
     const count = safety.consumer_count ?? 0
     add("shared-role", {
       label: count > 0
-        ? `A safe plan for all ${count} dependent system${count === 1 ? "" : "s"}`
-        : "A safe plan for every system using this role",
-      action: "Verify each system does not use the permissions proposed for removal, or split the shared role first.",
+        ? `This role is shared by ${count} system${count === 1 ? "" : "s"}`
+        : "This role is shared by multiple systems",
+      action: "Verify those systems do not need the permissions, or split the role.",
     })
   }
   if (reasonCodes.has("CUSTOMER_IN_SHADOW_BOOTSTRAP")) {
     add("shadow-bootstrap", {
-      label: "Completed automation onboarding",
-      action: "Finish the account's safety-onboarding checks before enabling automated changes.",
+      label: "Safety onboarding is not complete",
+      action: "Complete this account's safety checks.",
     })
   }
 
   if (!safety.rollback_available) {
     add("rollback", {
-      label: "A verified rollback path",
+      label: "Rollback is not ready",
       action: "Create and verify a restorable IAM policy snapshot.",
     })
   }
@@ -156,9 +156,9 @@ export function automationReadiness(decision?: DecisionOutcomeCanonical | null):
       }
     case "MANUAL_REVIEW":
       return {
-        label: "Needs review",
-        headline: "Review the evidence before changing this role",
-        detail: "Cyntro found a viable change, but it requires operator review.",
+        label: "Review required",
+        headline: "Cyntro will not change this role yet",
+        detail: "A person must review the proposed change before it can be applied.",
         tone: "review",
       }
     case "BLOCK":
