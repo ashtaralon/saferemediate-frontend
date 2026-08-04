@@ -1,0 +1,54 @@
+{
+  "fixture_source": "Sanitized production response captured 2026-07-30",
+  "role_name": "role-with-inferred-usage",
+  "role_arn": "arn:aws:iam::000000000000:role/role-with-inferred-usage",
+  "observation_days": 365,
+  "summary": {
+    "total_permissions": 6,
+    "used_count": 0,
+    "unused_count": 6,
+    "data_confidence": "OBSERVED",
+    "cloudtrail_events": 1
+  },
+  "used_permissions": [],
+  "unused_permissions": [
+    "s3:DeleteObject",
+    "s3:GetObject",
+    "s3:GetObjectTagging",
+    "s3:HeadObject",
+    "s3:ListBucket",
+    "s3:PutObject"
+  ],
+  "confidence_groups": {
+    "groups": [
+      {
+        "group_id": "management-event",
+        "label": "S3 management event",
+        "action": "verify_first",
+        "permission_count": 1,
+        "auto_remediable": false,
+        "block_reason_code": "inferred_usage",
+        "permissions": [
+          { "permission": "s3:ListBucket", "_action": "verify_first" }
+        ]
+      },
+      {
+        "group_id": "data-event",
+        "label": "S3 data events",
+        "action": "verify_first",
+        "permission_count": 5,
+        "auto_remediable": false,
+        "block_reason_code": "inferred_usage",
+        "permissions": [
+          { "permission": "s3:DeleteObject", "_action": "verify_first" },
+          { "permission": "s3:GetObject", "_action": "verify_first" },
+          { "permission": "s3:GetObjectTagging", "_action": "verify_first" },
+          { "permission": "s3:HeadObject", "_action": "verify_first" },
+          { "permission": "s3:PutObject", "_action": "verify_first" }
+        ]
+      }
+    ]
+  },
+  "is_remediable": true,
+  "remediable_reason": "Ready for least-privilege remediation"
+}

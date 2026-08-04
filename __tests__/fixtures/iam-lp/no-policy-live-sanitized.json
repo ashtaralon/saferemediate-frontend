@@ -1,0 +1,21 @@
+{
+  "fixture_source": "Sanitized production response captured 2026-07-30",
+  "role_name": "role-without-policy-data",
+  "role_arn": "arn:aws:iam::000000000000:role/role-without-policy-data",
+  "observation_days": 365,
+  "summary": {
+    "total_permissions": 0,
+    "used_count": 1,
+    "unused_count": 0,
+    "data_confidence": "LOW",
+    "cloudtrail_events": 336
+  },
+  "used_permissions": [],
+  "unused_permissions": [],
+  "confidence_groups": {
+    "groups": []
+  },
+  "reason": null,
+  "is_remediable": false,
+  "remediable_reason": "No attached policy data"
+}
