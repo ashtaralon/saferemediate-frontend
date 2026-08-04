@@ -4,6 +4,7 @@ import dynamic from "next/dynamic"
 import { useEffect, useMemo, useState } from "react"
 import type {
   NodeType,
+  ModeledMoveNode,
   SecurityCheckpoint,
   ServiceNode,
   SystemArchitecture,
@@ -89,6 +90,7 @@ export function buildAtlasLateralArchitecture(
     },
   ]
   const iamRoles: SecurityCheckpoint[] = []
+  const modeledMoves: ModeledMoveNode[] = []
   const resources: ServiceNode[] = []
   const edges: CanvasEdge[] = []
   const onPathNodeIds = new Set<string>([foothold.workload_id])
@@ -99,13 +101,33 @@ export function buildAtlasLateralArchitecture(
   let previousId = foothold.workload_id
   chain.steps.forEach((step, index) => {
     const stepId = `atlas-step:${chain.chain_id}:${step.step_index}`
-    resources.push({
+    const capturedIdentity = step.state_delta.added_captured_identities[0]
+    const accessibleResource = step.state_delta.added_accessible_resources[0]
+    const compromisedWorkload = step.state_delta.added_compromised_workloads[0]
+    const syntheticNode = step.state_delta.added_synthetic_nodes[0]
+    const outcome =
+      capturedIdentity ??
+      accessibleResource ??
+      compromisedWorkload ??
+      syntheticNode ??
+      "State transition"
+    const category: ModeledMoveNode["category"] = capturedIdentity
+      ? "identity"
+      : accessibleResource
+        ? "data"
+        : "movement"
+    modeledMoves.push({
       id: stepId,
       name: step.primitive_id.replaceAll("_", " "),
       shortName: step.primitive_id.replaceAll("_", " "),
       type: "api_call",
       awsServiceType: "ATLASPrimitive",
       instanceId: `Move ${index + 1}${step.edge_evidence_ids.length ? ` · evidence ${step.edge_evidence_ids.map(short).join(", ")}` : ""}`,
+      moveIndex: index + 1,
+      primitiveId: step.primitive_id,
+      category,
+      outcome,
+      evidenceIds: step.edge_evidence_ids,
     })
     onPathNodeIds.add(stepId)
     edges.push(edge(previousId, "RUNTIME_CALLS", stepId, step.edge_evidence_ids))
@@ -121,7 +143,6 @@ export function buildAtlasLateralArchitecture(
         })
       }
       onPathNodeIds.add(workloadId)
-      edges.push(edge(stepId, "RUNTIME_CALLS", workloadId, step.edge_evidence_ids))
     }
 
     for (const identityId of step.state_delta.added_captured_identities) {
@@ -141,8 +162,6 @@ export function buildAtlasLateralArchitecture(
         })
       }
       onPathNodeIds.add(identityId)
-      edges.push(edge(foothold.workload_id, "HAS_INSTANCE_PROFILE", identityId, step.edge_evidence_ids))
-      edges.push(edge(identityId, "ACTUAL_API_CALL", stepId, step.edge_evidence_ids))
     }
 
     for (const resourceId of step.state_delta.added_accessible_resources) {
@@ -181,6 +200,7 @@ export function buildAtlasLateralArchitecture(
   return {
     computeServices,
     resources,
+    modeledMoves,
     subnets: [],
     securityGroups: [],
     nacls: [],

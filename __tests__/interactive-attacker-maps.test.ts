@@ -70,12 +70,13 @@ describe("interactive attacker maps", () => {
 
     expect(architecture.computeServices[0]?.id).toBe("i-123")
     expect(architecture.iamRoles[0]?.id).toBe("arn:aws:iam::123:role/web-role")
-    expect(architecture.resources.filter((node) => node.type === "api_call").map((node) => node.name)).toEqual([
+    expect(architecture.modeledMoves?.map((node) => node.name)).toEqual([
       "HAS INSTANCE PROFILE CAPTURE",
       "S3 GETOBJECT DATA ACCESS",
     ])
-    expect(architecture.resources.at(-1)?.isCrownJewel).toBe(true)
-    expect(architecture.edges?.some((edge) => edge.relationship === "HAS_INSTANCE_PROFILE")).toBe(true)
+    expect(architecture.resources).toHaveLength(1)
+    expect(architecture.resources[0]?.isCrownJewel).toBe(true)
+    expect(architecture.modeledMoves?.[0]?.outcome).toBe("arn:aws:iam::123:role/web-role")
     expect(architecture.edges?.every((edge) => edge.inferred && edge.observed === false)).toBe(true)
     expect(architecture.networkPosture?.settled).toBe(false)
   })
