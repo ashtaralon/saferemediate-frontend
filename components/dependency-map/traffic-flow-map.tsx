@@ -497,6 +497,8 @@ export interface SystemArchitecture {
     vpc_id: string | null;
     vpc_name: string | null;
     evidence: string;
+    verified_at?: string | null;
+    route_verdict?: string | null;
     workload_count_queried: number;
     workload_count_in_sample: number;
   } | null;

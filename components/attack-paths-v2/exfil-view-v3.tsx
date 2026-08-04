@@ -429,7 +429,7 @@ export interface ExfilPayload {
   error?: string
   message?: string
   system_name?: string
-  jewel?: { id: string; name: string; type: string; classification: string | null }
+  jewel: { id: string; name: string; type: string; classification: string | null }
   accessors: ExfilAccessor[]
   paths?: ExfilPath[]
   egress_lanes: {
@@ -626,7 +626,7 @@ export function ExfilViewV3({
             roleId={detailRole.id}
             roleName={detailRole.name}
             usedCount={detailRole.usedCount}
-            totalCount={detailRole.totalCount}
+            totalCount={detailRole.totalCount ?? 0}
             gapCount={detailRole.gapCount}
             alsoReaches={detailRole.alsoReaches ?? []}
             sharedWith={detailRole.sharedWith ?? []}
