@@ -167,6 +167,9 @@ export function AtlasLateralChainCanvas({
   response,
   loading,
   jewelName,
+  jewelId,
+  jewelType,
+  systemName,
   evaluation,
   recommendedFoothold,
   onSelectFoothold,
@@ -175,6 +178,9 @@ export function AtlasLateralChainCanvas({
   response: AtlasLateralResponse | null
   loading: boolean
   jewelName: string
+  jewelId?: string
+  jewelType?: string
+  systemName?: string
   evaluation: AtlasFootholdEvaluation | null
   recommendedFoothold: AtlasFootholdCandidate | null
   onSelectFoothold: (id: string) => void
@@ -208,5 +214,14 @@ export function AtlasLateralChainCanvas({
       </div>
     )
   }
-  return <AtlasLateralFlowMap selectedFoothold={selectedFoothold} response={response} jewelName={jewelName} />
+  return (
+    <AtlasLateralFlowMap
+      selectedFoothold={selectedFoothold}
+      response={response}
+      jewelName={jewelName}
+      jewelId={jewelId}
+      jewelType={jewelType}
+      systemName={systemName}
+    />
+  )
 }

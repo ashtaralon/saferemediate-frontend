@@ -4979,6 +4979,7 @@ export function UnifiedArchitectureDiagram({
   innerTitleOverride,
   innerSubtitleOverride,
   observedMode = false,
+  suppressSyntheticApiCalls = false,
   onRoleClick,
   jewelEmphasis = false,
   jewelSeverity,
@@ -5022,6 +5023,10 @@ export function UnifiedArchitectureDiagram({
   // When true, suppress the "(simulated)" tag and the Gaps badge —
   // caller is feeding real observed telemetry.
   observedMode?: boolean;
+  /** Hide the legacy development-only byte-derived API-call preview without
+   * claiming the supplied architecture is observed. ATLAS uses this because
+   * its explicit modeled primitive cards are already present on the canvas. */
+  suppressSyntheticApiCalls?: boolean;
   // 2026-05-27 — forwarded from TrafficFlowMap. When set, role chip
   // clicks fire this instead of the existing service-selection
   // modal. Lets the EXFIL view render its own role detail panel.
@@ -6650,7 +6655,7 @@ export function UnifiedArchitectureDiagram({
               and Data Leak Paths set it true → lane was already hidden
               there. This new NODE_ENV gate covers the Topology view
               that previously rendered the synthetic lane in prod. */}
-          {process.env.NODE_ENV !== 'production' && !observedMode && (
+          {process.env.NODE_ENV !== 'production' && !observedMode && !suppressSyntheticApiCalls && (
           <div className="flex flex-col gap-3 items-center">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <Zap className="w-4 h-4 text-lime-600 dark:text-lime-400" />
@@ -8276,6 +8281,7 @@ export default function TrafficFlowMap({
   innerTitleOverride,
   innerSubtitleOverride,
   observedMode = false,
+  suppressSyntheticApiCalls = false,
   defaultShowVPCBoundaries = false,
   defaultShowLaterals,
   headerSlot,
@@ -8373,6 +8379,9 @@ export default function TrafficFlowMap({
   // Gaps badge is suppressed. Use when the architecture carries real
   // observed telemetry (Data Leak Paths case).
   observedMode?: boolean;
+  /** Suppress the development-only byte-derived API-call preview while
+   * preserving modeled/unobserved edge semantics. */
+  suppressSyntheticApiCalls?: boolean;
   // When true, the VPC-boundary overlay is on by default (operator can
   // still toggle it off via the header VPC checkbox). Attacker view
   // turns this on so the VPC container hop on the path is visible
@@ -11431,6 +11440,7 @@ export default function TrafficFlowMap({
             innerTitleOverride={innerTitleOverride}
             innerSubtitleOverride={innerSubtitleOverride}
             observedMode={observedMode}
+            suppressSyntheticApiCalls={suppressSyntheticApiCalls}
             onRoleClick={onRoleClick}
             jewelEmphasis={jewelEmphasis}
             jewelSeverity={jewelSeverity}
