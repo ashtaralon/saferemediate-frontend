@@ -3,6 +3,7 @@
 import { AlertTriangle, Loader2, RefreshCw, ShieldCheck, Waypoints } from "lucide-react"
 import type {
   AtlasFootholdCandidate,
+  AtlasFootholdEvaluation,
   AtlasLateralChain,
   AtlasLateralResponse,
 } from "./use-atlas-lateral"
@@ -16,6 +17,17 @@ const LIKELIHOOD_LABEL = {
 function shortId(value: string): string {
   const tail = value.split(/[/:]/).filter(Boolean).pop() ?? value
   return tail.length > 32 ? `${tail.slice(0, 29)}…` : tail
+}
+
+function evaluationLabel(candidate: AtlasFootholdCandidate): string {
+  const evaluation = candidate.atlas_evaluation
+  if (!evaluation) return "not evaluated"
+  if (evaluation.state === "REACHABLE") {
+    return `${evaluation.chain_count} modeled chain${evaluation.chain_count === 1 ? "" : "s"}`
+  }
+  if (evaluation.state === "DEAD_END") return "modeled dead end"
+  if (evaluation.state === "ERROR") return "evaluation error"
+  return "not evaluated"
 }
 
 function stepResult(chain: AtlasLateralChain, index: number): string | null {
@@ -34,6 +46,7 @@ export function AtlasLateralLensPanel({
   selectedFootholdId,
   selectedFoothold,
   response,
+  evaluation,
   candidatesLoading,
   simulationLoading,
   error,
@@ -44,6 +57,7 @@ export function AtlasLateralLensPanel({
   selectedFootholdId: string | null
   selectedFoothold: AtlasFootholdCandidate | null
   response: AtlasLateralResponse | null
+  evaluation: AtlasFootholdEvaluation | null
   candidatesLoading: boolean
   simulationLoading: boolean
   error: string | null
@@ -95,13 +109,15 @@ export function AtlasLateralLensPanel({
               >
                 {candidates.map((candidate) => (
                   <option key={candidate.workload_id} value={candidate.workload_id}>
-                    {candidate.workload_name} · {candidate.workload_type} · {shortId(candidate.workload_id)} · {LIKELIHOOD_LABEL[candidate.foothold_likelihood]}
+                    {candidate.atlas_rank ? `#${candidate.atlas_rank} · ` : ""}{candidate.workload_name} · {candidate.workload_type} · {shortId(candidate.workload_id)} · {evaluationLabel(candidate)}
                   </option>
                 ))}
               </select>
             </label>
             <span className="text-[10px] text-muted-foreground">
-              {candidates.length} eligible service{candidates.length === 1 ? "" : "s"}
+              {evaluation
+                ? `${evaluation.reachable_count} reachable · ${evaluation.evaluated_count}/${evaluation.eligible_count} evaluated${evaluation.coverage_state === "PARTIAL" ? " · partial" : ""}`
+                : `${candidates.length} eligible service${candidates.length === 1 ? "" : "s"}`}
             </span>
           </div>
 
@@ -112,6 +128,10 @@ export function AtlasLateralLensPanel({
               </span>
               <span className="text-muted-foreground">
                 {selectedFoothold.foothold_reasons.join(" · ").replaceAll("_", " ")}
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className={selectedFoothold.atlas_evaluation?.state === "REACHABLE" ? "font-semibold text-red-700 dark:text-red-300" : "text-muted-foreground"}>
+                {evaluationLabel(selectedFoothold)}
               </span>
               <span className="text-muted-foreground">·</span>
               <span className={selectedFoothold.observed_access_to_jewel ? "text-sky-700 dark:text-sky-300" : "text-amber-800 dark:text-amber-300"}>
@@ -158,11 +178,17 @@ export function AtlasLateralChainCanvas({
   response,
   loading,
   jewelName,
+  evaluation,
+  recommendedFoothold,
+  onSelectFoothold,
 }: {
   selectedFoothold: AtlasFootholdCandidate | null
   response: AtlasLateralResponse | null
   loading: boolean
   jewelName: string
+  evaluation: AtlasFootholdEvaluation | null
+  recommendedFoothold: AtlasFootholdCandidate | null
+  onSelectFoothold: (id: string) => void
 }) {
   if (loading) {
     return <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Simulating attacker movement…</div>
@@ -177,10 +203,19 @@ export function AtlasLateralChainCanvas({
     return (
       <div className="flex h-full min-h-[360px] flex-col items-center justify-center px-6 text-center">
         <ShieldCheck className="h-7 w-7 text-emerald-600" />
-        <p className="mt-2 text-sm font-semibold text-foreground">No modeled chain reached {jewelName}</p>
+        <p className="mt-2 text-sm font-semibold text-foreground">No modeled chain from {selectedFoothold.workload_name} to {jewelName}</p>
         <p className="mt-1 max-w-xl text-[11px] text-muted-foreground">
-          This is scope-bounded—not proof of impossibility. ATLAS explored {response.dead_ends.length} dead ends under catalog {response.catalog_version}.
+          This result applies to the selected foothold—not every service. ATLAS explored {response.dead_ends.length} dead ends under catalog {response.catalog_version}.
         </p>
+        {evaluation && evaluation.reachable_count > 0 && recommendedFoothold ? (
+          <button
+            type="button"
+            onClick={() => onSelectFoothold(recommendedFoothold.workload_id)}
+            className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300"
+          >
+            View reachable chain from {recommendedFoothold.workload_name}
+          </button>
+        ) : null}
       </div>
     )
   }

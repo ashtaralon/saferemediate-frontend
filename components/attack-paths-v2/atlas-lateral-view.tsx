@@ -53,6 +53,7 @@ export function AtlasLateralView({
         selectedFootholdId={atlas.selectedFootholdId}
         selectedFoothold={atlas.selectedFoothold}
         response={atlas.response}
+        evaluation={atlas.evaluation}
         candidatesLoading={atlas.candidatesLoading}
         simulationLoading={atlas.simulationLoading}
         error={atlas.error}
@@ -66,6 +67,9 @@ export function AtlasLateralView({
           response={atlas.response}
           loading={atlas.simulationLoading || atlas.candidatesLoading}
           jewelName={jewelName}
+          evaluation={atlas.evaluation}
+          recommendedFoothold={atlas.candidates.find((candidate) => candidate.atlas_evaluation?.state === "REACHABLE") ?? null}
+          onSelectFoothold={atlas.selectFoothold}
         />
       </div>
     </div>

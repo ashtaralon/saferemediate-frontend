@@ -736,6 +736,7 @@ export function Zoom0FanInPanel({
               selectedFootholdId={atlasLateral.selectedFootholdId}
               selectedFoothold={atlasLateral.selectedFoothold}
               response={atlasLateral.response}
+              evaluation={atlasLateral.evaluation}
               candidatesLoading={atlasLateral.candidatesLoading}
               simulationLoading={atlasLateral.simulationLoading}
               error={atlasLateral.error}
@@ -830,6 +831,9 @@ export function Zoom0FanInPanel({
                 atlasLateral.candidatesLoading || atlasLateral.simulationLoading
               }
               jewelName={jewel.name}
+              evaluation={atlasLateral.evaluation}
+              recommendedFoothold={atlasLateral.candidates.find((candidate) => candidate.atlas_evaluation?.state === "REACHABLE") ?? null}
+              onSelectFoothold={atlasLateral.selectFoothold}
             />
           </div>
         </div>

@@ -5,6 +5,13 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
+const EVALUATION_PARAMS = [
+  "evaluate",
+  "evaluation_limit",
+  "evaluation_budget_ms",
+  "max_hops",
+  "max_cost",
+] as const
 
 export async function GET(
   req: NextRequest,
@@ -20,9 +27,12 @@ export async function GET(
   }
 
   try {
-    const url =
-      `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds` +
-      `?jewel_ref=${encodeURIComponent(jewelRef)}`
+    const backendParams = new URLSearchParams({ jewel_ref: jewelRef })
+    for (const name of EVALUATION_PARAMS) {
+      const value = req.nextUrl.searchParams.get(name)
+      if (value !== null) backendParams.set(name, value)
+    }
+    const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds?${backendParams}`
     const response = await fetch(url, {
       cache: "no-store",
       headers: { Accept: "application/json" },
