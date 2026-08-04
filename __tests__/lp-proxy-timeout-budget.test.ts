@@ -146,4 +146,13 @@ describe('the caller retries what a cold backend recovers from', () => {
     // starting another eight-analyzer sweep while the first is still running.
     expect(timeoutDelay).toBeGreaterThanOrEqual(20_000)
   })
+
+  it('consumes the completed cache after a forced refresh times out', () => {
+    // Repeating force_refresh=true would bypass the result built by the first
+    // request and start another cold analysis. The retry intentionally uses
+    // baseUrl only after a 504; a fast 503 retry keeps the requested refresh.
+    expect(src).toContain(
+      'attempt > 0 && previousStatus === 504 ? baseUrl : url',
+    )
+  })
 })

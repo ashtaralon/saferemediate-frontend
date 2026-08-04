@@ -772,7 +772,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // empty response over a fresh error response.
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const url = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`
+      const baseUrl = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365`
+      const url = `${baseUrl}${refreshParam}`
       // One retry only. A 503 is a fast boot failure, so retry after 1s. A 504
       // means our 55s proxy budget elapsed while the backend request may still
       // be completing server-side. Wait before retrying so that request can
@@ -780,9 +781,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // sweep and was observed to amplify the cold-load timeout.
       const retryDelaysMs = [20000]
       let response: Response | null = null
+      let previousStatus: number | null = null
       let lastDetail = 'unknown'
       for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
-        response = await fetch(url, { cache: 'no-store', signal })
+        // A timed-out forced refresh may still finish server-side and populate
+        // the baseline cache. Its retry must consume that result, not repeat
+        // force_refresh=true and deliberately launch another fresh analysis.
+        const requestUrl: string = attempt > 0 && previousStatus === 504 ? baseUrl : url
+        response = await fetch(requestUrl, { cache: 'no-store', signal })
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
         lastDetail = body.detail || body.error || `HTTP ${response.status}`
@@ -798,6 +804,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         // loaded it. The loop should not need a human to do what it was already
         // telling the human to do.
         const retryable = response.status === 503 || response.status === 504
+        previousStatus = response.status
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)
         }
